@@ -52,22 +52,23 @@ The current adapter:
 - requires a ready `HandoffImportPlanRun`;
 - imports exactly one selected planned measurement per operation;
 - requires an approved `HandoffDurableImportRequest`;
-- requires caller-declared destination paths for the new durable record;
+- requires a caller-declared destination `record_id` for the new durable record;
 - maps the package measurement to `MeasurementRecordImportSource` with
   `source_kind="handoff_package"`;
-- builds `MeasurementRecordDurableImportRequest` with creation source kind
-  `handoff`;
+- delegates canonical record-local path construction to the Measurement Records
+  by-id import facade with creation source kind `handoff`;
 - delegates creation, primary-data writing, primary-table summary,
   finalization, read-model
   write, no-overwrite handling, and rollback classification to
   `scopecat.measurement_records`;
 - returns a local handoff durable-import receipt that records package,
-  selected measurement, destination, and durable-import classification.
+  selected measurement, destination record id, and durable-import
+  classification.
 
 Durable-import receipts include compact local state for successful import,
 blocked import-plan handoff, durable source-preflight blocks, rollback, and
 partial-commit cases. They expose `block_reason` without authorizing retry,
-reusing stale plans, or bypassing destination/package rechecks.
+reusing stale plans, or bypassing destination-record/package rechecks.
 
 Public durable-import API functions promote route contract failures to
 `HandoffContractError`, which remains `ValueError`-compatible. The
@@ -77,8 +78,8 @@ public error schema.
 
 ADR-0013 keeps multi-measurement package plans as review and coordination
 evidence only. They do not authorize one durable batch mutation until a
-separate destination, conflict, partial-success, rollback, and retry contract
-exists.
+separate destination-record, conflict, partial-success, rollback, and retry
+contract exists.
 
 ADR-0017 keeps handoff durable import new-record-only. The adapter does not
 import into existing records, attach to pre-created shells, replace manifests,
@@ -124,8 +125,8 @@ Durable Measurement Records storage is owned by
 adaptation and local review continuity only.
 
 Local handoff durable-import receipts are local review surfaces. They are not
-portable handoff artifacts, retry approval, persistent GUI state, destination
-freshness proof, or storage mutation authority.
+portable handoff artifacts, retry approval, persistent GUI state,
+destination-record freshness proof, or storage mutation authority.
 
 The durable-import adapter may consume declared digest integrity from the
 reviewed package path, but it does not verify external authenticity, trusted
@@ -147,7 +148,7 @@ Expected classifications include:
 | Classification | Meaning |
 | --- | --- |
 | `imported_new_record` | Creation, primary-data write, primary-table summary, finalization, and read-model write completed. |
-| `blocked_before_import` | Approval, source facts, destination facts, or preflight validation blocked before storage mutation. |
+| `blocked_before_import` | Approval, source facts, destination record, or preflight validation blocked before storage mutation. |
 | `rolled_back_after_import_failure` | Mutation started, then a synchronous failure occurred before completion and best-effort cleanup ran. |
 | `import_failed_after_partial_commit` | A later synchronous failure occurred after a step that the wrapper cannot safely undo. |
 

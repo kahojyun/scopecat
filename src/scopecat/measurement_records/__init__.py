@@ -5,11 +5,28 @@ Route-local helpers remain available from their owning submodules without
 becoming package-root contracts.
 """
 
+from scopecat.measurement_records.adoption import (
+    MeasurementRecordAdoptionLocator,
+    MeasurementRecordAdoptionRequest,
+    MeasurementRecordAdoptionRun,
+    MeasurementRecordHandle,
+    adopt_existing_run_from_request,
+)
 from scopecat.measurement_records.durable_import import (
-    MeasurementRecordDurableImportRequest,
-    MeasurementRecordDurableImportRun,
+    MeasurementRecordImportByIdRequest,
+    MeasurementRecordImportByIdRun,
     MeasurementRecordImportSource,
-    import_measurement_record_from_request,
+    import_measurement_record_from_source_by_id,
+)
+from scopecat.measurement_records.open_record import (
+    MeasurementRecordLocatorView,
+    MeasurementRecordPrimaryDataView,
+    MeasurementRecordReferenceSetView,
+    MeasurementRecordReferenceView,
+    MeasurementRecordSourceView,
+    MeasurementRecordSummary,
+    MeasurementRecordView,
+    open_measurement_record,
 )
 from scopecat.measurement_records.recorded_reference import (
     MeasurementRecordReference,
@@ -19,12 +36,25 @@ from scopecat.measurement_records.recorded_reference import (
 )
 
 __all__ = [
-    "MeasurementRecordDurableImportRequest",
-    "MeasurementRecordDurableImportRun",
+    "MeasurementRecordAdoptionLocator",
+    "MeasurementRecordAdoptionRequest",
+    "MeasurementRecordAdoptionRun",
+    "MeasurementRecordHandle",
+    "MeasurementRecordImportByIdRequest",
+    "MeasurementRecordImportByIdRun",
     "MeasurementRecordImportSource",
+    "MeasurementRecordLocatorView",
+    "MeasurementRecordPrimaryDataView",
     "MeasurementRecordReference",
     "MeasurementRecordReferenceRequest",
     "MeasurementRecordReferenceRun",
-    "import_measurement_record_from_request",
+    "MeasurementRecordReferenceSetView",
+    "MeasurementRecordReferenceView",
+    "MeasurementRecordSourceView",
+    "MeasurementRecordSummary",
+    "MeasurementRecordView",
+    "adopt_existing_run_from_request",
+    "import_measurement_record_from_source_by_id",
+    "open_measurement_record",
     "record_measurement_record_references_from_request",
 ]

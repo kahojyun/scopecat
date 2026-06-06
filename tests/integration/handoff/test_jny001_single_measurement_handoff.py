@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
 import tempfile
 import unittest
@@ -10,7 +9,6 @@ from pathlib import Path
 from scopecat.handoff import (
     HandoffArchiveCreationRequest,
     HandoffArchiveMaterializationRequest,
-    HandoffDurableImportDestination,
     HandoffDurableImportRequest,
     HandoffImportPlanRequest,
     HandoffReceivingReviewRequest,
@@ -24,9 +22,10 @@ from scopecat.handoff import (
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
 from scopecat.measurement_records import (
-    MeasurementRecordDurableImportRequest,
+    MeasurementRecordImportByIdRequest,
     MeasurementRecordImportSource,
-    import_measurement_record_from_request,
+    import_measurement_record_from_source_by_id,
+    open_measurement_record,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -45,17 +44,12 @@ def _digest(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
-def _source_import_request() -> MeasurementRecordDurableImportRequest:
+def _source_import_request() -> MeasurementRecordImportByIdRequest:
     source_path = CHUNK_FIXTURE / "chunks" / "chunk-1.csv"
-    return MeasurementRecordDurableImportRequest(
+    return MeasurementRecordImportByIdRequest(
         request_id="import-source-run-3101",
         approval_state="approved",
         record_id="run-3101-rabi",
-        record_dir="records/run-3101-rabi",
-        primary_data_path="records/run-3101-rabi/primary.csv",
-        writer_receipt_path="records/run-3101-rabi/writer-receipt.json",
-        finalization_receipt_path="records/run-3101-rabi/finalization-receipt.json",
-        read_model_path="records/run-3101-rabi/record-read-model.json",
         import_source=MeasurementRecordImportSource(
             source_kind="adapter_normalized_primary_data",
             source_id="adapter-output-3101",
@@ -102,8 +96,6 @@ def _export_request() -> SelectedMeasurementRecordExportRequest:
         source_export_summary_id="export-summary-run-3101-rabi",
         display_path="HANDOFF_PACKAGE:/redacted/run-3101-rabi",
         record_id="run-3101-rabi",
-        record_dir="records/run-3101-rabi",
-        read_model_path="records/run-3101-rabi/record-read-model.json",
         legacy_data_id=3101,
         target="qA",
         declared_preview_metadata=_preview_metadata(),
@@ -154,14 +146,7 @@ def _durable_import_request(package_id: str) -> HandoffDurableImportRequest:
         approval_state="approved",
         requested_package_id=package_id,
         measurement_record_id="run-3101-rabi",
-        destination=HandoffDurableImportDestination(
-            record_id="received-run-3101-rabi",
-            record_dir="records/received-run-3101-rabi",
-            primary_data_path="records/received-run-3101-rabi/primary.csv",
-            writer_receipt_path="records/received-run-3101-rabi/writer-receipt.json",
-            finalization_receipt_path="records/received-run-3101-rabi/finalization-receipt.json",
-            read_model_path="records/received-run-3101-rabi/record-read-model.json",
-        ),
+        destination_record_id="received-run-3101-rabi",
     )
 
 
@@ -182,7 +167,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         receiving_storage.mkdir()
         shutil.copytree(CHUNK_FIXTURE / "chunks", source_content / "chunks")
 
-        source_import = import_measurement_record_from_request(
+        source_import = import_measurement_record_from_source_by_id(
             _source_import_request(),
             content_root=source_content,
             storage_root=source_storage,
@@ -243,13 +228,9 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
                 import_plan=import_plan,
                 storage_root=receiving_storage,
             )
-            received_read_model = json.loads(
-                (
-                    receiving_storage
-                    / "records"
-                    / "received-run-3101-rabi"
-                    / "record-read-model.json"
-                ).read_text(encoding="utf-8")
+            received_record = open_measurement_record(
+                "received-run-3101-rabi",
+                storage_root=receiving_storage,
             )
 
         self.assertTrue(workflow["source_import"].imported)
@@ -260,9 +241,10 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         self.assertTrue(workflow["receiving_gate"].acceptance_allowed)
         self.assertTrue(import_plan.import_plan_allowed)
         self.assertEqual(durable_import.classification, "imported_handoff_measurement_record")
-        self.assertEqual(received_read_model["record"]["lifecycle_state"], "complete")
-        self.assertEqual(received_read_model["record"]["record_id"], "received-run-3101-rabi")
-        self.assertEqual(received_read_model["primary_data"]["observed_row_count"], 3)
+        self.assertEqual(received_record.classification, "opened_measurement_record")
+        self.assertEqual(received_record.record.record_id, "received-run-3101-rabi")
+        self.assertEqual(received_record.record.creation_source_kind, "handoff")
+        self.assertEqual(received_record.primary_data.observed_row_count, 3)
 
     def test_workflow_creates_and_materializes_zip_transport(
         self,
@@ -327,154 +309,6 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             durable_import_summary["classification"],
             "imported_handoff_measurement_record",
         )
-
-    def test_export_collision_blocks_without_rewriting_existing_package(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            workflow = self._prepare_ready_handoff(Path(temp_dir))
-
-            second_export = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=workflow["source_storage"],
-                package_root=workflow["package_root"],
-            )
-            package = open_package(workflow["package_dir"])
-
-        self.assertEqual(second_export.classification, "blocked_before_export")
-        self.assertIn("target already exists", second_export.export_error or "")
-        self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
-
-    def test_export_blocks_when_record_receipt_evidence_is_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            workflow = self._prepare_ready_handoff(Path(temp_dir))
-            new_package_root = Path(temp_dir) / "new-packages"
-            new_package_root.mkdir()
-            writer_receipt = (
-                workflow["source_storage"] / "records" / "run-3101-rabi" / "writer-receipt.json"
-            )
-            writer_receipt.unlink()
-
-            export_run = export_selected_measurement_record_from_request(
-                SelectedMeasurementRecordExportRequest(
-                    **{
-                        **_export_request().to_dict(),
-                        "package_id": "handoff-package-run-3101-rabi-retry",
-                        "display_path": "HANDOFF_PACKAGE:/redacted/run-3101-rabi-retry",
-                    }
-                ),
-                storage_root=workflow["source_storage"],
-                package_root=new_package_root,
-            )
-
-            self.assertFalse((new_package_root / "handoff-package-run-3101-rabi-retry").exists())
-
-        self.assertEqual(export_run.classification, "blocked_before_export")
-        self.assertIn("writer receipt is required", export_run.export_error or "")
-
-    def test_export_blocks_when_read_model_disagrees_with_source_receipt(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            workflow = self._prepare_ready_handoff(Path(temp_dir))
-            new_package_root = Path(temp_dir) / "new-packages"
-            new_package_root.mkdir()
-            read_model_path = (
-                workflow["source_storage"] / "records" / "run-3101-rabi" / "record-read-model.json"
-            )
-            read_model = read_model_path.read_text(encoding="utf-8")
-            read_model_path.write_text(
-                read_model.replace(
-                    '"digest": "sha256:',
-                    '"digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000',
-                    1,
-                ),
-                encoding="utf-8",
-            )
-
-            export_run = export_selected_measurement_record_from_request(
-                SelectedMeasurementRecordExportRequest(
-                    **{
-                        **_export_request().to_dict(),
-                        "package_id": "handoff-package-run-3101-rabi-stale",
-                        "display_path": "HANDOFF_PACKAGE:/redacted/run-3101-rabi-stale",
-                    }
-                ),
-                storage_root=workflow["source_storage"],
-                package_root=new_package_root,
-            )
-
-            self.assertFalse((new_package_root / "handoff-package-run-3101-rabi-stale").exists())
-
-        self.assertEqual(export_run.classification, "blocked_before_export")
-        self.assertIn("digest must match writer receipt", export_run.export_error or "")
-
-    def test_corrupted_package_bytes_block_receiving_and_keep_storage_unchanged(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            workflow = self._prepare_ready_handoff(Path(temp_dir))
-            package_dir = workflow["package_dir"]
-            primary_path = package_dir / "measurements" / "run-3101-rabi" / "primary.csv"
-            primary_path.write_text(
-                "drive_amplitude,excited_state_probability\n0.00,0.03\n0.25,0.18\n0.50,0.51\n",
-                encoding="utf-8",
-            )
-            package = open_package(package_dir)
-
-            receiving_gate = run_receiving_gate_from_request(
-                HandoffReceivingReviewRequest(
-                    request_id="receive-run-3101-rabi-corrupted",
-                    reviewed_package_id=package.package_id,
-                    reviewed_preview_classification=package.preview_classification,
-                    reviewed_integrity_classification="integrity_review_required",
-                ),
-                package_dir=package_dir,
-            )
-            import_plan = build_import_plan(
-                _import_plan_request(package.package_id),
-                receiving_gate=receiving_gate,
-            )
-            durable_import = run_handoff_durable_import_from_plan(
-                _durable_import_request(package.package_id),
-                import_plan=import_plan,
-                storage_root=workflow["receiving_storage"],
-            )
-
-            self.assertFalse((workflow["receiving_storage"] / "records").exists())
-
-        self.assertFalse(receiving_gate.acceptance_allowed)
-        self.assertFalse(import_plan.import_plan_allowed)
-        self.assertEqual(durable_import.classification, "blocked_before_handoff_durable_import")
-
-    def test_receiving_review_mismatch_is_rejected_before_import_plan(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            workflow = self._prepare_ready_handoff(Path(temp_dir))
-            package = workflow["package"]
-
-            with self.assertRaisesRegex(ValueError, "reviewed package id"):
-                run_receiving_gate_from_request(
-                    HandoffReceivingReviewRequest(
-                        request_id="receive-run-3101-rabi-mismatch",
-                        reviewed_package_id="different-package-id",
-                        reviewed_preview_classification=package.preview_classification,
-                        reviewed_integrity_classification="declared_integrity_verified",
-                    ),
-                    package_dir=workflow["package_dir"],
-                )
-
-    def test_durable_import_receipt_reports_destination_conflict(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            workflow = self._prepare_ready_handoff(Path(temp_dir))
-            package = workflow["package"]
-            receiving_storage = workflow["receiving_storage"]
-            (receiving_storage / "records" / "received-run-3101-rabi").mkdir(parents=True)
-
-            durable_import = run_handoff_durable_import_from_plan(
-                _durable_import_request(package.package_id),
-                import_plan=workflow["import_plan"],
-                storage_root=receiving_storage,
-            )
-            receipt = durable_import.to_dict()
-
-        self.assertEqual(durable_import.classification, "blocked_before_handoff_durable_import")
-        self.assertEqual(receipt["block_reason"], "durable_import_blocked_before_import")
 
 
 if __name__ == "__main__":

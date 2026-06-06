@@ -74,9 +74,9 @@ storage mutation.
 
 Durable import is a separate boundary. When a reviewed handoff package feeds
 durable storage, this module adapts exactly one ready import-plan measurement
-into `MeasurementRecordImportSource` and
-`MeasurementRecordDurableImportRequest`, then delegates mutation to the
-Measurement Records durable import operation. The adapter does not treat the
+into `MeasurementRecordImportSource`, names the destination `record_id`, and
+delegates canonical path construction plus mutation to the Measurement Records
+by-id import facade. The adapter does not treat the
 import plan as sufficient write authority for bytes on disk; the delegated
 operation reopens the package member and preflights digest, byte size,
 normalized CSV shape, and row count before any storage mutation.
@@ -101,14 +101,15 @@ The generated package directory and `package-manifest.json` are portable
 handoff artifacts. Package contents must use package-relative paths and
 validated managed references at the package/export boundary.
 
-Selected stored-record export is a route-local adapter over the existing
-Measurement Records read model and record-local receipts. It reads one complete
-stored record, requires explicit declared table-preview metadata, delegates
-package writing to the package writer, may package explicitly declared record-local linked-context
-payloads under `context/`, and does not mutate Measurement Records storage,
-repair source records, infer schema, create archives, or accept/import
-packages. The preflight composition may delegate read-model refresh, but export
-itself remains source-storage-read-only under ADR-0017.
+Selected stored-record export is a route-local adapter over the Measurement
+Records-owned packageable handoff projection. It selects records by `record_id`,
+requires explicit declared table-preview metadata, delegates record
+exportability, read-model freshness, and record/receipt continuity checks to
+Measurement Records, then delegates package writing to the package writer. It
+may package explicitly declared record-local linked-context payloads under
+`context/`, but it does not parse record-local storage artifacts, mutate
+Measurement Records storage, infer schema, create archives, or accept/import
+packages.
 Recorded linked references remain review references; they are not file-copy
 authority by themselves.
 
@@ -127,20 +128,14 @@ durable-import adapter receipts are local review surfaces unless a later slice
 explicitly promotes one as a portable/export artifact.
 
 Selected-record export receipts keep compact `block_reason` state for blocked
-local runs. The lower-level export path checks that the selected read model
-matches the request, record-local creation manifest, and writer receipt before
-writing a package, but it does not project, refresh, repair, or mutate
-Measurement Records storage.
+local runs and include the Measurement Records preparation summary when record
+projection succeeds or blocks. Handoff consumes the resulting typed primary
+data and linked-context facts; it does not reopen Measurement Record manifests,
+receipts, or read models.
 
-`export_selected_measurement_record_with_preflight_refresh()` composes that
-lower-level export check with the Measurement Records read-model refresh route.
-It first runs selected export as a freshness preflight; when the read model is
-missing, invalid, or stale, it delegates an approved read-model refresh and then
-retries export if refresh succeeds. The composed receipt records the initial
-export, refresh receipt or refresh contract error, final export, and compact
-`block_reason` state. This is the product-shaped path for a user-transparent
-cache refresh; it still does not repair primary data, replace record manifests,
-mutate writer/finalization receipts, or import/accept packages.
+`export_selected_measurement_record_from_request()` is the selected-record
+export entrypoint. Read-model refresh happens inside Measurement Records
+preparation rather than through handoff-owned storage inspection.
 
 Receiving gate and import-plan receipts keep compact `block_reason` state for
 blocked local runs. They do not approve retry, accept packages, or mutate

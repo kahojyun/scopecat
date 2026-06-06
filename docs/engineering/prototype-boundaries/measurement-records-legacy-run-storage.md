@@ -29,6 +29,12 @@ and read model into the same legacy record. Earlier workflow-facade code that
 composed these primitives for a scenario has been retired from the active
 package surface. The active boundary remains the lower-level storage
 operations until a named JNY-007 route earns a user-facing orchestration shape.
+JNY-007 should be read as one recording workflow with route variants:
+adopt-first recording for source identity before reviewed primary data is
+ready, and import-ready recording when reviewed normalized primary data can
+create the record directly. The direct durable import route is a separate
+validation segment because its API and failure behavior differ, not because it
+is a separate product journey.
 These operations do not open legacy files, parse old formats, execute old code,
 observe source payloads, import referenced payloads, repair references, or
 decide scientific validity.

@@ -26,17 +26,30 @@ and
 The package root exposes current caller-facing Measurement Records
 capabilities:
 
-- `import_measurement_record_from_request(...)` for importing reviewed
-  normalized primary data into durable local storage;
+- `adopt_existing_run_from_request(...)` for JNY-007 basic UX: adopt an
+  already-produced measurement through an adopt-first or import-ready route
+  while hiding canonical record-local path construction;
+- `open_measurement_record(...)` for opening one canonical local record by
+  `record_id` and reviewing user-shaped record, source-locator, openable
+  primary-data, and reference-set summaries;
+- `import_measurement_record_from_source_by_id(...)` for importing reviewed
+  normalized primary data into canonical `records/{record_id}` storage without
+  caller-supplied record-local paths;
 - `record_measurement_record_references_from_request(...)` for declared
   context links attached to a Measurement Record.
 
 These package-level APIs use typed request/value objects. Slice-level
 operations such as legacy-run recording, converted-primary attach,
-normalized-table summary, and stored-primary reads remain
+normalized-table summary, handoff preparation projection, path-explicit durable
+import, and stored-primary reads remain
 available only from their owning internal modules for route-local composition,
 tests, and future cleanup.
 Do not treat those submodule entrypoints as package-level contracts.
+The adoption facade and open-by-id view are workflow UX helpers for the current
+JNY-007 engineering prototype. The handoff preparation submodule is the current
+JNY-001 projection boundary from local record storage to packageable metadata
+and payload facts. These surfaces do not publish a final storage schema,
+catalog/index contract, legacy parser, or JNY-008 browsing surface.
 
 ## Artifact Boundaries
 

@@ -2,8 +2,9 @@
 
 Tests are organized by behavior stage. Prototype tests live under
 `tests/prototypes/<owner>/`. Integration tests live under
-`tests/integration/<workflow>/`. The flat root is reserved for narrow
-repository-level tests such as scan/data-shape discovery checks.
+`tests/integration/<workflow>/`. Discovery tests live under
+`tests/discovery/<topic>/`. The flat root is reserved only for narrow
+repository-level checks that do not fit a stage-specific owner.
 
 ## Discovery Validation
 
@@ -11,6 +12,13 @@ Discovery tests are now exceptional and should answer a bounded evidence
 question that is not yet owned by a live implementation owner. They must not
 import candidate packages or make broad expected-output parity an accepted
 boundary.
+
+Current layout:
+
+```text
+tests/discovery/scan_data_shapes/
+tests/fixtures/discovery/scan_data_shapes/
+```
 
 Recommended names should describe the evidence question directly, for example
 `test_scan_data_shape_generator.py`.

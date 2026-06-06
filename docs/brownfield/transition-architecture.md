@@ -203,9 +203,12 @@ Current journey:
 
 Transition journey:
 
-- create a local Measurement Record shell;
-- record declared source identity and source posture;
-- import or attach reviewed normalized primary data;
+- record an already-produced measurement through one of two routes;
+- adopt-first route: create a local Measurement Record shell, record declared
+  source identity and source posture, then optionally attach reviewed
+  normalized primary data later to the same record;
+- import-ready route: create the local Measurement Record and write reviewed
+  normalized primary data in one durable import step;
 - record operator- or adapter-declared context references as receipts.
 
 Target journey:
@@ -215,15 +218,17 @@ Target journey:
 - keep source execution, raw historical file semantics, adapter discovery, and
   scientific validity outside Scopecat unless narrower slices earn that
   authority;
-- expose the created record through local storage/catalog visibility for
+- make the created record visible through local storage/catalog behavior for
   downstream workflows.
 
 Ownership posture:
 
-- local legacy run recording: `Record` and `Bridge`;
-- normalized primary-data durable import: `Bridge` and `Partial owner`;
+- adopt-first legacy or external run recording: `Record` and `Bridge`;
+- import-ready normalized primary-data durable import: `Bridge` and
+  `Partial owner`;
 - recorded references: `Record`;
-- local storage/catalog visibility: `Record`.
+- local storage/catalog visibility: `Record` success criterion for both
+  recording routes.
 
 Deferred authority:
 

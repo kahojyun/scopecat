@@ -11,7 +11,6 @@ from scopecat.handoff.archive_materialization import (
     materialize_handoff_archive_package_from_request,
 )
 from scopecat.handoff.durable_import import (
-    HandoffDurableImportDestination,
     HandoffDurableImportRequest,
     run_handoff_durable_import_from_plan,
 )
@@ -30,14 +29,12 @@ from scopecat.handoff.selected_record_export import (
     SelectedMeasurementRecordExportRequest,
     export_selected_measurement_record_batch_from_request,
     export_selected_measurement_record_from_request,
-    export_selected_measurement_record_with_preflight_refresh,
 )
 
 __all__ = [
     "HandoffArchiveCreationRequest",
     "HandoffArchiveMaterializationRequest",
     "HandoffContractError",
-    "HandoffDurableImportDestination",
     "HandoffDurableImportRequest",
     "HandoffError",
     "HandoffImportPlanRequest",
@@ -50,7 +47,6 @@ __all__ = [
     "create_handoff_archive_package_from_request",
     "export_selected_measurement_record_batch_from_request",
     "export_selected_measurement_record_from_request",
-    "export_selected_measurement_record_with_preflight_refresh",
     "materialize_handoff_archive_package_from_request",
     "observe_package_integrity",
     "open_package",
