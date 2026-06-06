@@ -167,19 +167,22 @@ class MeasurementRecordAdoptionReadApiTest(unittest.TestCase):
         self.assertFalse(primary_dir_exists)
         self.assertFalse(receipts_dir_exists)
         self.assertEqual(opened.classification, "opened_measurement_record")
-        self.assertEqual(opened.creation_source_kind, "legacy_system")
-        self.assertEqual(len(opened.declared_locators), 2)
+        self.assertEqual(opened.record.creation_source_kind, "legacy_system")
+        self.assertEqual(opened.record.label, "Generic Rabi Run 00042")
+        self.assertEqual(opened.source.legacy_system_id, "legacy-workstation")
+        self.assertEqual(opened.source.legacy_run_id, "legacy-run-00042")
+        self.assertEqual(len(opened.source.locators), 2)
         self.assertEqual(
-            [locator["role"] for locator in opened.declared_locators],
+            [locator.role for locator in opened.source.locators],
             ["primary_data", "notebook"],
         )
-        self.assertEqual(opened.primary_data["observed_row_count"], 3)
-        self.assertEqual(len(opened.reference_receipts), 1)
         self.assertEqual(
-            [
-                reference["reference_value"]
-                for reference in opened.reference_receipts[0]["references"]
-            ],
+            opened.primary_data.openable_path, "records/generic-rabi-run-00042/primary.csv"
+        )
+        self.assertEqual(opened.primary_data.observed_row_count, 3)
+        self.assertEqual(len(opened.reference_sets), 1)
+        self.assertEqual(
+            [reference.reference_value for reference in opened.reference_sets[0].references],
             [
                 "legacy-workspace/config/active-parameters.json",
                 "legacy-workspace/config/setup-registry.json",
@@ -217,10 +220,10 @@ class MeasurementRecordAdoptionReadApiTest(unittest.TestCase):
         self.assertEqual(run.classification, "adopted_measurement_record")
         self.assertEqual(run.primary_data.classification, "imported_new_record")
         self.assertEqual(opened.classification, "opened_measurement_record")
-        self.assertEqual(opened.creation_source_kind, "import")
-        self.assertEqual(opened.primary_data["observed_row_count"], 3)
-        self.assertEqual(opened.declared_locators, ())
-        self.assertEqual(opened.reference_receipts, ())
+        self.assertEqual(opened.record.creation_source_kind, "import")
+        self.assertEqual(opened.primary_data.observed_row_count, 3)
+        self.assertIsNone(opened.source)
+        self.assertEqual(opened.reference_sets, ())
 
     def test_open_missing_record_returns_explicit_classification(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -257,9 +260,8 @@ class MeasurementRecordAdoptionReadApiTest(unittest.TestCase):
         self.assertEqual(run.classification, "adopted_measurement_record")
         self.assertEqual(opened.classification, "opened_measurement_record")
         self.assertIsNone(opened.primary_data)
-        self.assertIsNone(opened.read_model)
-        self.assertEqual(opened.reference_receipts, ())
-        self.assertEqual(len(opened.declared_locators), 2)
+        self.assertEqual(opened.reference_sets, ())
+        self.assertEqual(len(opened.source.locators), 2)
 
     def test_open_record_lists_multiple_reference_receipts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -301,8 +303,12 @@ class MeasurementRecordAdoptionReadApiTest(unittest.TestCase):
         self.assertTrue(second.recorded)
         self.assertEqual(opened.classification, "opened_measurement_record")
         self.assertEqual(
-            [receipt["reference_set"]["reference_set_id"] for receipt in opened.reference_receipts],
+            [reference_set.reference_set_id for reference_set in opened.reference_sets],
             ["generic-context-a", "generic-context-b"],
+        )
+        self.assertEqual(
+            opened.reference_sets[1].previous_reference_set_id,
+            "generic-context-a",
         )
 
 

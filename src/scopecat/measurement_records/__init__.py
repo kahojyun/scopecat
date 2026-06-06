@@ -19,6 +19,12 @@ from scopecat.measurement_records.durable_import import (
     import_measurement_record_from_request,
 )
 from scopecat.measurement_records.open_record import (
+    MeasurementRecordLocatorView,
+    MeasurementRecordPrimaryDataView,
+    MeasurementRecordReferenceSetView,
+    MeasurementRecordReferenceView,
+    MeasurementRecordSourceView,
+    MeasurementRecordSummary,
     MeasurementRecordView,
     open_measurement_record,
 )
@@ -37,9 +43,15 @@ __all__ = [
     "MeasurementRecordDurableImportRun",
     "MeasurementRecordHandle",
     "MeasurementRecordImportSource",
+    "MeasurementRecordLocatorView",
+    "MeasurementRecordPrimaryDataView",
     "MeasurementRecordReference",
     "MeasurementRecordReferenceRequest",
     "MeasurementRecordReferenceRun",
+    "MeasurementRecordReferenceSetView",
+    "MeasurementRecordReferenceView",
+    "MeasurementRecordSourceView",
+    "MeasurementRecordSummary",
     "MeasurementRecordView",
     "adopt_existing_run_from_request",
     "import_measurement_record_from_request",

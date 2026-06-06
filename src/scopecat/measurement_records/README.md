@@ -30,8 +30,8 @@ capabilities:
   already-produced measurement through an adopt-first or import-ready route
   while hiding canonical record-local path construction;
 - `open_measurement_record(...)` for opening one canonical local record by
-  `record_id` and reviewing declared manifest, locator, primary-data summary,
-  and reference-receipt facts;
+  `record_id` and reviewing user-shaped record, source-locator, openable
+  primary-data, and reference-set summaries;
 - `import_measurement_record_from_request(...)` for importing reviewed
   normalized primary data into durable local storage;
 - `record_measurement_record_references_from_request(...)` for declared
