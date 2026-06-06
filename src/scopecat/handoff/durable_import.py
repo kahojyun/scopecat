@@ -7,95 +7,20 @@ from pathlib import Path
 from typing import Any
 
 from scopecat.handoff._contracts import (
-    validate_non_overlapping_relative_paths,
     validate_positive_integer,
     validate_public_identifier,
-    validate_relative_path,
-    validate_strict_child_path,
 )
 from scopecat.handoff.errors import promote_handoff_contract_error
 from scopecat.handoff.import_plan import HandoffImportPlanRun
 from scopecat.handoff.package import HandoffMeasurement
 from scopecat.measurement_records.durable_import import (
-    MeasurementRecordDurableImportRequest,
     MeasurementRecordDurableImportRun,
+    MeasurementRecordImportByIdRequest,
     MeasurementRecordImportSource,
-    import_measurement_record_from_request,
+    import_measurement_record_from_source_by_id,
 )
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
-
-
-@dataclass(frozen=True)
-class HandoffDurableImportDestination:
-    """Caller-declared durable destination for one package measurement."""
-
-    record_id: str
-    record_dir: str
-    primary_data_path: str
-    writer_receipt_path: str
-    finalization_receipt_path: str
-    read_model_path: str
-
-    def __post_init__(self) -> None:
-        validate_public_identifier(self.record_id, "handoff durable import destination record_id")
-        validate_relative_path(self.record_dir, "handoff durable import destination record_dir")
-        validate_relative_path(
-            self.primary_data_path,
-            "handoff durable import destination primary_data_path",
-        )
-        validate_relative_path(
-            self.writer_receipt_path,
-            "handoff durable import destination writer_receipt_path",
-        )
-        validate_relative_path(
-            self.finalization_receipt_path,
-            "handoff durable import destination finalization_receipt_path",
-        )
-        validate_relative_path(
-            self.read_model_path,
-            "handoff durable import destination read_model_path",
-        )
-        validate_strict_child_path(
-            self.primary_data_path,
-            self.record_dir,
-            "handoff durable import destination primary_data_path",
-        )
-        validate_strict_child_path(
-            self.writer_receipt_path,
-            self.record_dir,
-            "handoff durable import destination writer_receipt_path",
-        )
-        validate_strict_child_path(
-            self.finalization_receipt_path,
-            self.record_dir,
-            "handoff durable import destination finalization_receipt_path",
-        )
-        validate_strict_child_path(
-            self.read_model_path,
-            self.record_dir,
-            "handoff durable import destination read_model_path",
-        )
-        validate_non_overlapping_relative_paths(
-            [
-                f"{self.record_dir}/record-manifest.json",
-                self.primary_data_path,
-                self.writer_receipt_path,
-                self.finalization_receipt_path,
-                self.read_model_path,
-            ],
-            "handoff durable import destination output paths",
-        )
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "record_id": self.record_id,
-            "record_dir": self.record_dir,
-            "primary_data_path": self.primary_data_path,
-            "writer_receipt_path": self.writer_receipt_path,
-            "finalization_receipt_path": self.finalization_receipt_path,
-            "read_model_path": self.read_model_path,
-        }
 
 
 @dataclass(frozen=True)
@@ -106,7 +31,7 @@ class HandoffDurableImportRequest:
     approval_state: str
     requested_package_id: str
     measurement_record_id: str
-    destination: HandoffDurableImportDestination
+    destination_record_id: str
 
     def __post_init__(self) -> None:
         validate_public_identifier(self.request_id, "handoff durable import request_id")
@@ -120,6 +45,10 @@ class HandoffDurableImportRequest:
             self.measurement_record_id,
             "handoff durable import measurement_record_id",
         )
+        validate_public_identifier(
+            self.destination_record_id,
+            "handoff durable import destination_record_id",
+        )
 
     @property
     def approved(self) -> bool:
@@ -131,7 +60,7 @@ class HandoffDurableImportRequest:
             "approval_state": self.approval_state,
             "requested_package_id": self.requested_package_id,
             "measurement_record_id": self.measurement_record_id,
-            "durable_record_destination": self.destination.to_dict(),
+            "destination_record_id": self.destination_record_id,
         }
 
 
@@ -141,7 +70,7 @@ class HandoffDurableImportRun:
 
     request: HandoffDurableImportRequest
     import_plan: HandoffImportPlanRun
-    durable_import_request: MeasurementRecordDurableImportRequest | None = None
+    durable_import_request: MeasurementRecordImportByIdRequest | None = None
     durable_import_run: MeasurementRecordDurableImportRun | None = None
 
     @property
@@ -242,7 +171,7 @@ def _run_handoff_durable_import_from_plan(
     if durable_request is None:
         return HandoffDurableImportRun(request=request, import_plan=import_plan)
 
-    durable_run = import_measurement_record_from_request(
+    durable_run = import_measurement_record_from_source_by_id(
         durable_request,
         content_root=Path(import_plan.receiving_gate.package_dir),
         storage_root=storage_root,
@@ -286,7 +215,7 @@ def build_durable_import_request_from_handoff_plan(
     request: HandoffDurableImportRequest,
     *,
     import_plan: HandoffImportPlanRun,
-) -> MeasurementRecordDurableImportRequest | None:
+) -> MeasurementRecordImportByIdRequest | None:
     """Map a ready single-measurement handoff import plan into durable import."""
 
     try:
@@ -305,7 +234,7 @@ def _build_durable_import_request_from_handoff_plan(
     request: HandoffDurableImportRequest,
     *,
     import_plan: HandoffImportPlanRun,
-) -> MeasurementRecordDurableImportRequest | None:
+) -> MeasurementRecordImportByIdRequest | None:
     if request.requested_package_id != import_plan.package.package_id:
         raise ValueError("handoff durable import package id must match import plan package")
     if not request.approved or not import_plan.import_plan_allowed:
@@ -320,15 +249,10 @@ def _build_durable_import_request_from_handoff_plan(
         measurement,
         package_id=import_plan.package.package_id,
     )
-    return MeasurementRecordDurableImportRequest(
+    return MeasurementRecordImportByIdRequest(
         request_id=request.request_id,
         approval_state=request.approval_state,
-        record_id=request.destination.record_id,
-        record_dir=request.destination.record_dir,
-        primary_data_path=request.destination.primary_data_path,
-        writer_receipt_path=request.destination.writer_receipt_path,
-        finalization_receipt_path=request.destination.finalization_receipt_path,
-        read_model_path=request.destination.read_model_path,
+        record_id=request.destination_record_id,
         import_source=source,
         creation_source_kind="handoff",
         label=measurement.label,

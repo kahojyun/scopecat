@@ -8,7 +8,6 @@ import unittest
 from pathlib import Path
 
 from scopecat.handoff import (
-    HandoffDurableImportDestination,
     HandoffDurableImportRequest,
     HandoffImportPlanRequest,
     HandoffReceivingReviewRequest,
@@ -87,24 +86,13 @@ def _import_plan_request() -> HandoffImportPlanRequest:
     )
 
 
-def _destination() -> HandoffDurableImportDestination:
-    return HandoffDurableImportDestination(
-        record_id="imported-legacy-rabi-001",
-        record_dir="records/imported-legacy-rabi-001",
-        primary_data_path="records/imported-legacy-rabi-001/primary.csv",
-        writer_receipt_path="records/imported-legacy-rabi-001/writer-receipt.json",
-        finalization_receipt_path="records/imported-legacy-rabi-001/finalization-receipt.json",
-        read_model_path="records/imported-legacy-rabi-001/record-read-model.json",
-    )
-
-
 def _request(**overrides: object) -> HandoffDurableImportRequest:
     values = {
         "request_id": "durably-import-handoff-package-legacy-rabi-001",
         "approval_state": "approved",
         "requested_package_id": "handoff-package-legacy-rabi-001",
         "measurement_record_id": "legacy-rabi-001",
-        "destination": _destination(),
+        "destination_record_id": "imported-legacy-rabi-001",
     }
     values.update(overrides)
     return HandoffDurableImportRequest(**values)

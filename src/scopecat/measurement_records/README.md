@@ -32,8 +32,15 @@ capabilities:
 - `open_measurement_record(...)` for opening one canonical local record by
   `record_id` and reviewing user-shaped record, source-locator, openable
   primary-data, and reference-set summaries;
+- `prepare_measurement_record_for_handoff(...)` for projecting one complete
+  canonical record into packageable JNY-001 facts while owning read-model
+  freshness and record/receipt continuity checks;
+- `import_measurement_record_from_source_by_id(...)` for importing reviewed
+  normalized primary data into canonical `records/{record_id}` storage without
+  caller-supplied record-local paths;
 - `import_measurement_record_from_request(...)` for importing reviewed
-  normalized primary data into durable local storage;
+  normalized primary data into durable local storage through the lower-level
+  path-explicit route;
 - `record_measurement_record_references_from_request(...)` for declared
   context links attached to a Measurement Record.
 
@@ -44,7 +51,9 @@ available only from their owning internal modules for route-local composition,
 tests, and future cleanup.
 Do not treat those submodule entrypoints as package-level contracts.
 The adoption facade and open-by-id view are workflow UX helpers for the current
-JNY-007 engineering prototype; they do not publish a final storage schema,
+JNY-007 engineering prototype. The handoff preparation facade is the current
+JNY-001 projection boundary from local record storage to packageable metadata
+and payload facts. These facades do not publish a final storage schema,
 catalog/index contract, legacy parser, or JNY-008 browsing surface.
 
 ## Artifact Boundaries

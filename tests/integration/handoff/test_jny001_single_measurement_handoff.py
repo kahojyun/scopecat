@@ -10,7 +10,6 @@ from pathlib import Path
 from scopecat.handoff import (
     HandoffArchiveCreationRequest,
     HandoffArchiveMaterializationRequest,
-    HandoffDurableImportDestination,
     HandoffDurableImportRequest,
     HandoffImportPlanRequest,
     HandoffReceivingReviewRequest,
@@ -102,8 +101,6 @@ def _export_request() -> SelectedMeasurementRecordExportRequest:
         source_export_summary_id="export-summary-run-3101-rabi",
         display_path="HANDOFF_PACKAGE:/redacted/run-3101-rabi",
         record_id="run-3101-rabi",
-        record_dir="records/run-3101-rabi",
-        read_model_path="records/run-3101-rabi/record-read-model.json",
         legacy_data_id=3101,
         target="qA",
         declared_preview_metadata=_preview_metadata(),
@@ -154,14 +151,7 @@ def _durable_import_request(package_id: str) -> HandoffDurableImportRequest:
         approval_state="approved",
         requested_package_id=package_id,
         measurement_record_id="run-3101-rabi",
-        destination=HandoffDurableImportDestination(
-            record_id="received-run-3101-rabi",
-            record_dir="records/received-run-3101-rabi",
-            primary_data_path="records/received-run-3101-rabi/primary.csv",
-            writer_receipt_path="records/received-run-3101-rabi/writer-receipt.json",
-            finalization_receipt_path="records/received-run-3101-rabi/finalization-receipt.json",
-            read_model_path="records/received-run-3101-rabi/record-read-model.json",
-        ),
+        destination_record_id="received-run-3101-rabi",
     )
 
 
@@ -370,7 +360,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         self.assertEqual(export_run.classification, "blocked_before_export")
         self.assertIn("writer receipt is required", export_run.export_error or "")
 
-    def test_export_blocks_when_read_model_disagrees_with_source_receipt(self) -> None:
+    def test_export_refreshes_when_read_model_disagrees_with_source_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workflow = self._prepare_ready_handoff(Path(temp_dir))
             new_package_root = Path(temp_dir) / "new-packages"
@@ -400,10 +390,18 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
                 package_root=new_package_root,
             )
 
-            self.assertFalse((new_package_root / "handoff-package-run-3101-rabi-stale").exists())
+            package_exists = (new_package_root / "handoff-package-run-3101-rabi-stale").exists()
 
-        self.assertEqual(export_run.classification, "blocked_before_export")
-        self.assertIn("digest must match writer receipt", export_run.export_error or "")
+        summary = export_run.to_dict()
+        self.assertTrue(package_exists)
+        self.assertEqual(export_run.classification, "exported_selected_measurement_record")
+        self.assertEqual(
+            summary["preparation"]["initial_error"],
+            "primary data digest must match writer receipt",
+        )
+        self.assertEqual(
+            summary["preparation"]["refresh"]["classification"], "refreshed_read_model"
+        )
 
     def test_corrupted_package_bytes_block_receiving_and_keep_storage_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

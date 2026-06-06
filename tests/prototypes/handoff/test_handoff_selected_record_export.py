@@ -20,8 +20,10 @@ from scopecat.handoff import (
     open_package,
 )
 from scopecat.measurement_records import (
+    MeasurementRecordAdoptionRequest,
     MeasurementRecordDurableImportRequest,
     MeasurementRecordImportSource,
+    adopt_existing_run_from_request,
     import_measurement_record_from_request,
 )
 
@@ -104,8 +106,6 @@ def _export_request() -> SelectedMeasurementRecordExportRequest:
         source_export_summary_id="export-summary-run-3101-rabi",
         display_path="HANDOFF_PACKAGE:/redacted/run-3101-rabi",
         record_id="run-3101-rabi",
-        record_dir="records/run-3101-rabi",
-        read_model_path="records/run-3101-rabi/record-read-model.json",
         legacy_data_id=3101,
         target="qA",
         declared_preview_metadata=_preview_metadata(record_id="run-3101-rabi"),
@@ -145,6 +145,40 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             storage_root=storage_root,
         )
         self.assertTrue(import_run.imported)
+        return storage_root, package_root
+
+    def _create_adopted_import_ready_record(self, temp_root: Path) -> tuple[Path, Path]:
+        storage_root = temp_root / "storage"
+        content_root = temp_root / "content"
+        package_root = temp_root / "packages"
+        storage_root.mkdir()
+        package_root.mkdir()
+        shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+        source_path = CHUNK_FIXTURE / "chunks" / "chunk-1.csv"
+
+        adoption = adopt_existing_run_from_request(
+            MeasurementRecordAdoptionRequest(
+                request_id="adopt-import-ready-run-3101-rabi",
+                approval_state="approved",
+                record_id="run-3101-rabi",
+                route="import_ready",
+                import_source=MeasurementRecordImportSource(
+                    source_kind="adapter_normalized_primary_data",
+                    source_id="adapter-output-3101",
+                    source_item_id="primary-run-3101-rabi",
+                    content_ref="chunks/chunk-1.csv",
+                    declared_digest=_digest(source_path),
+                    size_bytes=source_path.stat().st_size,
+                    rows_recorded=3,
+                    primary_data_format="csv_table",
+                ),
+                label="Imported Rabi run",
+                experiment_type="rabi",
+            ),
+            content_root=content_root,
+            storage_root=storage_root,
+        )
+        self.assertTrue(adoption.adopted)
         return storage_root, package_root
 
     def _create_two_imported_records(self, temp_root: Path) -> tuple[Path, Path]:
@@ -193,6 +227,55 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             "package_written_ready_for_transfer_review",
         )
 
+    def test_exports_jny007_import_ready_record_by_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_adopted_import_ready_record(Path(temp_dir))
+
+            run = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+            package = open_package(package_root / "handoff-package-run-3101-rabi")
+
+        self.assertTrue(run.exported)
+        self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
+        self.assertEqual(
+            run.to_dict()["preparation"]["classification"],
+            ("prepared_measurement_record_for_handoff"),
+        )
+
+    def test_adopt_first_shell_without_primary_data_is_not_exportable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            storage_root = temp_root / "storage"
+            package_root = temp_root / "packages"
+            storage_root.mkdir()
+            package_root.mkdir()
+            adoption = adopt_existing_run_from_request(
+                MeasurementRecordAdoptionRequest(
+                    request_id="adopt-shell-run-3101-rabi",
+                    approval_state="approved",
+                    record_id="run-3101-rabi",
+                    route="adopt_first",
+                    legacy_system_id="legacy-workstation",
+                    legacy_run_id="legacy-run-3101",
+                    label="Imported Rabi run",
+                    experiment_type="rabi",
+                ),
+                storage_root=storage_root,
+            )
+
+            run = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+        self.assertTrue(adoption.adopted)
+        self.assertFalse(run.exported)
+        self.assertEqual(run.to_dict()["block_reason"], "read_model_refresh_failed")
+
     def test_selected_record_export_leaves_source_record_artifacts_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
@@ -234,7 +317,9 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         payload = run.to_dict()
         self.assertTrue(run.exported)
-        self.assertIsNone(run.refresh_run)
+        self.assertIsNone(
+            run.export_run.preparation.refresh_run if run.export_run.preparation else None
+        )
         self.assertEqual(
             payload["classification"],
             "exported_selected_measurement_record_after_preflight",
@@ -257,10 +342,13 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         payload = run.to_dict()
         self.assertTrue(run.exported)
         self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
-        self.assertEqual(payload["initial_export"]["block_reason"], "missing_record_evidence")
+        self.assertEqual(
+            payload["initial_export"]["preparation"]["initial_error"],
+            "record read model is required",
+        )
         self.assertEqual(payload["refresh"]["classification"], "refreshed_read_model")
         self.assertEqual(payload["refresh"]["request"]["expected_target_condition"], "missing")
-        self.assertEqual(payload["final_export"]["export"]["performed"], True)
+        self.assertIsNone(payload["final_export"])
         self.assertIsNone(payload["block_reason"])
 
     def test_preflight_export_refreshes_stale_read_model_then_exports(self) -> None:
@@ -284,7 +372,10 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         payload = run.to_dict()
         self.assertTrue(run.exported)
         self.assertNotEqual(stale_digest, previous_digest)
-        self.assertEqual(payload["initial_export"]["block_reason"], "record_evidence_mismatch")
+        self.assertEqual(
+            payload["initial_export"]["preparation"]["initial_error"],
+            "primary data digest must match writer receipt",
+        )
         self.assertEqual(
             payload["refresh"]["request"]["expected_current_read_model_digest"],
             stale_digest,
@@ -292,7 +383,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertEqual(
             payload["refresh"]["request"]["expected_target_condition"], "replace_existing"
         )
-        self.assertEqual(payload["final_export"]["export"]["performed"], True)
+        self.assertIsNone(payload["final_export"])
 
     def test_preflight_export_blocks_when_refresh_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -314,7 +405,10 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertEqual(payload["refresh"], None)
         self.assertEqual(payload["final_export"], None)
         self.assertEqual(payload["block_reason"], "read_model_refresh_failed")
-        self.assertIn("finalization receipt is required", payload["preflight_error"])
+        self.assertIn(
+            "finalization receipt is required",
+            payload["initial_export"]["preparation"]["preparation_error"],
+        )
 
     def test_exports_selected_stored_record_batch_to_one_openable_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -330,8 +424,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
                     _export_request().to_batch_record(),
                     SelectedMeasurementRecordBatchExportRecord(
                         record_id="run-3102-rabi",
-                        record_dir="records/run-3102-rabi",
-                        read_model_path="records/run-3102-rabi/record-read-model.json",
                         legacy_data_id=3102,
                         target="qA",
                         declared_preview_metadata=_preview_metadata(record_id="run-3102-rabi"),
@@ -454,23 +546,30 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             outside_path.parent.mkdir()
             outside_path.write_bytes(context_content)
 
-            with self.assertRaisesRegex(ValueError, "must stay under record_dir"):
-                replace(
-                    _export_request(),
-                    linked_context=(
-                        SelectedMeasurementRecordExportLinkedContext(
-                            link_id="run-3101-parameter-state",
-                            kind="parameter_state",
-                            label="Reviewed parameter state",
-                            relation="run_start_context",
-                            reason="Attempt to package an out-of-record payload.",
-                            source_path="records/other-run/parameter-state.json",
-                            package_path="context/run-3101-parameter-state.json",
-                            expected_digest=context_digest,
-                            expected_size_bytes=len(context_content),
-                        ),
+            request = replace(
+                _export_request(),
+                linked_context=(
+                    SelectedMeasurementRecordExportLinkedContext(
+                        link_id="run-3101-parameter-state",
+                        kind="parameter_state",
+                        label="Reviewed parameter state",
+                        relation="run_start_context",
+                        reason="Attempt to package an out-of-record payload.",
+                        source_path="records/other-run/parameter-state.json",
+                        package_path="context/run-3101-parameter-state.json",
+                        expected_digest=context_digest,
+                        expected_size_bytes=len(context_content),
                     ),
-                )
+                ),
+            )
+            run = export_selected_measurement_record_from_request(
+                request,
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+        self.assertFalse(run.exported)
+        self.assertEqual(run.to_dict()["block_reason"], "record_path_scope_violation")
 
     def test_unapproved_export_does_not_write_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -536,7 +635,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertIn("must stay under record_dir", run.export_error or "")
         self.assertEqual(run.to_dict()["block_reason"], "record_path_scope_violation")
 
-    def test_export_blocks_stale_read_model_before_package_write(self) -> None:
+    def test_export_refreshes_stale_read_model_before_package_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
             read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
@@ -552,13 +651,20 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
                 package_root=package_root,
             )
 
-            self.assertFalse((package_root / "handoff-package-run-3101-rabi").exists())
+            package = open_package(package_root / "handoff-package-run-3101-rabi")
 
-        self.assertFalse(run.exported)
-        self.assertIn("must match writer receipt", run.export_error or "")
-        self.assertEqual(run.to_dict()["block_reason"], "record_evidence_mismatch")
+        summary = run.to_dict()
+        self.assertTrue(run.exported)
+        self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
+        self.assertEqual(
+            summary["preparation"]["initial_error"],
+            "primary data digest must match writer receipt",
+        )
+        self.assertEqual(
+            summary["preparation"]["refresh"]["classification"], "refreshed_read_model"
+        )
 
-    def test_export_blocks_missing_read_model_before_package_write(self) -> None:
+    def test_export_refreshes_missing_read_model_before_package_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
             (storage_root / "records" / "run-3101-rabi" / "record-read-model.json").unlink()
@@ -569,10 +675,18 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
                 package_root=package_root,
             )
 
-            self.assertFalse((package_root / "handoff-package-run-3101-rabi").exists())
+            package = open_package(package_root / "handoff-package-run-3101-rabi")
 
-        self.assertFalse(run.exported)
-        self.assertEqual(run.to_dict()["block_reason"], "missing_record_evidence")
+        summary = run.to_dict()
+        self.assertTrue(run.exported)
+        self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
+        self.assertEqual(
+            summary["preparation"]["initial_error"],
+            "record read model is required",
+        )
+        self.assertEqual(
+            summary["preparation"]["refresh"]["classification"], "refreshed_read_model"
+        )
 
     def test_export_summarizes_missing_evidence_block(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

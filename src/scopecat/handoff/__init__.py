@@ -11,7 +11,6 @@ from scopecat.handoff.archive_materialization import (
     materialize_handoff_archive_package_from_request,
 )
 from scopecat.handoff.durable_import import (
-    HandoffDurableImportDestination,
     HandoffDurableImportRequest,
     run_handoff_durable_import_from_plan,
 )
@@ -37,7 +36,6 @@ __all__ = [
     "HandoffArchiveCreationRequest",
     "HandoffArchiveMaterializationRequest",
     "HandoffContractError",
-    "HandoffDurableImportDestination",
     "HandoffDurableImportRequest",
     "HandoffError",
     "HandoffImportPlanRequest",

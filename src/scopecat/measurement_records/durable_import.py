@@ -53,6 +53,9 @@ SOURCE_KINDS = {
 }
 CREATION_SOURCE_KINDS = {"import", "handoff"}
 PRIMARY_DATA_FORMATS = {"csv_table"}
+PRIMARY_DATA_FILENAME = "primary.csv"
+WRITER_RECEIPT_FILENAME = "writer-receipt.json"
+FINALIZATION_RECEIPT_FILENAME = "finalization-receipt.json"
 
 
 @dataclass(frozen=True)
@@ -195,6 +198,67 @@ class MeasurementRecordDurableImportRequest:
 
 
 @dataclass(frozen=True)
+class MeasurementRecordImportByIdRequest:
+    """Approved canonical import request that derives record-local paths."""
+
+    request_id: str
+    approval_state: str
+    record_id: str
+    import_source: MeasurementRecordImportSource
+    creation_source_kind: str = "import"
+    label: str | None = None
+    experiment_type: str | None = None
+
+    def __post_init__(self) -> None:
+        validate_public_identifier(self.request_id, "canonical import request_id")
+        if self.approval_state not in APPROVAL_STATES:
+            raise ValueError("canonical import approval_state is unsupported")
+        validate_public_identifier(self.record_id, "canonical import record_id")
+        if self.creation_source_kind not in CREATION_SOURCE_KINDS:
+            raise ValueError("canonical import creation_source_kind is unsupported")
+        if self.label is not None:
+            validate_text(self.label, "canonical import label")
+        if self.experiment_type is not None:
+            validate_text(self.experiment_type, "canonical import experiment_type")
+
+    @property
+    def approved(self) -> bool:
+        return self.approval_state == "approved"
+
+    @property
+    def record_dir(self) -> str:
+        return _canonical_record_dir(self.record_id)
+
+    def to_durable_import_request(self) -> MeasurementRecordDurableImportRequest:
+        record_dir = self.record_dir
+        return MeasurementRecordDurableImportRequest(
+            request_id=self.request_id,
+            approval_state=self.approval_state,
+            record_id=self.record_id,
+            record_dir=record_dir,
+            primary_data_path=f"{record_dir}/{PRIMARY_DATA_FILENAME}",
+            writer_receipt_path=f"{record_dir}/{WRITER_RECEIPT_FILENAME}",
+            finalization_receipt_path=f"{record_dir}/{FINALIZATION_RECEIPT_FILENAME}",
+            read_model_path=f"{record_dir}/{READ_MODEL_FILENAME}",
+            import_source=self.import_source,
+            creation_source_kind=self.creation_source_kind,
+            label=self.label,
+            experiment_type=self.experiment_type,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "request_id": self.request_id,
+            "approval_state": self.approval_state,
+            "record_id": self.record_id,
+            "creation_source_kind": self.creation_source_kind,
+            "import_source": self.import_source.to_dict(),
+            "label": self.label,
+            "experiment_type": self.experiment_type,
+        }
+
+
+@dataclass(frozen=True)
 class MeasurementRecordDurableImportRun:
     """Local result for durable new-record import."""
 
@@ -300,6 +364,23 @@ def import_measurement_record_from_request(
     )
 
 
+def import_measurement_record_from_source_by_id(
+    request: MeasurementRecordImportByIdRequest,
+    *,
+    content_root: str | Path,
+    storage_root: str | Path,
+    read_model_writer: Callable[[Path, bytes], None] | None = None,
+) -> MeasurementRecordDurableImportRun:
+    """Import reviewed normalized data into canonical storage by record_id."""
+
+    return import_measurement_record_from_request(
+        request.to_durable_import_request(),
+        content_root=content_root,
+        storage_root=storage_root,
+        read_model_writer=read_model_writer,
+    )
+
+
 def _preflight_source(request: MeasurementRecordDurableImportRequest, content_root: Path) -> bytes:
     try:
         return read_reviewed_primary_data_source(
@@ -309,6 +390,10 @@ def _preflight_source(request: MeasurementRecordDurableImportRequest, content_ro
         )
     except ValueError as exc:
         raise _DurableImportFailure(str(exc)) from exc
+
+
+def _canonical_record_dir(record_id: str) -> str:
+    return f"records/{validate_public_identifier(record_id, 'record_id')}"
 
 
 def _write_imported_record(

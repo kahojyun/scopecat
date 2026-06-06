@@ -31,6 +31,8 @@ Accepted surface groups:
 | Record adoption/import | Creates one no-overwrite record shell with `record-manifest.json` as part of a durable import or legacy-run adoption operation. |
 | JNY-007 basic UX | Provides an adoption facade that builds canonical record-local paths and returns a stable local record handle for adopt-first and import-ready routes. |
 | Record open-by-id | Opens one canonical record from `record_id`, returning user-shaped record, source-locator, primary-data, and reference-set summaries without scanning, parsing, or refreshing. |
+| Handoff preparation | Projects one complete record into packageable JNY-001 facts while owning canonical lookup, read-model freshness, record/receipt continuity checks, and exportability classification. |
+| Canonical import by id | Imports reviewed primary data into `records/{record_id}` without caller-supplied record-local paths, while delegating to the existing durable import mutation path. |
 | Primary-data attach flow | Writes reviewed normalized primary CSV, finalization receipt, and `record-read-model.json` for legacy attach paths. |
 | Durable import | Imports one reviewed normalized primary table directly into a new record with synchronous partial-failure rollback. |
 | Recorded references | Writes record-local receipts for user-declared context references while leaving referenced payloads outside Measurement Records ownership. |

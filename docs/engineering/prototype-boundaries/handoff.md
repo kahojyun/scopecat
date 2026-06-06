@@ -64,7 +64,8 @@ caller-declared source root and package write request
 The selected stored-record export adapter composes with that package writer:
 
 ```text
-complete Measurement Record read model and record-local receipts
+selected Measurement Record record_id
+  -> Measurement Records-owned packageable handoff projection
   -> selected-record export request with explicit declared table-preview metadata
   -> package writer request
   -> directory-shaped selected-measurement package
@@ -102,10 +103,11 @@ receipts.
 The selected stored-record export adapter:
 
 - requires an approved selected-record export request;
-- reads one complete Measurement Records read model plus record-local creation
-  and writer receipts;
-- preserves record id, record-local primary-data path, digest, size, label,
-  and experiment type into the package writer request;
+- selects stored records by `record_id` and delegates canonical lookup,
+  read-model freshness, record/receipt continuity checks, and exportability
+  classification to Measurement Records;
+- preserves projected record id, primary-data path, digest, size, label,
+  experiment type, and row count into the package writer request;
 - requires explicit declared table-preview metadata and does not infer plot
   semantics from CSV headers;
 - can package explicitly declared record-local linked-context payloads under
@@ -115,22 +117,19 @@ The selected stored-record export adapter:
   selects multiple complete stored records;
 - keeps non-declared linked context reference-only and does not treat recorded
   references as payload authority;
-- does not mutate Measurement Records storage or refresh read models.
+- does not parse record-local Measurement Records storage artifacts, mutate
+  Measurement Records storage, or own read-model refresh.
 
 Selected-record export receipts keep compact `block_reason` state for blocked
-local runs. The export path checks that the selected read model matches the
-request, record-local creation manifest, and writer receipt before writing a
-package. Missing, invalid, stale, incomplete, or out-of-scope read-model
-evidence blocks export, but selected export does not project, refresh, repair,
-or otherwise mutate Measurement Records storage.
+local runs and include the Measurement Records preparation summary. Missing,
+invalid, stale, incomplete, or out-of-scope record evidence is classified by
+Measurement Records before package writing. Handoff consumes only the typed
+packageable projection and package writer facts.
 
 The preflight selected-record export composition makes read-model refresh
-user-transparent while keeping ownership explicit. It runs selected export as a
-freshness preflight, delegates missing, invalid, or stale read-model recovery to
-the Measurement Records read-model refresh route, and retries export only after
-successful refresh. Its receipt records the initial export review, refresh
-receipt or refresh contract error, final export, and compact `block_reason`. The
-composition does not repair primary data, replace record manifests, mutate
+user-transparent while keeping ownership explicit. Missing, invalid, or stale
+read-model recovery happens inside the Measurement Records preparation route.
+The composition does not repair primary data, replace record manifests, mutate
 writer/finalization receipts, or accept/import packages.
 
 For JNY-001 Share A Selected Measurement, this storage-backed selected-record

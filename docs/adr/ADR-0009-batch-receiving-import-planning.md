@@ -30,8 +30,8 @@ measurement id.
 The durable handoff import adapter remains single-measurement only. ADR-0013
 keeps a ready multi-measurement import plan as review evidence and planning
 output, not durable batch mutation authority. Durable import must continue to
-require exactly one planned measurement before building a
-`MeasurementRecordDurableImportRequest`.
+require exactly one planned measurement before delegating to the Measurement
+Records by-id durable import facade.
 
 ## Scope
 

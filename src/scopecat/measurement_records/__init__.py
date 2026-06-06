@@ -15,8 +15,17 @@ from scopecat.measurement_records.adoption import (
 from scopecat.measurement_records.durable_import import (
     MeasurementRecordDurableImportRequest,
     MeasurementRecordDurableImportRun,
+    MeasurementRecordImportByIdRequest,
     MeasurementRecordImportSource,
     import_measurement_record_from_request,
+    import_measurement_record_from_source_by_id,
+)
+from scopecat.measurement_records.handoff_preparation import (
+    MeasurementRecordHandoffLinkedContextSelection,
+    MeasurementRecordHandoffPreparationRun,
+    PackageableMeasurementRecord,
+    PackageableMeasurementRecordLinkedContext,
+    prepare_measurement_record_for_handoff,
 )
 from scopecat.measurement_records.open_record import (
     MeasurementRecordLocatorView,
@@ -42,6 +51,9 @@ __all__ = [
     "MeasurementRecordDurableImportRequest",
     "MeasurementRecordDurableImportRun",
     "MeasurementRecordHandle",
+    "MeasurementRecordHandoffLinkedContextSelection",
+    "MeasurementRecordHandoffPreparationRun",
+    "MeasurementRecordImportByIdRequest",
     "MeasurementRecordImportSource",
     "MeasurementRecordLocatorView",
     "MeasurementRecordPrimaryDataView",
@@ -53,8 +65,12 @@ __all__ = [
     "MeasurementRecordSourceView",
     "MeasurementRecordSummary",
     "MeasurementRecordView",
+    "PackageableMeasurementRecord",
+    "PackageableMeasurementRecordLinkedContext",
     "adopt_existing_run_from_request",
     "import_measurement_record_from_request",
+    "import_measurement_record_from_source_by_id",
     "open_measurement_record",
+    "prepare_measurement_record_for_handoff",
     "record_measurement_record_references_from_request",
 ]

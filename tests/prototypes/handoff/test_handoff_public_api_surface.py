@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import unittest
+from pathlib import Path
 
 import scopecat.handoff as handoff
 
@@ -65,11 +66,30 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             hasattr(handoff, "export_selected_measurement_record_with_preflight_refresh")
         )
 
+    def test_selected_record_export_does_not_parse_measurement_record_storage(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[3]
+            / "src"
+            / "scopecat"
+            / "handoff"
+            / "selected_record_export.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("scopecat.measurement_records._", source)
+        for artifact_name in (
+            "record-manifest.json",
+            "writer-receipt.json",
+            "finalization-receipt.json",
+            "record-read-model.json",
+        ):
+            self.assertNotIn(artifact_name, source)
+
     def test_route_local_result_and_projection_types_are_not_top_level_exports(self) -> None:
         route_local_types = {
             "ArchiveMaterializationMemberReview",
             "HandoffArchiveCreationRun",
             "HandoffArchiveMaterializationRun",
+            "HandoffDurableImportDestination",
             "HandoffDurableImportRun",
             "HandoffErrorDiagnostic",
             "HandoffImportPlanRun",

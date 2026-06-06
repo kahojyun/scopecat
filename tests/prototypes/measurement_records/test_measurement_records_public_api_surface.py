@@ -35,6 +35,9 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "MeasurementRecordDurableImportRequest",
             "MeasurementRecordDurableImportRun",
             "MeasurementRecordHandle",
+            "MeasurementRecordHandoffLinkedContextSelection",
+            "MeasurementRecordHandoffPreparationRun",
+            "MeasurementRecordImportByIdRequest",
             "MeasurementRecordImportSource",
             "MeasurementRecordLocatorView",
             "MeasurementRecordPrimaryDataView",
@@ -46,9 +49,13 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "MeasurementRecordSourceView",
             "MeasurementRecordSummary",
             "MeasurementRecordView",
+            "PackageableMeasurementRecord",
+            "PackageableMeasurementRecordLinkedContext",
             "adopt_existing_run_from_request",
+            "import_measurement_record_from_source_by_id",
             "import_measurement_record_from_request",
             "open_measurement_record",
+            "prepare_measurement_record_for_handoff",
             "record_measurement_record_references_from_request",
         }
 
