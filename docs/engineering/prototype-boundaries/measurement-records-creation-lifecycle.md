@@ -29,6 +29,8 @@ Accepted surface groups:
 | Surface | Current Boundary |
 | --- | --- |
 | Record adoption/import | Creates one no-overwrite record shell with `record-manifest.json` as part of a durable import or legacy-run adoption operation. |
+| JNY-007 basic UX | Provides an adoption facade that builds canonical record-local paths and returns a stable local record handle for adopt-first and import-ready routes. |
+| Record open-by-id | Opens one canonical record from `record_id`, returning manifest, locator, read-model, and recorded-reference facts without scanning, parsing, or refreshing. |
 | Primary-data attach flow | Writes reviewed normalized primary CSV, finalization receipt, and `record-read-model.json` for legacy attach paths. |
 | Durable import | Imports one reviewed normalized primary table directly into a new record with synchronous partial-failure rollback. |
 | Recorded references | Writes record-local receipts for user-declared context references while leaving referenced payloads outside Measurement Records ownership. |
@@ -36,6 +38,9 @@ Accepted surface groups:
 Stored primary-table reads are internal composition helpers for the attach,
 import, user-workflow, and selected-record refresh paths. They are not a
 separate package-level API or workflow boundary.
+The JNY-007 adoption facade and open-by-id view reduce caller exposure to
+storage paths, but they do not create a catalog/index, final storage schema,
+legacy parser, or post-run browsing surface.
 
 Legacy-run storage and converted-primary attach are owned separately by
 [`measurement-records-legacy-run-storage.md`](measurement-records-legacy-run-storage.md).

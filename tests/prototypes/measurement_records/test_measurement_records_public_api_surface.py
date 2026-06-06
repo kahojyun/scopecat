@@ -29,13 +29,20 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
 
     def test_caller_facing_capabilities_remain_top_level_exports(self) -> None:
         expected_names = {
+            "MeasurementRecordAdoptionLocator",
+            "MeasurementRecordAdoptionRequest",
+            "MeasurementRecordAdoptionRun",
             "MeasurementRecordDurableImportRequest",
             "MeasurementRecordDurableImportRun",
+            "MeasurementRecordHandle",
             "MeasurementRecordImportSource",
             "MeasurementRecordReference",
             "MeasurementRecordReferenceRequest",
             "MeasurementRecordReferenceRun",
+            "MeasurementRecordView",
+            "adopt_existing_run_from_request",
             "import_measurement_record_from_request",
+            "open_measurement_record",
             "record_measurement_record_references_from_request",
         }
 

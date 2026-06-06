@@ -26,6 +26,12 @@ and
 The package root exposes current caller-facing Measurement Records
 capabilities:
 
+- `adopt_existing_run_from_request(...)` for JNY-007 basic UX: adopt an
+  already-produced measurement through an adopt-first or import-ready route
+  while hiding canonical record-local path construction;
+- `open_measurement_record(...)` for opening one canonical local record by
+  `record_id` and reviewing declared manifest, locator, primary-data summary,
+  and reference-receipt facts;
 - `import_measurement_record_from_request(...)` for importing reviewed
   normalized primary data into durable local storage;
 - `record_measurement_record_references_from_request(...)` for declared
@@ -37,6 +43,9 @@ normalized-table summary, and stored-primary reads remain
 available only from their owning internal modules for route-local composition,
 tests, and future cleanup.
 Do not treat those submodule entrypoints as package-level contracts.
+The adoption facade and open-by-id view are workflow UX helpers for the current
+JNY-007 engineering prototype; they do not publish a final storage schema,
+catalog/index contract, legacy parser, or JNY-008 browsing surface.
 
 ## Artifact Boundaries
 
