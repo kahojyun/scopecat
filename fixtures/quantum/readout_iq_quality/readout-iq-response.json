@@ -1,0 +1,9 @@
+{
+  "schema_version": "quantum_lab_demo.readout_iq_response_model.v0",
+  "state0_center": [-0.34, 0.08],
+  "state1_center": [0.46, 0.55],
+  "noise_sigma": 0.055,
+  "shot_count": 240,
+  "deterministic_contamination_rate": 0.025,
+  "random_seed": 23
+}

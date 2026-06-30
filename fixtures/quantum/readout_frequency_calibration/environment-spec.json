@@ -1,0 +1,26 @@
+{
+  "schema_version": "scopecat.environment_spec.v0",
+  "id": "example-readout-calibration-workspace-environment",
+  "workspace_id": "example-readout-calibration-workspace",
+  "connection_profile": {
+    "connections": [
+      {
+        "id": "readout-stack-simulated",
+        "instrument_id": "readout-stack",
+        "kind": "simulated",
+        "resource_hint": "offline readout response fixture"
+      },
+      {
+        "id": "flux-bias-source-simulated",
+        "instrument_id": "flux-bias-source",
+        "kind": "simulated",
+        "resource_hint": "offline flux-bias validation fixture"
+      }
+    ]
+  },
+  "metadata": {
+    "sample_reference": "sample-public://readout/frequency-calibration-s21",
+    "example_status": "synthetic role-based identifiers and offline resources",
+    "adapter_goal": "anti-corruption boundary and adapter authoring SDK design"
+  }
+}

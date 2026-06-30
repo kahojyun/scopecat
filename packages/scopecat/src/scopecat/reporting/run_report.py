@@ -1,0 +1,579 @@
+"""Stable local run report generation.
+
+Run reports are assembled from the persisted run manifest plus the optional
+workflow records registered on that run: processing jobs, evaluation jobs,
+parameter proposals and reviews, run comparisons and reviews, and config
+registry provenance. Missing optional records are omitted from the report
+instead of being treated as part of the required run contract.
+
+The generated JSON report and Markdown summary are themselves registered as run
+artifacts, so callers can discover them through the same manifest mechanism as
+other derived outputs.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any, cast
+
+from pydantic import BaseModel, Field, ValidationError
+
+from scopecat.config_registry import ConfigRegistryConfigSourceProvenance
+from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
+from scopecat.errors import ValidationFailed
+from scopecat.evaluation import EvaluationJob
+from scopecat.models.artifact import Artifact, ProcessingJob
+from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.models.parameter import ParameterChangeSet, Quantity
+from scopecat.models.run import RunManifest
+from scopecat.proposals.review import ProposalReviewRecord
+from scopecat.reporting.models import (
+    AnalysisReport,
+    ConfigSourceReport,
+    EvaluationReport,
+    ProcessingReport,
+    ProposalReport,
+    ProposalReviewReport,
+    ReportJob,
+    ReportRunInfo,
+    RunComparisonReport,
+    RunReport,
+)
+from scopecat.reporting.render import render_run_report
+from scopecat.run_comparison import (
+    RunComparisonJob,
+    RunComparisonResult,
+    RunComparisonReviewRecord,
+)
+from scopecat.runs import RunStore, list_artifacts, open_run_store, upsert_artifacts
+
+RUN_REPORT_JOB_REF = "reports/run-report.job.json"
+RUN_REPORT_RESULT_REF = "artifacts/run-report.json"
+RUN_REPORT_SUMMARY_REF = "artifacts/run-report.md"
+CONFIG_PROFILE_SNAPSHOT_REF = "config-profile.snapshot.json"
+
+
+class _AnalysisOutputPayload(BaseModel):
+    kind: str
+    title: str
+    content: Any
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class _AnalysisArtifactPayload(BaseModel):
+    schema_version: str
+    run_id: str
+    title: str
+    source_artifact_ids: list[str] = Field(default_factory=list)
+    outputs: list[_AnalysisOutputPayload]
+    guesses: list[Any] = Field(default_factory=list)
+
+
+def generate_run_report(
+    *, run_id: str, workspace: str | Path
+) -> tuple[ReportJob, RunReport]:
+    workspace_path = Path(workspace)
+    storage = open_run_store(workspace_path)
+    manifest = storage.read_manifest(run_id)
+    _validate_manifest_artifacts(storage=storage, run_id=run_id, manifest=manifest)
+
+    config_source = _read_config_source(storage=storage, run_id=run_id)
+    analysis = _read_analysis(storage=storage, run_id=run_id, manifest=manifest)
+    processing = _read_processing(storage=storage, run_id=run_id, manifest=manifest)
+    evaluation = _read_evaluation(storage=storage, run_id=run_id, manifest=manifest)
+    proposals = _read_proposals(storage=storage, run_id=run_id, manifest=manifest)
+    run_comparisons = _read_run_comparisons(
+        storage=storage, run_id=run_id, manifest=manifest
+    )
+    artifact_refs = upsert_artifacts(manifest.artifact_refs, _report_artifacts())
+    report = RunReport(
+        run_id=run_id,
+        run=ReportRunInfo(
+            run_id=manifest.run_id,
+            status=manifest.status,
+            runner_id=manifest.runner_id,
+            dry_run=manifest.dry_run,
+            experiment_ref=manifest.experiment_ref,
+            created_at=manifest.created_at,
+            workspace_ref=manifest.workspace_ref,
+            device_ref=manifest.device_ref,
+        ),
+        config_source=config_source,
+        artifact_refs=artifact_refs,
+        analysis=analysis,
+        processing=processing,
+        evaluation=evaluation,
+        proposals=proposals,
+        run_comparisons=run_comparisons,
+    )
+    job = ReportJob(
+        run_id=run_id,
+        input_refs=_input_refs(
+            analysis,
+            processing,
+            evaluation,
+            proposals,
+            run_comparisons,
+        ),
+        output_refs=[RUN_REPORT_RESULT_REF, RUN_REPORT_SUMMARY_REF],
+    )
+    summary = render_run_report(report)
+    storage.write_model(run_id, RUN_REPORT_RESULT_REF, report)
+    storage.write_text(run_id, RUN_REPORT_SUMMARY_REF, summary)
+    storage.write_model(run_id, RUN_REPORT_JOB_REF, job)
+
+    manifest.artifact_refs = artifact_refs
+    storage.write_manifest(manifest)
+    return job, report
+
+
+def _read_analysis(
+    *, storage: RunStore, run_id: str, manifest: RunManifest
+) -> list[AnalysisReport]:
+    reports: list[AnalysisReport] = []
+    for artifact in _artifacts_by_kind(manifest, "analysis"):
+        payload = _read_model(
+            storage.ref_path(run_id, artifact.path),
+            _AnalysisArtifactPayload,
+            artifact.path,
+        )
+        reports.append(
+            AnalysisReport(
+                artifact_id=artifact.id,
+                ref=artifact.path,
+                title=payload.title,
+                output_kinds=[output.kind for output in payload.outputs],
+                guess_count=len(payload.guesses),
+                source_artifact_ids=_source_artifact_ids(payload, artifact),
+            )
+        )
+    return reports
+
+
+def _read_config_source(*, storage: RunStore, run_id: str) -> ConfigSourceReport:
+    config = _read_model(
+        storage.ref_path(run_id, CONFIG_PROFILE_SNAPSHOT_REF),
+        ConfigProfileSnapshot,
+        CONFIG_PROFILE_SNAPSHOT_REF,
+    )
+    source = config.source
+    if source is None or source.kind != "config_registry_entry":
+        return ConfigSourceReport(status="not_available")
+    provenance = ConfigRegistryConfigSourceProvenance(
+        selector=source.selector or "",
+        entry_id=source.entry_id or "",
+        config_ref=source.config_ref or "",
+        active_state_ref=source.active_state_ref,
+        active_record_id=source.active_record_id,
+    )
+    return _config_source_report_from_provenance(provenance)
+
+
+def _config_source_report_from_provenance(
+    provenance: ConfigRegistryConfigSourceProvenance,
+) -> ConfigSourceReport:
+    return ConfigSourceReport(
+        status="available",
+        source_kind=provenance.source_kind,
+        selector=provenance.selector,
+        entry_id=provenance.entry_id,
+        config_ref=provenance.config_ref,
+        active_state_ref=provenance.active_state_ref,
+        active_record_id=provenance.active_record_id,
+    )
+
+
+def _read_processing(
+    *, storage: RunStore, run_id: str, manifest: RunManifest
+) -> list[ProcessingReport]:
+    return [
+        _processing_report(
+            storage=storage,
+            run_id=run_id,
+            manifest=manifest,
+            job_ref=job_artifact.path,
+        )
+        for job_artifact in list_artifacts(manifest, kind="processing_job")
+    ]
+
+
+def _processing_report(
+    *,
+    storage: RunStore,
+    run_id: str,
+    manifest: RunManifest,
+    job_ref: str,
+) -> ProcessingReport:
+    job = _read_model(storage.ref_path(run_id, job_ref), ProcessingJob, job_ref)
+    artifacts_by_id = _artifacts_by_id(manifest)
+    result_artifact_ids, summary_artifact_ids, result_artifacts, summary_artifacts = (
+        _classify_step_outputs(job, artifacts_by_id)
+    )
+    return ProcessingReport(
+        job_ref=job_ref,
+        step=job.step,
+        scope=_scope(job.metadata),
+        job_status=job.status,
+        input_artifact_ids=job.input_artifact_ids,
+        input_record_refs=job.input_record_refs,
+        output_artifact_ids=job.output_artifact_ids,
+        result_artifact_ids=result_artifact_ids,
+        summary_artifact_ids=summary_artifact_ids,
+        result_artifacts=result_artifacts,
+        summary_artifacts=summary_artifacts,
+        diagnostics=job.diagnostics,
+    )
+
+
+def _read_evaluation(
+    *, storage: RunStore, run_id: str, manifest: RunManifest
+) -> list[EvaluationReport]:
+    return [
+        _evaluation_report(
+            storage=storage,
+            run_id=run_id,
+            manifest=manifest,
+            job_ref=job_artifact.path,
+        )
+        for job_artifact in list_artifacts(manifest, kind="evaluation_job")
+    ]
+
+
+def _evaluation_report(
+    *,
+    storage: RunStore,
+    run_id: str,
+    manifest: RunManifest,
+    job_ref: str,
+) -> EvaluationReport:
+    job = _read_model(storage.ref_path(run_id, job_ref), EvaluationJob, job_ref)
+    artifacts_by_id = _artifacts_by_id(manifest)
+    result_artifact_ids, summary_artifact_ids, result_artifacts, summary_artifacts = (
+        _classify_step_outputs(job, artifacts_by_id)
+    )
+    return EvaluationReport(
+        job_ref=job_ref,
+        step=job.step,
+        scope=_scope(job.metadata),
+        job_status=job.status,
+        input_artifact_ids=job.input_artifact_ids,
+        input_record_refs=job.input_record_refs,
+        output_artifact_ids=job.output_artifact_ids,
+        result_artifact_ids=result_artifact_ids,
+        summary_artifact_ids=summary_artifact_ids,
+        result_artifacts=result_artifacts,
+        summary_artifacts=summary_artifacts,
+        proposal_artifact_ids=[
+            artifact_id
+            for artifact_id in job.output_artifact_ids
+            if (artifact := artifacts_by_id.get(artifact_id)) is not None
+            and artifact.kind == "parameter_change_set"
+        ],
+        diagnostics=job.diagnostics,
+    )
+
+
+def _read_proposals(
+    *, storage: RunStore, run_id: str, manifest: RunManifest
+) -> list[ProposalReport]:
+    proposals: list[ProposalReport] = []
+    for proposal_artifact in list_artifacts(manifest, kind="parameter_change_set"):
+        proposal_record_ref = proposal_artifact.path
+        proposal_path = storage.ref_path(run_id, proposal_record_ref)
+        proposal = _read_model(
+            proposal_path,
+            ParameterChangeSet,
+            proposal_record_ref,
+        )
+        review = _read_review(storage=storage, run_id=run_id, proposal=proposal)
+        patch = proposal.patches[0] if proposal.patches else None
+        proposals.append(
+            ProposalReport(
+                id=proposal.id,
+                ref=proposal_record_ref,
+                state=proposal.state,
+                operation_kind=patch.kind if patch is not None else "none",
+                parameter_id=patch.parameter_id if patch is not None else None,
+                old_value=(
+                    patch.expected_value
+                    if patch is not None and isinstance(patch.expected_value, Quantity)
+                    else None
+                ),
+                value=(
+                    patch.value
+                    if patch is not None and isinstance(patch.value, Quantity)
+                    else None
+                ),
+                source_run_id=proposal.source_run_id,
+                reason=proposal.reason,
+                confidence=proposal.confidence,
+                review=review,
+            )
+        )
+    return proposals
+
+
+def _read_review(
+    *, storage: RunStore, run_id: str, proposal: ParameterChangeSet
+) -> ProposalReviewReport:
+    review_ref = f"reviews/{proposal.id}.review.json"
+    review_path = storage.ref_path(run_id, review_ref)
+    if not review_path.exists():
+        return ProposalReviewReport(status="not_reviewed")
+    review = _read_model(review_path, ProposalReviewRecord, review_ref)
+    return ProposalReviewReport(
+        status="reviewed",
+        review_ref=review_ref,
+        decision=review.decision,
+        reviewer=review.reviewer,
+        note=review.note,
+        reviewed_at=review.reviewed_at,
+    )
+
+
+def _read_run_comparisons(
+    *, storage: RunStore, run_id: str, manifest: RunManifest
+) -> list[RunComparisonReport]:
+    comparisons: list[RunComparisonReport] = []
+    for artifact in _artifacts_by_kind(manifest, "run_comparison_result"):
+        result = _read_model(
+            storage.ref_path(run_id, artifact.path),
+            RunComparisonResult,
+            artifact.path,
+        )
+        job_ref = f"comparisons/{result.comparison_id}.job.json"
+        _read_model(
+            storage.ref_path(run_id, job_ref),
+            RunComparisonJob,
+            job_ref,
+        )
+        review_ref = f"reviews/{result.comparison_id}.review.json"
+        review_path = storage.ref_path(run_id, review_ref)
+        review: RunComparisonReviewRecord | None = None
+        if review_path.exists():
+            review = _read_model(
+                review_path,
+                RunComparisonReviewRecord,
+                review_ref,
+            )
+        comparisons.append(
+            RunComparisonReport(
+                comparison_id=result.comparison_id,
+                baseline_run_id=result.baseline_run_id,
+                candidate_run_id=result.candidate_run_id,
+                observable_id=result.observable_id,
+                outcome=result.outcome,
+                measurement_count=result.measurement_count,
+                baseline_peak_point_index=result.baseline_peak_point_index,
+                candidate_peak_point_index=result.candidate_peak_point_index,
+                baseline_peak_value=result.baseline_peak_value,
+                candidate_peak_value=result.candidate_peak_value,
+                peak_value_delta=result.peak_value_delta,
+                mean_value_delta=result.mean_value_delta,
+                value_unit=result.value_unit,
+                result_ref=artifact.path,
+                summary_ref=result.summary_ref,
+                job_ref=job_ref,
+                baseline_config_source_status=result.baseline_config_source.status,
+                candidate_config_source_status=result.candidate_config_source.status,
+                review_status="reviewed" if review is not None else "not_reviewed",
+                review_ref=review_ref if review is not None else None,
+                decision=review.decision if review is not None else None,
+                reviewer=review.reviewer if review is not None else None,
+                note=review.note if review is not None else None,
+                reviewed_at=review.reviewed_at if review is not None else None,
+                generated_at=result.generated_at,
+            )
+        )
+    return comparisons
+
+
+def _artifacts_by_kind(manifest: RunManifest, kind: str) -> list[Artifact]:
+    return sorted(
+        (artifact for artifact in manifest.artifact_refs if artifact.kind == kind),
+        key=lambda artifact: artifact.id,
+    )
+
+
+def _artifacts_by_id(manifest: RunManifest) -> dict[str, Artifact]:
+    return {artifact.id: artifact for artifact in manifest.artifact_refs}
+
+
+def _classify_step_outputs(
+    job: ProcessingJob | EvaluationJob,
+    artifacts_by_id: dict[str, Artifact],
+) -> tuple[list[str], list[str], list[Artifact], list[Artifact]]:
+    result_artifact_ids: list[str] = []
+    summary_artifact_ids: list[str] = []
+    result_artifacts: list[Artifact] = []
+    summary_artifacts: list[Artifact] = []
+    for artifact_id in job.output_artifact_ids:
+        artifact = artifacts_by_id.get(artifact_id)
+        if artifact is not None and artifact.kind == "summary":
+            summary_artifact_ids.append(artifact_id)
+            summary_artifacts.append(artifact)
+        elif artifact is not None and artifact.path.startswith("artifacts/"):
+            result_artifact_ids.append(artifact_id)
+            result_artifacts.append(artifact)
+    return (
+        result_artifact_ids,
+        summary_artifact_ids,
+        result_artifacts,
+        summary_artifacts,
+    )
+
+
+def _scope(metadata: dict[str, Any]) -> str | None:
+    value = metadata.get("scope")
+    return value if isinstance(value, str) else None
+
+
+def _read_model[TModel: BaseModel](
+    path: Path, model_type: type[TModel], ref: str
+) -> TModel:
+    if not path.exists():
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "missing_report_input",
+                    f"report input is missing: {ref}",
+                    ref,
+                )
+            ]
+        )
+    if path.is_dir():
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "report_artifact_is_directory",
+                    f"report input is a directory: {ref}",
+                    ref,
+                )
+            ]
+        )
+    try:
+        return model_type.model_validate_json(path.read_text())
+    except ValidationError as error:
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "invalid_report_input",
+                    f"report input is not valid JSON for {ref}",
+                    ref,
+                )
+            ]
+        ) from error
+
+
+def _validate_manifest_artifacts(
+    *, storage: RunStore, run_id: str, manifest: RunManifest
+) -> None:
+    for artifact in manifest.artifact_refs:
+        path = storage.ref_path(run_id, artifact.path)
+        if path.exists() and path.is_dir():
+            raise ValidationFailed(
+                [
+                    _diagnostic(
+                        "error",
+                        "report_artifact_is_directory",
+                        f"report artifact is a directory: {artifact.path}",
+                        "artifact_refs",
+                    )
+                ]
+            )
+
+
+def _input_refs(
+    analysis: list[AnalysisReport],
+    processing: list[ProcessingReport],
+    evaluation: list[EvaluationReport],
+    proposals: list[ProposalReport],
+    run_comparisons: list[RunComparisonReport],
+) -> list[str]:
+    refs = ["manifest.json", CONFIG_PROFILE_SNAPSHOT_REF]
+    refs.extend(report.ref for report in analysis)
+    for report in [*processing, *evaluation]:
+        refs.append(report.job_ref)
+        refs.extend(artifact.path for artifact in report.result_artifacts)
+    refs.extend(proposal.ref for proposal in proposals)
+    refs.extend(
+        proposal.review.review_ref
+        for proposal in proposals
+        if proposal.review.review_ref is not None
+    )
+    for comparison in run_comparisons:
+        refs.extend([comparison.result_ref, comparison.job_ref])
+        if comparison.review_ref is not None:
+            refs.append(comparison.review_ref)
+    return refs
+
+
+def _source_artifact_ids(
+    payload: _AnalysisArtifactPayload,
+    artifact: Artifact,
+) -> list[str]:
+    if payload.source_artifact_ids:
+        return _unique_strings(payload.source_artifact_ids)
+    metadata_ids = artifact.metadata.get("source_artifact_ids")
+    if isinstance(metadata_ids, list):
+        selected = _unique_strings(cast(Sequence[object], metadata_ids))
+        if selected:
+            return selected
+    artifact_ids: list[str] = []
+    seen: set[str] = set()
+    for output in payload.outputs:
+        if output.kind != "external_ref" or not isinstance(output.content, dict):
+            continue
+        content = cast(dict[str, object], output.content)
+        if content.get("target_type") != "artifact":
+            continue
+        target = content.get("target")
+        if not isinstance(target, str) or target in seen:
+            continue
+        artifact_ids.append(target)
+        seen.add(target)
+    return artifact_ids
+
+
+def _unique_strings(values: Sequence[object]) -> list[str]:
+    selected: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str) or value in seen:
+            continue
+        selected.append(value)
+        seen.add(value)
+    return selected
+
+
+def _report_artifacts() -> list[Artifact]:
+    return [
+        Artifact(
+            id="run-report-result",
+            kind="run_report",
+            path=RUN_REPORT_RESULT_REF,
+            media_type="application/json",
+        ),
+        Artifact(
+            id="run-report-summary",
+            kind="summary",
+            path=RUN_REPORT_SUMMARY_REF,
+            media_type="text/markdown",
+        ),
+        Artifact(
+            id="run-report-job",
+            kind="report_job",
+            path=RUN_REPORT_JOB_REF,
+            media_type="application/json",
+        ),
+    ]
+
+
+def _diagnostic(
+    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
+) -> Diagnostic:
+    return Diagnostic(severity=severity, code=code, message=message, path=path)

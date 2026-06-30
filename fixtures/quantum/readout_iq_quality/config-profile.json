@@ -1,0 +1,12 @@
+{
+  "schema_version": "scopecat.config_profile.v0",
+  "id": "example-readout-iq-workspace-profile",
+  "system_ref": "system-spec.json",
+  "environment_ref": "environment-spec.json",
+  "parameter_state_ref": "parameter-state.json",
+  "metadata": {
+    "sample_reference": "sample-public://readout/iq-quality",
+    "example_status": "synthetic role-based identifiers and offline resources",
+    "adapter_goal": "processing SDK design for shot-level readout quality diagnostics"
+  }
+}

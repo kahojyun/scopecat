@@ -1,0 +1,71 @@
+{
+  "schema_version": "scopecat.experiment_spec.v1",
+  "id": "simulated-frequency-scan",
+  "kind": "simple_scan",
+  "points": {
+    "kind": "grid",
+    "columns": {
+      "drive_frequency": {
+        "kind": "series",
+        "series": {
+          "kind": "linspace",
+          "start": {
+            "kind": "literal",
+            "value": {
+              "value": 4.9,
+              "unit": "GHz"
+            }
+          },
+          "stop": {
+            "kind": "literal",
+            "value": {
+              "value": 5.1,
+              "unit": "GHz"
+            }
+          },
+          "count": 3,
+          "unit": "GHz"
+        }
+      }
+    }
+  },
+  "params": [
+    {
+      "kind": "set_scalar",
+      "parameter_id": "drive_frequency",
+      "value": {
+        "kind": "column",
+        "name": "drive_frequency"
+      }
+    }
+  ],
+  "state": [
+    {
+      "kind": "set",
+      "resource": {
+        "kind": "literal",
+        "value": "source-0"
+      },
+      "field": "set_frequency.frequency",
+      "value": {
+        "kind": "param_scalar",
+        "name": "drive_frequency"
+      }
+    }
+  ],
+  "acquire": {
+    "kind": "scalar",
+    "shots": 1,
+    "record": "point",
+    "channels": [
+      "source-0"
+    ],
+    "observations": [
+      {
+        "id": "signal",
+        "kind": "observable",
+        "unit": "ratio"
+      }
+    ]
+  }
+}

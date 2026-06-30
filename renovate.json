@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "minimumReleaseAge": "14 days",
+  "extends": [
+    "config:best-practices",
+    ":semanticCommitTypeAll(chore)",
+    ":automergePatch",
+    ":enablePreCommit",
+    "helpers:pinGitHubActionDigestsToSemver",
+    "customManagers:githubActionsVersions"
+  ],
+  "packageRules": [
+    {
+      "description": "Pin all npm dependencies except peer dependencies",
+      "matchManagers": ["npm"],
+      "extends": [":pinAllExceptPeerDependencies"]
+    },
+    {
+      "description": "Set minimum release age for all npm dependencies to 14 days",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "minimumReleaseAge": "14 days"
+    },
+    {
+      "description": "Require approval for Renovate-detected breaking updates",
+      "matchJsonata": ["isBreaking = true"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}

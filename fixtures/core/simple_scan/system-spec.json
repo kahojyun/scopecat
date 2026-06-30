@@ -1,0 +1,69 @@
+{
+  "schema_version": "scopecat.system_spec.v0",
+  "id": "example-workspace-system",
+  "workspace_id": "example-workspace",
+  "device_under_test_id": "example-device",
+  "device_topology": {
+    "devices": [
+      {
+        "id": "q0",
+        "kind": "logical_device",
+        "channels": [
+          "drive-q0",
+          "readout-q0"
+        ]
+      }
+    ],
+    "links": [],
+    "channels": [
+      {
+        "id": "drive-q0",
+        "kind": "drive",
+        "device_id": "q0",
+        "direction": "control"
+      },
+      {
+        "id": "readout-q0",
+        "kind": "readout",
+        "device_id": "q0",
+        "direction": "readout"
+      }
+    ]
+  },
+  "instrument_registry": {
+    "instruments": [
+      {
+        "id": "source-0",
+        "kind": "rf_source",
+        "channels": [
+          "drive-q0"
+        ],
+        "capabilities": [
+          "set_frequency"
+        ]
+      }
+    ]
+  },
+  "metadata": {},
+  "parameter_catalog": {
+    "schema_version": "scopecat.parameter_catalog.v1",
+    "id": "example-parameter-definitions-catalog",
+    "scalar_definitions": [
+      {
+        "id": "drive_frequency",
+        "unit": "GHz",
+        "safety_min": {
+          "value": 4.0,
+          "unit": "GHz"
+        },
+        "safety_max": {
+          "value": 6.0,
+          "unit": "GHz"
+        },
+        "description": "Example drive frequency."
+      }
+    ],
+    "table_definitions": [],
+    "metadata": {}
+  }
+}

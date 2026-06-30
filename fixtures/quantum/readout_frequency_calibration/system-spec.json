@@ -1,0 +1,158 @@
+{
+  "schema_version": "scopecat.system_spec.v0",
+  "id": "example-readout-calibration-workspace-system",
+  "workspace_id": "example-readout-calibration-workspace",
+  "device_under_test_id": "example-readout-device",
+  "device_topology": {
+    "devices": [
+      {
+        "id": "q0",
+        "kind": "logical_qubit",
+        "channels": [
+          "readout-q0",
+          "flux-q0"
+        ],
+        "metadata": {
+          "device_role": "readout subject"
+        }
+      }
+    ],
+    "links": [],
+    "channels": [
+      {
+        "id": "readout-q0",
+        "kind": "readout",
+        "device_id": "q0",
+        "direction": "readout"
+      },
+      {
+        "id": "flux-q0",
+        "kind": "flux_bias",
+        "device_id": "q0",
+        "direction": "control"
+      }
+    ]
+  },
+  "instrument_registry": {
+    "instruments": [
+      {
+        "id": "readout-stack",
+        "kind": "awg_adc",
+        "channels": [
+          "readout-q0"
+        ],
+        "capabilities": [
+          "readout_pulse",
+          "demodulate_iq",
+          "capture_dataset"
+        ]
+      },
+      {
+        "id": "flux-bias-source",
+        "kind": "dac",
+        "channels": [
+          "flux-q0"
+        ],
+        "capabilities": [
+          "set_offset"
+        ]
+      }
+    ]
+  },
+  "metadata": {
+    "sample_reference": "sample-public://readout/frequency-calibration-s21",
+    "example_status": "synthetic role-based identifiers and offline resources",
+    "adapter_goal": "anti-corruption boundary and adapter authoring SDK design"
+  },
+  "parameter_catalog": {
+    "schema_version": "scopecat.parameter_catalog.v1",
+    "id": "example-readout-calibration-parameter-definitions-catalog",
+    "scalar_definitions": [
+      {
+        "id": "readout_frequency",
+        "unit": "GHz",
+        "safety_min": {
+          "value": 5.7,
+          "unit": "GHz"
+        },
+        "safety_max": {
+          "value": 6.2,
+          "unit": "GHz"
+        },
+        "description": "Readout resonator frequency used by the S21 calibration."
+      },
+      {
+        "id": "readout_power",
+        "unit": "dBm",
+        "safety_min": {
+          "value": -45.0,
+          "unit": "dBm"
+        },
+        "safety_max": {
+          "value": -10.0,
+          "unit": "dBm"
+        },
+        "description": "Fixed readout power for the s21 scan."
+      },
+      {
+        "id": "readout_z_offset",
+        "unit": "arb",
+        "safety_min": {
+          "value": -1.0,
+          "unit": "arb"
+        },
+        "safety_max": {
+          "value": 1.0,
+          "unit": "arb"
+        },
+        "description": "Fixed DAC Z offset."
+      },
+      {
+        "id": "start_delay",
+        "unit": "ns",
+        "safety_min": {
+          "value": 0.0,
+          "unit": "ns"
+        },
+        "safety_max": {
+          "value": 3000.0,
+          "unit": "ns"
+        },
+        "description": "ADC readout start delay."
+      },
+      {
+        "id": "readout_phase",
+        "unit": "rad",
+        "description": "Fixed phase used when materializing the readout pulse."
+      },
+      {
+        "id": "demod_frequency",
+        "unit": "MHz",
+        "safety_min": {
+          "value": 0.0,
+          "unit": "MHz"
+        },
+        "safety_max": {
+          "value": 500.0,
+          "unit": "MHz"
+        },
+        "description": "Readout demodulation frequency used to derive LO frequency."
+      },
+      {
+        "id": "repetitions",
+        "unit": "count",
+        "safety_min": {
+          "value": 1.0,
+          "unit": "count"
+        },
+        "safety_max": {
+          "value": 100000.0,
+          "unit": "count"
+        },
+        "description": "Shot count used by the S21 acquisition."
+      }
+    ],
+    "table_definitions": [],
+    "metadata": {}
+  }
+}

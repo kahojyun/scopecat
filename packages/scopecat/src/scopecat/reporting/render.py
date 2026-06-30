@@ -1,0 +1,224 @@
+"""Run report rendering helpers."""
+
+from __future__ import annotations
+
+from typing import Any, cast
+
+from scopecat.reporting.models import (
+    AnalysisReport,
+    EvaluationReport,
+    ProcessingReport,
+    RunReport,
+)
+
+
+def render_run_report(report: RunReport) -> str:
+    lines = [
+        "# Scopecat Run Report",
+        "",
+        f"- Run ID: {report.run.run_id}",
+        f"- Status: {report.run.status}",
+        f"- Runner: {report.run.runner_id}",
+        f"- Dry-run: {str(report.run.dry_run).lower()}",
+        f"- Experiment: {report.run.experiment_ref}",
+        f"- Workspace: {report.run.workspace_ref}",
+        f"- Device: {report.run.device_ref}",
+        "",
+        "## Config Source",
+        "",
+    ]
+    if report.config_source.status == "available":
+        lines.extend(
+            [
+                f"- Status: {report.config_source.status}",
+                f"- Source kind: {report.config_source.source_kind}",
+                f"- Selector: {report.config_source.selector}",
+                f"- Entry: {report.config_source.entry_id}",
+                f"- Config ref: {report.config_source.config_ref}",
+                (
+                    "- Active state: "
+                    f"{_optional_text(report.config_source.active_state_ref)}"
+                ),
+                (
+                    "- Active record: "
+                    f"{_optional_text(report.config_source.active_record_id)}"
+                ),
+            ]
+        )
+    else:
+        lines.append("- Status: not_available")
+
+    lines.extend(["", "## Run Comparisons", ""])
+    if report.run_comparisons:
+        for comparison in report.run_comparisons:
+            lines.extend(
+                [
+                    f"### {comparison.comparison_id}",
+                    "",
+                    f"- Candidate run: {comparison.candidate_run_id}",
+                    f"- Observable: {comparison.observable_id}",
+                    f"- Outcome: {comparison.outcome}",
+                    f"- Measurements: {comparison.measurement_count}",
+                    f"- Baseline peak point: {comparison.baseline_peak_point_index}",
+                    f"- Candidate peak point: {comparison.candidate_peak_point_index}",
+                    (
+                        f"- Baseline peak value: "
+                        f"{comparison.baseline_peak_value.value} "
+                        f"{comparison.baseline_peak_value.unit}"
+                    ),
+                    (
+                        f"- Candidate peak value: "
+                        f"{comparison.candidate_peak_value.value} "
+                        f"{comparison.candidate_peak_value.unit}"
+                    ),
+                    (
+                        f"- Peak value delta: {comparison.peak_value_delta.value} "
+                        f"{comparison.value_unit}"
+                    ),
+                    (
+                        f"- Mean value delta: {comparison.mean_value_delta.value} "
+                        f"{comparison.value_unit}"
+                    ),
+                    (
+                        "- Baseline config source: "
+                        f"{comparison.baseline_config_source_status}"
+                    ),
+                    (
+                        "- Candidate config source: "
+                        f"{comparison.candidate_config_source_status}"
+                    ),
+                    f"- Review status: {comparison.review_status}",
+                ]
+            )
+            if comparison.review_status == "reviewed":
+                lines.extend(
+                    [
+                        f"- Decision: {comparison.decision}",
+                        f"- Reviewer: {comparison.reviewer}",
+                        f"- Note: {comparison.note}",
+                    ]
+                )
+            else:
+                lines.append("- Decision: n/a")
+            lines.extend(
+                [
+                    f"- Result: {comparison.result_ref}",
+                    f"- Summary: {comparison.summary_ref}",
+                    f"- Job: {comparison.job_ref}",
+                    "",
+                ]
+            )
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Artifacts", ""])
+    if report.artifact_refs:
+        for artifact in report.artifact_refs:
+            lines.append(
+                f"- {artifact.id}: {artifact.kind}, "
+                f"{artifact.media_type or '-'}, {artifact.path}"
+            )
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Analysis", ""])
+    if report.analysis:
+        for analysis in report.analysis:
+            lines.extend(_analysis_report_lines(analysis))
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Processing", ""])
+    if report.processing:
+        for processing in report.processing:
+            lines.extend(_step_report_lines(processing))
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Evaluation", ""])
+    if report.evaluation:
+        for evaluation in report.evaluation:
+            lines.extend(_step_report_lines(evaluation))
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Proposals", ""])
+    if report.proposals:
+        for proposal in report.proposals:
+            lines.extend(
+                [
+                    f"### {proposal.id}",
+                    "",
+                    f"- State: {proposal.state}",
+                    f"- Operation: {proposal.operation_kind}",
+                    f"- Reason: {proposal.reason}",
+                    f"- Review status: {proposal.review.status}",
+                ]
+            )
+            if proposal.parameter_id is not None:
+                lines.append(f"- Parameter: {proposal.parameter_id}")
+            if proposal.old_value is not None:
+                lines.append(
+                    f"- Old value: {proposal.old_value.value} {proposal.old_value.unit}"
+                )
+            if proposal.value is not None:
+                lines.append(
+                    f"- Proposed value: {proposal.value.value} {proposal.value.unit}"
+                )
+            if proposal.review.status == "reviewed":
+                lines.extend(
+                    [
+                        f"- Decision: {proposal.review.decision}",
+                        f"- Reviewer: {proposal.review.reviewer}",
+                        f"- Note: {proposal.review.note}",
+                    ]
+                )
+            lines.append("")
+    else:
+        lines.append("- none")
+
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _analysis_report_lines(report: AnalysisReport) -> list[str]:
+    lines = [
+        f"### {report.title}",
+        "",
+        f"- Artifact: {report.artifact_id}",
+        f"- Ref: {report.ref}",
+        f"- Outputs: {', '.join(report.output_kinds) or 'none'}",
+        f"- Guesses: {report.guess_count}",
+    ]
+    if report.source_artifact_ids:
+        lines.append(f"- Source artifacts: {', '.join(report.source_artifact_ids)}")
+    lines.append("")
+    return lines
+
+
+def _step_report_lines(report: ProcessingReport | EvaluationReport) -> list[str]:
+    lines = [
+        f"### {report.step}",
+        "",
+        f"- Status: {report.job_status}",
+        f"- Job: {report.job_ref}",
+    ]
+    if report.scope is not None:
+        lines.append(f"- Scope: {report.scope}")
+    for artifact in report.result_artifacts:
+        lines.append(f"- Result: {artifact.path}")
+    for artifact in report.summary_artifacts:
+        lines.append(f"- Summary: {artifact.path}")
+    for diagnostic in report.diagnostics:
+        lines.append(f"- Diagnostic: {diagnostic.severity} {diagnostic.code}")
+    for detail_name, detail in sorted(report.details.items()):
+        lines.append(f"- Detail: {detail_name}")
+        if isinstance(detail, dict):
+            detail_items = cast(dict[str, Any], detail)
+            for key, value in sorted(detail_items.items()):
+                lines.append(f"  - {key}: {value}")
+    lines.append("")
+    return lines
+
+
+def _optional_text(value: str | None) -> str:
+    return value if value is not None else "n/a"

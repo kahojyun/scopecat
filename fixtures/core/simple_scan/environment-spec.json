@@ -1,0 +1,15 @@
+{
+  "schema_version": "scopecat.environment_spec.v0",
+  "id": "example-workspace-environment",
+  "workspace_id": "example-workspace",
+  "connection_profile": {
+    "connections": [
+      {
+        "id": "source-0-offline",
+        "instrument_id": "source-0",
+        "kind": "offline"
+      }
+    ]
+  },
+  "metadata": {}
+}

@@ -1,0 +1,82 @@
+{
+  "schema_version": "scopecat.experiment_spec.v1",
+  "id": "sample-readout-iq-scatter",
+  "kind": "readout_iq_scatter",
+  "points": {
+    "kind": "literal_rows",
+    "rows": [{}]
+  },
+  "state": [
+    {
+      "kind": "set",
+      "resource": {
+        "kind": "literal",
+        "value": "readout-stack"
+      },
+      "field": "readout_pulse.frequency",
+      "value": {
+        "kind": "param_scalar",
+        "name": "readout_frequency"
+      }
+    },
+    {
+      "kind": "set",
+      "resource": {
+        "kind": "literal",
+        "value": "readout-stack"
+      },
+      "field": "readout_pulse.power",
+      "value": {
+        "kind": "param_scalar",
+        "name": "readout_power"
+      }
+    },
+    {
+      "kind": "set",
+      "resource": {
+        "kind": "literal",
+        "value": "readout-stack"
+      },
+      "field": "capture_shots.shots",
+      "value": {
+        "kind": "param_scalar",
+        "name": "repetitions"
+      }
+    }
+  ],
+  "acquire": {
+    "kind": "iq",
+    "shots": 240,
+    "record": "shot",
+    "channels": [
+      "readout-stack"
+    ],
+    "observations": [
+      {
+        "id": "i0",
+        "kind": "observable",
+        "unit": "ratio"
+      },
+      {
+        "id": "q0",
+        "kind": "observable",
+        "unit": "ratio"
+      },
+      {
+        "id": "i1",
+        "kind": "observable",
+        "unit": "ratio"
+      },
+      {
+        "id": "q1",
+        "kind": "observable",
+        "unit": "ratio"
+      }
+    ]
+  },
+  "metadata": {
+    "source_sample": "synthetic IQ scatter",
+    "source_function": "readout IQ scatter",
+    "migration_scope": "shot-level two-state readout IQ quality"
+  }
+}
