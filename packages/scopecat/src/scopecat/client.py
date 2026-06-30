@@ -19,7 +19,7 @@ from scopecat.instruments.sdk import NativeInstrumentProvider
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
 from scopecat.processing import ProcessingStep
-from scopecat.reporting import ReportJob, RunReport, generate_run_report
+from scopecat.reporting import RunOverview, build_run_overview
 from scopecat.run_comparison import RunComparisonReviewState, RunComparisonView
 from scopecat.workflows import (
     AcceptProposalWorkflowResult,
@@ -244,8 +244,8 @@ class Client:
             note=note,
         )
 
-    def report(self, run: RunRef) -> tuple[ReportJob, RunReport]:
-        return generate_run_report(
+    def overview(self, run: RunRef) -> RunOverview:
+        return build_run_overview(
             run_id=run_id(run),
             workspace=self.workspace,
         )

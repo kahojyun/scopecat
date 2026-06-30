@@ -45,8 +45,8 @@ whose stability matters.
 
 | code | owner | family | severity | stability | path | persisted | description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `missing_report_input` | core.reporting | reporting | error | stable | report input | no | Required report input is missing. |
-| `invalid_report_input` | core.reporting | reporting | error | stable | report input | no | Report input exists but is invalid for rendering. |
+| `missing_report_input` | core.reporting | reporting | error | stable | overview input | no | Required overview input is missing. |
+| `invalid_report_input` | core.reporting | reporting | error | stable | overview input | no | Overview input exists but is invalid for rendering. |
 | `artifact_path_escape` | core.storage | artifact | error | stable | artifact path | no | Artifact path escapes the run storage root. |
 | `report_artifact_is_directory` | core.reporting | reporting | error | stable | artifact path | no | Report artifact path points to a directory. |
 
@@ -58,6 +58,15 @@ whose stability matters.
 | `analysis_external_ref_invalid` | core.session | analysis | error | stable | uri | no | Notebook analysis external reference URI is empty. |
 | `analysis_guess_parameter_invalid` | core.session | analysis | error | stable | parameter_id | no | Analysis parameter guess has an empty parameter id. |
 | `analysis_guess_confidence_invalid` | core.session | analysis | error | stable | confidence | no | Analysis parameter guess confidence is outside `[0, 1]`. |
+| `analysis_report_title_invalid` | core.session | analysis | error | stable | title | no | Analysis report title is empty. |
+| `analysis_report_source_invalid` | core.session | analysis | error | stable | report | no | Analysis report did not provide exactly one source. |
+| `analysis_report_artifact_id_invalid` | core.session | analysis | error | stable | artifact_id | no | Analysis report artifact id is empty. |
+| `analysis_report_artifact_id_duplicated` | core.session | analysis | error | stable | artifact_id | no | Analysis report artifact id is duplicated. |
+| `analysis_report_filename_missing` | core.session | analysis | error | stable | filename | no | Inline analysis report content is missing a filename. |
+| `analysis_report_filename_invalid` | core.session | analysis | error | stable | filename | no | Analysis report filename is not a safe basename. |
+| `analysis_report_filename_duplicated` | core.session | analysis | error | stable | filename | no | Analysis report filename is duplicated. |
+| `analysis_report_source_missing` | core.session | analysis | error | stable | path | no | Analysis report source file is missing. |
+| `analysis_report_output_invalid` | core.session | analysis | error | stable | outputs | no | Analysis report output content is invalid. |
 | `run_handle_manifest_missing` | core.session | run_handle | error | stable | run | no | Run handle construction did not receive a manifest or run result. |
 | `run_execution_snapshot_not_loaded` | core.session | run_handle | error | stable | run | no | Operation requires an execution result that was not loaded. |
 

@@ -1,4 +1,4 @@
-"""Run report durable and view models."""
+"""Run overview view models and user report artifact summaries."""
 
 from __future__ import annotations
 
@@ -14,19 +14,6 @@ from scopecat.models.run import utc_now
 
 SectionStatus = Literal["available", "not_available"]
 ReviewStatus = Literal["reviewed", "not_reviewed"]
-
-
-class ReportJob(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: str = "scopecat.report_job.v0"
-    id: str = "run-report"
-    run_id: str
-    input_refs: list[str]
-    output_refs: list[str]
-    status: str = "completed"
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
-    generated_at: datetime = Field(default_factory=utc_now)
 
 
 class ReportRunInfo(BaseModel):
@@ -91,7 +78,7 @@ class EvaluationReport(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-class AnalysisReport(BaseModel):
+class AnalysisRecordOverview(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     artifact_id: str
@@ -99,6 +86,18 @@ class AnalysisReport(BaseModel):
     title: str
     output_kinds: list[str]
     guess_count: int
+    source_artifact_ids: list[str] = Field(default_factory=list)
+    report_artifact_ids: list[str] = Field(default_factory=list)
+
+
+class AnalysisReportOverview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_id: str
+    ref: str
+    title: str
+    media_type: str | None = None
+    source_analysis_artifact_id: str | None = None
     source_artifact_ids: list[str] = Field(default_factory=list)
 
 
@@ -159,16 +158,17 @@ class RunComparisonReport(BaseModel):
     generated_at: datetime
 
 
-class RunReport(BaseModel):
+class RunOverview(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.run_report.v0"
+    schema_version: str = "scopecat.run_overview.v0"
     run_id: str
     generated_at: datetime = Field(default_factory=utc_now)
     run: ReportRunInfo
     config_source: ConfigSourceReport
     artifact_refs: list[Artifact]
-    analysis: list[AnalysisReport] = Field(default_factory=list)
+    analysis_records: list[AnalysisRecordOverview] = Field(default_factory=list)
+    analysis_reports: list[AnalysisReportOverview] = Field(default_factory=list)
     processing: list[ProcessingReport] = Field(default_factory=list)
     evaluation: list[EvaluationReport] = Field(default_factory=list)
     proposals: list[ProposalReport] = Field(default_factory=list)

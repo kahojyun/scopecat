@@ -35,7 +35,7 @@ class PromotedAnalysisStepResult:
     analysis: sc.Analysis
     saved_analysis: sc.SavedAnalysis
     candidate: sc.CandidateConfig
-    report: sc.ReportHandle
+    overview: sc.OverviewHandle
 
 
 # %%
@@ -62,14 +62,14 @@ def run(workspace: str | Path = DEFAULT_WORKSPACE) -> PromotedAnalysisStepResult
     analysis = completed_run.analyze(ReadoutFrequencyAnalysisStep())
     saved = analysis.save()
     candidate = analysis.candidate_config(reason=analysis.parameter_guesses[0].reason)
-    report = completed_run.report()
+    overview = completed_run.overview()
 
     return PromotedAnalysisStepResult(
         run=completed_run,
         analysis=analysis,
         saved_analysis=saved,
         candidate=candidate,
-        report=report,
+        overview=overview,
     )
 
 
@@ -80,7 +80,7 @@ def format_summary(result: PromotedAnalysisStepResult) -> str:
         [
             f"Run: {result.run.id}",
             f"Analysis: {result.saved_analysis.artifact.id}",
-            f"Report outputs: {', '.join(result.report.job.output_refs)}",
+            f"Overview lines: {len(result.overview.markdown.splitlines())}",
             f"Candidate guess: {guess.parameter_id}",
         ]
     )

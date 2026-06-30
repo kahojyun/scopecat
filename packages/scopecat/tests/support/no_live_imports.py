@@ -16,7 +16,7 @@ from scopecat.proposals import (
     accept_parameter_proposal,
     review_parameter_proposal,
 )
-from scopecat.reporting import generate_run_report
+from scopecat.reporting import build_run_overview
 from scopecat.run_comparison import execute_run_comparison, review_run_comparison
 from scopecat.workflows import (
     accept_proposal,
@@ -271,7 +271,7 @@ def exercise_reporting(workspace: Path) -> None:
         state="approved",
         reviewer="operator",
     )
-    generate_run_report(run_id=manifest.run_id, workspace=workspace)
+    build_run_overview(run_id=manifest.run_id, workspace=workspace)
 
 
 def exercise_config_registry(workspace: Path) -> None:
@@ -338,8 +338,8 @@ def exercise_config_registry(workspace: Path) -> None:
         reviewer="operator",
         note="accepted",
     )
-    generate_run_report(run_id=manifest.run_id, workspace=workspace)
-    generate_run_report(run_id=candidate_manifest.run_id, workspace=workspace)
+    build_run_overview(run_id=manifest.run_id, workspace=workspace)
+    build_run_overview(run_id=candidate_manifest.run_id, workspace=workspace)
 
 
 def exercise_config_workflows(workspace: Path) -> None:

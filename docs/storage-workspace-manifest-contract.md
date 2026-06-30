@@ -126,8 +126,9 @@ Specific record-family direction:
   artifact id, plus domain-specific ids such as registry entry id when needed.
 - Run comparisons should cross runs with `run_id` and cross artifacts with
   artifact ids, not embedded paths.
-- Reports should store section-level refs as artifact ids and let the manifest
-  resolve those refs to paths and media types.
+- User reports should store section-level refs as artifact ids and let the
+  manifest resolve those refs to paths and media types. System run overviews
+  should remain rebuildable views over the manifest graph.
 - Boundary records around native execution, runner adapters, scheduling,
   recovery, and resume should keep plan identity fields in the payload and use
   artifact ids for status, summary, and data artifacts.

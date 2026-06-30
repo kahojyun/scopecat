@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, is_dataclass, replace
-from typing import TYPE_CHECKING, Literal, Protocol, cast
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, Literal, NoReturn, Protocol, cast
 
 from pydantic import BaseModel
 
@@ -14,7 +16,7 @@ from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
 from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.runs.access import open_run_store
+from scopecat.runs.access import RunStore, open_run_store
 from scopecat.session_candidate_config import (
     CandidateConfig,
     ParameterGuess,
@@ -33,6 +35,7 @@ AnalysisOutputKind = Literal[
     "figure",
     "guess",
     "external_ref",
+    "report",
 ]
 
 
@@ -43,6 +46,34 @@ class AnalysisExternalRef:
     artifact_kind: str | None = None
     path: str | None = None
     media_type: str | None = None
+
+
+@dataclass(frozen=True)
+class AnalysisReportRef:
+    target: str
+    target_type: Literal["artifact"]
+    artifact_kind: str
+    path: str
+    media_type: str | None = None
+
+
+@dataclass(frozen=True)
+class _AnalysisReportSpec:
+    title: str
+    source_path: Path | None
+    text: str | None
+    content: bytes | None
+    artifact_id: str | None
+    filename: str | None
+    media_type: str | None
+    metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class _PreparedAnalysisReport:
+    spec: _AnalysisReportSpec
+    artifact: Artifact
+    ref: AnalysisReportRef
 
 
 @dataclass(frozen=True)
@@ -58,6 +89,7 @@ class SavedAnalysis:
     artifact: Artifact
     path: str
     source_artifact_ids: tuple[str, ...] = ()
+    report_artifacts: tuple[Artifact, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -154,6 +186,82 @@ class Analysis:
             metadata,
         )
 
+    def report(
+        self,
+        *,
+        title: str,
+        path: str | Path | None = None,
+        text: str | None = None,
+        content: bytes | None = None,
+        artifact_id: str | None = None,
+        filename: str | None = None,
+        media_type: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> Analysis:
+        if not title.strip():
+            _raise_analysis_diagnostic(
+                "analysis_report_title_invalid",
+                "analysis report title must be a non-empty string",
+                "title",
+            )
+        selected_sources = [value is not None for value in (path, text, content)].count(
+            True
+        )
+        if selected_sources != 1:
+            _raise_analysis_diagnostic(
+                "analysis_report_source_invalid",
+                "analysis report requires exactly one of path, text, or content",
+                "report",
+            )
+        if artifact_id is not None and not artifact_id.strip():
+            _raise_analysis_diagnostic(
+                "analysis_report_artifact_id_invalid",
+                "analysis report artifact id must be a non-empty string",
+                "artifact_id",
+            )
+        if filename is not None and not _is_artifact_filename(filename):
+            _raise_analysis_diagnostic(
+                "analysis_report_filename_invalid",
+                f"analysis report filename must be a basename: {filename}",
+                "filename",
+            )
+        source_path: Path | None = None
+        if path is not None:
+            source_path = Path(path)
+            if not source_path.is_file():
+                _raise_analysis_diagnostic(
+                    "analysis_report_source_missing",
+                    f"analysis report source file is missing: {source_path}",
+                    "path",
+                )
+            selected_filename = filename or source_path.name
+            if not _is_artifact_filename(selected_filename):
+                _raise_analysis_diagnostic(
+                    "analysis_report_filename_invalid",
+                    (
+                        "analysis report filename must be a basename: "
+                        f"{selected_filename}"
+                    ),
+                    "filename",
+                )
+        elif filename is None:
+            _raise_analysis_diagnostic(
+                "analysis_report_filename_missing",
+                "analysis report text or bytes content requires filename",
+                "filename",
+            )
+        report_spec = _AnalysisReportSpec(
+            title=title,
+            source_path=source_path,
+            text=text,
+            content=content,
+            artifact_id=artifact_id,
+            filename=filename,
+            media_type=media_type,
+            metadata=metadata or {},
+        )
+        return self._with_output("report", title, report_spec, {})
+
     def guess(
         self,
         parameter_id: str,
@@ -211,6 +319,16 @@ class Analysis:
         )
         ref = f"artifacts/{selected_artifact_id}.json"
         source_artifact_ids = _analysis_source_artifact_ids(self.outputs)
+        storage = open_run_store(self.run.session.workspace)
+        report_artifacts, report_refs = _write_analysis_reports(
+            storage=storage,
+            run_id=self.run.id,
+            analysis_title=self.title,
+            analysis_artifact_id=selected_artifact_id,
+            outputs=self.outputs,
+            source_artifact_ids=source_artifact_ids,
+        )
+        report_ref_iter = iter(report_refs)
         content = {
             "schema_version": "scopecat.analysis.v1",
             "run_id": self.run.id,
@@ -220,14 +338,17 @@ class Analysis:
                 {
                     "kind": output.kind,
                     "title": output.title,
-                    "content": _json_safe(output.content),
+                    "content": _json_safe(
+                        next(report_ref_iter)
+                        if output.kind == "report"
+                        else output.content
+                    ),
                     "metadata": _json_safe(output.metadata),
                 }
                 for output in self.outputs
             ],
             "guesses": [_json_safe(guess) for guess in self.parameter_guesses],
         }
-        storage = open_run_store(self.run.session.workspace)
         storage.write_text(
             self.run.id,
             ref,
@@ -249,12 +370,13 @@ class Analysis:
         write_manifest_artifacts(
             storage=storage,
             manifest=storage.read_manifest(self.run.id),
-            artifacts=[artifact],
+            artifacts=[artifact, *report_artifacts],
         )
         return SavedAnalysis(
             artifact=artifact,
             path=ref,
             source_artifact_ids=source_artifact_ids,
+            report_artifacts=tuple(report_artifacts),
         )
 
     def _with_output(
@@ -331,7 +453,200 @@ def _analysis_source_artifact_ids(
     return tuple(artifact_ids)
 
 
-def _raise_analysis_diagnostic(code: str, message: str, path: str) -> None:
+def _write_analysis_reports(
+    *,
+    storage: RunStore,
+    run_id: str,
+    analysis_title: str,
+    analysis_artifact_id: str,
+    outputs: Sequence[AnalysisOutput],
+    source_artifact_ids: Sequence[str],
+) -> tuple[list[Artifact], list[AnalysisReportRef]]:
+    specs = _analysis_report_specs(outputs)
+    if not specs:
+        return [], []
+    prepared_reports: list[_PreparedAnalysisReport] = []
+    seen_artifact_ids = {analysis_artifact_id}
+    seen_filenames = {f"{analysis_artifact_id}.json"}
+    default_id_counts: dict[str, int] = {}
+    for spec in specs:
+        selected_artifact_id = _analysis_report_artifact_id(
+            spec,
+            analysis_title=analysis_title,
+            default_id_counts=default_id_counts,
+            seen_artifact_ids=seen_artifact_ids,
+        )
+        selected_filename = _analysis_report_filename(spec)
+        if selected_filename in seen_filenames:
+            _raise_analysis_diagnostic(
+                "analysis_report_filename_duplicated",
+                f"analysis report filename is duplicated: {selected_filename}",
+                "filename",
+            )
+        seen_filenames.add(selected_filename)
+        ref = f"artifacts/{selected_filename}"
+        media_type = _analysis_report_media_type(spec, selected_filename)
+        metadata = _json_mapping(cast("Mapping[object, object]", spec.metadata))
+        metadata.update(
+            {
+                "analysis_title": analysis_title,
+                "source_run_id": run_id,
+                "source_analysis_artifact_id": analysis_artifact_id,
+                "report_title": spec.title,
+                "source_artifact_ids": list(source_artifact_ids),
+            }
+        )
+        artifact = Artifact(
+            id=selected_artifact_id,
+            kind="analysis_report",
+            path=ref,
+            media_type=media_type,
+            metadata=metadata,
+        )
+        report_ref = AnalysisReportRef(
+            target=selected_artifact_id,
+            target_type="artifact",
+            artifact_kind="analysis_report",
+            path=ref,
+            media_type=media_type,
+        )
+        prepared_reports.append(
+            _PreparedAnalysisReport(
+                spec=spec,
+                artifact=artifact,
+                ref=report_ref,
+            )
+        )
+    for prepared in prepared_reports:
+        _write_analysis_report_content(
+            storage=storage,
+            run_id=run_id,
+            ref=prepared.artifact.path,
+            spec=prepared.spec,
+        )
+    return (
+        [prepared.artifact for prepared in prepared_reports],
+        [prepared.ref for prepared in prepared_reports],
+    )
+
+
+def _analysis_report_specs(
+    outputs: Sequence[AnalysisOutput],
+) -> list[_AnalysisReportSpec]:
+    specs: list[_AnalysisReportSpec] = []
+    for output in outputs:
+        if output.kind != "report":
+            continue
+        if not isinstance(output.content, _AnalysisReportSpec):
+            _raise_analysis_diagnostic(
+                "analysis_report_output_invalid",
+                "analysis report output has invalid content",
+                "outputs",
+            )
+        specs.append(output.content)
+    return specs
+
+
+def _analysis_report_artifact_id(
+    spec: _AnalysisReportSpec,
+    *,
+    analysis_title: str,
+    default_id_counts: dict[str, int],
+    seen_artifact_ids: set[str],
+) -> str:
+    if spec.artifact_id is not None:
+        if spec.artifact_id in seen_artifact_ids:
+            _raise_analysis_diagnostic(
+                "analysis_report_artifact_id_duplicated",
+                f"analysis report artifact id is duplicated: {spec.artifact_id}",
+                "artifact_id",
+            )
+        seen_artifact_ids.add(spec.artifact_id)
+        return spec.artifact_id
+    base_id = (
+        "analysis-report-"
+        f"{analysis_artifact_slug(analysis_title)}-"
+        f"{analysis_artifact_slug(spec.title)}"
+    )
+    count = default_id_counts.get(base_id, 0) + 1
+    default_id_counts[base_id] = count
+    selected = base_id if count == 1 else f"{base_id}-{count}"
+    while selected in seen_artifact_ids:
+        count += 1
+        default_id_counts[base_id] = count
+        selected = f"{base_id}-{count}"
+    seen_artifact_ids.add(selected)
+    return selected
+
+
+def _analysis_report_filename(spec: _AnalysisReportSpec) -> str:
+    if spec.filename is not None:
+        return spec.filename
+    if spec.source_path is not None:
+        return spec.source_path.name
+    _raise_analysis_diagnostic(
+        "analysis_report_filename_missing",
+        "analysis report text or bytes content requires filename",
+        "filename",
+    )
+
+
+def _analysis_report_media_type(
+    spec: _AnalysisReportSpec,
+    filename: str,
+) -> str:
+    if spec.media_type is not None:
+        return spec.media_type
+    guessed, _encoding = mimetypes.guess_type(filename)
+    if guessed is not None:
+        return guessed
+    if spec.text is not None:
+        return "text/plain"
+    return "application/octet-stream"
+
+
+def _write_analysis_report_content(
+    *,
+    storage: RunStore,
+    run_id: str,
+    ref: str,
+    spec: _AnalysisReportSpec,
+) -> None:
+    if spec.source_path is not None:
+        _write_run_bytes(storage, run_id, ref, spec.source_path.read_bytes())
+        return
+    if spec.text is not None:
+        storage.write_text(run_id, ref, spec.text)
+        return
+    if spec.content is not None:
+        _write_run_bytes(storage, run_id, ref, spec.content)
+        return
+    _raise_analysis_diagnostic(
+        "analysis_report_source_invalid",
+        "analysis report requires exactly one of path, text, or content",
+        "report",
+    )
+
+
+def _write_run_bytes(
+    storage: RunStore,
+    run_id: str,
+    ref: str,
+    content: bytes,
+) -> None:
+    path = storage.ref_path(run_id, ref)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
+def _is_artifact_filename(filename: str) -> bool:
+    if not filename or "\\" in filename:
+        return False
+    path = PurePosixPath(filename)
+    return path.name == filename and not path.is_absolute() and ".." not in path.parts
+
+
+def _raise_analysis_diagnostic(code: str, message: str, path: str) -> NoReturn:
     raise ValidationFailed(
         [
             Diagnostic(

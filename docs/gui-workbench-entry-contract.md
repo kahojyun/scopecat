@@ -8,7 +8,7 @@ workflow. The workbench should present the same objects notebook and script
 users already use:
 
 ```text
-Workspace -> Experiment -> Run -> Data -> Analysis -> CandidateConfig -> Comparison -> Report
+Workspace -> Experiment -> Run -> Data -> Analysis -> CandidateConfig -> Comparison -> Overview
 ```
 
 The GUI may add navigation, filtering, and review affordances, but it should
@@ -28,7 +28,8 @@ The first GUI version should map screens onto existing public objects:
 | Analysis artifacts | `Analysis` artifacts | artifact id, source artifact ids |
 | Candidate configs | `CandidateConfig` artifacts | candidate artifact id, source run id |
 | Comparisons | comparison artifacts | comparison id, baseline run id, candidate run id |
-| Reports | report artifacts | report artifact id, run id |
+| Overview | `RunOverview` view | run id |
+| Analysis reports | `analysis_report` artifacts | report artifact id, run id |
 
 The GUI should resolve artifacts by `Artifact.id` first. Paths are display and
 storage details, not navigation keys.
@@ -47,8 +48,9 @@ Workbench read paths should be thin wrappers around existing public readers:
   JSON payloads;
 - read candidate configs through typed `candidate_config` artifacts;
 - read comparisons through `Run.comparisons()` and comparison artifact ids;
-- read reports through `Workspace.report(run)`, `Run.report()`, and report
-  artifact ids.
+- read system overviews through `Workspace.overview(run)` and `Run.overview()`;
+- read user analysis reports through `Data.list(kind="analysis_report")` and
+  report artifact ids.
 
 Do not introduce a GUI artifact catalog. The run manifest artifact index is the
 shared discovery surface.
@@ -61,7 +63,7 @@ Keep GUI write actions small and reproducible from notebook code:
 - review a `CandidateConfig`;
 - run a follow-up `Experiment` with a reviewed candidate config;
 - compare two runs;
-- generate a run report.
+- save user analysis reports as `analysis_report` artifacts.
 
 Every GUI write should produce the same durable records as the equivalent
 notebook call. If an action cannot be reproduced from `Workspace`, `Run`,
@@ -81,8 +83,8 @@ The workbench entry contract is ready when:
 
 - every planned screen maps to an existing public object or typed artifact;
 - source data and analysis provenance are available through artifact ids;
-- reports and comparisons can cite analysis artifacts without scanning local
-  paths;
+- analysis reports and comparisons can cite analysis artifacts without scanning
+  local paths;
 - notebook and script workflows can reproduce GUI-visible state.
 
 Current public read entries:

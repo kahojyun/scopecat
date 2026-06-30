@@ -244,7 +244,140 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     ]
 
 
-def test_analysis_artifact_refs_dedupe_sources_and_feed_report(
+def test_run_analysis_persists_report_artifacts(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+        mode="native_simulate",
+        native_instrument_provider=TestSignalInstrumentProvider(),
+    )
+    run = lab.run(load_experiment())
+    source_report = tmp_path / "fit-report.html"
+    source_report.write_text("<h1>fit</h1>\n")
+
+    saved = (
+        run.analysis("manual report review")
+        .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
+        .report(
+            title="source html",
+            path=source_report,
+            artifact_id="manual-html-report",
+            metadata={"section": "fit"},
+        )
+        .report(
+            title="fit markdown",
+            text="best point: 1",
+            filename="fit-summary.md",
+            media_type="text/markdown",
+        )
+        .report(
+            title="plot bytes",
+            content=b"\x89PNG\r\n",
+            filename="fit-plot.bin",
+        )
+        .save()
+    )
+    saved_payload = run.data().json(saved.artifact.id)
+    overview = run.overview()
+
+    assert [output["kind"] for output in saved_payload.content["outputs"]] == [
+        "external_ref",
+        "report",
+        "report",
+        "report",
+    ]
+    assert [artifact.kind for artifact in saved.report_artifacts] == [
+        "analysis_report",
+        "analysis_report",
+        "analysis_report",
+    ]
+    assert [artifact.id for artifact in run.data().list(kind="analysis_report")] == [
+        "manual-html-report",
+        "analysis-report-manual-report-review-fit-markdown",
+        "analysis-report-manual-report-review-plot-bytes",
+    ]
+    assert run.data().text("manual-html-report").content == "<h1>fit</h1>\n"
+    assert (
+        run.data().text("analysis-report-manual-report-review-fit-markdown").content
+        == "best point: 1\n"
+    )
+    assert (
+        run.data().bytes("analysis-report-manual-report-review-plot-bytes").content
+        == b"\x89PNG\r\n"
+    )
+    assert saved.report_artifacts[0].metadata["section"] == "fit"
+    assert saved.report_artifacts[0].metadata["source_analysis_artifact_id"] == (
+        saved.artifact.id
+    )
+    assert saved.report_artifacts[0].metadata["source_artifact_ids"] == [
+        "raw-measurements"
+    ]
+    assert saved_payload.content["outputs"][1]["content"]["target"] == (
+        "manual-html-report"
+    )
+    assert [report.artifact_id for report in overview.overview.analysis_reports] == [
+        "analysis-report-manual-report-review-fit-markdown",
+        "analysis-report-manual-report-review-plot-bytes",
+        "manual-html-report",
+    ]
+    assert overview.overview.analysis_records[0].report_artifact_ids == [
+        "manual-html-report",
+        "analysis-report-manual-report-review-fit-markdown",
+        "analysis-report-manual-report-review-plot-bytes",
+    ]
+    assert "## Analysis Reports" in overview.markdown
+    assert "- Analysis record: analysis-manual-report-review" in overview.markdown
+
+
+def test_run_analysis_report_save_rejects_duplicate_ids_and_filenames(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+        mode="dry",
+    )
+    run = lab.run(load_experiment())
+
+    with pytest.raises(ValidationFailed) as duplicate_id:
+        (
+            run.analysis("manual report review")
+            .report(
+                title="first",
+                text="one",
+                filename="one.md",
+                artifact_id="fit-report",
+            )
+            .report(
+                title="second",
+                text="two",
+                filename="two.md",
+                artifact_id="fit-report",
+            )
+            .save()
+        )
+    with pytest.raises(ValidationFailed) as duplicate_filename:
+        (
+            run.analysis("manual report review")
+            .report(title="first", text="one", filename="same.md")
+            .report(title="second", text="two", filename="same.md")
+            .save()
+        )
+
+    assert duplicate_id.value.diagnostics[0].code == (
+        "analysis_report_artifact_id_duplicated"
+    )
+    assert duplicate_filename.value.diagnostics[0].code == (
+        "analysis_report_filename_duplicated"
+    )
+    run_artifacts_dir = tmp_path / "runs" / run.id / "artifacts"
+    assert not (run_artifacts_dir / "one.md").exists()
+    assert not (run_artifacts_dir / "same.md").exists()
+
+
+def test_analysis_artifact_refs_dedupe_sources_and_feed_overview(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -264,18 +397,15 @@ def test_analysis_artifact_refs_dedupe_sources_and_feed_report(
         .save()
     )
     saved_payload = run.data().json(saved.artifact.id)
-    report = run.report()
-    report_markdown = (
-        tmp_path / "runs" / run.id / "artifacts" / "run-report.md"
-    ).read_text()
+    overview = run.overview()
 
     assert saved.source_artifact_ids == ("raw-measurements",)
     assert saved.artifact.metadata["source_artifact_ids"] == ["raw-measurements"]
     assert saved_payload.content["source_artifact_ids"] == ["raw-measurements"]
-    assert [analysis.source_artifact_ids for analysis in report.report.analysis] == [
-        ["raw-measurements"]
-    ]
-    assert "- Source artifacts: raw-measurements" in report_markdown
+    assert [
+        analysis.source_artifact_ids for analysis in overview.overview.analysis_records
+    ] == [["raw-measurements"]]
+    assert "- Source artifacts: raw-measurements" in overview.markdown
 
 
 def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
@@ -290,6 +420,12 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     analysis = (
         baseline.analysis("gui review")
         .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
+        .report(
+            title="fit notes",
+            text="manual fit notes",
+            filename="gui-fit-notes.md",
+            media_type="text/markdown",
+        )
         .guess("drive_frequency", 5.0, unit="GHz", reason="manual fit")
     )
     saved = analysis.save()
@@ -297,7 +433,7 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     review = lab.review(candidate, note="accept from workbench")
     follow_up = lab.run(experiment, config=review)
     comparison = lab.compare(baseline, follow_up, observable="signal")
-    report = baseline.report()
+    overview = baseline.overview()
 
     reopened = sc.open(
         tmp_path,
@@ -322,8 +458,13 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     assert gui_data.json(saved.artifact.id).content["source_artifact_ids"] == [
         "raw-measurements"
     ]
+    assert [artifact.id for artifact in gui_data.list(kind="analysis_report")] == [
+        saved.report_artifacts[0].id
+    ]
+    assert gui_data.text(saved.report_artifacts[0].id).content == "manual fit notes\n"
     assert [view.id for view in gui_run.comparisons()] == [comparison.id]
-    assert gui_data.artifact(report.job.output_refs[0]).kind == "run_report"
+    assert overview.overview.run_id == baseline.id
+    assert "run-report-summary" not in baseline.artifacts
 
 
 @pytest.mark.parametrize(
@@ -338,6 +479,38 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
         (
             lambda analysis: analysis.guess("drive_frequency", 5.0, confidence=1.5),
             "analysis_guess_confidence_invalid",
+        ),
+        (
+            lambda analysis: analysis.report(title="", text="x", filename="x.md"),
+            "analysis_report_title_invalid",
+        ),
+        (
+            lambda analysis: analysis.report(
+                title="bad source",
+                text="x",
+                content=b"x",
+                filename="x.md",
+            ),
+            "analysis_report_source_invalid",
+        ),
+        (
+            lambda analysis: analysis.report(title="missing filename", text="x"),
+            "analysis_report_filename_missing",
+        ),
+        (
+            lambda analysis: analysis.report(
+                title="bad filename",
+                text="x",
+                filename="../x.md",
+            ),
+            "analysis_report_filename_invalid",
+        ),
+        (
+            lambda analysis: analysis.report(
+                title="missing path",
+                path=Path("missing-report.md"),
+            ),
+            "analysis_report_source_missing",
         ),
     ],
 )

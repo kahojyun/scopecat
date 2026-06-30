@@ -51,7 +51,7 @@ analysis.save()
 candidate = analysis.candidate_config()
 next_run = lab.run(experiment, config=candidate)
 comparison = lab.compare(run, next_run)
-report = lab.report(run)
+overview = lab.overview(run)
 ```
 
 `ExperimentSpec` and existing templates remain useful sources for experiments,

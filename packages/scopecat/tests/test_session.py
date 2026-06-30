@@ -97,7 +97,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     candidate = lab.run(experiment, config=review)
     comparison = lab.compare(baseline, candidate)
     comparison_review = comparison.review(state="accepted")
-    report = baseline.report()
+    overview = baseline.overview()
 
     assert baseline.id.startswith("run_")
     assert baseline.resolved_experiment is None
@@ -107,8 +107,9 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     assert candidate.manifest.status == "completed"
     assert comparison.result.outcome == "unchanged"
     assert comparison_review.review.decision == "accepted"
-    assert report.report.run_id == baseline.id
-    assert "run-report-summary" in baseline.artifacts
+    assert overview.overview.run_id == baseline.id
+    assert "run-report-summary" not in baseline.artifacts
+    assert "# Scopecat Run Overview" in overview.markdown
 
 
 def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
@@ -133,7 +134,7 @@ def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
     candidate = lab.run(experiment, config=candidate_config)
     comparison = lab.compare(baseline, candidate)
     review = comparison.review(state="accepted")
-    report = baseline.report()
+    overview = baseline.overview()
 
     assert baseline.manifest.runner_id == "scopecat.native"
     assert baseline.resolved_experiment is None
@@ -144,8 +145,8 @@ def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
     assert candidate.resolved_experiment is None
     assert comparison.result.outcome == "unchanged"
     assert review.review.decision == "accepted"
-    assert report.report.run_id == baseline.id
-    assert "run-report-summary" in baseline.artifacts
+    assert overview.overview.run_id == baseline.id
+    assert "run-report-summary" not in baseline.artifacts
 
 
 def test_session_template_browser_lists_builds_and_previews(tmp_path: Path) -> None:

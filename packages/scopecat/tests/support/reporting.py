@@ -6,16 +6,9 @@ from scopecat.config_registry import resolve_config_registry_config_source
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
 from scopecat.proposals import accept_parameter_proposal, review_parameter_proposal
-from scopecat.reporting import (
-    RUN_REPORT_JOB_REF,
-    RUN_REPORT_RESULT_REF,
-    RUN_REPORT_SUMMARY_REF,
-    ReportJob,
-    RunReport,
-)
 from scopecat.run_comparison import execute_run_comparison
 from scopecat.runs import open_run_store
-from tests.support.records import assert_artifact_ref, read_model
+from tests.support.records import read_model
 from tests.support.signal_testkit import (
     execute_best_signal_evaluation,
     execute_signal_native_run,
@@ -119,37 +112,16 @@ def simulated_run_with_active_candidate_comparison(tmp_path: Path) -> str:
     return baseline_run_id
 
 
-def assert_report_boundary_records(
-    tmp_path: Path, *, run_id: str, job: ReportJob, report: RunReport
-) -> None:
-    run_dir = tmp_path / "runs" / run_id
-
-    persisted_job = read_model(run_dir / RUN_REPORT_JOB_REF, ReportJob)
-    persisted_report = read_model(run_dir / RUN_REPORT_RESULT_REF, RunReport)
-
-    assert persisted_job == job
-    assert persisted_report == report
-    assert persisted_job.output_refs == [
-        RUN_REPORT_RESULT_REF,
-        RUN_REPORT_SUMMARY_REF,
-    ]
-
+def assert_run_overview_not_persisted(tmp_path: Path, *, run_id: str) -> None:
     manifest = open_run_store(tmp_path).read_manifest(run_id)
-    assert_artifact_ref(
-        manifest.artifact_refs,
-        "run-report-result",
-        kind="run_report",
-        path=RUN_REPORT_RESULT_REF,
-    )
-    assert_artifact_ref(
-        manifest.artifact_refs,
-        "run-report-summary",
-        kind="summary",
-        path=RUN_REPORT_SUMMARY_REF,
-    )
-    assert_artifact_ref(
-        manifest.artifact_refs,
-        "run-report-job",
-        kind="report_job",
-        path=RUN_REPORT_JOB_REF,
-    )
+    assert "run-report-result" not in {
+        artifact.id for artifact in manifest.artifact_refs
+    }
+    assert "run-report-summary" not in {
+        artifact.id for artifact in manifest.artifact_refs
+    }
+    assert "run-report-job" not in {artifact.id for artifact in manifest.artifact_refs}
+    run_dir = tmp_path / "runs" / run_id
+    assert not (run_dir / "artifacts" / "run-report.json").exists()
+    assert not (run_dir / "artifacts" / "run-report.md").exists()
+    assert not (run_dir / "reports" / "run-report.job.json").exists()

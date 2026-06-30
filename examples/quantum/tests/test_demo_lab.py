@@ -128,7 +128,8 @@ def test_notebook_style_examples_execute_user_workflows(tmp_path: Path) -> None:
     assert promoted_result.run.manifest.status == "completed"
     assert promoted_result.saved_analysis.artifact.kind == "analysis"
     assert promoted_result.candidate.guesses[0].parameter_id == "readout_frequency"
-    assert "artifacts/run-report.md" in promoted_result.report.job.output_refs
+    assert promoted_result.overview.overview.run_id == promoted_result.run.id
+    assert "Scopecat Run Overview" in promoted_result.overview.markdown
     assert review_result.baseline.manifest.status == "completed"
     assert review_result.follow_up.manifest.status == "completed"
     assert review_result.comparison.result.baseline_run_id == review_result.baseline.id

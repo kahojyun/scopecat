@@ -19,6 +19,7 @@ from scopecat.instruments.sdk import NativeInstrumentProvider
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.relations import col, grid, linspace, literal_rows
+from scopecat.reporting import render_run_overview
 from scopecat.session_analysis import (
     Analysis,
     AnalysisContext,
@@ -35,7 +36,7 @@ from scopecat.session_candidate_config import (
 )
 from scopecat.session_comparison import ComparisonHandle
 from scopecat.session_data import Data
-from scopecat.session_report import ReportHandle
+from scopecat.session_overview import OverviewHandle
 from scopecat.session_run_handle import (
     RunHandle,
     run_handle_id,
@@ -219,9 +220,13 @@ class _WorkspaceSession:
             workflow=result,
         )
 
-    def report(self, run: RunHandle | RunRef) -> ReportHandle:
-        job, report = self.client.report(run_handle_id(run))
-        return ReportHandle(session=self, job=job, report=report)
+    def overview(self, run: RunHandle | RunRef) -> OverviewHandle:
+        overview = self.client.overview(run_handle_id(run))
+        return OverviewHandle(
+            session=self,
+            overview=overview,
+            markdown=render_run_overview(overview),
+        )
 
     def runs(self) -> tuple[RunHandle, ...]:
         return tuple(
@@ -448,9 +453,9 @@ __all__ = [
     "ComparisonHandle",
     "Data",
     "Experiment",
+    "OverviewHandle",
     "ParameterGuess",
     "PromotedAnalysisStep",
-    "ReportHandle",
     "RunHandle",
     "SavedAnalysis",
     "SweepIntent",

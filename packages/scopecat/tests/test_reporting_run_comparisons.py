@@ -2,22 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat.reporting import generate_run_report
+from scopecat.reporting import build_run_overview, render_run_overview
 from scopecat.run_comparison import review_run_comparison
 from scopecat.runs import open_run_store
 from tests.support.records import require_artifact_by_kind
 from tests.support.reporting import simulated_run_with_active_candidate_comparison
 
 
-def test_generate_run_report_includes_run_comparison(
+def test_build_run_overview_includes_run_comparison(
     tmp_path: Path,
 ) -> None:
     baseline_run_id = simulated_run_with_active_candidate_comparison(tmp_path)
 
-    _job, report = generate_run_report(run_id=baseline_run_id, workspace=tmp_path)
+    overview = build_run_overview(run_id=baseline_run_id, workspace=tmp_path)
 
-    assert len(report.run_comparisons) == 1
-    comparison = report.run_comparisons[0]
+    assert len(overview.run_comparisons) == 1
+    comparison = overview.run_comparisons[0]
     assert comparison.baseline_run_id == baseline_run_id
     assert comparison.candidate_run_id.startswith("run_")
     assert comparison.outcome == "unchanged"
@@ -34,16 +34,14 @@ def test_generate_run_report_includes_run_comparison(
     assert comparison.review_status == "not_reviewed"
     assert comparison.decision is None
 
-    report_markdown = (
-        tmp_path / "runs" / baseline_run_id / "artifacts" / "run-report.md"
-    ).read_text()
-    assert "## Run Comparisons" in report_markdown
-    assert "- Outcome: unchanged" in report_markdown
-    assert "- Candidate config source: available" in report_markdown
-    assert "- Review status: not_reviewed" in report_markdown
+    overview_markdown = render_run_overview(overview)
+    assert "## Run Comparisons" in overview_markdown
+    assert "- Outcome: unchanged" in overview_markdown
+    assert "- Candidate config source: available" in overview_markdown
+    assert "- Review status: not_reviewed" in overview_markdown
 
 
-def test_generate_run_report_includes_reviewed_run_comparison(
+def test_build_run_overview_includes_reviewed_run_comparison(
     tmp_path: Path,
 ) -> None:
     baseline_run_id = simulated_run_with_active_candidate_comparison(tmp_path)
@@ -62,18 +60,16 @@ def test_generate_run_report_includes_reviewed_run_comparison(
         note="candidate accepted",
     )
 
-    _job, report = generate_run_report(run_id=baseline_run_id, workspace=tmp_path)
+    overview = build_run_overview(run_id=baseline_run_id, workspace=tmp_path)
 
-    comparison = report.run_comparisons[0]
+    comparison = overview.run_comparisons[0]
     assert comparison.review_status == "reviewed"
     assert comparison.review_ref == f"reviews/{comparison_id}.review.json"
     assert comparison.decision == "accepted"
     assert comparison.reviewer == "operator"
     assert comparison.note == "candidate accepted"
 
-    report_markdown = (
-        tmp_path / "runs" / baseline_run_id / "artifacts" / "run-report.md"
-    ).read_text()
-    assert "- Review status: reviewed" in report_markdown
-    assert "- Decision: accepted" in report_markdown
-    assert "- Reviewer: operator" in report_markdown
+    overview_markdown = render_run_overview(overview)
+    assert "- Review status: reviewed" in overview_markdown
+    assert "- Decision: accepted" in overview_markdown
+    assert "- Reviewer: operator" in overview_markdown

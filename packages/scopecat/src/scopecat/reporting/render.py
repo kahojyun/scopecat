@@ -1,47 +1,48 @@
-"""Run report rendering helpers."""
+"""Run overview rendering helpers."""
 
 from __future__ import annotations
 
 from typing import Any, cast
 
 from scopecat.reporting.models import (
-    AnalysisReport,
+    AnalysisRecordOverview,
+    AnalysisReportOverview,
     EvaluationReport,
     ProcessingReport,
-    RunReport,
+    RunOverview,
 )
 
 
-def render_run_report(report: RunReport) -> str:
+def render_run_overview(overview: RunOverview) -> str:
     lines = [
-        "# Scopecat Run Report",
+        "# Scopecat Run Overview",
         "",
-        f"- Run ID: {report.run.run_id}",
-        f"- Status: {report.run.status}",
-        f"- Runner: {report.run.runner_id}",
-        f"- Dry-run: {str(report.run.dry_run).lower()}",
-        f"- Experiment: {report.run.experiment_ref}",
-        f"- Workspace: {report.run.workspace_ref}",
-        f"- Device: {report.run.device_ref}",
+        f"- Run ID: {overview.run.run_id}",
+        f"- Status: {overview.run.status}",
+        f"- Runner: {overview.run.runner_id}",
+        f"- Dry-run: {str(overview.run.dry_run).lower()}",
+        f"- Experiment: {overview.run.experiment_ref}",
+        f"- Workspace: {overview.run.workspace_ref}",
+        f"- Device: {overview.run.device_ref}",
         "",
         "## Config Source",
         "",
     ]
-    if report.config_source.status == "available":
+    if overview.config_source.status == "available":
         lines.extend(
             [
-                f"- Status: {report.config_source.status}",
-                f"- Source kind: {report.config_source.source_kind}",
-                f"- Selector: {report.config_source.selector}",
-                f"- Entry: {report.config_source.entry_id}",
-                f"- Config ref: {report.config_source.config_ref}",
+                f"- Status: {overview.config_source.status}",
+                f"- Source kind: {overview.config_source.source_kind}",
+                f"- Selector: {overview.config_source.selector}",
+                f"- Entry: {overview.config_source.entry_id}",
+                f"- Config ref: {overview.config_source.config_ref}",
                 (
                     "- Active state: "
-                    f"{_optional_text(report.config_source.active_state_ref)}"
+                    f"{_optional_text(overview.config_source.active_state_ref)}"
                 ),
                 (
                     "- Active record: "
-                    f"{_optional_text(report.config_source.active_record_id)}"
+                    f"{_optional_text(overview.config_source.active_record_id)}"
                 ),
             ]
         )
@@ -49,8 +50,8 @@ def render_run_report(report: RunReport) -> str:
         lines.append("- Status: not_available")
 
     lines.extend(["", "## Run Comparisons", ""])
-    if report.run_comparisons:
-        for comparison in report.run_comparisons:
+    if overview.run_comparisons:
+        for comparison in overview.run_comparisons:
             lines.extend(
                 [
                     f"### {comparison.comparison_id}",
@@ -112,8 +113,8 @@ def render_run_report(report: RunReport) -> str:
         lines.append("- none")
 
     lines.extend(["", "## Artifacts", ""])
-    if report.artifact_refs:
-        for artifact in report.artifact_refs:
+    if overview.artifact_refs:
+        for artifact in overview.artifact_refs:
             lines.append(
                 f"- {artifact.id}: {artifact.kind}, "
                 f"{artifact.media_type or '-'}, {artifact.path}"
@@ -121,30 +122,37 @@ def render_run_report(report: RunReport) -> str:
     else:
         lines.append("- none")
 
-    lines.extend(["", "## Analysis", ""])
-    if report.analysis:
-        for analysis in report.analysis:
-            lines.extend(_analysis_report_lines(analysis))
+    lines.extend(["", "## Analysis Records", ""])
+    if overview.analysis_records:
+        for analysis in overview.analysis_records:
+            lines.extend(_analysis_record_lines(analysis))
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Analysis Reports", ""])
+    if overview.analysis_reports:
+        for analysis_report in overview.analysis_reports:
+            lines.extend(_analysis_report_lines(analysis_report))
     else:
         lines.append("- none")
 
     lines.extend(["", "## Processing", ""])
-    if report.processing:
-        for processing in report.processing:
+    if overview.processing:
+        for processing in overview.processing:
             lines.extend(_step_report_lines(processing))
     else:
         lines.append("- none")
 
     lines.extend(["", "## Evaluation", ""])
-    if report.evaluation:
-        for evaluation in report.evaluation:
+    if overview.evaluation:
+        for evaluation in overview.evaluation:
             lines.extend(_step_report_lines(evaluation))
     else:
         lines.append("- none")
 
     lines.extend(["", "## Proposals", ""])
-    if report.proposals:
-        for proposal in report.proposals:
+    if overview.proposals:
+        for proposal in overview.proposals:
             lines.extend(
                 [
                     f"### {proposal.id}",
@@ -180,15 +188,33 @@ def render_run_report(report: RunReport) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _analysis_report_lines(report: AnalysisReport) -> list[str]:
+def _analysis_record_lines(record: AnalysisRecordOverview) -> list[str]:
+    lines = [
+        f"### {record.title}",
+        "",
+        f"- Artifact: {record.artifact_id}",
+        f"- Ref: {record.ref}",
+        f"- Outputs: {', '.join(record.output_kinds) or 'none'}",
+        f"- Guesses: {record.guess_count}",
+    ]
+    if record.source_artifact_ids:
+        lines.append(f"- Source artifacts: {', '.join(record.source_artifact_ids)}")
+    if record.report_artifact_ids:
+        lines.append(f"- Reports: {', '.join(record.report_artifact_ids)}")
+    lines.append("")
+    return lines
+
+
+def _analysis_report_lines(report: AnalysisReportOverview) -> list[str]:
     lines = [
         f"### {report.title}",
         "",
         f"- Artifact: {report.artifact_id}",
         f"- Ref: {report.ref}",
-        f"- Outputs: {', '.join(report.output_kinds) or 'none'}",
-        f"- Guesses: {report.guess_count}",
+        f"- Media type: {report.media_type or '-'}",
     ]
+    if report.source_analysis_artifact_id is not None:
+        lines.append(f"- Analysis record: {report.source_analysis_artifact_id}")
     if report.source_artifact_ids:
         lines.append(f"- Source artifacts: {', '.join(report.source_artifact_ids)}")
     lines.append("")

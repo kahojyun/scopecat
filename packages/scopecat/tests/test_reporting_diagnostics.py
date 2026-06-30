@@ -8,7 +8,7 @@ import pytest
 from scopecat.errors import ValidationFailed
 from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.reporting import generate_run_report
+from scopecat.reporting import build_run_overview
 from scopecat.runs import open_run_store
 from tests.support.records import read_model, require_artifact_by_kind
 from tests.support.reporting import (
@@ -18,7 +18,7 @@ from tests.support.reporting import (
 from tests.support.signal_testkit import execute_best_signal_evaluation
 
 
-def test_generate_run_report_missing_run_comparison_reports_stable_diagnostic(
+def test_build_run_overview_missing_run_comparison_reports_stable_diagnostic(
     tmp_path: Path,
 ) -> None:
     baseline_run_id = simulated_run_with_active_candidate_comparison(tmp_path)
@@ -30,12 +30,12 @@ def test_generate_run_report_missing_run_comparison_reports_stable_diagnostic(
     (tmp_path / "runs" / baseline_run_id / comparison_artifact.path).unlink()
 
     with pytest.raises(ValidationFailed) as error:
-        generate_run_report(run_id=baseline_run_id, workspace=tmp_path)
+        build_run_overview(run_id=baseline_run_id, workspace=tmp_path)
 
     assert error.value.diagnostics[0].code == "missing_report_input"
 
 
-def test_generate_run_report_missing_run_comparison_job_reports_stable_diagnostic(
+def test_build_run_overview_missing_run_comparison_job_reports_stable_diagnostic(
     tmp_path: Path,
 ) -> None:
     baseline_run_id = simulated_run_with_active_candidate_comparison(tmp_path)
@@ -47,12 +47,12 @@ def test_generate_run_report_missing_run_comparison_job_reports_stable_diagnosti
     comparison_job.unlink()
 
     with pytest.raises(ValidationFailed) as error:
-        generate_run_report(run_id=baseline_run_id, workspace=tmp_path)
+        build_run_overview(run_id=baseline_run_id, workspace=tmp_path)
 
     assert error.value.diagnostics[0].code == "missing_report_input"
 
 
-def test_generate_run_report_invalid_run_comparison_reports_stable_diagnostic(
+def test_build_run_overview_invalid_run_comparison_reports_stable_diagnostic(
     tmp_path: Path,
 ) -> None:
     baseline_run_id = simulated_run_with_active_candidate_comparison(tmp_path)
@@ -64,36 +64,36 @@ def test_generate_run_report_invalid_run_comparison_reports_stable_diagnostic(
     (tmp_path / "runs" / baseline_run_id / comparison_artifact.path).write_text("{}\n")
 
     with pytest.raises(ValidationFailed) as error:
-        generate_run_report(run_id=baseline_run_id, workspace=tmp_path)
+        build_run_overview(run_id=baseline_run_id, workspace=tmp_path)
 
     assert error.value.diagnostics[0].code == "invalid_report_input"
 
 
-def test_generate_run_report_missing_config_snapshot_reports_stable_diagnostic(
+def test_build_run_overview_missing_config_snapshot_reports_stable_diagnostic(
     tmp_path: Path,
 ) -> None:
     run_id = simulate(tmp_path)
     (tmp_path / "runs" / run_id / "config-profile.snapshot.json").unlink()
 
     with pytest.raises(ValidationFailed) as error:
-        generate_run_report(run_id=run_id, workspace=tmp_path)
+        build_run_overview(run_id=run_id, workspace=tmp_path)
 
     assert error.value.diagnostics[0].code == "missing_report_input"
 
 
-def test_generate_run_report_invalid_config_snapshot_reports_stable_diagnostic(
+def test_build_run_overview_invalid_config_snapshot_reports_stable_diagnostic(
     tmp_path: Path,
 ) -> None:
     run_id = simulate(tmp_path)
     (tmp_path / "runs" / run_id / "config-profile.snapshot.json").write_text("{}\n")
 
     with pytest.raises(ValidationFailed) as error:
-        generate_run_report(run_id=run_id, workspace=tmp_path)
+        build_run_overview(run_id=run_id, workspace=tmp_path)
 
     assert error.value.diagnostics[0].code == "invalid_report_input"
 
 
-def test_generate_run_report_invalid_config_source_reports_stable_diagnostic(
+def test_build_run_overview_invalid_config_source_reports_stable_diagnostic(
     tmp_path: Path,
 ) -> None:
     run_id = simulate(tmp_path)
@@ -104,12 +104,12 @@ def test_generate_run_report_invalid_config_source_reports_stable_diagnostic(
     config_path.write_text(json.dumps(config_json, indent=2) + "\n")
 
     with pytest.raises(ValidationFailed) as error:
-        generate_run_report(run_id=run_id, workspace=tmp_path)
+        build_run_overview(run_id=run_id, workspace=tmp_path)
 
     assert error.value.diagnostics[0].code == "invalid_report_input"
 
 
-def test_generate_run_report_invalid_proposal_reports_stable_diagnostic(
+def test_build_run_overview_invalid_proposal_reports_stable_diagnostic(
     tmp_path: Path,
 ) -> None:
     run_id = simulate(tmp_path)
@@ -120,12 +120,12 @@ def test_generate_run_report_invalid_proposal_reports_stable_diagnostic(
     proposal_path.write_text("{}\n")
 
     with pytest.raises(ValidationFailed) as error:
-        generate_run_report(run_id=run_id, workspace=tmp_path)
+        build_run_overview(run_id=run_id, workspace=tmp_path)
 
     assert error.value.diagnostics[0].code == "invalid_report_input"
 
 
-def test_generate_run_report_proposal_path_escape_reports_stable_diagnostic(
+def test_build_run_overview_proposal_path_escape_reports_stable_diagnostic(
     tmp_path: Path,
 ) -> None:
     run_id = simulate(tmp_path)
@@ -141,12 +141,12 @@ def test_generate_run_report_proposal_path_escape_reports_stable_diagnostic(
     storage.write_manifest(manifest)
 
     with pytest.raises(ValidationFailed) as error:
-        generate_run_report(run_id=run_id, workspace=tmp_path)
+        build_run_overview(run_id=run_id, workspace=tmp_path)
 
     assert error.value.diagnostics[0].code == "artifact_path_escape"
 
 
-def test_generate_run_report_directory_artifact_reports_stable_diagnostic(
+def test_build_run_overview_directory_artifact_reports_stable_diagnostic(
     tmp_path: Path,
 ) -> None:
     run_id = simulate(tmp_path)
@@ -163,6 +163,6 @@ def test_generate_run_report_directory_artifact_reports_stable_diagnostic(
     storage.write_manifest(manifest)
 
     with pytest.raises(ValidationFailed) as error:
-        generate_run_report(run_id=run_id, workspace=tmp_path)
+        build_run_overview(run_id=run_id, workspace=tmp_path)
 
     assert error.value.diagnostics[0].code == "report_artifact_is_directory"

@@ -37,7 +37,7 @@ def test_root_public_surface_is_user_facing() -> None:
         "Experiment",
         "ParameterGuess",
         "PromotedAnalysisStep",
-        "ReportHandle",
+        "OverviewHandle",
         "Run",
         "RunHandle",
         "SavedAnalysis",

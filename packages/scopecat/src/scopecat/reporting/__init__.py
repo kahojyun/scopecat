@@ -1,21 +1,17 @@
-"""Run report generation."""
+"""Run overview generation."""
 
 from scopecat.reporting.models import (
-    ReportJob,
-    RunReport,
+    RunOverview,
+)
+from scopecat.reporting.render import (
+    render_run_overview,
 )
 from scopecat.reporting.run_report import (
-    RUN_REPORT_JOB_REF,
-    RUN_REPORT_RESULT_REF,
-    RUN_REPORT_SUMMARY_REF,
-    generate_run_report,
+    build_run_overview,
 )
 
 __all__ = [
-    "RUN_REPORT_JOB_REF",
-    "RUN_REPORT_RESULT_REF",
-    "RUN_REPORT_SUMMARY_REF",
-    "ReportJob",
-    "RunReport",
-    "generate_run_report",
+    "RunOverview",
+    "build_run_overview",
+    "render_run_overview",
 ]

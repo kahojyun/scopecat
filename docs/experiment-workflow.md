@@ -15,7 +15,7 @@ The public path is Python-first. Notebooks and scripts start with
 `sc.open -> Workspace.experiment -> Workspace.run -> Run.data -> Run.analysis`
 and then optionally continue to `Analysis.candidate_config`,
 `Workspace.review`, follow-up `Workspace.run`, `Workspace.compare`, and
-`Workspace.report`.
+`Workspace.overview`.
 Durable JSON models remain useful for tests, debugging, storage, and boundary
 contracts, but they should not become the main authoring surface.
 
@@ -228,10 +228,11 @@ Multi-run calibration campaigns wrap ordinary experiments. They order readout,
 Rabi, T1, candidate activation, and comparison runs by explicit dependencies
 and produced artifacts; they do not require nested experiment syntax.
 
-## Compare And Report
+## Compare, Report, And Overview
 
-Reports are artifacts that link back to source runs, datasets, analysis
-artifacts, candidate configs, and comparisons.
+User reports are analysis or step artifacts that link back to source runs,
+datasets, analysis artifacts, candidate configs, and comparisons. Run overviews
+are transient views rebuilt from those durable records.
 
 Run comparison is the review point after a candidate configuration has been
 used for a follow-up run.
