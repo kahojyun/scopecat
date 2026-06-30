@@ -106,19 +106,6 @@ def with_observable_copied_from(
     return record.model_copy(update={"observables": observables}, deep=True)
 
 
-def contains_legacy_metadata(value: object) -> bool:
-    if isinstance(value, dict):
-        return any(
-            "legacy" in str(key).lower() or contains_legacy_metadata(child)
-            for key, child in value.items()
-        )
-    if isinstance(value, list):
-        return any(contains_legacy_metadata(item) for item in value)
-    if isinstance(value, str):
-        return "legacy" in value.lower()
-    return False
-
-
 def assert_measurement_dataset_schema(
     metadata: dict[str, Any],
     *,

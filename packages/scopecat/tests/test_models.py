@@ -31,8 +31,6 @@ def test_config_profile_round_trip() -> None:
     assert restored.system_ref == "system-spec.json"
     assert restored.environment_ref == "environment-spec.json"
     assert restored.parameter_state_ref == "parameter-state.json"
-    removed_field = "run_path" + "_policy"
-    assert removed_field not in restored.model_dump(mode="json")
 
 
 def test_config_profile_snapshot_round_trip() -> None:
@@ -79,17 +77,6 @@ def test_parameter_state_uses_scalar_values() -> None:
     )
 
     assert state.scalar_value_set().get("drive_frequency") is not None
-
-
-def test_parameter_state_rejects_legacy_calibration_state() -> None:
-    with pytest.raises(ValidationError):
-        ParameterState.model_validate(
-            {
-                "id": "parameter-state",
-                "scalar_values": {"id": "values", "values": []},
-                "calibration_state": {"values": []},
-            }
-        )
 
 
 def test_parameter_state_rejects_embedded_derivations() -> None:

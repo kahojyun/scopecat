@@ -1,52 +1,40 @@
-# Scopecat Documentation Map
+# Scopecat Design Documents
 
-Status: current documentation entry point
-Date: 2026-06-29
+This directory is deliberately small. Keep documents here only when they define
+project direction, durable architecture, or constraints that would be costly to
+recover from code and tests.
 
-Start with the current workflow documents. Keep new design notes only when
-they define an active contract, a current sequencing rule, or a boundary that
-would be hard to recover from code.
+Do not use `docs/` to mirror the current implementation. Module lists, field
+inventories, migration logs, and short-term plans belong in code, tests,
+fixtures, issues, or commit history.
 
-## Current Baseline
+## Long-Lived Documents
 
-- [Project charter](project-charter.md): project scope, users, and direction.
-- [Architecture](architecture.md): accepted package and boundary model.
-- [Experiment workflow](experiment-workflow.md): public
-  `Workspace -> Experiment -> Run -> Data -> Analysis` workflow.
-- [Parameter system](parameter-system.md): accepted parameter-state and
-  candidate-review model.
-- [Native experiment kernel detail](native-experiment-definition-design.md):
-  durable experiment kernel and adapter boundary.
-- [GUI workbench entry contract](gui-workbench-entry-contract.md): future GUI
-  navigation mapped onto the notebook-first objects.
-- [Next development plan](next-development-plan.md): current sequencing rules
-  and explicit deferrals.
+- [Project charter](project-charter.md): product scope, users, non-goals, and
+  architecture principles.
+- [Architecture](architecture.md): accepted core model, package boundaries,
+  experiment kernel, relation rules, and ownership split.
+- [Experiment workflow](experiment-workflow.md): stable public workflow from
+  workspace opening through runs, data, analysis, candidates, comparison, and
+  reports.
+- [Parameter system](parameter-system.md): accepted parameter-state,
+  derivation, patch, and candidate-review model.
+- [Data and storage contracts](data-storage-contracts.md): durable record
+  graph, artifact indexing, measurement shapes, plan previews, calibration
+  evidence, and diagnostics constraints.
+- [Extension boundaries](extension-boundaries.md): core/domain split, example
+  package rules, future domain extraction criteria, and GUI/workbench entry
+  constraints.
 
-## Storage And Data Contracts
+## Admission Rule
 
-- [Storage workspace and manifest contract](storage-workspace-manifest-contract.md)
-- [Measurement storage backends contract](measurement-storage-backends-contract.md)
-- [Diagnostics catalog](diagnostics-catalog.md)
-- [PlanSnapshot preview storage contract](plan-snapshot-preview-storage-contract.md)
-- [Relation execution and function registry contract](relation-execution-function-registry-contract.md)
-- [Calibration state shape contract](calibration-state-shape-contract.md)
-- [Diagnostics catalog contract](diagnostics-catalog-contract.md)
+Add a new document only when it answers at least one of these questions:
 
-These documents describe durable records and internal boundaries. They may
-mention older internal record-family names when those names describe existing
-persistence internals, not the public UX model.
+- What direction or non-goal should future changes preserve?
+- Which durable record or boundary would be hard to infer from code alone?
+- Which ownership rule prevents domain, storage, GUI, or adapter concerns from
+  leaking into the core?
+- Which explicit deferral prevents premature abstraction?
 
-## Examples And Domain Boundaries
-
-- [Domain package extraction contract](domain-package-extraction-contract.md):
-  examples layout, demo support-package boundary, and criteria for extracting
-  future domain packages.
-
-## Pruned Documents
-
-Completed migration notes and broad research backlogs should not stay as
-separate files after their decisions are represented in current contracts. The
-former workflow migration record, examples reorganization record, measurement
-data-shapes backlog, and completed immediate engineering execution plan were
-folded into the current workflow, development plan, domain-package,
-measurement-storage, diagnostics, and example documents.
+Otherwise, update the relevant code, tests, fixtures, or one of the existing
+documents.

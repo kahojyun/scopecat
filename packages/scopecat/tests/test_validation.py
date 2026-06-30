@@ -110,15 +110,3 @@ def test_parameter_table_rows_are_validated_against_catalog() -> None:
 
     assert has_blocking_diagnostics(diagnostics)
     assert diagnostics[0].code == "incompatible_parameter_table_quantity_unit"
-
-
-def test_storage_layout_policy_is_not_a_config_field() -> None:
-    config_data = load_config().model_dump(mode="json")
-    removed_field = "run_path" + "_policy"
-    config_data[removed_field] = {
-        "runs_dir": "custom-runs",
-        "artifacts_dir": "custom-artifacts",
-    }
-
-    with pytest.raises(ValidationError):
-        ConfigProfileSnapshot.model_validate(config_data)

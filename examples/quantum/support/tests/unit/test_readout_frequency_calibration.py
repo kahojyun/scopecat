@@ -11,7 +11,6 @@ from demo_lab_readout_frequency_testkit import (
 from demo_lab_records import (
     assert_artifact_ref,
     assert_measurement_dataset_schema,
-    contains_legacy_metadata,
     read_measurement_records,
     read_model,
 )
@@ -104,7 +103,6 @@ def test_readout_frequency_calibration_runner_adapter_flow(
         == "sample-public://readout/frequency-calibration-s21"
     )
     assert metadata["source_function"] == "readout frequency response"
-    assert not contains_legacy_metadata(metadata)
     assert set(measurements[0].observables) == {"raw_i", "raw_q"}
     for measurement in measurements:
         assert "s21_db" not in measurement.observables

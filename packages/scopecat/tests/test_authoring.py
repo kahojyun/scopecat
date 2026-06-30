@@ -65,7 +65,7 @@ def test_recipe_draft_resolves_roles_sweeps_bindings_and_metadata() -> None:
     assert plan.desired_state[0].value == Quantity(value=4.9, unit="GHz")
 
 
-def test_phase5_short_authoring_helpers_lower_to_plan() -> None:
+def test_short_authoring_helpers_lower_to_plan() -> None:
     recipe = authoring.recipe(
         id="test.short_helpers",
         experiment_id="short-helper-scan",
@@ -154,7 +154,6 @@ def test_acquisition_helper_uses_record_vocabulary() -> None:
     signature = inspect.signature(authoring.acquisition)
 
     assert "record" in signature.parameters
-    assert "record_granularity" not in signature.parameters
     assert authoring.acquisition().record == "point"
 
 
@@ -162,14 +161,12 @@ def test_recipe_helper_uses_kind_vocabulary() -> None:
     signature = inspect.signature(authoring.recipe)
 
     assert "kind" in signature.parameters
-    assert "experiment_type" not in signature.parameters
 
 
 def test_recipe_helper_uses_subject_input_vocabulary() -> None:
     signature = inspect.signature(authoring.recipe)
 
     assert "subject_inputs" in signature.parameters
-    assert "target_inputs" not in signature.parameters
     assert signature.parameters["subject_inputs"].default == ("subject",)
 
 

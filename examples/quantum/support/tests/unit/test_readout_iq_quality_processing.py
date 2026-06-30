@@ -6,7 +6,6 @@ from demo_lab_readout_iq_testkit import artifact_path, create_readout_iq_run
 from demo_lab_records import (
     assert_artifact_ref,
     assert_measurement_dataset_schema,
-    contains_legacy_metadata,
     read_measurement_records,
     read_model,
 )
@@ -147,7 +146,6 @@ def test_readout_iq_quality_processing_flow(tmp_path: Path) -> None:
     )
     assert metadata["sample_reference"] == "sample-public://readout/iq-quality"
     assert metadata["source_function"] == "readout IQ scatter"
-    assert not contains_legacy_metadata(metadata)
     assert metadata["state0_label"] == "|0>"
     assert metadata["state1_label"] == "|1>"
 

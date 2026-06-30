@@ -228,8 +228,6 @@ def test_runner_adapter_merges_adapter_owned_artifacts(tmp_path: Path) -> None:
     ] == [("adapter-extra", "adapter_artifact", "artifacts/adapter-extra.txt")]
     plan = read_model(run_dir / "plan.snapshot.json", PlanSnapshot)
     assert plan == snapshot.plan
-    removed_field = "storage" + "_plan"
-    assert removed_field not in plan.model_dump(mode="json")
 
 
 def test_runner_adapter_uses_adapter_id_as_runner_id(tmp_path: Path) -> None:

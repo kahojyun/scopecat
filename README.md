@@ -77,8 +77,8 @@ More quantum examples and their validation commands live in
 
 ## Design Notes
 
-Use [docs/README.md](docs/README.md) as the entry point for current design
-notes, subsystem contracts, and historical implementation records.
+Use [docs/README.md](docs/README.md) as the entry point for long-lived design
+direction, architecture boundaries, and durable data contracts.
 
 ## Development
 
