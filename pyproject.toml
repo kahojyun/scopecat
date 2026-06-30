@@ -15,6 +15,9 @@ dev = [
   "pytest>=9",
   "ruff>=0.15.14",
 ]
+notebook = [
+  "ipykernel>=6.29",
+]
 
 [tool.basedpyright]
 include = [
@@ -88,6 +91,7 @@ ignore = [
 
 [tool.uv]
 exclude-newer = "14d"
+default-groups = ["dev", "notebook"]
 package = false
 
 [tool.uv.sources]

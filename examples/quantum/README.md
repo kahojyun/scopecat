@@ -25,6 +25,12 @@ uv run python examples/quantum/notebooks/06_review_candidate_and_rerun.py
 ```
 
 Each notebook can also be opened as a `# %%` cell-style Python file.
+For VS Code notebook/cell execution, sync the workspace environment first.
+The default sync includes the notebook kernel dependencies:
+
+```sh
+uv sync
+```
 
 ## Notebook Map
 
