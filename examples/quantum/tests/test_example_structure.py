@@ -68,6 +68,40 @@ def test_script_examples_are_thin_workflow_wrappers() -> None:
         assert "quantum_lab_demo" in imported_from
 
 
+def test_notebook_examples_are_top_level_cell_flows() -> None:
+    for path in sorted(NOTEBOOKS_DIR.glob("*.py")):
+        source = path.read_text()
+        tree = ast.parse(source)
+        definitions = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(
+                node,
+                ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef,
+            )
+        ]
+        imported_modules = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        imported_from = {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module is not None
+        }
+
+        assert "# %%" in source
+        assert definitions == []
+        assert "dataclasses" not in imported_from
+        assert "sys" not in imported_modules
+        assert "scopecat" not in imported_modules
+        assert "quantum_lab_demo.virtual_lab.provider" not in imported_from
+        assert "native_instrument_provider" not in source
+        assert "notebook_workspace" in source
+
+
 def test_readmes_explain_how_to_copy_examples_into_a_lab() -> None:
     example_readme = (EXAMPLE_ROOT / "README.md").read_text()
     support_readme = (SUPPORT_DIR / "README.md").read_text()

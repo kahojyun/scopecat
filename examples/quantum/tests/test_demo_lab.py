@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import importlib.util
+import runpy
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
+
+import pytest
 
 from quantum_lab_demo import (
+    NOTEBOOK_WORKSPACE_ROOT_ENV,
     run_readout_frequency_workflow,
     run_readout_iq_workflow,
     run_sample_native_experiments,
@@ -18,10 +23,6 @@ NOTEBOOKS_DIR = EXAMPLE_ROOT / "notebooks"
 
 def _load_script(name: str) -> ModuleType:
     return _load_script_path(SCRIPTS_DIR / f"{name}.py")
-
-
-def _load_notebook_example(name: str) -> ModuleType:
-    return _load_script_path(NOTEBOOKS_DIR / name)
 
 
 def _load_script_path(path: Path) -> ModuleType:
@@ -100,39 +101,55 @@ def test_demo_lab_scripts_return_workflow_results(tmp_path: Path) -> None:
     assert [run.manifest.status for run in sample_result.runs] == ["completed"] * 4
 
 
-def test_notebook_style_examples_execute_user_workflows(tmp_path: Path) -> None:
-    open_workspace = _load_notebook_example("01_open_workspace.py")
-    define_experiment = _load_notebook_example("02_define_experiment.py")
-    run_and_read = _load_notebook_example("03_run_and_read_data.py")
-    manual_analysis = _load_notebook_example("04_manual_analysis.py")
-    promoted_analysis = _load_notebook_example("05_promote_analysis_step.py")
-    review_rerun = _load_notebook_example("06_review_candidate_and_rerun.py")
+def test_notebook_style_examples_execute_user_workflows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(NOTEBOOK_WORKSPACE_ROOT_ENV, str(tmp_path))
 
-    open_result = open_workspace.run(workspace=tmp_path / "open")
-    define_result = define_experiment.run(workspace=tmp_path / "define")
-    run_data_result = run_and_read.run(workspace=tmp_path / "run-data")
-    manual_result = manual_analysis.run(workspace=tmp_path / "manual-analysis")
-    promoted_result = promoted_analysis.run(workspace=tmp_path / "promoted-analysis")
-    review_result = review_rerun.run(workspace=tmp_path / "review-rerun")
+    open_workspace = _run_notebook("01_open_workspace.py")
+    define_experiment = _run_notebook("02_define_experiment.py")
+    run_and_read = _run_notebook("03_run_and_read_data.py")
+    manual_analysis = _run_notebook("04_manual_analysis.py")
+    promoted_analysis = _run_notebook("05_promote_analysis_step.py")
+    review_rerun = _run_notebook("06_review_candidate_and_rerun.py")
 
-    assert open_result.workspace_path == tmp_path / "open"
-    assert define_result.template_id == "quantum_lab_demo.readout.frequency_calibration"
-    assert define_result.sweep_points == 41
-    assert run_data_result.run.manifest.status == "completed"
-    assert run_data_result.measurement_count == 101
-    assert "raw-measurements" in run_data_result.artifact_ids
-    assert manual_result.baseline.manifest.status == "completed"
-    assert manual_result.follow_up.manifest.status == "completed"
-    assert manual_result.saved_analysis.source_artifact_ids == ("raw-measurements",)
-    assert manual_result.review.candidate_config_artifact.kind == "candidate_config"
-    assert promoted_result.run.manifest.status == "completed"
-    assert promoted_result.saved_analysis.artifact.kind == "analysis"
-    assert promoted_result.candidate.guesses[0].parameter_id == "readout_frequency"
-    assert promoted_result.overview.overview.run_id == promoted_result.run.id
-    assert "Scopecat Run Overview" in promoted_result.overview.markdown
-    assert review_result.baseline.manifest.status == "completed"
-    assert review_result.follow_up.manifest.status == "completed"
-    assert review_result.comparison.result.baseline_run_id == review_result.baseline.id
+    assert open_workspace["workspace"] == tmp_path / "notebooks" / "01-open-workspace"
+    assert open_workspace["lab"].workspace == open_workspace["workspace"]
     assert (
-        review_result.comparison.result.candidate_run_id == review_result.follow_up.id
+        define_experiment["source"].template_id
+        == "quantum_lab_demo.readout.frequency_calibration"
     )
+    assert define_experiment["sweep_points"] == 41
+    assert run_and_read["completed_run"].manifest.status == "completed"
+    assert len(run_and_read["raw"].dataset.records) == 101
+    assert "raw-measurements" in [artifact.id for artifact in run_and_read["artifacts"]]
+    assert manual_analysis["baseline"].manifest.status == "completed"
+    assert manual_analysis["follow_up"].manifest.status == "completed"
+    assert manual_analysis["saved_analysis"].source_artifact_ids == (
+        "raw-measurements",
+    )
+    assert manual_analysis["review"].candidate_config_artifact.kind == (
+        "candidate_config"
+    )
+    assert promoted_analysis["completed_run"].manifest.status == "completed"
+    assert promoted_analysis["saved_analysis"].artifact.kind == "analysis"
+    assert promoted_analysis["candidate"].guesses[0].parameter_id == "readout_frequency"
+    assert (
+        promoted_analysis["overview"].overview.run_id
+        == promoted_analysis["completed_run"].id
+    )
+    assert "Scopecat Run Overview" in promoted_analysis["overview"].markdown
+    assert review_rerun["baseline"].manifest.status == "completed"
+    assert review_rerun["follow_up"].manifest.status == "completed"
+    assert (
+        review_rerun["comparison"].result.baseline_run_id == review_rerun["baseline"].id
+    )
+    assert (
+        review_rerun["comparison"].result.candidate_run_id
+        == review_rerun["follow_up"].id
+    )
+
+
+def _run_notebook(name: str) -> dict[str, Any]:
+    return runpy.run_path(str(NOTEBOOKS_DIR / name))

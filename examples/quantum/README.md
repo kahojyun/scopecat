@@ -6,10 +6,11 @@ Executable quantum-flavored examples for learning the Scopecat workflow:
 Workspace -> Experiment -> Run -> Data -> Analysis -> CandidateConfig
 ```
 
-The primary learning path is the notebook-style scripts in `notebooks/`.
-The demo lab code they import lives in `support/` as the `quantum_lab_demo`
-package. Treat that support package as copyable example lab code, not as a
-stable product API.
+The primary learning path is the cell-style Python notebooks in `notebooks/`.
+They are ordinary `# %%` files: run them top to bottom in VS Code or execute
+them as scripts from the command line. The demo lab code they import lives in
+`support/` as the `quantum_lab_demo` package. Treat that support package as
+copyable example lab code, not as a stable product API.
 
 ## Run The Learning Path
 
@@ -24,7 +25,6 @@ uv run python examples/quantum/notebooks/05_promote_analysis_step.py
 uv run python examples/quantum/notebooks/06_review_candidate_and_rerun.py
 ```
 
-Each notebook can also be opened as a `# %%` cell-style Python file.
 For VS Code notebook/cell execution, sync the workspace environment first.
 The default sync includes the notebook kernel dependencies:
 
@@ -36,10 +36,10 @@ uv sync
 
 | File | What it teaches |
 |---|---|
-| `notebooks/01_open_workspace.py` | Open a workspace with a config profile and virtual lab provider. |
-| `notebooks/02_define_experiment.py` | Change qubit, sweep span, and sweep point count. |
-| `notebooks/03_run_and_read_data.py` | Run once and inspect `Run.data()`. |
-| `notebooks/04_manual_analysis.py` | Save one-off notebook analysis and candidate evidence. |
+| `notebooks/01_open_workspace.py` | Open the demo lab and inspect the workspace handle. |
+| `notebooks/02_define_experiment.py` | Set qubit and sweep values, then build an experiment. |
+| `notebooks/03_run_and_read_data.py` | Run once, keep the run in scope, and inspect `Run.data()`. |
+| `notebooks/04_manual_analysis.py` | Build one-off notebook analysis and candidate evidence. |
 | `notebooks/05_promote_analysis_step.py` | Replace repeated manual analysis with an `AnalysisStep`. |
 | `notebooks/06_review_candidate_and_rerun.py` | Review a candidate config, rerun, and compare runs. |
 
@@ -70,8 +70,9 @@ and move repeated lab details into a local support package:
 | Apply a reviewed candidate | `notebooks/06_review_candidate_and_rerun.py` | `Analysis.candidate_config()` and `Workspace.review(...)` |
 
 The support package may contain domain calculations, virtual fixtures, and
-adapter wiring. User-facing notebooks should stay on Scopecat public objects:
-`Workspace`, `Experiment`, `Run`, `Data`, `Analysis`, and `CandidateConfig`.
+adapter wiring. User-facing notebooks should stay on Scopecat public objects
+and top-level notebook variables: `Workspace`, `Experiment`, `Run`, `Data`,
+`Analysis`, and `CandidateConfig`.
 
 The examples use domain names such as `qubit`, `control_qubit`, and
 `partner_qubit` as ergonomic template arguments. Durable experiment plans lower
@@ -86,3 +87,7 @@ uv run --offline ruff check examples/quantum
 uv run --offline ruff format --check examples/quantum
 uv run --offline basedpyright
 ```
+
+The notebook tests execute the `# %%` files directly and assert on the
+variables left in the notebook namespace. Keep reusable command wrappers in
+`scripts/`; keep notebooks as visible, top-level cells.

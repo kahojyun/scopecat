@@ -13,6 +13,7 @@ from quantum_lab_demo.fixtures import (
     DEFAULT_SAMPLE_TEMPLATES_WORKSPACE,
     DEFAULT_WORKSPACE_ROOT,
     FIXTURES_DIR,
+    NOTEBOOK_WORKSPACE_ROOT_ENV,
     READOUT_FREQUENCY_FIXTURE_DIR,
     READOUT_FREQUENCY_VIRTUAL_LAB_PROFILE,
     READOUT_IQ_FIXTURE_DIR,
@@ -20,6 +21,7 @@ from quantum_lab_demo.fixtures import (
     REPO_ROOT,
     SAMPLE_TEMPLATES_FIXTURE_DIR,
     SAMPLE_TEMPLATES_VIRTUAL_LAB_PROFILE,
+    notebook_workspace,
 )
 from quantum_lab_demo.lab import (
     PathInput,
@@ -52,6 +54,7 @@ __all__ = [
     "DEFAULT_SAMPLE_TEMPLATES_WORKSPACE",
     "DEFAULT_WORKSPACE_ROOT",
     "FIXTURES_DIR",
+    "NOTEBOOK_WORKSPACE_ROOT_ENV",
     "READOUT_FREQUENCY_FIXTURE_DIR",
     "READOUT_FREQUENCY_VIRTUAL_LAB_PROFILE",
     "READOUT_IQ_FIXTURE_DIR",
@@ -70,6 +73,7 @@ __all__ = [
     "format_readout_iq_summary",
     "format_sample_native_experiments_summary",
     "load_dry_run_config",
+    "notebook_workspace",
     "readout_frequency_lab",
     "readout_iq_lab",
     "run_cz_rb_experiment",

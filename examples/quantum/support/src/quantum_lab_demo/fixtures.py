@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -22,12 +23,21 @@ DEFAULT_READOUT_FREQUENCY_WORKSPACE = DEFAULT_WORKSPACE_ROOT / "readout-frequenc
 DEFAULT_READOUT_IQ_WORKSPACE = DEFAULT_WORKSPACE_ROOT / "readout-iq"
 DEFAULT_SAMPLE_TEMPLATES_WORKSPACE = DEFAULT_WORKSPACE_ROOT / "sample-experiments"
 
+NOTEBOOK_WORKSPACE_ROOT_ENV = "QUANTUM_LAB_DEMO_NOTEBOOK_WORKSPACE_ROOT"
+
+
+def notebook_workspace(name: str) -> Path:
+    root = Path(os.environ.get(NOTEBOOK_WORKSPACE_ROOT_ENV, DEFAULT_WORKSPACE_ROOT))
+    return root / "notebooks" / name
+
+
 __all__ = [
     "DEFAULT_READOUT_FREQUENCY_WORKSPACE",
     "DEFAULT_READOUT_IQ_WORKSPACE",
     "DEFAULT_SAMPLE_TEMPLATES_WORKSPACE",
     "DEFAULT_WORKSPACE_ROOT",
     "FIXTURES_DIR",
+    "NOTEBOOK_WORKSPACE_ROOT_ENV",
     "READOUT_FREQUENCY_FIXTURE_DIR",
     "READOUT_FREQUENCY_VIRTUAL_LAB_PROFILE",
     "READOUT_IQ_FIXTURE_DIR",
@@ -35,4 +45,5 @@ __all__ = [
     "REPO_ROOT",
     "SAMPLE_TEMPLATES_FIXTURE_DIR",
     "SAMPLE_TEMPLATES_VIRTUAL_LAB_PROFILE",
+    "notebook_workspace",
 ]
