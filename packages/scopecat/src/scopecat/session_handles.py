@@ -19,7 +19,6 @@ from scopecat.session_candidate_config import (
 )
 from scopecat.session_comparison import ComparisonHandle
 from scopecat.session_data import Data
-from scopecat.session_overview import OverviewHandle
 from scopecat.session_run_handle import RunHandle, run_handle_id
 from scopecat.session_templates import TemplateBrowser
 
@@ -34,7 +33,6 @@ __all__ = [
     "CandidateConfigReview",
     "ComparisonHandle",
     "Data",
-    "OverviewHandle",
     "ParameterProposal",
     "PromotedAnalysisStep",
     "RunHandle",

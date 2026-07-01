@@ -13,7 +13,6 @@ from scopecat.runner.constants import (
     RUNNER_ADAPTER_RAW_MEASUREMENTS_ARTIFACT_ID,
     RUNNER_ADAPTER_RAW_MEASUREMENTS_FILENAME,
     RUNNER_ADAPTER_SNAPSHOT_FILENAME,
-    RUNNER_ADAPTER_SUMMARY_FILENAME,
 )
 
 
@@ -80,12 +79,10 @@ class RunnerArtifactStore:
         self._diagnostics: list[Diagnostic] = []
         self._seen_ids = {
             RUNNER_ADAPTER_RAW_MEASUREMENTS_ARTIFACT_ID,
-            "runner-adapter-summary",
             "runner-adapter-snapshot",
         }
         self._seen_filenames = {
             RUNNER_ADAPTER_RAW_MEASUREMENTS_FILENAME,
-            RUNNER_ADAPTER_SUMMARY_FILENAME,
             RUNNER_ADAPTER_SNAPSHOT_FILENAME,
         }
 

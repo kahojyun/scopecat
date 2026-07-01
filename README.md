@@ -5,7 +5,7 @@
 Scopecat is a local-first Python workspace for describing experiments, running
 them through dry-run, adapter, or native instrument paths, and keeping the
 resulting runs, data, analysis records, candidate configs, comparisons, and
-reports together in a workspace.
+operator attachments and artifacts together in a workspace.
 
 The core package stays domain-neutral. Example support packages live under
 `examples/` when they are only teaching and UX validation code. A real domain
@@ -15,7 +15,7 @@ freezing.
 ## Workspace Layout
 
 - `packages/scopecat`: core workspace, experiment, run, data, analysis,
-  workflow, storage, reporting, and SDK primitives.
+  workflow, storage, run overview, and SDK primitives.
 - `examples/quantum`: notebook-first quantum examples, thin script wrappers,
   and the local `quantum_lab_demo` support package.
 - `fixtures`: durable sample inputs for core tests, boundary contracts, and

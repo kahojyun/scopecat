@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat.reporting import build_run_overview
 from scopecat.run_comparison import review_run_comparison
+from scopecat.run_overview import build_run_overview
 from scopecat.runs import open_run_store
 from tests.support.records import require_artifact_by_kind
-from tests.support.reporting import simulated_run_with_active_candidate_comparison
+from tests.support.run_overview import simulated_run_with_active_candidate_comparison
 
 
 def test_build_run_overview_includes_run_comparison(

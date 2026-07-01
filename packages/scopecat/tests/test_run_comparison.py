@@ -41,7 +41,6 @@ def test_execute_run_comparison_writes_baseline_artifacts_and_manifest(
     baseline_run_dir = tmp_path / "runs" / baseline_run_id
     assert (baseline_run_dir / "comparisons" / f"{comparison_id}.job.json").is_file()
     assert (baseline_run_dir / "artifacts" / f"{comparison_id}.json").is_file()
-    assert (baseline_run_dir / "artifacts" / f"{comparison_id}.md").is_file()
     stored_job = read_model(
         baseline_run_dir / "comparisons" / f"{comparison_id}.job.json",
         RunComparisonJob,
@@ -54,7 +53,6 @@ def test_execute_run_comparison_writes_baseline_artifacts_and_manifest(
     assert stored_result == result
     assert stored_job.output_artifact_ids == [
         f"{comparison_id}-result",
-        f"{comparison_id}-summary",
     ]
     assert [
         (artifact.id, artifact.kind, artifact.path)
@@ -65,11 +63,9 @@ def test_execute_run_comparison_writes_baseline_artifacts_and_manifest(
             "run_comparison_result",
             f"artifacts/{comparison_id}.json",
         ),
-        (f"{comparison_id}-summary", "summary", f"artifacts/{comparison_id}.md"),
     ]
     assert stored_result.job_ref == f"comparisons/{comparison_id}.job.json"
     assert stored_result.result_ref == f"artifacts/{comparison_id}.json"
-    assert stored_result.summary_ref == f"artifacts/{comparison_id}.md"
     assert [
         (artifact.id, artifact.kind, artifact.path)
         for artifact in stored_result.artifact_refs
@@ -79,7 +75,6 @@ def test_execute_run_comparison_writes_baseline_artifacts_and_manifest(
             "run_comparison_result",
             f"artifacts/{comparison_id}.json",
         ),
-        (f"{comparison_id}-summary", "summary", f"artifacts/{comparison_id}.md"),
         (
             f"{comparison_id}-job",
             "run_comparison_job",
@@ -107,12 +102,6 @@ def test_execute_run_comparison_writes_baseline_artifacts_and_manifest(
         f"{comparison_id}-result",
         kind="run_comparison_result",
         path=result.result_ref,
-    )
-    assert_artifact_ref(
-        baseline_manifest.artifact_refs,
-        f"{comparison_id}-summary",
-        kind="summary",
-        path=result.summary_ref,
     )
     assert_artifact_ref(
         baseline_manifest.artifact_refs,
@@ -193,9 +182,5 @@ def test_execute_run_comparison_references_analysis_artifacts_by_id(
         "raw-measurements",
         "analysis-candidate-review",
     ]
-    summary = (
-        tmp_path / "runs" / baseline.id / "artifacts" / f"{result.comparison_id}.md"
-    ).read_text()
-    assert "## Analysis Artifacts" in summary
-    assert "- analysis-baseline-review" in summary
-    assert "- analysis-candidate-review" in summary
+    assert result.baseline_analysis_artifact_ids == ["analysis-baseline-review"]
+    assert result.candidate_analysis_artifact_ids == ["analysis-candidate-review"]

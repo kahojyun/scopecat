@@ -1,4 +1,4 @@
-"""Runner adapter snapshots and summaries."""
+"""Runner adapter snapshots and boundary manifests."""
 
 from __future__ import annotations
 
@@ -106,39 +106,4 @@ def build_runner_adapter_boundary_manifest(
         measurement_count=snapshot.measurement_count,
         diagnostics=list(snapshot.diagnostics),
         metadata=dict(snapshot.metadata),
-    )
-
-
-def render_runner_adapter_summary(
-    *, manifest: RunManifest, snapshot: RunnerAdapterRunSnapshot
-) -> str:
-    diagnostics = snapshot.diagnostics
-    diagnostic_lines = (
-        "\n".join(
-            f"- {item.severity}: {item.code} - {item.message}" for item in diagnostics
-        )
-        if diagnostics
-        else "- none"
-    )
-    return "\n".join(
-        [
-            "# Scopecat Runner Adapter Summary",
-            "",
-            f"- Run ID: {manifest.run_id}",
-            f"- Experiment: {manifest.experiment_ref}",
-            f"- Workspace: {manifest.workspace_ref}",
-            f"- Device: {manifest.device_ref}",
-            f"- Runner: {manifest.runner_id}",
-            f"- Dry-run: {str(manifest.dry_run).lower()}",
-            f"- Status: {manifest.status}",
-            f"- Adapter: {snapshot.adapter_id} {snapshot.adapter_version}",
-            f"- Points: {snapshot.point_count}",
-            f"- Measurements: {snapshot.measurement_count}",
-            f"- Data: {snapshot.data_ref}",
-            "",
-            "## Diagnostics",
-            "",
-            diagnostic_lines,
-            "",
-        ]
     )

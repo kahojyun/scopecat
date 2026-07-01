@@ -51,7 +51,6 @@ def test_execute_runner_adapter_persists_measurements_and_run_files(
     assert {artifact.id for artifact in manifest.artifact_refs} == {
         "runner-adapter-boundary",
         "runner-adapter-snapshot",
-        "runner-adapter-summary",
         "raw-measurements",
     }
     raw_artifact = require_artifact(manifest.artifact_refs, "raw-measurements")
@@ -74,7 +73,6 @@ def test_execute_runner_adapter_persists_measurements_and_run_files(
     )
     assert (run_dir / "plan.snapshot.json").is_file()
     assert (run_dir / "events.jsonl").is_file()
-    assert (run_dir / "artifacts" / "runner-adapter.summary.md").is_file()
     assert (run_dir / "artifacts" / "runner-adapter.snapshot.json").is_file()
     assert (run_dir / "artifacts" / "runner-adapter.boundary.json").is_file()
     assert (run_dir / "artifacts" / "raw-measurements.jsonl").is_file()
@@ -213,7 +211,6 @@ def test_runner_adapter_merges_adapter_owned_artifacts(tmp_path: Path) -> None:
         "adapter-extra",
         "runner-adapter-boundary",
         "runner-adapter-snapshot",
-        "runner-adapter-summary",
         "raw-measurements",
     }
     boundary = read_model(

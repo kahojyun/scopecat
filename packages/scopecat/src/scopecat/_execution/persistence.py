@@ -151,15 +151,12 @@ def write_final_execution_artifacts(
     manifest: RunManifest,
     snapshot_ref: str,
     snapshot: BaseModel,
-    summary_ref: str,
-    summary: str,
     data_ref: str | None,
     measurements: Sequence[MeasurementRecord] = (),
     events: Sequence[RunEvent] = (),
 ) -> None:
     storage.write_manifest(manifest)
     storage.write_model(manifest.run_id, snapshot_ref, snapshot)
-    storage.write_text(manifest.run_id, summary_ref, summary)
     if data_ref is not None:
         storage.write_jsonl(manifest.run_id, data_ref, measurements)
     storage.write_events(manifest.run_id, events)

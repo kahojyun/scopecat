@@ -13,8 +13,8 @@ from scopecat.config_registry import (
 from scopecat.execution.dry_run import execute_dry_run
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import load_config_profile
-from scopecat.reporting import build_run_overview
 from scopecat.run_comparison import execute_run_comparison, review_run_comparison
+from scopecat.run_overview import build_run_overview
 from scopecat.workflows import register_and_activate_candidate_review
 from scopecat.workflows.runs import native_run_executor, start_native_run, start_run
 from tests.support.native_signal import TestSignalInstrumentProvider

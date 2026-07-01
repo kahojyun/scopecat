@@ -15,7 +15,6 @@ from scopecat.run_comparison.observable import (
     review_run_comparison,
     unsupported_run_comparison_review_state_diagnostic,
 )
-from scopecat.run_comparison.render import render_run_comparison_summary
 
 __all__ = [
     "RunComparisonConfigSourceSummary",
@@ -27,7 +26,6 @@ __all__ = [
     "RunComparisonView",
     "execute_run_comparison",
     "list_run_comparisons",
-    "render_run_comparison_summary",
     "review_run_comparison",
     "unsupported_run_comparison_review_state_diagnostic",
 ]

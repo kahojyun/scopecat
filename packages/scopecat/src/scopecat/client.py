@@ -17,8 +17,8 @@ from scopecat.errors import ValidationFailed
 from scopecat.instruments.sdk import NativeInstrumentProvider
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
-from scopecat.reporting import RunOverview, build_run_overview
 from scopecat.run_comparison import RunComparisonReviewState, RunComparisonView
+from scopecat.run_overview import RunOverview, build_run_overview
 from scopecat.workflows import (
     AcceptProposalWorkflowResult,
     CompareRunsResult,

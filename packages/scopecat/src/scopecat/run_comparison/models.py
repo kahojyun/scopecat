@@ -79,7 +79,6 @@ class RunComparisonResult(BaseModel):
     candidate_config_source: RunComparisonConfigSourceSummary
     job_ref: str
     result_ref: str
-    summary_ref: str
     artifact_refs: list[Artifact] = Field(default_factory=list)
     measurement_count: int
     baseline_peak_point_index: int

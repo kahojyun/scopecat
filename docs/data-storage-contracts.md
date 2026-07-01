@@ -35,7 +35,7 @@ display paths.
 `RunManifest.artifact_refs` is the canonical artifact index for non-root run
 records.
 
-Do not add new top-level manifest lists for preview tables, reports,
+Do not add new top-level manifest lists for preview tables,
 comparisons, calibration outputs, chunk manifests, backend partitions, or
 domain assets. The manifest identifies artifacts; the artifact payload owns
 detailed schema, provenance, and nested refs.
@@ -136,7 +136,7 @@ workflow artifacts until review policy chooses parameter patches.
 Calibration provenance should be reconstructable from source run manifest,
 plan snapshot, measurement artifacts, analysis artifacts, internal parameter
 change records, proposal review, candidate config snapshot, registry entry,
-activation record, follow-up run, comparisons, and reports.
+activation record, follow-up run, comparisons, and structured run overviews.
 
 Rollback is a config registry operation. Historical evidence, proposals,
 reviews, and activation records remain immutable.

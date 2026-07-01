@@ -26,7 +26,7 @@ from scopecat.workflows import (
 
 if TYPE_CHECKING:
     from scopecat.authoring import ExperimentDraft, ResolvedExperiment
-    from scopecat.session_overview import OverviewHandle
+    from scopecat.run_overview import RunOverview
 
 
 class RunSession(Protocol):
@@ -42,7 +42,7 @@ class RunSession(Protocol):
     @property
     def workspace(self) -> Path: ...
 
-    def overview(self, run: RunHandle | RunRef) -> OverviewHandle: ...
+    def overview(self, run: RunHandle | RunRef) -> RunOverview: ...
 
     def preview(
         self,
@@ -259,7 +259,7 @@ class RunHandle:
             expected_kind=expected_kind,
         )
 
-    def overview(self) -> OverviewHandle:
+    def overview(self) -> RunOverview:
         return self.session.overview(self)
 
     def comparisons(self) -> tuple[RunComparisonView, ...]:

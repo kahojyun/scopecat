@@ -23,20 +23,19 @@ from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import ParameterChangeSet, Quantity
 from scopecat.models.run import RunManifest
 from scopecat.proposals.review import ProposalReviewRecord
-from scopecat.reporting.models import (
-    AnalysisRecordOverview,
-    AnalysisReportOverview,
-    ConfigSourceReport,
-    ProposalReport,
-    ProposalReviewReport,
-    ReportRunInfo,
-    RunComparisonReport,
-    RunOverview,
-)
 from scopecat.run_comparison import (
     RunComparisonJob,
     RunComparisonResult,
     RunComparisonReviewRecord,
+)
+from scopecat.run_overview.models import (
+    AnalysisRecordEntry,
+    ConfigSourceInfo,
+    ProposalEntry,
+    ProposalReviewInfo,
+    RunComparisonEntry,
+    RunHeader,
+    RunOverview,
 )
 from scopecat.runs import RunStore, list_artifacts, open_run_store
 
@@ -85,14 +84,13 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
         run_id=run_id,
         manifest=manifest,
     )
-    analysis_reports = _read_analysis_reports(manifest)
     proposals = _read_proposals(storage=storage, run_id=run_id, manifest=manifest)
     run_comparisons = _read_run_comparisons(
         storage=storage, run_id=run_id, manifest=manifest
     )
     return RunOverview(
         run_id=run_id,
-        run=ReportRunInfo(
+        run=RunHeader(
             run_id=manifest.run_id,
             status=manifest.status,
             runner_id=manifest.runner_id,
@@ -105,7 +103,6 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
         config_source=config_source,
         artifact_refs=list(manifest.artifact_refs),
         analysis_records=analysis_records,
-        analysis_reports=analysis_reports,
         proposals=proposals,
         run_comparisons=run_comparisons,
     )
@@ -113,8 +110,8 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
 
 def _read_analysis_records(
     *, storage: RunStore, run_id: str, manifest: RunManifest
-) -> list[AnalysisRecordOverview]:
-    records: list[AnalysisRecordOverview] = []
+) -> list[AnalysisRecordEntry]:
+    records: list[AnalysisRecordEntry] = []
     for artifact in _artifacts_by_kind(manifest, "analysis"):
         payload = _read_model(
             storage.ref_path(run_id, artifact.path),
@@ -122,49 +119,20 @@ def _read_analysis_records(
             artifact.path,
         )
         records.append(
-            AnalysisRecordOverview(
+            AnalysisRecordEntry(
                 artifact_id=artifact.id,
                 ref=artifact.path,
                 title=payload.title,
                 output_kinds=[output.kind for output in payload.outputs],
                 proposal_count=len(payload.proposals),
                 source_artifact_ids=_source_artifact_ids(payload, artifact),
-                report_artifact_ids=_report_artifact_ids(payload),
+                output_artifact_ids=_output_artifact_ids(payload),
             )
         )
     return records
 
 
-def _read_analysis_reports(manifest: RunManifest) -> list[AnalysisReportOverview]:
-    reports: list[AnalysisReportOverview] = []
-    for artifact in _artifacts_by_kind(manifest, "analysis_report"):
-        report_title = artifact.metadata.get("report_title")
-        source_analysis_artifact_id = artifact.metadata.get(
-            "source_analysis_artifact_id"
-        )
-        source_artifact_ids = artifact.metadata.get("source_artifact_ids")
-        reports.append(
-            AnalysisReportOverview(
-                artifact_id=artifact.id,
-                ref=artifact.path,
-                title=report_title if isinstance(report_title, str) else artifact.id,
-                media_type=artifact.media_type,
-                source_analysis_artifact_id=(
-                    source_analysis_artifact_id
-                    if isinstance(source_analysis_artifact_id, str)
-                    else None
-                ),
-                source_artifact_ids=(
-                    _unique_strings(cast(Sequence[object], source_artifact_ids))
-                    if isinstance(source_artifact_ids, list)
-                    else []
-                ),
-            )
-        )
-    return reports
-
-
-def _read_config_source(*, storage: RunStore, run_id: str) -> ConfigSourceReport:
+def _read_config_source(*, storage: RunStore, run_id: str) -> ConfigSourceInfo:
     config = _read_model(
         storage.ref_path(run_id, CONFIG_PROFILE_SNAPSHOT_REF),
         ConfigProfileSnapshot,
@@ -172,7 +140,7 @@ def _read_config_source(*, storage: RunStore, run_id: str) -> ConfigSourceReport
     )
     source = config.source
     if source is None or source.kind != "config_registry_entry":
-        return ConfigSourceReport(status="not_available")
+        return ConfigSourceInfo(status="not_available")
     provenance = ConfigRegistryConfigSourceProvenance(
         selector=source.selector or "",
         entry_id=source.entry_id or "",
@@ -180,13 +148,13 @@ def _read_config_source(*, storage: RunStore, run_id: str) -> ConfigSourceReport
         active_state_ref=source.active_state_ref,
         active_record_id=source.active_record_id,
     )
-    return _config_source_report_from_provenance(provenance)
+    return _config_source_info_from_provenance(provenance)
 
 
-def _config_source_report_from_provenance(
+def _config_source_info_from_provenance(
     provenance: ConfigRegistryConfigSourceProvenance,
-) -> ConfigSourceReport:
-    return ConfigSourceReport(
+) -> ConfigSourceInfo:
+    return ConfigSourceInfo(
         status="available",
         source_kind=provenance.source_kind,
         selector=provenance.selector,
@@ -199,8 +167,8 @@ def _config_source_report_from_provenance(
 
 def _read_proposals(
     *, storage: RunStore, run_id: str, manifest: RunManifest
-) -> list[ProposalReport]:
-    proposals: list[ProposalReport] = []
+) -> list[ProposalEntry]:
+    proposals: list[ProposalEntry] = []
     for proposal_artifact in list_artifacts(manifest, kind="parameter_change_set"):
         proposal_record_ref = proposal_artifact.path
         proposal_path = storage.ref_path(run_id, proposal_record_ref)
@@ -212,7 +180,7 @@ def _read_proposals(
         review = _read_review(storage=storage, run_id=run_id, proposal=proposal)
         patch = proposal.patches[0] if proposal.patches else None
         proposals.append(
-            ProposalReport(
+            ProposalEntry(
                 id=proposal.id,
                 ref=proposal_record_ref,
                 state=proposal.state,
@@ -239,13 +207,13 @@ def _read_proposals(
 
 def _read_review(
     *, storage: RunStore, run_id: str, proposal: ParameterChangeSet
-) -> ProposalReviewReport:
+) -> ProposalReviewInfo:
     review_ref = f"reviews/{proposal.id}.review.json"
     review_path = storage.ref_path(run_id, review_ref)
     if not review_path.exists():
-        return ProposalReviewReport(status="not_reviewed")
+        return ProposalReviewInfo(status="not_reviewed")
     review = _read_model(review_path, ProposalReviewRecord, review_ref)
-    return ProposalReviewReport(
+    return ProposalReviewInfo(
         status="reviewed",
         review_ref=review_ref,
         decision=review.decision,
@@ -257,8 +225,8 @@ def _read_review(
 
 def _read_run_comparisons(
     *, storage: RunStore, run_id: str, manifest: RunManifest
-) -> list[RunComparisonReport]:
-    comparisons: list[RunComparisonReport] = []
+) -> list[RunComparisonEntry]:
+    comparisons: list[RunComparisonEntry] = []
     for artifact in _artifacts_by_kind(manifest, "run_comparison_result"):
         result = _read_model(
             storage.ref_path(run_id, artifact.path),
@@ -281,7 +249,7 @@ def _read_run_comparisons(
                 review_ref,
             )
         comparisons.append(
-            RunComparisonReport(
+            RunComparisonEntry(
                 comparison_id=result.comparison_id,
                 baseline_run_id=result.baseline_run_id,
                 candidate_run_id=result.candidate_run_id,
@@ -296,7 +264,6 @@ def _read_run_comparisons(
                 mean_value_delta=result.mean_value_delta,
                 value_unit=result.value_unit,
                 result_ref=artifact.path,
-                summary_ref=result.summary_ref,
                 job_ref=job_ref,
                 baseline_config_source_status=result.baseline_config_source.status,
                 candidate_config_source_status=result.candidate_config_source.status,
@@ -327,8 +294,8 @@ def _read_model[TModel: BaseModel](
             [
                 _diagnostic(
                     "error",
-                    "missing_report_input",
-                    f"report input is missing: {ref}",
+                    "missing_overview_input",
+                    f"overview input is missing: {ref}",
                     ref,
                 )
             ]
@@ -338,8 +305,8 @@ def _read_model[TModel: BaseModel](
             [
                 _diagnostic(
                     "error",
-                    "report_artifact_is_directory",
-                    f"report input is a directory: {ref}",
+                    "overview_input_is_directory",
+                    f"overview input is a directory: {ref}",
                     ref,
                 )
             ]
@@ -351,8 +318,8 @@ def _read_model[TModel: BaseModel](
             [
                 _diagnostic(
                     "error",
-                    "invalid_report_input",
-                    f"report input is not valid JSON for {ref}",
+                    "invalid_overview_input",
+                    f"overview input is not valid JSON for {ref}",
                     ref,
                 )
             ]
@@ -369,8 +336,8 @@ def _validate_manifest_artifacts(
                 [
                     _diagnostic(
                         "error",
-                        "report_artifact_is_directory",
-                        f"report artifact is a directory: {artifact.path}",
+                        "overview_artifact_is_directory",
+                        f"overview artifact is a directory: {artifact.path}",
                         "artifact_refs",
                     )
                 ]
@@ -405,11 +372,11 @@ def _input_artifact_ids(payload: _AnalysisArtifactPayload) -> list[str]:
     return artifact_ids
 
 
-def _report_artifact_ids(payload: _AnalysisArtifactPayload) -> list[str]:
+def _output_artifact_ids(payload: _AnalysisArtifactPayload) -> list[str]:
     artifact_ids: list[str] = []
     seen: set[str] = set()
     for output in payload.outputs:
-        if output.kind != "report" or not isinstance(output.content, dict):
+        if output.kind != "artifact" or not isinstance(output.content, dict):
             continue
         content = cast(dict[str, object], output.content)
         target = content.get("target")

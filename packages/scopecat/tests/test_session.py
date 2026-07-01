@@ -107,8 +107,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     assert candidate.manifest.status == "completed"
     assert comparison.result.outcome == "unchanged"
     assert comparison_review.review.decision == "accepted"
-    assert overview.overview.run_id == baseline.id
-    assert "# Scopecat Run Overview" in overview.markdown
+    assert overview.run_id == baseline.id
 
 
 def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
@@ -144,7 +143,7 @@ def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
     assert candidate.resolved_experiment is None
     assert comparison.result.outcome == "unchanged"
     assert review.review.decision == "accepted"
-    assert overview.overview.run_id == baseline.id
+    assert overview.run_id == baseline.id
 
 
 def test_session_template_browser_lists_builds_and_previews(tmp_path: Path) -> None:

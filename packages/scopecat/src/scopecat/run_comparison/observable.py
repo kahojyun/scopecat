@@ -28,7 +28,6 @@ from scopecat.run_comparison.models import (
     RunComparisonReviewStatus,
     RunComparisonView,
 )
-from scopecat.run_comparison.render import render_run_comparison_summary
 from scopecat.runs import (
     RunStore,
     open_run_store,
@@ -124,7 +123,6 @@ def execute_run_comparison(
         ),
         job_ref=refs.job_ref,
         result_ref=refs.result_ref,
-        summary_ref=refs.summary_ref,
         artifact_refs=artifacts,
         measurement_count=len(points),
         baseline_peak_point_index=baseline_peak.point_index,
@@ -156,13 +154,11 @@ def execute_run_comparison(
             f"runs/{candidate_run_id}/manifest.json",
             f"runs/{candidate_run_id}/{CONFIG_PROFILE_SNAPSHOT_REF}",
         ],
-        output_artifact_ids=[artifacts[0].id, artifacts[1].id],
-        output_artifacts=artifacts[:2],
+        output_artifact_ids=[artifacts[0].id],
+        output_artifacts=artifacts[:1],
     )
-    summary = render_run_comparison_summary(result)
     storage.write_model(baseline_run_id, refs.job_ref, job)
     storage.write_model(baseline_run_id, refs.result_ref, result)
-    storage.write_text(baseline_run_id, refs.summary_ref, summary)
 
     write_manifest_artifacts(
         storage=storage,
@@ -276,14 +272,12 @@ class _ComparisonRefs(BaseModel):
 
     job_ref: str
     result_ref: str
-    summary_ref: str
 
 
 def _comparison_refs(comparison_id: str) -> _ComparisonRefs:
     return _ComparisonRefs(
         job_ref=f"comparisons/{comparison_id}.job.json",
         result_ref=f"artifacts/{comparison_id}.json",
-        summary_ref=f"artifacts/{comparison_id}.md",
     )
 
 
@@ -296,12 +290,6 @@ def _comparison_output_artifacts(
             kind="run_comparison_result",
             path=refs.result_ref,
             media_type="application/json",
-        ),
-        Artifact(
-            id=f"{comparison_id}-summary",
-            kind="summary",
-            path=refs.summary_ref,
-            media_type="text/markdown",
         ),
         Artifact(
             id=f"{comparison_id}-job",

@@ -15,7 +15,7 @@ packages or future extensions until a real boundary is worth extracting.
 
 - Make experiment runs reproducible by recording configuration, plans,
   measurements, artifacts, logs, analysis records, candidate configs,
-  comparisons, and reports under one run identity.
+  comparisons, and operator attachments under one run identity.
 - Let notebook and script workflows call stable Python APIs instead of owning
   durable workflow state.
 - Keep lab-specific configuration, instrument details, and private adapters out
@@ -39,7 +39,7 @@ Scopecat targets these local workflows:
   acquisition plans.
 - Run dry or native simulated executions through local storage.
 - Persist raw and derived measurement datasets, typed artifacts, events, and
-  reports under a run manifest.
+  attachments under a run manifest.
 - Inspect run data through a `Data` view.
 - Capture exploratory notebook interpretation through `Analysis`.
 - Promote repeated analysis into `AnalysisStep`s.

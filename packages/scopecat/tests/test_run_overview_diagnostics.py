@@ -6,10 +6,10 @@ import pytest
 
 from scopecat.errors import ValidationFailed
 from scopecat.models.artifact import Artifact
-from scopecat.reporting import build_run_overview
+from scopecat.run_overview import build_run_overview
 from scopecat.runs import open_run_store
 from tests.support.config_registry import seed_best_signal_proposal
-from tests.support.reporting import simulate
+from tests.support.run_overview import simulate
 
 
 def test_build_run_overview_rejects_proposal_path_escape(tmp_path: Path) -> None:
@@ -48,4 +48,4 @@ def test_build_run_overview_rejects_directory_artifact(tmp_path: Path) -> None:
     with pytest.raises(ValidationFailed) as error:
         build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert error.value.diagnostics[0].code == "report_artifact_is_directory"
+    assert error.value.diagnostics[0].code == "overview_artifact_is_directory"

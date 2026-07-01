@@ -1,4 +1,4 @@
-"""Run overview view models and user report artifact summaries."""
+"""Run overview view models."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ SectionStatus = Literal["available", "not_available"]
 ReviewStatus = Literal["reviewed", "not_reviewed"]
 
 
-class ReportRunInfo(BaseModel):
+class RunHeader(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     run_id: str
@@ -28,7 +28,7 @@ class ReportRunInfo(BaseModel):
     device_ref: str
 
 
-class ConfigSourceReport(BaseModel):
+class ConfigSourceInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: SectionStatus
@@ -40,7 +40,7 @@ class ConfigSourceReport(BaseModel):
     active_record_id: str | None = None
 
 
-class AnalysisRecordOverview(BaseModel):
+class AnalysisRecordEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     artifact_id: str
@@ -49,21 +49,10 @@ class AnalysisRecordOverview(BaseModel):
     output_kinds: list[str]
     proposal_count: int
     source_artifact_ids: list[str] = Field(default_factory=list)
-    report_artifact_ids: list[str] = Field(default_factory=list)
+    output_artifact_ids: list[str] = Field(default_factory=list)
 
 
-class AnalysisReportOverview(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    artifact_id: str
-    ref: str
-    title: str
-    media_type: str | None = None
-    source_analysis_artifact_id: str | None = None
-    source_artifact_ids: list[str] = Field(default_factory=list)
-
-
-class ProposalReviewReport(BaseModel):
+class ProposalReviewInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: ReviewStatus
@@ -74,7 +63,7 @@ class ProposalReviewReport(BaseModel):
     reviewed_at: datetime | None = None
 
 
-class ProposalReport(BaseModel):
+class ProposalEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -87,10 +76,10 @@ class ProposalReport(BaseModel):
     source_run_id: str
     reason: str
     confidence: float | None = None
-    review: ProposalReviewReport
+    review: ProposalReviewInfo
 
 
-class RunComparisonReport(BaseModel):
+class RunComparisonEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     comparison_id: str
@@ -107,7 +96,6 @@ class RunComparisonReport(BaseModel):
     mean_value_delta: Quantity
     value_unit: str
     result_ref: str
-    summary_ref: str
     job_ref: str
     baseline_config_source_status: SectionStatus
     candidate_config_source_status: SectionStatus
@@ -126,10 +114,9 @@ class RunOverview(BaseModel):
     schema_version: str = "scopecat.run_overview.v1"
     run_id: str
     generated_at: datetime = Field(default_factory=utc_now)
-    run: ReportRunInfo
-    config_source: ConfigSourceReport
+    run: RunHeader
+    config_source: ConfigSourceInfo
     artifact_refs: list[Artifact]
-    analysis_records: list[AnalysisRecordOverview] = Field(default_factory=list)
-    analysis_reports: list[AnalysisReportOverview] = Field(default_factory=list)
-    proposals: list[ProposalReport] = Field(default_factory=list)
-    run_comparisons: list[RunComparisonReport] = Field(default_factory=list)
+    analysis_records: list[AnalysisRecordEntry] = Field(default_factory=list)
+    proposals: list[ProposalEntry] = Field(default_factory=list)
+    run_comparisons: list[RunComparisonEntry] = Field(default_factory=list)

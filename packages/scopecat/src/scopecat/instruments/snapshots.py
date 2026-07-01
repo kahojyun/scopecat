@@ -1,4 +1,4 @@
-"""Native run snapshots and summaries."""
+"""Native run snapshots and boundary manifests."""
 
 from __future__ import annotations
 
@@ -107,43 +107,4 @@ def build_native_boundary_manifest(
         measurement_count=snapshot.measurement_count,
         diagnostics=list(snapshot.diagnostics),
         metadata=dict(snapshot.metadata),
-    )
-
-
-def render_native_run_summary(
-    *, manifest: RunManifest, snapshot: NativeRunSnapshot
-) -> str:
-    diagnostics = snapshot.diagnostics
-    diagnostic_lines = (
-        "\n".join(
-            f"- {item.severity}: {item.code} - {item.message}" for item in diagnostics
-        )
-        if diagnostics
-        else "- none"
-    )
-    patch_count = sum(point.changed_field_count for point in snapshot.points)
-    acquired_count = sum(point.acquired_record_count for point in snapshot.points)
-    instruments = ", ".join(snapshot.instrument_ids) if snapshot.instrument_ids else "-"
-    return "\n".join(
-        [
-            "# Scopecat Native Run Summary",
-            "",
-            f"- Run ID: {manifest.run_id}",
-            f"- Experiment: {manifest.experiment_ref}",
-            f"- Workspace: {manifest.workspace_ref}",
-            f"- Device: {manifest.device_ref}",
-            f"- Runner: {manifest.runner_id}",
-            f"- Status: {manifest.status}",
-            f"- Instruments: {instruments}",
-            f"- Points: {snapshot.point_count}",
-            f"- Changed fields: {patch_count}",
-            f"- Acquired records: {acquired_count}",
-            f"- Measurements: {snapshot.measurement_count}",
-            f"- Data: {snapshot.data_ref}",
-            "",
-            "## Diagnostics",
-            "",
-            diagnostic_lines,
-            "",
-        ]
     )

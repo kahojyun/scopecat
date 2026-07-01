@@ -16,7 +16,7 @@ fixtures, issues, or commit history.
   experiment kernel, relation rules, and ownership split.
 - [Experiment workflow](experiment-workflow.md): stable public workflow from
   workspace opening through runs, data, analysis, candidates, comparison, and
-  reports.
+  structured overviews.
 - [Parameter system](parameter-system.md): accepted parameter-state,
   derivation, patch, and candidate-review model.
 - [Data and storage contracts](data-storage-contracts.md): durable record

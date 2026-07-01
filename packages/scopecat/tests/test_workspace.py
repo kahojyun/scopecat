@@ -281,7 +281,7 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     ]
 
 
-def test_run_analysis_persists_report_artifacts(
+def test_run_analysis_persists_output_artifacts(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -297,20 +297,23 @@ def test_run_analysis_persists_report_artifacts(
     saved = (
         run.analysis("manual report review")
         .input("raw-measurements", expected_kind="measurement_dataset")
-        .report(
+        .artifact(
             title="source html",
+            kind="analysis_html",
             path=source_report,
-            artifact_id="manual-html-report",
+            artifact_id="manual-html-artifact",
             metadata={"section": "fit"},
         )
-        .report(
+        .artifact(
             title="fit markdown",
+            kind="analysis_notes",
             text="best point: 1",
             filename="fit-summary.md",
             media_type="text/markdown",
         )
-        .report(
+        .artifact(
             title="plot bytes",
+            kind="analysis_plot",
             content=b"\x89PNG\r\n",
             filename="fit-plot.bin",
         )
@@ -320,48 +323,44 @@ def test_run_analysis_persists_report_artifacts(
     overview = run.overview()
 
     assert [output["kind"] for output in saved_payload.content["outputs"]] == [
-        "report",
-        "report",
-        "report",
+        "artifact",
+        "artifact",
+        "artifact",
     ]
-    assert [artifact.kind for artifact in saved.report_artifacts] == [
-        "analysis_report",
-        "analysis_report",
-        "analysis_report",
+    assert [artifact.kind for artifact in saved.output_artifacts] == [
+        "analysis_html",
+        "analysis_notes",
+        "analysis_plot",
     ]
-    assert [artifact.id for artifact in run.data().list(kind="analysis_report")] == [
-        "manual-html-report",
-        "analysis-report-manual-report-review-fit-markdown",
-        "analysis-report-manual-report-review-plot-bytes",
+    assert [artifact.id for artifact in run.data().list(kind="analysis_notes")] == [
+        "analysis-manual-report-review-fit-markdown",
     ]
-    assert run.data().text("manual-html-report").content == "<h1>fit</h1>\n"
+    assert [artifact.id for artifact in run.data().list(kind="analysis_html")] == [
+        "manual-html-artifact",
+    ]
+    assert run.data().text("manual-html-artifact").content == "<h1>fit</h1>\n"
     assert (
-        run.data().text("analysis-report-manual-report-review-fit-markdown").content
+        run.data().text("analysis-manual-report-review-fit-markdown").content
         == "best point: 1\n"
     )
     assert (
-        run.data().bytes("analysis-report-manual-report-review-plot-bytes").content
+        run.data().bytes("analysis-manual-report-review-plot-bytes").content
         == b"\x89PNG\r\n"
     )
-    assert saved.report_artifacts[0].metadata["section"] == "fit"
-    assert saved.report_artifacts[0].metadata["source_analysis_artifact_id"] == (
+    assert saved.output_artifacts[0].metadata["section"] == "fit"
+    assert saved.output_artifacts[0].metadata["source_analysis_artifact_id"] == (
         saved.artifact.id
     )
-    assert saved.report_artifacts[0].metadata["source_artifact_ids"] == [
+    assert saved.output_artifacts[0].metadata["source_artifact_ids"] == [
         "raw-measurements"
     ]
     assert saved_payload.content["outputs"][0]["content"]["target"] == (
-        "manual-html-report"
+        "manual-html-artifact"
     )
-    assert [report.artifact_id for report in overview.overview.analysis_reports] == [
-        "analysis-report-manual-report-review-fit-markdown",
-        "analysis-report-manual-report-review-plot-bytes",
-        "manual-html-report",
-    ]
-    assert overview.overview.analysis_records[0].report_artifact_ids == [
-        "manual-html-report",
-        "analysis-report-manual-report-review-fit-markdown",
-        "analysis-report-manual-report-review-plot-bytes",
+    assert overview.analysis_records[0].output_artifact_ids == [
+        "manual-html-artifact",
+        "analysis-manual-report-review-fit-markdown",
+        "analysis-manual-report-review-plot-bytes",
     ]
 
 
@@ -440,40 +439,6 @@ def test_run_analysis_persists_owned_artifacts(
     assert saved.output_artifacts[0].metadata["source_artifact_ids"] == [
         "raw-measurements"
     ]
-
-
-def test_run_analysis_report_save_rejects_duplicate_ids_and_filenames(
-    tmp_path: Path,
-) -> None:
-    lab = sc.open(
-        tmp_path,
-        config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="dry",
-    )
-    run = lab.run(load_experiment())
-
-    with pytest.raises(ValidationFailed) as duplicate_id:
-        (
-            run.analysis("manual report review")
-            .report(
-                title="first",
-                text="one",
-                filename="one.md",
-                artifact_id="fit-report",
-            )
-            .report(
-                title="second",
-                text="two",
-                filename="two.md",
-                artifact_id="fit-report",
-            )
-            .save()
-        )
-    assert duplicate_id.value.diagnostics[0].code == (
-        "analysis_report_artifact_id_duplicated"
-    )
-    run_artifacts_dir = tmp_path / "runs" / run.id / "artifacts"
-    assert not (run_artifacts_dir / "one.md").exists()
 
 
 def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
@@ -561,9 +526,9 @@ def test_analysis_artifact_refs_dedupe_sources_and_feed_overview(
     assert saved.source_artifact_ids == ("raw-measurements",)
     assert saved.artifact.metadata["source_artifact_ids"] == ["raw-measurements"]
     assert saved_payload.content["source_artifact_ids"] == ["raw-measurements"]
-    assert [
-        analysis.source_artifact_ids for analysis in overview.overview.analysis_records
-    ] == [["raw-measurements"]]
+    assert [analysis.source_artifact_ids for analysis in overview.analysis_records] == [
+        ["raw-measurements"]
+    ]
 
 
 def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
@@ -578,8 +543,9 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     analysis = (
         baseline.analysis("gui review")
         .input("raw-measurements", expected_kind="measurement_dataset")
-        .report(
+        .artifact(
             title="fit notes",
+            kind="fit_notes",
             text="manual fit notes",
             filename="gui-fit-notes.md",
             media_type="text/markdown",
@@ -616,35 +582,18 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     assert gui_data.json(saved.artifact.id).content["source_artifact_ids"] == [
         "raw-measurements"
     ]
-    assert [artifact.id for artifact in gui_data.list(kind="analysis_report")] == [
-        saved.report_artifacts[0].id
+    assert [artifact.id for artifact in gui_data.list(kind="fit_notes")] == [
+        saved.output_artifacts[0].id
     ]
-    assert gui_data.text(saved.report_artifacts[0].id).content == "manual fit notes\n"
+    assert gui_data.text(saved.output_artifacts[0].id).content == "manual fit notes\n"
     assert [view.id for view in gui_run.comparisons()] == [comparison.id]
-    assert overview.overview.run_id == baseline.id
+    assert overview.run_id == baseline.id
 
 
 @pytest.mark.parametrize(
     ("action", "expected_code"),
     [
         (lambda analysis: analysis.note(""), "analysis_note_invalid"),
-        (
-            lambda analysis: analysis.report(
-                title="bad source",
-                text="x",
-                content=b"x",
-                filename="x.md",
-            ),
-            "analysis_report_source_invalid",
-        ),
-        (
-            lambda analysis: analysis.report(
-                title="bad filename",
-                text="x",
-                filename="../x.md",
-            ),
-            "analysis_report_filename_invalid",
-        ),
         (
             lambda analysis: analysis.artifact(
                 title="missing file",

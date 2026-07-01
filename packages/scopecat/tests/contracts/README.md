@@ -17,7 +17,7 @@ Current scope:
   the durable record is coupled to run finalization.
 - Workflow boundary records: scheduling plans, resume manifests, retry reports,
   run-comparison jobs/results/reviews, proposal review/finalization records,
-  and reporting jobs/results. These tests should assert serialized durable
+  and structured overview inputs. These tests should assert serialized durable
   shape and typed input/output records, not private helper placement.
 
 Keep implementation details in ordinary unit or integration tests. Do not add

@@ -38,7 +38,6 @@ def test_execute_dry_run_persists_expected_files(tmp_path: Path) -> None:
     )
     assert (run_dir / "plan.snapshot.json").is_file()
     assert (run_dir / "events.jsonl").is_file()
-    assert (run_dir / "artifacts" / "dry-run.summary.md").is_file()
     assert (run_dir / "artifacts" / "dry-run.snapshot.json").is_file()
     assert persisted_manifest == manifest
     assert persisted_config == config
@@ -56,11 +55,6 @@ def test_execute_dry_run_persists_expected_files(tmp_path: Path) -> None:
     )
     assert persisted_plan == dry_run.plan
     assert persisted_snapshot == dry_run
-
-    summary = (run_dir / "artifacts" / "dry-run.summary.md").read_text()
-    assert "# Scopecat Dry-Run Summary" in summary
-    assert "- Points: 3" in summary
-    assert "- Acquisition: 3 records (scalar, record=point" in summary
 
 
 def test_execute_dry_run_includes_float_step_stop_point(

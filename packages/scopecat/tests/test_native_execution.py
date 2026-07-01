@@ -98,7 +98,6 @@ def test_execute_native_run_persists_measurements_and_run_files(
     assert {artifact.id for artifact in manifest.artifact_refs} == {
         "native-run-boundary",
         "native-run-snapshot",
-        "native-run-summary",
         "raw-measurements",
     }
     raw_artifact = assert_artifact_ref(
@@ -122,7 +121,6 @@ def test_execute_native_run_persists_measurements_and_run_files(
     )
     persisted_plan = read_model(run_dir / "plan.snapshot.json", PlanSnapshot)
     assert (run_dir / "events.jsonl").is_file()
-    assert (run_dir / "artifacts" / "native-run.summary.md").is_file()
     assert (run_dir / "artifacts" / "native-run.snapshot.json").is_file()
     assert (run_dir / "artifacts" / "native-run.boundary.json").is_file()
     assert (run_dir / "artifacts" / "raw-measurements.jsonl").is_file()

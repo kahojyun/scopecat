@@ -147,7 +147,7 @@ class SummaryStatsAnalysisStep:
                 metadata=TEST_STEP_METADATA,
             )
             .artifact(
-                title="summary stats report",
+                title="summary stats markdown",
                 kind="summary",
                 artifact_id="summary-stats-summary",
                 filename="summary-stats.md",
@@ -195,7 +195,7 @@ class BestSignalAnalysisStep:
                 metadata=TEST_STEP_METADATA,
             )
             .artifact(
-                title="best signal analysis summary",
+                title="best signal analysis markdown",
                 kind="summary",
                 artifact_id=BEST_SIGNAL_ANALYSIS_SUMMARY_ARTIFACT_ID,
                 filename="best-signal-analysis.md",

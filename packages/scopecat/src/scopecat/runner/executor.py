@@ -43,13 +43,11 @@ from scopecat.runner.constants import (
     RUNNER_ADAPTER_RAW_MEASUREMENTS_ARTIFACT_ID,
     RUNNER_ADAPTER_RAW_MEASUREMENTS_FILENAME,
     RUNNER_ADAPTER_SNAPSHOT_FILENAME,
-    RUNNER_ADAPTER_SUMMARY_FILENAME,
 )
 from scopecat.runner.sdk import RunnerAdapter, RunnerAdapterResult, RunnerContext
 from scopecat.runner.snapshots import (
     RunnerAdapterRunSnapshot,
     build_runner_adapter_boundary_manifest,
-    render_runner_adapter_summary,
 )
 
 
@@ -100,7 +98,6 @@ def _execute_runner_plan(
     storage = LocalRunStore(workspace_path)
     artifacts_dir = storage.layout.artifacts_dir(run_id)
     artifact_store = RunnerArtifactStore(artifacts_dir=artifacts_dir)
-    summary_ref = ref_for_artifact(RUNNER_ADAPTER_SUMMARY_FILENAME)
     snapshot_ref = ref_for_artifact(RUNNER_ADAPTER_SNAPSHOT_FILENAME)
     boundary_ref = ref_for_artifact(RUNNER_ADAPTER_BOUNDARY_MANIFEST_FILENAME)
     data_ref = ref_for_artifact(RUNNER_ADAPTER_RAW_MEASUREMENTS_FILENAME)
@@ -120,7 +117,6 @@ def _execute_runner_plan(
         status="planned",
         adapter_id=adapter_id,
         adapter_version=adapter_version,
-        summary_ref=summary_ref,
         snapshot_ref=snapshot_ref,
         boundary_ref=boundary_ref,
         data_ref=data_ref,
@@ -202,7 +198,6 @@ def _execute_runner_plan(
         status=status,
         adapter_id=adapter_id,
         adapter_version=adapter_version,
-        summary_ref=summary_ref,
         snapshot_ref=snapshot_ref,
         boundary_ref=boundary_ref,
         data_ref=data_ref,
@@ -249,10 +244,6 @@ def _execute_runner_plan(
             metadata={"measurement_count": len(measurements)},
         )
     )
-    summary = render_runner_adapter_summary(
-        manifest=final_manifest,
-        snapshot=snapshot,
-    )
     boundary_manifest = build_runner_adapter_boundary_manifest(
         manifest=final_manifest,
         snapshot=snapshot,
@@ -265,8 +256,6 @@ def _execute_runner_plan(
         manifest=final_manifest,
         snapshot_ref=snapshot_ref,
         snapshot=snapshot,
-        summary_ref=summary_ref,
-        summary=summary,
         data_ref=data_ref,
         measurements=measurements,
         events=events,
@@ -304,7 +293,6 @@ def _manifest(
     status: RunStatus,
     adapter_id: str,
     adapter_version: str,
-    summary_ref: str,
     snapshot_ref: str,
     boundary_ref: str,
     data_ref: str,
@@ -326,7 +314,6 @@ def _manifest(
         runner_versions={adapter_id: adapter_version},
         events_ref="events.jsonl",
         artifact_refs=_artifact_refs(
-            summary_ref=summary_ref,
             snapshot_ref=snapshot_ref,
             boundary_ref=boundary_ref,
             data_ref=data_ref,
@@ -340,7 +327,6 @@ def _manifest(
 
 def _artifact_refs(
     *,
-    summary_ref: str,
     snapshot_ref: str,
     boundary_ref: str,
     data_ref: str,
@@ -349,12 +335,6 @@ def _artifact_refs(
     expected_schema: MeasurementDatasetSchema | None,
 ) -> list[Artifact]:
     return [
-        Artifact(
-            id="runner-adapter-summary",
-            kind="summary",
-            path=summary_ref,
-            media_type="text/markdown",
-        ),
         Artifact(
             id="runner-adapter-snapshot",
             kind="runner_adapter_run_snapshot",

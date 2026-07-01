@@ -31,7 +31,7 @@ proposal = candidate.proposals[0]
 summary = {
     "run": completed_run.id,
     "analysis": saved_analysis.artifact.id,
-    "overview_lines": len(overview.markdown.splitlines()),
+    "overview_artifacts": len(overview.artifact_refs),
     "candidate_proposal": proposal.parameter_id,
 }
 print(summary)

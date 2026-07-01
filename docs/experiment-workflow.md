@@ -31,10 +31,10 @@ flowchart TD
     D --> E["Inspect data"]
     E --> F["Analyze"]
     F --> G{"Candidate config?"}
-    G -->|No| H["Report or compare"]
+    G -->|No| H["Attach context or compare"]
     G -->|Yes| I["Review candidate"]
     I --> J["Run candidate"]
-    J --> K["Compare and report"]
+    J --> K["Compare runs"]
 ```
 
 ## Configuration
@@ -171,15 +171,17 @@ Rollback uses config registry activation history. Historical run data,
 analysis artifacts, proposals, reviews, and activation records remain
 immutable.
 
-## Comparison And Reports
+## Comparison And Overview
 
 Run comparison is the review point after a candidate configuration has been
 used for a follow-up run.
 
-User reports are analysis or step artifacts that link back to source runs,
-datasets, analysis artifacts, candidate configs, and comparisons. Run overviews
-are rebuildable views over durable records rather than a second source of
-truth.
+User-facing displays should render from durable records such as run manifests,
+measurement datasets, analysis artifacts, candidate configs, reviews, and
+comparison results. Scopecat does not automatically persist Markdown reports
+or summaries as a second source of truth; user-authored Markdown remains a
+normal attachment or analysis artifact. `RunOverview` is a rebuildable
+structured view over the same records.
 
 ## Anti-Corruption Rules
 

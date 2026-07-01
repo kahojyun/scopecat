@@ -35,7 +35,6 @@ from scopecat.instruments.snapshots import (
     NativePointSnapshot,
     NativeRunSnapshot,
     build_native_boundary_manifest,
-    render_native_run_summary,
 )
 from scopecat.instruments.state import (
     AcquisitionPlan,
@@ -60,7 +59,6 @@ from scopecat.results import (
 )
 
 NATIVE_RUNNER_ID = "scopecat.native"
-NATIVE_RUN_SUMMARY_FILENAME = "native-run.summary.md"
 NATIVE_RUN_SNAPSHOT_FILENAME = "native-run.snapshot.json"
 NATIVE_BOUNDARY_MANIFEST_FILENAME = "native-run.boundary.json"
 NATIVE_BOUNDARY_MANIFEST_ARTIFACT_ID = "native-run-boundary"
@@ -118,7 +116,6 @@ def _execute_native_plan(
     execution = ExecutionProfile(runner_id=NATIVE_RUNNER_ID)
     run_id = new_run_id()
     storage = LocalRunStore(workspace_path)
-    summary_ref = ref_for_artifact(NATIVE_RUN_SUMMARY_FILENAME)
     snapshot_ref = ref_for_artifact(NATIVE_RUN_SNAPSHOT_FILENAME)
     boundary_ref = ref_for_artifact(NATIVE_BOUNDARY_MANIFEST_FILENAME)
     data_ref = ref_for_artifact(NATIVE_RAW_MEASUREMENTS_FILENAME)
@@ -144,7 +141,6 @@ def _execute_native_plan(
         execution=execution,
         run_id=run_id,
         status="planned",
-        summary_ref=summary_ref,
         snapshot_ref=snapshot_ref,
         boundary_ref=boundary_ref,
         data_ref=data_ref,
@@ -261,7 +257,6 @@ def _execute_native_plan(
         execution=execution,
         run_id=run_id,
         status=status,
-        summary_ref=summary_ref,
         snapshot_ref=snapshot_ref,
         boundary_ref=boundary_ref,
         data_ref=data_ref,
@@ -305,7 +300,6 @@ def _execute_native_plan(
             metadata={"measurement_count": len(measurements)},
         )
     )
-    summary = render_native_run_summary(manifest=final_manifest, snapshot=snapshot)
     boundary_manifest = build_native_boundary_manifest(
         manifest=final_manifest,
         snapshot=snapshot,
@@ -317,8 +311,6 @@ def _execute_native_plan(
         manifest=final_manifest,
         snapshot_ref=snapshot_ref,
         snapshot=snapshot,
-        summary_ref=summary_ref,
-        summary=summary,
         data_ref=data_ref,
         measurements=measurements,
         events=events,
@@ -775,7 +767,6 @@ def _manifest(
     execution: ExecutionProfile,
     run_id: str,
     status: RunStatus,
-    summary_ref: str,
     snapshot_ref: str,
     boundary_ref: str,
     data_ref: str,
@@ -797,7 +788,6 @@ def _manifest(
         runner_versions=_runner_versions(instruments),
         events_ref="events.jsonl",
         artifact_refs=_artifact_refs(
-            summary_ref=summary_ref,
             snapshot_ref=snapshot_ref,
             boundary_ref=boundary_ref,
             data_ref=data_ref,
@@ -817,7 +807,6 @@ def _runner_versions(instruments: list[NativeInstrument]) -> dict[str, str]:
 
 def _artifact_refs(
     *,
-    summary_ref: str,
     snapshot_ref: str,
     boundary_ref: str,
     data_ref: str,
@@ -825,12 +814,6 @@ def _artifact_refs(
     expected_schema: MeasurementDatasetSchema | None,
 ) -> list[Artifact]:
     return [
-        Artifact(
-            id="native-run-summary",
-            kind="summary",
-            path=summary_ref,
-            media_type="text/markdown",
-        ),
         Artifact(
             id="native-run-snapshot",
             kind="native_run_snapshot",

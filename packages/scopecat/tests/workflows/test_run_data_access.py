@@ -59,11 +59,6 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         workspace=tmp_path,
         kind="measurement_dataset",
     )
-    summary = read_run_artifact_text(
-        run_id=simulated.manifest.run_id,
-        selector="native-run-summary",
-        workspace=tmp_path,
-    )
     raw_by_path = read_run_artifact_text(
         run_id=simulated.manifest.run_id,
         selector="artifacts/raw-measurements.jsonl",
@@ -74,9 +69,9 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         selector="native-run-snapshot",
         workspace=tmp_path,
     )
-    summary_bytes = read_run_artifact_bytes(
+    snapshot_bytes = read_run_artifact_bytes(
         run_id=simulated.manifest.run_id,
-        selector="native-run-summary",
+        selector="native-run-snapshot",
         workspace=tmp_path,
     )
     raw_dataset = read_run_measurement_dataset(
@@ -104,19 +99,16 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
     assert isinstance(details.plan, PlanSnapshot)
     assert details.plan.expected_dataset_schema is not None
     assert {view.artifact.id for view in artifacts} >= {
-        "native-run-summary",
         "native-run-snapshot",
         "raw-measurements",
         "metrics",
         "readout-matrix",
     }
     assert [view.artifact.id for view in measurement_artifacts] == ["raw-measurements"]
-    assert summary.artifact.id == "native-run-summary"
-    assert summary.content.startswith("# Scopecat Native Run Summary")
     assert raw_by_path.artifact.id == "raw-measurements"
     assert '"observables"' in raw_by_path.content
     assert snapshot.content["runner_id"] == "scopecat.native"
-    assert summary_bytes.content.startswith(b"# Scopecat Native Run Summary")
+    assert snapshot_bytes.content.startswith(b"{")
     assert raw_dataset.artifact.id == "raw-measurements"
     assert raw_dataset.dataset.dataset_schema.dataset_id == "raw-measurements"
     assert len(raw_dataset.dataset.records) == 3

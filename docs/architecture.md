@@ -52,7 +52,7 @@ around an ordinary experiment. They do not belong in `ExperimentSpec.state`.
 | `ParameterPatch` | Scalar or table changes used for point-local views and candidate config review. |
 | `ExperimentSpec` | Durable declarative recipe with `id`, `kind`, `points`, `params`, `state`, `acquire`, and optional `assets`. |
 | `PlanSnapshot` | Durable aggregate with hashes, diagnostics, point previews, patch rows, desired state, acquisition shape, artifact refs, and provenance. |
-| `RunManifest` | Root run record tying inputs, plan identity, events, datasets, artifacts, analysis, candidates, reports, and comparisons to one run id. |
+| `RunManifest` | Root run record tying inputs, plan identity, events, datasets, artifacts, analysis, candidates, attachments, and comparisons to one run id. |
 
 `PlanSnapshot` should not embed a full per-point copy of every parameter table.
 Store sampled previews or artifact-backed preview tables when users need to

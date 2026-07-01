@@ -14,7 +14,7 @@ Core owns generic workflow records and APIs:
 - planning, dry-run previews, execution records, result contracts, and storage
   references;
 - `Workspace`, `Experiment`, `Run`, `Data`, `Analysis`, `AnalysisStep`,
-  candidate configs, comparisons, and reports.
+  candidate configs, comparisons, and structured overviews.
 
 Core must not import demo packages, private lab packages, or domain-specific
 vocabulary modules.
@@ -100,7 +100,7 @@ GUI write actions should be reproducible from notebook code:
 - review a `CandidateConfig`;
 - run a follow-up `Experiment` with a reviewed candidate config;
 - compare runs;
-- save user analysis reports as artifacts.
+- save user context or derived analysis outputs as typed artifacts.
 
 If an action cannot be represented through `Workspace`, `Run`, `Data`,
 `Analysis`, `CandidateConfig`, and typed artifacts, it is not ready for the GUI.

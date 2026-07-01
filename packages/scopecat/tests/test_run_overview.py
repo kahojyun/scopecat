@@ -3,11 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
-from scopecat.reporting import build_run_overview
+from scopecat.run_overview import build_run_overview
 from scopecat.runs import open_run_store
 from scopecat.workflows import StartRunResult
 from tests.support.records import assert_artifact_ref
-from tests.support.reporting import (
+from tests.support.run_overview import (
     config_registry_sourced_simulated_run,
     load_config,
     load_experiment,
@@ -130,7 +130,7 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
             analysis.output_kinds,
             analysis.proposal_count,
             analysis.source_artifact_ids,
-            analysis.report_artifact_ids,
+            analysis.output_artifact_ids,
         )
         for analysis in overview.analysis_records
     ] == [

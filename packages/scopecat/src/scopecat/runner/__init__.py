@@ -10,7 +10,6 @@ from scopecat.runner.snapshots import (
     RunnerAdapterBoundaryManifest,
     RunnerAdapterRunSnapshot,
     build_runner_adapter_boundary_manifest,
-    render_runner_adapter_summary,
 )
 
 __all__ = [
@@ -26,5 +25,4 @@ __all__ = [
     "RunnerContext",
     "build_runner_adapter_boundary_manifest",
     "execute_runner_adapter",
-    "render_runner_adapter_summary",
 ]

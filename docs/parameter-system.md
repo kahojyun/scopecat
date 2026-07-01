@@ -86,8 +86,8 @@ contains accepted inputs, evaluated derivations, diagnostics, source hashes, and
 provenance.
 
 Planning consumes build snapshots, not raw config maps. This gives dry runs,
-native runs, analysis, comparison, and reporting a stable record of the
-parameter inputs used for each run.
+native runs, analysis, comparison, and structured overviews a stable record of
+the parameter inputs used for each run.
 
 ## Patches And Candidate Review
 
