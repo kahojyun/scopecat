@@ -69,7 +69,7 @@ class StepArtifactHandle:
 
 
 class StepArtifactWriter(Protocol):
-    """Artifact writer surface exposed to processing and evaluation steps."""
+    """Artifact writer surface exposed to artifact-producing helpers."""
 
     @property
     def artifacts(self) -> tuple[Artifact, ...]: ...

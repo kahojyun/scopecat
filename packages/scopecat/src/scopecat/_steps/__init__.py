@@ -1,4 +1,4 @@
-"""Internal step execution helpers shared by processing and evaluation."""
+"""Internal artifact and input helpers for analysis-oriented tests."""
 
 from scopecat._steps.artifacts import (
     StepArtifactDiagnostics,
@@ -12,12 +12,6 @@ from scopecat._steps.inputs import (
     StepInputArtifact,
     StepInputResolver,
 )
-from scopecat._steps.persistence import (
-    StepJobArtifact,
-    persist_completed_step,
-    persist_failed_step,
-    persist_step_job,
-)
 
 __all__ = [
     "ArtifactInputDiagnostics",
@@ -28,8 +22,4 @@ __all__ = [
     "StepArtifactWriter",
     "StepInputArtifact",
     "StepInputResolver",
-    "StepJobArtifact",
-    "persist_completed_step",
-    "persist_failed_step",
-    "persist_step_job",
 ]

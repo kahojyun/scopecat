@@ -7,11 +7,9 @@ from dataclasses import dataclass
 import scopecat as sc
 
 from quantum_lab_demo.readout.analysis_calculations import (
+    READOUT_PARAMETER_ID,
     analyze_readout_frequency_measurements,
     analyze_readout_iq_quality_measurements,
-)
-from quantum_lab_demo.readout.frequency_evaluation import (
-    READOUT_PARAMETER_ID,
 )
 
 

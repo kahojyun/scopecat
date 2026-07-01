@@ -272,7 +272,7 @@ class ChunkedArtifactManifest(BaseModel):
 
 
 class ArtifactRequirement(BaseModel):
-    """Artifact slot required or accepted before downstream processing."""
+    """Artifact slot required or accepted before downstream analysis."""
 
     model_config = ConfigDict(extra="forbid")
 

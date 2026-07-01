@@ -1,4 +1,4 @@
-"""Online evaluation boundary records."""
+"""Online analysis boundary records."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def decide_online_convergence(
                 )
             )
             continue
-        values.append(float(cast(int | float, y_value)))
+        values.append(float(cast("int | float", y_value)))
 
     completed_point_ids = _completed_point_ids(accepted)
     if diagnostics:
@@ -114,7 +114,7 @@ def _online_accepted_rows(
             continue
         accepted.append(dict(row))
         seen_points.add(point_id)
-    return sorted(accepted, key=lambda row: cast(int, row["point_id"]))
+    return sorted(accepted, key=lambda row: cast("int", row["point_id"]))
 
 
 def _completed_point_ids(rows: Sequence[Mapping[str, Any]]) -> list[int]:

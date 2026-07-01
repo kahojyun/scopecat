@@ -6,10 +6,9 @@ workflow code can be tested without depending on a bundled demo domain.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,43 +16,12 @@ from pydantic import BaseModel, ConfigDict, Field
 import scopecat as sc
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.evaluation.sdk import (
-    ArtifactInputDiagnostics as EvaluationArtifactInputDiagnostics,
-)
-from scopecat.evaluation.sdk import (
-    EvaluationContext,
-    EvaluationJob,
-    EvaluationJobArtifact,
-    EvaluationStepResult,
-    execute_evaluation_step,
-)
 from scopecat.experiments import ExperimentSpec, PlanSnapshot
 from scopecat.instruments import NativeRunSnapshot
-from scopecat.models.artifact import ProcessingJob
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.parameter import (
-    ParameterChangeSet,
-    ParameterPatch,
-    Quantity,
-)
+from scopecat.models.parameter import Quantity
 from scopecat.models.provider import ProviderOptionDescription
 from scopecat.models.run import RunManifest
-from scopecat.processing.sdk import (
-    ArtifactInputDiagnostics as ProcessingArtifactInputDiagnostics,
-)
-from scopecat.processing.sdk import (
-    ProcessingContext,
-    ProcessingInputArtifact,
-    ProcessingJobArtifact,
-    ProcessingStepResult,
-    execute_processing_step,
-)
-from scopecat.results import (
-    MeasurementDatasetInputDiagnostics as EvaluationDatasetInputDiagnostics,
-)
-from scopecat.results import (
-    MeasurementDatasetInputDiagnostics as ProcessingDatasetInputDiagnostics,
-)
 from scopecat.results import MeasurementRecord
 from scopecat.workflows import (
     AnalysisCatalogDescription,
@@ -68,23 +36,16 @@ SUMMARY_STATS_STEP = "summary-stats"
 SUMMARY_STATS_INPUT_REF = "artifacts/raw-measurements.jsonl"
 SUMMARY_STATS_RESULT_REF = "artifacts/summary-stats.json"
 SUMMARY_STATS_SUMMARY_REF = "artifacts/summary-stats.md"
-SUMMARY_STATS_JOB_REF = "processing/summary-stats.job.json"
-BEST_SIGNAL_EVALUATION_STEP = "best-signal-proposal"
 BEST_SIGNAL_ANALYSIS_STEP = "best-signal-analysis"
 BEST_SIGNAL_INPUT_REF = "artifacts/raw-measurements.jsonl"
 BEST_SIGNAL_CONFIG_REF = "config-profile.snapshot.json"
 BEST_SIGNAL_PLAN_REF = "plan.snapshot.json"
-BEST_SIGNAL_EVALUATION_RESULT_REF = "artifacts/best-signal-evaluation.json"
-BEST_SIGNAL_EVALUATION_SUMMARY_REF = "artifacts/best-signal-evaluation.md"
-BEST_SIGNAL_EVALUATION_JOB_REF = "evaluation/best-signal-proposal.job.json"
-BEST_SIGNAL_PROPOSAL_REF = "proposals/best-signal-proposal.json"
-BEST_SIGNAL_EVALUATION_RESULT_ARTIFACT_ID = "best-signal-evaluation-result"
-BEST_SIGNAL_EVALUATION_SUMMARY_ARTIFACT_ID = "best-signal-evaluation-summary"
-BEST_SIGNAL_EVALUATION_JOB_ARTIFACT_ID = "best-signal-evaluation-job"
-BEST_SIGNAL_PROPOSAL_ARTIFACT_ID = "best-signal-proposal"
+BEST_SIGNAL_ANALYSIS_RESULT_REF = "artifacts/best-signal-analysis.json"
+BEST_SIGNAL_ANALYSIS_SUMMARY_REF = "artifacts/best-signal-analysis.md"
+BEST_SIGNAL_ANALYSIS_RESULT_ARTIFACT_ID = "best-signal-analysis-result"
+BEST_SIGNAL_ANALYSIS_SUMMARY_ARTIFACT_ID = "best-signal-analysis-summary"
 RAW_MEASUREMENTS_ARTIFACT_ID = "raw-measurements"
 MEASUREMENT_DATASET_ARTIFACT_KIND = "measurement_dataset"
-SAFE_ARTIFACT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 TEST_STEP_METADATA = {"scope": "test"}
 
 
@@ -114,14 +75,13 @@ class SummaryStatsResult(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
-class BestSignalEvaluationResult(BaseModel):
+class BestSignalAnalysisResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.test_best_signal_evaluation_result.v0"
+    schema_version: str = "scopecat.test_best_signal_analysis_result.v0"
     run_id: str
-    step: str = BEST_SIGNAL_EVALUATION_STEP
+    step: str = BEST_SIGNAL_ANALYSIS_STEP
     input_ref: str = BEST_SIGNAL_INPUT_REF
-    proposal_artifact_id: str = BEST_SIGNAL_PROPOSAL_ARTIFACT_ID
     parameter_id: str
     best_point_index: int
     best_signal: Quantity
@@ -156,164 +116,99 @@ class _Accumulator:
         )
 
 
-@dataclass(frozen=True)
-class SummaryStatsProcessingStep:
+@dataclass
+class SummaryStatsAnalysisStep:
     selector: str | None = None
-    step_id: str = SUMMARY_STATS_STEP
+    id: str = SUMMARY_STATS_STEP
 
-    def run(
-        self, context: ProcessingContext
-    ) -> ProcessingStepResult[SummaryStatsResult]:
-        source = _resolve_summary_stats_input(context, self.selector)
-        _validate_source_artifact_id(source.artifact_id)
-        dataset = context.inputs.read_measurement_dataset(
-            source,
-            diagnostics=ProcessingDatasetInputDiagnostics(
-                missing_code="missing_processing_input",
-                empty_code="empty_processing_input",
-                invalid_code="invalid_processing_input",
-                missing_schema_code="missing_processing_input_schema",
-                invalid_schema_code="invalid_processing_input_schema",
-                noun="processing input",
-                diagnostic_path=source.ref,
-            ),
-        )
-        refs = _SummaryStatsRefs(source.artifact_id)
+    def run(self, context: sc.AnalysisContext) -> sc.Analysis:
+        raw = context.data.measurements(self.selector or RAW_MEASUREMENTS_ARTIFACT_ID)
         result = _build_summary_result(
-            run_id=context.run_id,
+            run_id=context.run.id,
             step=SUMMARY_STATS_STEP,
-            input_ref=source.ref,
-            diagnostic_path=source.ref,
-            measurements=dataset.records,
+            input_ref=raw.artifact.path,
+            diagnostic_path=raw.artifact.path,
+            measurements=raw.dataset.records,
         )
-        context.artifacts.write_model(
-            id=refs.result_artifact_id,
-            kind="test_summary_stats_result",
-            filename=_artifact_filename(refs.result_ref),
-            model=result,
-            media_type="application/json",
-            metadata=TEST_STEP_METADATA,
-        )
-        context.artifacts.write_text(
-            id=refs.summary_artifact_id,
-            kind="summary",
-            filename=_artifact_filename(refs.summary_ref),
-            content=render_summary_stats_summary(result),
-            media_type="text/markdown",
-            metadata=TEST_STEP_METADATA,
-        )
-        return ProcessingStepResult(
-            result=result,
-            job_id=refs.job_id,
-            job_ref=refs.job_ref,
-            metadata=TEST_STEP_METADATA,
-            job_artifact=ProcessingJobArtifact(
-                id=refs.job_artifact_id,
+        return (
+            context.result("summary stats")
+            .artifact_ref(
+                raw.artifact.id,
+                title="raw measurements",
+                expected_kind=MEASUREMENT_DATASET_ARTIFACT_KIND,
+            )
+            .artifact(
+                title="summary stats result",
+                kind="test_summary_stats_result",
+                artifact_id="summary-stats-result",
+                filename="summary-stats.json",
+                model=result,
+                media_type="application/json",
                 metadata=TEST_STEP_METADATA,
-            ),
+            )
+            .artifact(
+                title="summary stats report",
+                kind="summary",
+                artifact_id="summary-stats-summary",
+                filename="summary-stats.md",
+                text=render_summary_stats_summary(result),
+                media_type="text/markdown",
+                metadata=TEST_STEP_METADATA,
+            )
         )
 
 
-@dataclass(frozen=True)
-class BestSignalEvaluationStep:
-    step_id: str = BEST_SIGNAL_EVALUATION_STEP
+@dataclass
+class BestSignalAnalysisStep:
+    id: str = BEST_SIGNAL_ANALYSIS_STEP
 
-    def run(
-        self, context: EvaluationContext
-    ) -> EvaluationStepResult[
-        BestSignalEvaluationResult,
-        ParameterChangeSet,
-    ]:
-        source = context.inputs.resolve_artifact(
-            selector="raw-measurements",
-            expected_kind=MEASUREMENT_DATASET_ARTIFACT_KIND,
-            diagnostics=EvaluationArtifactInputDiagnostics(
-                not_found_code="evaluation_input_not_found",
-                invalid_kind_code="unsupported_evaluation_input_artifact",
-                path_escape_code="evaluation_input_path_escape",
-                not_found_message="evaluation input artifact not found",
-                invalid_kind_message=(
-                    "best-signal evaluation supports measurement_dataset only"
-                ),
-                path_escape_message="evaluation input selector escapes run directory",
-                diagnostic_path="input",
-            ),
-        )
-        dataset = context.inputs.read_measurement_dataset(
-            source,
-            diagnostics=EvaluationDatasetInputDiagnostics(
-                missing_code="missing_evaluation_input",
-                empty_code="empty_evaluation_input",
-                invalid_code="invalid_evaluation_input",
-                missing_schema_code="missing_evaluation_input_schema",
-                invalid_schema_code="invalid_evaluation_input_schema",
-                noun="evaluation input",
-                diagnostic_path=source.ref,
-            ),
-        )
-        context.inputs.record_ref(BEST_SIGNAL_CONFIG_REF)
-        context.inputs.record_ref(BEST_SIGNAL_PLAN_REF)
-        parameter_id = _sweep_parameter_id(context.plan)
+    def run(self, context: sc.AnalysisContext) -> sc.Analysis:
+        raw = context.data.measurements(RAW_MEASUREMENTS_ARTIFACT_ID)
+        parameter_id = _sweep_parameter_id(context.data.plan_preview())
         old_value = _old_parameter_value(context.config, parameter_id)
-        best_measurement = _best_signal_measurement(dataset.records)
+        best_measurement = _best_signal_measurement(raw.dataset.records)
         proposed_value = _proposed_value(best_measurement, parameter_id)
         best_signal = best_measurement.observables["signal"]
-        proposal = ParameterChangeSet(
-            id=BEST_SIGNAL_EVALUATION_STEP,
-            source_run_id=context.run_id,
-            reason=f"Best signal observed at point {best_measurement.point_index}.",
-            patches=[
-                ParameterPatch(
-                    kind="set_scalar",
-                    parameter_id=parameter_id,
-                    expected_value=old_value,
-                    value=proposed_value,
-                )
-            ],
-            confidence=best_signal.value,
-        )
-        result = BestSignalEvaluationResult(
-            run_id=context.run_id,
+        reason = f"Best signal observed at point {best_measurement.point_index}."
+        result = BestSignalAnalysisResult(
+            run_id=context.run.id,
             parameter_id=parameter_id,
             best_point_index=best_measurement.point_index,
             best_signal=best_signal,
             old_value=old_value,
             proposed_value=proposed_value,
         )
-        context.artifacts.write_model(
-            id=BEST_SIGNAL_EVALUATION_RESULT_ARTIFACT_ID,
-            kind="test_best_signal_evaluation_result",
-            filename=_artifact_filename(BEST_SIGNAL_EVALUATION_RESULT_REF),
-            model=result,
-            media_type="application/json",
-            metadata=TEST_STEP_METADATA,
-        )
-        context.artifacts.write_text(
-            id=BEST_SIGNAL_EVALUATION_SUMMARY_ARTIFACT_ID,
-            kind="summary",
-            filename=_artifact_filename(BEST_SIGNAL_EVALUATION_SUMMARY_REF),
-            content=render_best_signal_summary(result=result, proposal=proposal),
-            media_type="text/markdown",
-            metadata=TEST_STEP_METADATA,
-        )
-        context.proposals.write_model(
-            id=BEST_SIGNAL_PROPOSAL_ARTIFACT_ID,
-            kind="parameter_change_set",
-            filename=_artifact_filename(BEST_SIGNAL_PROPOSAL_REF),
-            model=proposal,
-            media_type="application/json",
-            metadata=TEST_STEP_METADATA,
-        )
-        return EvaluationStepResult(
-            result=result,
-            proposals=(proposal,),
-            job_id=BEST_SIGNAL_EVALUATION_STEP,
-            job_ref=BEST_SIGNAL_EVALUATION_JOB_REF,
-            metadata=TEST_STEP_METADATA,
-            job_artifact=EvaluationJobArtifact(
-                id=BEST_SIGNAL_EVALUATION_JOB_ARTIFACT_ID,
+        return (
+            context.result("best signal analysis")
+            .artifact_ref(
+                raw.artifact.id,
+                title="raw measurements",
+                expected_kind=MEASUREMENT_DATASET_ARTIFACT_KIND,
+            )
+            .artifact(
+                title="best signal analysis result",
+                kind="test_best_signal_analysis_result",
+                artifact_id=BEST_SIGNAL_ANALYSIS_RESULT_ARTIFACT_ID,
+                filename="best-signal-analysis.json",
+                model=result,
+                media_type="application/json",
                 metadata=TEST_STEP_METADATA,
-            ),
+            )
+            .artifact(
+                title="best signal analysis summary",
+                kind="summary",
+                artifact_id=BEST_SIGNAL_ANALYSIS_SUMMARY_ARTIFACT_ID,
+                filename="best-signal-analysis.md",
+                text=render_best_signal_summary(result=result, reason=reason),
+                media_type="text/markdown",
+                metadata=TEST_STEP_METADATA,
+            )
+            .guess(
+                parameter_id,
+                proposed_value,
+                reason=reason,
+                confidence=best_signal.value,
+            )
         )
 
 
@@ -384,7 +279,7 @@ class TestSignalAnalysisCatalog:
                     input_artifact_kinds=("measurement_dataset",),
                     output_artifact_kinds=(
                         "test_summary_stats_result",
-                        "test_best_signal_evaluation",
+                        "test_best_signal_analysis_result",
                         "summary",
                     ),
                     guess_kinds=("drive_frequency",),
@@ -443,25 +338,21 @@ def execute_signal_native_run(
     return result.manifest, cast(NativeRunSnapshot, result.snapshot)
 
 
-def execute_summary_stats_processing(
+def _analysis_run(*, run_id: str, workspace: str | Path) -> sc.Run:
+    lab = sc.open(workspace)
+    return lab.get_run(run_id)
+
+
+def execute_summary_stats_analysis(
     *, run_id: str, workspace: str | Path, selector: str | None = None
-) -> tuple[ProcessingJob, SummaryStatsResult]:
-    return execute_processing_step(
-        run_id=run_id,
-        workspace=workspace,
-        step=SummaryStatsProcessingStep(selector=selector),
-    )
+) -> sc.SavedAnalysis:
+    run = _analysis_run(run_id=run_id, workspace=workspace)
+    return run.analyze(SummaryStatsAnalysisStep(selector=selector)).save()
 
 
-def execute_best_signal_evaluation(
-    *, run_id: str, workspace: str | Path
-) -> tuple[EvaluationJob, BestSignalEvaluationResult, ParameterChangeSet]:
-    job, result, proposals = execute_evaluation_step(
-        run_id=run_id,
-        workspace=workspace,
-        step=BestSignalEvaluationStep(),
-    )
-    return job, result, proposals[0]
+def execute_best_signal_analysis(*, run_id: str, workspace: str | Path) -> sc.Analysis:
+    run = _analysis_run(run_id=run_id, workspace=workspace)
+    return run.analyze(BestSignalAnalysisStep())
 
 
 def render_summary_stats_summary(result: SummaryStatsResult) -> str:
@@ -492,12 +383,10 @@ def render_summary_stats_summary(result: SummaryStatsResult) -> str:
     return "\n".join(lines)
 
 
-def render_best_signal_summary(
-    *, result: BestSignalEvaluationResult, proposal: ParameterChangeSet
-) -> str:
+def render_best_signal_summary(*, result: BestSignalAnalysisResult, reason: str) -> str:
     return "\n".join(
         [
-            "# Scopecat Best Signal Evaluation",
+            "# Scopecat Best Signal Analysis",
             "",
             f"- Run ID: {result.run_id}",
             f"- Step: {result.step}",
@@ -510,8 +399,7 @@ def render_best_signal_summary(
                 f"- Proposed value: {result.proposed_value.value} "
                 f"{result.proposed_value.unit}"
             ),
-            f"- Proposal artifact: {result.proposal_artifact_id}",
-            f"- Reason: {proposal.reason}",
+            f"- Reason: {reason}",
             "",
         ]
     )
@@ -545,7 +433,7 @@ def _build_summary_result(
                     [
                         _diagnostic(
                             "error",
-                            "invalid_processing_input",
+                            "invalid_analysis_input",
                             f"observable {name} uses inconsistent units",
                             diagnostic_path,
                         )
@@ -558,7 +446,7 @@ def _build_summary_result(
                 _diagnostic(
                     "error",
                     "missing_observables",
-                    "processing input contains no observables",
+                    "analysis input contains no observables",
                     diagnostic_path,
                 )
             ]
@@ -576,49 +464,6 @@ def _build_summary_result(
     )
 
 
-class _SummaryStatsRefs:
-    def __init__(self, source_artifact_id: str) -> None:
-        if source_artifact_id == RAW_MEASUREMENTS_ARTIFACT_ID:
-            self.job_id = SUMMARY_STATS_STEP
-            self.job_ref = SUMMARY_STATS_JOB_REF
-            self.result_artifact_id = "summary-stats-result"
-            self.summary_artifact_id = "summary-stats-summary"
-            self.job_artifact_id = "summary-stats-job"
-            self.result_ref = SUMMARY_STATS_RESULT_REF
-            self.summary_ref = SUMMARY_STATS_SUMMARY_REF
-            return
-        self.job_id = f"{source_artifact_id}-summary-stats"
-        self.job_ref = f"processing/{source_artifact_id}.summary-stats.job.json"
-        self.result_artifact_id = f"{source_artifact_id}-summary-stats-result"
-        self.summary_artifact_id = f"{source_artifact_id}-summary-stats-summary"
-        self.job_artifact_id = f"{source_artifact_id}-summary-stats-job"
-        self.result_ref = f"artifacts/{source_artifact_id}.summary-stats.json"
-        self.summary_ref = f"artifacts/{source_artifact_id}.summary-stats.md"
-
-
-def _resolve_summary_stats_input(
-    context: ProcessingContext,
-    selector: str | None,
-) -> ProcessingInputArtifact:
-    if selector is None:
-        selector = RAW_MEASUREMENTS_ARTIFACT_ID
-    return context.inputs.resolve_artifact(
-        selector=selector,
-        expected_kind=MEASUREMENT_DATASET_ARTIFACT_KIND,
-        diagnostics=ProcessingArtifactInputDiagnostics(
-            not_found_code="processing_input_not_found",
-            invalid_kind_code="unsupported_processing_input_artifact",
-            path_escape_code="processing_input_path_escape",
-            not_found_message="processing input artifact not found",
-            invalid_kind_message=(
-                "summary-stats supports measurement_dataset artifacts only"
-            ),
-            path_escape_message="processing input selector escapes run directory",
-            diagnostic_path="input",
-        ),
-    )
-
-
 def _sweep_parameter_id(plan: PlanSnapshot) -> str:
     coordinate_ids = _primary_coordinates(plan)
     if len(coordinate_ids) != 1 or not coordinate_ids[0]:
@@ -627,7 +472,7 @@ def _sweep_parameter_id(plan: PlanSnapshot) -> str:
                 _diagnostic(
                     "error",
                     "missing_sweep_coordinate",
-                    "evaluation requires exactly one sweep coordinate",
+                    "analysis requires exactly one sweep coordinate",
                     "plan.snapshot.json",
                 )
             ]
@@ -675,7 +520,7 @@ def _best_signal_measurement(
                 _diagnostic(
                     "error",
                     "missing_signal_observable",
-                    "evaluation input contains no signal observable",
+                    "analysis input contains no signal observable",
                     BEST_SIGNAL_INPUT_REF,
                 )
             ]
@@ -703,24 +548,6 @@ def _proposed_value(measurement: MeasurementRecord, parameter_id: str) -> Quanti
             ]
         )
     return quantity
-
-
-def _validate_source_artifact_id(source_artifact_id: str) -> None:
-    if not SAFE_ARTIFACT_ID_RE.fullmatch(source_artifact_id):
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "invalid_processing_input",
-                    f"processing input artifact id is not safe: {source_artifact_id}",
-                    "input",
-                )
-            ]
-        )
-
-
-def _artifact_filename(ref: str) -> str:
-    return PurePosixPath(ref).name
 
 
 def _diagnostic(

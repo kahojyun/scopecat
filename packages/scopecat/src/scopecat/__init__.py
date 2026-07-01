@@ -10,6 +10,7 @@ from scopecat.session import (
     CandidateConfigReview,
     ComparisonHandle,
     Data,
+    EarlyStopDecision,
     Experiment,
     OverviewHandle,
     ParameterGuess,
@@ -17,6 +18,7 @@ from scopecat.session import (
     RunHandle,
     SavedAnalysis,
     Workspace,
+    decide_online_convergence,
     open,  # noqa: A004
 )
 
@@ -32,6 +34,7 @@ __all__ = [
     "CandidateConfigReview",
     "ComparisonHandle",
     "Data",
+    "EarlyStopDecision",
     "Experiment",
     "OverviewHandle",
     "ParameterGuess",
@@ -40,5 +43,6 @@ __all__ = [
     "RunHandle",
     "SavedAnalysis",
     "Workspace",
+    "decide_online_convergence",
     "open",
 ]

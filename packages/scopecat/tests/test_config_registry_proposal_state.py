@@ -15,14 +15,14 @@ from scopecat.proposals import (
     review_parameter_proposal,
 )
 from scopecat.runs import open_run_store
-from tests.support.config_registry import simulate_and_evaluate
+from tests.support.config_registry import simulate_with_proposal
 from tests.support.records import assert_artifact_ref, read_model
 
 
 def test_invalidate_parameter_proposal_records_boundary_and_manifest(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_and_evaluate(tmp_path)
+    run_id = simulate_with_proposal(tmp_path)
 
     invalidated, record = invalidate_parameter_proposal(
         run_id=run_id,
@@ -80,7 +80,7 @@ def test_invalidate_parameter_proposal_records_boundary_and_manifest(
 def test_invalidate_parameter_proposal_rejects_final_review_state(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_and_evaluate(tmp_path)
+    run_id = simulate_with_proposal(tmp_path)
     review_parameter_proposal(
         run_id=run_id,
         selector="best-signal-proposal",
@@ -112,7 +112,7 @@ def test_invalidate_parameter_proposal_rejects_final_review_state(
 def test_accept_parameter_proposal_preflight_failure_does_not_review(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_and_evaluate(tmp_path)
+    run_id = simulate_with_proposal(tmp_path)
     config_path = tmp_path / "runs" / run_id / "config-profile.snapshot.json"
     persisted_config = read_model(config_path, ConfigProfileSnapshot)
     config = persisted_config.model_dump(mode="json")

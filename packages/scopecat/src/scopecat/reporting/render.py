@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
-
 from scopecat.reporting.models import (
     AnalysisRecordOverview,
     AnalysisReportOverview,
-    EvaluationReport,
-    ProcessingReport,
     RunOverview,
 )
 
@@ -136,20 +132,6 @@ def render_run_overview(overview: RunOverview) -> str:
     else:
         lines.append("- none")
 
-    lines.extend(["", "## Processing", ""])
-    if overview.processing:
-        for processing in overview.processing:
-            lines.extend(_step_report_lines(processing))
-    else:
-        lines.append("- none")
-
-    lines.extend(["", "## Evaluation", ""])
-    if overview.evaluation:
-        for evaluation in overview.evaluation:
-            lines.extend(_step_report_lines(evaluation))
-    else:
-        lines.append("- none")
-
     lines.extend(["", "## Proposals", ""])
     if overview.proposals:
         for proposal in overview.proposals:
@@ -217,31 +199,6 @@ def _analysis_report_lines(report: AnalysisReportOverview) -> list[str]:
         lines.append(f"- Analysis record: {report.source_analysis_artifact_id}")
     if report.source_artifact_ids:
         lines.append(f"- Source artifacts: {', '.join(report.source_artifact_ids)}")
-    lines.append("")
-    return lines
-
-
-def _step_report_lines(report: ProcessingReport | EvaluationReport) -> list[str]:
-    lines = [
-        f"### {report.step}",
-        "",
-        f"- Status: {report.job_status}",
-        f"- Job: {report.job_ref}",
-    ]
-    if report.scope is not None:
-        lines.append(f"- Scope: {report.scope}")
-    for artifact in report.result_artifacts:
-        lines.append(f"- Result: {artifact.path}")
-    for artifact in report.summary_artifacts:
-        lines.append(f"- Summary: {artifact.path}")
-    for diagnostic in report.diagnostics:
-        lines.append(f"- Diagnostic: {diagnostic.severity} {diagnostic.code}")
-    for detail_name, detail in sorted(report.details.items()):
-        lines.append(f"- Detail: {detail_name}")
-        if isinstance(detail, dict):
-            detail_items = cast(dict[str, Any], detail)
-            for key, value in sorted(detail_items.items()):
-                lines.append(f"  - {key}: {value}")
     lines.append("")
     return lines
 

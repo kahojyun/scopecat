@@ -3,16 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec, PlanSnapshot
 from scopecat.models.parameter import Quantity
 from tests.support.native_signal import TestSignalInstrumentProvider
-from tests.support.processing import FakeProcessingStep
 from tests.support.records import read_model
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simulated_scan"
+
+
+class AnalysisArtifactPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: int
 
 
 def load_experiment() -> ExperimentSpec:
@@ -35,8 +41,19 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
         "raw-measurements",
         expected_kind="measurement_dataset",
     )
-    lab.client.process(run.id, FakeProcessingStep())
-    figure = data.figure("fake-processing-figure")
+    (
+        run.analysis("plot artifact")
+        .artifact(
+            title="plot bytes",
+            kind="plot",
+            artifact_id="analysis-plot",
+            filename="analysis-plot.png",
+            content=b"\x89PNG\r\n",
+            media_type="image/png",
+        )
+        .save()
+    )
+    figure = data.figure("analysis-plot")
     plan_preview = data.plan_preview()
 
     assert isinstance(lab, sc.Workspace)
@@ -45,7 +62,7 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
     assert [artifact.id for artifact in measurement_artifacts] == ["raw-measurements"]
     assert raw_artifact.path == "artifacts/raw-measurements.jsonl"
     assert len(raw.dataset.records) == 3
-    assert figure.artifact.id == "fake-processing-figure"
+    assert figure.artifact.id == "analysis-plot"
     assert figure.content == b"\x89PNG\r\n"
     assert isinstance(plan_preview, PlanSnapshot)
     assert plan_preview.expected_dataset_schema is not None
@@ -311,6 +328,84 @@ def test_run_analysis_persists_report_artifacts(
     ]
 
 
+def test_run_analysis_persists_owned_artifacts(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+        mode="native_simulate",
+        native_instrument_provider=TestSignalInstrumentProvider(),
+    )
+    run = lab.run(load_experiment())
+    source = tmp_path / "source-report.html"
+    source.write_text("<h1>source</h1>\n")
+
+    saved = (
+        run.analysis("artifact persistence")
+        .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
+        .artifact(
+            title="model result",
+            kind="analysis_model",
+            artifact_id="analysis-model",
+            model=AnalysisArtifactPayload(value=7),
+        )
+        .artifact(
+            title="json result",
+            kind="analysis_json",
+            artifact_id="analysis-json",
+            json_content={"ok": True},
+        )
+        .artifact(
+            title="text result",
+            kind="summary",
+            artifact_id="analysis-text",
+            text="hello",
+            media_type="text/plain",
+        )
+        .artifact(
+            title="bytes result",
+            kind="blob",
+            artifact_id="analysis-bytes",
+            content=b"abc",
+        )
+        .artifact(
+            title="file result",
+            kind="html",
+            artifact_id="analysis-file",
+            path=source,
+            media_type="text/html",
+        )
+        .save()
+    )
+    payload = run.data().json(saved.artifact.id).content
+
+    assert [artifact.id for artifact in saved.output_artifacts] == [
+        "analysis-model",
+        "analysis-json",
+        "analysis-text",
+        "analysis-bytes",
+        "analysis-file",
+    ]
+    assert run.data().json("analysis-model").content == {"value": 7}
+    assert run.data().json("analysis-json").content == {"ok": True}
+    assert run.data().text("analysis-text").content == "hello\n"
+    assert run.data().bytes("analysis-bytes").content == b"abc"
+    assert run.data().text("analysis-file").content == "<h1>source</h1>\n"
+    assert [output["kind"] for output in payload["outputs"]] == [
+        "external_ref",
+        "artifact",
+        "artifact",
+        "artifact",
+        "artifact",
+        "artifact",
+    ]
+    assert payload["outputs"][1]["content"]["target"] == "analysis-model"
+    assert saved.output_artifacts[0].metadata["source_artifact_ids"] == [
+        "raw-measurements"
+    ]
+
+
 def test_run_analysis_report_save_rejects_duplicate_ids_and_filenames(
     tmp_path: Path,
 ) -> None:
@@ -343,6 +438,62 @@ def test_run_analysis_report_save_rejects_duplicate_ids_and_filenames(
     )
     run_artifacts_dir = tmp_path / "runs" / run.id / "artifacts"
     assert not (run_artifacts_dir / "one.md").exists()
+
+
+def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+        mode="dry",
+    )
+    run = lab.run(load_experiment())
+
+    with pytest.raises(ValidationFailed) as duplicate_id:
+        (
+            run.analysis("artifact review")
+            .artifact(
+                title="first",
+                kind="summary",
+                artifact_id="fit-artifact",
+                filename="one.md",
+                text="one",
+            )
+            .artifact(
+                title="second",
+                kind="summary",
+                artifact_id="fit-artifact",
+                filename="two.md",
+                text="two",
+            )
+            .save()
+        )
+    assert duplicate_id.value.diagnostics[0].code == "analysis_artifact_id_duplicated"
+    assert not (tmp_path / "runs" / run.id / "artifacts" / "one.md").exists()
+
+    with pytest.raises(ValidationFailed) as duplicate_filename:
+        (
+            run.analysis("artifact review")
+            .artifact(
+                title="first",
+                kind="summary",
+                artifact_id="one",
+                filename="duplicate.md",
+                text="one",
+            )
+            .artifact(
+                title="second",
+                kind="summary",
+                artifact_id="two",
+                filename="duplicate.md",
+                text="two",
+            )
+            .save()
+        )
+    assert duplicate_filename.value.diagnostics[0].code == (
+        "analysis_artifact_filename_duplicated"
+    )
 
 
 def test_analysis_artifact_refs_dedupe_sources_and_feed_overview(
@@ -453,6 +604,14 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
                 filename="../x.md",
             ),
             "analysis_report_filename_invalid",
+        ),
+        (
+            lambda analysis: analysis.artifact(
+                title="missing file",
+                kind="html",
+                path="/missing/analysis-source.html",
+            ),
+            "analysis_artifact_source_missing",
         ),
     ],
 )

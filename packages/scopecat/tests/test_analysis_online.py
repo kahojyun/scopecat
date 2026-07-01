@@ -1,6 +1,6 @@
 import pytest
 
-from scopecat.evaluation import EarlyStopDecision, decide_online_convergence
+from scopecat.analysis import EarlyStopDecision, decide_online_convergence
 
 
 def test_decide_online_convergence_stops_when_tail_is_stable() -> None:

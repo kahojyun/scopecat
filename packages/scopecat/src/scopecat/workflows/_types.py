@@ -16,14 +16,13 @@ from scopecat.config_registry import (
     ConfigRegistryRegistrationJob,
 )
 from scopecat.diagnostics import Diagnostic
-from scopecat.evaluation import EvaluationJob
 from scopecat.experiments import (
     DryRunSnapshot,
     ExperimentSpec,
     PlanSnapshot,
 )
 from scopecat.instruments import NativeRunSnapshot
-from scopecat.models.artifact import Artifact, ProcessingJob
+from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.models.provider import ProviderOptionDescription
@@ -195,19 +194,6 @@ class RunDataTableResult:
 class RunDataArrayResult:
     artifact: Artifact
     array: DataArrayArtifact
-
-
-@dataclass(frozen=True)
-class ProcessRunResult[TResult]:
-    job: ProcessingJob
-    result: TResult
-
-
-@dataclass(frozen=True)
-class EvaluateRunResult[TResult, TProposal]:
-    job: EvaluationJob
-    result: TResult
-    proposals: tuple[TProposal, ...]
 
 
 @dataclass(frozen=True)

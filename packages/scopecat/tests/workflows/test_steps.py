@@ -2,18 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat.workflows import accept_proposal, load_active_config
+import scopecat as sc
+from scopecat.workflows import (
+    load_active_config,
+    register_and_activate_candidate_review,
+)
 from scopecat.workflows.runs import start_run
-from scopecat.workflows.steps import evaluate_run, process_run
 from tests.support.native_signal import TestSignalInstrumentProvider
 from tests.support.signal_testkit import (
-    BestSignalEvaluationStep,
-    SummaryStatsProcessingStep,
+    BestSignalAnalysisStep,
+    SummaryStatsAnalysisStep,
 )
 from tests.support.workflow_fixtures import load_config, load_experiment
 
 
-def test_workflow_process_evaluate_accept_and_rerun_active_config(
+def test_workflow_analysis_review_activate_and_rerun_active_config(
     tmp_path: Path,
 ) -> None:
     run = start_run(
@@ -23,24 +26,23 @@ def test_workflow_process_evaluate_accept_and_rerun_active_config(
         experiment=load_experiment(),
         workspace=tmp_path,
     )
+    lab = sc.open(tmp_path, config=load_config(), mode="native_simulate")
+    run_handle = lab.get_run(run.manifest.run_id)
 
-    processing = process_run(
-        run_id=run.manifest.run_id,
-        workspace=tmp_path,
-        step=SummaryStatsProcessingStep(),
+    summary = run_handle.analyze(SummaryStatsAnalysisStep())
+    summary.save()
+    analysis = run_handle.analyze(BestSignalAnalysisStep())
+    analysis.save()
+    review = lab.review(
+        analysis.candidate_config(reason=analysis.parameter_guesses[0].reason),
+        note="looks good",
     )
-    evaluation = evaluate_run(
-        run_id=run.manifest.run_id,
+    activation = register_and_activate_candidate_review(
+        review=review,
         workspace=tmp_path,
-        step=BestSignalEvaluationStep(),
-    )
-    acceptance = accept_proposal(
-        run_id=run.manifest.run_id,
-        selector="best-signal-proposal",
-        workspace=tmp_path,
-        reviewer="operator",
-        operator="operator",
         entry_id="accepted-best-signal",
+        registered_by="operator",
+        operator="operator",
     )
     active_config = load_active_config(workspace=tmp_path)
     next_run = start_run(
@@ -51,8 +53,8 @@ def test_workflow_process_evaluate_accept_and_rerun_active_config(
         workspace=tmp_path,
     )
 
-    assert processing.result.measurement_count == 3
-    assert evaluation.proposals[0].patches[0].parameter_id == "drive_frequency"
-    assert acceptance.review is not None
+    assert summary.outputs[1].kind == "artifact"
+    assert review.candidate.guesses[0].parameter_id == "drive_frequency"
+    assert activation.entry.id == "accepted-best-signal"
     assert active_config.provenance is not None
     assert next_run.manifest.status == "completed"

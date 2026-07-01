@@ -14,11 +14,9 @@ from scopecat.authoring import (
 )
 from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
-from scopecat.evaluation import EvaluationStep
 from scopecat.instruments.sdk import NativeInstrumentProvider
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
-from scopecat.processing import ProcessingStep
 from scopecat.reporting import RunOverview, build_run_overview
 from scopecat.run_comparison import RunComparisonReviewState, RunComparisonView
 from scopecat.workflows import (
@@ -51,12 +49,7 @@ from scopecat.workflows import (
     review_run_comparison,
     run_experiment,
 )
-from scopecat.workflows._types import (
-    EvaluateRunResult,
-    ExperimentInput,
-    ProcessRunResult,
-)
-from scopecat.workflows.steps import evaluate_run, process_run
+from scopecat.workflows._types import ExperimentInput
 
 RunRef = str | RunManifest | StartRunResult
 
@@ -162,28 +155,6 @@ class Client:
             workspace=self.workspace,
             config_entry=config_entry,
             config_profile=effective_profile,
-        )
-
-    def process[TResult](
-        self,
-        run: RunRef,
-        step: ProcessingStep[TResult],
-    ) -> ProcessRunResult[TResult]:
-        return process_run(
-            run_id=run_id(run),
-            workspace=self.workspace,
-            step=step,
-        )
-
-    def evaluate[TResult, TProposal](
-        self,
-        run: RunRef,
-        step: EvaluationStep[TResult, TProposal],
-    ) -> EvaluateRunResult[TResult, TProposal]:
-        return evaluate_run(
-            run_id=run_id(run),
-            workspace=self.workspace,
-            step=step,
         )
 
     def accept_proposal(

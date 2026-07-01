@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from scopecat.errors import ValidationFailed
-from scopecat.evaluation import EvaluationStep, execute_evaluation_step
 from scopecat.planning.validation import has_blocking_diagnostics
-from scopecat.processing import ProcessingStep, execute_processing_step
 from scopecat.workflows._diagnostics import diagnostic as _diagnostic
 from scopecat.workflows._types import (
     AnalysisCatalog,
@@ -16,8 +13,6 @@ from scopecat.workflows._types import (
     AnalysisStepCatalogContext,
     CalibrationRoutine,
     CalibrationRoutineDescription,
-    EvaluateRunResult,
-    ProcessRunResult,
 )
 
 if TYPE_CHECKING:
@@ -70,31 +65,3 @@ def describe_calibration_routine(
         description=routine.description,
         metadata=dict(routine.metadata),
     )
-
-
-def process_run[TResult](
-    *,
-    run_id: str,
-    workspace: str | Path,
-    step: ProcessingStep[TResult],
-) -> ProcessRunResult[TResult]:
-    job, result = execute_processing_step(
-        run_id=run_id,
-        workspace=workspace,
-        step=step,
-    )
-    return ProcessRunResult(job=job, result=result)
-
-
-def evaluate_run[TResult, TProposal](
-    *,
-    run_id: str,
-    workspace: str | Path,
-    step: EvaluationStep[TResult, TProposal],
-) -> EvaluateRunResult[TResult, TProposal]:
-    job, result, proposals = execute_evaluation_step(
-        run_id=run_id,
-        workspace=workspace,
-        step=step,
-    )
-    return EvaluateRunResult(job=job, result=result, proposals=proposals)

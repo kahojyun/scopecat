@@ -36,11 +36,15 @@ class ReadoutFrequencyCalibrationAdapter:
             readout_frequency = point.row["readout_frequency"]
             if not isinstance(readout_frequency, Quantity):
                 continue
+            lo_frequency = point.row.get("lo_frequency")
+            coordinates = {"readout_frequency": readout_frequency}
+            if isinstance(lo_frequency, Quantity):
+                coordinates["lo_frequency"] = lo_frequency
             _record_raw_measurement(
                 sink=sink,
                 point=ExecutionPoint(
                     index=point.point_id,
-                    coordinates={"readout_frequency": readout_frequency},
+                    coordinates=coordinates,
                 ),
                 settings=settings,
                 response_model=self._response_model,

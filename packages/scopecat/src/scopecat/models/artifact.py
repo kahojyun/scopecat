@@ -1,12 +1,10 @@
-"""Artifact and processing models."""
+"""Artifact reference models."""
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from scopecat.diagnostics import Diagnostic
 
 
 class Artifact(BaseModel):
@@ -41,19 +39,3 @@ class ArtifactRef(BaseModel):
 
 
 MeasurementDatasetRole = Literal["raw", "derived"]
-
-
-class ProcessingJob(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: str = "scopecat.processing_job.v1"
-    id: str
-    run_id: str
-    step: str
-    input_artifact_ids: list[str]
-    input_record_refs: list[str] = Field(default_factory=list)
-    output_artifact_ids: list[str] = Field(default_factory=list)
-    output_artifacts: list[Artifact] = Field(default_factory=list)
-    status: str = "planned"
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)

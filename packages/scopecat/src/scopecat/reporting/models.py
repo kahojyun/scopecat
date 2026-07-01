@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from scopecat.diagnostics import Diagnostic
 from scopecat.models.artifact import Artifact
 from scopecat.models.parameter import Quantity
 from scopecat.models.run import utc_now
@@ -39,43 +38,6 @@ class ConfigSourceReport(BaseModel):
     config_ref: str | None = None
     active_state_ref: str | None = None
     active_record_id: str | None = None
-
-
-class ProcessingReport(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    job_ref: str
-    step: str
-    scope: str | None = None
-    job_status: str
-    input_artifact_ids: list[str]
-    input_record_refs: list[str] = Field(default_factory=list)
-    output_artifact_ids: list[str]
-    result_artifact_ids: list[str] = Field(default_factory=list)
-    summary_artifact_ids: list[str] = Field(default_factory=list)
-    result_artifacts: list[Artifact] = Field(default_factory=list)
-    summary_artifacts: list[Artifact] = Field(default_factory=list)
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
-    details: dict[str, Any] = Field(default_factory=dict)
-
-
-class EvaluationReport(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    job_ref: str
-    step: str
-    scope: str | None = None
-    job_status: str
-    input_artifact_ids: list[str]
-    input_record_refs: list[str] = Field(default_factory=list)
-    output_artifact_ids: list[str]
-    result_artifact_ids: list[str] = Field(default_factory=list)
-    summary_artifact_ids: list[str] = Field(default_factory=list)
-    result_artifacts: list[Artifact] = Field(default_factory=list)
-    summary_artifacts: list[Artifact] = Field(default_factory=list)
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
-    proposal_artifact_ids: list[str] = Field(default_factory=list)
-    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class AnalysisRecordOverview(BaseModel):
@@ -161,7 +123,7 @@ class RunComparisonReport(BaseModel):
 class RunOverview(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.run_overview.v0"
+    schema_version: str = "scopecat.run_overview.v1"
     run_id: str
     generated_at: datetime = Field(default_factory=utc_now)
     run: ReportRunInfo
@@ -169,7 +131,5 @@ class RunOverview(BaseModel):
     artifact_refs: list[Artifact]
     analysis_records: list[AnalysisRecordOverview] = Field(default_factory=list)
     analysis_reports: list[AnalysisReportOverview] = Field(default_factory=list)
-    processing: list[ProcessingReport] = Field(default_factory=list)
-    evaluation: list[EvaluationReport] = Field(default_factory=list)
     proposals: list[ProposalReport] = Field(default_factory=list)
     run_comparisons: list[RunComparisonReport] = Field(default_factory=list)

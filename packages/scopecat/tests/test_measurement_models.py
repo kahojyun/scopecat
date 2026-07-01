@@ -70,13 +70,13 @@ def test_infer_measurement_dataset_artifact_metadata_from_records() -> None:
         dataset_id="derived-sample",
         dataset_role="derived",
         records=[signal_record()],
-        source_step="fake-processing",
+        source_step="fake-analysis",
         source_artifact_ids=["raw-measurements"],
     )
 
     assert metadata["dataset_role"] == "derived"
     assert metadata["record_schema"] == MEASUREMENT_RECORD_SCHEMA_VERSION
-    assert metadata["source_step"] == "fake-processing"
+    assert metadata["source_step"] == "fake-analysis"
     assert metadata["source_artifact_ids"] == ["raw-measurements"]
     assert metadata["dataset_schema"]["dataset_id"] == "derived-sample"
     assert metadata["dataset_schema"]["primary_observables"] == ["signal"]

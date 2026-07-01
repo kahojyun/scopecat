@@ -1,4 +1,4 @@
-"""Measurement record models shared by execution, processing, and evaluation."""
+"""Measurement record models shared by execution and analysis."""
 
 from __future__ import annotations
 

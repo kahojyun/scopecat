@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from scopecat.analysis.online import EarlyStopDecision, decide_online_convergence
 from scopecat.authoring import (
     ExperimentAuthoringContext,
     ExperimentDraft,
@@ -452,6 +453,7 @@ __all__ = [
     "CandidateConfigReview",
     "ComparisonHandle",
     "Data",
+    "EarlyStopDecision",
     "Experiment",
     "OverviewHandle",
     "ParameterGuess",
@@ -461,5 +463,6 @@ __all__ = [
     "SweepIntent",
     "TemplateBrowser",
     "Workspace",
+    "decide_online_convergence",
     "open",
 ]

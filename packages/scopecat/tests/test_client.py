@@ -13,10 +13,6 @@ from scopecat.models.config import load_config_profile
 from scopecat.models.parameter import Quantity
 from tests.support.native_signal import TestSignalInstrumentProvider
 from tests.support.records import read_model
-from tests.support.signal_testkit import (
-    BestSignalEvaluationStep,
-    SummaryStatsProcessingStep,
-)
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simulated_scan"
 
@@ -66,17 +62,13 @@ def test_client_runs_and_reads_notebook_workflow(tmp_path: Path) -> None:
 
     run = client.run(load_experiment())
     raw = client.measurements(run)
-    processing = client.process(run, SummaryStatsProcessingStep())
-    evaluation = client.evaluate(run, BestSignalEvaluationStep())
-    summary = client.artifact_text(run, "summary-stats-summary")
+    artifacts = client.artifacts(run)
 
     assert run.manifest.status == "completed"
     assert run_id(run) == run.manifest.run_id
     assert raw.artifact.id == "raw-measurements"
     assert len(raw.dataset.records) == 3
-    assert processing.result.measurement_count == 3
-    assert evaluation.result.best_point_index in {0, 1, 2}
-    assert "Scopecat Summary Stats" in summary.content
+    assert "raw-measurements" in artifacts
 
 
 def test_client_runs_experiment_spec(tmp_path: Path) -> None:

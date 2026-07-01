@@ -25,7 +25,7 @@ private runner dictionaries.
   in core.
 - Do not make Excel, JSON settings folders, or registry trees durable Scopecat
   parameter formats.
-- Do not let processing, evaluation, runner adapters, or instruments mutate
+- Do not let analysis, runner adapters, or instruments mutate
   active parameter state silently.
 - Do not encode qubit, coupler, resonator, pulse, or lab-specific vocabulary
   in core models.

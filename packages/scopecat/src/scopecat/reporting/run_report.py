@@ -1,10 +1,10 @@
 """Stable local run overview assembly.
 
 Run overviews are assembled from the persisted run manifest plus the optional
-workflow records registered on that run: processing jobs, evaluation jobs,
-parameter proposals and reviews, run comparisons and reviews, and config
-registry provenance. Missing optional records are omitted from the overview
-instead of being treated as part of the required run contract.
+workflow records registered on that run: analysis artifacts, parameter
+proposals and reviews, run comparisons and reviews, and config registry
+provenance. Missing optional records are omitted from the overview instead of
+being treated as part of the required run contract.
 """
 
 from __future__ import annotations
@@ -18,8 +18,7 @@ from pydantic import BaseModel, Field, ValidationError
 from scopecat.config_registry import ConfigRegistryConfigSourceProvenance
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.evaluation import EvaluationJob
-from scopecat.models.artifact import Artifact, ProcessingJob
+from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import ParameterChangeSet, Quantity
 from scopecat.models.run import RunManifest
@@ -28,8 +27,6 @@ from scopecat.reporting.models import (
     AnalysisRecordOverview,
     AnalysisReportOverview,
     ConfigSourceReport,
-    EvaluationReport,
-    ProcessingReport,
     ProposalReport,
     ProposalReviewReport,
     ReportRunInfo,
@@ -75,8 +72,6 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
         manifest=manifest,
     )
     analysis_reports = _read_analysis_reports(manifest)
-    processing = _read_processing(storage=storage, run_id=run_id, manifest=manifest)
-    evaluation = _read_evaluation(storage=storage, run_id=run_id, manifest=manifest)
     proposals = _read_proposals(storage=storage, run_id=run_id, manifest=manifest)
     run_comparisons = _read_run_comparisons(
         storage=storage, run_id=run_id, manifest=manifest
@@ -97,8 +92,6 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
         artifact_refs=list(manifest.artifact_refs),
         analysis_records=analysis_records,
         analysis_reports=analysis_reports,
-        processing=processing,
-        evaluation=evaluation,
         proposals=proposals,
         run_comparisons=run_comparisons,
     )
@@ -187,96 +180,6 @@ def _config_source_report_from_provenance(
         config_ref=provenance.config_ref,
         active_state_ref=provenance.active_state_ref,
         active_record_id=provenance.active_record_id,
-    )
-
-
-def _read_processing(
-    *, storage: RunStore, run_id: str, manifest: RunManifest
-) -> list[ProcessingReport]:
-    return [
-        _processing_report(
-            storage=storage,
-            run_id=run_id,
-            manifest=manifest,
-            job_ref=job_artifact.path,
-        )
-        for job_artifact in list_artifacts(manifest, kind="processing_job")
-    ]
-
-
-def _processing_report(
-    *,
-    storage: RunStore,
-    run_id: str,
-    manifest: RunManifest,
-    job_ref: str,
-) -> ProcessingReport:
-    job = _read_model(storage.ref_path(run_id, job_ref), ProcessingJob, job_ref)
-    artifacts_by_id = _artifacts_by_id(manifest)
-    result_artifact_ids, summary_artifact_ids, result_artifacts, summary_artifacts = (
-        _classify_step_outputs(job, artifacts_by_id)
-    )
-    return ProcessingReport(
-        job_ref=job_ref,
-        step=job.step,
-        scope=_scope(job.metadata),
-        job_status=job.status,
-        input_artifact_ids=job.input_artifact_ids,
-        input_record_refs=job.input_record_refs,
-        output_artifact_ids=job.output_artifact_ids,
-        result_artifact_ids=result_artifact_ids,
-        summary_artifact_ids=summary_artifact_ids,
-        result_artifacts=result_artifacts,
-        summary_artifacts=summary_artifacts,
-        diagnostics=job.diagnostics,
-    )
-
-
-def _read_evaluation(
-    *, storage: RunStore, run_id: str, manifest: RunManifest
-) -> list[EvaluationReport]:
-    return [
-        _evaluation_report(
-            storage=storage,
-            run_id=run_id,
-            manifest=manifest,
-            job_ref=job_artifact.path,
-        )
-        for job_artifact in list_artifacts(manifest, kind="evaluation_job")
-    ]
-
-
-def _evaluation_report(
-    *,
-    storage: RunStore,
-    run_id: str,
-    manifest: RunManifest,
-    job_ref: str,
-) -> EvaluationReport:
-    job = _read_model(storage.ref_path(run_id, job_ref), EvaluationJob, job_ref)
-    artifacts_by_id = _artifacts_by_id(manifest)
-    result_artifact_ids, summary_artifact_ids, result_artifacts, summary_artifacts = (
-        _classify_step_outputs(job, artifacts_by_id)
-    )
-    return EvaluationReport(
-        job_ref=job_ref,
-        step=job.step,
-        scope=_scope(job.metadata),
-        job_status=job.status,
-        input_artifact_ids=job.input_artifact_ids,
-        input_record_refs=job.input_record_refs,
-        output_artifact_ids=job.output_artifact_ids,
-        result_artifact_ids=result_artifact_ids,
-        summary_artifact_ids=summary_artifact_ids,
-        result_artifacts=result_artifacts,
-        summary_artifacts=summary_artifacts,
-        proposal_artifact_ids=[
-            artifact_id
-            for artifact_id in job.output_artifact_ids
-            if (artifact := artifacts_by_id.get(artifact_id)) is not None
-            and artifact.kind == "parameter_change_set"
-        ],
-        diagnostics=job.diagnostics,
     )
 
 
@@ -400,39 +303,6 @@ def _artifacts_by_kind(manifest: RunManifest, kind: str) -> list[Artifact]:
         (artifact for artifact in manifest.artifact_refs if artifact.kind == kind),
         key=lambda artifact: artifact.id,
     )
-
-
-def _artifacts_by_id(manifest: RunManifest) -> dict[str, Artifact]:
-    return {artifact.id: artifact for artifact in manifest.artifact_refs}
-
-
-def _classify_step_outputs(
-    job: ProcessingJob | EvaluationJob,
-    artifacts_by_id: dict[str, Artifact],
-) -> tuple[list[str], list[str], list[Artifact], list[Artifact]]:
-    result_artifact_ids: list[str] = []
-    summary_artifact_ids: list[str] = []
-    result_artifacts: list[Artifact] = []
-    summary_artifacts: list[Artifact] = []
-    for artifact_id in job.output_artifact_ids:
-        artifact = artifacts_by_id.get(artifact_id)
-        if artifact is not None and artifact.kind == "summary":
-            summary_artifact_ids.append(artifact_id)
-            summary_artifacts.append(artifact)
-        elif artifact is not None and artifact.path.startswith("artifacts/"):
-            result_artifact_ids.append(artifact_id)
-            result_artifacts.append(artifact)
-    return (
-        result_artifact_ids,
-        summary_artifact_ids,
-        result_artifacts,
-        summary_artifacts,
-    )
-
-
-def _scope(metadata: dict[str, Any]) -> str | None:
-    value = metadata.get("scope")
-    return value if isinstance(value, str) else None
 
 
 def _read_model[TModel: BaseModel](

@@ -14,12 +14,12 @@ from scopecat.models.parameter import (
 )
 from scopecat.proposals import accept_parameter_proposal
 from scopecat.runs import open_run_store
-from tests.support.config_registry import simulate_and_evaluate
+from tests.support.config_registry import simulate_with_proposal
 from tests.support.records import assert_artifact_ref, read_model
 
 
 def test_accept_parameter_proposal_applies_table_patches(tmp_path: Path) -> None:
-    run_id = simulate_and_evaluate(tmp_path)
+    run_id = simulate_with_proposal(tmp_path)
     storage = open_run_store(tmp_path)
     config = storage.read_model(
         run_id,

@@ -13,8 +13,6 @@ from scopecat.workflows._types import (
     CalibrationRoutine,
     CalibrationRoutineResult,
     ConfigSourceResult,
-    EvaluateRunResult,
-    ProcessRunResult,
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
@@ -34,7 +32,6 @@ from scopecat.workflows.runs import (
     read_run_data_table,
     read_run_measurement_dataset,
 )
-from scopecat.workflows.steps import evaluate_run, process_run
 
 
 def run_calibration_routine(
@@ -99,12 +96,6 @@ class _RoutineSession:
 @dataclass(frozen=True)
 class _RoutineClient:
     workspace: Path
-
-    def process(self, run_id: str, step: Any) -> ProcessRunResult[Any]:
-        return process_run(run_id=run_id, workspace=self.workspace, step=step)
-
-    def evaluate(self, run_id: str, step: Any) -> EvaluateRunResult[Any, Any]:
-        return evaluate_run(run_id=run_id, workspace=self.workspace, step=step)
 
     def artifacts(self, run_id: str) -> tuple[str, ...]:
         return tuple(

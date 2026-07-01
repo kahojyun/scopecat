@@ -87,7 +87,7 @@ to prove:
 - dataset role or artifact kind;
 - plan content hash when point-scoped;
 - point identity when scoped below a whole run;
-- source adapter, processing step, evaluation step, or analysis step id;
+- source adapter or analysis step id;
 - source artifact ids for derived data;
 - units, dimensions, variable roles, and diagnostics through schema or payload;
 - config/profile or parameter-build identity when needed for replay.

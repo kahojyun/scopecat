@@ -16,6 +16,7 @@ from scopecat.models.parameter import (
     Quantity,
 )
 from scopecat.parameters import apply_parameter_patches, build_parameter_snapshot
+from scopecat.proposals.review import ProposalFinalizationRecord, ProposalReviewRecord
 from scopecat.runs.access import open_run_store
 
 SAFE_ANALYSIS_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
@@ -47,6 +48,8 @@ class CandidateConfig:
         proposal = _candidate_proposal(self)
         proposal_record_ref = f"proposals/{proposal.id}.json"
         candidate_config_record_ref = f"artifacts/{proposal.id}.candidate-config.json"
+        review_ref = f"reviews/{proposal.id}.review.json"
+        finalization_ref = f"reviews/{proposal.id}.finalization.json"
         storage = open_run_store(workspace)
         source_config = storage.read_config_profile_snapshot(self.source_run_id)
         candidate_config = _candidate_config_snapshot(
@@ -85,11 +88,56 @@ class CandidateConfig:
                 "analysis_title": self.analysis_title,
             },
         )
+        review_artifact = Artifact(
+            id=f"{proposal.id}-review",
+            kind="proposal_review_record",
+            path=review_ref,
+            media_type="application/json",
+            metadata={
+                "source": "analysis_candidate_config",
+                "analysis_title": self.analysis_title,
+            },
+        )
+        finalization_artifact = Artifact(
+            id=f"{proposal.id}-finalization",
+            kind="proposal_finalization_record",
+            path=finalization_ref,
+            media_type="application/json",
+            metadata={
+                "source": "analysis_candidate_config",
+                "analysis_title": self.analysis_title,
+            },
+        )
+        review_record = ProposalReviewRecord(
+            run_id=self.source_run_id,
+            proposal_id=proposal.id,
+            proposal_artifact_id=proposal_artifact.id,
+            decision="approved",
+            reviewer=reviewer,
+            note=note,
+        )
+        finalization = ProposalFinalizationRecord(
+            run_id=self.source_run_id,
+            proposal_id=proposal.id,
+            proposal_artifact_id=proposal_artifact.id,
+            review_ref=review_ref,
+            final_state="approved",
+            finalized_by=reviewer,
+            note=note,
+            artifact_refs=[proposal_artifact, review_artifact, finalization_artifact],
+        )
+        storage.write_model(self.source_run_id, review_ref, review_record)
+        storage.write_model(self.source_run_id, finalization_ref, finalization)
         manifest = storage.read_manifest(self.source_run_id)
         write_manifest_artifacts(
             storage=storage,
             manifest=manifest,
-            artifacts=[proposal_artifact, candidate_artifact],
+            artifacts=[
+                proposal_artifact,
+                candidate_artifact,
+                review_artifact,
+                finalization_artifact,
+            ],
         )
         return CandidateConfigReview(
             candidate=self,

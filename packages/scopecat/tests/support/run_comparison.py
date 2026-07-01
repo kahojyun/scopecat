@@ -7,12 +7,9 @@ from typing import Any
 from scopecat.config_registry import resolve_config_registry_config_source
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
-from scopecat.proposals import accept_parameter_proposal
+from tests.support.config_registry import accept_best_signal, seed_best_signal_proposal
 from tests.support.records import read_measurement_records, read_model
-from tests.support.signal_testkit import (
-    execute_best_signal_evaluation,
-    execute_signal_native_run,
-)
+from tests.support.signal_testkit import execute_signal_native_run
 
 ROOT = Path(__file__).parents[4]
 SIMULATED_EXAMPLE_DIR = ROOT / "fixtures" / "core" / "simulated_scan"
@@ -40,15 +37,11 @@ def active_config_registry_simulated_run(
     baseline_run_id: str,
     tmp_path: Path,
 ) -> str:
-    execute_best_signal_evaluation(run_id=baseline_run_id, workspace=tmp_path)
-    accept_parameter_proposal(
-        run_id=baseline_run_id,
-        selector="best-signal-proposal",
-        workspace=tmp_path,
-        reviewer="operator",
-        operator="operator",
+    seed_best_signal_proposal(tmp_path=tmp_path, run_id=baseline_run_id)
+    accept_best_signal(
+        tmp_path,
+        baseline_run_id,
         entry_id="best-signal-proposal-candidate-config",
-        note="looks good",
     )
     config, _provenance = resolve_config_registry_config_source(
         selector="active",

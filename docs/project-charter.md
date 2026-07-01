@@ -70,7 +70,7 @@ Scopecat targets these local workflows:
 - Lab software maintainers who need a migration path from legacy systems to a
   more structured platform.
 
-Secondary users include extension authors, data-processing tool authors, and
+Secondary users include extension authors, analysis-artifact tool authors, and
 research groups adapting Scopecat to their own experiment domains.
 
 ## Architecture Principles

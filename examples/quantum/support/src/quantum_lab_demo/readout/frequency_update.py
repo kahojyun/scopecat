@@ -6,12 +6,9 @@ from pathlib import Path
 
 import scopecat as sc
 from pydantic import BaseModel, ConfigDict
-from scopecat.workflows import accept_proposal, register_and_activate_candidate_review
+from scopecat.workflows import register_and_activate_candidate_review
 
 from quantum_lab_demo.readout.analysis_steps import ReadoutFrequencyAnalysisStep
-from quantum_lab_demo.readout.frequency_evaluation import (
-    READOUT_EVALUATION_STEP,
-)
 
 DEFAULT_NOTE = "private readout frequency calibration update"
 
@@ -38,28 +35,14 @@ def execute_readout_frequency_parameter_update(
     note: str = "",
 ) -> ReadoutFrequencyParameterUpdateResult:
     workspace_path = Path(workspace)
-    entry_id = entry_label or f"readout-frr-{run_id}"
-    update_note = note or DEFAULT_NOTE
-
-    result = accept_proposal(
-        run_id=run_id,
-        selector=READOUT_EVALUATION_STEP,
+    lab = sc.open(workspace_path)
+    return execute_readout_frequency_analysis_update(
+        run=lab.get_run(run_id),
         workspace=workspace_path,
         reviewer=reviewer,
         operator=operator,
-        entry_id=entry_id,
-        note=update_note,
-    )
-    acceptance = result.acceptance
-
-    return ReadoutFrequencyParameterUpdateResult(
-        run_id=run_id,
-        proposal_id=acceptance.proposal_id,
-        proposal_artifact_id=acceptance.proposal_artifact_id,
-        candidate_artifact_id=acceptance.candidate_artifact_id,
-        config_registry_entry_id=acceptance.config_registry_entry_id,
-        active_entry_id=acceptance.active_entry_id,
-        active_config_ref=acceptance.active_config_ref,
+        entry_label=entry_label,
+        note=note,
     )
 
 

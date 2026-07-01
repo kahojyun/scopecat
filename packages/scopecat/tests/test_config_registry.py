@@ -20,7 +20,7 @@ from scopecat.proposals import (
 from scopecat.runs import open_run_store
 from tests.support.config_registry import (
     load_config,
-    simulate_and_evaluate,
+    simulate_with_proposal,
 )
 from tests.support.records import assert_artifact_ref, read_model
 
@@ -61,7 +61,7 @@ def test_register_config_profile_writes_and_activates_direct_entry(
 def test_accept_parameter_proposal_reviews_applies_registers_and_activates(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_and_evaluate(tmp_path)
+    run_id = simulate_with_proposal(tmp_path)
 
     (
         result,
@@ -167,7 +167,7 @@ def test_accept_parameter_proposal_reviews_applies_registers_and_activates(
 def test_accept_parameter_proposal_accepts_already_approved_proposal(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_and_evaluate(tmp_path)
+    run_id = simulate_with_proposal(tmp_path)
     review_parameter_proposal(
         run_id=run_id,
         selector="best-signal-proposal",

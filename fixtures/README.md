@@ -8,7 +8,7 @@ examples. They are not hidden architecture definitions.
 - `core/simple_scan`: minimal core model fixture used by low-level model,
   validation, and authoring tests.
 - `core/simulated_scan`: public core workflow sample used by dry-run, storage,
-  config-registry, processing, evaluation, reporting, runner-adapter, and
+  config-registry, analysis, reporting, runner-adapter, and
   contract tests.
 - `quantum/readout_frequency_calibration`: demo readout-frequency support
   package fixture and runnable example input.
