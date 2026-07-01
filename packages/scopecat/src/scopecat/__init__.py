@@ -2,8 +2,9 @@
 
 from scopecat.session import (
     Analysis,
+    AnalysisArtifactRef,
     AnalysisContext,
-    AnalysisExternalRef,
+    AnalysisInputRef,
     AnalysisOutput,
     AnalysisStep,
     CandidateConfig,
@@ -13,7 +14,7 @@ from scopecat.session import (
     EarlyStopDecision,
     Experiment,
     OverviewHandle,
-    ParameterGuess,
+    ParameterProposal,
     PromotedAnalysisStep,
     RunHandle,
     SavedAnalysis,
@@ -26,8 +27,9 @@ Run = RunHandle
 
 __all__ = [
     "Analysis",
+    "AnalysisArtifactRef",
     "AnalysisContext",
-    "AnalysisExternalRef",
+    "AnalysisInputRef",
     "AnalysisOutput",
     "AnalysisStep",
     "CandidateConfig",
@@ -37,7 +39,7 @@ __all__ = [
     "EarlyStopDecision",
     "Experiment",
     "OverviewHandle",
-    "ParameterGuess",
+    "ParameterProposal",
     "PromotedAnalysisStep",
     "Run",
     "RunHandle",

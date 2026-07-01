@@ -50,13 +50,27 @@ class _AnalysisOutputPayload(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class _AnalysisInputPayload(BaseModel):
+    target: str
+    target_type: str
+    role: str
+    title: str | None = None
+    artifact_kind: str | None = None
+    path: str | None = None
+    media_type: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
 class _AnalysisArtifactPayload(BaseModel):
     schema_version: str
     run_id: str
     title: str
+    key: str | None = None
+    step_id: str | None = None
+    inputs: list[_AnalysisInputPayload] = Field(default_factory=list)
     source_artifact_ids: list[str] = Field(default_factory=list)
     outputs: list[_AnalysisOutputPayload]
-    guesses: list[Any] = Field(default_factory=list)
+    proposals: list[Any] = Field(default_factory=list)
 
 
 def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
@@ -113,7 +127,7 @@ def _read_analysis_records(
                 ref=artifact.path,
                 title=payload.title,
                 output_kinds=[output.kind for output in payload.outputs],
-                guess_count=len(payload.guesses),
+                proposal_count=len(payload.proposals),
                 source_artifact_ids=_source_artifact_ids(payload, artifact),
                 report_artifact_ids=_report_artifact_ids(payload),
             )
@@ -369,24 +383,25 @@ def _source_artifact_ids(
 ) -> list[str]:
     if payload.source_artifact_ids:
         return _unique_strings(payload.source_artifact_ids)
+    input_artifact_ids = _input_artifact_ids(payload)
+    if input_artifact_ids:
+        return input_artifact_ids
     metadata_ids = artifact.metadata.get("source_artifact_ids")
     if isinstance(metadata_ids, list):
         selected = _unique_strings(cast(Sequence[object], metadata_ids))
         if selected:
             return selected
+    return []
+
+
+def _input_artifact_ids(payload: _AnalysisArtifactPayload) -> list[str]:
     artifact_ids: list[str] = []
     seen: set[str] = set()
-    for output in payload.outputs:
-        if output.kind != "external_ref" or not isinstance(output.content, dict):
+    for input_ref in payload.inputs:
+        if input_ref.target_type != "artifact" or input_ref.target in seen:
             continue
-        content = cast(dict[str, object], output.content)
-        if content.get("target_type") != "artifact":
-            continue
-        target = content.get("target")
-        if not isinstance(target, str) or target in seen:
-            continue
-        artifact_ids.append(target)
-        seen.add(target)
+        artifact_ids.append(input_ref.target)
+        seen.add(input_ref.target)
     return artifact_ids
 
 

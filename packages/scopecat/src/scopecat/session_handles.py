@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from scopecat.session_analysis import (
     Analysis,
+    AnalysisArtifactRef,
     AnalysisContext,
-    AnalysisExternalRef,
+    AnalysisInputRef,
     AnalysisOutput,
     AnalysisStep,
     PromotedAnalysisStep,
@@ -14,7 +15,7 @@ from scopecat.session_analysis import (
 from scopecat.session_candidate_config import (
     CandidateConfig,
     CandidateConfigReview,
-    ParameterGuess,
+    ParameterProposal,
 )
 from scopecat.session_comparison import ComparisonHandle
 from scopecat.session_data import Data
@@ -24,8 +25,9 @@ from scopecat.session_templates import TemplateBrowser
 
 __all__ = [
     "Analysis",
+    "AnalysisArtifactRef",
     "AnalysisContext",
-    "AnalysisExternalRef",
+    "AnalysisInputRef",
     "AnalysisOutput",
     "AnalysisStep",
     "CandidateConfig",
@@ -33,7 +35,7 @@ __all__ = [
     "ComparisonHandle",
     "Data",
     "OverviewHandle",
-    "ParameterGuess",
+    "ParameterProposal",
     "PromotedAnalysisStep",
     "RunHandle",
     "SavedAnalysis",

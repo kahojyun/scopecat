@@ -47,7 +47,7 @@ class AnalysisRecordOverview(BaseModel):
     ref: str
     title: str
     output_kinds: list[str]
-    guess_count: int
+    proposal_count: int
     source_artifact_ids: list[str] = Field(default_factory=list)
     report_artifact_ids: list[str] = Field(default_factory=list)
 

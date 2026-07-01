@@ -177,7 +177,7 @@ def _analysis_record_lines(record: AnalysisRecordOverview) -> list[str]:
         f"- Artifact: {record.artifact_id}",
         f"- Ref: {record.ref}",
         f"- Outputs: {', '.join(record.output_kinds) or 'none'}",
-        f"- Guesses: {record.guess_count}",
+        f"- Proposals: {record.proposal_count}",
     ]
     if record.source_artifact_ids:
         lines.append(f"- Source artifacts: {', '.join(record.source_artifact_ids)}")

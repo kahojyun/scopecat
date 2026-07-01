@@ -84,8 +84,8 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     raw = baseline.measurements()
     analysis = (
         baseline.analysis("manual best signal")
-        .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
-        .guess(
+        .input("raw-measurements", expected_kind="measurement_dataset")
+        .propose(
             "drive_frequency",
             raw.dataset.records[1].coordinates["drive_frequency"],
             reason="manual notebook pick",
@@ -124,7 +124,7 @@ def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
 
     baseline = lab.run(experiment)
     raw = baseline.measurements()
-    analysis = baseline.analysis("manual center point").guess(
+    analysis = baseline.analysis("manual center point").propose(
         "drive_frequency",
         raw.dataset.records[1].coordinates["drive_frequency"],
         reason="manual center point",
@@ -139,7 +139,7 @@ def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
     assert baseline.resolved_experiment is None
     assert baseline.result.snapshot.plan.schema_version == "scopecat.plan_snapshot.v1"
     assert raw.artifact.id == "raw-measurements"
-    assert candidate_config.guesses[0].parameter_id == "drive_frequency"
+    assert candidate_config.proposals[0].parameter_id == "drive_frequency"
     assert candidate.manifest.status == "completed"
     assert candidate.resolved_experiment is None
     assert comparison.result.outcome == "unchanged"

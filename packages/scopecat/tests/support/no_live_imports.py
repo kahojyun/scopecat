@@ -70,7 +70,7 @@ def _review_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfigRevie
     analysis = run.analyze(BestSignalAnalysisStep())
     analysis.save()
     return lab.review(
-        analysis.candidate_config(reason=analysis.parameter_guesses[0].reason),
+        analysis.candidate_config(reason=analysis.parameter_proposals[0].reason),
         note="accepted",
     )
 

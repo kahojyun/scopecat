@@ -34,7 +34,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     analysis = run_handle.analyze(BestSignalAnalysisStep())
     analysis.save()
     review = lab.review(
-        analysis.candidate_config(reason=analysis.parameter_guesses[0].reason),
+        analysis.candidate_config(reason=analysis.parameter_proposals[0].reason),
         note="looks good",
     )
     activation = register_and_activate_candidate_review(
@@ -54,7 +54,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     )
 
     assert summary.outputs[1].kind == "artifact"
-    assert review.candidate.guesses[0].parameter_id == "drive_frequency"
+    assert review.candidate.proposals[0].parameter_id == "drive_frequency"
     assert activation.entry.id == "accepted-best-signal"
     assert active_config.provenance is not None
     assert next_run.manifest.status == "completed"

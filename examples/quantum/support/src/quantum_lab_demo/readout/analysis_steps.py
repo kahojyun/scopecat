@@ -28,7 +28,7 @@ class ReadoutFrequencyAnalysisStep:
         return (
             context.result("readout frequency analysis")
             .note(f"best point {summary.best_point_index}")
-            .artifact_ref(
+            .input(
                 raw.artifact.id,
                 title="raw measurements",
                 expected_kind="measurement_dataset",
@@ -56,7 +56,7 @@ class ReadoutFrequencyAnalysisStep:
                 },
                 title="frequency scan",
             )
-            .guess(
+            .propose(
                 READOUT_PARAMETER_ID,
                 summary.center,
                 reason=summary.reason,
@@ -79,7 +79,7 @@ class ReadoutIQQualityAnalysisStep:
         return (
             context.result("readout IQ quality analysis")
             .note(f"processed {summary.measurement_count} shots")
-            .artifact_ref(
+            .input(
                 raw.artifact.id,
                 title="raw measurements",
                 expected_kind="measurement_dataset",

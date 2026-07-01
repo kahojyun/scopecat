@@ -132,7 +132,7 @@ class SummaryStatsAnalysisStep:
         )
         return (
             context.result("summary stats")
-            .artifact_ref(
+            .input(
                 raw.artifact.id,
                 title="raw measurements",
                 expected_kind=MEASUREMENT_DATASET_ARTIFACT_KIND,
@@ -180,7 +180,7 @@ class BestSignalAnalysisStep:
         )
         return (
             context.result("best signal analysis")
-            .artifact_ref(
+            .input(
                 raw.artifact.id,
                 title="raw measurements",
                 expected_kind=MEASUREMENT_DATASET_ARTIFACT_KIND,
@@ -203,7 +203,7 @@ class BestSignalAnalysisStep:
                 media_type="text/markdown",
                 metadata=TEST_STEP_METADATA,
             )
-            .guess(
+            .propose(
                 parameter_id,
                 proposed_value,
                 reason=reason,
@@ -233,7 +233,7 @@ class TestSignalAnalysisStep:
         proposed_value = _proposed_value(best_measurement, parameter_id)
         return (
             context.result("best signal analysis")
-            .artifact_ref(
+            .input(
                 raw.artifact.id,
                 title="raw measurements",
                 expected_kind=MEASUREMENT_DATASET_ARTIFACT_KIND,
@@ -247,7 +247,7 @@ class TestSignalAnalysisStep:
                 ],
                 title="signal summary",
             )
-            .guess(
+            .propose(
                 parameter_id,
                 proposed_value,
                 reason=f"Best signal observed at point {best_measurement.point_index}.",
@@ -282,7 +282,7 @@ class TestSignalAnalysisCatalog:
                         "test_best_signal_analysis_result",
                         "summary",
                     ),
-                    guess_kinds=("drive_frequency",),
+                    proposal_kinds=("drive_frequency",),
                     metadata=TEST_STEP_METADATA,
                 ),
             ),

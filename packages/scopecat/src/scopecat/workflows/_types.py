@@ -217,7 +217,7 @@ class AnalysisStepDescription:
     options: tuple[ProviderOptionDescription, ...] = ()
     input_artifact_kinds: tuple[str, ...] = ()
     output_artifact_kinds: tuple[str, ...] = ()
-    guess_kinds: tuple[str, ...] = ()
+    proposal_kinds: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

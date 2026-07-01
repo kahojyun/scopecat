@@ -90,6 +90,42 @@ def test_data_selectors_report_notebook_friendly_diagnostics(tmp_path: Path) -> 
     assert escape_error.value.diagnostics[0].code == "artifact_selector_path_escape"
 
 
+def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+        mode="native_simulate",
+        native_instrument_provider=TestSignalInstrumentProvider(),
+    )
+    run = lab.run(load_experiment())
+
+    attachment = run.attach(
+        key="notebook",
+        text="manual fit notes",
+        filename="manual-fit-notes.md",
+        media_type="text/markdown",
+        metadata={"section": "fit"},
+    )
+    saved = (
+        run.analysis("attachment-backed review")
+        .input("notebook", role="notes", expected_kind="attachment")
+        .input("raw-measurements", expected_kind="measurement_dataset")
+        .note("used notebook notes and raw measurements")
+        .save()
+    )
+    payload = run.data().json(saved.artifact.id).content
+
+    assert attachment.id == "notebook"
+    assert attachment.kind == "attachment"
+    assert run.data().text("notebook").content == "manual fit notes\n"
+    assert run.data().artifact("notebook").metadata["owner_type"] == "run"
+    assert saved.source_artifact_ids == ("notebook", "raw-measurements")
+    assert [input_ref["target"] for input_ref in payload["inputs"]] == [
+        "notebook",
+        "raw-measurements",
+    ]
+
+
 def test_workspace_experiment_wraps_existing_source(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
@@ -197,9 +233,9 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
             [{"point": record.point_index} for record in raw.dataset.records],
             title="points",
         )
-        .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
-        .external_ref("file:///tmp/manual-notes.ipynb", title="notebook")
-        .guess(
+        .input("raw-measurements", expected_kind="measurement_dataset")
+        .input(uri="file:///tmp/manual-notes.ipynb", role="notes", title="notebook")
+        .propose(
             "drive_frequency",
             5.0,
             unit="GHz",
@@ -214,30 +250,32 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     assert [output.kind for output in analysis.outputs] == [
         "note",
         "table",
-        "external_ref",
-        "external_ref",
-        "guess",
+        "proposal",
+    ]
+    assert [input_ref.target for input_ref in analysis.inputs] == [
+        "raw-measurements",
+        "file:///tmp/manual-notes.ipynb",
     ]
     assert candidate.source_run_id == run.id
     assert candidate.analysis_title == "manual readout review"
-    assert candidate.guesses[0].parameter_id == "drive_frequency"
+    assert candidate.analysis_key == "manual-readout-review"
+    assert candidate.proposals[0].parameter_id == "drive_frequency"
     assert candidate.reason == "inspect in notebook first"
     assert saved.artifact.kind == "analysis"
     assert saved.artifact.path == "artifacts/analysis-manual-readout-review.json"
     assert saved.source_artifact_ids == ("raw-measurements",)
     assert saved.artifact.metadata["source_artifact_ids"] == ["raw-measurements"]
-    assert saved_payload.content["schema_version"] == "scopecat.analysis.v1"
+    assert saved_payload.content["schema_version"] == "scopecat.analysis.v2"
     assert saved_payload.content["title"] == "manual readout review"
+    assert saved_payload.content["key"] == "manual-readout-review"
     assert saved_payload.content["source_artifact_ids"] == ["raw-measurements"]
-    assert saved_payload.content["outputs"][2]["content"]["target_type"] == "artifact"
-    assert saved_payload.content["outputs"][2]["content"]["target"] == (
-        "raw-measurements"
-    )
-    assert saved_payload.content["outputs"][3]["content"]["target_type"] == "uri"
-    assert saved_payload.content["outputs"][3]["content"]["target"] == (
+    assert saved_payload.content["inputs"][0]["target_type"] == "artifact"
+    assert saved_payload.content["inputs"][0]["target"] == ("raw-measurements")
+    assert saved_payload.content["inputs"][1]["target_type"] == "uri"
+    assert saved_payload.content["inputs"][1]["target"] == (
         "file:///tmp/manual-notes.ipynb"
     )
-    assert saved_payload.content["guesses"][0]["parameter_id"] == "drive_frequency"
+    assert saved_payload.content["proposals"][0]["parameter_id"] == "drive_frequency"
     assert [artifact.id for artifact in run.data().list(kind="analysis")] == [
         "analysis-manual-readout-review"
     ]
@@ -258,7 +296,7 @@ def test_run_analysis_persists_report_artifacts(
 
     saved = (
         run.analysis("manual report review")
-        .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
+        .input("raw-measurements", expected_kind="measurement_dataset")
         .report(
             title="source html",
             path=source_report,
@@ -282,7 +320,6 @@ def test_run_analysis_persists_report_artifacts(
     overview = run.overview()
 
     assert [output["kind"] for output in saved_payload.content["outputs"]] == [
-        "external_ref",
         "report",
         "report",
         "report",
@@ -313,7 +350,7 @@ def test_run_analysis_persists_report_artifacts(
     assert saved.report_artifacts[0].metadata["source_artifact_ids"] == [
         "raw-measurements"
     ]
-    assert saved_payload.content["outputs"][1]["content"]["target"] == (
+    assert saved_payload.content["outputs"][0]["content"]["target"] == (
         "manual-html-report"
     )
     assert [report.artifact_id for report in overview.overview.analysis_reports] == [
@@ -343,7 +380,7 @@ def test_run_analysis_persists_owned_artifacts(
 
     saved = (
         run.analysis("artifact persistence")
-        .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
+        .input("raw-measurements", expected_kind="measurement_dataset")
         .artifact(
             title="model result",
             kind="analysis_model",
@@ -393,14 +430,13 @@ def test_run_analysis_persists_owned_artifacts(
     assert run.data().bytes("analysis-bytes").content == b"abc"
     assert run.data().text("analysis-file").content == "<h1>source</h1>\n"
     assert [output["kind"] for output in payload["outputs"]] == [
-        "external_ref",
         "artifact",
         "artifact",
         "artifact",
         "artifact",
         "artifact",
     ]
-    assert payload["outputs"][1]["content"]["target"] == "analysis-model"
+    assert payload["outputs"][0]["content"]["target"] == "analysis-model"
     assert saved.output_artifacts[0].metadata["source_artifact_ids"] == [
         "raw-measurements"
     ]
@@ -509,10 +545,14 @@ def test_analysis_artifact_refs_dedupe_sources_and_feed_overview(
 
     saved = (
         run.analysis("manual source review")
-        .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
-        .external_ref("file:///tmp/manual-source-review.ipynb", title="notebook")
-        .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
-        .guess("drive_frequency", 5.0, unit="GHz")
+        .input("raw-measurements", expected_kind="measurement_dataset")
+        .input(
+            uri="file:///tmp/manual-source-review.ipynb",
+            role="notes",
+            title="notebook",
+        )
+        .input("raw-measurements", expected_kind="measurement_dataset")
+        .propose("drive_frequency", 5.0, unit="GHz")
         .save()
     )
     saved_payload = run.data().json(saved.artifact.id)
@@ -537,14 +577,14 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     baseline = lab.run(experiment)
     analysis = (
         baseline.analysis("gui review")
-        .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
+        .input("raw-measurements", expected_kind="measurement_dataset")
         .report(
             title="fit notes",
             text="manual fit notes",
             filename="gui-fit-notes.md",
             media_type="text/markdown",
         )
-        .guess("drive_frequency", 5.0, unit="GHz", reason="manual fit")
+        .propose("drive_frequency", 5.0, unit="GHz", reason="manual fit")
     )
     saved = analysis.save()
     candidate = analysis.candidate_config(reason="manual fit")
@@ -647,7 +687,7 @@ def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
                     [{"center": 5.0, "unit": "GHz"}],
                     title="fit summary",
                 )
-                .guess("drive_frequency", 5.0, unit="GHz")
+                .propose("drive_frequency", 5.0, unit="GHz")
             )
 
     lab = sc.open(
@@ -663,11 +703,17 @@ def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
     promoted = analysis.promote_step(step.id)
     rerun_analysis = promoted.run(run)
 
-    assert [output.kind for output in analysis.outputs] == ["note", "table", "guess"]
+    assert [output.kind for output in analysis.outputs] == [
+        "note",
+        "table",
+        "proposal",
+    ]
     assert promoted.id == "readout.fit"
-    assert rerun_analysis.title == "readout.fit"
+    assert rerun_analysis.title == "readout fit"
+    assert rerun_analysis.key == "readout.fit"
+    assert rerun_analysis.step_id == "readout.fit"
     assert rerun_analysis.outputs == analysis.outputs
-    assert rerun_analysis.parameter_guesses == analysis.parameter_guesses
+    assert rerun_analysis.parameter_proposals == analysis.parameter_proposals
 
 
 def test_candidate_config_lowers_to_internal_review_and_runs_follow_up(
@@ -681,7 +727,7 @@ def test_candidate_config_lowers_to_internal_review_and_runs_follow_up(
     run = lab.run(load_experiment())
     candidate = (
         run.analysis("manual readout review")
-        .guess("drive_frequency", 5.5, unit="GHz", confidence=0.9)
+        .propose("drive_frequency", 5.5, unit="GHz", confidence=0.9)
         .candidate_config()
     )
 

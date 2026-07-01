@@ -174,8 +174,8 @@ def test_execute_run_comparison_references_analysis_artifacts_by_id(
         session=lab,
         result=StartRunResult(manifest=candidate_manifest, snapshot=candidate_snapshot),
     )
-    baseline.analysis("baseline review").artifact_ref("raw-measurements").save()
-    candidate.analysis("candidate review").artifact_ref("raw-measurements").save()
+    baseline.analysis("baseline review").input("raw-measurements").save()
+    candidate.analysis("candidate review").input("raw-measurements").save()
 
     job, result = execute_run_comparison(
         baseline_run_id=baseline.id,

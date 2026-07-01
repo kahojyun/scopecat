@@ -23,15 +23,15 @@ analysis = completed_run.analyze(ReadoutFrequencyAnalysisStep())
 saved_analysis = analysis.save()
 
 # %%
-candidate = analysis.candidate_config(reason=analysis.parameter_guesses[0].reason)
+candidate = analysis.candidate_config(reason=analysis.parameter_proposals[0].reason)
 overview = completed_run.overview()
 
 # %%
-guess = candidate.guesses[0]
+proposal = candidate.proposals[0]
 summary = {
     "run": completed_run.id,
     "analysis": saved_analysis.artifact.id,
     "overview_lines": len(overview.markdown.splitlines()),
-    "candidate_guess": guess.parameter_id,
+    "candidate_proposal": proposal.parameter_id,
 }
 print(summary)

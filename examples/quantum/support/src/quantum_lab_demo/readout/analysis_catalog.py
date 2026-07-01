@@ -37,11 +37,11 @@ class ReadoutAnalysisCatalog:
                     label="Readout frequency analysis",
                     description=(
                         "Analyze a readout frequency scan, record notebook-style "
-                        "outputs, and emit a readout_frequency guess."
+                        "outputs, and emit a readout_frequency proposal."
                     ),
                     input_artifact_kinds=("measurement_dataset",),
                     output_artifact_kinds=("analysis",),
-                    guess_kinds=("readout_frequency",),
+                    proposal_kinds=("readout_frequency",),
                     metadata=metadata,
                 ),
                 AnalysisStepDescription(

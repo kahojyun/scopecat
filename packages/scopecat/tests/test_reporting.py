@@ -43,15 +43,15 @@ def test_build_run_overview_for_full_local_workflow(
 
     assert overview.config_source.status == "not_available"
     assert [
-        (analysis.artifact_id, analysis.output_kinds, analysis.guess_count)
+        (analysis.artifact_id, analysis.output_kinds, analysis.proposal_count)
         for analysis in overview.analysis_records
     ] == [
         (
             "analysis-best-signal-analysis",
-            ["external_ref", "artifact", "artifact", "guess"],
+            ["artifact", "artifact", "proposal"],
             1,
         ),
-        ("analysis-summary-stats", ["external_ref", "artifact", "artifact"], 0),
+        ("analysis-summary-stats", ["artifact", "artifact"], 0),
     ]
     assert sorted(
         [
@@ -114,8 +114,8 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
     (
         run.analysis("report review")
         .note("Notebook inspection before next run.")
-        .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
-        .guess("drive_frequency", 5.0, unit="GHz")
+        .input("raw-measurements", expected_kind="measurement_dataset")
+        .propose("drive_frequency", 5.0, unit="GHz")
         .save()
     )
     analysis_artifact = run.data().artifact("analysis-report-review")
@@ -128,7 +128,7 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
             analysis.artifact_id,
             analysis.ref,
             analysis.output_kinds,
-            analysis.guess_count,
+            analysis.proposal_count,
             analysis.source_artifact_ids,
             analysis.report_artifact_ids,
         )
@@ -137,7 +137,7 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
         (
             "analysis-report-review",
             "artifacts/analysis-report-review.json",
-            ["note", "external_ref", "guess"],
+            ["note", "proposal"],
             1,
             ["raw-measurements"],
             [],

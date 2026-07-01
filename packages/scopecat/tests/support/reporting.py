@@ -43,7 +43,7 @@ def _review_best_signal_analysis(
     analysis = execute_best_signal_analysis(run_id=run_id, workspace=tmp_path)
     analysis.save()
     return lab.review(
-        analysis.candidate_config(reason=analysis.parameter_guesses[0].reason),
+        analysis.candidate_config(reason=analysis.parameter_proposals[0].reason),
         note="looks good",
     )
 

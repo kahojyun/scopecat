@@ -19,7 +19,7 @@ from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.runs.access import RunStore, open_run_store
 from scopecat.session_candidate_config import (
     CandidateConfig,
-    ParameterGuess,
+    ParameterProposal,
     analysis_artifact_slug,
 )
 from scopecat.session_data import Data
@@ -34,19 +34,30 @@ AnalysisOutputKind = Literal[
     "array",
     "figure",
     "artifact",
-    "guess",
-    "external_ref",
+    "proposal",
     "report",
 ]
 
 
 @dataclass(frozen=True)
-class AnalysisExternalRef:
+class AnalysisArtifactRef:
     target: str
-    target_type: Literal["artifact", "uri"]
+    target_type: Literal["artifact"]
     artifact_kind: str | None = None
     path: str | None = None
     media_type: str | None = None
+
+
+@dataclass(frozen=True)
+class AnalysisInputRef:
+    target: str
+    target_type: Literal["artifact", "uri"]
+    role: str
+    title: str | None = None
+    artifact_kind: str | None = None
+    path: str | None = None
+    media_type: str | None = None
+    metadata: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -97,7 +108,7 @@ class _PreparedAnalysisReport:
 class _PreparedAnalysisArtifact:
     spec: _AnalysisArtifactSpec
     artifact: Artifact
-    ref: AnalysisExternalRef
+    ref: AnalysisArtifactRef
 
 
 @dataclass(frozen=True)
@@ -112,6 +123,8 @@ class AnalysisOutput:
 class SavedAnalysis:
     artifact: Artifact
     path: str
+    analysis_key: str
+    inputs: tuple[AnalysisInputRef, ...] = ()
     source_artifact_ids: tuple[str, ...] = ()
     output_artifacts: tuple[Artifact, ...] = ()
     report_artifacts: tuple[Artifact, ...] = ()
@@ -123,8 +136,11 @@ class Analysis:
 
     run: RunHandle
     title: str
+    key: str | None = None
+    step_id: str | None = None
+    inputs: tuple[AnalysisInputRef, ...] = ()
     outputs: tuple[AnalysisOutput, ...] = ()
-    parameter_guesses: tuple[ParameterGuess, ...] = ()
+    parameter_proposals: tuple[ParameterProposal, ...] = ()
 
     def note(
         self,
@@ -168,48 +184,61 @@ class Analysis:
     ) -> Analysis:
         return self._with_output("figure", title, content, metadata)
 
-    def artifact_ref(
+    @property
+    def analysis_key(self) -> str:
+        return _analysis_key(self.key, self.title)
+
+    def input(
         self,
-        selector: str,
+        selector: str | None = None,
         *,
+        uri: str | None = None,
+        role: str = "data",
         title: str | None = None,
         expected_kind: str | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
+        if not role.strip():
+            _raise_analysis_diagnostic(
+                "analysis_input_role_invalid",
+                "analysis input role must be a non-empty string",
+                "role",
+            )
+        selected_sources = [selector is not None, uri is not None].count(True)
+        if selected_sources != 1:
+            _raise_analysis_diagnostic(
+                "analysis_input_source_invalid",
+                "analysis input requires exactly one of selector or uri",
+                "input",
+            )
+        if uri is not None:
+            if not uri.strip():
+                _raise_analysis_diagnostic(
+                    "analysis_input_uri_invalid",
+                    "analysis input URI must be non-empty",
+                    "uri",
+                )
+            ref = AnalysisInputRef(
+                target=uri,
+                target_type="uri",
+                role=role,
+                title=title,
+                metadata=metadata,
+            )
+            return replace(self, inputs=(*self.inputs, ref))
+        assert selector is not None
         artifact = self.run.data().artifact(selector, expected_kind=expected_kind)
-        external_ref = AnalysisExternalRef(
+        ref = AnalysisInputRef(
             target=artifact.id,
             target_type="artifact",
+            role=role,
+            title=title or artifact.id,
             artifact_kind=artifact.kind,
             path=artifact.path,
             media_type=artifact.media_type,
+            metadata=metadata,
         )
-        return self._with_output(
-            "external_ref",
-            title or artifact.id,
-            external_ref,
-            metadata,
-        )
-
-    def external_ref(
-        self,
-        uri: str,
-        *,
-        title: str = "external ref",
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis:
-        if not uri.strip():
-            _raise_analysis_diagnostic(
-                "analysis_external_ref_invalid",
-                "analysis external ref URI must be non-empty",
-                "uri",
-            )
-        return self._with_output(
-            "external_ref",
-            title,
-            AnalysisExternalRef(target=uri, target_type="uri"),
-            metadata,
-        )
+        return replace(self, inputs=(*self.inputs, ref))
 
     def report(
         self,
@@ -387,7 +416,7 @@ class Analysis:
         )
         return self._with_output("artifact", title, artifact_spec, {})
 
-    def guess(
+    def propose(
         self,
         parameter_id: str,
         value: object,
@@ -398,17 +427,17 @@ class Analysis:
     ) -> Analysis:
         if not parameter_id.strip():
             _raise_analysis_diagnostic(
-                "analysis_guess_parameter_invalid",
-                "analysis guess parameter id must be non-empty",
+                "analysis_proposal_parameter_invalid",
+                "analysis proposal parameter id must be non-empty",
                 "parameter_id",
             )
         if confidence is not None and not 0 <= confidence <= 1:
             _raise_analysis_diagnostic(
-                "analysis_guess_confidence_invalid",
-                "analysis guess confidence must be between 0 and 1",
+                "analysis_proposal_confidence_invalid",
+                "analysis proposal confidence must be between 0 and 1",
                 "confidence",
             )
-        guess = ParameterGuess(
+        proposal = ParameterProposal(
             parameter_id=parameter_id,
             value=value,
             unit=unit,
@@ -416,51 +445,57 @@ class Analysis:
             confidence=confidence,
         )
         output = AnalysisOutput(
-            kind="guess",
+            kind="proposal",
             title=parameter_id,
-            content=guess,
+            content=proposal,
             metadata={},
         )
         return replace(
             self,
             outputs=(*self.outputs, output),
-            parameter_guesses=(*self.parameter_guesses, guess),
+            parameter_proposals=(*self.parameter_proposals, proposal),
         )
 
     def candidate_config(self, *, reason: str = "") -> CandidateConfig:
         return CandidateConfig(
             source_run_id=self.run.id,
             analysis_title=self.title,
-            guesses=self.parameter_guesses,
+            analysis_key=self.analysis_key,
+            proposals=self.parameter_proposals,
             reason=reason,
         )
 
     def promote_step(self, step_id: str) -> PromotedAnalysisStep:
         return PromotedAnalysisStep(id=step_id, source=self)
 
-    def save(self, artifact_id: str | None = None) -> SavedAnalysis:
-        selected_artifact_id = (
-            artifact_id or f"analysis-{analysis_artifact_slug(self.title)}"
-        )
+    def save(self) -> SavedAnalysis:
+        analysis_key = self.analysis_key
+        selected_artifact_id = f"analysis-{analysis_key}"
         ref = f"artifacts/{selected_artifact_id}.json"
-        source_artifact_ids = _analysis_source_artifact_ids(self.outputs)
+        source_artifact_ids = _analysis_source_artifact_ids(self.inputs)
         storage = open_run_store(self.run.session.workspace)
         output_artifacts, output_refs, report_artifacts, report_refs = (
             _write_analysis_output_artifacts(
                 storage=storage,
                 run_id=self.run.id,
                 analysis_title=self.title,
+                analysis_key=analysis_key,
+                step_id=self.step_id,
                 analysis_artifact_id=selected_artifact_id,
                 outputs=self.outputs,
+                inputs=self.inputs,
                 source_artifact_ids=source_artifact_ids,
             )
         )
         output_ref_iter = iter(output_refs)
         report_ref_iter = iter(report_refs)
         content = {
-            "schema_version": "scopecat.analysis.v1",
+            "schema_version": "scopecat.analysis.v2",
             "run_id": self.run.id,
             "title": self.title,
+            "key": analysis_key,
+            "step_id": self.step_id,
+            "inputs": [_json_safe(input_ref) for input_ref in self.inputs],
             "source_artifact_ids": list(source_artifact_ids),
             "outputs": [
                 {
@@ -477,7 +512,9 @@ class Analysis:
                 }
                 for output in self.outputs
             ],
-            "guesses": [_json_safe(guess) for guess in self.parameter_guesses],
+            "proposals": [
+                _json_safe(proposal) for proposal in self.parameter_proposals
+            ],
         }
         storage.write_text(
             self.run.id,
@@ -491,9 +528,14 @@ class Analysis:
             media_type="application/json",
             metadata={
                 "analysis_title": self.title,
+                "analysis_key": analysis_key,
+                "owner_type": "analysis",
+                "owner_key": analysis_key,
+                "step_id": self.step_id,
                 "output_kinds": [output.kind for output in self.outputs],
-                "guess_count": len(self.parameter_guesses),
+                "proposal_count": len(self.parameter_proposals),
                 "source_run_id": self.run.id,
+                "inputs": [_json_safe(input_ref) for input_ref in self.inputs],
                 "source_artifact_ids": list(source_artifact_ids),
             },
         )
@@ -505,6 +547,8 @@ class Analysis:
         return SavedAnalysis(
             artifact=artifact,
             path=ref,
+            analysis_key=analysis_key,
+            inputs=self.inputs,
             source_artifact_ids=source_artifact_ids,
             output_artifacts=tuple(output_artifacts),
             report_artifacts=tuple(report_artifacts),
@@ -535,13 +579,19 @@ class Analysis:
 class AnalysisContext:
     run: RunHandle
     data: Data
+    default_key: str | None = None
+    step_id: str | None = None
 
     @property
     def config(self) -> ConfigProfileSnapshot:
         return self.run.session.client.run_details(self.run.id).config
 
-    def result(self, title: str = "analysis") -> Analysis:
-        return self.run.analysis(title)
+    def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
+        return self.run.analysis(
+            title,
+            key=key or self.default_key,
+            step_id=self.step_id,
+        )
 
 
 class AnalysisStep(Protocol):
@@ -558,25 +608,24 @@ class PromotedAnalysisStep:
     def run(self, run: RunHandle) -> Analysis:
         return Analysis(
             run=run,
-            title=self.id,
+            title=self.source.title,
+            key=self.id,
+            step_id=self.id,
+            inputs=self.source.inputs,
             outputs=self.source.outputs,
-            parameter_guesses=self.source.parameter_guesses,
+            parameter_proposals=self.source.parameter_proposals,
         )
 
 
 def _analysis_source_artifact_ids(
-    outputs: Sequence[AnalysisOutput],
+    inputs: Sequence[AnalysisInputRef],
 ) -> tuple[str, ...]:
     artifact_ids: list[str] = []
     seen: set[str] = set()
-    for output in outputs:
-        if (
-            output.kind != "external_ref"
-            or not isinstance(output.content, AnalysisExternalRef)
-            or output.content.target_type != "artifact"
-        ):
+    for input_ref in inputs:
+        if input_ref.target_type != "artifact":
             continue
-        artifact_id = output.content.target
+        artifact_id = input_ref.target
         if artifact_id in seen:
             continue
         artifact_ids.append(artifact_id)
@@ -587,7 +636,7 @@ def _analysis_source_artifact_ids(
 def _saved_analysis_output_content(
     *,
     output: AnalysisOutput,
-    output_refs: Iterator[AnalysisExternalRef],
+    output_refs: Iterator[AnalysisArtifactRef],
     report_refs: Iterator[AnalysisReportRef],
 ) -> object:
     if output.kind == "artifact":
@@ -602,12 +651,15 @@ def _write_analysis_output_artifacts(
     storage: RunStore,
     run_id: str,
     analysis_title: str,
+    analysis_key: str,
+    step_id: str | None,
     analysis_artifact_id: str,
     outputs: Sequence[AnalysisOutput],
+    inputs: Sequence[AnalysisInputRef],
     source_artifact_ids: Sequence[str],
 ) -> tuple[
     list[Artifact],
-    list[AnalysisExternalRef],
+    list[AnalysisArtifactRef],
     list[Artifact],
     list[AnalysisReportRef],
 ]:
@@ -624,7 +676,7 @@ def _write_analysis_output_artifacts(
     for spec in artifact_specs:
         selected_artifact_id = _analysis_artifact_artifact_id(
             spec,
-            analysis_title=analysis_title,
+            analysis_key=analysis_key,
             default_id_counts=default_artifact_id_counts,
             seen_artifact_ids=seen_artifact_ids,
         )
@@ -642,9 +694,14 @@ def _write_analysis_output_artifacts(
         metadata.update(
             {
                 "analysis_title": analysis_title,
+                "analysis_key": analysis_key,
+                "owner_type": "analysis",
+                "owner_key": analysis_key,
+                "step_id": step_id,
                 "source_run_id": run_id,
                 "source_analysis_artifact_id": analysis_artifact_id,
                 "artifact_title": spec.title,
+                "inputs": [_json_safe(input_ref) for input_ref in inputs],
                 "source_artifact_ids": list(source_artifact_ids),
             }
         )
@@ -655,7 +712,7 @@ def _write_analysis_output_artifacts(
             media_type=media_type,
             metadata=metadata,
         )
-        artifact_ref = AnalysisExternalRef(
+        artifact_ref = AnalysisArtifactRef(
             target=selected_artifact_id,
             target_type="artifact",
             artifact_kind=spec.kind,
@@ -672,7 +729,7 @@ def _write_analysis_output_artifacts(
     for spec in report_specs:
         selected_artifact_id = _analysis_report_artifact_id(
             spec,
-            analysis_title=analysis_title,
+            analysis_key=analysis_key,
             default_id_counts=default_id_counts,
             seen_artifact_ids=seen_artifact_ids,
         )
@@ -690,9 +747,14 @@ def _write_analysis_output_artifacts(
         metadata.update(
             {
                 "analysis_title": analysis_title,
+                "analysis_key": analysis_key,
+                "owner_type": "analysis",
+                "owner_key": analysis_key,
+                "step_id": step_id,
                 "source_run_id": run_id,
                 "source_analysis_artifact_id": analysis_artifact_id,
                 "report_title": spec.title,
+                "inputs": [_json_safe(input_ref) for input_ref in inputs],
                 "source_artifact_ids": list(source_artifact_ids),
             }
         )
@@ -776,7 +838,7 @@ def _analysis_report_specs(
 def _analysis_artifact_artifact_id(
     spec: _AnalysisArtifactSpec,
     *,
-    analysis_title: str,
+    analysis_key: str,
     default_id_counts: dict[str, int],
     seen_artifact_ids: set[str],
 ) -> str:
@@ -789,11 +851,7 @@ def _analysis_artifact_artifact_id(
             )
         seen_artifact_ids.add(spec.artifact_id)
         return spec.artifact_id
-    base_id = (
-        "analysis-artifact-"
-        f"{analysis_artifact_slug(analysis_title)}-"
-        f"{analysis_artifact_slug(spec.title)}"
-    )
+    base_id = f"analysis-{analysis_key}-{analysis_artifact_slug(spec.title)}"
     count = default_id_counts.get(base_id, 0) + 1
     default_id_counts[base_id] = count
     selected = base_id if count == 1 else f"{base_id}-{count}"
@@ -808,7 +866,7 @@ def _analysis_artifact_artifact_id(
 def _analysis_report_artifact_id(
     spec: _AnalysisReportSpec,
     *,
-    analysis_title: str,
+    analysis_key: str,
     default_id_counts: dict[str, int],
     seen_artifact_ids: set[str],
 ) -> str:
@@ -821,11 +879,7 @@ def _analysis_report_artifact_id(
             )
         seen_artifact_ids.add(spec.artifact_id)
         return spec.artifact_id
-    base_id = (
-        "analysis-report-"
-        f"{analysis_artifact_slug(analysis_title)}-"
-        f"{analysis_artifact_slug(spec.title)}"
-    )
+    base_id = f"analysis-report-{analysis_key}-{analysis_artifact_slug(spec.title)}"
     count = default_id_counts.get(base_id, 0) + 1
     default_id_counts[base_id] = count
     selected = base_id if count == 1 else f"{base_id}-{count}"
@@ -978,6 +1032,17 @@ def _is_artifact_filename(filename: str) -> bool:
     return path.name == filename and not path.is_absolute() and ".." not in path.parts
 
 
+def _analysis_key(key: str | None, title: str) -> str:
+    selected = key if key is not None else title
+    if not selected.strip():
+        _raise_analysis_diagnostic(
+            "analysis_key_invalid",
+            "analysis key must be a non-empty string",
+            "key",
+        )
+    return analysis_artifact_slug(selected)
+
+
 def _raise_analysis_diagnostic(code: str, message: str, path: str) -> NoReturn:
     raise ValidationFailed(
         [
@@ -1011,8 +1076,9 @@ def _json_mapping(value: Mapping[object, object]) -> dict[str, object]:
 
 __all__ = [
     "Analysis",
+    "AnalysisArtifactRef",
     "AnalysisContext",
-    "AnalysisExternalRef",
+    "AnalysisInputRef",
     "AnalysisOutput",
     "AnalysisStep",
     "PromotedAnalysisStep",

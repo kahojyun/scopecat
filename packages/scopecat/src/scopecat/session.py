@@ -23,8 +23,9 @@ from scopecat.relations import col, grid, linspace, literal_rows
 from scopecat.reporting import render_run_overview
 from scopecat.session_analysis import (
     Analysis,
+    AnalysisArtifactRef,
     AnalysisContext,
-    AnalysisExternalRef,
+    AnalysisInputRef,
     AnalysisOutput,
     AnalysisStep,
     PromotedAnalysisStep,
@@ -33,7 +34,7 @@ from scopecat.session_analysis import (
 from scopecat.session_candidate_config import (
     CandidateConfig,
     CandidateConfigReview,
-    ParameterGuess,
+    ParameterProposal,
 )
 from scopecat.session_comparison import ComparisonHandle
 from scopecat.session_data import Data
@@ -445,8 +446,9 @@ def _safe_experiment_id(name: str) -> str:
 
 __all__ = [
     "Analysis",
+    "AnalysisArtifactRef",
     "AnalysisContext",
-    "AnalysisExternalRef",
+    "AnalysisInputRef",
     "AnalysisOutput",
     "AnalysisStep",
     "CandidateConfig",
@@ -456,7 +458,7 @@ __all__ = [
     "EarlyStopDecision",
     "Experiment",
     "OverviewHandle",
-    "ParameterGuess",
+    "ParameterProposal",
     "PromotedAnalysisStep",
     "RunHandle",
     "SavedAnalysis",

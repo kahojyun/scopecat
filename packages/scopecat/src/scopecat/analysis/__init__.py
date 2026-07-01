@@ -3,8 +3,9 @@
 from scopecat.analysis.online import EarlyStopDecision, decide_online_convergence
 from scopecat.session_analysis import (
     Analysis,
+    AnalysisArtifactRef,
     AnalysisContext,
-    AnalysisExternalRef,
+    AnalysisInputRef,
     AnalysisOutput,
     AnalysisStep,
     PromotedAnalysisStep,
@@ -13,8 +14,9 @@ from scopecat.session_analysis import (
 
 __all__ = [
     "Analysis",
+    "AnalysisArtifactRef",
     "AnalysisContext",
-    "AnalysisExternalRef",
+    "AnalysisInputRef",
     "AnalysisOutput",
     "AnalysisStep",
     "EarlyStopDecision",

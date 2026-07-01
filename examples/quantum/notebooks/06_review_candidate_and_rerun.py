@@ -23,7 +23,7 @@ analysis = baseline.analyze(ReadoutFrequencyAnalysisStep())
 saved_analysis = analysis.save()
 
 # %%
-candidate = analysis.candidate_config(reason=analysis.parameter_guesses[0].reason)
+candidate = analysis.candidate_config(reason=analysis.parameter_proposals[0].reason)
 review = lab.review(candidate, note="accept promoted readout analysis")
 follow_up = lab.run(experiment, config=review)
 
@@ -31,10 +31,10 @@ follow_up = lab.run(experiment, config=review)
 comparison = lab.compare(baseline, follow_up, observable="raw_i")
 
 # %%
-guess = analysis.parameter_guesses[0]
+proposal = analysis.parameter_proposals[0]
 summary = {
     "baseline": baseline.id,
-    "accepted_guess": guess.parameter_id,
+    "accepted_proposal": proposal.parameter_id,
     "saved_analysis": saved_analysis.artifact.id,
     "candidate": review.candidate_config_artifact.id,
     "follow_up": follow_up.id,

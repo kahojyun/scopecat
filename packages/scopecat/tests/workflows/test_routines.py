@@ -63,7 +63,7 @@ def test_calibration_routine_runs_native_analysis_closed_loop(
     )
 
     assert result.run.manifest.runner_id == "scopecat.native"
-    assert result.analyses[0].parameter_guesses[0].parameter_id == "drive_frequency"
+    assert result.analyses[0].parameter_proposals[0].parameter_id == "drive_frequency"
     assert result.review is not None
     assert followup.manifest.status == "completed"
 
@@ -87,7 +87,7 @@ def test_calibration_routine_without_review_leaves_active_config_empty(
         workspace=tmp_path,
     )
 
-    assert result.analyses[0].parameter_guesses[0].parameter_id == "drive_frequency"
+    assert result.analyses[0].parameter_proposals[0].parameter_id == "drive_frequency"
     assert result.review is None
     assert result.active_config is None
 

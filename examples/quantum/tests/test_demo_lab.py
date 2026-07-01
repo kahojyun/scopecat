@@ -49,7 +49,7 @@ def test_readout_frequency_demo_lab_runs_native_workflow(
 
     assert result.run.manifest.status == "completed"
     assert result.processed_points == 101
-    assert result.candidate.guesses
+    assert result.candidate.proposals
     assert [artifact.kind for artifact in result.run.data().list(kind="analysis")] == [
         "analysis"
     ]

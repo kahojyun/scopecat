@@ -126,10 +126,24 @@ they should not add hidden branches to the experiment kernel.
 tables, arrays, text, JSON, binary artifacts, and typed artifact refs by
 artifact id, kind, or metadata.
 
-`Run.analysis(...)` records notebook interpretation: notes, tables, arrays,
-figures, guesses, and saved analysis artifacts. A reusable `AnalysisStep`
-should reproduce the same output shape as manual notebook analysis; it is the
-promotion path for repeated post-run logic.
+`Run.attach(...)` records run-owned attachments such as notebooks, notes,
+screenshots, exported reports, and other operator context. Attachments are run
+artifacts, not analysis records.
+
+`Run.analysis(title, key=...)` records notebook interpretation: notes, tables,
+arrays, figures, parameter proposals, and saved analysis artifacts. Analysis
+inputs are declared separately from outputs so raw measurements, run
+attachments, and prior analysis artifacts can all participate in lineage
+without becoming output rows. The analysis key defines the saved record
+namespace; `Run.analyze(step)` defaults that key from `step.id` so multiple
+steps can save without colliding. A reusable `AnalysisStep` should reproduce
+the same output shape as manual notebook analysis; it is the promotion path for
+repeated post-run logic.
+
+Derived analysis tables and arrays should keep coordinate, observable,
+auxiliary, uncertainty, mask, and status roles in their schemas. When a derived
+table keeps the original point coordinates, it should preserve source artifact
+metadata so plotting and later analysis can use the same coordinate identity.
 
 Online analysis is the incremental form of the same boundary. It may consume a
 partial batch of validated result rows, run declared analysis steps, publish
@@ -143,7 +157,8 @@ renumber, or rewrite the planned point table.
 
 ## Candidate Configs
 
-`Analysis.candidate_config()` turns guesses into a public candidate object.
+`Analysis.candidate_config()` turns parameter proposals into a public candidate
+object.
 Review lowers that object into internal parameter change records, candidate
 config artifacts, and config registry records when activation is requested.
 

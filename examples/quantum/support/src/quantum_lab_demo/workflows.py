@@ -66,7 +66,7 @@ def run_readout_frequency_workflow(
         run=run,
         analysis=analysis,
         candidate=analysis.candidate_config(
-            reason=analysis.parameter_guesses[0].reason
+            reason=analysis.parameter_proposals[0].reason
         ),
         processed_points=_int_field(summary, "measurement_count"),
         figure_ref=_str_field(summary, "figure_ref"),
@@ -99,8 +99,8 @@ def run_readout_iq_workflow(
 
 
 def format_readout_frequency_summary(result: ReadoutFrequencyWorkflowResult) -> str:
-    guess = result.candidate.guesses[0]
-    value = guess.value
+    proposal = result.candidate.proposals[0]
+    value = proposal.value
     if not isinstance(value, Quantity):
         msg = "readout frequency candidate is not a scalar quantity change"
         raise TypeError(msg)

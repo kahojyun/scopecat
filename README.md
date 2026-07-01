@@ -40,11 +40,18 @@ experiment = lab.experiment("readout frequency", source=readout_frequency_spec)
 
 run = lab.run(experiment)
 raw = run.data().measurements()
+run.attach(
+    key="notebook",
+    text="manual sweep notes",
+    filename="manual-sweep-notes.md",
+)
 
 analysis = (
-    run.analysis("manual readout review")
+    run.analysis("manual readout review", key="readout-review")
+    .input("raw-measurements", expected_kind="measurement_dataset")
+    .input("notebook", role="notes", expected_kind="attachment")
     .note(f"captured {len(raw.dataset.records)} records")
-    .guess("drive_frequency", 5.5, unit="GHz", reason="best observed point")
+    .propose("drive_frequency", 5.5, unit="GHz", reason="best observed point")
 )
 analysis.save()
 
@@ -55,9 +62,10 @@ overview = lab.overview(run)
 ```
 
 `ExperimentSpec` and existing templates remain useful sources for experiments,
-but the first post-run user path is `Run.data()` and `Run.analysis()`.
-Reusable post-run logic should be promoted behind `AnalysisStep` so notebook
-users keep one analysis model for manual and repeated work.
+but the first post-run user path is `Run.data()`, `Run.attach(...)`, and
+`Run.analysis(...)`. Attachments belong directly to the run. Analysis records
+use stable keys, declare their inputs, and can be produced manually or through
+an `AnalysisStep` without changing the saved record shape.
 
 Durable `ExperimentSpec` JSON is still useful for debugging, fixtures, and
 adapter-boundary tests, but it is not the preferred authoring surface for new

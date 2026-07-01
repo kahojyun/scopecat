@@ -31,8 +31,8 @@ analysis = (
     baseline.analysis("manual notebook review")
     .note("Inspected the readout sweep in a notebook.")
     .table(rows, title="raw measurement index")
-    .artifact_ref("raw-measurements", expected_kind="measurement_dataset")
-    .guess(
+    .input("raw-measurements", expected_kind="measurement_dataset")
+    .propose(
         "readout_frequency",
         5.953,
         unit="GHz",
@@ -48,13 +48,13 @@ review = lab.review(candidate, note="approved from notebook example")
 follow_up = lab.run(experiment, config=review)
 
 # %%
-guess = analysis.parameter_guesses[0]
+proposal = analysis.parameter_proposals[0]
 summary = {
     "baseline": baseline.id,
     "follow_up": follow_up.id,
     "measurements": len(raw.dataset.records),
     "saved_analysis": saved_analysis.artifact.id,
     "candidate": review.candidate_config_artifact.id,
-    "guess": f"{guess.parameter_id} = {guess.value} {guess.unit}",
+    "proposal": f"{proposal.parameter_id} = {proposal.value} {proposal.unit}",
 }
 print(summary)

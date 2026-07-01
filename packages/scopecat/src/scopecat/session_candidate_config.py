@@ -23,7 +23,7 @@ SAFE_ANALYSIS_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 @dataclass(frozen=True)
-class ParameterGuess:
+class ParameterProposal:
     parameter_id: str
     value: object
     unit: str | None = None
@@ -35,7 +35,8 @@ class ParameterGuess:
 class CandidateConfig:
     source_run_id: str
     analysis_title: str
-    guesses: tuple[ParameterGuess, ...]
+    analysis_key: str
+    proposals: tuple[ParameterProposal, ...]
     reason: str = ""
 
     def review(
@@ -73,6 +74,7 @@ class CandidateConfig:
             metadata={
                 "source": "analysis_candidate_config",
                 "analysis_title": self.analysis_title,
+                "analysis_key": self.analysis_key,
                 "reviewer": reviewer,
                 "note": note,
             },
@@ -86,6 +88,7 @@ class CandidateConfig:
                 "source": "analysis_candidate_config",
                 "source_proposal_artifact_id": proposal.id,
                 "analysis_title": self.analysis_title,
+                "analysis_key": self.analysis_key,
             },
         )
         review_artifact = Artifact(
@@ -96,6 +99,7 @@ class CandidateConfig:
             metadata={
                 "source": "analysis_candidate_config",
                 "analysis_title": self.analysis_title,
+                "analysis_key": self.analysis_key,
             },
         )
         finalization_artifact = Artifact(
@@ -106,6 +110,7 @@ class CandidateConfig:
             metadata={
                 "source": "analysis_candidate_config",
                 "analysis_title": self.analysis_title,
+                "analysis_key": self.analysis_key,
             },
         )
         review_record = ProposalReviewRecord(
@@ -160,10 +165,10 @@ class CandidateConfigReview:
 
 
 def _candidate_proposal(candidate: CandidateConfig) -> ParameterChangeSet:
-    patches = [_guess_patch(guess) for guess in candidate.guesses]
-    confidence = _candidate_confidence(candidate.guesses)
+    patches = [_proposal_patch(proposal) for proposal in candidate.proposals]
+    confidence = _candidate_confidence(candidate.proposals)
     return ParameterChangeSet(
-        id=f"candidate-{analysis_artifact_slug(candidate.analysis_title)}",
+        id=f"candidate-{analysis_artifact_slug(candidate.analysis_key)}",
         source_run_id=candidate.source_run_id,
         reason=candidate.reason
         or f"Candidate config from analysis {candidate.analysis_title!r}.",
@@ -172,31 +177,31 @@ def _candidate_proposal(candidate: CandidateConfig) -> ParameterChangeSet:
     )
 
 
-def _guess_patch(guess: ParameterGuess) -> ParameterPatch:
-    if isinstance(guess.value, Quantity):
-        value = guess.value
+def _proposal_patch(proposal: ParameterProposal) -> ParameterPatch:
+    if isinstance(proposal.value, Quantity):
+        value = proposal.value
     elif (
-        isinstance(guess.value, int | float)
-        and not isinstance(guess.value, bool)
-        and guess.unit is not None
+        isinstance(proposal.value, int | float)
+        and not isinstance(proposal.value, bool)
+        and proposal.unit is not None
     ):
-        value = Quantity(value=float(guess.value), unit=guess.unit)
+        value = Quantity(value=float(proposal.value), unit=proposal.unit)
     else:
         msg = (
-            "candidate config guesses require a Quantity or a numeric value with "
-            f"a unit: {guess.parameter_id}"
+            "candidate config proposals require a Quantity or a numeric value with "
+            f"a unit: {proposal.parameter_id}"
         )
         raise TypeError(msg)
     return ParameterPatch(
         kind="set_scalar",
-        parameter_id=guess.parameter_id,
+        parameter_id=proposal.parameter_id,
         value=value,
     )
 
 
-def _candidate_confidence(guesses: Sequence[ParameterGuess]) -> float | None:
+def _candidate_confidence(proposals: Sequence[ParameterProposal]) -> float | None:
     confidences = [
-        guess.confidence for guess in guesses if guess.confidence is not None
+        proposal.confidence for proposal in proposals if proposal.confidence is not None
     ]
     if not confidences:
         return None
@@ -242,6 +247,6 @@ def analysis_artifact_slug(value: str) -> str:
 __all__ = [
     "CandidateConfig",
     "CandidateConfigReview",
-    "ParameterGuess",
+    "ParameterProposal",
     "analysis_artifact_slug",
 ]
