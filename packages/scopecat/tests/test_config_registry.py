@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scopecat.candidate_configs import CandidateConfig
 from scopecat.config_registry import (
     load_active_config_registry_config,
     load_active_config_registry_entry,
@@ -11,16 +12,12 @@ from scopecat.config_registry import (
     resolve_config_registry_config_source,
 )
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.proposals import (
-    ParameterProposalAcceptanceResult,
-    accept_parameter_proposal,
-    load_parameter_proposal,
-    review_parameter_proposal,
-)
+from scopecat.parameter_changes import load_parameter_change, review_parameter_changes
 from scopecat.runs import open_run_store
+from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.config_registry import (
     load_config,
-    simulate_with_proposal,
+    simulate_with_parameter_change,
 )
 from tests.support.records import assert_artifact_ref, read_model
 
@@ -40,7 +37,7 @@ def test_register_config_profile_writes_and_activates_direct_entry(
 
     assert job.source_kind == "direct_config_profile"
     assert entry.source_kind == "direct_config_profile"
-    assert entry.proposal_id is None
+    assert entry.change_set_ids == []
     persisted_config = read_model(tmp_path / entry.config_ref, ConfigProfileSnapshot)
     assert persisted_config == config
 
@@ -58,101 +55,84 @@ def test_register_config_profile_writes_and_activates_direct_entry(
     assert load_active_config_registry_config(workspace=tmp_path).source is not None
 
 
-def test_accept_parameter_proposal_reviews_applies_registers_and_activates(
+def test_candidate_config_registers_and_activates_parameter_change(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_with_proposal(tmp_path)
-
-    (
-        result,
-        review,
-        (registration_job),
-        entry,
-        active_state,
-        activation,
-    ) = accept_parameter_proposal(
+    run_id = simulate_with_parameter_change(tmp_path)
+    change_set = load_parameter_change(
         run_id=run_id,
-        selector="best-signal-proposal",
+        selector="best-signal",
         workspace=tmp_path,
+    )
+    candidate = CandidateConfig(
+        analysis_title="best signal fixture",
+        analysis_key="best-signal",
+        changes=(change_set,),
+    )
+    decision = review_parameter_changes(
+        run_id=run_id,
+        selector="best-signal",
+        workspace=tmp_path,
+        state="approved",
         reviewer="operator",
-        operator="operator",
-        entry_id="accepted-best-signal",
         note="looks good",
     )
 
-    assert review is not None
-    assert review.decision == "approved"
-    assert registration_job.source_kind == "accepted_parameter_proposal"
-    assert entry.source_kind == "accepted_parameter_proposal"
-    assert entry.source_run_id == run_id
-    assert entry.proposal_id == "best-signal-proposal"
-    assert entry.proposal_artifact_id == "best-signal-proposal"
-    assert entry.candidate_artifact_id == "best-signal-proposal-candidate-config"
-    assert entry.source_candidate_artifact_id == (
-        "best-signal-proposal-candidate-config"
+    activation_result = register_and_activate_candidate_config(
+        candidate=candidate,
+        workspace=tmp_path,
+        entry_id="candidate-best-signal",
+        registered_by="operator",
+        operator="operator",
+        note="looks good",
     )
+
+    assert decision.decision == "approved"
+    registration_job = activation_result.job
+    entry = activation_result.entry
+    active_state = activation_result.active_state
+    activation = activation_result.activation
+    assert registration_job.source_kind == "candidate_config"
+    assert entry.source_kind == "candidate_config"
+    assert entry.source_run_id == run_id
+    assert entry.change_set_ids == ["best-signal"]
+    assert entry.change_set_artifact_ids == ["best-signal"]
+    assert entry.candidate_artifact_id is not None
+    assert entry.source_candidate_artifact_id == entry.candidate_artifact_id
     assert active_state.active_entry_id == entry.id
 
-    proposal = load_parameter_proposal(
-        run_id=run_id,
-        selector="best-signal-proposal",
-        workspace=tmp_path,
+    stored_change = load_parameter_change(
+        run_id=run_id, selector="best-signal", workspace=tmp_path
     )
-    assert proposal.state == "approved"
+    assert stored_change == change_set
     manifest = open_run_store(tmp_path).read_manifest(run_id)
     candidate_config_artifact = assert_artifact_ref(
         manifest.artifact_refs,
-        result.candidate_artifact_id,
+        entry.candidate_artifact_id,
         kind="candidate_config",
     )
     assert_artifact_ref(
         manifest.artifact_refs,
-        result.proposal_artifact_id,
+        "best-signal",
         kind="parameter_change_set",
     )
     candidate_config_path = tmp_path / "runs" / run_id / candidate_config_artifact.path
     assert candidate_config_path.is_file()
-    acceptance_path = tmp_path / "runs" / run_id / result.acceptance_ref
-    assert acceptance_path.is_file()
-    stored_acceptance = read_model(
-        acceptance_path,
-        ParameterProposalAcceptanceResult,
-    )
-    assert stored_acceptance == result
-    assert stored_acceptance.schema_version == (
-        "scopecat.parameter_proposal_acceptance_result.v2"
-    )
-    assert stored_acceptance.candidate_artifact_id == entry.candidate_artifact_id
-    assert stored_acceptance.config_registry_entry_id == entry.id
-    assert stored_acceptance.active_entry_id == active_state.active_entry_id
-    assert stored_acceptance.active_config_ref == active_state.active_config_ref
-    assert stored_acceptance.activation_record_id == activation.id
     assert active_state.history[-1] == activation
     assert registration_job.entry_id == entry.id
     assert_artifact_ref(
         manifest.artifact_refs,
-        "best-signal-proposal-acceptance",
-        kind="proposal_acceptance_result",
-        path=result.acceptance_ref,
-    )
-    assert_artifact_ref(
-        manifest.artifact_refs,
-        "best-signal-proposal-review",
-        kind="proposal_review_record",
-        path=stored_acceptance.review_ref,
-    )
-    assert_artifact_ref(
-        manifest.artifact_refs,
-        "best-signal-proposal-finalization",
-        kind="proposal_finalization_record",
+        "best-signal-decision",
+        kind="parameter_change_decision_record",
+        path="reviews/best-signal.parameter-change-decision.json",
     )
     candidate_config = read_model(
         candidate_config_path,
         ConfigProfileSnapshot,
     )
     assert candidate_config.source is not None
-    assert candidate_config.source.kind == "accepted_parameter_proposal"
-    assert candidate_config.source.proposal_id == "best-signal-proposal"
+    assert candidate_config.source.kind == "analysis_candidate_config"
+    assert candidate_config.source.change_set_ids == ["best-signal"]
     assert not (tmp_path / "runs" / run_id / "comparisons").exists()
 
     config, provenance = resolve_config_registry_config_source(
@@ -162,28 +142,3 @@ def test_accept_parameter_proposal_reviews_applies_registers_and_activates(
     assert provenance.entry_id == entry.id
     assert config.source is not None
     assert config.source.entry_id == entry.id
-
-
-def test_accept_parameter_proposal_accepts_already_approved_proposal(
-    tmp_path: Path,
-) -> None:
-    run_id = simulate_with_proposal(tmp_path)
-    review_parameter_proposal(
-        run_id=run_id,
-        selector="best-signal-proposal",
-        workspace=tmp_path,
-        state="approved",
-        reviewer="operator",
-        note="manual approval",
-    )
-
-    result, review, *_ = accept_parameter_proposal(
-        run_id=run_id,
-        selector="best-signal-proposal",
-        workspace=tmp_path,
-        reviewer="operator",
-        operator="operator",
-    )
-
-    assert review is None
-    assert result.config_registry_entry_id.startswith("best-signal-proposal-")

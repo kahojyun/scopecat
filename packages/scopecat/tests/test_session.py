@@ -61,12 +61,11 @@ def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
     )
 
     run = lab.run(load_experiment())
-    details = lab.client.run_details(run.id)
 
     assert run.manifest.runner_id == "scopecat.planner"
     assert run.result.snapshot.schema_version == "scopecat.dry_run_snapshot.v1"
     assert run.resolved_experiment is None
-    assert details.plan.schema_version == "scopecat.plan_snapshot.v1"
+    assert run.plan.schema_version == "scopecat.plan_snapshot.v1"
 
 
 def test_workspace_closed_loop_uses_notebook_first_candidate_config(
@@ -87,14 +86,16 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
         .input("raw-measurements", expected_kind="measurement_dataset")
         .propose(
             "drive_frequency",
-            raw.dataset.records[1].coordinates["drive_frequency"],
+            sc.set_param(
+                "drive_frequency",
+                raw.dataset.records[1].coordinates["drive_frequency"],
+            ),
             reason="manual notebook pick",
         )
     )
     saved = analysis.save()
     candidate_config = analysis.candidate_config(reason="manual notebook pick")
-    review = lab.review(candidate_config, note="accept manual notebook pick")
-    candidate = lab.run(experiment, config=review)
+    candidate = lab.run(experiment, config=candidate_config)
     comparison = lab.compare(baseline, candidate)
     comparison_review = comparison.review(state="accepted")
     overview = baseline.overview()
@@ -103,7 +104,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     assert baseline.resolved_experiment is None
     assert raw.artifact.id == "raw-measurements"
     assert saved.source_artifact_ids == ("raw-measurements",)
-    assert review.candidate_config_artifact.kind == "candidate_config"
+    assert baseline.data().list(kind="candidate_config")[0].kind == "candidate_config"
     assert candidate.manifest.status == "completed"
     assert comparison.result.outcome == "unchanged"
     assert comparison_review.review.decision == "accepted"
@@ -125,7 +126,10 @@ def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
     raw = baseline.measurements()
     analysis = baseline.analysis("manual center point").propose(
         "drive_frequency",
-        raw.dataset.records[1].coordinates["drive_frequency"],
+        sc.set_param(
+            "drive_frequency",
+            raw.dataset.records[1].coordinates["drive_frequency"],
+        ),
         reason="manual center point",
     )
     candidate_config = analysis.candidate_config(reason="manual center point")
@@ -138,7 +142,10 @@ def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
     assert baseline.resolved_experiment is None
     assert baseline.result.snapshot.plan.schema_version == "scopecat.plan_snapshot.v1"
     assert raw.artifact.id == "raw-measurements"
-    assert candidate_config.proposals[0].parameter_id == "drive_frequency"
+    assert (
+        candidate_config.parameter_changes[0].patches[0].parameter_id
+        == "drive_frequency"
+    )
     assert candidate.manifest.status == "completed"
     assert candidate.resolved_experiment is None
     assert comparison.result.outcome == "unchanged"

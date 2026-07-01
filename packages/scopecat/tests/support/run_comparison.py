@@ -7,7 +7,10 @@ from typing import Any
 from scopecat.config_registry import resolve_config_registry_config_source
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
-from tests.support.config_registry import accept_best_signal, seed_best_signal_proposal
+from tests.support.config_registry import (
+    activate_best_signal,
+    seed_best_signal_parameter_change,
+)
 from tests.support.records import read_measurement_records, read_model
 from tests.support.signal_testkit import execute_signal_native_run
 
@@ -37,11 +40,11 @@ def active_config_registry_simulated_run(
     baseline_run_id: str,
     tmp_path: Path,
 ) -> str:
-    seed_best_signal_proposal(tmp_path=tmp_path, run_id=baseline_run_id)
-    accept_best_signal(
+    seed_best_signal_parameter_change(tmp_path=tmp_path, run_id=baseline_run_id)
+    activate_best_signal(
         tmp_path,
         baseline_run_id,
-        entry_id="best-signal-proposal-candidate-config",
+        entry_id="best-signal-candidate-config",
     )
     config, _provenance = resolve_config_registry_config_source(
         selector="active",

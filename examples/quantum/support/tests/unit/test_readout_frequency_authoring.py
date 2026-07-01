@@ -34,7 +34,7 @@ def test_readout_frequency_catalog_resolves_expected_analysis_step() -> None:
         "readout.iq_quality.analysis",
     ]
     assert description.steps[0].output_artifact_kinds == ("analysis",)
-    assert description.steps[0].proposal_kinds == ("readout_frequency",)
+    assert description.steps[0].parameter_change_kinds == ("readout_frequency",)
     assert isinstance(analysis.step, ReadoutFrequencyAnalysisStep)
     assert unsupported.diagnostics[0].code == "readout_analysis_step_unsupported"
 

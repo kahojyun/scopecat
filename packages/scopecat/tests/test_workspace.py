@@ -237,8 +237,7 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
         .input(uri="file:///tmp/manual-notes.ipynb", role="notes", title="notebook")
         .propose(
             "drive_frequency",
-            5.0,
-            unit="GHz",
+            sc.set_param("drive_frequency", sc.Quantity(5.0, "GHz")),
             reason="middle point produced the best signal",
             confidence=0.8,
         )
@@ -250,7 +249,7 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     assert [output.kind for output in analysis.outputs] == [
         "note",
         "table",
-        "proposal",
+        "parameter_change",
     ]
     assert [input_ref.target for input_ref in analysis.inputs] == [
         "raw-measurements",
@@ -259,7 +258,7 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     assert candidate.source_run_id == run.id
     assert candidate.analysis_title == "manual readout review"
     assert candidate.analysis_key == "manual-readout-review"
-    assert candidate.proposals[0].parameter_id == "drive_frequency"
+    assert candidate.parameter_changes[0].patches[0].parameter_id == "drive_frequency"
     assert candidate.reason == "inspect in notebook first"
     assert saved.artifact.kind == "analysis"
     assert saved.artifact.path == "artifacts/analysis-manual-readout-review.json"
@@ -275,7 +274,10 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     assert saved_payload.content["inputs"][1]["target"] == (
         "file:///tmp/manual-notes.ipynb"
     )
-    assert saved_payload.content["proposals"][0]["parameter_id"] == "drive_frequency"
+    assert (
+        saved_payload.content["parameter_changes"][0]["patches"][0]["parameter_id"]
+        == "drive_frequency"
+    )
     assert [artifact.id for artifact in run.data().list(kind="analysis")] == [
         "analysis-manual-readout-review"
     ]
@@ -517,7 +519,10 @@ def test_analysis_artifact_refs_dedupe_sources_and_feed_overview(
             title="notebook",
         )
         .input("raw-measurements", expected_kind="measurement_dataset")
-        .propose("drive_frequency", 5.0, unit="GHz")
+        .propose(
+            "drive_frequency",
+            sc.set_param("drive_frequency", sc.Quantity(5.0, "GHz")),
+        )
         .save()
     )
     saved_payload = run.data().json(saved.artifact.id)
@@ -550,12 +555,15 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
             filename="gui-fit-notes.md",
             media_type="text/markdown",
         )
-        .propose("drive_frequency", 5.0, unit="GHz", reason="manual fit")
+        .propose(
+            "drive_frequency",
+            sc.set_param("drive_frequency", sc.Quantity(5.0, "GHz")),
+            reason="manual fit",
+        )
     )
     saved = analysis.save()
     candidate = analysis.candidate_config(reason="manual fit")
-    review = lab.review(candidate, note="accept from workbench")
-    follow_up = lab.run(experiment, config=review)
+    follow_up = lab.run(experiment, config=candidate)
     comparison = lab.compare(baseline, follow_up, observable="signal")
     overview = baseline.overview()
 
@@ -576,8 +584,8 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     assert [artifact.id for artifact in gui_data.list(kind="analysis")] == [
         saved.artifact.id
     ]
-    assert [artifact.id for artifact in gui_data.list(kind="candidate_config")] == [
-        review.candidate_config_artifact.id
+    assert [artifact.kind for artifact in gui_data.list(kind="candidate_config")] == [
+        "candidate_config"
     ]
     assert gui_data.json(saved.artifact.id).content["source_artifact_ids"] == [
         "raw-measurements"
@@ -636,7 +644,10 @@ def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
                     [{"center": 5.0, "unit": "GHz"}],
                     title="fit summary",
                 )
-                .propose("drive_frequency", 5.0, unit="GHz")
+                .propose(
+                    "drive_frequency",
+                    sc.set_param("drive_frequency", sc.Quantity(5.0, "GHz")),
+                )
             )
 
     lab = sc.open(
@@ -655,46 +666,11 @@ def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
     assert [output.kind for output in analysis.outputs] == [
         "note",
         "table",
-        "proposal",
+        "parameter_change",
     ]
     assert promoted.id == "readout.fit"
     assert rerun_analysis.title == "readout fit"
     assert rerun_analysis.key == "readout.fit"
     assert rerun_analysis.step_id == "readout.fit"
     assert rerun_analysis.outputs == analysis.outputs
-    assert rerun_analysis.parameter_proposals == analysis.parameter_proposals
-
-
-def test_candidate_config_lowers_to_internal_review_and_runs_follow_up(
-    tmp_path: Path,
-) -> None:
-    lab = sc.open(
-        tmp_path,
-        config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="dry",
-    )
-    run = lab.run(load_experiment())
-    candidate = (
-        run.analysis("manual readout review")
-        .propose("drive_frequency", 5.5, unit="GHz", confidence=0.9)
-        .candidate_config()
-    )
-
-    review = lab.review(candidate, note="checked notebook fit")
-    follow_up = lab.run(load_experiment(), config=candidate)
-    proposal = run.data().json(review.proposal_artifact.id).content
-    candidate_config = run.data().json(review.candidate_config_artifact.id).content
-    follow_up_config = lab.client.run_details(follow_up.id).config
-
-    assert isinstance(review, sc.CandidateConfigReview)
-    assert review.proposal_artifact.kind == "parameter_change_set"
-    assert review.candidate_config_artifact.kind == "candidate_config"
-    assert proposal["schema_version"] == "scopecat.parameter_change_set.v1"
-    assert proposal["state"] == "approved"
-    assert proposal["patches"][0]["parameter_id"] == "drive_frequency"
-    assert proposal["patches"][0]["value"] == {"value": 5.5, "unit": "GHz"}
-    assert candidate_config["source"]["kind"] == "analysis_candidate_config"
-    assert candidate_config["source"]["proposal_id"] == review.proposal_artifact.id
-    updated = follow_up_config.parameter_state.scalar_value_set().get("drive_frequency")
-    assert updated is not None
-    assert updated.quantity.value == 5.5
+    assert rerun_analysis.parameter_changes == analysis.parameter_changes

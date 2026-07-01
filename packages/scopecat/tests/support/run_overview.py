@@ -3,11 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
+from scopecat.candidate_configs import resolve_candidate_config
 from scopecat.config_registry import resolve_config_registry_config_source
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.parameter_changes import review_parameter_changes
 from scopecat.run_comparison import execute_run_comparison
-from scopecat.workflows import register_and_activate_candidate_review
+from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.records import read_model
 from tests.support.signal_testkit import (
     execute_best_signal_analysis,
@@ -35,31 +37,36 @@ def simulate(tmp_path: Path) -> str:
     return manifest.run_id
 
 
-def _review_best_signal_analysis(
+def _candidate_best_signal_analysis(
     tmp_path: Path,
     run_id: str,
-) -> sc.CandidateConfigReview:
-    lab = sc.open(tmp_path, config=load_config(), mode="native_simulate")
+) -> sc.CandidateConfig:
     analysis = execute_best_signal_analysis(run_id=run_id, workspace=tmp_path)
     analysis.save()
-    return lab.review(
-        analysis.candidate_config(reason=analysis.parameter_proposals[0].reason),
-        note="looks good",
-    )
+    return analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
 
 
 def simulate_analyze_and_review(tmp_path: Path) -> str:
     run_id = simulate(tmp_path)
     execute_summary_stats_analysis(run_id=run_id, workspace=tmp_path)
-    _review_best_signal_analysis(tmp_path, run_id)
+    candidate = _candidate_best_signal_analysis(tmp_path, run_id)
+    resolved = resolve_candidate_config(candidate, workspace=tmp_path)
+    review_parameter_changes(
+        run_id=run_id,
+        selector=resolved.candidate.change_set_ids[0],
+        workspace=tmp_path,
+        state="approved",
+        reviewer="operator",
+        note="looks good",
+    )
     return run_id
 
 
 def simulate_analyze_and_activate(tmp_path: Path) -> str:
     run_id = simulate(tmp_path)
-    review = _review_best_signal_analysis(tmp_path, run_id)
-    register_and_activate_candidate_review(
-        review=review,
+    candidate = _candidate_best_signal_analysis(tmp_path, run_id)
+    register_and_activate_candidate_config(
+        candidate=candidate,
         workspace=tmp_path,
         entry_id="candidate-best-signal-analysis-candidate-config",
         registered_by="operator",
@@ -91,9 +98,9 @@ def config_registry_sourced_simulated_run(tmp_path: Path, *, selector: str) -> s
 
 def simulated_run_with_active_candidate_comparison(tmp_path: Path) -> str:
     baseline_run_id = simulate(tmp_path)
-    review = _review_best_signal_analysis(tmp_path, baseline_run_id)
-    register_and_activate_candidate_review(
-        review=review,
+    candidate = _candidate_best_signal_analysis(tmp_path, baseline_run_id)
+    register_and_activate_candidate_config(
+        candidate=candidate,
         workspace=tmp_path,
         entry_id="candidate-best-signal-analysis-candidate-config",
         registered_by="operator",

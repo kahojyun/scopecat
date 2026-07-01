@@ -41,7 +41,7 @@ uv sync
 | `notebooks/03_run_and_read_data.py` | Run once, keep the run in scope, and inspect `Run.data()`. |
 | `notebooks/04_manual_analysis.py` | Build one-off notebook analysis and candidate evidence. |
 | `notebooks/05_promote_analysis_step.py` | Replace repeated manual analysis with an `AnalysisStep`. |
-| `notebooks/06_review_candidate_and_rerun.py` | Review a candidate config, rerun, and compare runs. |
+| `notebooks/06_review_candidate_and_rerun.py` | Run a candidate config, compare runs, and review the comparison. |
 
 ## Script Wrappers
 
@@ -67,7 +67,7 @@ and move repeated lab details into a local support package:
 | Replace virtual hardware with a lab adapter | `support/src/quantum_lab_demo/virtual_lab/provider.py` | `Workspace.run(...)` |
 | Change one-off analysis | `notebooks/04_manual_analysis.py` | `Run.data()` and `Run.analysis(...)` |
 | Promote repeated analysis | `support/src/quantum_lab_demo/readout/analysis_steps.py` | `Run.analyze(...)` |
-| Apply a reviewed candidate | `notebooks/06_review_candidate_and_rerun.py` | `Analysis.candidate_config()` and `Workspace.review(...)` |
+| Try a candidate config | `notebooks/06_review_candidate_and_rerun.py` | `Analysis.candidate_config()` and `Workspace.run(..., config=candidate)` |
 
 The support package may contain domain calculations, virtual fixtures, and
 adapter wiring. User-facing notebooks should stay on Scopecat public objects

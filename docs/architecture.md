@@ -49,7 +49,7 @@ around an ordinary experiment. They do not belong in `ExperimentSpec.state`.
 | `ParameterCatalog` | Scalar/table schemas, units, keys, constraints, lifecycle metadata, and validation policy. |
 | `ParameterState` | Accepted scalar values and accepted table rows for future runs. |
 | `ParameterBuildSnapshot` | Immutable resolved parameters, derived outputs, diagnostics, hashes, and provenance. |
-| `ParameterPatch` | Scalar or table changes used for point-local views and candidate config review. |
+| `ParameterPatch` | Scalar or table changes used for point-local views and candidate config resolution. |
 | `ExperimentSpec` | Durable declarative recipe with `id`, `kind`, `points`, `params`, `state`, `acquire`, and optional `assets`. |
 | `PlanSnapshot` | Durable aggregate with hashes, diagnostics, point previews, patch rows, desired state, acquisition shape, artifact refs, and provenance. |
 | `RunManifest` | Root run record tying inputs, plan identity, events, datasets, artifacts, analysis, candidates, attachments, and comparisons to one run id. |
@@ -97,7 +97,7 @@ Core owns generic records and validation:
 
 - quantities, units, relation expressions, and diagnostics;
 - parameter catalogs, states, derivations, build snapshots, patches, change
-  sets, and candidate-review validation;
+  sets, and candidate config resolution validation;
 - experiment specs, planning, desired state, dry-run snapshots, acquisition
   plans, result contracts, and run manifests;
 - generic storage references, artifact refs, events, analysis records,
@@ -121,8 +121,8 @@ Boundary adapters own side effects and operational policy:
 - large artifact chunk assembly and artifact availability checks;
 - analysis, promoted analysis steps, online analysis, early stop, and adaptive
   continuation;
-- candidate config review, internal proposal finalization, quality acceptance
-  policy, config activation, and parameter invalidation;
+- candidate config resolution, parameter-change decisions, quality policy,
+  config activation, and parameter invalidation;
 - multi-run calibration campaigns and monitor row materialization.
 
 ## Package Boundaries
@@ -130,10 +130,10 @@ Boundary adapters own side effects and operational policy:
 | Package | Role |
 | --- | --- |
 | `scopecat.relations` | Relation expressions, scalar expressions, quantity/unit helpers, relation validators, and durable serialization. |
-| `scopecat.parameters` | Catalog/state/build/patch/change-set models, derivation evaluation, validation, diffs, and candidate-review utilities. |
+| `scopecat.parameters` | Catalog/state/build/patch/change-set models, derivation evaluation, validation, diffs, and candidate resolution utilities. |
 | `scopecat.experiments` | `ExperimentSpec`, authoring fragments, planner, dry-run previews, and plan snapshots. |
 | `scopecat.results` | Result contracts, measurement schemas, row validation, retry summaries, artifact eligibility, and storage-facing records. |
-| `scopecat.workflows` | Run lifecycle, data access, analysis persistence, candidate config review, comparison, campaign, resume, and scheduling. |
+| `scopecat.workflows` | Run lifecycle, data access, analysis persistence, candidate config resolution, comparison, campaign, resume, and scheduling. |
 | `scopecat.importers` | Optional anti-corruption package for CSV, XLSX, JSON, registry, and private runner inputs. |
 
 Example support packages live outside `packages/`. The quantum demo support

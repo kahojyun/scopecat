@@ -205,7 +205,7 @@ class BestSignalAnalysisStep:
             )
             .propose(
                 parameter_id,
-                proposed_value,
+                sc.set_param(parameter_id, proposed_value),
                 reason=reason,
                 confidence=best_signal.value,
             )
@@ -249,7 +249,7 @@ class TestSignalAnalysisStep:
             )
             .propose(
                 parameter_id,
-                proposed_value,
+                sc.set_param(parameter_id, proposed_value),
                 reason=f"Best signal observed at point {best_measurement.point_index}.",
             )
         )
@@ -282,7 +282,7 @@ class TestSignalAnalysisCatalog:
                         "test_best_signal_analysis_result",
                         "summary",
                     ),
-                    proposal_kinds=("drive_frequency",),
+                    parameter_change_kinds=("drive_frequency",),
                     metadata=TEST_STEP_METADATA,
                 ),
             ),

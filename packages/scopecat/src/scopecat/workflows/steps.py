@@ -60,7 +60,7 @@ def describe_calibration_routine(
         routine_id=routine.id,
         run_executor_id=routine.run_executor.id,
         analysis_steps=tuple(step.id for step in routine.analysis_steps),
-        reviews_candidate=routine.review_candidate is not None,
+        activates_candidate=routine.activate_candidate is not None,
         label=routine.label,
         description=routine.description,
         metadata=dict(routine.metadata),

@@ -7,31 +7,16 @@ from pathlib import Path
 from typing import Any, cast
 
 from scopecat.authoring import resolve_experiment_with_config
+from scopecat.candidate_configs import resolve_candidate_config
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.workflows._types import (
     CalibrationRoutine,
     CalibrationRoutineResult,
     ConfigSourceResult,
-    RunArtifactBytesResult,
-    RunArtifactJsonResult,
-    RunArtifactTextResult,
-    RunDataArrayResult,
-    RunDataTableResult,
-    RunDetails,
-    RunMeasurementDatasetResult,
     StartRunResult,
 )
-from scopecat.workflows.runs import (
-    list_run_artifacts,
-    load_run,
-    read_run_artifact_bytes,
-    read_run_artifact_json,
-    read_run_artifact_text,
-    read_run_data_array,
-    read_run_data_table,
-    read_run_measurement_dataset,
-)
+from scopecat.workflows.config import register_and_activate_candidate_config
 
 
 def run_calibration_routine(
@@ -68,21 +53,28 @@ def run_calibration_routine(
     for analysis in analyses:
         analysis.save()
     candidate = _candidate_from_analyses(analyses)
-    review = None
+    activation = None
     active_config: ConfigSourceResult | None = None
-    if routine.review_candidate is not None and candidate is not None:
-        review = candidate.review(
+    if routine.activate_candidate is not None and candidate is not None:
+        resolved_candidate = resolve_candidate_config(candidate, workspace=workspace)
+        activation = register_and_activate_candidate_config(
+            candidate=resolved_candidate,
             workspace=workspace,
-            reviewer=routine.review_candidate.reviewer,
-            note=routine.review_candidate.note,
+            entry_id=routine.activate_candidate.entry_id or f"{routine.id}-candidate",
+            registered_by=(
+                routine.activate_candidate.registered_by
+                or routine.activate_candidate.operator
+            ),
+            operator=routine.activate_candidate.operator,
+            note=routine.activate_candidate.note,
         )
-        active_config = ConfigSourceResult(config=review.config)
+        active_config = ConfigSourceResult(config=resolved_candidate.config)
     return CalibrationRoutineResult(
         routine_id=routine.id,
         run=run,
         analyses=analyses,
         candidate=candidate,
-        review=review,
+        activation=activation,
         active_config=active_config,
     )
 
@@ -90,86 +82,8 @@ def run_calibration_routine(
 @dataclass(frozen=True)
 class _RoutineSession:
     workspace: Path
-    client: _RoutineClient
-
-
-@dataclass(frozen=True)
-class _RoutineClient:
-    workspace: Path
-
-    def artifacts(self, run_id: str) -> tuple[str, ...]:
-        return tuple(
-            artifact.artifact.id
-            for artifact in list_run_artifacts(run_id=run_id, workspace=self.workspace)
-        )
-
-    def measurements(
-        self, run_id: str, *, selector: str = "raw-measurements"
-    ) -> RunMeasurementDatasetResult:
-        return read_run_measurement_dataset(
-            run_id=run_id,
-            workspace=self.workspace,
-            selector=selector,
-        )
-
-    def artifact_text(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None = None,
-    ) -> RunArtifactTextResult:
-        return read_run_artifact_text(
-            run_id=run_id,
-            workspace=self.workspace,
-            selector=selector,
-            expected_kind=expected_kind,
-        )
-
-    def artifact_json(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None = None,
-    ) -> RunArtifactJsonResult:
-        return read_run_artifact_json(
-            run_id=run_id,
-            workspace=self.workspace,
-            selector=selector,
-            expected_kind=expected_kind,
-        )
-
-    def data_table(self, run_id: str, selector: str) -> RunDataTableResult:
-        return read_run_data_table(
-            run_id=run_id,
-            workspace=self.workspace,
-            selector=selector,
-        )
-
-    def data_array(self, run_id: str, selector: str) -> RunDataArrayResult:
-        return read_run_data_array(
-            run_id=run_id,
-            workspace=self.workspace,
-            selector=selector,
-        )
-
-    def artifact_bytes(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None = None,
-    ) -> RunArtifactBytesResult:
-        return read_run_artifact_bytes(
-            run_id=run_id,
-            workspace=self.workspace,
-            selector=selector,
-            expected_kind=expected_kind,
-        )
-
-    def run_details(self, run_id: str) -> RunDetails:
-        return load_run(run_id=run_id, workspace=self.workspace)
+    reviewer: str = "operator"
+    operator: str = "operator"
 
 
 def _routine_run_handle(
@@ -179,18 +93,14 @@ def _routine_run_handle(
 ) -> Any:
     from scopecat.session_run_handle import RunHandle
 
-    selected_workspace = Path(workspace)
-    session = _RoutineSession(
-        workspace=selected_workspace,
-        client=_RoutineClient(workspace=selected_workspace),
-    )
+    session = _RoutineSession(workspace=Path(workspace))
     return RunHandle(session=cast(Any, session), result=run)
 
 
 def _candidate_from_analyses(analyses: tuple[Any, ...]) -> Any | None:
     for analysis in analyses:
-        if analysis.parameter_proposals:
+        if analysis.parameter_changes:
             return analysis.candidate_config(
-                reason=analysis.parameter_proposals[0].reason
+                reason=analysis.parameter_changes[0].reason
             )
     return None

@@ -52,8 +52,8 @@ identifiers, domain records, serializers, artifact helpers, validation helpers,
 and compiler-neutral payloads.
 
 Do not start an extracted package with notebook examples, virtual lab providers,
-calibration campaigns, candidate review policy, or update loops. Those stay in
-examples or private workflow packages until their public contract is clear.
+calibration campaigns, candidate activation policy, or update loops. Those stay
+in examples or private workflow packages until their public contract is clear.
 
 Creating a real extension package creates a compatibility obligation. Before
 that happens, define supported Python versions, public modules, stable artifact
@@ -97,9 +97,9 @@ display and storage details, not navigation keys.
 GUI write actions should be reproducible from notebook code:
 
 - save manual analysis as an `Analysis` artifact;
-- review a `CandidateConfig`;
-- run a follow-up `Experiment` with a reviewed candidate config;
-- compare runs;
+- run a follow-up `Experiment` with a candidate config;
+- compare runs and review comparison outcomes;
+- activate a candidate config for future runs;
 - save user context or derived analysis outputs as typed artifacts.
 
 If an action cannot be represented through `Workspace`, `Run`, `Data`,

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+from scopecat.candidate_configs import (
+    CandidateConfigInput,
+    resolve_candidate_config,
+)
 from scopecat.config_registry import (
     activate_config_registry_entry,
-    register_accepted_parameter_proposal,
+    register_candidate_config,
     resolve_config_registry_config_source,
     rollback_config_registry,
 )
@@ -25,15 +28,12 @@ from scopecat.workflows._types import (
     ActivateConfigEntryResult,
     ConfigProfileInput,
     ConfigSourceResult,
-    RegisterAndActivateCandidateReviewResult,
+    RegisterAndActivateCandidateConfigResult,
     RegisterAndActivateConfigProfileResult,
     RegisterConfigProfileResult,
     RollbackConfigRegistryResult,
     ValidateConfigProfileResult,
 )
-
-if TYPE_CHECKING:
-    from scopecat.session_candidate_config import CandidateConfigReview
 
 
 def resolve_config_source(
@@ -150,25 +150,30 @@ def register_and_activate_config_profile(
     )
 
 
-def register_and_activate_candidate_review(
+def register_and_activate_candidate_config(
     *,
-    review: CandidateConfigReview,
+    candidate: CandidateConfigInput,
     workspace: str | Path,
-    entry_id: str,
+    entry_id: str | None = None,
     registered_by: str,
     operator: str,
     note: str = "",
     activation_note: str | None = None,
-) -> RegisterAndActivateCandidateReviewResult:
-    job, entry = register_accepted_parameter_proposal(
-        config=review.config,
+) -> RegisterAndActivateCandidateConfigResult:
+    candidate_config = resolve_candidate_config(candidate, workspace=workspace)
+    selected_entry_id = entry_id or (
+        f"{candidate_config.candidate_config_artifact_id}-"
+        f"{candidate_config.candidate.source_run_id}"
+    )
+    job, entry = register_candidate_config(
+        config=candidate_config.config,
         workspace=workspace,
-        entry_id=entry_id,
+        entry_id=selected_entry_id,
         registered_by=registered_by,
-        run_id=review.candidate.source_run_id,
-        proposal_id=review.proposal_artifact_id,
-        proposal_artifact_id=review.proposal_artifact_id,
-        candidate_artifact_id=review.candidate_config_artifact_id,
+        run_id=candidate_config.candidate.source_run_id,
+        change_set_ids=candidate_config.candidate.change_set_ids,
+        change_set_artifact_ids=candidate_config.change_set_artifact_ids,
+        candidate_artifact_id=candidate_config.candidate_config_artifact_id,
         note=note,
     )
     active_state, activation = activate_config_registry_entry(
@@ -177,7 +182,7 @@ def register_and_activate_candidate_review(
         operator=operator,
         note=note if activation_note is None else activation_note,
     )
-    return RegisterAndActivateCandidateReviewResult(
+    return RegisterAndActivateCandidateConfigResult(
         job=job,
         entry=entry,
         active_state=active_state,

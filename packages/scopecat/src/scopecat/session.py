@@ -12,15 +12,36 @@ from scopecat.authoring import (
     ExperimentAuthoringContext,
     ExperimentDraft,
     ResolvedExperiment,
+    resolve_experiment,
+    resolve_experiment_with_config,
 )
-from scopecat.client import Client, RunRef
-from scopecat.experiments import acquire, observe, set_param
+from scopecat.candidate_configs import (
+    CandidateConfig,
+    CandidateConfigInput,
+    resolve_candidate_config,
+)
+from scopecat.diagnostics import Diagnostic
+from scopecat.errors import ValidationFailed
+from scopecat.experiments import (
+    acquire,
+    delete_param_rows,
+    insert_param_rows,
+    observe,
+    set_param,
+    update_param_rows,
+)
 from scopecat.experiments import experiment as experiment_spec
 from scopecat.instruments.sdk import NativeInstrumentProvider
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
+from scopecat.parameter_changes import (
+    ParameterChangeDecisionRecord,
+    ParameterChangeReviewState,
+    review_parameter_changes,
+)
 from scopecat.relations import col, grid, linspace, literal_rows
-from scopecat.run_overview import RunOverview
+from scopecat.run_overview import RunOverview, build_run_overview
+from scopecat.run_refs import RunRef
 from scopecat.session_analysis import (
     Analysis,
     AnalysisArtifactRef,
@@ -30,11 +51,6 @@ from scopecat.session_analysis import (
     AnalysisStep,
     PromotedAnalysisStep,
     SavedAnalysis,
-)
-from scopecat.session_candidate_config import (
-    CandidateConfig,
-    CandidateConfigReview,
-    ParameterProposal,
 )
 from scopecat.session_comparison import ComparisonHandle
 from scopecat.session_data import Data
@@ -47,7 +63,13 @@ from scopecat.session_templates import (
 )
 from scopecat.workflows import (
     ConfigProfileInput,
+    RegisterAndActivateCandidateConfigResult,
     RunMode,
+    compare_runs,
+    list_runs,
+    load_run,
+    register_and_activate_candidate_config,
+    run_experiment,
 )
 from scopecat.workflows._types import ExperimentInput
 
@@ -108,136 +130,24 @@ class Experiment:
 
 
 @dataclass(frozen=True, kw_only=True)
-class _WorkspaceSession:
-    """Shared implementation for one concrete workspace and execution context."""
+class Workspace:
+    """Primary vNext workspace facade for lab notebook workflows."""
 
-    client: Client
+    _workspace: Path
+    config: str | ConfigProfileSnapshot = "active"
+    config_profile: ConfigProfileInput | None = None
+    mode: RunMode = "dry"
+    native_instrument_provider: NativeInstrumentProvider | None = None
     reviewer: str = "operator"
     operator: str = "operator"
 
-    @classmethod
-    def from_profile(
-        cls,
-        config_profile: ConfigProfileInput,
-        *,
-        workspace: str | Path,
-        mode: RunMode = "dry",
-        native_instrument_provider: NativeInstrumentProvider | None = None,
-        reviewer: str = "operator",
-        operator: str = "operator",
-    ) -> _WorkspaceSession:
-        return cls(
-            client=Client.from_profile(
-                config_profile,
-                workspace=workspace,
-                mode=mode,
-                native_instrument_provider=native_instrument_provider,
-            ),
-            reviewer=reviewer,
-            operator=operator,
-        )
-
     @property
     def workspace(self) -> Path:
-        return Path(self.client.workspace)
+        return self._workspace
 
     @property
     def templates(self) -> TemplateBrowser:
         return TemplateBrowser(session=self)
-
-    def run(
-        self,
-        experiment: ExperimentInput,
-        *,
-        config: str | ConfigProfileSnapshot | None = None,
-        config_profile: ConfigProfileInput | None = None,
-        mode: RunMode | None = None,
-        native_instrument_provider: NativeInstrumentProvider | None = None,
-    ) -> RunHandle:
-        if config is not None:
-            override_client = Client(
-                workspace=self.workspace,
-                config=config,
-                config_profile=config_profile,
-                mode=mode or self.client.mode,
-                native_instrument_provider=(
-                    native_instrument_provider
-                    if native_instrument_provider is not None
-                    else self.client.native_instrument_provider
-                ),
-            )
-            return RunHandle(
-                session=self,
-                result=override_client.run(experiment),
-            )
-        return RunHandle(
-            session=self,
-            result=self.client.run(
-                experiment,
-                config=config,
-                config_profile=config_profile,
-                mode=mode,
-                native_instrument_provider=native_instrument_provider,
-            ),
-        )
-
-    def preview(
-        self,
-        experiment: ExperimentDraft,
-        *,
-        config: str | ConfigProfileSnapshot | None = None,
-        config_profile: ConfigProfileInput | None = None,
-    ) -> ResolvedExperiment:
-        if config is not None:
-            return Client(
-                workspace=self.workspace,
-                config=config,
-                config_profile=config_profile,
-                mode=self.client.mode,
-                native_instrument_provider=self.client.native_instrument_provider,
-            ).resolve(experiment)
-        return self.client.resolve(
-            experiment,
-            config=config,
-            config_profile=config_profile,
-        )
-
-    def compare(
-        self,
-        baseline: RunHandle | RunRef,
-        candidate: RunHandle | RunRef,
-        *,
-        observable: str | None = None,
-    ) -> ComparisonHandle:
-        baseline_id = run_handle_id(baseline)
-        result = self.client.compare_runs(
-            baseline_id,
-            run_handle_id(candidate),
-            observable_id=observable,
-        )
-        return ComparisonHandle(
-            session=self,
-            baseline_run_id=baseline_id,
-            workflow=result,
-        )
-
-    def overview(self, run: RunHandle | RunRef) -> RunOverview:
-        return self.client.overview(run_handle_id(run))
-
-    def runs(self) -> tuple[RunHandle, ...]:
-        return tuple(
-            RunHandle(session=self, manifest=view.manifest)
-            for view in self.client.runs()
-        )
-
-    def get_run(self, run: RunRef) -> RunHandle:
-        details = self.client.run_details(run)
-        return RunHandle(session=self, manifest=details.manifest)
-
-
-@dataclass(frozen=True, kw_only=True)
-class Workspace(_WorkspaceSession):
-    """Primary vNext workspace facade for lab notebook workflows."""
 
     def experiment(
         self,
@@ -250,52 +160,171 @@ class Workspace(_WorkspaceSession):
         self,
         experiment: ExperimentInput | Experiment,
         *,
-        config: str
-        | ConfigProfileSnapshot
-        | CandidateConfig
-        | CandidateConfigReview
-        | None = None,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
         mode: RunMode | None = None,
         native_instrument_provider: NativeInstrumentProvider | None = None,
     ) -> RunHandle:
         if isinstance(config, CandidateConfig):
-            config = self.review(config)
-        if isinstance(config, CandidateConfigReview):
-            config = config.config
-        return super().run(
-            _experiment_input(experiment),
-            config=config,
-            config_profile=config_profile,
-            mode=mode,
-            native_instrument_provider=native_instrument_provider,
-        )
-
-    def review(
-        self,
-        candidate: CandidateConfig,
-        *,
-        reviewer: str | None = None,
-        note: str = "",
-    ) -> CandidateConfigReview:
-        return candidate.review(
-            workspace=self.workspace,
-            reviewer=reviewer or self.reviewer,
-            note=note,
+            config = resolve_candidate_config(config, workspace=self.workspace).config
+        return RunHandle(
+            session=self,
+            result=run_experiment(
+                _experiment_input(experiment),
+                workspace=self.workspace,
+                config=self.config if config is None else config,
+                config_profile=self._effective_config_profile(
+                    config=config,
+                    config_profile=config_profile,
+                ),
+                mode=self.mode if mode is None else mode,
+                native_instrument_provider=(
+                    self.native_instrument_provider
+                    if native_instrument_provider is None
+                    else native_instrument_provider
+                ),
+            ),
         )
 
     def preview(
         self,
         experiment: ExperimentDraft | Experiment,
         *,
-        config: str | ConfigProfileSnapshot | None = None,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
     ) -> ResolvedExperiment:
-        return super().preview(
+        if isinstance(config, CandidateConfig):
+            config = resolve_candidate_config(config, workspace=self.workspace).config
+        return self._resolve_preview(
             _experiment_draft(experiment),
             config=config,
             config_profile=config_profile,
         )
+
+    def compare(
+        self,
+        baseline: RunHandle | RunRef,
+        candidate: RunHandle | RunRef,
+        *,
+        observable: str | None = None,
+    ) -> ComparisonHandle:
+        baseline_id = run_handle_id(baseline)
+        result = compare_runs(
+            baseline_run_id=baseline_id,
+            candidate_run_id=run_handle_id(candidate),
+            workspace=self.workspace,
+            observable_id=observable,
+        )
+        return ComparisonHandle(
+            session=self,
+            baseline_run_id=baseline_id,
+            workflow=result,
+        )
+
+    def overview(self, run: RunHandle | RunRef) -> RunOverview:
+        return build_run_overview(
+            run_id=run_handle_id(run),
+            workspace=self.workspace,
+        )
+
+    def runs(self) -> tuple[RunHandle, ...]:
+        return tuple(
+            RunHandle(session=self, manifest=view.manifest)
+            for view in list_runs(workspace=self.workspace)
+        )
+
+    def get_run(self, run: RunRef) -> RunHandle:
+        details = load_run(run_id=run_handle_id(run), workspace=self.workspace)
+        return RunHandle(session=self, manifest=details.manifest)
+
+    def review_parameter_changes(
+        self,
+        run: RunHandle | RunRef,
+        selector: str,
+        *,
+        reviewer: str | None = None,
+        decision: ParameterChangeReviewState = "approved",
+        note: str = "",
+    ) -> ParameterChangeDecisionRecord:
+        return review_parameter_changes(
+            run_id=run_handle_id(run),
+            selector=selector,
+            workspace=self.workspace,
+            state=decision,
+            reviewer=reviewer or self.reviewer,
+            note=note,
+        )
+
+    def activate(
+        self,
+        candidate: CandidateConfigInput,
+        *,
+        entry_id: str | None = None,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+        activation_note: str | None = None,
+    ) -> RegisterAndActivateCandidateConfigResult:
+        return register_and_activate_candidate_config(
+            candidate=candidate,
+            workspace=self.workspace,
+            entry_id=entry_id,
+            registered_by=registered_by or self.operator,
+            operator=operator or self.operator,
+            note=note,
+            activation_note=activation_note,
+        )
+
+    def _resolve_preview(
+        self,
+        experiment: ExperimentDraft,
+        *,
+        config: str | ConfigProfileSnapshot | None = None,
+        config_profile: ConfigProfileInput | None = None,
+    ) -> ResolvedExperiment:
+        effective_config = self.config if config is None else config
+        effective_config_profile = self._effective_config_profile(
+            config=config,
+            config_profile=config_profile,
+        )
+        if isinstance(effective_config, ConfigProfileSnapshot):
+            if effective_config_profile is not None:
+                raise ValidationFailed(
+                    [
+                        Diagnostic(
+                            severity="error",
+                            code="conflicting_workspace_config_source",
+                            message="provide either config or config_profile, not both",
+                            path="config",
+                        )
+                    ]
+                )
+            return resolve_experiment_with_config(
+                experiment,
+                config=effective_config,
+                workspace=self.workspace,
+            )
+        config_entry = (
+            None
+            if effective_config_profile is not None and effective_config == "active"
+            else effective_config
+        )
+        return resolve_experiment(
+            experiment,
+            workspace=self.workspace,
+            config_entry=config_entry,
+            config_profile=effective_config_profile,
+        )
+
+    def _effective_config_profile(
+        self,
+        *,
+        config: str | ConfigProfileSnapshot | None,
+        config_profile: ConfigProfileInput | None,
+    ) -> ConfigProfileInput | None:
+        if config is None and config_profile is None:
+            return self.config_profile
+        return config_profile
 
 
 def open(  # noqa: A001
@@ -309,13 +338,11 @@ def open(  # noqa: A001
     operator: str = "operator",
 ) -> Workspace:
     return Workspace(
-        client=Client(
-            workspace=workspace,
-            config=config,
-            config_profile=config_profile,
-            mode=mode,
-            native_instrument_provider=native_instrument_provider,
-        ),
+        _workspace=Path(workspace),
+        config=config,
+        config_profile=config_profile,
+        mode=mode,
+        native_instrument_provider=native_instrument_provider,
         reviewer=reviewer,
         operator=operator,
     )
@@ -446,18 +473,21 @@ __all__ = [
     "AnalysisOutput",
     "AnalysisStep",
     "CandidateConfig",
-    "CandidateConfigReview",
     "ComparisonHandle",
     "Data",
     "EarlyStopDecision",
     "Experiment",
-    "ParameterProposal",
     "PromotedAnalysisStep",
+    "Quantity",
     "RunHandle",
     "SavedAnalysis",
     "SweepIntent",
     "TemplateBrowser",
     "Workspace",
     "decide_online_convergence",
+    "delete_param_rows",
+    "insert_param_rows",
     "open",
+    "set_param",
+    "update_param_rows",
 ]

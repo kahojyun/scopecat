@@ -84,7 +84,7 @@ def test_run_handle_analyzes_catalog_step(tmp_path: Path) -> None:
     assert analysis.title == "best signal analysis"
     assert analysis.analysis_key == BEST_SIGNAL_ANALYSIS_STEP
     assert [input_ref.target for input_ref in analysis.inputs] == ["raw-measurements"]
-    assert analysis.parameter_proposals[0].parameter_id == "drive_frequency"
+    assert analysis.parameter_changes[0].patches[0].parameter_id == "drive_frequency"
     assert [output.title for output in analysis.outputs] == [
         "signal summary",
         "drive_frequency",

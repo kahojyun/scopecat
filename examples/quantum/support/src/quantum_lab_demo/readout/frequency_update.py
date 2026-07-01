@@ -6,7 +6,7 @@ from pathlib import Path
 
 import scopecat as sc
 from pydantic import BaseModel, ConfigDict
-from scopecat.workflows import register_and_activate_candidate_review
+from scopecat.workflows import register_and_activate_candidate_config
 
 from quantum_lab_demo.readout.analysis_steps import ReadoutFrequencyAnalysisStep
 
@@ -17,8 +17,8 @@ class ReadoutFrequencyParameterUpdateResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     run_id: str
-    proposal_id: str
-    proposal_artifact_id: str
+    change_set_id: str
+    change_set_artifact_id: str
     candidate_artifact_id: str
     config_registry_entry_id: str
     active_entry_id: str
@@ -29,7 +29,6 @@ def execute_readout_frequency_parameter_update(
     *,
     run_id: str,
     workspace: str | Path,
-    reviewer: str,
     operator: str,
     entry_label: str | None = None,
     note: str = "",
@@ -39,7 +38,6 @@ def execute_readout_frequency_parameter_update(
     return execute_readout_frequency_analysis_update(
         run=lab.get_run(run_id),
         workspace=workspace_path,
-        reviewer=reviewer,
         operator=operator,
         entry_label=entry_label,
         note=note,
@@ -50,7 +48,6 @@ def execute_readout_frequency_analysis_update(
     *,
     run: sc.Run,
     workspace: str | Path,
-    reviewer: str,
     operator: str,
     entry_label: str | None = None,
     note: str = "",
@@ -61,26 +58,24 @@ def execute_readout_frequency_analysis_update(
 
     analysis = run.analyze(ReadoutFrequencyAnalysisStep())
     analysis.save()
-    candidate = analysis.candidate_config(reason=analysis.parameter_proposals[0].reason)
-    review = candidate.review(
-        workspace=workspace_path,
-        reviewer=reviewer,
-        note=update_note,
-    )
-    result = register_and_activate_candidate_review(
-        review=review,
+    candidate = analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
+    result = register_and_activate_candidate_config(
+        candidate=candidate,
         workspace=workspace_path,
         entry_id=entry_id,
         registered_by=operator,
         operator=operator,
         note=update_note,
     )
+    candidate_artifact_id = result.entry.candidate_artifact_id
+    if candidate_artifact_id is None:
+        raise AssertionError("candidate activation did not record candidate artifact")
 
     return ReadoutFrequencyParameterUpdateResult(
         run_id=run.id,
-        proposal_id=review.proposal_artifact_id,
-        proposal_artifact_id=review.proposal_artifact_id,
-        candidate_artifact_id=review.candidate_config_artifact_id,
+        change_set_id=result.entry.change_set_ids[0],
+        change_set_artifact_id=result.entry.change_set_artifact_ids[0],
+        candidate_artifact_id=candidate_artifact_id,
         config_registry_entry_id=result.entry.id,
         active_entry_id=result.active_state.active_entry_id,
         active_config_ref=result.active_state.active_config_ref,

@@ -3,12 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat._manifest_updates import write_manifest_artifacts
+from scopecat.candidate_configs import CandidateConfig
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
 from scopecat.models.parameter import ParameterChangeSet, ParameterPatch, Quantity
-from scopecat.proposals import accept_parameter_proposal
 from scopecat.runs import open_run_store
+from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.records import read_model
 from tests.support.signal_testkit import execute_signal_native_run
 
@@ -23,17 +24,17 @@ def load_experiment() -> ExperimentSpec:
     return read_model(EXAMPLE_DIR / "experiment.json", ExperimentSpec)
 
 
-def simulate_with_proposal(tmp_path: Path) -> str:
+def simulate_with_parameter_change(tmp_path: Path) -> str:
     manifest, _snapshot = execute_signal_native_run(
         config=load_config(),
         experiment=load_experiment(),
         workspace=tmp_path,
     )
-    seed_best_signal_proposal(tmp_path=tmp_path, run_id=manifest.run_id)
+    seed_best_signal_parameter_change(tmp_path=tmp_path, run_id=manifest.run_id)
     return manifest.run_id
 
 
-def seed_best_signal_proposal(*, tmp_path: Path, run_id: str) -> None:
+def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
     storage = open_run_store(tmp_path)
     config = storage.read_config_profile_snapshot(run_id)
     parameter = (
@@ -44,10 +45,10 @@ def seed_best_signal_proposal(*, tmp_path: Path, run_id: str) -> None:
     old_value = (
         parameter.quantity if parameter is not None else Quantity(value=5.0, unit="GHz")
     )
-    proposal = ParameterChangeSet(
-        id="best-signal-proposal",
+    change_set = ParameterChangeSet(
+        id="best-signal",
         source_run_id=run_id,
-        reason="Best signal fixture proposal.",
+        reason="Best signal fixture parameter change.",
         patches=[
             ParameterPatch(
                 kind="set_scalar",
@@ -58,15 +59,15 @@ def seed_best_signal_proposal(*, tmp_path: Path, run_id: str) -> None:
         ],
         confidence=1.0,
     )
-    ref = "proposals/best-signal-proposal.json"
-    storage.write_model(run_id, ref, proposal)
+    ref = "parameter-changes/best-signal.json"
+    storage.write_model(run_id, ref, change_set)
     manifest = storage.read_manifest(run_id)
     write_manifest_artifacts(
         storage=storage,
         manifest=manifest,
         artifacts=[
             Artifact(
-                id=proposal.id,
+                id=change_set.id,
                 kind="parameter_change_set",
                 path=ref,
                 media_type="application/json",
@@ -76,19 +77,28 @@ def seed_best_signal_proposal(*, tmp_path: Path, run_id: str) -> None:
     )
 
 
-def accept_best_signal(
+def activate_best_signal(
     tmp_path: Path,
     run_id: str,
     *,
     entry_id: str = "best-signal-entry",
 ) -> str:
-    result, *_ = accept_parameter_proposal(
-        run_id=run_id,
-        selector="best-signal-proposal",
-        workspace=tmp_path,
-        reviewer="operator",
-        operator="operator",
-        entry_id=entry_id,
-        note="accept best signal",
+    change_set = open_run_store(tmp_path).read_model(
+        run_id,
+        "parameter-changes/best-signal.json",
+        ParameterChangeSet,
     )
-    return result.config_registry_entry_id
+    candidate = CandidateConfig(
+        analysis_title="best signal fixture",
+        analysis_key="best-signal",
+        changes=(change_set,),
+    )
+    activation = register_and_activate_candidate_config(
+        candidate=candidate,
+        workspace=tmp_path,
+        entry_id=entry_id,
+        registered_by="operator",
+        operator="operator",
+        note="activate best signal",
+    )
+    return activation.entry.id

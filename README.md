@@ -51,7 +51,11 @@ analysis = (
     .input("raw-measurements", expected_kind="measurement_dataset")
     .input("notebook", role="notes", expected_kind="attachment")
     .note(f"captured {len(raw.dataset.records)} records")
-    .propose("drive_frequency", 5.5, unit="GHz", reason="best observed point")
+    .propose(
+        "drive_frequency",
+        sc.set_param("drive_frequency", sc.Quantity(5.5, "GHz")),
+        reason="best observed point",
+    )
 )
 analysis.save()
 

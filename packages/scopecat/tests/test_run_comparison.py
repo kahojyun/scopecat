@@ -130,9 +130,7 @@ def test_execute_run_comparison_includes_active_config_source(
     assert result.baseline_config_source.status == "not_available"
     assert result.candidate_config_source.status == "available"
     assert result.candidate_config_source.selector == "active"
-    assert result.candidate_config_source.entry_id == (
-        "best-signal-proposal-candidate-config"
-    )
+    assert result.candidate_config_source.entry_id == ("best-signal-candidate-config")
     assert result.candidate_config_source.active_state_ref == (
         "config-registry/active.json"
     )

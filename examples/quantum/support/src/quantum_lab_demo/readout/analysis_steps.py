@@ -58,7 +58,7 @@ class ReadoutFrequencyAnalysisStep:
             )
             .propose(
                 READOUT_PARAMETER_ID,
-                summary.center,
+                sc.set_param(READOUT_PARAMETER_ID, summary.center),
                 reason=summary.reason,
                 confidence=1.0,
             )

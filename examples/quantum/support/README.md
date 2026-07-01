@@ -31,15 +31,15 @@ code used to validate Scopecat's notebook-first UX.
 
 Runnable user-facing examples live one directory up in `examples/quantum`.
 Those examples should stay thin: they open `Workspace` objects, define or import
-experiments, run them, inspect `Run.data()`, save `Analysis`, and review
-candidate configs.
+experiments, run them, inspect `Run.data()`, save `Analysis`, try candidate
+configs, and review candidate run comparisons.
 
 ## Future Domain Package Boundary
 
 A future `scopecat-quantum` package should start with foundational building
 blocks only: gate records, pulse records, sequence records, target identifiers,
 and artifact helpers. It should not absorb this demo package's readout
-workflows, virtual fixtures, candidate review policy, or notebook examples.
+workflows, virtual fixtures, candidate activation policy, or notebook examples.
 
 ## Checks
 

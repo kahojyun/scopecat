@@ -2,24 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat.models.artifact import Artifact
+import scopecat as sc
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import (
-    ParameterChangeSet,
-    ParameterPatch,
     ParameterTable,
     ParameterTableColumn,
     ParameterTableDefinition,
     Quantity,
 )
-from scopecat.proposals import accept_parameter_proposal
 from scopecat.runs import open_run_store
-from tests.support.config_registry import simulate_with_proposal
+from scopecat.workflows import register_and_activate_candidate_config
+from tests.support.config_registry import simulate_with_parameter_change
 from tests.support.records import assert_artifact_ref, read_model
 
 
-def test_accept_parameter_proposal_applies_table_patches(tmp_path: Path) -> None:
-    run_id = simulate_with_proposal(tmp_path)
+def test_candidate_config_activation_applies_table_patches(tmp_path: Path) -> None:
+    run_id = simulate_with_parameter_change(tmp_path)
     storage = open_run_store(tmp_path)
     config = storage.read_model(
         run_id,
@@ -71,46 +69,36 @@ def test_accept_parameter_proposal_applies_table_patches(tmp_path: Path) -> None
         }
     )
     storage.write_model(run_id, "config-profile.snapshot.json", config)
-    proposal = ParameterChangeSet(
-        id="drive-channel-update",
-        source_run_id=run_id,
-        reason="table patch proposal",
-        patches=[
-            ParameterPatch(
-                kind="update_rows",
-                table_id="drive_channels",
+    lab = sc.open(tmp_path, config=config, mode="dry")
+    run = lab.get_run(run_id)
+    candidate = (
+        run.analysis("table patch fixture")
+        .propose(
+            "drive-channel-update",
+            sc.update_param_rows(
+                "drive_channels",
                 key={"channel_id": "xy0"},
                 values={"gain": 0.75},
-                expected_values={"gain": 0.5},
-            )
-        ],
-    )
-    proposal_record_ref = "proposals/drive-channel-update.json"
-    storage.write_model(run_id, proposal_record_ref, proposal)
-    manifest = storage.read_manifest(run_id)
-    manifest.artifact_refs.append(
-        Artifact(
-            id=proposal.id,
-            kind="parameter_change_set",
-            path=proposal_record_ref,
-            media_type="application/json",
+            ),
+            reason="table patch change",
         )
+        .candidate_config()
     )
-    storage.write_manifest(manifest)
 
-    result, review, *_ = accept_parameter_proposal(
-        run_id=run_id,
-        selector="drive-channel-update",
+    activation = register_and_activate_candidate_config(
+        candidate=candidate,
         workspace=tmp_path,
-        reviewer="operator",
+        registered_by="operator",
         operator="operator",
-        entry_id="accepted-table-patch",
+        entry_id="candidate-table-patch",
     )
+    entry = activation.entry
 
     updated_manifest = storage.read_manifest(run_id)
+    assert entry.candidate_artifact_id is not None
     candidate_config_artifact = assert_artifact_ref(
         updated_manifest.artifact_refs,
-        result.candidate_artifact_id,
+        entry.candidate_artifact_id,
         kind="candidate_config",
     )
     candidate_config = read_model(
@@ -118,7 +106,6 @@ def test_accept_parameter_proposal_applies_table_patches(tmp_path: Path) -> None
         ConfigProfileSnapshot,
     )
     table = candidate_config.parameter_state.tables[0]
-    assert review is not None
     assert table.id == "drive_channels"
     assert table.rows[0]["gain"] == 0.75
     assert candidate_config.parameter_build is not None

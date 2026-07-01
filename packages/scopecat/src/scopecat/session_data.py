@@ -18,6 +18,12 @@ from scopecat.workflows import (
     RunDataTableResult,
     RunMeasurementDatasetResult,
 )
+from scopecat.workflows.runs import (
+    load_run,
+    read_run_artifact_bytes,
+    read_run_data_array,
+    read_run_data_table,
+)
 
 if TYPE_CHECKING:
     from scopecat.session_run_handle import RunHandle
@@ -60,10 +66,18 @@ class Data:
         return self.run.measurements(selector=selector)
 
     def table(self, selector: str) -> RunDataTableResult:
-        return self.run.session.client.data_table(self.run.id, selector)
+        return read_run_data_table(
+            run_id=self.run.id,
+            workspace=self.run.session.workspace,
+            selector=selector,
+        )
 
     def array(self, selector: str) -> RunDataArrayResult:
-        return self.run.session.client.data_array(self.run.id, selector)
+        return read_run_data_array(
+            run_id=self.run.id,
+            workspace=self.run.session.workspace,
+            selector=selector,
+        )
 
     def figure(
         self,
@@ -76,14 +90,15 @@ class Data:
             self.artifact(selector, expected_kind=expected_kind)
         elif artifact.kind not in {"figure", "plot"}:
             self.artifact(selector, expected_kind="figure")
-        return self.run.session.client.artifact_bytes(
-            self.run.id,
-            selector,
+        return read_run_artifact_bytes(
+            run_id=self.run.id,
+            workspace=self.run.session.workspace,
+            selector=selector,
             expected_kind=expected_kind,
         )
 
     def plan_preview(self) -> PlanSnapshot:
-        return self.run.session.client.run_details(self.run.id).plan
+        return self.run.plan
 
     def text(
         self,
@@ -107,14 +122,18 @@ class Data:
         *,
         expected_kind: str | None = None,
     ) -> RunArtifactBytesResult:
-        return self.run.session.client.artifact_bytes(
-            self.run.id,
-            selector,
+        return read_run_artifact_bytes(
+            run_id=self.run.id,
+            workspace=self.run.session.workspace,
+            selector=selector,
             expected_kind=expected_kind,
         )
 
     def _manifest(self) -> RunManifest:
-        return self.run.session.client.run_details(self.run.id).manifest
+        return load_run(
+            run_id=self.run.id,
+            workspace=self.run.session.workspace,
+        ).manifest
 
 
 __all__ = ["Data"]

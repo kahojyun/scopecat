@@ -18,7 +18,7 @@ fixtures, issues, or commit history.
   workspace opening through runs, data, analysis, candidates, comparison, and
   structured overviews.
 - [Parameter system](parameter-system.md): accepted parameter-state,
-  derivation, patch, and candidate-review model.
+  derivation, patch, and candidate resolution model.
 - [Data and storage contracts](data-storage-contracts.md): durable record
   graph, artifact indexing, measurement shapes, plan previews, calibration
   evidence, and diagnostics constraints.

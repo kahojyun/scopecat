@@ -23,15 +23,15 @@ analysis = completed_run.analyze(ReadoutFrequencyAnalysisStep())
 saved_analysis = analysis.save()
 
 # %%
-candidate = analysis.candidate_config(reason=analysis.parameter_proposals[0].reason)
+candidate = analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
 overview = completed_run.overview()
 
 # %%
-proposal = candidate.proposals[0]
+patch = candidate.parameter_changes[0].patches[0]
 summary = {
     "run": completed_run.id,
     "analysis": saved_analysis.artifact.id,
     "overview_artifacts": len(overview.artifact_refs),
-    "candidate_proposal": proposal.parameter_id,
+    "candidate_parameter_change": patch.parameter_id,
 }
 print(summary)

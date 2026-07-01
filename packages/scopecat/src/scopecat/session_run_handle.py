@@ -8,12 +8,14 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, NoReturn, Protocol
 
 from scopecat._manifest_updates import write_manifest_artifacts
-from scopecat.client import Client, RunRef, run_id
 from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
+from scopecat.experiments import PlanSnapshot
 from scopecat.models.artifact import Artifact
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
 from scopecat.run_comparison import RunComparisonView
+from scopecat.run_refs import RunRef, run_id
 from scopecat.runs.access import get_artifact_by_id, open_run_store
 from scopecat.session_analysis import Analysis, AnalysisContext, AnalysisStep
 from scopecat.session_data import Data
@@ -23,6 +25,14 @@ from scopecat.workflows import (
     RunMeasurementDatasetResult,
     StartRunResult,
 )
+from scopecat.workflows.comparison import list_run_comparisons
+from scopecat.workflows.runs import (
+    list_run_artifacts,
+    load_run,
+    read_run_artifact_json,
+    read_run_artifact_text,
+    read_run_measurement_dataset,
+)
 
 if TYPE_CHECKING:
     from scopecat.authoring import ExperimentDraft, ResolvedExperiment
@@ -30,9 +40,6 @@ if TYPE_CHECKING:
 
 
 class RunSession(Protocol):
-    @property
-    def client(self) -> Client: ...
-
     @property
     def reviewer(self) -> str: ...
 
@@ -95,6 +102,14 @@ class RunHandle:
         return self._manifest
 
     @property
+    def config(self) -> ConfigProfileSnapshot:
+        return load_run(run_id=self.id, workspace=self.session.workspace).config
+
+    @property
+    def plan(self) -> PlanSnapshot:
+        return load_run(run_id=self.id, workspace=self.session.workspace).plan
+
+    @property
     def resolved_experiment(self) -> ResolvedExperiment | None:
         if self._result is None:
             return None
@@ -109,14 +124,24 @@ class RunHandle:
 
     @property
     def artifacts(self) -> tuple[str, ...]:
-        return tuple(self.session.client.artifacts(self.id))
+        return tuple(
+            view.artifact.id
+            for view in list_run_artifacts(
+                run_id=self.id,
+                workspace=self.session.workspace,
+            )
+        )
 
     def measurements(
         self,
         *,
         selector: str = "raw-measurements",
     ) -> RunMeasurementDatasetResult:
-        return self.session.client.measurements(self.id, selector=selector)
+        return read_run_measurement_dataset(
+            run_id=self.id,
+            workspace=self.session.workspace,
+            selector=selector,
+        )
 
     def data(self) -> Data:
         return Data(run=self)
@@ -241,9 +266,10 @@ class RunHandle:
         *,
         expected_kind: str | None = None,
     ) -> RunArtifactTextResult:
-        return self.session.client.artifact_text(
-            self.id,
-            selector,
+        return read_run_artifact_text(
+            run_id=self.id,
+            workspace=self.session.workspace,
+            selector=selector,
             expected_kind=expected_kind,
         )
 
@@ -253,9 +279,10 @@ class RunHandle:
         *,
         expected_kind: str | None = None,
     ) -> RunArtifactJsonResult:
-        return self.session.client.artifact_json(
-            self.id,
-            selector,
+        return read_run_artifact_json(
+            run_id=self.id,
+            workspace=self.session.workspace,
+            selector=selector,
             expected_kind=expected_kind,
         )
 
@@ -263,7 +290,9 @@ class RunHandle:
         return self.session.overview(self)
 
     def comparisons(self) -> tuple[RunComparisonView, ...]:
-        return tuple(self.session.client.run_comparisons(self.id))
+        return tuple(
+            list_run_comparisons(run_id=self.id, workspace=self.session.workspace)
+        )
 
 
 def run_handle_id(run: RunHandle | RunRef) -> str:

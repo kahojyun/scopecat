@@ -32,9 +32,9 @@ flowchart TD
     E --> F["Analyze"]
     F --> G{"Candidate config?"}
     G -->|No| H["Attach context or compare"]
-    G -->|Yes| I["Review candidate"]
-    I --> J["Run candidate"]
-    J --> K["Compare runs"]
+    G -->|Yes| I["Run candidate"]
+    I --> J["Compare runs"]
+    J --> K["Review comparison or activate"]
 ```
 
 ## Configuration
@@ -131,7 +131,7 @@ screenshots, exported reports, and other operator context. Attachments are run
 artifacts, not analysis records.
 
 `Run.analysis(title, key=...)` records notebook interpretation: notes, tables,
-arrays, figures, parameter proposals, and saved analysis artifacts. Analysis
+arrays, figures, parameter changes, and saved analysis artifacts. Analysis
 inputs are declared separately from outputs so raw measurements, run
 attachments, and prior analysis artifacts can all participate in lineage
 without becoming output rows. The analysis key defines the saved record
@@ -157,18 +157,21 @@ renumber, or rewrite the planned point table.
 
 ## Candidate Configs
 
-`Analysis.candidate_config()` turns parameter proposals into a public candidate
-object.
-Review lowers that object into internal parameter change records, candidate
-config artifacts, and config registry records when activation is requested.
+`Analysis.candidate_config()` turns analysis parameter changes into a lazy
+`ParameterChangeSet`-backed candidate object. `Workspace.run(...,
+config=candidate)` resolves that object at the run boundary, writing the
+parameter change set and candidate config artifact. Resolution is a system
+step, not human review.
 
-Accepted parameter changes happen only through explicit review and activation.
-Fit outputs, quality metrics, covariance, classifier thresholds, and other
-calibration evidence remain artifacts until a review policy chooses parameter
-patches.
+Review is attached to a concrete decision point: fit assessment, parameter
+change review, run comparison review, or config activation. Accepted parameter
+changes happen only through explicit activation. Fit outputs, quality metrics,
+covariance, classifier thresholds, and other calibration evidence remain
+artifacts until a policy chooses parameter patches and activates a candidate
+configuration.
 
 Rollback uses config registry activation history. Historical run data,
-analysis artifacts, proposals, reviews, and activation records remain
+analysis artifacts, parameter changes, decisions, and activation records remain
 immutable.
 
 ## Comparison And Overview
@@ -193,4 +196,4 @@ structured view over the same records.
 - Preserve raw external outputs as artifacts when adapters need them.
 - Standardize Scopecat-owned data around typed records, relation expressions,
   tables, arrays, events, and artifact refs.
-- Remove compatibility wrappers once tests cover the accepted path.
+- Remove transitional wrappers once tests cover the direct path.

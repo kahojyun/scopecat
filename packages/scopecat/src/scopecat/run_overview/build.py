@@ -2,7 +2,7 @@
 
 Run overviews are assembled from the persisted run manifest plus the optional
 workflow records registered on that run: analysis artifacts, parameter
-proposals and reviews, run comparisons and reviews, and config registry
+changes and decisions, run comparisons and reviews, and config registry
 provenance. Missing optional records are omitted from the overview instead of
 being treated as part of the required run contract.
 """
@@ -20,9 +20,12 @@ from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.parameter import ParameterChangeSet, Quantity
+from scopecat.models.parameter import ParameterChangeSet
 from scopecat.models.run import RunManifest
-from scopecat.proposals.review import ProposalReviewRecord
+from scopecat.parameter_changes import (
+    ParameterChangeDecisionRecord,
+    parameter_change_decision_ref,
+)
 from scopecat.run_comparison import (
     RunComparisonJob,
     RunComparisonResult,
@@ -31,8 +34,8 @@ from scopecat.run_comparison import (
 from scopecat.run_overview.models import (
     AnalysisRecordEntry,
     ConfigSourceInfo,
-    ProposalEntry,
-    ProposalReviewInfo,
+    ParameterChangeDecisionInfo,
+    ParameterChangeEntry,
     RunComparisonEntry,
     RunHeader,
     RunOverview,
@@ -69,7 +72,7 @@ class _AnalysisArtifactPayload(BaseModel):
     inputs: list[_AnalysisInputPayload] = Field(default_factory=list)
     source_artifact_ids: list[str] = Field(default_factory=list)
     outputs: list[_AnalysisOutputPayload]
-    proposals: list[Any] = Field(default_factory=list)
+    parameter_changes: list[Any] = Field(default_factory=list)
 
 
 def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
@@ -84,7 +87,9 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
         run_id=run_id,
         manifest=manifest,
     )
-    proposals = _read_proposals(storage=storage, run_id=run_id, manifest=manifest)
+    parameter_changes = _read_parameter_changes(
+        storage=storage, run_id=run_id, manifest=manifest
+    )
     run_comparisons = _read_run_comparisons(
         storage=storage, run_id=run_id, manifest=manifest
     )
@@ -103,7 +108,7 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
         config_source=config_source,
         artifact_refs=list(manifest.artifact_refs),
         analysis_records=analysis_records,
-        proposals=proposals,
+        parameter_changes=parameter_changes,
         run_comparisons=run_comparisons,
     )
 
@@ -124,7 +129,7 @@ def _read_analysis_records(
                 ref=artifact.path,
                 title=payload.title,
                 output_kinds=[output.kind for output in payload.outputs],
-                proposal_count=len(payload.proposals),
+                parameter_change_count=len(payload.parameter_changes),
                 source_artifact_ids=_source_artifact_ids(payload, artifact),
                 output_artifact_ids=_output_artifact_ids(payload),
             )
@@ -165,61 +170,52 @@ def _config_source_info_from_provenance(
     )
 
 
-def _read_proposals(
+def _read_parameter_changes(
     *, storage: RunStore, run_id: str, manifest: RunManifest
-) -> list[ProposalEntry]:
-    proposals: list[ProposalEntry] = []
-    for proposal_artifact in list_artifacts(manifest, kind="parameter_change_set"):
-        proposal_record_ref = proposal_artifact.path
-        proposal_path = storage.ref_path(run_id, proposal_record_ref)
-        proposal = _read_model(
-            proposal_path,
+) -> list[ParameterChangeEntry]:
+    changes: list[ParameterChangeEntry] = []
+    for change_artifact in list_artifacts(manifest, kind="parameter_change_set"):
+        change_record_ref = change_artifact.path
+        change_path = storage.ref_path(run_id, change_record_ref)
+        change_set = _read_model(
+            change_path,
             ParameterChangeSet,
-            proposal_record_ref,
+            change_record_ref,
         )
-        review = _read_review(storage=storage, run_id=run_id, proposal=proposal)
-        patch = proposal.patches[0] if proposal.patches else None
-        proposals.append(
-            ProposalEntry(
-                id=proposal.id,
-                ref=proposal_record_ref,
-                state=proposal.state,
-                operation_kind=patch.kind if patch is not None else "none",
-                parameter_id=patch.parameter_id if patch is not None else None,
-                old_value=(
-                    patch.expected_value
-                    if patch is not None and isinstance(patch.expected_value, Quantity)
-                    else None
-                ),
-                value=(
-                    patch.value
-                    if patch is not None and isinstance(patch.value, Quantity)
-                    else None
-                ),
-                source_run_id=proposal.source_run_id,
-                reason=proposal.reason,
-                confidence=proposal.confidence,
-                review=review,
+        decision_info = _read_parameter_change_decision(
+            storage=storage,
+            run_id=run_id,
+            change_set=change_set,
+        )
+        changes.append(
+            ParameterChangeEntry(
+                id=change_set.id,
+                ref=change_record_ref,
+                source_run_id=change_set.source_run_id,
+                reason=change_set.reason,
+                confidence=change_set.confidence,
+                patches=list(change_set.patches),
+                decision_info=decision_info,
             )
         )
-    return proposals
+    return changes
 
 
-def _read_review(
-    *, storage: RunStore, run_id: str, proposal: ParameterChangeSet
-) -> ProposalReviewInfo:
-    review_ref = f"reviews/{proposal.id}.review.json"
-    review_path = storage.ref_path(run_id, review_ref)
-    if not review_path.exists():
-        return ProposalReviewInfo(status="not_reviewed")
-    review = _read_model(review_path, ProposalReviewRecord, review_ref)
-    return ProposalReviewInfo(
+def _read_parameter_change_decision(
+    *, storage: RunStore, run_id: str, change_set: ParameterChangeSet
+) -> ParameterChangeDecisionInfo:
+    decision_ref = parameter_change_decision_ref(change_set.id)
+    decision_path = storage.ref_path(run_id, decision_ref)
+    if not decision_path.exists():
+        return ParameterChangeDecisionInfo(status="not_reviewed")
+    decision = _read_model(decision_path, ParameterChangeDecisionRecord, decision_ref)
+    return ParameterChangeDecisionInfo(
         status="reviewed",
-        review_ref=review_ref,
-        decision=review.decision,
-        reviewer=review.reviewer,
-        note=review.note,
-        reviewed_at=review.reviewed_at,
+        decision_ref=decision_ref,
+        decision=decision.decision,
+        actor=decision.actor,
+        note=decision.note,
+        decided_at=decision.decided_at,
     )
 
 

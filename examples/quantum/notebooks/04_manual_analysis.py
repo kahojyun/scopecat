@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # %%
+import scopecat as sc
 from quantum_lab_demo import notebook_workspace, readout_frequency_lab
 from quantum_lab_demo.readout import frequency_calibration
 
@@ -34,8 +35,7 @@ analysis = (
     .input("raw-measurements", expected_kind="measurement_dataset")
     .propose(
         "readout_frequency",
-        5.953,
-        unit="GHz",
+        sc.set_param("readout_frequency", sc.Quantity(5.953, "GHz")),
         reason="manual notebook pick from the lowest S21 point",
         confidence=0.8,
     )
@@ -44,17 +44,17 @@ saved_analysis = analysis.save()
 
 # %%
 candidate = analysis.candidate_config(reason="manual notebook review")
-review = lab.review(candidate, note="approved from notebook example")
-follow_up = lab.run(experiment, config=review)
+follow_up = lab.run(experiment, config=candidate)
 
 # %%
-proposal = analysis.parameter_proposals[0]
+change = analysis.parameter_changes[0]
+patch = change.patches[0]
 summary = {
     "baseline": baseline.id,
     "follow_up": follow_up.id,
     "measurements": len(raw.dataset.records),
     "saved_analysis": saved_analysis.artifact.id,
-    "candidate": review.candidate_config_artifact.id,
-    "proposal": f"{proposal.parameter_id} = {proposal.value} {proposal.unit}",
+    "candidate": candidate.analysis_key,
+    "parameter_change": f"{patch.parameter_id} = {patch.value}",
 }
 print(summary)

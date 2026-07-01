@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from scopecat.candidate_configs import CandidateConfig
 from scopecat.session_analysis import (
     Analysis,
     AnalysisArtifactRef,
@@ -11,11 +12,6 @@ from scopecat.session_analysis import (
     AnalysisStep,
     PromotedAnalysisStep,
     SavedAnalysis,
-)
-from scopecat.session_candidate_config import (
-    CandidateConfig,
-    CandidateConfigReview,
-    ParameterProposal,
 )
 from scopecat.session_comparison import ComparisonHandle
 from scopecat.session_data import Data
@@ -30,10 +26,8 @@ __all__ = [
     "AnalysisOutput",
     "AnalysisStep",
     "CandidateConfig",
-    "CandidateConfigReview",
     "ComparisonHandle",
     "Data",
-    "ParameterProposal",
     "PromotedAnalysisStep",
     "RunHandle",
     "SavedAnalysis",

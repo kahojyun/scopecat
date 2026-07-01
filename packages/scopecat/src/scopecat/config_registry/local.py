@@ -2,8 +2,8 @@
 
 The registry stores named configuration snapshots under the workspace-local
 ``config-registry`` tree and maintains an ``active`` selector for later runs.
-Entries can be registered directly from a ``ConfigProfileSnapshot`` or from an
-accepted parameter proposal. Activating an entry records the previous active
+Entries can be registered directly from a ``ConfigProfileSnapshot`` or from a
+candidate configuration. Activating an entry records the previous active
 entry so rollback can restore it without depending on external state.
 
 Runs started from a registry entry copy source provenance into
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -51,9 +52,7 @@ CONFIG_REGISTRY_CONFIG_SOURCE_PROVENANCE_SCHEMA_VERSION = (
 ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR = "active"
 SAFE_ENTRY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 CONFIG_PROFILE_SNAPSHOT_REF = "config-profile.snapshot.json"
-ConfigRegistryEntrySourceKind = Literal[
-    "direct_config_profile", "accepted_parameter_proposal"
-]
+ConfigRegistryEntrySourceKind = Literal["direct_config_profile", "candidate_config"]
 
 
 class ConfigRegistryEntry(BaseModel):
@@ -68,8 +67,8 @@ class ConfigRegistryEntry(BaseModel):
     registered_by: str
     note: str = ""
     source_run_id: str | None = None
-    proposal_id: str | None = None
-    proposal_artifact_id: str | None = None
+    change_set_ids: list[str] = Field(default_factory=list)
+    change_set_artifact_ids: list[str] = Field(default_factory=list)
     candidate_artifact_id: str | None = None
     source_candidate_artifact_id: str | None = None
     diagnostics: list[Diagnostic] = Field(default_factory=list)
@@ -94,7 +93,7 @@ class ConfigRegistryRegistrationJob(BaseModel):
     input_refs: list[str]
     output_refs: list[str]
     source_run_id: str | None = None
-    proposal_id: str | None = None
+    change_set_ids: list[str] = Field(default_factory=list)
     status: str = "completed"
     diagnostics: list[Diagnostic] = Field(default_factory=list)
     registered_at: datetime = Field(default_factory=utc_now)
@@ -244,28 +243,50 @@ def register_and_activate_config_profile(
     return job, entry, active_state, activation
 
 
-def register_accepted_parameter_proposal(
+def register_candidate_config(
     *,
     config: ConfigProfileSnapshot,
     workspace: str | Path,
     entry_id: str,
     registered_by: str,
     run_id: str,
-    proposal_id: str,
-    proposal_artifact_id: str,
+    change_set_ids: Sequence[str],
+    change_set_artifact_ids: Sequence[str],
     candidate_artifact_id: str,
     note: str = "",
     source_ref: str | None = None,
 ) -> tuple[ConfigRegistryRegistrationJob, ConfigRegistryEntry]:
     workspace_path = Path(workspace)
     _validate_entry_id(entry_id)
+    if not change_set_ids or not change_set_artifact_ids:
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "config_registry_candidate_config_missing_changes",
+                    "candidate config registration requires parameter changes",
+                    "change_set_ids",
+                )
+            ]
+        )
+    if len(change_set_ids) != len(change_set_artifact_ids):
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "config_registry_candidate_config_change_mismatch",
+                    "candidate config change ids and artifact ids must match",
+                    "change_set_ids",
+                )
+            ]
+        )
     refs = _entry_refs(entry_id)
     entry = ConfigRegistryEntry(
         id=entry_id,
-        source_kind="accepted_parameter_proposal",
+        source_kind="candidate_config",
         source_run_id=run_id,
-        proposal_id=proposal_id,
-        proposal_artifact_id=proposal_artifact_id,
+        change_set_ids=list(change_set_ids),
+        change_set_artifact_ids=list(change_set_artifact_ids),
         candidate_artifact_id=candidate_artifact_id,
         source_candidate_artifact_id=candidate_artifact_id,
         config_ref=refs.config_ref,
@@ -274,11 +295,14 @@ def register_accepted_parameter_proposal(
         note=note,
     )
     source_manifest = open_run_store(workspace_path).read_manifest(run_id)
-    proposal_artifact = _require_run_artifact(
-        source_manifest=source_manifest,
-        artifact_id=proposal_artifact_id,
-        kind="parameter_change_set",
-    )
+    change_artifacts = [
+        _require_run_artifact(
+            source_manifest=source_manifest,
+            artifact_id=artifact_id,
+            kind="parameter_change_set",
+        )
+        for artifact_id in change_set_artifact_ids
+    ]
     candidate_artifact = _require_run_artifact(
         source_manifest=source_manifest,
         artifact_id=candidate_artifact_id,
@@ -286,7 +310,7 @@ def register_accepted_parameter_proposal(
     )
     input_refs = [
         f"runs/{run_id}/manifest.json",
-        f"runs/{run_id}/{proposal_artifact.path}",
+        *[f"runs/{run_id}/{artifact.path}" for artifact in change_artifacts],
         f"runs/{run_id}/{candidate_artifact.path}",
     ]
     if source_ref is not None:
@@ -294,9 +318,9 @@ def register_accepted_parameter_proposal(
     job = ConfigRegistryRegistrationJob(
         id=entry_id,
         entry_id=entry_id,
-        source_kind="accepted_parameter_proposal",
+        source_kind="candidate_config",
         source_run_id=run_id,
-        proposal_id=proposal_id,
+        change_set_ids=list(change_set_ids),
         input_refs=input_refs,
         output_refs=[
             CONFIG_REGISTRY_INDEX_REF,
@@ -657,8 +681,8 @@ def _same_registration(
         )
     return (
         existing.source_run_id == requested.source_run_id
-        and existing.proposal_id == requested.proposal_id
-        and existing.proposal_artifact_id == requested.proposal_artifact_id
+        and existing.change_set_ids == requested.change_set_ids
+        and existing.change_set_artifact_ids == requested.change_set_artifact_ids
         and existing.candidate_artifact_id == requested.candidate_artifact_id
         and existing.source_candidate_artifact_id
         == requested.source_candidate_artifact_id

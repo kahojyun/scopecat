@@ -41,8 +41,8 @@ private runner dictionaries.
 | `RelationExpr` | Durable table/column expression IR used by parameter derivations and experiment planning. |
 | `ParameterDerivationSet` | Named deterministic expressions evaluated from accepted state. |
 | `ParameterBuildSnapshot` | Freezes accepted state plus derived outputs, diagnostics, source hashes, and build metadata. |
-| `ParameterPatch` | Describes scalar or table changes for experiment-time patched views and candidate config review. |
-| `ParameterChangeSet` | Reviewable accepted-state candidate patch set with source, reason, expected values, and conflicts. |
+| `ParameterPatch` | Describes scalar or table changes for experiment-time patched views and candidate config resolution. |
+| `ParameterChangeSet` | Named candidate patch set with source, reason, confidence, and concrete scalar/table patches. |
 
 `ExperimentSpec` consumes these concepts but is not part of the parameter
 system. It owns point construction, parameter patches local to a run, desired
@@ -75,7 +75,7 @@ the catalog schema itself.
 - content hashes;
 - update timestamps or revision identifiers when available.
 
-Accepted state changes only through explicit candidate review and activation.
+Accepted state changes only through explicit activation.
 Experiment-time parameter patches create patched planning views; they do not
 mutate accepted state.
 
@@ -89,21 +89,22 @@ Planning consumes build snapshots, not raw config maps. This gives dry runs,
 native runs, analysis, comparison, and structured overviews a stable record of
 the parameter inputs used for each run.
 
-## Patches And Candidate Review
+## Patches And Candidates
 
 `ParameterPatch` is used in two places:
 
 - point-local experiment patches evaluated against point rows;
-- reviewed candidate config changes produced by analysis or adapters.
+- candidate config changes produced by analysis or adapters.
 
 Patch operations include scalar replacement and table row insert/update/delete.
 Every patch is validated against the catalog and, where relevant, against the
-expected accepted value to prevent stale writes.
+expected current value to prevent stale writes.
 
 `ParameterChangeSet` groups candidate accepted-state patches with source,
-reason, diagnostics, and expected values. Activation writes a new accepted
-state snapshot and preserves enough provenance to compare baseline and
-candidate runs.
+reason, diagnostics, and expected values. It can be reviewed as a parameter
+change decision, but resolving it into a candidate config snapshot is a system
+step, not review. Activation writes a new accepted state snapshot and preserves
+enough provenance to compare baseline and candidate runs.
 
 ## Imports
 

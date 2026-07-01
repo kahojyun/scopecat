@@ -2,7 +2,6 @@
 
 from scopecat.models.provider import ProviderOptionDescription
 from scopecat.workflows._types import (
-    AcceptProposalWorkflowResult,
     ActivateConfigEntryResult,
     AnalysisCatalog,
     AnalysisCatalogDescription,
@@ -12,7 +11,7 @@ from scopecat.workflows._types import (
     CompareRunsResult,
     ConfigProfileInput,
     ConfigSourceResult,
-    RegisterAndActivateCandidateReviewResult,
+    RegisterAndActivateCandidateConfigResult,
     RegisterAndActivateConfigProfileResult,
     RegisterConfigProfileResult,
     ReviewRunComparisonResult,
@@ -38,14 +37,13 @@ from scopecat.workflows.comparison import (
 from scopecat.workflows.config import (
     activate_config_entry,
     load_active_config,
-    register_and_activate_candidate_review,
+    register_and_activate_candidate_config,
     register_and_activate_config_profile,
     register_config_profile,
     resolve_config_source,
     rollback_config,
     validate_config_profile,
 )
-from scopecat.workflows.proposals import accept_proposal
 from scopecat.workflows.recovery import (
     PointRetrySummary,
     RetryResultReport,
@@ -91,7 +89,6 @@ from scopecat.workflows.steps import (
 )
 
 __all__ = [
-    "AcceptProposalWorkflowResult",
     "ActivateConfigEntryResult",
     "AnalysisCatalog",
     "AnalysisCatalogDescription",
@@ -110,7 +107,7 @@ __all__ = [
     "MonitorInterleaveRow",
     "PointRetrySummary",
     "ProviderOptionDescription",
-    "RegisterAndActivateCandidateReviewResult",
+    "RegisterAndActivateCandidateConfigResult",
     "RegisterAndActivateConfigProfileResult",
     "RegisterConfigProfileResult",
     "ResourceLeaseRequest",
@@ -134,7 +131,6 @@ __all__ = [
     "TimingBarrierPlan",
     "TimingBarrierRequest",
     "ValidateConfigProfileResult",
-    "accept_proposal",
     "activate_config_entry",
     "build_run_resume_manifest",
     "compare_runs",
@@ -156,7 +152,7 @@ __all__ = [
     "read_run_data_array",
     "read_run_data_table",
     "read_run_measurement_dataset",
-    "register_and_activate_candidate_review",
+    "register_and_activate_candidate_config",
     "register_and_activate_config_profile",
     "register_config_profile",
     "resolve_analysis_step",

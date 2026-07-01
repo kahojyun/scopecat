@@ -23,7 +23,7 @@ packages or future extensions until a real boundary is worth extracting.
 - Support dry-run and simulated execution so workflows can be validated without
   real hardware.
 - Provide explicit boundaries for native instruments, brownfield runner
-  adapters, analysis steps, candidate config review, and local storage.
+  adapters, analysis steps, candidate config resolution, and local storage.
 
 ## Target Scope
 
@@ -43,9 +43,10 @@ Scopecat targets these local workflows:
 - Inspect run data through a `Data` view.
 - Capture exploratory notebook interpretation through `Analysis`.
 - Promote repeated analysis into `AnalysisStep`s.
-- Review analysis-backed candidate configs through internal parameter change
+- Resolve analysis-backed candidate configs through internal parameter change
   records.
-- Compare baseline and candidate runs after candidate configuration changes.
+- Compare baseline and candidate runs, then review the comparison or activate
+  the candidate configuration.
 
 ## Non-Goals
 

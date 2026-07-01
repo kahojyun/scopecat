@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.models.artifact import Artifact
-from scopecat.models.parameter import Quantity
+from scopecat.models.parameter import ParameterPatch, Quantity
 from scopecat.models.run import utc_now
 
 SectionStatus = Literal["available", "not_available"]
@@ -47,36 +47,32 @@ class AnalysisRecordEntry(BaseModel):
     ref: str
     title: str
     output_kinds: list[str]
-    proposal_count: int
+    parameter_change_count: int
     source_artifact_ids: list[str] = Field(default_factory=list)
     output_artifact_ids: list[str] = Field(default_factory=list)
 
 
-class ProposalReviewInfo(BaseModel):
+class ParameterChangeDecisionInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: ReviewStatus
-    review_ref: str | None = None
+    decision_ref: str | None = None
     decision: str | None = None
-    reviewer: str | None = None
+    actor: str | None = None
     note: str | None = None
-    reviewed_at: datetime | None = None
+    decided_at: datetime | None = None
 
 
-class ProposalEntry(BaseModel):
+class ParameterChangeEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
     ref: str
-    state: str
-    operation_kind: str
-    parameter_id: str | None = None
-    old_value: Quantity | None = None
-    value: Quantity | None = None
     source_run_id: str
     reason: str
     confidence: float | None = None
-    review: ProposalReviewInfo
+    patches: list[ParameterPatch]
+    decision_info: ParameterChangeDecisionInfo
 
 
 class RunComparisonEntry(BaseModel):
@@ -118,5 +114,5 @@ class RunOverview(BaseModel):
     config_source: ConfigSourceInfo
     artifact_refs: list[Artifact]
     analysis_records: list[AnalysisRecordEntry] = Field(default_factory=list)
-    proposals: list[ProposalEntry] = Field(default_factory=list)
+    parameter_changes: list[ParameterChangeEntry] = Field(default_factory=list)
     run_comparisons: list[RunComparisonEntry] = Field(default_factory=list)

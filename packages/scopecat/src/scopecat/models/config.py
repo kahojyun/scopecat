@@ -128,7 +128,7 @@ class ConnectionProfile(BaseModel):
 ConfigProfileSnapshotSourceKind = Literal[
     "config_profile_file",
     "config_registry_entry",
-    "accepted_parameter_proposal",
+    "candidate_config",
     "analysis_candidate_config",
 ]
 
@@ -191,8 +191,9 @@ class ConfigProfileSnapshotSource(BaseModel):
     active_state_ref: str | None = None
     active_record_id: str | None = None
     source_run_id: str | None = None
-    proposal_id: str | None = None
-    proposal_artifact_id: str | None = None
+    change_set_ids: list[str] = Field(default_factory=list)
+    change_set_artifact_ids: list[str] = Field(default_factory=list)
+    candidate_artifact_id: str | None = None
 
 
 class ConfigProfileSnapshot(BaseModel):

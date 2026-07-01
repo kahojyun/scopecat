@@ -33,6 +33,24 @@ class Quantity(BaseModel):
     value: float
     unit: str
 
+    def __init__(
+        self,
+        value: float | None = None,
+        unit: str | None = None,
+        **data: Any,
+    ) -> None:
+        if value is not None:
+            if "value" in data:
+                msg = "Quantity value was provided twice"
+                raise TypeError(msg)
+            data["value"] = value
+        if unit is not None:
+            if "unit" in data:
+                msg = "Quantity unit was provided twice"
+                raise TypeError(msg)
+            data["unit"] = unit
+        super().__init__(**data)
+
     @field_validator("unit")
     @classmethod
     def validate_unit(cls, value: str) -> str:
@@ -358,7 +376,7 @@ ParameterPatchValue = Quantity | dict[str, Any] | str | float | int | bool | Non
 
 
 class ParameterPatch(BaseModel):
-    """Concrete accepted-state patch used by proposals and config candidates."""
+    """Concrete accepted-state patch used by experiments and config candidates."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -438,7 +456,7 @@ class ParameterPatch(BaseModel):
 
 
 class ParameterChangeSet(BaseModel):
-    """Reviewable proposal containing accepted-state parameter patches."""
+    """Named accepted-state parameter patch set produced by analysis or adapters."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -450,10 +468,3 @@ class ParameterChangeSet(BaseModel):
     reason: str
     patches: list[ParameterPatch] = Field(min_length=1)
     confidence: float | None = None
-    state: Literal[
-        "proposed",
-        "under_review",
-        "approved",
-        "rejected",
-        "invalidated",
-    ] = "proposed"

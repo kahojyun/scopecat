@@ -15,7 +15,7 @@ from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import load_config_profile
 from scopecat.run_comparison import execute_run_comparison, review_run_comparison
 from scopecat.run_overview import build_run_overview
-from scopecat.workflows import register_and_activate_candidate_review
+from scopecat.workflows import register_and_activate_candidate_config
 from scopecat.workflows.runs import native_run_executor, start_native_run, start_run
 from tests.support.native_signal import TestSignalInstrumentProvider
 from tests.support.records import read_model
@@ -63,16 +63,13 @@ def _execute_signal_run(workspace: Path):
     )
 
 
-def _review_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfigReview:
+def _candidate_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfig:
     config, _experiment = _load_simulated_fixture()
     lab = sc.open(workspace, config=config, mode="native_simulate")
     run = lab.get_run(run_id)
     analysis = run.analyze(BestSignalAnalysisStep())
     analysis.save()
-    return lab.review(
-        analysis.candidate_config(reason=analysis.parameter_proposals[0].reason),
-        note="accepted",
-    )
+    return analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
 
 
 def exercise_dry_run(workspace: Path) -> None:
@@ -91,9 +88,9 @@ def exercise_workflow_pipeline(workspace: Path) -> None:
     lab = sc.open(workspace, config=config, mode="native_simulate")
     run_handle = lab.get_run(run.manifest.run_id)
     run_handle.analyze(SummaryStatsAnalysisStep()).save()
-    review = _review_best_signal(workspace, run.manifest.run_id)
-    register_and_activate_candidate_review(
-        review=review,
+    candidate = _candidate_best_signal(workspace, run.manifest.run_id)
+    register_and_activate_candidate_config(
+        candidate=candidate,
         workspace=workspace,
         entry_id="best-signal-analysis",
         registered_by="operator",
@@ -108,9 +105,9 @@ def exercise_config_registry(workspace: Path) -> None:
         experiment=experiment,
         workspace=workspace,
     )
-    review = _review_best_signal(workspace, manifest.run_id)
-    register_and_activate_candidate_review(
-        review=review,
+    candidate = _candidate_best_signal(workspace, manifest.run_id)
+    register_and_activate_candidate_config(
+        candidate=candidate,
         workspace=workspace,
         entry_id="candidate-a",
         registered_by="operator",
@@ -121,9 +118,9 @@ def exercise_config_registry(workspace: Path) -> None:
         experiment=experiment,
         workspace=workspace,
     )
-    seed_review = _review_best_signal(workspace, candidate_seed.run_id)
-    register_and_activate_candidate_review(
-        review=seed_review,
+    seed_candidate = _candidate_best_signal(workspace, candidate_seed.run_id)
+    register_and_activate_candidate_config(
+        candidate=seed_candidate,
         workspace=workspace,
         entry_id="candidate-b",
         registered_by="operator",

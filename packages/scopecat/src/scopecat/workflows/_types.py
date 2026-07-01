@@ -27,8 +27,6 @@ from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.models.provider import ProviderOptionDescription
 from scopecat.models.run import RunManifest
-from scopecat.proposals import ParameterProposalAcceptanceResult
-from scopecat.proposals.review import ProposalReviewRecord
 from scopecat.results import MeasurementDataset
 from scopecat.run_comparison import (
     RunComparisonJob,
@@ -43,11 +41,8 @@ RunSnapshot = DryRunSnapshot | RunnerAdapterRunSnapshot | NativeRunSnapshot
 ConfigProfileInput = str | Path | ConfigProfileSnapshot
 
 if TYPE_CHECKING:
+    from scopecat.candidate_configs import CandidateConfig
     from scopecat.session_analysis import Analysis, AnalysisStep
-    from scopecat.session_candidate_config import (
-        CandidateConfig,
-        CandidateConfigReview,
-    )
 
 
 def _empty_catalog_options() -> dict[str, object]:
@@ -116,7 +111,7 @@ class RegisterAndActivateConfigProfileResult:
 
 
 @dataclass(frozen=True)
-class RegisterAndActivateCandidateReviewResult:
+class RegisterAndActivateCandidateConfigResult:
     job: ConfigRegistryRegistrationJob
     entry: ConfigRegistryEntry
     active_state: ConfigRegistryActiveState
@@ -217,7 +212,7 @@ class AnalysisStepDescription:
     options: tuple[ProviderOptionDescription, ...] = ()
     input_artifact_kinds: tuple[str, ...] = ()
     output_artifact_kinds: tuple[str, ...] = ()
-    proposal_kinds: tuple[str, ...] = ()
+    parameter_change_kinds: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -226,16 +221,6 @@ class AnalysisCatalogDescription:
     catalog_id: str
     steps: tuple[AnalysisStepDescription, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class AcceptProposalWorkflowResult:
-    acceptance: ParameterProposalAcceptanceResult
-    review: ProposalReviewRecord | None
-    registration_job: ConfigRegistryRegistrationJob
-    entry: ConfigRegistryEntry
-    active_state: ConfigRegistryActiveState
-    activation: ConfigRegistryActivationRecord
 
 
 @dataclass(frozen=True)
@@ -251,8 +236,10 @@ class ReviewRunComparisonResult:
 
 
 @dataclass(frozen=True)
-class CandidateReviewPolicy:
-    reviewer: str
+class CandidateActivationPolicy:
+    operator: str
+    entry_id: str | None = None
+    registered_by: str | None = None
     note: str = ""
 
 
@@ -262,7 +249,7 @@ class CalibrationRoutine:
     experiment: ExperimentInput
     run_executor: RoutineRunExecutor
     analysis_steps: tuple[AnalysisStep, ...] = ()
-    review_candidate: CandidateReviewPolicy | None = None
+    activate_candidate: CandidateActivationPolicy | None = None
     label: str | None = None
     description: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -274,7 +261,7 @@ class CalibrationRoutineResult:
     run: StartRunResult
     analyses: tuple[Analysis, ...] = ()
     candidate: CandidateConfig | None = None
-    review: CandidateConfigReview | None = None
+    activation: RegisterAndActivateCandidateConfigResult | None = None
     active_config: ConfigSourceResult | None = None
 
 
@@ -283,7 +270,7 @@ class CalibrationRoutineDescription:
     routine_id: str
     run_executor_id: str
     analysis_steps: tuple[str, ...]
-    reviews_candidate: bool = False
+    activates_candidate: bool = False
     label: str | None = None
     description: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)

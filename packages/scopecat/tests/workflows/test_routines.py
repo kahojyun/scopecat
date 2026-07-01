@@ -6,7 +6,7 @@ from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.workflows._types import (
     CalibrationRoutine,
-    CandidateReviewPolicy,
+    CandidateActivationPolicy,
     StartRunResult,
 )
 from scopecat.workflows.routines import run_calibration_routine
@@ -45,7 +45,7 @@ def test_calibration_routine_runs_native_analysis_closed_loop(
             native_instrument_provider=TestSignalInstrumentProvider(),
         ),
         analysis_steps=(TestSignalAnalysisStep(),),
-        review_candidate=CandidateReviewPolicy(reviewer="operator"),
+        activate_candidate=CandidateActivationPolicy(operator="operator"),
     )
 
     result = run_calibration_routine(
@@ -63,8 +63,11 @@ def test_calibration_routine_runs_native_analysis_closed_loop(
     )
 
     assert result.run.manifest.runner_id == "scopecat.native"
-    assert result.analyses[0].parameter_proposals[0].parameter_id == "drive_frequency"
-    assert result.review is not None
+    assert (
+        result.analyses[0].parameter_changes[0].patches[0].parameter_id
+        == "drive_frequency"
+    )
+    assert result.activation is not None
     assert followup.manifest.status == "completed"
 
 
@@ -87,8 +90,11 @@ def test_calibration_routine_without_review_leaves_active_config_empty(
         workspace=tmp_path,
     )
 
-    assert result.analyses[0].parameter_proposals[0].parameter_id == "drive_frequency"
-    assert result.review is None
+    assert (
+        result.analyses[0].parameter_changes[0].patches[0].parameter_id
+        == "drive_frequency"
+    )
+    assert result.activation is None
     assert result.active_config is None
 
 

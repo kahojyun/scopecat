@@ -5,7 +5,7 @@ from pathlib import Path
 import scopecat as sc
 from scopecat.workflows import (
     load_active_config,
-    register_and_activate_candidate_review,
+    register_and_activate_candidate_config,
 )
 from scopecat.workflows.runs import start_run
 from tests.support.native_signal import TestSignalInstrumentProvider
@@ -33,14 +33,11 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     summary.save()
     analysis = run_handle.analyze(BestSignalAnalysisStep())
     analysis.save()
-    review = lab.review(
-        analysis.candidate_config(reason=analysis.parameter_proposals[0].reason),
-        note="looks good",
-    )
-    activation = register_and_activate_candidate_review(
-        review=review,
+    candidate = analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
+    activation = register_and_activate_candidate_config(
+        candidate=candidate,
         workspace=tmp_path,
-        entry_id="accepted-best-signal",
+        entry_id="candidate-best-signal",
         registered_by="operator",
         operator="operator",
     )
@@ -54,7 +51,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     )
 
     assert summary.outputs[1].kind == "artifact"
-    assert review.candidate.proposals[0].parameter_id == "drive_frequency"
-    assert activation.entry.id == "accepted-best-signal"
+    assert candidate.parameter_changes[0].patches[0].parameter_id == "drive_frequency"
+    assert activation.entry.id == "candidate-best-signal"
     assert active_config.provenance is not None
     assert next_run.manifest.status == "completed"

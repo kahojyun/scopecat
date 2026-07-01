@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from pathlib import Path
+from typing import Protocol
 
 from scopecat.run_comparison import RunComparisonReviewState
 from scopecat.workflows import CompareRunsResult, ReviewRunComparisonResult
-
-if TYPE_CHECKING:
-    from scopecat.client import Client
+from scopecat.workflows.comparison import review_run_comparison
 
 
 class ComparisonSession(Protocol):
     @property
-    def client(self) -> Client: ...
+    def workspace(self) -> Path: ...
 
     @property
     def reviewer(self) -> str: ...
@@ -41,9 +40,10 @@ class ComparisonHandle:
         reviewer: str | None = None,
         note: str = "",
     ) -> ReviewRunComparisonResult:
-        return self.session.client.review_comparison(
-            self.baseline_run_id,
-            self.id,
+        return review_run_comparison(
+            run_id=self.baseline_run_id,
+            selector=self.id,
+            workspace=self.session.workspace,
             state=state,
             reviewer=reviewer or self.session.reviewer,
             note=note,

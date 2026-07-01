@@ -135,11 +135,11 @@ workflow artifacts until review policy chooses parameter patches.
 
 Calibration provenance should be reconstructable from source run manifest,
 plan snapshot, measurement artifacts, analysis artifacts, internal parameter
-change records, proposal review, candidate config snapshot, registry entry,
+change records, parameter change decisions, candidate config snapshot, registry entry,
 activation record, follow-up run, comparisons, and structured run overviews.
 
-Rollback is a config registry operation. Historical evidence, proposals,
-reviews, and activation records remain immutable.
+Rollback is a config registry operation. Historical evidence, parameter changes,
+decisions, and activation records remain immutable.
 
 ## Diagnostics
 
@@ -155,7 +155,7 @@ Important diagnostic families include:
 - missing, duplicate, incomplete, or ineligible artifacts;
 - chunk gaps and duplicate chunks;
 - preview truncation, missing preview artifact, and preview schema mismatch;
-- stale candidate expected values and proposal invalidation;
+- stale candidate expected values and parameter change invalidation;
 - activation, rollback, adapter, and backend unsupported-operation failures.
 
 A generated or code-owned diagnostics catalog is preferable to a hand-maintained

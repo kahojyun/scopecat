@@ -29,7 +29,7 @@ def test_build_run_overview_for_simulated_run_does_not_update_manifest(
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
     assert overview.config_source.status == "not_available"
-    assert overview.proposals == []
+    assert overview.parameter_changes == []
     assert overview.run_comparisons == []
     assert open_run_store(tmp_path).read_manifest(run_id).status == "completed"
 
@@ -43,12 +43,16 @@ def test_build_run_overview_for_full_local_workflow(
 
     assert overview.config_source.status == "not_available"
     assert [
-        (analysis.artifact_id, analysis.output_kinds, analysis.proposal_count)
+        (
+            analysis.artifact_id,
+            analysis.output_kinds,
+            analysis.parameter_change_count,
+        )
         for analysis in overview.analysis_records
     ] == [
         (
             "analysis-best-signal-analysis",
-            ["artifact", "artifact", "proposal"],
+            ["artifact", "artifact", "parameter_change"],
             1,
         ),
         ("analysis-summary-stats", ["artifact", "artifact"], 0),
@@ -87,14 +91,13 @@ def test_build_run_overview_for_full_local_workflow(
             "artifacts/summary-stats.md",
         ),
     ]
-    assert len(overview.proposals) == 1
-    proposal = overview.proposals[0]
-    assert proposal.state == "approved"
-    assert proposal.operation_kind == "set_scalar"
-    assert proposal.parameter_id == "drive_frequency"
-    assert proposal.review.status == "reviewed"
-    assert proposal.review.decision == "approved"
-    assert proposal.review.reviewer == "operator"
+    assert len(overview.parameter_changes) == 1
+    change = overview.parameter_changes[0]
+    assert change.patches[0].kind == "set_scalar"
+    assert change.patches[0].parameter_id == "drive_frequency"
+    assert change.decision_info.status == "reviewed"
+    assert change.decision_info.decision == "approved"
+    assert change.decision_info.actor == "operator"
     assert overview.run_comparisons == []
 
 
@@ -115,7 +118,10 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
         run.analysis("report review")
         .note("Notebook inspection before next run.")
         .input("raw-measurements", expected_kind="measurement_dataset")
-        .propose("drive_frequency", 5.0, unit="GHz")
+        .propose(
+            "drive_frequency",
+            sc.set_param("drive_frequency", sc.Quantity(5.0, "GHz")),
+        )
         .save()
     )
     analysis_artifact = run.data().artifact("analysis-report-review")
@@ -128,7 +134,7 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
             analysis.artifact_id,
             analysis.ref,
             analysis.output_kinds,
-            analysis.proposal_count,
+            analysis.parameter_change_count,
             analysis.source_artifact_ids,
             analysis.output_artifact_ids,
         )
@@ -137,7 +143,7 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
         (
             "analysis-report-review",
             "artifacts/analysis-report-review.json",
-            ["note", "proposal"],
+            ["note", "parameter_change"],
             1,
             ["raw-measurements"],
             [],
@@ -145,7 +151,7 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
     ]
 
 
-def test_build_run_overview_includes_accept_generated_candidate_config_artifact(
+def test_build_run_overview_includes_activation_generated_candidate_config_artifact(
     tmp_path: Path,
 ) -> None:
     run_id = simulate_analyze_and_activate(tmp_path)
@@ -155,7 +161,7 @@ def test_build_run_overview_includes_accept_generated_candidate_config_artifact(
     assert overview.config_source.status == "not_available"
     assert_artifact_ref(
         overview.artifact_refs,
-        "candidate-best-signal-analysis-candidate-config",
+        "candidate-best-signal-analysis-drive_frequency-candidate-config",
     )
 
 
@@ -169,7 +175,7 @@ def test_build_run_overview_marks_missing_optional_sections(
 
     assert overview.config_source.status == "not_available"
     assert len(overview.analysis_records) == 1
-    assert overview.proposals == []
+    assert overview.parameter_changes == []
 
 
 def test_build_run_overview_includes_literal_config_registry_config_source(

@@ -12,16 +12,21 @@ from typing import TYPE_CHECKING, Literal, NoReturn, Protocol, cast
 from pydantic import BaseModel
 
 from scopecat._manifest_updates import write_manifest_artifacts
+from scopecat.candidate_configs import (
+    CandidateConfig,
+    CandidateSelection,
+)
 from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
+from scopecat.ids import artifact_slug
 from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.runs.access import RunStore, open_run_store
-from scopecat.session_candidate_config import (
-    CandidateConfig,
-    ParameterProposal,
-    analysis_artifact_slug,
+from scopecat.models.parameter import ParameterChangeSet
+from scopecat.parameter_changes import (
+    AnalysisParameterPatch,
+    parameter_change_set_from_analysis_patches,
 )
+from scopecat.runs.access import RunStore, open_run_store
 from scopecat.session_data import Data
 
 if TYPE_CHECKING:
@@ -34,7 +39,7 @@ AnalysisOutputKind = Literal[
     "array",
     "figure",
     "artifact",
-    "proposal",
+    "parameter_change",
 ]
 
 
@@ -110,7 +115,7 @@ class Analysis:
     step_id: str | None = None
     inputs: tuple[AnalysisInputRef, ...] = ()
     outputs: tuple[AnalysisOutput, ...] = ()
-    parameter_proposals: tuple[ParameterProposal, ...] = ()
+    parameter_changes: tuple[ParameterChangeSet, ...] = ()
 
     def note(
         self,
@@ -312,50 +317,77 @@ class Analysis:
 
     def propose(
         self,
-        parameter_id: str,
-        value: object,
-        *,
-        unit: str | None = None,
+        change_id: str,
+        *patches: AnalysisParameterPatch,
         reason: str = "",
         confidence: float | None = None,
     ) -> Analysis:
-        if not parameter_id.strip():
+        if not change_id.strip():
             _raise_analysis_diagnostic(
-                "analysis_proposal_parameter_invalid",
-                "analysis proposal parameter id must be non-empty",
-                "parameter_id",
+                "analysis_parameter_change_id_invalid",
+                "analysis parameter change id must be non-empty",
+                "change_id",
+            )
+        if not patches:
+            _raise_analysis_diagnostic(
+                "analysis_parameter_change_empty",
+                "analysis parameter change requires at least one patch",
+                "patches",
             )
         if confidence is not None and not 0 <= confidence <= 1:
             _raise_analysis_diagnostic(
-                "analysis_proposal_confidence_invalid",
-                "analysis proposal confidence must be between 0 and 1",
+                "analysis_parameter_change_confidence_invalid",
+                "analysis parameter change confidence must be between 0 and 1",
                 "confidence",
             )
-        proposal = ParameterProposal(
-            parameter_id=parameter_id,
-            value=value,
-            unit=unit,
-            reason=reason,
-            confidence=confidence,
-        )
+        selected_id = artifact_slug(change_id, fallback="analysis")
+        if any(change.id == selected_id for change in self.parameter_changes):
+            _raise_analysis_diagnostic(
+                "analysis_parameter_change_id_duplicated",
+                f"analysis parameter change id is duplicated: {selected_id}",
+                "change_id",
+            )
+        try:
+            change = parameter_change_set_from_analysis_patches(
+                source_run_id=self.run.id,
+                analysis_title=self.title,
+                change_id=change_id,
+                patches=patches,
+                reason=reason,
+                confidence=confidence,
+            )
+        except (TypeError, ValueError) as error:
+            _raise_analysis_diagnostic(
+                "analysis_parameter_change_invalid",
+                str(error),
+                "patches",
+            )
         output = AnalysisOutput(
-            kind="proposal",
-            title=parameter_id,
-            content=proposal,
+            kind="parameter_change",
+            title=selected_id,
+            content=change,
             metadata={},
         )
         return replace(
             self,
             outputs=(*self.outputs, output),
-            parameter_proposals=(*self.parameter_proposals, proposal),
+            parameter_changes=(*self.parameter_changes, change),
         )
 
-    def candidate_config(self, *, reason: str = "") -> CandidateConfig:
+    def candidate_config(
+        self,
+        selection: CandidateSelection = None,
+        *,
+        reason: str = "",
+    ) -> CandidateConfig:
+        changes = _select_candidate_changes(
+            self.parameter_changes,
+            selection=selection,
+        )
         return CandidateConfig(
-            source_run_id=self.run.id,
             analysis_title=self.title,
             analysis_key=self.analysis_key,
-            proposals=self.parameter_proposals,
+            changes=changes,
             reason=reason,
         )
 
@@ -402,8 +434,8 @@ class Analysis:
                 }
                 for output in self.outputs
             ],
-            "proposals": [
-                _json_safe(proposal) for proposal in self.parameter_proposals
+            "parameter_changes": [
+                _json_safe(change) for change in self.parameter_changes
             ],
         }
         storage.write_text(
@@ -423,7 +455,7 @@ class Analysis:
                 "owner_key": analysis_key,
                 "step_id": self.step_id,
                 "output_kinds": [output.kind for output in self.outputs],
-                "proposal_count": len(self.parameter_proposals),
+                "parameter_change_count": len(self.parameter_changes),
                 "source_run_id": self.run.id,
                 "inputs": [_json_safe(input_ref) for input_ref in self.inputs],
                 "source_artifact_ids": list(source_artifact_ids),
@@ -473,7 +505,7 @@ class AnalysisContext:
 
     @property
     def config(self) -> ConfigProfileSnapshot:
-        return self.run.session.client.run_details(self.run.id).config
+        return self.run.config
 
     def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
         return self.run.analysis(
@@ -502,8 +534,60 @@ class PromotedAnalysisStep:
             step_id=self.id,
             inputs=self.source.inputs,
             outputs=self.source.outputs,
-            parameter_proposals=self.source.parameter_proposals,
+            parameter_changes=self.source.parameter_changes,
         )
+
+
+def _select_candidate_changes(
+    changes: Sequence[ParameterChangeSet],
+    *,
+    selection: CandidateSelection,
+) -> tuple[ParameterChangeSet, ...]:
+    if not changes:
+        _raise_analysis_diagnostic(
+            "candidate_config_no_parameter_changes",
+            "candidate config requires at least one parameter change",
+            "parameter_changes",
+        )
+    if selection is None:
+        if len(changes) == 1:
+            return (changes[0],)
+        _raise_analysis_diagnostic(
+            "candidate_config_selection_required",
+            (
+                "candidate config selection is required when analysis has multiple "
+                "parameter changes"
+            ),
+            "selection",
+        )
+    selected_ids = (selection,) if isinstance(selection, str) else tuple(selection)
+    if not selected_ids:
+        _raise_analysis_diagnostic(
+            "candidate_config_selection_empty",
+            "candidate config selection must include at least one parameter change",
+            "selection",
+        )
+    by_id = {change.id: change for change in changes}
+    selected: list[ParameterChangeSet] = []
+    seen: set[str] = set()
+    for selected_id in selected_ids:
+        change_id = artifact_slug(selected_id, fallback="analysis")
+        if change_id in seen:
+            _raise_analysis_diagnostic(
+                "candidate_config_selection_duplicated",
+                f"candidate config selection is duplicated: {change_id}",
+                "selection",
+            )
+        try:
+            selected.append(by_id[change_id])
+        except KeyError:
+            _raise_analysis_diagnostic(
+                "candidate_config_selection_not_found",
+                f"candidate config selection was not found: {change_id}",
+                "selection",
+            )
+        seen.add(change_id)
+    return tuple(selected)
 
 
 def _analysis_source_artifact_ids(
@@ -653,7 +737,8 @@ def _analysis_artifact_artifact_id(
             )
         seen_artifact_ids.add(spec.artifact_id)
         return spec.artifact_id
-    base_id = f"analysis-{analysis_key}-{analysis_artifact_slug(spec.title)}"
+    title_slug = artifact_slug(spec.title, fallback="analysis")
+    base_id = f"analysis-{analysis_key}-{title_slug}"
     count = default_id_counts.get(base_id, 0) + 1
     default_id_counts[base_id] = count
     selected = base_id if count == 1 else f"{base_id}-{count}"
@@ -680,7 +765,7 @@ def _analysis_artifact_filename(
         "bytes": ".bin",
         "path": "",
     }[spec.source_kind]
-    return f"{analysis_artifact_slug(selected_artifact_id)}{extension}"
+    return f"{artifact_slug(selected_artifact_id, fallback='analysis')}{extension}"
 
 
 def _analysis_artifact_media_type(
@@ -765,7 +850,7 @@ def _analysis_key(key: str | None, title: str) -> str:
             "analysis key must be a non-empty string",
             "key",
         )
-    return analysis_artifact_slug(selected)
+    return artifact_slug(selected, fallback="analysis")
 
 
 def _raise_analysis_diagnostic(code: str, message: str, path: str) -> NoReturn:

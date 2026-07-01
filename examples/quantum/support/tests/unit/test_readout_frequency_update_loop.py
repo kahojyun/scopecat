@@ -68,13 +68,12 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
     update_result = execute_readout_frequency_analysis_update(
         run=lab.get_run(run_id),
         workspace=tmp_path,
-        reviewer="operator",
         operator="operator",
     )
 
-    assert update_result.proposal_id == "candidate-readout-frequency-analysis"
+    assert update_result.change_set_id == "readout_frequency"
     assert update_result.candidate_artifact_id == (
-        "candidate-readout-frequency-analysis-candidate-config"
+        "candidate-readout-frequency-analysis-readout_frequency-candidate-config"
     )
     assert update_result.config_registry_entry_id == f"readout-frr-{run_id}"
     assert update_result.active_entry_id == update_result.config_registry_entry_id
@@ -82,11 +81,11 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
         entry_id=update_result.config_registry_entry_id,
         workspace=tmp_path,
     )
-    assert entry.source_kind == "accepted_parameter_proposal"
+    assert entry.source_kind == "candidate_config"
     assert entry.registered_by == "operator"
     assert entry.source_run_id == run_id
-    assert entry.proposal_id == "candidate-readout-frequency-analysis"
-    assert entry.proposal_artifact_id == update_result.proposal_artifact_id
+    assert entry.change_set_ids == ["readout_frequency"]
+    assert entry.change_set_artifact_ids == [update_result.change_set_artifact_id]
     assert entry.source_candidate_artifact_id == update_result.candidate_artifact_id
 
     updated_manifest = storage.read_manifest(run_id)

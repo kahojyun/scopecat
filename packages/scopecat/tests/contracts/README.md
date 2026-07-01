@@ -16,8 +16,8 @@ Current scope:
   run artifacts. These assertions live with the execution workflow tests because
   the durable record is coupled to run finalization.
 - Workflow boundary records: scheduling plans, resume manifests, retry reports,
-  run-comparison jobs/results/reviews, proposal review/finalization records,
-  and structured overview inputs. These tests should assert serialized durable
+  run-comparison jobs/results/reviews, parameter change decision records, and
+  structured overview inputs. These tests should assert serialized durable
   shape and typed input/output records, not private helper placement.
 
 Keep implementation details in ordinary unit or integration tests. Do not add

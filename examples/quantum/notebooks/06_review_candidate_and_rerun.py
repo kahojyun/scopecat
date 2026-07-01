@@ -1,4 +1,4 @@
-"""Notebook-style example: review a candidate config and rerun."""
+"""Notebook-style example: run a candidate config and review the comparison."""
 
 from __future__ import annotations
 
@@ -23,21 +23,22 @@ analysis = baseline.analyze(ReadoutFrequencyAnalysisStep())
 saved_analysis = analysis.save()
 
 # %%
-candidate = analysis.candidate_config(reason=analysis.parameter_proposals[0].reason)
-review = lab.review(candidate, note="accept promoted readout analysis")
-follow_up = lab.run(experiment, config=review)
+candidate = analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
+follow_up = lab.run(experiment, config=candidate)
 
 # %%
 comparison = lab.compare(baseline, follow_up, observable="raw_i")
+comparison_review = comparison.review(state="accepted")
 
 # %%
-proposal = analysis.parameter_proposals[0]
+change = analysis.parameter_changes[0]
 summary = {
     "baseline": baseline.id,
-    "accepted_proposal": proposal.parameter_id,
+    "parameter_change": change.id,
     "saved_analysis": saved_analysis.artifact.id,
-    "candidate": review.candidate_config_artifact.id,
+    "candidate": candidate.analysis_key,
     "follow_up": follow_up.id,
     "comparison": comparison.id,
+    "comparison_review": comparison_review.review.decision,
 }
 print(summary)
