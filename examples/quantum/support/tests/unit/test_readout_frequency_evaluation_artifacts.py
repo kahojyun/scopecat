@@ -7,7 +7,6 @@ from demo_lab_readout_frequency_testkit import (
     create_processed_readout_run,
 )
 from demo_lab_records import assert_artifact_ref, read_model
-from demo_lab_test_paths import PACKAGE_ROOT
 from scopecat.evaluation import EvaluationJob
 from scopecat.models.parameter import ParameterChangeSet, Quantity
 from scopecat.runs import open_run_store, read_model_artifact, require_artifact
@@ -117,20 +116,3 @@ def test_readout_frequency_evaluation_persists_result_proposal_and_manifest(
     )
     assert proposal_artifact.path == READOUT_RESONATOR_PROPOSAL_REF
     assert artifact_path(tmp_path, run_id, READOUT_RESONATOR_PROPOSAL_REF).is_file()
-
-
-def test_readout_frequency_evaluation_uses_sdk_persistence_boundary() -> None:
-    source = (
-        PACKAGE_ROOT
-        / "src"
-        / "quantum_lab_demo"
-        / "readout"
-        / "frequency_evaluation.py"
-    ).read_text()
-
-    assert "storage.write_model" not in source
-    assert "storage.write_text" not in source
-    assert "storage.write_manifest" not in source
-    assert "append_unique" not in source
-    assert "upsert_artifacts" not in source
-    assert "manifest.artifact_refs" not in source

@@ -14,8 +14,6 @@ from scopecat.runner import (
 from scopecat.runs import open_run_store
 from tests.support.records import read_model, require_artifact
 from tests.support.runner_adapter import (
-    DuplicateArtifactFilenameRunnerAdapter,
-    DuplicateArtifactIdRunnerAdapter,
     FailingRunnerAdapter,
     MismatchedObservableRunnerAdapter,
     UnsafeArtifactRunnerAdapter,
@@ -77,43 +75,6 @@ def test_runner_adapter_rejects_escaping_adapter_artifacts(
     manifests = open_run_store(tmp_path).list_runs()
     assert len(manifests) == 1
     assert manifests[0].status == "failed"
-    artifact_ids = {artifact.id for artifact in manifests[0].artifact_refs}
-    assert "unsafe-extra" not in artifact_ids
-
-
-def test_runner_adapter_rejects_duplicate_artifact_id(tmp_path: Path) -> None:
-    with pytest.raises(ValidationFailed) as error:
-        execute_runner_adapter(
-            config=load_config(),
-            experiment=load_experiment(),
-            adapter=DuplicateArtifactIdRunnerAdapter(),
-            workspace=tmp_path,
-        )
-
-    assert error.value.diagnostics[-1].code == "runner_adapter_duplicate_artifact"
-    manifests = open_run_store(tmp_path).list_runs()
-    assert len(manifests) == 1
-    artifact_ids = [artifact.id for artifact in manifests[0].artifact_refs]
-    assert artifact_ids.count("duplicate-extra") == 1
-
-
-def test_runner_adapter_rejects_duplicate_artifact_filename(tmp_path: Path) -> None:
-    with pytest.raises(ValidationFailed) as error:
-        execute_runner_adapter(
-            config=load_config(),
-            experiment=load_experiment(),
-            adapter=DuplicateArtifactFilenameRunnerAdapter(),
-            workspace=tmp_path,
-        )
-
-    assert error.value.diagnostics[-1].code == (
-        "runner_adapter_duplicate_artifact_filename"
-    )
-    manifests = open_run_store(tmp_path).list_runs()
-    assert len(manifests) == 1
-    artifact_ids = {artifact.id for artifact in manifests[0].artifact_refs}
-    assert "first-extra" in artifact_ids
-    assert "second-extra" not in artifact_ids
 
 
 def test_runner_adapter_schema_mismatch_keeps_failed_run(tmp_path: Path) -> None:

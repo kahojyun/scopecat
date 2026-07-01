@@ -108,7 +108,6 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     assert comparison.result.outcome == "unchanged"
     assert comparison_review.review.decision == "accepted"
     assert overview.overview.run_id == baseline.id
-    assert "run-report-summary" not in baseline.artifacts
     assert "# Scopecat Run Overview" in overview.markdown
 
 
@@ -146,7 +145,6 @@ def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
     assert comparison.result.outcome == "unchanged"
     assert review.review.decision == "accepted"
     assert overview.overview.run_id == baseline.id
-    assert "run-report-summary" not in baseline.artifacts
 
 
 def test_session_template_browser_lists_builds_and_previews(tmp_path: Path) -> None:

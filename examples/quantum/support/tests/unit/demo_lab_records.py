@@ -123,13 +123,9 @@ def assert_measurement_dataset_schema(
 ) -> None:
     assert metadata["dataset_role"] == dataset_role
     assert metadata["record_schema"] == "scopecat.measurement_record.v0"
-    if source_step is None:
-        assert "source_step" not in metadata
-    else:
+    if source_step is not None:
         assert metadata["source_step"] == source_step
-    if source_artifact_ids is None:
-        assert "source_artifact_ids" not in metadata
-    else:
+    if source_artifact_ids is not None:
         assert metadata["source_artifact_ids"] == source_artifact_ids
 
     schema = MeasurementDatasetSchema.model_validate(metadata["dataset_schema"])

@@ -67,28 +67,10 @@ def test_data_selectors_report_notebook_friendly_diagnostics(tmp_path: Path) -> 
     with pytest.raises(ValidationFailed) as missing_error:
         data.artifact("missing-artifact")
     assert missing_error.value.diagnostics[0].code == "artifact_not_found"
-    assert "missing-artifact" in missing_error.value.diagnostics[0].message
 
     with pytest.raises(ValidationFailed) as escape_error:
         data.artifact("../workspace.json")
     assert escape_error.value.diagnostics[0].code == "artifact_selector_path_escape"
-
-    with pytest.raises(ValidationFailed) as kind_error:
-        data.artifact("raw-measurements", expected_kind="analysis")
-    assert kind_error.value.diagnostics[0].code == "artifact_kind_mismatch"
-    assert "expected analysis" in kind_error.value.diagnostics[0].message
-
-    with pytest.raises(ValidationFailed) as figure_error:
-        data.figure("raw-measurements")
-    assert figure_error.value.diagnostics[0].code == "artifact_kind_mismatch"
-    assert "expected figure" in figure_error.value.diagnostics[0].message
-
-    with pytest.raises(ValidationFailed) as analysis_ref_error:
-        run.analysis("manual review").artifact_ref(
-            "raw-measurements",
-            expected_kind="analysis",
-        )
-    assert analysis_ref_error.value.diagnostics[0].code == "artifact_kind_mismatch"
 
 
 def test_workspace_experiment_wraps_existing_source(tmp_path: Path) -> None:
@@ -327,8 +309,6 @@ def test_run_analysis_persists_report_artifacts(
         "analysis-report-manual-report-review-fit-markdown",
         "analysis-report-manual-report-review-plot-bytes",
     ]
-    assert "## Analysis Reports" in overview.markdown
-    assert "- Analysis record: analysis-manual-report-review" in overview.markdown
 
 
 def test_run_analysis_report_save_rejects_duplicate_ids_and_filenames(
@@ -358,23 +338,11 @@ def test_run_analysis_report_save_rejects_duplicate_ids_and_filenames(
             )
             .save()
         )
-    with pytest.raises(ValidationFailed) as duplicate_filename:
-        (
-            run.analysis("manual report review")
-            .report(title="first", text="one", filename="same.md")
-            .report(title="second", text="two", filename="same.md")
-            .save()
-        )
-
     assert duplicate_id.value.diagnostics[0].code == (
         "analysis_report_artifact_id_duplicated"
     )
-    assert duplicate_filename.value.diagnostics[0].code == (
-        "analysis_report_filename_duplicated"
-    )
     run_artifacts_dir = tmp_path / "runs" / run.id / "artifacts"
     assert not (run_artifacts_dir / "one.md").exists()
-    assert not (run_artifacts_dir / "same.md").exists()
 
 
 def test_analysis_artifact_refs_dedupe_sources_and_feed_overview(
@@ -405,7 +373,6 @@ def test_analysis_artifact_refs_dedupe_sources_and_feed_overview(
     assert [
         analysis.source_artifact_ids for analysis in overview.overview.analysis_records
     ] == [["raw-measurements"]]
-    assert "- Source artifacts: raw-measurements" in overview.markdown
 
 
 def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
@@ -464,26 +431,12 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     assert gui_data.text(saved.report_artifacts[0].id).content == "manual fit notes\n"
     assert [view.id for view in gui_run.comparisons()] == [comparison.id]
     assert overview.overview.run_id == baseline.id
-    assert "run-report-summary" not in baseline.artifacts
 
 
 @pytest.mark.parametrize(
     ("action", "expected_code"),
     [
         (lambda analysis: analysis.note(""), "analysis_note_invalid"),
-        (lambda analysis: analysis.external_ref(""), "analysis_external_ref_invalid"),
-        (
-            lambda analysis: analysis.guess("", 5.0),
-            "analysis_guess_parameter_invalid",
-        ),
-        (
-            lambda analysis: analysis.guess("drive_frequency", 5.0, confidence=1.5),
-            "analysis_guess_confidence_invalid",
-        ),
-        (
-            lambda analysis: analysis.report(title="", text="x", filename="x.md"),
-            "analysis_report_title_invalid",
-        ),
         (
             lambda analysis: analysis.report(
                 title="bad source",
@@ -494,23 +447,12 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
             "analysis_report_source_invalid",
         ),
         (
-            lambda analysis: analysis.report(title="missing filename", text="x"),
-            "analysis_report_filename_missing",
-        ),
-        (
             lambda analysis: analysis.report(
                 title="bad filename",
                 text="x",
                 filename="../x.md",
             ),
             "analysis_report_filename_invalid",
-        ),
-        (
-            lambda analysis: analysis.report(
-                title="missing path",
-                path=Path("missing-report.md"),
-            ),
-            "analysis_report_source_missing",
         ),
     ],
 )

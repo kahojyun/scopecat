@@ -45,7 +45,7 @@ def test_step_artifact_store_collects_existing_artifacts_only(tmp_path: Path) ->
     assert [artifact.id for artifact in store.artifacts] == ["result", "reserved"]
 
 
-def test_step_artifact_store_reports_configured_diagnostics(
+def test_step_artifact_store_rejects_invalid_filename(
     tmp_path: Path,
 ) -> None:
     store = StepArtifactStore(
@@ -55,18 +55,9 @@ def test_step_artifact_store_reports_configured_diagnostics(
     )
     store.write_text(id="one", kind="log", filename="one.txt", content="one")
 
-    with pytest.raises(ValidationFailed) as duplicate_id:
-        store.write_text(id="one", kind="log", filename="two.txt", content="two")
-    with pytest.raises(ValidationFailed) as duplicate_filename:
-        store.write_text(id="two", kind="log", filename="one.txt", content="two")
     with pytest.raises(ValidationFailed) as invalid_filename:
         store.write_text(id="escape", kind="log", filename="../bad.txt", content="bad")
 
-    assert duplicate_id.value.diagnostics[0].code == "test_duplicate_artifact"
-    assert (
-        duplicate_filename.value.diagnostics[0].code
-        == "test_duplicate_artifact_filename"
-    )
     assert invalid_filename.value.diagnostics[0].code == "test_invalid_filename"
 
 

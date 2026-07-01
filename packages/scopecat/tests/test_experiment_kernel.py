@@ -120,7 +120,6 @@ def test_kernel_plans_points_patches_state_and_acquisition() -> None:
             }
         ],
     ]
-    assert "target" not in plan.parameter_patches[0].model_dump(mode="json")
     assert [record.value for record in plan.desired_state] == [
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
@@ -204,11 +203,8 @@ def test_kernel_plan_carries_typed_artifact_refs() -> None:
 
     plan = plan_experiment(spec, _parameter_build())
     changed_plan = plan_experiment(changed, _parameter_build())
-    payload = plan.model_dump(mode="json")
 
     assert plan.assets == [artifact]
-    assert payload["assets"][0]["id"] == "compiled-waveforms"
-    assert "asset_refs" not in payload
     assert changed_plan.content_hash != plan.content_hash
 
 

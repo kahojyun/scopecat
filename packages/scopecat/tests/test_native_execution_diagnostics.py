@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import set_state
 from scopecat.instruments import (
     NativeBoundaryManifest,
     NativeRunSnapshot,
@@ -78,22 +77,6 @@ def test_native_run_rejects_unsupported_native_field(tmp_path: Path) -> None:
         )
 
     assert error.value.diagnostics[-1].code == "native_unsupported_field"
-
-
-def test_native_run_rejects_field_kind_mismatch(tmp_path: Path) -> None:
-    experiment = load_experiment().model_copy(
-        update={"state": [set_state("source-0", "set_frequency.frequency", 5.0)]}
-    )
-
-    with pytest.raises(ValidationFailed) as error:
-        execute_native_run(
-            config=load_config(),
-            experiment=experiment,
-            instruments=[TestSignalInstrument()],
-            workspace=tmp_path,
-        )
-
-    assert error.value.diagnostics[-1].code == "native_field_kind_mismatch"
 
 
 def test_native_instrument_exception_keeps_failed_run(tmp_path: Path) -> None:

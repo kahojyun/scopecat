@@ -137,60 +137,6 @@ class InvalidArtifactFilenameEvaluationStep:
 
 
 @dataclass(frozen=True)
-class DuplicateArtifactIdEvaluationStep:
-    step_id: str = "duplicate-artifact-id-evaluation"
-
-    def run(
-        self, context: EvaluationContext
-    ) -> EvaluationStepResult[FakeEvaluationResult, ParameterChangeSet]:
-        result = FakeEvaluationResult(run_id=context.run_id, measurement_count=0)
-        context.artifacts.write_text(
-            id="duplicate-artifact",
-            kind="summary",
-            filename="duplicate-artifact-a.md",
-            content="a",
-        )
-        context.artifacts.write_text(
-            id="duplicate-artifact",
-            kind="summary",
-            filename="duplicate-artifact-b.md",
-            content="b",
-        )
-        return EvaluationStepResult(
-            result=result,
-            job_id=self.step_id,
-            job_ref="evaluation/duplicate-artifact-id-evaluation.job.json",
-        )
-
-
-@dataclass(frozen=True)
-class DuplicateArtifactFilenameEvaluationStep:
-    step_id: str = "duplicate-artifact-filename-evaluation"
-
-    def run(
-        self, context: EvaluationContext
-    ) -> EvaluationStepResult[FakeEvaluationResult, ParameterChangeSet]:
-        result = FakeEvaluationResult(run_id=context.run_id, measurement_count=0)
-        context.artifacts.write_text(
-            id="duplicate-artifact-a",
-            kind="summary",
-            filename="duplicate-artifact.md",
-            content="a",
-        )
-        context.artifacts.write_text(
-            id="duplicate-artifact-b",
-            kind="summary",
-            filename="duplicate-artifact.md",
-            content="b",
-        )
-        return EvaluationStepResult(
-            result=result,
-            job_id=self.step_id,
-            job_ref="evaluation/duplicate-artifact-filename-evaluation.job.json",
-        )
-
-
-@dataclass(frozen=True)
 class InvalidProposalFilenameEvaluationStep:
     step_id: str = "invalid-proposal-filename-evaluation"
 

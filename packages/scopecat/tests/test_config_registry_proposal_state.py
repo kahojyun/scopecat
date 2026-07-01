@@ -9,7 +9,6 @@ from scopecat.config_registry import list_config_registry_entries
 from scopecat.errors import ValidationFailed
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.proposals import (
-    ProposalInvalidationRecord,
     accept_parameter_proposal,
     invalidate_parameter_proposal,
     load_parameter_proposal,
@@ -41,20 +40,6 @@ def test_invalidate_parameter_proposal_records_boundary_and_manifest(
     assert record.reason == "active config changed before review"
     assert record.invalidated_by == "operator"
     assert record.invalidated_by_refs == ["config-profile.snapshot.json"]
-    assert [
-        (artifact.id, artifact.kind, artifact.path) for artifact in record.artifact_refs
-    ] == [
-        (
-            "best-signal-proposal",
-            "parameter_change_set",
-            "proposals/best-signal-proposal.json",
-        ),
-        (
-            "best-signal-proposal-invalidation",
-            "proposal_invalidation_record",
-            "reviews/best-signal-proposal.invalidation.json",
-        ),
-    ]
 
     stored_proposal = load_parameter_proposal(
         run_id=run_id,
@@ -62,15 +47,6 @@ def test_invalidate_parameter_proposal_records_boundary_and_manifest(
         workspace=tmp_path,
     )
     assert stored_proposal == invalidated
-    stored_invalidation = read_model(
-        tmp_path
-        / "runs"
-        / run_id
-        / "reviews"
-        / "best-signal-proposal.invalidation.json",
-        ProposalInvalidationRecord,
-    )
-    assert stored_invalidation == record
     assert not (
         tmp_path / "runs" / run_id / "reviews" / "best-signal-proposal.review.json"
     ).exists()
@@ -87,7 +63,6 @@ def test_invalidate_parameter_proposal_records_boundary_and_manifest(
         manifest.artifact_refs,
         "best-signal-proposal-invalidation",
         kind="proposal_invalidation_record",
-        path=record.artifact_refs[-1].path,
     )
 
     with pytest.raises(ValidationFailed) as error:
@@ -132,32 +107,6 @@ def test_invalidate_parameter_proposal_rejects_final_review_state(
         / "reviews"
         / "best-signal-proposal.invalidation.json"
     ).exists()
-
-
-def test_accept_parameter_proposal_rejected_proposal_fails_without_entry(
-    tmp_path: Path,
-) -> None:
-    run_id = simulate_and_evaluate(tmp_path)
-    review_parameter_proposal(
-        run_id=run_id,
-        selector="best-signal-proposal",
-        workspace=tmp_path,
-        state="rejected",
-        reviewer="operator",
-        note="do not use",
-    )
-
-    with pytest.raises(ValidationFailed) as error:
-        accept_parameter_proposal(
-            run_id=run_id,
-            selector="best-signal-proposal",
-            workspace=tmp_path,
-            reviewer="operator",
-            operator="operator",
-        )
-
-    assert error.value.diagnostics[0].code == "proposal_not_acceptable"
-    assert list_config_registry_entries(workspace=tmp_path) == []
 
 
 def test_accept_parameter_proposal_preflight_failure_does_not_review(

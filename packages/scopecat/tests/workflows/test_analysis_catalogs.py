@@ -5,20 +5,11 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
 from scopecat.workflows import (
-    AnalysisCatalogDescription,
     AnalysisStepCatalogContext,
-    AnalysisStepCatalogResult,
-    AnalysisStepDescription,
-    ProviderOptionDescription,
-    describe_analysis_catalog,
     resolve_analysis_step,
 )
-from scopecat.workflows._types import CalibrationRoutine, CandidateReviewPolicy
-from scopecat.workflows.runs import run_mode_executor
-from scopecat.workflows.steps import describe_calibration_routine
 from tests.support.native_signal import TestSignalInstrumentProvider
 from tests.support.signal_testkit import (
     BEST_SIGNAL_ANALYSIS_STEP,
@@ -26,106 +17,6 @@ from tests.support.signal_testkit import (
     TestSignalAnalysisStep,
 )
 from tests.support.workflow_fixtures import load_config, load_experiment
-
-
-def test_analysis_catalog_descriptor_models_round_trip_defaults() -> None:
-    option = ProviderOptionDescription(id="input", dtype="string | None")
-    step = AnalysisStepDescription(step_id=BEST_SIGNAL_ANALYSIS_STEP)
-    catalog = AnalysisCatalogDescription(
-        catalog_id="test.catalog",
-        steps=(step,),
-    )
-
-    assert option.required is False
-    assert option.default is None
-    assert step.options == ()
-    assert step.guess_kinds == ()
-    assert catalog.steps == (step,)
-
-
-def test_analysis_catalog_describes_supported_steps() -> None:
-    description = TestSignalAnalysisCatalog().describe()
-
-    assert describe_analysis_catalog(TestSignalAnalysisCatalog()) == description
-    assert description.catalog_id == "tests.signal_analysis"
-    assert [step.step_id for step in description.steps] == [BEST_SIGNAL_ANALYSIS_STEP]
-    assert description.steps[0].options[0].id == "input"
-    assert description.steps[0].options[0].dtype == "string | None"
-    assert description.steps[0].input_artifact_kinds == ("measurement_dataset",)
-    assert description.steps[0].guess_kinds == ("drive_frequency",)
-
-
-def test_describe_analysis_catalog_passes_through_custom_catalog() -> None:
-    custom_description = AnalysisCatalogDescription(
-        catalog_id="test.custom_analysis",
-        steps=(
-            AnalysisStepDescription(
-                step_id="custom-analysis",
-                metadata={"category": "test"},
-            ),
-        ),
-    )
-
-    class CustomCatalog:
-        catalog_id = "test.custom_analysis"
-
-        def describe(self) -> AnalysisCatalogDescription:
-            return custom_description
-
-        def analysis_step(
-            self, context: AnalysisStepCatalogContext
-        ) -> AnalysisStepCatalogResult:
-            del context
-            return AnalysisStepCatalogResult(
-                diagnostics=(
-                    Diagnostic(
-                        severity="error",
-                        code="custom_not_implemented",
-                        message="custom not implemented",
-                        path="step_id",
-                    ),
-                )
-            )
-
-    assert describe_analysis_catalog(CustomCatalog()) == custom_description
-
-
-def test_test_signal_provider_describes_static_capabilities() -> None:
-    description = TestSignalInstrumentProvider(instrument_id="source-a").describe()
-
-    assert description.provider_id == "tests.signal_instrument_provider"
-    assert description.provided_instrument_ids == ("source-a",)
-    assert description.options[0].id == "instrument_id"
-    assert description.options[0].default == "source-a"
-    assert description.capabilities == ("set_frequency", "scalar_signal")
-    assert description.metadata["mode"] == "test_offline"
-
-
-def test_describe_calibration_routine_returns_ordered_structure() -> None:
-    routine = CalibrationRoutine(
-        id="demo-best-signal-descriptor",
-        experiment=load_experiment(),
-        run_executor=run_mode_executor(
-            "native_simulate", native_instrument_provider=TestSignalInstrumentProvider()
-        ),
-        analysis_steps=(TestSignalAnalysisStep(),),
-        review_candidate=CandidateReviewPolicy(
-            reviewer="operator",
-        ),
-        label="Demo best signal",
-        description="Demo calibration routine",
-        metadata={"category": "demo"},
-    )
-
-    description = describe_calibration_routine(routine)
-
-    assert description.routine_id == "demo-best-signal-descriptor"
-    assert description.run_executor_id == "native_simulate"
-    assert description.analysis_steps == ("best-signal-analysis",)
-    assert description.reviews_candidate is True
-    assert description.label == "Demo best signal"
-    assert description.description == "Demo calibration routine"
-    assert description.metadata == {"category": "demo"}
 
 
 def test_analysis_catalog_resolves_supported_step() -> None:

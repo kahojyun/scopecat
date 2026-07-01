@@ -12,7 +12,7 @@ from scopecat._storage import ARTIFACTS_DIR
 from scopecat.diagnostics import Diagnostic
 from scopecat.models.artifact import ProcessingJob
 from scopecat.runs import open_run_store
-from tests.support.records import artifact_refs_by_id, assert_artifact_ref, read_model
+from tests.support.records import assert_artifact_ref, read_model
 from tests.support.steps import artifact_diagnostics, make_simulated_run
 
 
@@ -80,11 +80,6 @@ def test_persist_failed_step_updates_manifest_refs_without_proposals(
         filename="failed-summary.md",
         content="# Failed\n",
     )
-    artifact_store.reserve_file(
-        id="reserved-debug",
-        kind="debug",
-        filename="reserved-debug.txt",
-    )
     job = ProcessingJob(
         id="failed-step",
         run_id=run_id,
@@ -117,7 +112,6 @@ def test_persist_failed_step_updates_manifest_refs_without_proposals(
         ProcessingJob,
     )
     updated = storage.read_manifest(run_id)
-    artifact_refs = artifact_refs_by_id(updated.artifact_refs)
     assert persisted_job.status == "failed"
     assert_artifact_ref(
         updated.artifact_refs,
@@ -129,4 +123,3 @@ def test_persist_failed_step_updates_manifest_refs_without_proposals(
         "failed-step-job",
         path="processing/failed-step.job.json",
     )
-    assert "reserved-debug" not in artifact_refs

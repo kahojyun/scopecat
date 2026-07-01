@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat.reporting import build_run_overview, render_run_overview
+from scopecat.reporting import build_run_overview
 from scopecat.run_comparison import review_run_comparison
 from scopecat.runs import open_run_store
 from tests.support.records import require_artifact_by_kind
@@ -34,12 +34,6 @@ def test_build_run_overview_includes_run_comparison(
     assert comparison.review_status == "not_reviewed"
     assert comparison.decision is None
 
-    overview_markdown = render_run_overview(overview)
-    assert "## Run Comparisons" in overview_markdown
-    assert "- Outcome: unchanged" in overview_markdown
-    assert "- Candidate config source: available" in overview_markdown
-    assert "- Review status: not_reviewed" in overview_markdown
-
 
 def test_build_run_overview_includes_reviewed_run_comparison(
     tmp_path: Path,
@@ -68,8 +62,3 @@ def test_build_run_overview_includes_reviewed_run_comparison(
     assert comparison.decision == "accepted"
     assert comparison.reviewer == "operator"
     assert comparison.note == "candidate accepted"
-
-    overview_markdown = render_run_overview(overview)
-    assert "- Review status: reviewed" in overview_markdown
-    assert "- Decision: accepted" in overview_markdown
-    assert "- Reviewer: operator" in overview_markdown

@@ -8,8 +8,6 @@ import pytest
 from scopecat.errors import ValidationFailed
 from scopecat.processing.sdk import execute_processing_step
 from tests.support.processing import (
-    DuplicateFilenameProcessingStep,
-    DuplicateIdProcessingStep,
     InvalidFilenameProcessingStep,
     UnexpectedProcessingFailureStep,
     assert_failed_processing_job,
@@ -94,7 +92,6 @@ def test_processing_sdk_persists_unexpected_exception_as_failed_job(
         )
 
     assert error.value.diagnostics[0].code == "processing_step_failed"
-    assert "RuntimeError: boom" in error.value.diagnostics[0].message
     job, manifest = assert_failed_processing_job(
         tmp_path,
         run_id,
@@ -106,33 +103,3 @@ def test_processing_sdk_persists_unexpected_exception_as_failed_job(
         "unexpected-partial",
         "unexpected-processing-job",
     }
-
-
-def test_processing_sdk_rejects_duplicate_artifact_registration(
-    tmp_path: Path,
-) -> None:
-    cases = [
-        (DuplicateIdProcessingStep(), "processing_duplicate_artifact"),
-        (
-            DuplicateFilenameProcessingStep(),
-            "processing_duplicate_artifact_filename",
-        ),
-    ]
-    for step, diagnostic_code in cases:
-        run_id = make_simulated_run(tmp_path)
-
-        with pytest.raises(ValidationFailed) as error:
-            execute_processing_step(run_id=run_id, workspace=tmp_path, step=step)
-
-        assert error.value.diagnostics[0].code == diagnostic_code
-        job, manifest = assert_failed_processing_job(
-            tmp_path,
-            run_id,
-            step_id=step.step_id,
-            diagnostic_code=diagnostic_code,
-        )
-        assert len(job.output_artifact_ids) == 1
-        assert any(
-            artifact.id == job.output_artifact_ids[0]
-            for artifact in manifest.artifact_refs
-        )

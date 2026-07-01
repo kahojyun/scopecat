@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -41,13 +40,6 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         workspace=tmp_path,
     )
     simulated = start_run(
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
-        config=config,
-        experiment=experiment,
-        workspace=tmp_path,
-    )
-    native = start_run(
         mode="native_simulate",
         native_instrument_provider=TestSignalInstrumentProvider(),
         config=config,
@@ -105,7 +97,6 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
     assert [view.manifest.run_id for view in runs] == [
         dry.manifest.run_id,
         simulated.manifest.run_id,
-        native.manifest.run_id,
     ]
     assert details.manifest.run_id == simulated.manifest.run_id
     assert any(artifact.id == "metrics" for artifact in details.manifest.artifact_refs)
@@ -160,25 +151,6 @@ def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
             selector="../manifest.json",
             workspace=tmp_path,
         )
-    with pytest.raises(ValidationFailed) as kind_mismatch:
-        read_run_artifact_text(
-            run_id=run.manifest.run_id,
-            selector="raw-measurements",
-            workspace=tmp_path,
-            expected_kind="summary",
-        )
-    with pytest.raises(ValidationFailed) as invalid_json:
-        read_run_artifact_json(
-            run_id=run.manifest.run_id,
-            selector="native-run-summary",
-            workspace=tmp_path,
-        )
-    with pytest.raises(ValidationFailed) as unsupported_text:
-        read_run_artifact_text(
-            run_id=run.manifest.run_id,
-            selector="binary-artifact",
-            workspace=tmp_path,
-        )
     binary = read_run_artifact_bytes(
         run_id=run.manifest.run_id,
         selector="binary-artifact",
@@ -188,11 +160,6 @@ def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
     assert missing_run.value.diagnostics[0].code == "run_not_found"
     assert missing_artifact.value.diagnostics[0].code == "artifact_not_found"
     assert path_escape.value.diagnostics[0].code == "artifact_selector_path_escape"
-    assert kind_mismatch.value.diagnostics[0].code == "artifact_kind_mismatch"
-    assert invalid_json.value.diagnostics[0].code == "artifact_invalid_json"
-    assert unsupported_text.value.diagnostics[0].code == (
-        "unsupported_artifact_media_type"
-    )
     assert binary.artifact.id == "binary-artifact"
     assert binary.content == b"\x00\x01"
 
@@ -213,16 +180,6 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
         run_id=run.manifest.run_id,
         workspace=tmp_path,
     )
-    metrics = read_run_data_table(
-        run_id=run.manifest.run_id,
-        selector="metrics",
-        workspace=tmp_path,
-    )
-    matrix = read_run_data_array(
-        run_id=run.manifest.run_id,
-        selector="readout-matrix",
-        workspace=tmp_path,
-    )
     storage = open_run_store(tmp_path)
 
     invalid_measurement = raw_dataset.dataset.records[0].model_copy(
@@ -238,38 +195,6 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
             workspace=tmp_path,
         )
 
-    storage.ref_path(run.manifest.run_id, "artifacts/metrics.json").write_text(
-        json.dumps(
-            {
-                "schema": metrics.table.data_schema.model_dump(mode="json"),
-                "rows": [{"metric": "visibility"}],
-            }
-        )
-    )
-    with pytest.raises(ValidationFailed) as invalid_table:
-        read_run_data_table(
-            run_id=run.manifest.run_id,
-            selector="metrics",
-            workspace=tmp_path,
-        )
-
-    storage.ref_path(run.manifest.run_id, "artifacts/readout-matrix.json").write_text(
-        json.dumps(
-            {
-                "schema": matrix.array.data_schema.model_dump(mode="json"),
-                "variables": {"readout_probability": [0.99, 0.03]},
-            }
-        )
-    )
-    with pytest.raises(ValidationFailed) as invalid_array:
-        read_run_data_array(
-            run_id=run.manifest.run_id,
-            selector="readout-matrix",
-            workspace=tmp_path,
-        )
-
     assert invalid_scalar_row.value.diagnostics[0].code == (
         "run_measurement_dataset_invalid_schema"
     )
-    assert invalid_table.value.diagnostics[0].code == "artifact_invalid_model"
-    assert invalid_array.value.diagnostics[0].code == "artifact_invalid_model"

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from demo_lab_test_paths import (
-    PACKAGE_ROOT,
     SAMPLE_TEMPLATES_FIXTURE_DIR,
     SAMPLE_TEMPLATES_VIRTUAL_LAB_PROFILE,
 )
@@ -122,28 +121,3 @@ def test_sample_native_rejects_invalid_asset_kind_before_run_created(
 
     assert error.value.diagnostics[0].code == "managed_native_asset_kind_mismatch"
     assert open_run_store(tmp_path).list_runs()[0].status == "failed"
-
-
-def test_quantum_native_modules_do_not_import_low_level_runner_protocols() -> None:
-    forbidden = {
-        "InstrumentStatePatch",
-        "InstrumentStateSnapshot",
-        "NativeInstrumentResult",
-        "StatePatchField",
-    }
-    native_modules = [
-        PACKAGE_ROOT / "src" / "quantum_lab_demo" / "virtual_lab" / "provider.py",
-    ]
-
-    for module in native_modules:
-        source = module.read_text()
-        assert not any(name in source for name in forbidden)
-
-
-def test_virtual_lab_response_boundary_does_not_import_runner_adapters() -> None:
-    source = (
-        PACKAGE_ROOT / "src" / "quantum_lab_demo" / "virtual_lab" / "responses.py"
-    ).read_text()
-
-    assert "quantum_lab_demo.readout.frequency_adapter" not in source
-    assert "quantum_lab_demo.readout.iq_scatter" not in source

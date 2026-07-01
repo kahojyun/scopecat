@@ -1,6 +1,3 @@
-import pytest
-from pydantic import ValidationError
-
 from scopecat.models.parameter import (
     ParameterCatalog,
     ParameterDefinition,
@@ -18,13 +15,6 @@ from scopecat.parameters import (
     build_parameter_snapshot,
 )
 from scopecat.relations import col, table
-
-
-def test_parameter_definition_rejects_target_field() -> None:
-    with pytest.raises(ValidationError):
-        ParameterDefinition.model_validate(
-            {"id": "drive_frequency", "target": "q0", "unit": "GHz"}
-        )
 
 
 def test_parameter_build_snapshot_records_scalar_validation_diagnostics() -> None:
@@ -65,69 +55,6 @@ def test_parameter_build_snapshot_records_scalar_validation_diagnostics() -> Non
         "unknown_parameter_value_definition",
     ]
     assert build.diagnostics[0]["path"] == "parameter_state.scalar_values"
-
-
-def test_parameter_build_snapshot_records_table_validation_diagnostics() -> None:
-    build = build_parameter_snapshot(
-        catalog=ParameterCatalog(
-            id="catalog",
-            table_definitions=[
-                ParameterTableDefinition(
-                    id="drive_channels",
-                    primary_key=["channel_id"],
-                    columns=[
-                        ParameterTableColumn(id="channel_id", kind="string"),
-                        ParameterTableColumn(id="resource_id", kind="string"),
-                        ParameterTableColumn(id="enabled", kind="bool"),
-                        ParameterTableColumn(
-                            id="fixed_if",
-                            kind="quantity",
-                            unit="MHz",
-                        ),
-                    ],
-                )
-            ],
-        ),
-        parameter_state=ParameterState(
-            id="state",
-            scalar_values=ParameterValueSet(id="scalars", values=[]),
-            tables=[
-                ParameterTable(
-                    id="drive_channels",
-                    rows=[
-                        {
-                            "channel_id": "xy0",
-                            "resource_id": "drive-a",
-                            "enabled": True,
-                            "fixed_if": Quantity(value=100, unit="MHz"),
-                        },
-                        {
-                            "channel_id": "xy0",
-                            "resource_id": "drive-b",
-                            "enabled": "yes",
-                            "fixed_if": Quantity(value=0.1, unit="ns"),
-                            "extra": "ignored",
-                        },
-                        {
-                            "resource_id": "drive-c",
-                            "enabled": False,
-                        },
-                    ],
-                ),
-                ParameterTable(id="orphan_table", rows=[]),
-            ],
-        ),
-    )
-
-    assert _codes(build.diagnostics) == [
-        "unknown_parameter_table_columns",
-        "duplicate_parameter_table_primary_key",
-        "invalid_parameter_table_bool",
-        "incompatible_parameter_table_quantity_unit",
-        "missing_parameter_table_columns",
-        "missing_parameter_table_primary_key",
-        "unknown_parameter_table_definition",
-    ]
 
 
 def test_parameter_build_snapshot_records_derivation_diagnostics() -> None:

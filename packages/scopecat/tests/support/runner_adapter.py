@@ -127,54 +127,6 @@ class UnsafeArtifactRunnerAdapter(FakeRunnerAdapter):
         return result
 
 
-class DuplicateArtifactIdRunnerAdapter(FakeRunnerAdapter):
-    adapter_id = "test.duplicate_artifact_id_runner_adapter"
-
-    def run(
-        self,
-        context: RunnerContext,
-        sink: MeasurementSink,
-    ) -> RunnerAdapterResult:
-        result = super().run(context, sink)
-        context.artifacts.write_text(
-            id="duplicate-extra",
-            kind="adapter_artifact",
-            filename="duplicate-extra-a.txt",
-            content="first\n",
-        )
-        context.artifacts.write_text(
-            id="duplicate-extra",
-            kind="adapter_artifact",
-            filename="duplicate-extra-b.txt",
-            content="second\n",
-        )
-        return result
-
-
-class DuplicateArtifactFilenameRunnerAdapter(FakeRunnerAdapter):
-    adapter_id = "test.duplicate_artifact_filename_runner_adapter"
-
-    def run(
-        self,
-        context: RunnerContext,
-        sink: MeasurementSink,
-    ) -> RunnerAdapterResult:
-        result = super().run(context, sink)
-        context.artifacts.write_text(
-            id="first-extra",
-            kind="adapter_artifact",
-            filename="duplicate-extra.txt",
-            content="first\n",
-        )
-        context.artifacts.write_text(
-            id="second-extra",
-            kind="adapter_artifact",
-            filename="duplicate-extra.txt",
-            content="second\n",
-        )
-        return result
-
-
 class FailingAfterArtifactRunnerAdapter(FakeRunnerAdapter):
     adapter_id = "test.failing_after_artifact_runner_adapter"
 

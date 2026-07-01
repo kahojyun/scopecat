@@ -16,8 +16,6 @@ from scopecat.instruments.sdk import (
     InstrumentStateField,
     InstrumentStatePatch,
     InstrumentStateSnapshot,
-    NativeInstrumentProviderContext,
-    NativeInstrumentProviderResult,
 )
 from scopecat.instruments.state import (
     StatePatchField,
@@ -28,7 +26,6 @@ from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunManifest
 from tests.support.native_signal import (
     TestSignalInstrument,
-    TestSignalInstrumentProvider,
 )
 from tests.support.records import (
     assert_artifact_ref,
@@ -82,23 +79,6 @@ def test_native_instrument_models_round_trip() -> None:
     assert_model_round_trip(patch)
 
 
-def test_test_signal_provider_constructs_fresh_config_selected_instruments() -> None:
-    provider = TestSignalInstrumentProvider()
-    context = NativeInstrumentProviderContext(
-        config=load_config(),
-        experiment=load_experiment(),
-    )
-    first = provider.provide(context)
-    second = provider.provide(context)
-
-    assert isinstance(first, NativeInstrumentProviderResult)
-    assert first.diagnostics == ()
-    assert second.diagnostics == ()
-    assert first.instruments[0].instrument_id == "source-0"
-    assert second.instruments[0].instrument_id == "source-0"
-    assert first.instruments[0] is not second.instruments[0]
-
-
 def test_execute_native_run_persists_measurements_and_run_files(
     tmp_path: Path,
 ) -> None:
@@ -140,7 +120,7 @@ def test_execute_native_run_persists_measurements_and_run_files(
         run_dir / "config-profile.snapshot.json",
         ConfigProfileSnapshot,
     )
-    assert (run_dir / "plan.snapshot.json").is_file()
+    persisted_plan = read_model(run_dir / "plan.snapshot.json", PlanSnapshot)
     assert (run_dir / "events.jsonl").is_file()
     assert (run_dir / "artifacts" / "native-run.summary.md").is_file()
     assert (run_dir / "artifacts" / "native-run.snapshot.json").is_file()
@@ -148,6 +128,8 @@ def test_execute_native_run_persists_measurements_and_run_files(
     assert (run_dir / "artifacts" / "raw-measurements.jsonl").is_file()
     assert persisted_manifest == manifest
     assert persisted_config == config
+    assert persisted_plan == snapshot.plan
+    assert persisted_plan.schema_version == "scopecat.plan_snapshot.v1"
     boundary = read_model(
         run_dir / "artifacts" / "native-run.boundary.json",
         NativeBoundaryManifest,
@@ -182,37 +164,13 @@ def test_execute_native_run_persists_measurements_and_run_files(
         run_dir / "artifacts" / "raw-measurements.jsonl"
     )
     assert [item.point_index for item in measurements] == [0, 1, 2]
-    assert [item.observables["signal"].value for item in measurements] == [
-        0.5,
-        1.0,
-        0.5,
-    ]
-
-
-def test_execute_native_run_persists_plan_snapshot(tmp_path: Path) -> None:
-    manifest, snapshot = execute_native_run(
-        config=load_config(),
-        experiment=load_experiment(),
-        instruments=[TestSignalInstrument()],
-        workspace=tmp_path,
-    )
-
-    run_dir = tmp_path / "runs" / manifest.run_id
-    persisted_plan = read_model(run_dir / "plan.snapshot.json", PlanSnapshot)
-    measurements = read_measurement_records(
-        run_dir / "artifacts" / "raw-measurements.jsonl"
-    )
-
-    assert manifest.status == "completed"
-    assert manifest.runner_id == "scopecat.native"
-    assert snapshot.plan.schema_version == "scopecat.plan_snapshot.v1"
-    assert snapshot.point_count == 3
-    assert snapshot.measurement_count == 3
-    assert [point.changed_field_count for point in snapshot.points] == [1, 1, 1]
-    assert persisted_plan == snapshot.plan
-    assert persisted_plan.schema_version == "scopecat.plan_snapshot.v1"
     assert [item.coordinates["drive_frequency"].value for item in measurements] == [
         4.9,
         5.0,
         5.1,
+    ]
+    assert [item.observables["signal"].value for item in measurements] == [
+        0.5,
+        1.0,
+        0.5,
     ]

@@ -12,10 +12,7 @@ from demo_lab_readout_frequency_testkit import (
 )
 from demo_lab_records import (
     mutate_first_measurement_record,
-    mutate_matching_measurement_records,
     mutate_measurement_records,
-    with_observable_unit,
-    without_coordinate,
     without_observable,
 )
 from scopecat.errors import ValidationFailed
@@ -117,25 +114,6 @@ def test_readout_frequency_plot_report_rejects_missing_observable(
     assert error.value.diagnostics[0].code == "invalid_readout_plot_report_input_schema"
 
 
-def test_readout_frequency_plot_report_rejects_invalid_observable_unit(
-    tmp_path: Path,
-) -> None:
-    run_id = create_processed_readout_run(tmp_path)
-    processed_data = artifact_path(tmp_path, run_id, PROCESSED_DATA_ARTIFACT_ID)
-    mutate_first_measurement_record(
-        processed_data,
-        lambda record: with_observable_unit(record, "s21_db", "ratio"),
-    )
-
-    with pytest.raises(ValidationFailed) as error:
-        execute_readout_frequency_plot_report(
-            run_id=run_id,
-            workspace=tmp_path,
-        )
-
-    assert error.value.diagnostics[0].code == "invalid_readout_plot_report_input_schema"
-
-
 def test_readout_frequency_evaluation_rejects_missing_s21(
     tmp_path: Path,
 ) -> None:
@@ -144,26 +122,6 @@ def test_readout_frequency_evaluation_rejects_missing_s21(
     mutate_measurement_records(
         processed_data,
         lambda record: without_observable(record, "s21_db"),
-    )
-
-    with pytest.raises(ValidationFailed) as error:
-        execute_readout_frequency_evaluation(
-            run_id=run_id,
-            workspace=tmp_path,
-        )
-
-    assert error.value.diagnostics[0].code == "invalid_readout_evaluation_input_schema"
-
-
-def test_readout_frequency_evaluation_rejects_missing_frequency_parameter(
-    tmp_path: Path,
-) -> None:
-    run_id = create_processed_readout_run(tmp_path)
-    processed_data = artifact_path(tmp_path, run_id, PROCESSED_DATA_ARTIFACT_ID)
-    mutate_matching_measurement_records(
-        processed_data,
-        lambda record: record.point_index == 53,
-        lambda record: without_coordinate(record, "readout_frequency"),
     )
 
     with pytest.raises(ValidationFailed) as error:

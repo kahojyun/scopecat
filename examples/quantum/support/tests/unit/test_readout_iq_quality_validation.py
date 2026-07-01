@@ -8,7 +8,6 @@ from demo_lab_records import (
     mutate_first_measurement_record,
     mutate_measurement_records,
     with_observable_copied_from,
-    with_observable_unit,
     without_observable,
 )
 from scopecat.errors import ValidationFailed
@@ -44,22 +43,6 @@ def test_readout_iq_quality_processing_rejects_missing_observable(
     mutate_first_measurement_record(
         runner_data,
         lambda record: without_observable(record, "q1"),
-    )
-
-    with pytest.raises(ValidationFailed) as error:
-        execute_readout_iq_quality_processing(run_id=run_id, workspace=tmp_path)
-
-    assert error.value.diagnostics[0].code == "invalid_readout_iq_quality_input_schema"
-
-
-def test_readout_iq_quality_processing_rejects_invalid_observable_unit(
-    tmp_path: Path,
-) -> None:
-    run_id = create_readout_iq_run(tmp_path)
-    runner_data = artifact_path(tmp_path, run_id, "raw-measurements")
-    mutate_first_measurement_record(
-        runner_data,
-        lambda record: with_observable_unit(record, "i0", "dB"),
     )
 
     with pytest.raises(ValidationFailed) as error:

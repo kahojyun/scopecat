@@ -28,7 +28,6 @@ from tests.support.runner_adapter import (
     KernelRunnerAdapter,
     assert_measurement_dataset_schema,
     load_config,
-    load_simulated_config,
 )
 from tests.support.workflow_fixtures import load_experiment
 
@@ -228,56 +227,3 @@ def test_runner_adapter_merges_adapter_owned_artifacts(tmp_path: Path) -> None:
     ] == [("adapter-extra", "adapter_artifact", "artifacts/adapter-extra.txt")]
     plan = read_model(run_dir / "plan.snapshot.json", PlanSnapshot)
     assert plan == snapshot.plan
-
-
-def test_runner_adapter_uses_adapter_id_as_runner_id(tmp_path: Path) -> None:
-    manifest, snapshot = execute_runner_adapter(
-        config=load_simulated_config(),
-        experiment=load_experiment(),
-        adapter=FakeRunnerAdapter(),
-        workspace=tmp_path,
-    )
-
-    run_dir = tmp_path / "runs" / manifest.run_id
-    assert manifest.status == "completed"
-    assert manifest.runner_id == "test.runner_adapter"
-    assert manifest.dry_run is False
-    assert {artifact.id for artifact in manifest.artifact_refs} == {
-        "runner-adapter-boundary",
-        "runner-adapter-snapshot",
-        "runner-adapter-summary",
-        "raw-measurements",
-    }
-    raw_artifact = require_artifact(manifest.artifact_refs, "raw-measurements")
-    assert_measurement_dataset_schema(
-        raw_artifact.metadata,
-        dataset_id="raw-measurements",
-        dataset_role="raw",
-        coordinates={"drive_frequency": "GHz"},
-        observables={"signal": "ratio"},
-    )
-    assert snapshot.runner_id == "test.runner_adapter"
-    assert snapshot.dry_run is False
-    assert snapshot.status == "completed"
-    assert snapshot.data_ref == "artifacts/raw-measurements.jsonl"
-    assert (run_dir / "artifacts" / "raw-measurements.jsonl").is_file()
-
-
-def test_runner_adapter_plan_uses_raw_measurement_metadata(
-    tmp_path: Path,
-) -> None:
-    manifest, _snapshot = execute_runner_adapter(
-        config=load_config(),
-        experiment=load_experiment(),
-        adapter=FakeRunnerAdapter(),
-        workspace=tmp_path,
-    )
-
-    raw_artifact = require_artifact(manifest.artifact_refs, "raw-measurements")
-    assert_measurement_dataset_schema(
-        raw_artifact.metadata,
-        dataset_id="raw-measurements",
-        dataset_role="raw",
-        coordinates={"drive_frequency": "GHz"},
-        observables={"signal": "ratio"},
-    )

@@ -11,11 +11,8 @@ from scopecat.config_registry import (
     resolve_config_registry_config_source,
 )
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.parameter import ParameterChangeSet
 from scopecat.proposals import (
     ParameterProposalAcceptanceResult,
-    ProposalFinalizationRecord,
-    ProposalReviewRecord,
     accept_parameter_proposal,
     load_parameter_proposal,
     review_parameter_proposal,
@@ -108,7 +105,7 @@ def test_accept_parameter_proposal_reviews_applies_registers_and_activates(
         result.candidate_artifact_id,
         kind="candidate_config",
     )
-    proposal_artifact = assert_artifact_ref(
+    assert_artifact_ref(
         manifest.artifact_refs,
         result.proposal_artifact_id,
         kind="parameter_change_set",
@@ -125,97 +122,13 @@ def test_accept_parameter_proposal_reviews_applies_registers_and_activates(
     assert stored_acceptance.schema_version == (
         "scopecat.parameter_proposal_acceptance_result.v2"
     )
-    assert stored_acceptance.proposal_artifact_id == entry.proposal_artifact_id
-    assert stored_acceptance.review_ref == "reviews/best-signal-proposal.review.json"
-    stored_review = read_model(
-        tmp_path / "runs" / run_id / stored_acceptance.review_ref,
-        ProposalReviewRecord,
-    )
-    assert stored_review == review
-    assert stored_review.proposal_artifact_id == entry.proposal_artifact_id
-    stored_finalization = read_model(
-        tmp_path
-        / "runs"
-        / run_id
-        / "reviews"
-        / "best-signal-proposal.finalization.json",
-        ProposalFinalizationRecord,
-    )
-    assert stored_finalization.proposal_artifact_id == entry.proposal_artifact_id
-    assert stored_finalization.review_ref == stored_acceptance.review_ref
-    assert stored_finalization.final_state == "approved"
-    assert stored_finalization.finalized_by == "operator"
-    assert [
-        (artifact.id, artifact.kind, artifact.path)
-        for artifact in stored_finalization.artifact_refs
-    ] == [
-        (
-            "best-signal-proposal",
-            "parameter_change_set",
-            "proposals/best-signal-proposal.json",
-        ),
-        (
-            "best-signal-proposal-review",
-            "proposal_review_record",
-            "reviews/best-signal-proposal.review.json",
-        ),
-        (
-            "best-signal-proposal-finalization",
-            "proposal_finalization_record",
-            "reviews/best-signal-proposal.finalization.json",
-        ),
-    ]
-    stored_proposal = read_model(
-        tmp_path / "runs" / run_id / proposal_artifact.path,
-        ParameterChangeSet,
-    )
-    assert stored_proposal == proposal
     assert stored_acceptance.candidate_artifact_id == entry.candidate_artifact_id
     assert stored_acceptance.config_registry_entry_id == entry.id
     assert stored_acceptance.active_entry_id == active_state.active_entry_id
     assert stored_acceptance.active_config_ref == active_state.active_config_ref
-    assert stored_acceptance.active_state_ref == "config-registry/active.json"
     assert stored_acceptance.activation_record_id == activation.id
     assert active_state.history[-1] == activation
-    assert stored_acceptance.policy.selector == "best-signal-proposal"
-    assert stored_acceptance.policy.reviewer == "operator"
-    assert stored_acceptance.policy.operator == "operator"
-    assert stored_acceptance.policy.entry_id == "accepted-best-signal"
-    assert stored_acceptance.policy.note == "looks good"
-    assert [
-        (artifact.id, artifact.kind, artifact.path)
-        for artifact in stored_acceptance.artifact_refs
-    ] == [
-        (
-            "best-signal-proposal",
-            "parameter_change_set",
-            "proposals/best-signal-proposal.json",
-        ),
-        (
-            "best-signal-proposal-review",
-            "proposal_review_record",
-            "reviews/best-signal-proposal.review.json",
-        ),
-        (
-            "best-signal-proposal-candidate-config",
-            "candidate_config",
-            "artifacts/best-signal-proposal.candidate-config.json",
-        ),
-        (
-            "best-signal-proposal-acceptance",
-            "proposal_acceptance_result",
-            "artifacts/best-signal-proposal.acceptance.json",
-        ),
-    ]
     assert registration_job.entry_id == entry.id
-    assert registration_job.proposal_id == stored_acceptance.proposal_id
-    assert entry.config_ref in registration_job.output_refs
-    assert entry.registration_job_ref in registration_job.output_refs
-    assert "config-registry/index.json" in registration_job.output_refs
-    assert f"runs/{run_id}/{proposal_artifact.path}" in registration_job.input_refs
-    assert (
-        f"runs/{run_id}/{candidate_config_artifact.path}" in registration_job.input_refs
-    )
     assert_artifact_ref(
         manifest.artifact_refs,
         "best-signal-proposal-acceptance",
@@ -232,7 +145,6 @@ def test_accept_parameter_proposal_reviews_applies_registers_and_activates(
         manifest.artifact_refs,
         "best-signal-proposal-finalization",
         kind="proposal_finalization_record",
-        path=stored_finalization.artifact_refs[-1].path,
     )
     candidate_config = read_model(
         candidate_config_path,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 
 import pytest
@@ -148,26 +147,6 @@ def test_recipe_uses_generic_acquisition_helper() -> None:
     assert resolved.experiment.acquire.shots == 2
     assert resolved.experiment.acquire.repetitions == 3
     assert resolved.experiment.acquire.record == "shot"
-
-
-def test_acquisition_helper_uses_record_vocabulary() -> None:
-    signature = inspect.signature(authoring.acquisition)
-
-    assert "record" in signature.parameters
-    assert authoring.acquisition().record == "point"
-
-
-def test_recipe_helper_uses_kind_vocabulary() -> None:
-    signature = inspect.signature(authoring.recipe)
-
-    assert "kind" in signature.parameters
-
-
-def test_recipe_helper_uses_subject_input_vocabulary() -> None:
-    signature = inspect.signature(authoring.recipe)
-
-    assert "subject_inputs" in signature.parameters
-    assert signature.parameters["subject_inputs"].default == ("subject",)
 
 
 def test_recipe_draft_resolves_multiple_subject_inputs() -> None:

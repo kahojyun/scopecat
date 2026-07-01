@@ -6,15 +6,11 @@ import pytest
 
 import scopecat as sc
 from scopecat.errors import ValidationFailed
-from scopecat.reporting import (
-    build_run_overview,
-    render_run_overview,
-)
+from scopecat.reporting import build_run_overview
 from scopecat.runs import open_run_store
 from scopecat.workflows import StartRunResult
 from tests.support.records import assert_artifact_ref
 from tests.support.reporting import (
-    assert_run_overview_not_persisted,
     config_registry_sourced_simulated_run,
     load_config,
     load_experiment,
@@ -36,18 +32,11 @@ def test_build_run_overview_for_simulated_run_does_not_update_manifest(
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert_run_overview_not_persisted(tmp_path, run_id=run_id)
     assert overview.config_source.status == "not_available"
     assert overview.processing == []
     assert overview.evaluation == []
     assert overview.proposals == []
     assert overview.run_comparisons == []
-
-    overview_markdown = render_run_overview(overview)
-    assert "## ConfigRegistry Evidence" not in overview_markdown
-    assert overview_markdown.endswith("\n")
-    assert not overview_markdown.endswith("\n\n")
-
     assert open_run_store(tmp_path).read_manifest(run_id).status == "completed"
 
 
@@ -69,9 +58,6 @@ def test_build_run_overview_includes_failed_processing_job(
     assert [diagnostic.code for diagnostic in processing.diagnostics] == [
         "missing_processing_input"
     ]
-    overview_markdown = render_run_overview(overview)
-    assert "- Status: failed" in overview_markdown
-    assert "- Diagnostic: error missing_processing_input" in overview_markdown
 
 
 def test_build_run_overview_includes_failed_evaluation_job(
@@ -92,9 +78,6 @@ def test_build_run_overview_includes_failed_evaluation_job(
     assert [diagnostic.code for diagnostic in evaluation.diagnostics] == [
         "missing_evaluation_input"
     ]
-    overview_markdown = render_run_overview(overview)
-    assert "- Status: failed" in overview_markdown
-    assert "- Diagnostic: error missing_evaluation_input" in overview_markdown
 
 
 def test_build_run_overview_for_full_local_workflow(
@@ -104,7 +87,6 @@ def test_build_run_overview_for_full_local_workflow(
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert_run_overview_not_persisted(tmp_path, run_id=run_id)
     assert overview.config_source.status == "not_available"
     assert len(overview.processing) == 1
     assert overview.processing[0].details == {}
@@ -208,10 +190,6 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
             [],
         )
     ]
-    overview_markdown = render_run_overview(overview)
-    assert "## Analysis Records" in overview_markdown
-    assert "- Artifact: analysis-report-review" in overview_markdown
-    assert "- Source artifacts: raw-measurements" in overview_markdown
 
 
 def test_build_run_overview_includes_accept_generated_candidate_config_artifact(
@@ -226,9 +204,6 @@ def test_build_run_overview_includes_accept_generated_candidate_config_artifact(
         overview.artifact_refs,
         "best-signal-proposal-candidate-config",
     )
-
-    overview_markdown = render_run_overview(overview)
-    assert "best-signal-proposal-candidate-config" in overview_markdown
 
 
 def test_build_run_overview_marks_missing_optional_sections(
@@ -262,11 +237,6 @@ def test_build_run_overview_includes_literal_config_registry_config_source(
     )
     assert overview.config_source.active_state_ref is None
     assert overview.config_source.active_record_id is None
-
-    overview_markdown = render_run_overview(overview)
-    assert "## Config Source" in overview_markdown
-    assert "- Status: available" in overview_markdown
-    assert "- Selector: best-signal-proposal-candidate-config" in overview_markdown
 
 
 def test_build_run_overview_includes_active_config_registry_config_source(

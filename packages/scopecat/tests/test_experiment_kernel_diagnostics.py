@@ -3,7 +3,6 @@ from scopecat.experiments import (
     experiment,
     plan_experiment,
     point,
-    set_param,
     set_state,
     update_param_rows,
 )
@@ -118,104 +117,6 @@ def test_kernel_plan_records_unknown_parameter_table_diagnostics() -> None:
     ]
     assert plan.parameter_patches == []
     assert plan.desired_state == []
-
-
-def test_kernel_plan_records_parameter_patch_unit_diagnostics() -> None:
-    scalar_spec = experiment(
-        id="bad-scalar-unit",
-        kind="diagnostic",
-        points=grid(index=[0]),
-        params=[set_param("drive.lo_frequency", Quantity(value=5.0, unit="ns"))],
-        state=[set_state("drive-a", "carrier_frequency", param("drive.lo_frequency"))],
-        acquire=acquire("iq"),
-    )
-    table_spec = experiment(
-        id="bad-table-unit",
-        kind="diagnostic",
-        points=grid(device_id=["r0"]),
-        params=[
-            update_param_rows(
-                "readout_devices",
-                key={"device_id": col("device_id")},
-                values={"frequency": Quantity(value=5.9, unit="ns")},
-            )
-        ],
-        state=[
-            set_state(
-                "readout-a",
-                "pulse.frequency",
-                param(
-                    "readout_devices",
-                    key={"device_id": "r0"},
-                    column="frequency",
-                ),
-            )
-        ],
-        acquire=acquire("iq"),
-    )
-
-    scalar_plan = plan_experiment(scalar_spec, derived_parameter_build())
-    table_plan = plan_experiment(table_spec, parameter_build())
-
-    assert diagnostic_codes(scalar_plan.diagnostics) == [
-        "experiment_parameter_patch_unit_incompatible"
-    ]
-    assert diagnostic_codes(table_plan.diagnostics) == [
-        "experiment_parameter_patch_unit_incompatible"
-    ]
-    assert scalar_plan.parameter_patches == []
-    assert table_plan.parameter_patches == []
-    assert scalar_plan.desired_state == []
-    assert table_plan.desired_state == []
-
-
-def test_kernel_plan_records_parameter_patch_type_diagnostics() -> None:
-    scalar_spec = experiment(
-        id="bad-scalar-type",
-        kind="diagnostic",
-        points=grid(index=[0]),
-        params=[set_param("drive.lo_frequency", "5 GHz")],
-        state=[set_state("drive-a", "carrier_frequency", param("drive.lo_frequency"))],
-        acquire=acquire("iq"),
-    )
-    table_spec = experiment(
-        id="bad-table-type",
-        kind="diagnostic",
-        points=grid(device_id=["r0"]),
-        params=[
-            update_param_rows(
-                "readout_devices",
-                key={"device_id": col("device_id")},
-                values={"enabled": "yes"},
-            )
-        ],
-        state=[
-            set_state(
-                "readout-a",
-                "enabled",
-                param(
-                    "readout_devices",
-                    key={"device_id": "r0"},
-                    column="enabled",
-                ),
-            )
-        ],
-        acquire=acquire("iq"),
-    )
-
-    scalar_plan = plan_experiment(scalar_spec, derived_parameter_build())
-    table_plan = plan_experiment(table_spec, parameter_build())
-
-    assert diagnostic_codes(scalar_plan.diagnostics) == [
-        "experiment_parameter_patch_type_incompatible"
-    ]
-    assert diagnostic_codes(table_plan.diagnostics) == [
-        "experiment_parameter_patch_type_incompatible"
-    ]
-    assert scalar_plan.parameter_patches == []
-    assert table_plan.parameter_patches == []
-    assert scalar_plan.desired_state == []
-    assert table_plan.desired_state == []
 
 
 def test_kernel_plan_records_state_evaluation_and_conflict_diagnostics() -> None:

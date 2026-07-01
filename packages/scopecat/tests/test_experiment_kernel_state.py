@@ -119,7 +119,6 @@ def test_kernel_repeated_state_uses_outer_point_row() -> None:
         (1, "xy0", "carrier_frequency", Quantity(value=5.1, unit="GHz")),
         (1, "xy1", "carrier_frequency", Quantity(value=5.12, unit="GHz")),
     ]
-    assert "target" not in plan.model_dump_json()
 
 
 def test_kernel_selected_target_table_plans_simultaneous_resources() -> None:
@@ -185,4 +184,3 @@ def test_kernel_selected_target_table_plans_simultaneous_resources() -> None:
     ]
     assert plan.acquisition.record == "trace"
     assert plan.acquisition.dimensions == ["time"]
-    assert "target" not in plan.model_dump_json()

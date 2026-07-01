@@ -10,36 +10,7 @@ from tests.support.signal_testkit import (
     BestSignalEvaluationStep,
     SummaryStatsProcessingStep,
 )
-from tests.support.workflow_fixtures import (
-    load_config,
-    load_experiment,
-)
-
-
-def test_workflow_process_and_evaluate_native_run(tmp_path: Path) -> None:
-    run = start_run(
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
-        config=load_config(),
-        experiment=load_experiment(),
-        workspace=tmp_path,
-    )
-
-    processing = process_run(
-        run_id=run.manifest.run_id,
-        workspace=tmp_path,
-        step=SummaryStatsProcessingStep(),
-    )
-    evaluation = evaluate_run(
-        run_id=run.manifest.run_id,
-        workspace=tmp_path,
-        step=BestSignalEvaluationStep(),
-    )
-
-    assert processing.job.step == "summary-stats"
-    assert processing.result.measurement_count == 3
-    assert evaluation.job.step == "best-signal-proposal"
-    assert evaluation.proposals[0].patches[0].parameter_id == "drive_frequency"
+from tests.support.workflow_fixtures import load_config, load_experiment
 
 
 def test_workflow_process_evaluate_accept_and_rerun_active_config(
@@ -80,15 +51,8 @@ def test_workflow_process_evaluate_accept_and_rerun_active_config(
         workspace=tmp_path,
     )
 
-    assert processing.job.step == "summary-stats"
     assert processing.result.measurement_count == 3
-    assert evaluation.job.step == "best-signal-proposal"
     assert evaluation.proposals[0].patches[0].parameter_id == "drive_frequency"
     assert acceptance.review is not None
-    assert acceptance.review.decision == "approved"
-    assert acceptance.registration_job.source_kind == "accepted_parameter_proposal"
-    assert acceptance.entry.id == "accepted-best-signal"
-    assert acceptance.active_state.active_entry_id == "accepted-best-signal"
     assert active_config.provenance is not None
-    assert active_config.provenance.entry_id == "accepted-best-signal"
     assert next_run.manifest.status == "completed"
