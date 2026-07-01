@@ -242,7 +242,7 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
             confidence=0.8,
         )
     )
-    candidate = analysis.candidate_config(reason="inspect in notebook first")
+    candidate = analysis.candidate_config()
     saved = analysis.save()
     saved_payload = run.data().json(saved.artifact.id)
 
@@ -259,7 +259,6 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     assert candidate.analysis_title == "manual readout review"
     assert candidate.analysis_key == "manual-readout-review"
     assert candidate.parameter_changes[0].patches[0].parameter_id == "drive_frequency"
-    assert candidate.reason == "inspect in notebook first"
     assert saved.artifact.kind == "analysis"
     assert saved.artifact.path == "artifacts/analysis-manual-readout-review.json"
     assert saved.source_artifact_ids == ("raw-measurements",)
@@ -562,7 +561,7 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
         )
     )
     saved = analysis.save()
-    candidate = analysis.candidate_config(reason="manual fit")
+    candidate = analysis.candidate_config()
     follow_up = lab.run(experiment, config=candidate)
     comparison = lab.compare(baseline, follow_up, observable="signal")
     overview = baseline.overview()

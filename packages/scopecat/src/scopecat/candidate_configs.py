@@ -29,7 +29,6 @@ class CandidateConfig:
     analysis_title: str
     analysis_key: str
     changes: tuple[ParameterChangeSet, ...]
-    reason: str = ""
 
     @property
     def source_run_id(self) -> str:

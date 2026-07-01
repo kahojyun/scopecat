@@ -100,7 +100,5 @@ def _routine_run_handle(
 def _candidate_from_analyses(analyses: tuple[Any, ...]) -> Any | None:
     for analysis in analyses:
         if analysis.parameter_changes:
-            return analysis.candidate_config(
-                reason=analysis.parameter_changes[0].reason
-            )
+            return analysis.candidate_config()
     return None

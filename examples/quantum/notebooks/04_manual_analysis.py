@@ -30,20 +30,19 @@ rows = [
 
 analysis = (
     baseline.analysis("manual notebook review")
-    .note("Inspected the readout sweep in a notebook.")
     .table(rows, title="raw measurement index")
     .input("raw-measurements", expected_kind="measurement_dataset")
     .propose(
         "readout_frequency",
         sc.set_param("readout_frequency", sc.Quantity(5.953, "GHz")),
-        reason="manual notebook pick from the lowest S21 point",
+        reason="lowest S21 point in the readout sweep",
         confidence=0.8,
     )
 )
 saved_analysis = analysis.save()
 
 # %%
-candidate = analysis.candidate_config(reason="manual notebook review")
+candidate = analysis.candidate_config()
 follow_up = lab.run(experiment, config=candidate)
 
 # %%

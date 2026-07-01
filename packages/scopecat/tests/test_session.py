@@ -94,7 +94,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
         )
     )
     saved = analysis.save()
-    candidate_config = analysis.candidate_config(reason="manual notebook pick")
+    candidate_config = analysis.candidate_config()
     candidate = lab.run(experiment, config=candidate_config)
     comparison = lab.compare(baseline, candidate)
     comparison_review = comparison.review(state="accepted")
@@ -132,7 +132,7 @@ def test_workspace_native_closed_loop_uses_candidate_config_shortcut(
         ),
         reason="manual center point",
     )
-    candidate_config = analysis.candidate_config(reason="manual center point")
+    candidate_config = analysis.candidate_config()
     candidate = lab.run(experiment, config=candidate_config)
     comparison = lab.compare(baseline, candidate)
     review = comparison.review(state="accepted")

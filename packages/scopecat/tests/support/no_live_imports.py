@@ -69,7 +69,7 @@ def _candidate_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfig:
     run = lab.get_run(run_id)
     analysis = run.analyze(BestSignalAnalysisStep())
     analysis.save()
-    return analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
+    return analysis.candidate_config()
 
 
 def exercise_dry_run(workspace: Path) -> None:

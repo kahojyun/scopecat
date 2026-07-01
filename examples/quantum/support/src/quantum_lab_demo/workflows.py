@@ -65,9 +65,7 @@ def run_readout_frequency_workflow(
     return ReadoutFrequencyWorkflowResult(
         run=run,
         analysis=analysis,
-        candidate=analysis.candidate_config(
-            reason=analysis.parameter_changes[0].reason
-        ),
+        candidate=analysis.candidate_config(),
         processed_points=_int_field(summary, "measurement_count"),
         figure_ref=_str_field(summary, "figure_ref"),
     )

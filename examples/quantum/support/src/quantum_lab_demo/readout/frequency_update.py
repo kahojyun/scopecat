@@ -58,7 +58,7 @@ def execute_readout_frequency_analysis_update(
 
     analysis = run.analyze(ReadoutFrequencyAnalysisStep())
     analysis.save()
-    candidate = analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
+    candidate = analysis.candidate_config()
     result = register_and_activate_candidate_config(
         candidate=candidate,
         workspace=workspace_path,

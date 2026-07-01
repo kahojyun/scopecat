@@ -377,8 +377,6 @@ class Analysis:
     def candidate_config(
         self,
         selection: CandidateSelection = None,
-        *,
-        reason: str = "",
     ) -> CandidateConfig:
         changes = _select_candidate_changes(
             self.parameter_changes,
@@ -388,7 +386,6 @@ class Analysis:
             analysis_title=self.title,
             analysis_key=self.analysis_key,
             changes=changes,
-            reason=reason,
         )
 
     def promote_step(self, step_id: str) -> PromotedAnalysisStep:

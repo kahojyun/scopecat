@@ -23,7 +23,7 @@ analysis = completed_run.analyze(ReadoutFrequencyAnalysisStep())
 saved_analysis = analysis.save()
 
 # %%
-candidate = analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
+candidate = analysis.candidate_config()
 overview = completed_run.overview()
 
 # %%

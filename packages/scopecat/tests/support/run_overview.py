@@ -43,7 +43,7 @@ def _candidate_best_signal_analysis(
 ) -> sc.CandidateConfig:
     analysis = execute_best_signal_analysis(run_id=run_id, workspace=tmp_path)
     analysis.save()
-    return analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
+    return analysis.candidate_config()
 
 
 def simulate_analyze_and_review(tmp_path: Path) -> str:

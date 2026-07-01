@@ -23,7 +23,7 @@ analysis = baseline.analyze(ReadoutFrequencyAnalysisStep())
 saved_analysis = analysis.save()
 
 # %%
-candidate = analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
+candidate = analysis.candidate_config()
 follow_up = lab.run(experiment, config=candidate)
 
 # %%

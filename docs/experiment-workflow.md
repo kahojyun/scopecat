@@ -140,6 +140,10 @@ steps can save without colliding. A reusable `AnalysisStep` should reproduce
 the same output shape as manual notebook analysis; it is the promotion path for
 repeated post-run logic.
 
+Analysis notes are optional interpretation outputs, not required creation
+metadata. Most repeated analysis should prefer structured tables, figures, and
+parameter change reasons over free-form notes.
+
 Derived analysis tables and arrays should keep coordinate, observable,
 auxiliary, uncertainty, mask, and status roles in their schemas. When a derived
 table keeps the original point coordinates, it should preserve source artifact
@@ -161,14 +165,16 @@ renumber, or rewrite the planned point table.
 `ParameterChangeSet`-backed candidate object. `Workspace.run(...,
 config=candidate)` resolves that object at the run boundary, writing the
 parameter change set and candidate config artifact. Resolution is a system
-step, not human review.
+step, not human review. Candidate objects do not carry a separate reason; the
+evidence lives on their parameter change sets.
 
 Review is attached to a concrete decision point: fit assessment, parameter
 change review, run comparison review, or config activation. Accepted parameter
 changes happen only through explicit activation. Fit outputs, quality metrics,
 covariance, classifier thresholds, and other calibration evidence remain
 artifacts until a policy chooses parameter patches and activates a candidate
-configuration.
+configuration. Free-form notes belong on those review and activation records
+when the operator has something specific to record.
 
 Rollback uses config registry activation history. Historical run data,
 analysis artifacts, parameter changes, decisions, and activation records remain

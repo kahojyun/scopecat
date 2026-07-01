@@ -33,7 +33,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     summary.save()
     analysis = run_handle.analyze(BestSignalAnalysisStep())
     analysis.save()
-    candidate = analysis.candidate_config(reason=analysis.parameter_changes[0].reason)
+    candidate = analysis.candidate_config()
     activation = register_and_activate_candidate_config(
         candidate=candidate,
         workspace=tmp_path,
