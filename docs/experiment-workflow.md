@@ -1,205 +1,237 @@
 # Scopecat Experiment Workflow
 
-Scopecat models experiment measurement as a local, repeatable workflow with
-explicit inputs, validation, execution boundaries, artifacts, and audit
-records.
+Status: target design
 
-The public path is Python-first:
+Scopecat models experiment measurement as a local, auditable workflow with
+explicit inputs, closed run-segment specs, validation, execution boundaries,
+typed outputs, artifacts, analysis records, and reviewable configuration
+changes.
+
+## Public Flow
+
+The Python-first path is:
 
 ```text
 sc.open
-  -> Workspace.experiment
-  -> Workspace.run
+  -> Workspace.template / Workspace.module
+  -> RunRequest
+  -> compile ExperimentSpec
+  -> plan / dry-run
+  -> run or capture
   -> Run.data
   -> Run.analysis
-  -> Analysis.candidate_config
-  -> Workspace.run(..., config=candidate)
+  -> CandidateConfig
+  -> follow-up RunRequest
   -> Workspace.compare
+  -> review / activate
 ```
 
-Durable JSON models are useful for tests, debugging, storage, and adapter
-boundaries. They should not become the main authoring surface for notebook or
-script users.
+Durable JSON records are useful for tests, storage, debugging, reproducibility,
+and adapter boundaries. They should not become the main authoring surface for
+notebook or script users.
 
 ## Main Flow
 
 ```mermaid
 flowchart TD
-    A["Open workspace"] --> B["Choose or build experiment"]
-    B --> C["Plan and validate"]
-    C --> D["Run or dry-run"]
-    D --> E["Inspect data"]
-    E --> F["Analyze"]
-    F --> G{"Candidate config?"}
-    G -->|No| H["Attach context or compare"]
-    G -->|Yes| I["Run candidate"]
-    I --> J["Compare runs"]
-    J --> K["Review comparison or activate"]
+    A["Open workspace"] --> B["Choose template or build module component"]
+    B --> C["Create RunRequest"]
+    C --> D["Resolve ConfigSnapshot"]
+    D --> E["Compile closed ExperimentSpec"]
+    E --> F["Plan and validate"]
+    F --> G{"Execution path"}
+    G -->|Dry-run| H["Persist diagnostics and previews"]
+    G -->|Native| I["Build DeviceProgram and run"]
+    G -->|Legacy capture| J["Open RunScope and capture evidence"]
+    I --> K["Inspect data"]
+    J --> K
+    K --> L["Analyze"]
+    L --> M{"Candidate config?"}
+    M -->|No| N["Attach context or compare"]
+    M -->|Yes| O["Run candidate"]
+    O --> P["Compare runs"]
+    P --> Q["Review or activate"]
 ```
 
 ## Configuration
 
-Configuration resolution assembles a validated `ConfigProfileSnapshot` without
-connecting to hardware.
+Configuration resolution assembles an immutable `ConfigSnapshot` without
+hardware side effects. The snapshot may include accepted parameter state,
+topology, routing, instrument registry metadata, environment information,
+source provenance, and diagnostics.
 
-Parameter resolution loads a `ParameterCatalog`, accepted `ParameterState`,
-and derivation rules, then freezes a `ParameterBuildSnapshot` with diagnostics,
-hashes, and provenance.
+Raw spreadsheets, registry trees, private dictionaries, and external config
+formats are translated through importers or private adapters into typed
+Scopecat records. They are not planning inputs directly.
 
-Raw spreadsheets, registry trees, and private runner dictionaries must be
-translated into typed Scopecat models before planning. Importers are one-way
-anti-corruption tools, not compatibility layers.
+Derived planning views can be materialized and hashed when useful, but the
+accepted input remains `ConfigSnapshot`.
 
-## Experiment
+## Authoring
 
-An `ExperimentSpec` describes acquisition intent with four primary fields:
+`ExperimentModule` is the reusable library layer. It declares point variables,
+column specs, defaults, helper functions, state fragments, record fragments,
+program assets, dependencies, and pure code island boundaries.
 
-- `points`: relation expression that yields one row per acquired point.
-- `params`: parameter patches evaluated against point rows.
-- `state`: desired-state bindings evaluated from point columns and patched
-  parameters.
-- `acquire`: acquisition shape, shots, repetitions, dimensions, and record
-  granularity.
+`ExperimentTemplate` is the runnable entrypoint. It declares input schema,
+defaults, labels, descriptions, categories, and calls one or more module
+components. Templates should not compose other templates; composition happens
+at the module/component layer.
 
-Optional fields include `kind`, `id`, `assets`, and expected measurement
-schema. Operator metadata belongs to the run request or manifest, not to the
-experiment recipe.
+Notebook and script users should be able to stay in ordinary Python while the
+run boundary captures enough structure to compile a closed spec.
 
-The experiment subject is not a special `target` field. Fixed targets, swept
-targets, and simultaneous multi-target control are represented as point
-columns, variable-key joins, or repeated state bindings.
+## RunRequest
+
+`RunRequest` is the snapshot of this run or segment request. It includes:
+
+- template ref and input values;
+- config source or candidate config source;
+- operator metadata;
+- overrides and provenance;
+- point axes, parameter sweeps, repeats, randomization inputs, and seeds;
+- extra point columns when declared by a column spec or extension slot;
+- extra records such as readbacks, derived coordinates, or instrument products;
+- execution mode and policy;
+- segment lineage for adaptive or follow-up runs.
+
+Run requests should support ad-hoc sweeps without creating a new template for
+each parameter combination. A parameter sweep compiles to a point column plus a
+point-local config patch.
+
+## Compilation
+
+Compilation combines:
+
+```text
+ExperimentModule + ExperimentTemplate + RunRequest + ConfigSnapshot
+  -> ExperimentSpec
+```
+
+The output `ExperimentSpec` is a closed per-segment HIR. It contains or
+references every input required to recompute the plan: module/template
+fingerprints, run request hash, config snapshot hash, point source or point
+table, point column specs, parameter patches, desired state declarations,
+record declarations, assets, diagnostics, seeds, schema versions, and
+provenance.
+
+Spec compilation validates:
+
+- unknown point columns and unbound expression references;
+- parameter existence, units, safety bounds, and patch legality;
+- entity refs and routing refs;
+- override precedence and provenance;
+- sweep composition semantics such as cross, zip, join, and concat;
+- record source availability and basic shape policy;
+- pure code island boundaries and fingerprints.
 
 ## Planning
 
-Planning combines a config snapshot with an experiment spec:
+Planning lowers a closed `ExperimentSpec` into an `ExperimentPlan`.
 
-- evaluate `points` into point rows and point ids;
-- evaluate parameter patches into point-local patched views;
-- evaluate desired-state bindings and state diffs;
-- build an acquisition plan and expected result contract;
-- persist a `PlanSnapshot` with hashes, diagnostics, provenance, and preview
-  discovery.
+The plan materializes or references:
 
-Planning should not expose mutable registry/session objects, raw spreadsheets,
-or private runner dictionaries. It consumes typed snapshots and emits typed
-records.
+- point rows or point-source previews;
+- `point_index`, `point_uid`, and logical identity columns;
+- point-local parameter patches and derived config views when needed;
+- desired logical state;
+- record materialization and result contract;
+- artifact refs and program refs;
+- diagnostics and compiler identity.
 
-Large point, patch, desired-state, or result-intent previews should be artifact
-backed. Execution should depend on plan identity, point ids, acquisition shape,
-and result contracts, not on local preview file layout.
+Planning must not read mutable registries, notebook globals, raw spreadsheets,
+or a second config source. It consumes the closed spec and deterministic
+compiler inputs.
+
+Large point, patch, state, or record previews should be artifact backed.
+Execution depends on plan identity, point identity, result contract, program
+refs, and device program records, not on local preview file layout.
+
+## Execution
+
+Dry runs persist spec, plan, result contract, diagnostics, previews, and
+optional device-program validation without acquiring measurements.
+
+Native runs build a `DeviceProgram` from the plan, program artifacts, routing,
+instrument-group capabilities, and runtime policy. Runtime applies state
+patches, uploads programs, coordinates arms/triggers/barriers, records
+readbacks, acquires products, validates returned rows, handles retries or
+early stop, and persists events and artifacts.
+
+Legacy capture runs use `RunScope` or `TraceScope`. The legacy script keeps
+execution control while Scopecat records run identity, inputs, config refs,
+generated artifacts, events, measurements, notes, analysis, and provenance
+level. Capture records are useful evidence, not proof that Scopecat can replay
+the run.
+
+Runner-style wrappers are optional advanced adapters only when a legacy runner
+has a stable batch boundary. They do not define the core model.
+
+## Data And Analysis
+
+`Run.data()` is the first post-run surface. It reads typed tables, arrays,
+JSON, text, binary artifacts, record rows, artifact refs, and result-contract
+metadata by artifact id, kind, or schema.
+
+`Run.attach(...)` records run-owned operator context such as notebooks, notes,
+screenshots, exported reports, or external files. Attachments are artifacts,
+not analysis records.
+
+`Run.analysis(...)` records interpretation: notes, tables, arrays, figures,
+fit outputs, model outputs, parameter changes, and saved artifacts. Inputs and
+outputs are declared separately so raw measurements, attachments, prior
+analysis, and external artifacts can all participate in lineage.
+
+Reusable `AnalysisStep`s reproduce the same output shapes as manual notebook
+analysis. They are the promotion path for repeated post-run logic.
+
+## Candidate Configs
+
+Analysis may produce `ParameterChangeSet` or `ConfigPatch` records. A
+candidate config resolves those patches against an accepted `ConfigSnapshot`
+and produces a candidate snapshot for follow-up runs.
+
+Accepted configuration changes happen only through explicit activation.
+Analysis, instruments, runner adapters, and online decisions must not silently
+mutate accepted state.
+
+Review is attached to concrete decision points such as fit assessment,
+parameter-change review, run-comparison review, or config activation.
+Rollback uses config activation history; historical run evidence remains
+immutable.
+
+## Adaptive And Online Workflows
+
+Adaptive workflows do not mutate an existing closed spec.
+
+Common adaptive runs use segment lineage:
+
+```text
+segment 1 -> run -> analysis/decision -> segment 2
+```
+
+Extreme online adaptive runs use a closed `PointSourceSpec` plus append-only
+`PointDecisionRecord`s. The point source records how points may be generated;
+the decision log records what was actually generated and why.
+
+Online analysis may consume partial validated result rows and produce decisions
+for early stop, adaptive continuation, or candidate finalization. It must not
+rewrite the planned point table, compact point indices, or hide compiler
+decisions inside analysis code.
 
 ## Validation
 
 Blocking diagnostics prevent side effects before execution. Validation covers:
 
-- catalog, state, derivation, and experiment schemas;
-- point relation references and variable-key lookup cardinality;
-- parameter patch keys, values, units, and safety bounds;
-- desired-state resource and capability compatibility;
-- acquisition dimensions, channels, shots, repetitions, and expected records;
-- native instrument capability constraints.
+- config snapshot schema, refs, units, and safety bounds;
+- module/template/run-request schemas;
+- point sources, point columns, identity rules, and expression references;
+- parameter patches and candidate patch expectations;
+- desired state resources and capability compatibility;
+- record declarations, result contract shape policy, and artifact strategy;
+- program/code-island fingerprints and dependency provenance;
+- routing, instrument-group capabilities, and device-program compatibility;
+- storage refs, artifact eligibility, and returned-result validation.
 
-Diagnostics should use stable codes and logical locations rather than local
-file paths.
-
-## Execution
-
-Dry runs persist the plan and diagnostics without acquiring measurements.
-
-Native runs resolve instruments through a provider, validate desired state,
-compare desired state to readback state, apply state patches, acquire records
-through a measurement sink, and persist events, artifacts, and diagnostics.
-
-Runner adapters remain boundary code. They may translate a validated Scopecat
-plan to external runner calls, but compatibility concerns must not shape core
-models.
-
-Hardware offload, lazy waveform generation, cross-instrument timing barriers,
-active reset loops, sparse retries, crash recovery, resource scheduling, and
-background monitor rows are execution or workflow boundary objects. They may
-produce artifacts, events, point-status records, or scheduling records, but
-they should not add hidden branches to the experiment kernel.
-
-## Data And Analysis
-
-`Run.data()` is the first post-run surface. It reads measurement datasets,
-tables, arrays, text, JSON, binary artifacts, and typed artifact refs by
-artifact id, kind, or metadata.
-
-`Run.attach(...)` records run-owned attachments such as notebooks, notes,
-screenshots, exported reports, and other operator context. Attachments are run
-artifacts, not analysis records.
-
-`Run.analysis(title, key=...)` records notebook interpretation: notes, tables,
-arrays, figures, parameter changes, and saved analysis artifacts. Analysis
-inputs are declared separately from outputs so raw measurements, run
-attachments, and prior analysis artifacts can all participate in lineage
-without becoming output rows. The analysis key defines the saved record
-namespace; `Run.analyze(step)` defaults that key from `step.id` so multiple
-steps can save without colliding. A reusable `AnalysisStep` should reproduce
-the same output shape as manual notebook analysis; it is the promotion path for
-repeated post-run logic.
-
-Analysis notes are optional interpretation outputs, not required creation
-metadata. Most repeated analysis should prefer structured tables, figures, and
-parameter change reasons over free-form notes.
-
-Derived analysis tables and arrays should keep coordinate, observable,
-auxiliary, uncertainty, mask, and status roles in their schemas. When a derived
-table keeps the original point coordinates, it should preserve source artifact
-metadata so plotting and later analysis can use the same coordinate identity.
-
-Online analysis is the incremental form of the same boundary. It may consume a
-partial batch of validated result rows, run declared analysis steps, publish
-analysis artifacts, and feed candidate finalization or adaptive continuation.
-It must not mutate accepted parameters, rewrite `PlanSnapshot`, or hide
-fitter/compiler decisions inside the experiment DSL.
-
-Early-stop decisions consume validated rows, produce a stop/continue decision,
-and record skipped planned points as run state. They must not compact,
-renumber, or rewrite the planned point table.
-
-## Candidate Configs
-
-`Analysis.candidate_config()` turns analysis parameter changes into a lazy
-`ParameterChangeSet`-backed candidate object. `Workspace.run(...,
-config=candidate)` resolves that object at the run boundary, writing the
-parameter change set and candidate config artifact. Resolution is a system
-step, not human review. Candidate objects do not carry a separate reason; the
-evidence lives on their parameter change sets.
-
-Review is attached to a concrete decision point: fit assessment, parameter
-change review, run comparison review, or config activation. Accepted parameter
-changes happen only through explicit activation. Fit outputs, quality metrics,
-covariance, classifier thresholds, and other calibration evidence remain
-artifacts until a policy chooses parameter patches and activates a candidate
-configuration. Free-form notes belong on those review and activation records
-when the operator has something specific to record.
-
-Rollback uses config registry activation history. Historical run data,
-analysis artifacts, parameter changes, decisions, and activation records remain
-immutable.
-
-## Comparison And Overview
-
-Run comparison is the review point after a candidate configuration has been
-used for a follow-up run.
-
-User-facing displays should render from durable records such as run manifests,
-measurement datasets, analysis artifacts, candidate configs, reviews, and
-comparison results. Scopecat does not automatically persist Markdown reports
-or summaries as a second source of truth; user-authored Markdown remains a
-normal attachment or analysis artifact. `RunOverview` is a rebuildable
-structured view over the same records.
-
-## Anti-Corruption Rules
-
-- Never connect to hardware during configuration parsing.
-- Never silently write accepted parameter state.
-- Keep heavy legacy parsing dependencies and spreadsheet semantics out of core.
-- Convert legacy JSON, CSV, XLSX, registry, or private runner inputs through
-  explicit importers that produce typed artifacts and diagnostics.
-- Preserve raw external outputs as artifacts when adapters need them.
-- Standardize Scopecat-owned data around typed records, relation expressions,
-  tables, arrays, events, and artifact refs.
-- Remove transitional wrappers once tests cover the direct path.
+Diagnostics should use stable codes and logical locations. Local paths and raw
+exceptions may be debug details, not durable diagnostic identity.

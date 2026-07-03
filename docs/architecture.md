@@ -1,154 +1,283 @@
 # Scopecat Architecture
 
+Status: target design
+
 Scopecat is a local-first experiment workflow library. The core package owns
-generic records, validation, planning, storage boundaries, and workflow
-orchestration. Domain vocabulary and hardware policy belong in example
-packages, future extensions, or private adapters.
+generic records, validation, planning, result contracts, storage boundaries,
+and workflow orchestration. Domain vocabulary, pulse/circuit semantics,
+backend compiler policy, and hardware-specific behavior belong in extensions,
+example support packages, or private adapters.
 
-The repository has no external compatibility contract. When a better model is
-accepted, update code, tests, fixtures, and docs in the same pass instead of
-keeping alias layers or historical compatibility shims.
+## Target Stack
 
-## Experiment Kernel
-
-Every experiment lowers to one small planning kernel:
+Structured native execution follows this stack:
 
 ```text
-points -> params -> state -> acquire
+ExperimentModule + ExperimentTemplate + RunRequest + ConfigSnapshot
+  -> ExperimentSpec
+  -> ExperimentPlan
+  -> DeviceProgram
+  -> InstrumentRuntime
+  -> InstrumentGroup / Instrument
 ```
 
-| Stage | Responsibility |
+`ExperimentModule` and `ExperimentTemplate` are reusable authoring objects.
+`RunRequest` is the user's request for one run or segment. `ConfigSnapshot` is
+the immutable configuration input. `ExperimentSpec` is the closed per-segment
+HIR produced from those inputs. `ExperimentPlan` is the lower execution
+contract. `DeviceProgram` is the device-aware command plan. Runtime and
+instrument adapters perform side effects.
+
+## Experiment Model
+
+The target experiment calculation graph is:
+
+```text
+point_source / points
+  -> params
+  -> state
+  -> records
+  -> result_contract
+```
+
+| Part | Responsibility |
 | --- | --- |
-| `points` | Deterministic relation rows, one row per logical acquired point. |
-| `params` | Point-local parameter patches evaluated against a parameter build snapshot. |
-| `state` | Desired logical resource state derived from point rows and patched parameters. |
-| `acquire` | Acquisition shape, shots, repetitions, dimensions, record mode, and estimated counts. |
+| `point_source` / `points` | Logical point schema and either a materialized point table or a closed point-generation state machine. |
+| `params` | Point-local configuration patches derived from point rows and run overrides. |
+| `state` | Desired logical resource or instrument-group state derived from points and patched config views. |
+| `records` | Output declarations for instrument products, readback fields, expressions, coordinates, diagnostics, and artifacts. |
+| `result_contract` | Materialized dataset and artifact contract derived from records, capabilities, shape policy, and point identity. |
 
-Everything else is a boundary around that kernel: pulse compilation, hardware
-execution, scheduling, storage validation, data access, analysis, candidate
-config review, config activation, recovery, import, and domain-specific
-compiler policy.
-
-There is no durable `target` field. A target-like value is ordinary relation
-data such as `qubit_id`, `readout.device_id`, `line_id`, `resource_id`, or
-`sample_id`. Fixed targets, swept targets, selected target sets, and
-simultaneous multi-target control all use the same relation model.
-
-Pseudo-resources such as `resource-scheduler`, `campaign-orchestrator`,
-`resume.policy`, `stream.batch`, or `classifier-gate` are boundary inputs
-around an ordinary experiment. They do not belong in `ExperimentSpec.state`.
+`acquire` is not a core top-level concept in the target model. Acquisition is
+one way to produce records. Readback, expressions, generated artifacts, and
+decoded backend results are also records.
 
 ## Core Concepts
 
 | Concept | Responsibility |
 | --- | --- |
-| `Quantity` | Numeric value plus unit, with explicit compatible conversions. |
-| `RelationExpr` | Durable relation and scalar expression IR. |
-| `Diagnostic` | Stable code, message, severity, and optional source location. |
-| `ArtifactRef` | Content-addressed or storage-backed reference to large or external data. |
-| `ParameterCatalog` | Scalar/table schemas, units, keys, constraints, lifecycle metadata, and validation policy. |
-| `ParameterState` | Accepted scalar values and accepted table rows for future runs. |
-| `ParameterBuildSnapshot` | Immutable resolved parameters, derived outputs, diagnostics, hashes, and provenance. |
-| `ParameterPatch` | Scalar or table changes used for point-local views and candidate config resolution. |
-| `ExperimentSpec` | Durable declarative recipe with `id`, `kind`, `points`, `params`, `state`, `acquire`, and optional `assets`. |
-| `PlanSnapshot` | Durable aggregate with hashes, diagnostics, point previews, patch rows, desired state, acquisition shape, artifact refs, and provenance. |
-| `RunManifest` | Root run record tying inputs, plan identity, events, datasets, artifacts, analysis, candidates, attachments, and comparisons to one run id. |
+| `ConfigSnapshot` | Immutable accepted configuration, including parameters, topology, environment, routing, registry refs, and provenance. |
+| `DerivedConfigView` | Deterministic projection from config and other explicit inputs. It may be cached, hashed, and diagnosed, but is not an accepted-state root. |
+| `ExperimentModule` | Reusable experiment library declaring point variables, defaults, state helpers, record helpers, program assets, dependencies, and pure utility boundaries. |
+| `ExperimentTemplate` | Runnable entrypoint with input schema, defaults, label, description, category, and calls into modules. Templates should not compose other templates. |
+| `RunRequest` | User request snapshot for one run or segment: inputs, config source, overrides with provenance, sweeps, seeds, extra axes, extra records, execution mode, and operator metadata. |
+| `ExperimentSpec` | Closed per-segment HIR. It binds module/template fingerprints, run request hash, config snapshot refs, materialized point/source spec, params, state, records, assets, diagnostics, and provenance. |
+| `PointSourceSpec` | Closed description of static, streaming, batch, or adaptive point generation when the future point table is not fully known. |
+| `PointDecisionRecord` | Append-only runtime record of each point generated by a point source, including point identity, source state hashes, consumed observations, and decision metadata. |
+| `PointColumnSpec` | Typed point-column declaration with id, dtype, unit, role, identity flag, optional entity ref, tags, and metadata. |
+| `RecordSpec` | Typed declaration of a result variable or artifact, including source, role, dtype, unit, dimensions, shape policy, timing, tags, and metadata. |
+| `ResultContract` | Execution and storage contract for output records, including layouts, primary indices, dimensions, shape policy, artifact strategy, and validation rules. |
+| `ExperimentPlan` | LIR/execution contract containing stable point ids, point previews or refs, point-local patches, desired logical state, record materialization, result contract, diagnostics, hashes, and compiler metadata. |
+| `ProgramRef` / `ProgramArtifact` | Opaque or typed program assets referenced by specs and plans, such as waveform bundles, backend-native programs, or future domain IR. |
+| `DeviceProgram` | Device-aware command plan built from an experiment plan, program artifacts, routing, instrument-group capabilities, and runtime policy. |
+| `InstrumentGroup` | Coordinated device stack exposing group-level capability, virtual fields, shared clock/trigger topology, product declarations, and routing needs. |
+| `Instrument` | Thin physical adapter that executes device-local commands and reports capabilities, readbacks, results, diagnostics, and events. |
+| `RunManifest` | Root run record tying inputs, config/spec/plan/program identity, events, datasets, artifacts, analysis, candidates, attachments, and comparisons to one run id. |
+| `RunScope` | Legacy capture boundary for non-native notebooks or scripts. It records auditable evidence but does not imply reproducible execution. |
 
-`PlanSnapshot` should not embed a full per-point copy of every parameter table.
-Store sampled previews or artifact-backed preview tables when users need to
-inspect patched views at scale.
+## ExperimentSpec Semantics
 
-## Relation Expressions
+`ExperimentSpec` is the authority for one structured run segment. It is not the
+reusable recipe. Reusable intent lives in modules and templates; operator input
+lives in `RunRequest`; accepted configuration lives in `ConfigSnapshot`.
 
-Scopecat owns a small relation IR. It may use an execution engine such as
-Polars internally later, but the durable contract is not Polars, pandas, Python
-callbacks, string substitution, or backend-specific query objects.
+A spec is semantically complete even when stored as immutable refs:
 
-Initial relation roots include `literal_rows`, `values`, `linspace`,
-`range_values`, `grid`, `table`, and `parameter_table`.
+```text
+config_snapshot_ref/hash
+run_request_ref/hash
+module_fingerprint_refs
+point_source_ref/hash or points_ref/hash
+params_ref/hash
+state_ref/hash
+records_ref/hash
+assets_ref/hash
+diagnostics
+```
 
-Initial operations include `select`, `filter`, `join`, `cross`,
-`with_columns`, `sort`, and `limit`.
+`ExperimentSpec.content_hash` must cover every referenced part. Recomputing an
+`ExperimentPlan` must not require a second free config source.
 
-Initial scalar terms include `col`, `outer`, `param`, `lit`, arithmetic,
-comparison, boolean logic, conditionals, and selected pure functions such as
-unit conversion and numeric power conversion.
+Each adaptive segment materializes its own closed spec. Runtime decisions may
+append point-decision records or produce a new segment request, but they do not
+mutate an already closed spec.
 
-Variable-key parameter lookup is a join:
+## Point Identity
 
-1. project keys from the current point row or repeated relation row;
-2. join against the target parameter table;
-3. require exactly one matching row unless the API explicitly requests many;
-4. project the requested column.
+Point identity separates logical identity from storage index and runtime order:
 
-Function extensibility must use stable function ids and an explicit registry.
-Durable expressions may reference a function id and argument expressions; they
-must not serialize Python code, dynamic imports, package classes, or backend
-native expressions. Domain packages may register pure functions without
-changing the expression record shape.
+```text
+point_index      # dense logical row index for the segment
+point_uid        # logical identity hash
+execution_index  # runtime order, retry order, or backend return order
+```
 
-The local evaluator is the reference backend. Future vectorized evaluators are
-implementation details and must preserve the same IR semantics, point order
-where required, diagnostics, and preview artifact contracts.
+`point_uid` is derived from identity columns such as coordinates, entity refs,
+logical repeat, seed, and adaptive decision identity. It must not include
+randomized execution order, backend batch id, operator notes, transient runtime
+state, or local file paths.
+
+Roles are intentionally small. Core point columns use:
+
+```text
+role: coordinate | auxiliary
+identity: bool
+ref: EntityRef | null
+tags: list[str]
+```
+
+Concepts such as target, randomization, repeat, carry, and entity type are
+expressed with `identity`, `ref`, and tags unless repeated real workflows prove
+that a stronger core enum is needed.
+
+## RunRequest Boundary
+
+`RunRequest` records the user's request. It may contain:
+
+- template ref and fingerprint;
+- template inputs and operator metadata;
+- config source and selected candidate config;
+- override records with provenance;
+- point axes and parameter sweeps;
+- random seeds and deterministic naming inputs;
+- extra record declarations;
+- segment lineage and adaptive continuation refs;
+- execution mode and policy.
+
+It must not contain materialized point tables, dataset schemas, device routing,
+waveform uploads, instrument capability checks, analysis decisions, or runtime
+execution order. Those belong to spec, plan, device program, analysis, or run
+events.
+
+Parameter sweeps are syntax over point columns plus point-local config patches.
+Compile/link validation checks parameter existence, units, safety bounds,
+composition semantics, identity participation, and override provenance.
+
+## Records And Result Contracts
+
+`RecordSpec` generalizes acquisition products. A record source may be:
+
+- `instrument_product`, such as demodulated IQ, raw trace, or VNA S-parameter;
+- `instrument_field`, such as LO power or fridge temperature readback;
+- `expression`, such as detuning or converted frequency;
+- `artifact`, such as a backend binary payload or external file;
+- `point_column`, when a coordinate or auxiliary point value should be stored.
+
+Controls that affect acquisition, such as integration time, readout length,
+average count, demod frequency, trigger delay, or VNA point count, are state or
+config fields. They are not a parallel acquire-control system.
+
+The default shape rule is conservative:
+
+- fixed shape may become dense table or array data;
+- shape-changing controls are errors unless an explicit policy is declared;
+- large or opaque payloads use artifact refs;
+- variable shots, retries, early stop, or streaming use append-only or ragged
+  layouts;
+- finalization may build dense analytical views from raw append-only records.
+
+## Config And Derived Views
+
+`ConfigSnapshot` is the authoritative planning input. It may contain accepted
+parameter state, topology, environment, routing, instrument registry metadata,
+and provenance. Derived views such as planning parameter views, backend compile
+views, topology views, or analysis feature views are deterministic projections.
+
+Candidate configs patch accepted config, not derived views:
+
+```text
+ParameterChangeSet / ConfigPatch
+  -> candidate ConfigSnapshot
+  -> recompute affected views
+  -> validate / diff / preview
+  -> activate explicitly
+```
+
+Scopes and overrides must remain explicit. The architecture should support
+global config, sample/chip views, entity-specific views, experiment overrides,
+run overrides, point-local patches, and backend compile views without hidden
+shadowing.
+
+## Programs And Code Islands
+
+Core provides generic carriers:
+
+```text
+ProgramRef
+ProgramArtifact
+CompilerAdapter
+BackendProgram
+DeviceProgram
+ResultContract
+```
+
+Core does not define quantum gates, pulse languages, circuits, feedback IR, or
+device-specific compiler semantics.
+
+Pure user code islands are allowed for sequence construction, pulse or waveform
+generation, calibration-derived program generation, and analysis-to-candidate
+calculations. Their boundary must declare typed inputs, typed outputs or
+artifacts, no hardware side effects, no accepted-config mutation, provenance,
+fingerprint, dependencies, seeds, and determinism level.
+
+Complex timing, loops, branches, subroutines, mid-program feedback, and
+hardware offload belong in domain compilers or backend programs. The core
+spec records refs, fingerprints, mappings, and result contracts.
+
+## Runtime And Instruments
+
+Scopecat runtime lowers plans into `DeviceProgram`s. Runtime and group-level
+coordinators own:
+
+- routing from logical channels/resources to physical instruments;
+- capability validation;
+- desired-state diff and patch generation;
+- uploads, arms, triggers, barriers, readbacks, acquisition commands, and
+  cleanup/abort;
+- resource leases, shared clock/trigger topology, retries, resume, and crash
+  recovery;
+- backend point mapping for host loops or hardware-offloaded execution.
+
+An `Instrument` is thin. It declares capabilities and executes device-local
+commands. It does not know the full experiment, sweep, config registry,
+analysis policy, candidate config, or GUI state.
+
+An `InstrumentGroup` models a coordinated stack such as DAC/AWG, ADC/QA, LO,
+trigger, and clock devices. It can expose virtual fields and products while
+internally mapping them to several physical instruments.
 
 ## Boundary Ownership
 
-Core owns generic records and validation:
+Core owns:
 
-- quantities, units, relation expressions, and diagnostics;
-- parameter catalogs, states, derivations, build snapshots, patches, change
-  sets, and candidate config resolution validation;
-- experiment specs, planning, desired state, dry-run snapshots, acquisition
-  plans, result contracts, and run manifests;
-- generic storage references, artifact refs, events, analysis records,
-  lower-level automation records, and boundary input/output schemas.
+- quantities, units, entity refs, relation/scalar expressions, diagnostics;
+- config snapshots, config patches, parameter state, parameter changes, and
+  deterministic derived-view contracts;
+- experiment modules/templates/request/spec/plan records;
+- point identity, point-source records, record specs, result contracts, and
+  artifact refs;
+- run manifests, events, analysis records, candidates, comparison records,
+  storage references, and validation policy;
+- generic runtime command records and instrument boundary protocols.
 
-Domain packages own domain vocabulary and compilers:
+Domain packages own:
 
-- qubit, resonator, coupler, pulse, line, sample, and gate vocabulary;
-- experiment templates and calibration recipes;
-- sequence/pulse compiler IR;
-- waveform routing and lazy waveform generation;
-- hardware sweep/offload policies;
-- classifier artifacts and readout schemas.
+- domain vocabulary such as qubits, samples, pulses, gates, resonators, and
+  couplers;
+- domain program IR and compiler rules;
+- calibration lookup conventions;
+- waveform generation and lazy backend-program generation;
+- classifier artifacts and domain-specific result schemas.
 
-Boundary adapters own side effects and operational policy:
+Boundary adapters own:
 
-- imports from CSV, XLSX, JSON, registry, or private runner formats;
-- native instrument execution and runner-adapter translation;
-- resource leases, timing barriers, crash recovery, and resume point selection;
-- hardware program grouping and mixed backend strategy;
-- large artifact chunk assembly and artifact availability checks;
-- analysis, promoted analysis steps, online analysis, early stop, and adaptive
-  continuation;
-- candidate config resolution, parameter-change decisions, quality policy,
-  config activation, and parameter invalidation;
-- multi-run calibration campaigns and monitor row materialization.
+- imports from CSV, XLSX, JSON, registry trees, private runners, and external
+  systems;
+- native driver integration and legacy runner translation;
+- resource leasing, timing barriers, recovery, mixed-backend strategy, and
+  large artifact assembly;
+- GUI, plotting, online analysis, early stop, adaptive continuation, and
+  campaign orchestration.
 
-## Package Boundaries
-
-| Package | Role |
-| --- | --- |
-| `scopecat.relations` | Relation expressions, scalar expressions, quantity/unit helpers, relation validators, and durable serialization. |
-| `scopecat.parameters` | Catalog/state/build/patch/change-set models, derivation evaluation, validation, diffs, and candidate resolution utilities. |
-| `scopecat.experiments` | `ExperimentSpec`, authoring fragments, planner, dry-run previews, and plan snapshots. |
-| `scopecat.results` | Result contracts, measurement schemas, row validation, retry summaries, artifact eligibility, and storage-facing records. |
-| `scopecat.workflows` | Run lifecycle, data access, analysis persistence, candidate config resolution, comparison, campaign, resume, and scheduling. |
-| `scopecat.importers` | Optional anti-corruption package for CSV, XLSX, JSON, registry, and private runner inputs. |
-
-Example support packages live outside `packages/`. The quantum demo support
-package owns domain-shaped examples, virtual lab providers, reusable readout
-analysis, and quantum-like templates for runnable examples.
-
-Core modules must not import demo support packages or quantum-domain modules.
-Domain packages may depend on core plan records and core expressions when a
-real package boundary is deliberately extracted.
-
-## Supporting Documents
-
-Use these focused documents for durable details:
-
-- [Experiment workflow](experiment-workflow.md)
-- [Parameter system](parameter-system.md)
-- [Data and storage contracts](data-storage-contracts.md)
-- [Extension boundaries](extension-boundaries.md)
+Core modules must not import demo support packages, private lab packages, or
+domain-specific extension packages.

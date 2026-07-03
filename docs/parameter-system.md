@@ -1,117 +1,188 @@
 # Parameter System
 
-Status: accepted subsystem detail
+Status: target design
 
-Scopecat parameters are accepted configuration state and deterministic planning
-inputs. They are not live device state, spreadsheet state, registry trees, or
-private runner dictionaries.
+Scopecat parameters are accepted configuration state and deterministic
+planning inputs. They are not live device state, spreadsheet state, registry
+trees, private runner dictionaries, analysis scratch values, or derived-view
+mutation targets.
 
 ## Goals
 
-- Represent sparse scalar parameters and row-oriented table parameters with
-  consistent validation and provenance.
-- Keep accepted state separate from experiment-time patches and reviewed
-  candidate configuration changes.
-- Use one relation-expression IR for table derivations, point construction,
-  variable-key lookup, and repeated desired-state bindings.
-- Make derived parameters deterministic and reproducible.
-- Keep hardware vocabulary and private lab file formats outside core.
-- Make parameter updates reviewable through the same patch model used by
-  experiment-time overrides.
+- Represent scalar and table parameters with consistent schema, units,
+  constraints, provenance, and validation.
+- Keep accepted configuration separate from experiment-time patches, point
+  local overrides, analysis outputs, and reviewed candidate changes.
+- Let experiment sweeps and candidate configs reuse the same patch concepts.
+- Make derived views deterministic, reproducible, hashable, and diagnosable
+  without turning them into independent sources of truth.
+- Keep hardware vocabulary and private lab formats outside core.
+- Support explicit scopes and override provenance without hidden shadowing.
 
 ## Non-Goals
 
 - Do not put pandas, openpyxl, xlwings, Polars, LabRAD, or private file readers
-  in core.
-- Do not make Excel, JSON settings folders, or registry trees durable Scopecat
-  parameter formats.
-- Do not let analysis, runner adapters, or instruments mutate
-  active parameter state silently.
-- Do not encode qubit, coupler, resonator, pulse, or lab-specific vocabulary
-  in core models.
+  in core parameter records.
+- Do not make Excel, JSON settings folders, registry trees, or runner
+  dictionaries durable Scopecat parameter formats.
+- Do not let analysis, instruments, adapters, or notebooks mutate accepted
+  parameter state silently.
+- Do not encode qubit, resonator, coupler, pulse, or lab-specific vocabulary
+  in core schemas.
 - Do not persist full per-point parameter table copies unless a concrete
-  artifact requires it.
+  artifact or review workflow requires them.
+
+## Source Of Truth
+
+`ConfigSnapshot` is the authoritative input for planning. Parameter state is
+one part of that snapshot.
+
+Accepted state changes through explicit activation:
+
+```text
+accepted ConfigSnapshot
+  + reviewed ConfigPatch / ParameterChangeSet
+  -> new accepted ConfigSnapshot
+```
+
+Derived planning views are deterministic projections:
+
+```text
+ConfigSnapshot + explicit inputs -> DerivedConfigView
+```
+
+A view may be materialized, cached, hashed, displayed, diffed, or referenced by
+an `ExperimentSpec`, but it is not where accepted changes are written.
 
 ## Concepts
 
 | Concept | Responsibility |
-|---|---|
+| --- | --- |
 | `ParameterCatalog` | Defines scalar and table schemas, units, constraints, keys, lifecycle metadata, and validation policy. |
-| `ParameterState` | Stores accepted scalar values and accepted table rows with provenance and content hashes. |
-| `RelationExpr` | Durable table/column expression IR used by parameter derivations and experiment planning. |
-| `ParameterDerivationSet` | Named deterministic expressions evaluated from accepted state. |
-| `ParameterBuildSnapshot` | Freezes accepted state plus derived outputs, diagnostics, source hashes, and build metadata. |
-| `ParameterPatch` | Describes scalar or table changes for experiment-time patched views and candidate config resolution. |
-| `ParameterChangeSet` | Named candidate patch set with source, reason, confidence, and concrete scalar/table patches. |
+| `ParameterState` | Stores accepted scalar values and table rows inside a config snapshot, with source provenance and content hashes. |
+| `ConfigSnapshot` | Immutable accepted planning input containing parameter state plus topology, routing, environment, registry metadata, and provenance. |
+| `DerivedConfigView` | Deterministic projection such as planning parameters, topology view, backend compile view, review view, or analysis feature view. |
+| `ParameterPatch` | Scalar or table change used for experiment-time patched views, point-local sweeps, and candidate resolution. |
+| `ParameterChangeSet` | Candidate accepted-state patch set with source, reason, confidence, expected values, diagnostics, and provenance. |
+| `ConfigPatch` | Broader candidate patch that may include non-parameter config sections when those sections become accepted config. |
+| `EntityRef` | Typed reference to config-owned entities such as devices, channels, resources, samples, or topology nodes. |
 
-`ExperimentSpec` consumes these concepts but is not part of the parameter
-system. It owns point construction, parameter patches local to a run, desired
-state, and acquisition.
+`ExperimentSpec` consumes these concepts after compilation. It does not own
+accepted configuration state.
 
 ## Catalog
 
-`ParameterCatalog` is schema and validation policy. It should not contain
-hardware routing decisions unless they are descriptive metadata.
+`ParameterCatalog` is schema and validation policy. It should define:
 
-Core catalog responsibilities:
+- scalar ids, table ids, and column schemas;
+- units and compatible conversions;
+- primary keys and uniqueness requirements;
+- required fields and defaults when appropriate;
+- safety bounds and lifecycle metadata;
+- owner, status, description, and review policy;
+- schema versioning and diagnostic locations.
 
-- column type and unit validation;
-- primary-key uniqueness;
-- required fields;
-- safety bounds;
-- lifecycle metadata such as owner, status, and description;
-- schema versioning and diagnostics.
-
-Resource mapping belongs in parameter tables or system configuration, not in
-the catalog schema itself.
+Resource mapping belongs in config or parameter tables, not as hidden catalog
+behavior. Domain packages may define domain-specific catalogs outside core.
 
 ## State
 
-`ParameterState` is accepted source configuration for future runs. It stores:
+`ParameterState` stores accepted scalar values and accepted table rows with
+provenance and content hashes. It is immutable within a run.
 
-- scalar values;
-- table rows;
-- source provenance;
-- content hashes;
-- update timestamps or revision identifiers when available.
+Accepted state is not live hardware state. Readbacks are records. Desired
+state is an experiment/runtime construct. Candidate values are patches until
+activated.
 
-Accepted state changes only through explicit activation.
-Experiment-time parameter patches create patched planning views; they do not
-mutate accepted state.
+## Derived Views
 
-## Build Snapshots
+The architecture should allow multiple derived views without making them
+parallel truth sources:
 
-`ParameterBuildSnapshot` freezes the parameter view used for planning. It
-contains accepted inputs, evaluated derivations, diagnostics, source hashes, and
-provenance.
+```text
+PlanningParameterView
+CalibrationReviewView
+TopologyView
+BackendCompileView
+AnalysisFeatureView
+QuantumCalibrationView
+```
 
-Planning consumes build snapshots, not raw config maps. This gives dry runs,
-native runs, analysis, comparison, and structured overviews a stable record of
-the parameter inputs used for each run.
+Views must declare inputs, compiler id/version, diagnostics, content hash, and
+provenance when persisted. They can be recomputed from config and explicit
+inputs.
 
-## Patches And Candidates
+Promote a view to a persisted first-class artifact only when users need to
+review, visualize, diff, reuse, or cache it independently.
 
-`ParameterPatch` is used in two places:
+## Patches, Sweeps, And Overrides
+
+`ParameterPatch` is used in three places:
 
 - point-local experiment patches evaluated against point rows;
+- run-request overrides with provenance;
 - candidate config changes produced by analysis or adapters.
 
 Patch operations include scalar replacement and table row insert/update/delete.
-Every patch is validated against the catalog and, where relevant, against the
-expected current value to prevent stale writes.
+Every patch is validated against catalog schema, units, bounds, key
+cardinality, and expected current values when relevant.
 
-`ParameterChangeSet` groups candidate accepted-state patches with source,
-reason, diagnostics, and expected values. It can be reviewed as a parameter
-change decision, but resolving it into a candidate config snapshot is a system
-step, not review. Activation writes a new accepted state snapshot and preserves
-enough provenance to compare baseline and candidate runs.
+A run-time `parameter_sweep` is syntax for:
+
+```text
+point column
+  + point-local ParameterPatch
+```
+
+For example, sweeping `readout.power` creates a point axis and a patch that
+sets `readout.power` from that column. The compiler decides whether the sweep
+participates in `point_uid`, checks shape and safety policy, and records
+override provenance.
+
+## Scope And Override Order
+
+Scopes must be explicit. Future workflows may need:
+
+```text
+global config
+sample/chip config
+device/entity view
+experiment override
+run override
+point-local patch
+backend compile view
+```
+
+The system must record precedence, source, reason, expected old value when
+available, and diagnostics. Hidden Python globals, notebook variables, or
+registry writes are not valid override mechanisms.
+
+## Candidate Configs
+
+Analysis creates evidence and candidate patches. Candidate resolution is a
+system step:
+
+```text
+analysis outputs
+  -> ParameterChangeSet / ConfigPatch
+  -> candidate ConfigSnapshot
+  -> validation, diff, preview
+  -> follow-up run
+  -> review / activation
+```
+
+Candidate objects do not mutate accepted config. Activation writes a new
+accepted config snapshot and preserves lineage to source run, analysis
+artifacts, change set, review decision, follow-up runs, and comparisons.
 
 ## Imports
 
-Importers are one-way translation tools. CSV, XLSX, JSON, registry, and private
-runner inputs should be parsed outside core and converted into typed Scopecat
-models with diagnostics. Core should not preserve private field names or source
-layout conventions as public API.
+Importers are one-way anti-corruption tools. CSV, XLSX, JSON, registry trees,
+and private runner inputs should be parsed outside core and converted into
+typed Scopecat config, parameter, or artifact records with diagnostics.
+
+Core should not preserve private field names, local paths, registry layout, or
+spreadsheet conventions as public API.
 
 ## Validation Expectations
 
@@ -121,12 +192,14 @@ Parameter validation should report stable diagnostics for:
 - missing required columns;
 - duplicate primary keys;
 - wrong value kind;
-- unsupported or incompatible unit;
+- unsupported or incompatible units;
 - safety-bound violations;
-- unknown derivation inputs;
+- unknown derivation or view inputs;
 - ambiguous variable-key lookup;
+- unknown entity refs;
+- invalid scope or override precedence;
 - stale candidate expected values;
 - invalid table patch operations.
 
-Tests should assert durable records and diagnostic codes, not private helper
-placement.
+Tests should assert durable records and diagnostic codes rather than private
+helper placement.
