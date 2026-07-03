@@ -11,9 +11,9 @@ from scopecat.models.parameter import ParameterChangeSet, ParameterPatch, Quanti
 from scopecat.runs import open_run_store
 from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.records import read_model
-from tests.support.signal_testkit import execute_signal_native_run
+from tests.support.signal_testkit import execute_signal_run
 
-EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simulated_scan"
+EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
 
 def load_config() -> ConfigProfileSnapshot:
@@ -24,8 +24,8 @@ def load_experiment() -> ExperimentSpec:
     return read_model(EXAMPLE_DIR / "experiment.json", ExperimentSpec)
 
 
-def simulate_with_parameter_change(tmp_path: Path) -> str:
-    manifest, _snapshot = execute_signal_native_run(
+def signal_run_with_parameter_change(tmp_path: Path) -> str:
+    manifest, _snapshot = execute_signal_run(
         config=load_config(),
         experiment=load_experiment(),
         workspace=tmp_path,

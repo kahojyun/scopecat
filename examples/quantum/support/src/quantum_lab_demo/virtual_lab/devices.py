@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from scopecat.instruments import NativeDriverDiagnostic, NativeStateChange
+from scopecat.instruments import DriverDiagnostic, StateChange
 from scopecat.instruments.state import StatePatchField, StateValue
 from scopecat.models.parameter import Quantity
 
@@ -22,7 +22,7 @@ class VirtualPatchRecord:
 
 
 class VirtualDevice:
-    """Stateful offline device behind the native provider boundary."""
+    """Stateful offline device behind the instrument provider boundary."""
 
     def __init__(self, profile: VirtualDeviceProfile) -> None:
         self.id = profile.id
@@ -43,9 +43,9 @@ class VirtualDevice:
     def state(self) -> dict[tuple[str, str], StateValue]:
         return dict(self._state)
 
-    def apply(self, changes: NativeStateChange) -> None:
+    def apply(self, changes: StateChange) -> None:
         if changes.instrument_id != self.id:
-            raise NativeDriverDiagnostic(
+            raise DriverDiagnostic(
                 severity="error",
                 code="virtual_lab_device_mismatch",
                 message=f"{self.id} cannot apply changes for {changes.instrument_id}",
@@ -106,7 +106,7 @@ class VirtualLab:
         try:
             return self._devices[device_id]
         except KeyError as error:
-            raise NativeDriverDiagnostic(
+            raise DriverDiagnostic(
                 severity="error",
                 code="virtual_lab_missing_device",
                 message=f"virtual lab profile does not define {device_id}",

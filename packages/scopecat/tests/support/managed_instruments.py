@@ -4,16 +4,16 @@ from pathlib import Path
 
 from scopecat.experiments import plan_experiment
 from scopecat.instruments import (
-    ManagedNativeInstrument,
-    NativeDriverDiagnostic,
-    NativeMeasurementContext,
-    NativeStateChange,
+    DriverDiagnostic,
+    ManagedInstrument,
+    MeasurementContext,
+    StateChange,
     asset_field,
     capability,
     number_field,
     quantity_field,
 )
-from scopecat.instruments.sdk import NativeAcquisitionContext
+from scopecat.instruments.sdk import AcquisitionContext
 from scopecat.instruments.state import (
     AcquisitionPlan,
     DesiredResourceState,
@@ -26,13 +26,13 @@ from scopecat.models.parameter import Quantity
 from scopecat.results import MeasurementSink
 from tests.support.workflow_fixtures import load_experiment
 
-EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simulated_scan"
+EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
 
-class ManagedSignalInstrument(ManagedNativeInstrument):
+class ManagedSignalInstrument(ManagedInstrument):
     def __init__(self, *, instrument_id: str = "source-0") -> None:
-        self.contexts: list[NativeMeasurementContext] = []
-        self.applied: list[NativeStateChange] = []
+        self.contexts: list[MeasurementContext] = []
+        self.applied: list[StateChange] = []
         super().__init__(
             instrument_id=instrument_id,
             implementation_id="tests.managed_signal",
@@ -49,12 +49,12 @@ class ManagedSignalInstrument(ManagedNativeInstrument):
             metadata={"mode": "test_offline"},
         )
 
-    def apply_state(self, changes: NativeStateChange) -> None:
+    def apply_state(self, changes: StateChange) -> None:
         self.applied.append(changes)
 
     def measure(
         self,
-        context: NativeMeasurementContext,
+        context: MeasurementContext,
         sink: MeasurementSink,
     ) -> None:
         self.contexts.append(context)
@@ -69,10 +69,10 @@ class ManagedSignalInstrument(ManagedNativeInstrument):
 
 
 class BlockingManagedInstrument(ManagedSignalInstrument):
-    def validate_state(self, changes: NativeStateChange):
+    def validate_state(self, changes: StateChange):
         del changes
         return [
-            NativeDriverDiagnostic(
+            DriverDiagnostic(
                 severity="error",
                 code="managed_driver_blocked",
                 message="driver blocked",
@@ -84,11 +84,11 @@ class BlockingManagedInstrument(ManagedSignalInstrument):
 class FailingManagedInstrument(ManagedSignalInstrument):
     def measure(
         self,
-        context: NativeMeasurementContext,
+        context: MeasurementContext,
         sink: MeasurementSink,
     ) -> None:
         del context, sink
-        raise NativeDriverDiagnostic(
+        raise DriverDiagnostic(
             severity="error",
             code="managed_measure_failed",
             message="measurement failed",
@@ -127,7 +127,7 @@ def asset_state(asset_id: str) -> StateValue:
     return StateValue(kind="asset", asset_id=asset_id)
 
 
-def native_context_for_first_point() -> NativeAcquisitionContext:
+def context_for_first_point() -> AcquisitionContext:
     config = load_config()
     assert config.parameter_build is not None
     plan = plan_experiment(load_experiment(), config.parameter_build)
@@ -136,7 +136,7 @@ def native_context_for_first_point() -> NativeAcquisitionContext:
         field_path="frequency",
         value=quantity_state(4.9, "GHz"),
     )
-    return NativeAcquisitionContext(
+    return AcquisitionContext(
         run_id="run_test",
         plan=plan,
         point=ExecutionPoint(

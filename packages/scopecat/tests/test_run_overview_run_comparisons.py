@@ -6,13 +6,13 @@ from scopecat.run_comparison import review_run_comparison
 from scopecat.run_overview import build_run_overview
 from scopecat.runs import open_run_store
 from tests.support.records import require_artifact_by_kind
-from tests.support.run_overview import simulated_run_with_active_candidate_comparison
+from tests.support.run_overview import signal_run_with_active_candidate_comparison
 
 
 def test_build_run_overview_includes_run_comparison(
     tmp_path: Path,
 ) -> None:
-    baseline_run_id = simulated_run_with_active_candidate_comparison(tmp_path)
+    baseline_run_id = signal_run_with_active_candidate_comparison(tmp_path)
 
     overview = build_run_overview(run_id=baseline_run_id, workspace=tmp_path)
 
@@ -38,7 +38,7 @@ def test_build_run_overview_includes_run_comparison(
 def test_build_run_overview_includes_reviewed_run_comparison(
     tmp_path: Path,
 ) -> None:
-    baseline_run_id = simulated_run_with_active_candidate_comparison(tmp_path)
+    baseline_run_id = signal_run_with_active_candidate_comparison(tmp_path)
     manifest = open_run_store(tmp_path).read_manifest(baseline_run_id)
     comparison_artifact = require_artifact_by_kind(
         manifest.artifact_refs,

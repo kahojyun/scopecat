@@ -1,4 +1,4 @@
-"""Reusable sample-backed native experiment workflows."""
+"""Reusable sample-backed experiment workflows."""
 
 from __future__ import annotations
 
@@ -10,8 +10,12 @@ from quantum_lab_demo.fixtures import (
     DEFAULT_SAMPLE_TEMPLATES_WORKSPACE,
     SAMPLE_TEMPLATES_FIXTURE_DIR,
 )
-from quantum_lab_demo.lab import PathInput, sample_native_lab
+from quantum_lab_demo.lab import PathInput, sample_lab
 from quantum_lab_demo.sample import (
+    CZ_RB_TEMPLATE_ID,
+    RABI_TEMPLATE_ID,
+    READOUT_TEMPLATE_ID,
+    SQG_RB_TEMPLATE_ID,
     cz_rb,
     rabi,
     readout_frequency,
@@ -20,11 +24,12 @@ from quantum_lab_demo.sample import (
 
 
 @dataclass(frozen=True)
-class SampleNativeExperimentsResult:
+class SampleExperimentsResult:
     rabi: sc.RunHandle
     readout: sc.RunHandle
     sqg_rb: sc.RunHandle
     cz_rb: sc.RunHandle
+    template_ids: tuple[str, ...]
 
     @property
     def runs(self) -> tuple[sc.RunHandle, ...]:
@@ -35,30 +40,21 @@ class SampleNativeExperimentsResult:
             self.cz_rb,
         )
 
-    @property
-    def template_ids(self) -> tuple[str, ...]:
-        return tuple(
-            run.resolved_experiment.template_id
-            for run in self.runs
-            if run.resolved_experiment is not None
-            and run.resolved_experiment.template_id is not None
-        )
 
-
-def run_sample_native_experiments(
+def run_sample_experiments(
     *,
     qubit: str = "q0",
     coupled_qubit: str = "q1",
     lab: sc.Workspace | None = None,
     workspace: PathInput = DEFAULT_SAMPLE_TEMPLATES_WORKSPACE,
     config_profile: PathInput = SAMPLE_TEMPLATES_FIXTURE_DIR / "config-profile.json",
-) -> SampleNativeExperimentsResult:
-    active_lab = lab or sample_native_lab(
+) -> SampleExperimentsResult:
+    active_lab = lab or sample_lab(
         workspace=workspace,
         config_profile=config_profile,
     )
 
-    return SampleNativeExperimentsResult(
+    return SampleExperimentsResult(
         rabi=run_rabi_experiment(qubit=qubit, lab=active_lab),
         readout=run_sample_readout_frequency(qubit=qubit, lab=active_lab),
         sqg_rb=run_sqg_rb_experiment(
@@ -73,6 +69,12 @@ def run_sample_native_experiments(
             lengths=[2, 4, 8],
             seed=17,
             lab=active_lab,
+        ),
+        template_ids=(
+            RABI_TEMPLATE_ID,
+            READOUT_TEMPLATE_ID,
+            SQG_RB_TEMPLATE_ID,
+            CZ_RB_TEMPLATE_ID,
         ),
     )
 
@@ -121,26 +123,21 @@ def run_cz_rb_experiment(
     )
 
 
-def format_sample_native_experiments_summary(
-    result: SampleNativeExperimentsResult,
+def format_sample_experiments_summary(
+    result: SampleExperimentsResult,
 ) -> str:
     lines = []
-    for run in result.runs:
-        template_id = (
-            run.resolved_experiment.template_id
-            if run.resolved_experiment is not None
-            else "unknown"
-        )
+    for template_id, run in zip(result.template_ids, result.runs, strict=True):
         lines.append(f"{template_id}: {run.id}")
     return "\n".join(lines)
 
 
 __all__ = [
-    "SampleNativeExperimentsResult",
-    "format_sample_native_experiments_summary",
+    "SampleExperimentsResult",
+    "format_sample_experiments_summary",
     "run_cz_rb_experiment",
     "run_rabi_experiment",
-    "run_sample_native_experiments",
+    "run_sample_experiments",
     "run_sample_readout_frequency",
     "run_sqg_rb_experiment",
 ]

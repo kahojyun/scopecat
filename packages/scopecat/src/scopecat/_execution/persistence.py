@@ -12,7 +12,7 @@ from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.experiments import PlanSnapshot
 from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.run import RunEvent, RunManifest
+from scopecat.models.run import RunManifest, RunStatus
 from scopecat.results import (
     MeasurementDatasetRole,
     MeasurementDatasetSchema,
@@ -135,31 +135,36 @@ def build_raw_measurement_artifact(
     )
 
 
-def write_planned_run_inputs(
+def build_run_manifest(
     *,
-    storage: LocalRunStore,
-    manifest: RunManifest,
-    config: ConfigProfileSnapshot,
-    plan: BaseModel,
-) -> None:
-    storage.write_run_inputs(manifest=manifest, config=config, plan=plan)
+    run_id: str,
+    status: RunStatus,
+    artifact_refs: Sequence[Artifact],
+) -> RunManifest:
+    return RunManifest(
+        run_id=run_id,
+        status=status,
+        config_profile_snapshot_ref="config-profile.snapshot.json",
+        plan_snapshot_ref="plan.snapshot.json",
+        artifact_refs=list(artifact_refs),
+    )
 
 
 def write_final_execution_artifacts(
     *,
     storage: LocalRunStore,
     manifest: RunManifest,
+    config: ConfigProfileSnapshot,
+    plan: BaseModel,
     snapshot_ref: str,
     snapshot: BaseModel,
     data_ref: str | None,
     measurements: Sequence[MeasurementRecord] = (),
-    events: Sequence[RunEvent] = (),
 ) -> None:
-    storage.write_manifest(manifest)
+    storage.write_run_inputs(manifest=manifest, config=config, plan=plan)
     storage.write_model(manifest.run_id, snapshot_ref, snapshot)
     if data_ref is not None:
         storage.write_jsonl(manifest.run_id, data_ref, measurements)
-    storage.write_events(manifest.run_id, events)
 
 
 def _diagnostic(

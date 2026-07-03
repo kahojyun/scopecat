@@ -18,7 +18,7 @@ def test_manifest_artifact_helpers_query_by_id_kind_and_metadata() -> None:
                 id="raw-measurements",
                 kind="measurement_dataset",
                 path="artifacts/raw-measurements.jsonl",
-                metadata={"dataset_role": "raw", "source_step": "native"},
+                metadata={"dataset_role": "raw", "source_step": "instrument"},
             ),
             Artifact(
                 id="analysis-review",
@@ -90,13 +90,7 @@ def _manifest(artifacts: list[Artifact]) -> RunManifest:
     return RunManifest(
         run_id="run_test",
         status="completed",
-        runner_id="test",
-        workspace_ref="workspace.json",
-        device_ref="device.json",
-        experiment_ref="experiment.json",
         config_profile_snapshot_ref="config-profile.snapshot.json",
         plan_snapshot_ref="plan.snapshot.json",
-        events_ref="events.jsonl",
         artifact_refs=artifacts,
-        finalization_summary="done",
     )

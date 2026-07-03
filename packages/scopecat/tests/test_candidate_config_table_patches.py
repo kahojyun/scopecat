@@ -12,12 +12,12 @@ from scopecat.models.parameter import (
 )
 from scopecat.runs import open_run_store
 from scopecat.workflows import register_and_activate_candidate_config
-from tests.support.config_registry import simulate_with_parameter_change
+from tests.support.config_registry import signal_run_with_parameter_change
 from tests.support.records import assert_artifact_ref, read_model
 
 
 def test_candidate_config_activation_applies_table_patches(tmp_path: Path) -> None:
-    run_id = simulate_with_parameter_change(tmp_path)
+    run_id = signal_run_with_parameter_change(tmp_path)
     storage = open_run_store(tmp_path)
     config = storage.read_model(
         run_id,
@@ -69,7 +69,7 @@ def test_candidate_config_activation_applies_table_patches(tmp_path: Path) -> No
         }
     )
     storage.write_model(run_id, "config-profile.snapshot.json", config)
-    lab = sc.open(tmp_path, config=config, mode="dry")
+    lab = sc.open(tmp_path, config=config)
     run = lab.get_run(run_id)
     candidate = (
         run.analysis("table patch fixture")

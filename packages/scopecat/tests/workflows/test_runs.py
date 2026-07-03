@@ -2,30 +2,35 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat.workflows.runs import start_run
-from tests.support.native_signal import TestSignalInstrumentProvider
+from scopecat.workflows.runs import preview_experiment, start_run
+from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import load_config, load_experiment
 
 
-def test_start_run_dispatches_dry_and_native_modes(tmp_path: Path) -> None:
+def test_preview_and_start_run_use_separate_paths(
+    tmp_path: Path,
+) -> None:
     config = load_config()
     experiment = load_experiment()
 
-    dry = start_run(
-        mode="dry",
+    preview = preview_experiment(
         config=config,
         experiment=experiment,
-        workspace=tmp_path / "dry",
+        workspace=tmp_path / "preview",
     )
-    native = start_run(
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+    provider_run = start_run(
+        instrument_provider=TestSignalInstrumentProvider(),
         config=config,
         experiment=experiment,
-        workspace=tmp_path / "native",
+        workspace=tmp_path / "provider",
     )
 
-    assert dry.manifest.runner_id == "scopecat.planner"
-    assert dry.snapshot.point_count == 3
-    assert native.manifest.runner_id == "scopecat.native"
-    assert native.data_ref == "artifacts/raw-measurements.jsonl"
+    assert preview.plan.points[0].point_id == 0
+    assert len(preview.plan.points) == 3
+    assert provider_run.status == "completed"
+    raw_artifact_paths = [
+        artifact.path
+        for artifact in provider_run.artifact_refs
+        if artifact.id == "raw-measurements"
+    ]
+    assert raw_artifact_paths == ["artifacts/raw-measurements.jsonl"]

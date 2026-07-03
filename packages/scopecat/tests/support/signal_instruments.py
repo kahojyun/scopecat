@@ -1,4 +1,4 @@
-"""Test-local fake native instruments."""
+"""Test-local fake instruments."""
 
 from __future__ import annotations
 
@@ -6,15 +6,15 @@ from dataclasses import dataclass
 
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.instruments import (
-    ManagedNativeInstrument,
-    NativeMeasurementContext,
+    ManagedInstrument,
+    MeasurementContext,
     capability,
     quantity_field,
 )
 from scopecat.instruments.sdk import (
-    NativeInstrumentProviderContext,
-    NativeInstrumentProviderDescription,
-    NativeInstrumentProviderResult,
+    InstrumentProviderContext,
+    InstrumentProviderDescription,
+    InstrumentProviderResult,
 )
 from scopecat.models.parameter import Quantity
 from scopecat.models.provider import ProviderOptionDescription
@@ -28,8 +28,8 @@ class TestSignalInstrumentProvider:
     instrument_id: str | None = None
     provider_id: str = "tests.signal_instrument_provider"
 
-    def describe(self) -> NativeInstrumentProviderDescription:
-        return NativeInstrumentProviderDescription(
+    def describe(self) -> InstrumentProviderDescription:
+        return InstrumentProviderDescription(
             provider_id=self.provider_id,
             label="Test signal instrument provider",
             description="Provides a fresh offline test signal instrument.",
@@ -54,17 +54,15 @@ class TestSignalInstrumentProvider:
             },
         )
 
-    def provide(
-        self, context: NativeInstrumentProviderContext
-    ) -> NativeInstrumentProviderResult:
+    def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
         instrument_id, diagnostics = self._resolve_instrument_id(context)
         if diagnostics:
-            return NativeInstrumentProviderResult(
+            return InstrumentProviderResult(
                 instruments=(),
                 diagnostics=tuple(diagnostics),
                 metadata={"provider_id": self.provider_id},
             )
-        return NativeInstrumentProviderResult(
+        return InstrumentProviderResult(
             instruments=(TestSignalInstrument(instrument_id=instrument_id),),
             metadata={
                 "provider_id": self.provider_id,
@@ -73,7 +71,7 @@ class TestSignalInstrumentProvider:
         )
 
     def _resolve_instrument_id(
-        self, context: NativeInstrumentProviderContext
+        self, context: InstrumentProviderContext
     ) -> tuple[str, list[Diagnostic]]:
         instruments = context.config.instrument_registry.instruments
         if self.instrument_id is not None:
@@ -131,7 +129,7 @@ class TestSignalInstrumentProvider:
         return matches[0], []
 
 
-class TestSignalInstrument(ManagedNativeInstrument):
+class TestSignalInstrument(ManagedInstrument):
     __test__ = False
 
     implementation_id = "tests.signal_instrument"
@@ -158,7 +156,7 @@ class TestSignalInstrument(ManagedNativeInstrument):
 
     def measure(
         self,
-        context: NativeMeasurementContext,
+        context: MeasurementContext,
         sink: MeasurementSink,
     ) -> None:
         if context.acquisition_kind != "scalar":

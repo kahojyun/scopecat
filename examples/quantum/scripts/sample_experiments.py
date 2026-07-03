@@ -1,4 +1,4 @@
-"""Run the demo sample-backed native experiments as a Python script."""
+"""Run the demo sample-backed experiments as a Python script."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ from pathlib import Path
 
 from quantum_lab_demo import (
     DEFAULT_SAMPLE_TEMPLATES_WORKSPACE,
-    SampleNativeExperimentsResult,
-    format_sample_native_experiments_summary,
-    run_sample_native_experiments,
+    SampleExperimentsResult,
+    format_sample_experiments_summary,
+    run_sample_experiments,
 )
 
 
@@ -17,8 +17,8 @@ def run(
     qubit: str = "q0",
     coupled_qubit: str = "q1",
     workspace: str | Path = DEFAULT_SAMPLE_TEMPLATES_WORKSPACE,
-) -> SampleNativeExperimentsResult:
-    return run_sample_native_experiments(
+) -> SampleExperimentsResult:
+    return run_sample_experiments(
         qubit=qubit,
         coupled_qubit=coupled_qubit,
         workspace=workspace,
@@ -27,7 +27,7 @@ def run(
 
 def main() -> int:
     result = run()
-    print(format_sample_native_experiments_summary(result))
+    print(format_sample_experiments_summary(result))
     return 0
 
 

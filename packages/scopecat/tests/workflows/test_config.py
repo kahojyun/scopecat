@@ -31,7 +31,7 @@ def test_resolve_config_source_loads_file_or_active_registry(
         workspace=tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
-    assert file_source.config.workspace_id == "simulated-workspace"
+    assert file_source.config.workspace_id == "example-workspace"
     assert file_source.provenance is None
 
     registration = register_and_activate_config_profile(
@@ -56,7 +56,7 @@ def test_config_workflow_validates_file_and_config_object() -> None:
     file_result = validate_config_profile(EXAMPLE_DIR / "config-profile.json")
     object_result = validate_config_profile(file_result.config)
 
-    assert file_result.config.workspace_id == "simulated-workspace"
+    assert file_result.config.workspace_id == "example-workspace"
     assert object_result.config == file_result.config
     assert file_result.diagnostics == []
     assert object_result.diagnostics == []
@@ -92,7 +92,7 @@ def test_config_workflow_registers_direct_entry_idempotently(
         entry_id="seed",
         registered_by="operator",
         note="seed config",
-        source_ref="fixtures/core/simulated_scan/config-profile.json",
+        source_ref="fixtures/core/simple_scan/config-profile.json",
     )
     repeated = register_config_profile(
         config=load_config(),
@@ -100,11 +100,11 @@ def test_config_workflow_registers_direct_entry_idempotently(
         entry_id="seed",
         registered_by="operator",
         note="seed config",
-        source_ref="fixtures/core/simulated_scan/config-profile.json",
+        source_ref="fixtures/core/simple_scan/config-profile.json",
     )
 
     assert result.job.id == "seed"
-    assert result.job.input_refs == ["fixtures/core/simulated_scan/config-profile.json"]
+    assert result.job.input_refs == ["fixtures/core/simple_scan/config-profile.json"]
     assert result.entry.source_kind == "direct_config_profile"
     persisted_config = read_model(
         tmp_path / result.entry.config_ref,

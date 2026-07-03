@@ -49,7 +49,7 @@ The `scripts/` directory contains thin command-line wrappers around the same
 demo lab workflows:
 
 ```sh
-uv run python examples/quantum/scripts/dry_run.py
+uv run python examples/quantum/scripts/preview.py
 uv run python examples/quantum/scripts/readout_frequency.py
 uv run python examples/quantum/scripts/readout_iq.py
 uv run python examples/quantum/scripts/sample_experiments.py

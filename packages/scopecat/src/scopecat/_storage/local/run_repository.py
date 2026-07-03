@@ -32,7 +32,6 @@ from scopecat._storage.local.io import (
 from scopecat._storage.local.layout import LocalRunLayout
 from scopecat._storage.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
-    EVENTS_REF,
     MANIFEST_REF,
     PLAN_SNAPSHOT_REF,
 )
@@ -40,7 +39,7 @@ from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import PlanSnapshot
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.run import RunEvent, RunManifest
+from scopecat.models.run import RunManifest
 
 
 class LocalRunStore:
@@ -131,9 +130,6 @@ class LocalRunStore:
                 )
             ]
         )
-
-    def write_events(self, run_id: str, events: Iterable[RunEvent]) -> None:
-        self.write_jsonl(run_id, EVENTS_REF, events)
 
     def read_model[TModel: BaseModel](
         self, run_id: str, ref: str, model_type: type[TModel]

@@ -5,19 +5,17 @@ from pathlib import Path
 import scopecat as sc
 from demo_lab_readout_frequency_testkit import (
     config_profile_snapshot,
-    readout_frequency_adapter,
     readout_frequency_experiment,
+    readout_frequency_provider,
 )
-from demo_lab_records import assert_artifact_ref, read_model
 from scopecat.config_registry import (
     load_config_registry_entry,
     resolve_config_registry_config_source,
 )
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
-from scopecat.runner import execute_runner_adapter
-from scopecat.runs import open_run_store
 from scopecat.workflows import register_and_activate_config_profile
+from scopecat.workflows.runs import start_run
 
 from quantum_lab_demo.readout.frequency_update import (
     execute_readout_frequency_analysis_update,
@@ -45,16 +43,17 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
         selector="active",
         workspace=tmp_path,
     )
-    manifest, _snapshot = execute_runner_adapter(
+    first_run = start_run(
         config=first_active_config,
         experiment=readout_frequency_experiment(),
-        adapter=readout_frequency_adapter(),
+        instrument_provider=readout_frequency_provider(),
         workspace=tmp_path,
     )
-    run_id = manifest.run_id
+    run_id = first_run.run_id
 
-    storage = open_run_store(tmp_path)
-    first_config = storage.read_config_profile_snapshot(run_id)
+    lab = sc.open(tmp_path, config=first_active_config)
+    run = lab.get_run(run_id)
+    first_config = run.config
     assert _parameter_value(first_config, "readout_frequency") == Quantity(
         value=5.94,
         unit="GHz",
@@ -64,17 +63,13 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
     assert first_config.source.entry_id == "readout-frr-seed"
     assert first_provenance.entry_id == "readout-frr-seed"
 
-    lab = sc.open(tmp_path, config=first_active_config, mode="native_simulate")
     update_result = execute_readout_frequency_analysis_update(
-        run=lab.get_run(run_id),
+        run=run,
         workspace=tmp_path,
         operator="operator",
     )
 
     assert update_result.change_set_id == "readout_frequency"
-    assert update_result.candidate_artifact_id == (
-        "candidate-readout-frequency-analysis-readout_frequency-candidate-config"
-    )
     assert update_result.config_registry_entry_id == f"readout-frr-{run_id}"
     assert update_result.active_entry_id == update_result.config_registry_entry_id
     entry = load_config_registry_entry(
@@ -88,26 +83,23 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
     assert entry.change_set_artifact_ids == [update_result.change_set_artifact_id]
     assert entry.source_candidate_artifact_id == update_result.candidate_artifact_id
 
-    updated_manifest = storage.read_manifest(run_id)
-    candidate_config_artifact = assert_artifact_ref(
-        updated_manifest.artifact_refs,
+    candidate_config = ConfigProfileSnapshot.model_validate(
+        run.data()
+        .json(
+            update_result.candidate_artifact_id,
+            expected_kind="candidate_config",
+        )
+        .content
+    )
+    candidate_artifact = run.data().artifact(
         update_result.candidate_artifact_id,
-        kind="candidate_config",
+        expected_kind="candidate_config",
     )
-    artifact_ids = {artifact.id for artifact in updated_manifest.artifact_refs}
-    assert not any("export" in artifact_id for artifact_id in artifact_ids)
-    assert not any("promotion" in artifact_id for artifact_id in artifact_ids)
-    candidate_config = read_model(
-        storage.ref_path(run_id, candidate_config_artifact.path),
-        ConfigProfileSnapshot,
-    )
+    assert candidate_artifact.id == entry.source_candidate_artifact_id
     assert _parameter_value(candidate_config, "readout_frequency") == Quantity(
         value=5.953,
         unit="GHz",
     )
-
-    assert not (tmp_path / "runs" / run_id / "comparisons").exists()
-    assert not any("comparison" in artifact_id for artifact_id in artifact_ids)
 
     active_config, provenance = resolve_config_registry_config_source(
         selector="active",
@@ -120,13 +112,13 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
         unit="GHz",
     )
 
-    next_manifest, _next_snapshot = execute_runner_adapter(
+    next_run = start_run(
         config=active_config,
         experiment=readout_frequency_experiment(),
-        adapter=readout_frequency_adapter(),
+        instrument_provider=readout_frequency_provider(),
         workspace=tmp_path,
     )
-    next_config = storage.read_config_profile_snapshot(next_manifest.run_id)
+    next_config = lab.get_run(next_run.run_id).config
     assert _parameter_value(next_config, "readout_frequency") == Quantity(
         value=5.953,
         unit="GHz",

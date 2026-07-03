@@ -1,12 +1,5 @@
 """Demo quantum lab package used by the Scopecat examples."""
 
-from quantum_lab_demo.dry_run import (
-    DEFAULT_DRY_RUN_WORKSPACE,
-    drive_scan,
-    format_dry_run_summary,
-    load_dry_run_config,
-    run_dry_run_plan,
-)
 from quantum_lab_demo.fixtures import (
     DEFAULT_READOUT_FREQUENCY_WORKSPACE,
     DEFAULT_READOUT_IQ_WORKSPACE,
@@ -27,14 +20,21 @@ from quantum_lab_demo.lab import (
     PathInput,
     readout_frequency_lab,
     readout_iq_lab,
-    sample_native_lab,
+    sample_lab,
+)
+from quantum_lab_demo.preview import (
+    DEFAULT_PREVIEW_WORKSPACE,
+    drive_scan,
+    format_preview_summary,
+    load_preview_config,
+    preview_drive_scan,
 )
 from quantum_lab_demo.sample_workflows import (
-    SampleNativeExperimentsResult,
-    format_sample_native_experiments_summary,
+    SampleExperimentsResult,
+    format_sample_experiments_summary,
     run_cz_rb_experiment,
     run_rabi_experiment,
-    run_sample_native_experiments,
+    run_sample_experiments,
     run_sample_readout_frequency,
     run_sqg_rb_experiment,
 )
@@ -48,7 +48,7 @@ from quantum_lab_demo.workflows import (
 )
 
 __all__ = [
-    "DEFAULT_DRY_RUN_WORKSPACE",
+    "DEFAULT_PREVIEW_WORKSPACE",
     "DEFAULT_READOUT_FREQUENCY_WORKSPACE",
     "DEFAULT_READOUT_IQ_WORKSPACE",
     "DEFAULT_SAMPLE_TEMPLATES_WORKSPACE",
@@ -65,26 +65,26 @@ __all__ = [
     "PathInput",
     "ReadoutFrequencyWorkflowResult",
     "ReadoutIQWorkflowResult",
-    "SampleNativeExperimentsResult",
+    "SampleExperimentsResult",
     "__version__",
     "drive_scan",
-    "format_dry_run_summary",
+    "format_preview_summary",
     "format_readout_frequency_summary",
     "format_readout_iq_summary",
-    "format_sample_native_experiments_summary",
-    "load_dry_run_config",
+    "format_sample_experiments_summary",
+    "load_preview_config",
     "notebook_workspace",
+    "preview_drive_scan",
     "readout_frequency_lab",
     "readout_iq_lab",
     "run_cz_rb_experiment",
-    "run_dry_run_plan",
     "run_rabi_experiment",
     "run_readout_frequency_workflow",
     "run_readout_iq_workflow",
-    "run_sample_native_experiments",
+    "run_sample_experiments",
     "run_sample_readout_frequency",
     "run_sqg_rb_experiment",
-    "sample_native_lab",
+    "sample_lab",
 ]
 
 __version__ = "0.1.0"

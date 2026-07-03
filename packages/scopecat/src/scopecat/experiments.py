@@ -123,23 +123,6 @@ class PlanSnapshot(BaseModel):
     assets: list[ArtifactRef] = Field(default_factory=list)
 
 
-class DryRunSnapshot(BaseModel):
-    """Dry-run snapshot for the experiment kernel."""
-
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
-    schema_version: str = "scopecat.dry_run_snapshot.v1"
-    run_id: str
-    experiment_id: str
-    runner_id: str
-    dry_run: bool = True
-    status: str
-    point_count: int
-    required_runners: list[str]
-    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
-    plan: PlanSnapshot
-
-
 @dataclass(frozen=True)
 class ParameterRowRef:
     """Authoring reference to one parameter-table row."""
@@ -571,7 +554,6 @@ ExperimentSpec.model_rebuild()
 __all__ = [
     "AcquisitionPlan",
     "AcquisitionSpec",
-    "DryRunSnapshot",
     "ExperimentSpec",
     "LocalOverrides",
     "ObservationSpec",

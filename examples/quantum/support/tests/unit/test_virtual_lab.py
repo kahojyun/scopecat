@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from demo_lab_test_paths import READOUT_FREQUENCY_VIRTUAL_LAB_PROFILE
-from scopecat.instruments import NativeDriverDiagnostic, NativeStateChange
+from scopecat.instruments import DriverDiagnostic, StateChange
 
 from quantum_lab_demo.virtual_lab import load_virtual_lab_profile
 from quantum_lab_demo.virtual_lab.devices import VirtualDevice
@@ -24,9 +24,9 @@ def test_virtual_lab_profile_loads_configured_devices_and_responses() -> None:
 def test_virtual_device_rejects_patch_for_other_instrument() -> None:
     device = VirtualDevice(VirtualDeviceProfile(id="readout-stack", kind="readout"))
 
-    with pytest.raises(NativeDriverDiagnostic) as error:
+    with pytest.raises(DriverDiagnostic) as error:
         device.apply(
-            NativeStateChange(
+            StateChange(
                 instrument_id="drive-stack",
                 fields=(),
             )

@@ -5,13 +5,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from scopecat.instruments.state import ExecutionPoint
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
-from scopecat.runner import MeasurementSink
+from scopecat.results import MeasurementSink
 
 
 @dataclass(frozen=True)
@@ -110,7 +109,6 @@ def _record_raw_measurement(
     settings: ReadoutSettings,
     response_model: ReadoutResponseModel,
     producer_id: str,
-    producer_kind: Literal["adapter", "instrument"],
 ) -> None:
     coordinates = point.coordinates
     readout_frequency = coordinates["readout_frequency"]
@@ -120,7 +118,7 @@ def _record_raw_measurement(
         12,
     )
 
-    iq_amplitude = _simulated_iq_amplitude(detuning_mhz, response_model, point.index)
+    iq_amplitude = _modeled_iq_amplitude(detuning_mhz, response_model, point.index)
     iq_phase = round(
         settings.phase_offset_rad
         + response_model.phase_slope
@@ -145,24 +143,15 @@ def _record_raw_measurement(
             "raw_q": Quantity(value=q_value, unit="ratio"),
         },
         metadata={
-            **_producer_metadata(
-                producer_id=producer_id,
-                producer_kind=producer_kind,
-                anti_corruption=(
-                    "offline replay of synthetic S21 scan semantics; "
-                    "no hardware connection"
-                ),
-            ),
+            **_producer_metadata(producer_id=producer_id),
             "source": "quantum-lab-demo",
             "sample_reference": "sample-public://readout/frequency-calibration-s21",
             "source_function": "readout frequency response",
             "shot_count": settings.reps,
             "readout_power_dbm": settings.readout_power_dbm,
             "response_model": response_model.schema_version,
-            "simulated_resonance_frequency_ghz": (
-                response_model.resonance_frequency_ghz
-            ),
-            "simulated_linewidth_mhz": response_model.linewidth_mhz,
+            "virtual_resonance_frequency_ghz": response_model.resonance_frequency_ghz,
+            "virtual_linewidth_mhz": response_model.linewidth_mhz,
             "demod_frequency_mhz": settings.demod_frequency_mhz,
             "lo_frequency_ghz": lo_frequency_ghz,
             "start_delay_ns": settings.start_delay_ns,
@@ -171,7 +160,7 @@ def _record_raw_measurement(
     )
 
 
-def _simulated_iq_amplitude(
+def _modeled_iq_amplitude(
     detuning_mhz: float,
     response_model: ReadoutResponseModel,
     point_index: int,
@@ -195,7 +184,6 @@ def _record_iq_shot(
     shot_index: int,
     response_model: ReadoutIQResponseModel,
     producer_id: str,
-    producer_kind: Literal["adapter", "instrument"],
 ) -> None:
     state0_center = _contaminated_center(
         prepared_state=0,
@@ -238,14 +226,7 @@ def _record_iq_shot(
             ),
         },
         metadata={
-            **_producer_metadata(
-                producer_id=producer_id,
-                producer_kind=producer_kind,
-                anti_corruption=(
-                    "offline replay of synthetic IQ scatter semantics; no hardware "
-                    "connection"
-                ),
-            ),
+            **_producer_metadata(producer_id=producer_id),
             "source": "quantum-lab-demo",
             "sample_reference": "sample-public://readout/iq-quality",
             "source_function": "readout IQ scatter",
@@ -265,19 +246,12 @@ def _record_iq_shot(
 def _producer_metadata(
     *,
     producer_id: str,
-    producer_kind: Literal["adapter", "instrument"],
-    anti_corruption: str,
 ) -> dict[str, object]:
-    metadata: dict[str, object] = {
+    return {
         "producer_id": producer_id,
-        "producer_kind": producer_kind,
+        "producer_kind": "instrument",
+        "instrument": producer_id,
     }
-    if producer_kind == "adapter":
-        metadata["adapter"] = producer_id
-        metadata["anti_corruption"] = anti_corruption
-        return metadata
-    metadata["instrument"] = producer_id
-    return metadata
 
 
 def _contaminated_center(

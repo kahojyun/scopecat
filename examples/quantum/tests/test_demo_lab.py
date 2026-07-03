@@ -13,7 +13,7 @@ from quantum_lab_demo import (
     NOTEBOOK_WORKSPACE_ROOT_ENV,
     run_readout_frequency_workflow,
     run_readout_iq_workflow,
-    run_sample_native_experiments,
+    run_sample_experiments,
 )
 
 EXAMPLE_ROOT = Path(__file__).parents[1]
@@ -42,7 +42,7 @@ def _load_script_path(path: Path) -> ModuleType:
     return module
 
 
-def test_readout_frequency_demo_lab_runs_native_workflow(
+def test_readout_frequency_demo_lab_runs_provider_workflow(
     tmp_path: Path,
 ) -> None:
     result = run_readout_frequency_workflow(workspace=tmp_path)
@@ -55,7 +55,7 @@ def test_readout_frequency_demo_lab_runs_native_workflow(
     ]
 
 
-def test_readout_iq_demo_lab_runs_native_workflow(
+def test_readout_iq_demo_lab_runs_provider_workflow(
     tmp_path: Path,
 ) -> None:
     result = run_readout_iq_workflow(workspace=tmp_path)
@@ -67,10 +67,10 @@ def test_readout_iq_demo_lab_runs_native_workflow(
     ]
 
 
-def test_sample_experiments_demo_lab_runs_native_workflow(
+def test_sample_experiments_demo_lab_runs_provider_workflow(
     tmp_path: Path,
 ) -> None:
-    result = run_sample_native_experiments(workspace=tmp_path)
+    result = run_sample_experiments(workspace=tmp_path)
 
     assert [run.manifest.status for run in result.runs] == ["completed"] * 4
     assert result.template_ids == (
@@ -82,13 +82,13 @@ def test_sample_experiments_demo_lab_runs_native_workflow(
 
 
 def test_demo_lab_scripts_return_workflow_results(tmp_path: Path) -> None:
-    dry_run_script = _load_script("dry_run")
+    preview_script = _load_script("preview")
 
-    dry_run_result = dry_run_script.run(workspace=tmp_path / "dry-run")
+    preview_result = preview_script.run(workspace=tmp_path / "preview")
 
-    assert dry_run_result.manifest.runner_id == "scopecat.planner"
-    assert "Result intents: signal" in dry_run_script.format_dry_run_summary(
-        dry_run_result
+    assert len(preview_result.plan.points) == 3
+    assert "Result intents: signal" in preview_script.format_preview_summary(
+        preview_result
     )
 
 

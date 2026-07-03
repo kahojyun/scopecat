@@ -20,12 +20,7 @@ class RunHeader(BaseModel):
 
     run_id: str
     status: str
-    runner_id: str
-    dry_run: bool
-    experiment_ref: str
     created_at: datetime
-    workspace_ref: str
-    device_ref: str
 
 
 class ConfigSourceInfo(BaseModel):

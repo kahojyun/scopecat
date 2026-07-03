@@ -9,7 +9,7 @@ from scopecat.run_comparison import execute_run_comparison
 from tests.support.diagnostics import assert_diagnostic
 from tests.support.run_comparison import (
     candidate_data_records,
-    simulate,
+    run_signal_experiment,
     write_candidate_records,
 )
 
@@ -26,8 +26,8 @@ def test_run_comparison_rejects_unsafe_run_id(tmp_path: Path) -> None:
 
 
 def test_run_comparison_reports_missing_data(tmp_path: Path) -> None:
-    baseline_run_id = simulate(tmp_path)
-    candidate_run_id = simulate(tmp_path)
+    baseline_run_id = run_signal_experiment(tmp_path)
+    candidate_run_id = run_signal_experiment(tmp_path)
     (
         tmp_path / "runs" / candidate_run_id / "artifacts" / "raw-measurements.jsonl"
     ).unlink()
@@ -43,8 +43,8 @@ def test_run_comparison_reports_missing_data(tmp_path: Path) -> None:
 
 
 def test_run_comparison_reports_observable_unit_mismatch(tmp_path: Path) -> None:
-    baseline_run_id = simulate(tmp_path)
-    candidate_run_id = simulate(tmp_path)
+    baseline_run_id = run_signal_experiment(tmp_path)
+    candidate_run_id = run_signal_experiment(tmp_path)
     records = candidate_data_records(tmp_path, candidate_run_id)
     records[1]["observables"]["signal"]["unit"] = "count"
     write_candidate_records(tmp_path, candidate_run_id, records)

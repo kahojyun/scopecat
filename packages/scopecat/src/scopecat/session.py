@@ -11,17 +11,12 @@ from scopecat.analysis.online import EarlyStopDecision, decide_online_convergenc
 from scopecat.authoring import (
     ExperimentAuthoringContext,
     ExperimentDraft,
-    ResolvedExperiment,
-    resolve_experiment,
-    resolve_experiment_with_config,
 )
 from scopecat.candidate_configs import (
     CandidateConfig,
     CandidateConfigInput,
     resolve_candidate_config,
 )
-from scopecat.diagnostics import Diagnostic
-from scopecat.errors import ValidationFailed
 from scopecat.experiments import (
     acquire,
     delete_param_rows,
@@ -31,7 +26,7 @@ from scopecat.experiments import (
     update_param_rows,
 )
 from scopecat.experiments import experiment as experiment_spec
-from scopecat.instruments.sdk import NativeInstrumentProvider
+from scopecat.instruments.sdk import InstrumentProvider
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.parameter_changes import (
@@ -63,13 +58,16 @@ from scopecat.session_templates import (
 )
 from scopecat.workflows import (
     ConfigProfileInput,
+    PreviewExperimentResult,
     RegisterAndActivateCandidateConfigResult,
-    RunMode,
+    ValidateExperimentResult,
     compare_runs,
     list_runs,
     load_run,
+    preview_experiment,
     register_and_activate_candidate_config,
     run_experiment,
+    validate_experiment,
 )
 from scopecat.workflows._types import ExperimentInput
 
@@ -136,8 +134,7 @@ class Workspace:
     _workspace: Path
     config: str | ConfigProfileSnapshot = "active"
     config_profile: ConfigProfileInput | None = None
-    mode: RunMode = "dry"
-    native_instrument_provider: NativeInstrumentProvider | None = None
+    instrument_provider: InstrumentProvider | None = None
     reviewer: str = "operator"
     operator: str = "operator"
 
@@ -162,14 +159,13 @@ class Workspace:
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
-        mode: RunMode | None = None,
-        native_instrument_provider: NativeInstrumentProvider | None = None,
+        instrument_provider: InstrumentProvider | None = None,
     ) -> RunHandle:
         if isinstance(config, CandidateConfig):
             config = resolve_candidate_config(config, workspace=self.workspace).config
         return RunHandle(
             session=self,
-            result=run_experiment(
+            manifest=run_experiment(
                 _experiment_input(experiment),
                 workspace=self.workspace,
                 config=self.config if config is None else config,
@@ -177,28 +173,50 @@ class Workspace:
                     config=config,
                     config_profile=config_profile,
                 ),
-                mode=self.mode if mode is None else mode,
-                native_instrument_provider=(
-                    self.native_instrument_provider
-                    if native_instrument_provider is None
-                    else native_instrument_provider
+                instrument_provider=(
+                    self.instrument_provider
+                    if instrument_provider is None
+                    else instrument_provider
                 ),
             ),
         )
 
     def preview(
         self,
-        experiment: ExperimentDraft | Experiment,
+        experiment: ExperimentInput | Experiment,
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
-    ) -> ResolvedExperiment:
+    ) -> PreviewExperimentResult:
         if isinstance(config, CandidateConfig):
             config = resolve_candidate_config(config, workspace=self.workspace).config
-        return self._resolve_preview(
-            _experiment_draft(experiment),
-            config=config,
-            config_profile=config_profile,
+        return preview_experiment(
+            _experiment_input(experiment),
+            workspace=self.workspace,
+            config=self.config if config is None else config,
+            config_profile=self._effective_config_profile(
+                config=config,
+                config_profile=config_profile,
+            ),
+        )
+
+    def validate(
+        self,
+        experiment: ExperimentInput | Experiment,
+        *,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+        config_profile: ConfigProfileInput | None = None,
+    ) -> ValidateExperimentResult:
+        if isinstance(config, CandidateConfig):
+            config = resolve_candidate_config(config, workspace=self.workspace).config
+        return validate_experiment(
+            _experiment_input(experiment),
+            workspace=self.workspace,
+            config=self.config if config is None else config,
+            config_profile=self._effective_config_profile(
+                config=config,
+                config_profile=config_profile,
+            ),
         )
 
     def compare(
@@ -229,8 +247,8 @@ class Workspace:
 
     def runs(self) -> tuple[RunHandle, ...]:
         return tuple(
-            RunHandle(session=self, manifest=view.manifest)
-            for view in list_runs(workspace=self.workspace)
+            RunHandle(session=self, manifest=manifest)
+            for manifest in list_runs(workspace=self.workspace)
         )
 
     def get_run(self, run: RunRef) -> RunHandle:
@@ -275,47 +293,6 @@ class Workspace:
             activation_note=activation_note,
         )
 
-    def _resolve_preview(
-        self,
-        experiment: ExperimentDraft,
-        *,
-        config: str | ConfigProfileSnapshot | None = None,
-        config_profile: ConfigProfileInput | None = None,
-    ) -> ResolvedExperiment:
-        effective_config = self.config if config is None else config
-        effective_config_profile = self._effective_config_profile(
-            config=config,
-            config_profile=config_profile,
-        )
-        if isinstance(effective_config, ConfigProfileSnapshot):
-            if effective_config_profile is not None:
-                raise ValidationFailed(
-                    [
-                        Diagnostic(
-                            severity="error",
-                            code="conflicting_workspace_config_source",
-                            message="provide either config or config_profile, not both",
-                            path="config",
-                        )
-                    ]
-                )
-            return resolve_experiment_with_config(
-                experiment,
-                config=effective_config,
-                workspace=self.workspace,
-            )
-        config_entry = (
-            None
-            if effective_config_profile is not None and effective_config == "active"
-            else effective_config
-        )
-        return resolve_experiment(
-            experiment,
-            workspace=self.workspace,
-            config_entry=config_entry,
-            config_profile=effective_config_profile,
-        )
-
     def _effective_config_profile(
         self,
         *,
@@ -332,8 +309,7 @@ def open(  # noqa: A001
     *,
     config: str | ConfigProfileSnapshot = "active",
     config_profile: ConfigProfileInput | None = None,
-    mode: RunMode = "dry",
-    native_instrument_provider: NativeInstrumentProvider | None = None,
+    instrument_provider: InstrumentProvider | None = None,
     reviewer: str = "operator",
     operator: str = "operator",
 ) -> Workspace:
@@ -341,8 +317,7 @@ def open(  # noqa: A001
         _workspace=Path(workspace),
         config=config,
         config_profile=config_profile,
-        mode=mode,
-        native_instrument_provider=native_instrument_provider,
+        instrument_provider=instrument_provider,
         reviewer=reviewer,
         operator=operator,
     )
@@ -351,16 +326,6 @@ def open(  # noqa: A001
 def _experiment_input(experiment: ExperimentInput | Experiment) -> ExperimentInput:
     if isinstance(experiment, Experiment):
         return experiment.to_input()
-    return experiment
-
-
-def _experiment_draft(experiment: ExperimentDraft | Experiment) -> ExperimentDraft:
-    if isinstance(experiment, Experiment):
-        source = experiment.to_input()
-        if isinstance(source, ExperimentDraft):
-            return source
-        msg = "workspace preview requires an ExperimentDraft source"
-        raise TypeError(msg)
     return experiment
 
 

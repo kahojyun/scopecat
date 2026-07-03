@@ -1,4 +1,4 @@
-"""Native instrument execution SDK."""
+"""Instrument execution SDK."""
 
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from scopecat.instruments.state import (
 )
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.provider import ProviderOptionDescription
-from scopecat.models.run import RunEvent
 from scopecat.results import MeasurementSink
 
 CapabilityFieldKind = Literal["quantity", "number", "asset"]
@@ -82,16 +81,15 @@ class InstrumentStatePatch(BaseModel):
     fields: list[StatePatchField] = Field(default_factory=list)
 
 
-class NativeInstrumentResult(BaseModel):
+class InstrumentResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     diagnostics: list[Diagnostic] = Field(default_factory=list)
-    events: list[RunEvent] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)
-class NativeAcquisitionContext:
+class AcquisitionContext:
     run_id: str
     plan: PlanSnapshot
     point: ExecutionPoint
@@ -102,7 +100,7 @@ class NativeAcquisitionContext:
     desired_state: list[DesiredResourceState]
 
 
-class NativeInstrument(Protocol):
+class Instrument(Protocol):
     instrument_id: str
     implementation_id: str
     implementation_version: str
@@ -123,9 +121,9 @@ class NativeInstrument(Protocol):
 
     def acquire(
         self,
-        context: NativeAcquisitionContext,
+        context: AcquisitionContext,
         sink: MeasurementSink,
-    ) -> NativeInstrumentResult: ...
+    ) -> InstrumentResult: ...
 
     def cleanup(self) -> None: ...
 
@@ -133,20 +131,20 @@ class NativeInstrument(Protocol):
 
 
 @dataclass(frozen=True)
-class NativeInstrumentProviderContext:
+class InstrumentProviderContext:
     config: ConfigProfileSnapshot
     experiment: ExperimentSpec
 
 
 @dataclass(frozen=True)
-class NativeInstrumentProviderResult:
-    instruments: tuple[NativeInstrument, ...]
+class InstrumentProviderResult:
+    instruments: tuple[Instrument, ...]
     diagnostics: tuple[Diagnostic, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
-class NativeInstrumentProviderDescription:
+class InstrumentProviderDescription:
     provider_id: str
     label: str | None = None
     description: str | None = None
@@ -156,12 +154,12 @@ class NativeInstrumentProviderDescription:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-class NativeInstrumentProvider(Protocol):
+class InstrumentProvider(Protocol):
     @property
     def provider_id(self) -> str: ...
 
-    def describe(self) -> NativeInstrumentProviderDescription: ...
+    def describe(self) -> InstrumentProviderDescription: ...
 
     def provide(
-        self, context: NativeInstrumentProviderContext
-    ) -> NativeInstrumentProviderResult: ...
+        self, context: InstrumentProviderContext
+    ) -> InstrumentProviderResult: ...

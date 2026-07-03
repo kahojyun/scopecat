@@ -1,15 +1,15 @@
-"""Managed native providers backed by configurable virtual devices."""
+"""Managed instrument providers backed by configurable virtual devices."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from scopecat.instruments import (
-    ManagedNativeInstrument,
-    ManagedNativeProvider,
-    NativeMeasurementContext,
-    NativeProviderBuildContext,
-    NativeStateChange,
+    ManagedInstrument,
+    ManagedInstrumentProvider,
+    MeasurementContext,
+    ProviderBuildContext,
+    StateChange,
     asset_field,
     capability,
     number_field,
@@ -32,7 +32,7 @@ from quantum_lab_demo.virtual_lab.responses import (
 )
 
 
-class _VirtualManagedInstrument(ManagedNativeInstrument):
+class _VirtualManagedInstrument(ManagedInstrument):
     def __init__(self, *, device: VirtualDevice, **kwargs: Any) -> None:
         self._device = device
         super().__init__(instrument_id=device.id, initial_state=device.state, **kwargs)
@@ -41,12 +41,12 @@ class _VirtualManagedInstrument(ManagedNativeInstrument):
     def virtual_device(self) -> VirtualDevice:
         return self._device
 
-    def apply_state(self, changes: NativeStateChange) -> None:
+    def apply_state(self, changes: StateChange) -> None:
         self._device.apply(changes)
 
 
-class ReadoutFrequencyNativeStack(_VirtualManagedInstrument):
-    implementation_id = "quantum_lab_demo.native_readout_frequency_stack"
+class ReadoutFrequencyStack(_VirtualManagedInstrument):
+    implementation_id = "quantum_lab_demo.readout_frequency_stack"
     implementation_version = "v0"
 
     def __init__(
@@ -92,7 +92,7 @@ class ReadoutFrequencyNativeStack(_VirtualManagedInstrument):
 
     def measure(
         self,
-        context: NativeMeasurementContext,
+        context: MeasurementContext,
         sink: MeasurementSink,
     ) -> None:
         if context.acquisition_kind != "iq":
@@ -107,8 +107,8 @@ class ReadoutFrequencyNativeStack(_VirtualManagedInstrument):
         )
 
 
-class ReadoutIQNativeStack(_VirtualManagedInstrument):
-    implementation_id = "quantum_lab_demo.native_readout_iq_stack"
+class ReadoutIQStack(_VirtualManagedInstrument):
+    implementation_id = "quantum_lab_demo.readout_iq_stack"
     implementation_version = "v0"
 
     def __init__(self, *, device: VirtualDevice, response_profile) -> None:
@@ -136,7 +136,7 @@ class ReadoutIQNativeStack(_VirtualManagedInstrument):
 
     def measure(
         self,
-        context: NativeMeasurementContext,
+        context: MeasurementContext,
         sink: MeasurementSink,
     ) -> None:
         if context.acquisition_kind != "iq":
@@ -150,8 +150,8 @@ class ReadoutIQNativeStack(_VirtualManagedInstrument):
         )
 
 
-class FluxBiasNativeSource(_VirtualManagedInstrument):
-    implementation_id = "quantum_lab_demo.native_flux_bias_source"
+class FluxBiasSource(_VirtualManagedInstrument):
+    implementation_id = "quantum_lab_demo.flux_bias_source"
     implementation_version = "v0"
 
     def __init__(self, *, device: VirtualDevice) -> None:
@@ -230,7 +230,7 @@ class SampleReadoutStack(_VirtualManagedInstrument):
 
     def measure(
         self,
-        context: NativeMeasurementContext,
+        context: MeasurementContext,
         sink: MeasurementSink,
     ) -> None:
         record_sample_measurement(
@@ -260,7 +260,7 @@ class SampleCouplerStack(_VirtualManagedInstrument):
         )
 
 
-class _VirtualLabProvider(ManagedNativeProvider):
+class _VirtualLabProvider(ManagedInstrumentProvider):
     def __init__(
         self,
         *,
@@ -299,7 +299,7 @@ class _VirtualLabProvider(ManagedNativeProvider):
     def _lab(self) -> VirtualLab:
         return VirtualLab.from_profiles(self.profile.devices)
 
-    def _build(self, context: NativeProviderBuildContext):
+    def _build(self, context: ProviderBuildContext):
         del context
         return self._build_virtual_instruments(self._lab())
 
@@ -316,7 +316,7 @@ class ReadoutFrequencyVirtualProvider(_VirtualLabProvider):
     def __init__(
         self,
         profile: VirtualLabProfileInput,
-        provider_id: str = ("quantum_lab_demo.native_readout_frequency_provider"),
+        provider_id: str = ("quantum_lab_demo.readout_frequency_provider"),
     ) -> None:
         super().__init__(
             profile=profile,
@@ -324,7 +324,7 @@ class ReadoutFrequencyVirtualProvider(_VirtualLabProvider):
             label="Quantum readout frequency virtual-lab provider",
             description=(
                 "Provides virtual readout-stack and flux-bias-source devices "
-                "for native readout frequency calibration."
+                "for readout frequency calibration."
             ),
             provided_instrument_ids=("readout-stack", "flux-bias-source"),
             capabilities=(
@@ -343,12 +343,12 @@ class ReadoutFrequencyVirtualProvider(_VirtualLabProvider):
         if response_profile is None:
             raise KeyError("readout-stack requires response_model_id")
         return [
-            ReadoutFrequencyNativeStack(
+            ReadoutFrequencyStack(
                 device=readout,
                 flux_bias=flux_bias,
                 response_profile=response_profile,
             ),
-            FluxBiasNativeSource(device=flux_bias),
+            FluxBiasSource(device=flux_bias),
         ]
 
 
@@ -356,14 +356,14 @@ class ReadoutIQVirtualProvider(_VirtualLabProvider):
     def __init__(
         self,
         profile: VirtualLabProfileInput,
-        provider_id: str = "quantum_lab_demo.native_readout_iq_provider",
+        provider_id: str = "quantum_lab_demo.readout_iq_provider",
     ) -> None:
         super().__init__(
             profile=profile,
             provider_id=provider_id,
             label="Quantum readout IQ virtual-lab provider",
             description=(
-                "Provides a virtual readout-stack device for native shot-level "
+                "Provides a virtual readout-stack device for shot-level "
                 "readout IQ quality runs."
             ),
             provided_instrument_ids=("readout-stack",),
@@ -377,7 +377,7 @@ class ReadoutIQVirtualProvider(_VirtualLabProvider):
         if response_profile is None:
             raise KeyError("readout-stack requires response_model_id")
         return [
-            ReadoutIQNativeStack(
+            ReadoutIQStack(
                 device=readout,
                 response_profile=response_profile,
             )
@@ -388,12 +388,12 @@ class SampleVirtualProvider(_VirtualLabProvider):
     def __init__(
         self,
         profile: VirtualLabProfileInput,
-        provider_id: str = "quantum_lab_demo.sample_native_provider",
+        provider_id: str = "quantum_lab_demo.sample_provider",
     ) -> None:
         super().__init__(
             profile=profile,
             provider_id=provider_id,
-            label="Sample virtual-lab native provider",
+            label="Sample virtual-lab instrument provider",
             description=(
                 "Provides virtual hardware-shaped devices for sample-backed "
                 "authoring templates."
@@ -418,10 +418,10 @@ class SampleVirtualProvider(_VirtualLabProvider):
 
 
 __all__ = [
-    "FluxBiasNativeSource",
-    "ReadoutFrequencyNativeStack",
+    "FluxBiasSource",
+    "ReadoutFrequencyStack",
     "ReadoutFrequencyVirtualProvider",
-    "ReadoutIQNativeStack",
+    "ReadoutIQStack",
     "ReadoutIQVirtualProvider",
     "SampleCouplerStack",
     "SampleDriveStack",

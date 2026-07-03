@@ -171,7 +171,7 @@ display and storage details, not navigation keys.
 GUI write actions should be reproducible from Python APIs:
 
 - create a run request;
-- dry-run or run a structured experiment;
+- preview or validate explicitly, or run a structured experiment;
 - open a run scope for capture;
 - save manual analysis;
 - run a follow-up candidate;

@@ -13,7 +13,7 @@ from scopecat.models.parameter import Quantity
 from scopecat.models.run import utc_now
 
 RUN_COMPARISON_JOB_SCHEMA_VERSION = "scopecat.run_comparison_job.v1"
-RUN_COMPARISON_RESULT_SCHEMA_VERSION = "scopecat.run_comparison_result.v0"
+RUN_COMPARISON_RESULT_SCHEMA_VERSION = "scopecat.run_comparison_result.v1"
 RUN_COMPARISON_REVIEW_RECORD_SCHEMA_VERSION = "scopecat.run_comparison_review_record.v0"
 
 SectionStatus = Literal["available", "not_available"]
@@ -71,8 +71,6 @@ class RunComparisonResult(BaseModel):
     baseline_run_id: str
     candidate_run_id: str
     observable_id: str
-    baseline_data_ref: str
-    candidate_data_ref: str
     baseline_analysis_artifact_ids: list[str] = Field(default_factory=list)
     candidate_analysis_artifact_ids: list[str] = Field(default_factory=list)
     baseline_config_source: RunComparisonConfigSourceSummary

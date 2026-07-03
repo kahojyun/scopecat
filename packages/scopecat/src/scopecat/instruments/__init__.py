@@ -1,39 +1,33 @@
-"""Native instrument execution APIs."""
+"""Instrument execution APIs."""
 
-from scopecat.instruments.executor import execute_native_run
+from scopecat.instruments.executor import execute_run
 from scopecat.instruments.managed import (
-    ManagedNativeInstrument,
-    ManagedNativeProvider,
-    NativeDriverDiagnostic,
-    NativeMeasurementContext,
-    NativeProviderBuildContext,
-    NativeStateChange,
+    DriverDiagnostic,
+    ManagedInstrument,
+    ManagedInstrumentProvider,
+    MeasurementContext,
+    ProviderBuildContext,
+    StateChange,
     asset_field,
     capability,
     number_field,
     quantity_field,
 )
 from scopecat.instruments.snapshots import (
-    NATIVE_BOUNDARY_MANIFEST_SCHEMA_VERSION,
-    NativeBoundaryManifest,
-    NativeRunSnapshot,
-    build_native_boundary_manifest,
+    ExecutionSnapshot,
 )
 
 __all__ = [
-    "NATIVE_BOUNDARY_MANIFEST_SCHEMA_VERSION",
-    "ManagedNativeInstrument",
-    "ManagedNativeProvider",
-    "NativeBoundaryManifest",
-    "NativeDriverDiagnostic",
-    "NativeMeasurementContext",
-    "NativeProviderBuildContext",
-    "NativeRunSnapshot",
-    "NativeStateChange",
+    "DriverDiagnostic",
+    "ExecutionSnapshot",
+    "ManagedInstrument",
+    "ManagedInstrumentProvider",
+    "MeasurementContext",
+    "ProviderBuildContext",
+    "StateChange",
     "asset_field",
-    "build_native_boundary_manifest",
     "capability",
-    "execute_native_run",
+    "execute_run",
     "number_field",
     "quantity_field",
 ]

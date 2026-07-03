@@ -17,7 +17,6 @@ CORE_DIAGNOSTIC_DEFAULT_SEVERITY: dict[str, DiagnosticSeverity] = {
     "run_comparison_point_mismatch": "error",
     "run_comparison_primary_observable_mismatch": "error",
     "run_comparison_unit_mismatch": "error",
-    "unsupported_run_comparison_input": "error",
 }
 
 

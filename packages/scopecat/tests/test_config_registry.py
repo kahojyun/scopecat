@@ -17,7 +17,7 @@ from scopecat.runs import open_run_store
 from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.config_registry import (
     load_config,
-    simulate_with_parameter_change,
+    signal_run_with_parameter_change,
 )
 from tests.support.records import assert_artifact_ref, read_model
 
@@ -32,7 +32,7 @@ def test_register_config_profile_writes_and_activates_direct_entry(
         entry_id="seed",
         registered_by="operator",
         note="seed config",
-        source_ref="fixtures/core/simulated_scan/config-profile.json",
+        source_ref="fixtures/core/simple_scan/config-profile.json",
     )
 
     assert job.source_kind == "direct_config_profile"
@@ -58,7 +58,7 @@ def test_register_config_profile_writes_and_activates_direct_entry(
 def test_candidate_config_registers_and_activates_parameter_change(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_with_parameter_change(tmp_path)
+    run_id = signal_run_with_parameter_change(tmp_path)
     change_set = load_parameter_change(
         run_id=run_id,
         selector="best-signal",

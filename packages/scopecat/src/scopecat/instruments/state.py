@@ -1,4 +1,4 @@
-"""Native instrument state and acquisition value objects."""
+"""Instrument state and acquisition value objects."""
 
 from __future__ import annotations
 

@@ -5,26 +5,25 @@ from pathlib import Path
 import scopecat as sc
 from scopecat.run_overview import build_run_overview
 from scopecat.runs import open_run_store
-from scopecat.workflows import StartRunResult
 from tests.support.records import assert_artifact_ref
 from tests.support.run_overview import (
-    config_registry_sourced_simulated_run,
+    config_registry_sourced_signal_run,
     load_config,
     load_experiment,
-    simulate,
-    simulate_analyze_and_activate,
-    simulate_analyze_and_review,
+    run_signal_experiment,
+    run_signal_experiment_with_active_candidate,
+    run_signal_experiment_with_review,
 )
 from tests.support.signal_testkit import (
-    execute_signal_native_run,
+    execute_signal_run,
     execute_summary_stats_analysis,
 )
 
 
-def test_build_run_overview_for_simulated_run_does_not_update_manifest(
+def test_build_run_overview_for_signal_run_does_not_update_manifest(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate(tmp_path)
+    run_id = run_signal_experiment(tmp_path)
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
@@ -37,7 +36,7 @@ def test_build_run_overview_for_simulated_run_does_not_update_manifest(
 def test_build_run_overview_for_full_local_workflow(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_analyze_and_review(tmp_path)
+    run_id = run_signal_experiment_with_review(tmp_path)
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
@@ -104,15 +103,15 @@ def test_build_run_overview_for_full_local_workflow(
 def test_build_run_overview_includes_manual_analysis_artifact_refs(
     tmp_path: Path,
 ) -> None:
-    manifest, snapshot = execute_signal_native_run(
+    manifest, _snapshot = execute_signal_run(
         config=load_config(),
         experiment=load_experiment(),
         workspace=tmp_path,
     )
-    lab = sc.open(tmp_path, config=load_config(), mode="native_simulate")
+    lab = sc.open(tmp_path, config=load_config())
     run = sc.Run(
         session=lab,
-        result=StartRunResult(manifest=manifest, snapshot=snapshot),
+        manifest=manifest,
     )
     (
         run.analysis("report review")
@@ -154,7 +153,7 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
 def test_build_run_overview_includes_activation_generated_candidate_config_artifact(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_analyze_and_activate(tmp_path)
+    run_id = run_signal_experiment_with_active_candidate(tmp_path)
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
@@ -168,7 +167,7 @@ def test_build_run_overview_includes_activation_generated_candidate_config_artif
 def test_build_run_overview_marks_missing_optional_sections(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate(tmp_path)
+    run_id = run_signal_experiment(tmp_path)
     execute_summary_stats_analysis(run_id=run_id, workspace=tmp_path)
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
@@ -181,7 +180,7 @@ def test_build_run_overview_marks_missing_optional_sections(
 def test_build_run_overview_includes_literal_config_registry_config_source(
     tmp_path: Path,
 ) -> None:
-    run_id = config_registry_sourced_simulated_run(tmp_path, selector="literal")
+    run_id = config_registry_sourced_signal_run(tmp_path, selector="literal")
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
@@ -204,7 +203,7 @@ def test_build_run_overview_includes_literal_config_registry_config_source(
 def test_build_run_overview_includes_active_config_registry_config_source(
     tmp_path: Path,
 ) -> None:
-    run_id = config_registry_sourced_simulated_run(tmp_path, selector="active")
+    run_id = config_registry_sourced_signal_run(tmp_path, selector="active")
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 

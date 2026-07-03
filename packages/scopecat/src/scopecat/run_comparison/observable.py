@@ -55,8 +55,6 @@ def execute_run_comparison(
     storage = open_run_store(workspace)
     baseline_manifest = storage.read_manifest(baseline_run_id)
     candidate_manifest = storage.read_manifest(candidate_run_id)
-    _validate_executed_runner_manifest(baseline_manifest)
-    _validate_executed_runner_manifest(candidate_manifest)
     resolved_observable_id = _resolve_observable_id(
         requested=observable_id,
         baseline_manifest=baseline_manifest,
@@ -105,8 +103,6 @@ def execute_run_comparison(
         baseline_run_id=baseline_run_id,
         candidate_run_id=candidate_run_id,
         observable_id=resolved_observable_id,
-        baseline_data_ref=MEASUREMENT_DATA_REF,
-        candidate_data_ref=MEASUREMENT_DATA_REF,
         baseline_analysis_artifact_ids=[
             artifact.id for artifact in baseline_analysis_artifacts
         ],
@@ -612,20 +608,6 @@ def _validate_safe_id(value: str, path: str) -> None:
                     "run_comparison_invalid_id",
                     f"run comparison id is not safe: {value}",
                     path,
-                )
-            ]
-        )
-
-
-def _validate_executed_runner_manifest(manifest: RunManifest) -> None:
-    if manifest.dry_run:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "unsupported_run_comparison_input",
-                    f"run comparison requires executed runner data: {manifest.run_id}",
-                    "dry_run",
                 )
             ]
         )

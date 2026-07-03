@@ -20,10 +20,10 @@ from scopecat.results import (
     MeasurementRecord,
     validate_measurement_records_against_schema,
 )
-from scopecat.runner.constants import RUNNER_ADAPTER_RAW_MEASUREMENTS_FILENAME
 from scopecat.runs.access import require_artifact
 
-MEASUREMENT_DATA_REF = f"{ARTIFACTS_DIR}/{RUNNER_ADAPTER_RAW_MEASUREMENTS_FILENAME}"
+RAW_MEASUREMENTS_FILENAME = "raw-measurements.jsonl"
+MEASUREMENT_DATA_REF = f"{ARTIFACTS_DIR}/{RAW_MEASUREMENTS_FILENAME}"
 
 
 def read_measurement_records(

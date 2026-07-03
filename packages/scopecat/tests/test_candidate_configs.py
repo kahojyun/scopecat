@@ -14,10 +14,11 @@ from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.parameter_changes import load_parameter_change
 from scopecat.relations import col
 from scopecat.workflows import register_and_activate_candidate_config
-from tests.support.config_registry import simulate_with_parameter_change
+from tests.support.config_registry import signal_run_with_parameter_change
 from tests.support.records import read_model
+from tests.support.signal_instruments import TestSignalInstrumentProvider
 
-EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simulated_scan"
+EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
 
 def load_experiment() -> ExperimentSpec:
@@ -30,7 +31,7 @@ def test_candidate_config_resolves_parameter_change_and_runs_follow_up(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="dry",
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
     candidate = (
@@ -71,7 +72,7 @@ def test_candidate_config_selects_independent_parameter_changes(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="dry",
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
     analysis = (
@@ -112,7 +113,7 @@ def test_analysis_rejects_point_local_parameter_change_patch(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="dry",
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
 
@@ -128,7 +129,7 @@ def test_analysis_rejects_point_local_parameter_change_patch(
 def test_candidate_config_preflight_failure_does_not_register(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_with_parameter_change(tmp_path)
+    run_id = signal_run_with_parameter_change(tmp_path)
     config_path = tmp_path / "runs" / run_id / "config-profile.snapshot.json"
     persisted_config = read_model(config_path, ConfigProfileSnapshot)
     config = persisted_config.model_dump(mode="json")

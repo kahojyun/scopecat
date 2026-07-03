@@ -10,26 +10,25 @@ from scopecat.config_registry import (
     resolve_config_registry_config_source,
     rollback_config_registry,
 )
-from scopecat.execution.dry_run import execute_dry_run
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import load_config_profile
 from scopecat.run_comparison import execute_run_comparison, review_run_comparison
 from scopecat.run_overview import build_run_overview
 from scopecat.workflows import register_and_activate_candidate_config
-from scopecat.workflows.runs import native_run_executor, start_native_run, start_run
-from tests.support.native_signal import TestSignalInstrumentProvider
+from scopecat.workflows.runs import preview_experiment, start_run
 from tests.support.records import read_model
+from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.signal_testkit import (
     BestSignalAnalysisStep,
     SummaryStatsAnalysisStep,
-    execute_signal_native_run,
+    execute_signal_run,
 )
 
 Exercise = Callable[[Path], None]
 
 REPO_ROOT = Path(__file__).parents[4]
 FIXTURE_ROOT = REPO_ROOT / "fixtures"
-SIMULATED_FIXTURE_DIR = FIXTURE_ROOT / "core" / "simulated_scan"
+SIGNAL_FIXTURE_DIR = FIXTURE_ROOT / "core" / "simple_scan"
 
 
 def _load_fixture(fixture_dir: Path):
@@ -39,15 +38,14 @@ def _load_fixture(fixture_dir: Path):
     )
 
 
-def _load_simulated_fixture():
-    return _load_fixture(SIMULATED_FIXTURE_DIR)
+def _load_signal_fixture():
+    return _load_fixture(SIGNAL_FIXTURE_DIR)
 
 
 def _start_signal_run(workspace: Path):
-    config, experiment = _load_simulated_fixture()
+    config, experiment = _load_signal_fixture()
     return start_run(
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
         config=config,
         experiment=experiment,
         workspace=workspace,
@@ -55,8 +53,8 @@ def _start_signal_run(workspace: Path):
 
 
 def _execute_signal_run(workspace: Path):
-    config, experiment = _load_simulated_fixture()
-    return execute_signal_native_run(
+    config, experiment = _load_signal_fixture()
+    return execute_signal_run(
         config=config,
         experiment=experiment,
         workspace=workspace,
@@ -64,31 +62,35 @@ def _execute_signal_run(workspace: Path):
 
 
 def _candidate_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfig:
-    config, _experiment = _load_simulated_fixture()
-    lab = sc.open(workspace, config=config, mode="native_simulate")
+    config, _experiment = _load_signal_fixture()
+    lab = sc.open(workspace, config=config)
     run = lab.get_run(run_id)
     analysis = run.analyze(BestSignalAnalysisStep())
     analysis.save()
     return analysis.candidate_config()
 
 
-def exercise_dry_run(workspace: Path) -> None:
-    config = load_config_profile(SIMULATED_FIXTURE_DIR / "config-profile.json")
-    experiment = read_model(SIMULATED_FIXTURE_DIR / "experiment.json", ExperimentSpec)
-    execute_dry_run(config=config, experiment=experiment, workspace=workspace)
+def exercise_preview(workspace: Path) -> None:
+    config = load_config_profile(SIGNAL_FIXTURE_DIR / "config-profile.json")
+    experiment = read_model(SIGNAL_FIXTURE_DIR / "experiment.json", ExperimentSpec)
+    preview_experiment(
+        config=config,
+        experiment=experiment,
+        workspace=workspace,
+    )
 
 
-def exercise_native_simulation(workspace: Path) -> None:
+def exercise_signal_provider_run(workspace: Path) -> None:
     _execute_signal_run(workspace)
 
 
 def exercise_workflow_pipeline(workspace: Path) -> None:
     run = _start_signal_run(workspace)
-    config, _experiment = _load_simulated_fixture()
-    lab = sc.open(workspace, config=config, mode="native_simulate")
-    run_handle = lab.get_run(run.manifest.run_id)
+    config, _experiment = _load_signal_fixture()
+    lab = sc.open(workspace, config=config)
+    run_handle = lab.get_run(run.run_id)
     run_handle.analyze(SummaryStatsAnalysisStep()).save()
-    candidate = _candidate_best_signal(workspace, run.manifest.run_id)
+    candidate = _candidate_best_signal(workspace, run.run_id)
     register_and_activate_candidate_config(
         candidate=candidate,
         workspace=workspace,
@@ -99,8 +101,8 @@ def exercise_workflow_pipeline(workspace: Path) -> None:
 
 
 def exercise_config_registry(workspace: Path) -> None:
-    config, experiment = _load_simulated_fixture()
-    manifest, _simulated_run = execute_signal_native_run(
+    config, experiment = _load_signal_fixture()
+    manifest, _snapshot = execute_signal_run(
         config=config,
         experiment=experiment,
         workspace=workspace,
@@ -113,7 +115,7 @@ def exercise_config_registry(workspace: Path) -> None:
         registered_by="operator",
         operator="operator",
     )
-    candidate_seed, _candidate_seed_run = execute_signal_native_run(
+    candidate_seed, _snapshot = execute_signal_run(
         config=config,
         experiment=experiment,
         workspace=workspace,
@@ -142,7 +144,7 @@ def exercise_config_registry(workspace: Path) -> None:
         selector="active",
         workspace=workspace,
     )
-    candidate_manifest, _candidate_run = execute_signal_native_run(
+    candidate_manifest, _candidate_run = execute_signal_run(
         config=config_source_config,
         experiment=experiment,
         workspace=workspace,
@@ -164,26 +166,20 @@ def exercise_config_registry(workspace: Path) -> None:
     build_run_overview(run_id=candidate_manifest.run_id, workspace=workspace)
 
 
-def exercise_native_instrument_provider_workflow(workspace: Path) -> None:
-    config, experiment = _load_simulated_fixture()
-    provider = TestSignalInstrumentProvider()
-    start_native_run(
+def exercise_instrument_provider_workflow(workspace: Path) -> None:
+    config, experiment = _load_signal_fixture()
+    start_run(
         config=config,
         experiment=experiment,
-        workspace=workspace / "start-native",
-        instrument_provider=provider,
-    )
-    native_run_executor(provider).start(
-        config=config,
-        experiment=experiment,
-        workspace=workspace / "executor",
+        workspace=workspace,
+        instrument_provider=TestSignalInstrumentProvider(),
     )
 
 
 NO_LIVE_IMPORT_EXERCISES: tuple[Exercise, ...] = (
-    exercise_dry_run,
-    exercise_native_simulation,
+    exercise_preview,
+    exercise_signal_provider_run,
     exercise_workflow_pipeline,
     exercise_config_registry,
-    exercise_native_instrument_provider_workflow,
+    exercise_instrument_provider_workflow,
 )

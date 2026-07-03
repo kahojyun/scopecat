@@ -10,16 +10,10 @@ from demo_lab_test_paths import (
 from scopecat.authoring import ExperimentDraft, resolve_experiment
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec
-from scopecat.instruments import NativeRunSnapshot
 from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
-from scopecat.runs import open_run_store
-from scopecat.workflows import run_experiment
+from scopecat.workflows import read_run_measurement_dataset, run_experiment
 
 from quantum_lab_demo.sample import (
-    CZ_RB_TEMPLATE_ID,
-    RABI_TEMPLATE_ID,
-    READOUT_TEMPLATE_ID,
-    SQG_RB_TEMPLATE_ID,
     cz_rb,
     rabi,
     readout_frequency,
@@ -33,63 +27,57 @@ def load_config() -> ConfigProfileSnapshot:
 
 
 @pytest.mark.parametrize(
-    ("draft", "template_id", "expected_asset_ids", "expected_measurements"),
+    ("draft", "expected_coordinate_id", "expected_measurements"),
     [
         (
             rabi(qubit="q0"),
-            RABI_TEMPLATE_ID,
-            {"q0-rabi-pulse-program"},
+            "drive_length",
             5,
         ),
         (
             readout_frequency(qubit="q0"),
-            READOUT_TEMPLATE_ID,
-            {"q0-find-frr-with-pi-pulse"},
+            "readout_frequency",
             5,
         ),
         (
             sqg_rb(qubit="q0", lengths=[4, 8], seed=11),
-            SQG_RB_TEMPLATE_ID,
-            {"q0-sqg-rb-sequence", "q0-sqg-rb-pulsedict"},
+            "clifford_count",
             2,
         ),
         (
             cz_rb(control_qubit="q0", partner_qubit="q1", lengths=[2, 4], seed=17),
-            CZ_RB_TEMPLATE_ID,
-            {"q0-q1-cz-rb-sequence", "q0-q1-cz-rb-coupler-pulse"},
+            "clifford_count",
             2,
         ),
     ],
 )
-def test_sample_templates_run_native_python_api(
+def test_sample_templates_run_provider_python_api(
     tmp_path: Path,
     draft: ExperimentDraft,
-    template_id: str,
-    expected_asset_ids: set[str],
+    expected_coordinate_id: str,
     expected_measurements: int,
 ) -> None:
-    result = run_experiment(
+    manifest = run_experiment(
         draft,
-        mode="native_simulate",
         config_profile=load_config(),
         workspace=tmp_path,
-        native_instrument_provider=SampleVirtualProvider(
+        instrument_provider=SampleVirtualProvider(
             profile=SAMPLE_TEMPLATES_VIRTUAL_LAB_PROFILE
         ),
     )
-
-    assert result.manifest.status == "completed"
-    assert isinstance(result.snapshot, NativeRunSnapshot)
-    assert result.snapshot.measurement_count == expected_measurements
-    assert result.resolved_experiment is not None
-    assert result.resolved_experiment.template_id == template_id
-    assert isinstance(result.resolved_experiment.experiment, ExperimentSpec)
-    assert {asset.id for asset in result.resolved_experiment.experiment.assets} == (
-        expected_asset_ids
+    measurements = read_run_measurement_dataset(
+        run_id=manifest.run_id,
+        workspace=tmp_path,
     )
 
+    assert manifest.status == "completed"
+    assert measurements.dataset.dataset_schema.primary_coordinates == [
+        expected_coordinate_id
+    ]
+    assert len(measurements.dataset.records) == expected_measurements
 
-def test_sample_native_rejects_invalid_asset_kind_before_run_created(
+
+def test_sample_rejects_invalid_asset_kind(
     tmp_path: Path,
 ) -> None:
     resolved = resolve_experiment(
@@ -111,13 +99,11 @@ def test_sample_native_rejects_invalid_asset_kind_before_run_created(
     with pytest.raises(ValidationFailed) as error:
         run_experiment(
             experiment,
-            mode="native_simulate",
             config=load_config(),
             workspace=tmp_path,
-            native_instrument_provider=SampleVirtualProvider(
+            instrument_provider=SampleVirtualProvider(
                 profile=SAMPLE_TEMPLATES_VIRTUAL_LAB_PROFILE
             ),
         )
 
-    assert error.value.diagnostics[0].code == "managed_native_asset_kind_mismatch"
-    assert open_run_store(tmp_path).list_runs()[0].status == "failed"
+    assert error.value.diagnostics[0].code == "managed_instrument_asset_kind_mismatch"

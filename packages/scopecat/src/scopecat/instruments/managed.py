@@ -1,4 +1,4 @@
-"""Author-facing native instrument helpers."""
+"""Author-facing instrument helpers."""
 
 from __future__ import annotations
 
@@ -10,19 +10,19 @@ from typing import Any
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.experiments import ExperimentSpec
 from scopecat.instruments.sdk import (
+    AcquisitionContext,
     CapabilityDescription,
     CapabilityField,
     CapabilityFieldKind,
+    Instrument,
     InstrumentDescription,
+    InstrumentProviderContext,
+    InstrumentProviderDescription,
+    InstrumentProviderResult,
+    InstrumentResult,
     InstrumentStateField,
     InstrumentStatePatch,
     InstrumentStateSnapshot,
-    NativeAcquisitionContext,
-    NativeInstrument,
-    NativeInstrumentProviderContext,
-    NativeInstrumentProviderDescription,
-    NativeInstrumentProviderResult,
-    NativeInstrumentResult,
 )
 from scopecat.instruments.state import (
     DesiredResourceState,
@@ -39,7 +39,7 @@ from scopecat.units import compatible_units
 
 
 @dataclass(frozen=True)
-class NativeDriverDiagnostic(Exception):
+class DriverDiagnostic(Exception):
     """Stable diagnostic that driver code can raise or return."""
 
     severity: DiagnosticSeverity
@@ -60,7 +60,7 @@ class NativeDriverDiagnostic(Exception):
 
 
 @dataclass(frozen=True)
-class NativeCapabilityField:
+class ManagedCapabilityField:
     id: str
     kind: CapabilityFieldKind
     unit: str | None = None
@@ -82,9 +82,9 @@ class NativeCapabilityField:
 
 
 @dataclass(frozen=True)
-class NativeCapability:
+class ManagedCapability:
     id: str
-    fields: tuple[NativeCapabilityField, ...] = ()
+    fields: tuple[ManagedCapabilityField, ...] = ()
     acquisition: bool = False
     metadata: dict[str, Any] = dc_field(default_factory=dict)
 
@@ -98,7 +98,7 @@ class NativeCapability:
 
 
 @dataclass(frozen=True)
-class NativeStateChange:
+class StateChange:
     instrument_id: str
     fields: tuple[StatePatchField, ...]
     desired_state: tuple[DesiredResourceState, ...] = ()
@@ -123,7 +123,7 @@ class NativeStateChange:
 
 
 @dataclass(frozen=True)
-class NativeMeasurementContext:
+class MeasurementContext:
     run_id: str
     point: ExecutionPoint
     point_index: int
@@ -137,9 +137,7 @@ class NativeMeasurementContext:
     desired_state: tuple[DesiredResourceState, ...]
 
     @classmethod
-    def from_native_context(
-        cls, context: NativeAcquisitionContext
-    ) -> NativeMeasurementContext:
+    def from_context(cls, context: AcquisitionContext) -> MeasurementContext:
         acquisition = context.acquisition_plan
         expected_schema = (
             MeasurementDatasetSchema.model_validate(
@@ -164,7 +162,7 @@ class NativeMeasurementContext:
 
 
 @dataclass
-class NativeProviderBuildContext:
+class ProviderBuildContext:
     config: ConfigProfileSnapshot
     experiment: ExperimentSpec
     assets: Mapping[str, ArtifactRef]
@@ -191,12 +189,12 @@ class NativeProviderBuildContext:
         return diagnostic
 
 
-DriverDiagnosticInput = Diagnostic | NativeDriverDiagnostic
-ProviderFactory = Callable[[NativeProviderBuildContext], Iterable[NativeInstrument]]
+DriverDiagnosticInput = Diagnostic | DriverDiagnostic
+ProviderFactory = Callable[[ProviderBuildContext], Iterable[Instrument]]
 
 
-class ManagedNativeInstrument:
-    """Native instrument base class that hides the runner protocol details."""
+class ManagedInstrument:
+    """Instrument base class that hides low-level protocol details."""
 
     def __init__(
         self,
@@ -204,7 +202,7 @@ class ManagedNativeInstrument:
         instrument_id: str,
         implementation_id: str,
         implementation_version: str,
-        capabilities: Sequence[NativeCapability],
+        capabilities: Sequence[ManagedCapability],
         metadata: Mapping[str, Any] | None = None,
         initial_state: Mapping[tuple[str, str], StateValue] | None = None,
         asset_catalog: Mapping[str, ArtifactRef] | None = None,
@@ -244,13 +242,11 @@ class ManagedNativeInstrument:
         change = self._state_change_from_desired(desired)
         try:
             diagnostics.extend(_normalize_diagnostics(self.validate_state(change)))
-        except NativeDriverDiagnostic as error:
+        except DriverDiagnostic as error:
             diagnostics.append(error.to_diagnostic())
         return diagnostics
 
-    def validate_state(
-        self, changes: NativeStateChange
-    ) -> Iterable[DriverDiagnosticInput]:
+    def validate_state(self, changes: StateChange) -> Iterable[DriverDiagnosticInput]:
         del changes
         return ()
 
@@ -297,7 +293,7 @@ class ManagedNativeInstrument:
         )
 
     def apply(self, patch: InstrumentStatePatch) -> InstrumentStateSnapshot:
-        change = NativeStateChange(
+        change = StateChange(
             instrument_id=self.instrument_id,
             fields=tuple(patch.fields),
         )
@@ -306,23 +302,23 @@ class ManagedNativeInstrument:
             self._state[(field.capability_id, field.field_path)] = field.after
         return self.readback()
 
-    def apply_state(self, changes: NativeStateChange) -> None:
+    def apply_state(self, changes: StateChange) -> None:
         del changes
 
     def acquire(
         self,
-        context: NativeAcquisitionContext,
+        context: AcquisitionContext,
         sink: MeasurementSink,
-    ) -> NativeInstrumentResult:
+    ) -> InstrumentResult:
         try:
-            self.measure(NativeMeasurementContext.from_native_context(context), sink)
-        except NativeDriverDiagnostic as error:
-            return NativeInstrumentResult(diagnostics=[error.to_diagnostic()])
-        return NativeInstrumentResult()
+            self.measure(MeasurementContext.from_context(context), sink)
+        except DriverDiagnostic as error:
+            return InstrumentResult(diagnostics=[error.to_diagnostic()])
+        return InstrumentResult()
 
     def measure(
         self,
-        context: NativeMeasurementContext,
+        context: MeasurementContext,
         sink: MeasurementSink,
     ) -> None:
         del context, sink
@@ -335,7 +331,7 @@ class ManagedNativeInstrument:
 
     def _state_change_from_desired(
         self, desired: list[DesiredResourceState]
-    ) -> NativeStateChange:
+    ) -> StateChange:
         fields: list[StatePatchField] = []
         for resource in desired:
             for field in resource.fields:
@@ -349,7 +345,7 @@ class ManagedNativeInstrument:
                         after=field.value,
                     )
                 )
-        return NativeStateChange(
+        return StateChange(
             instrument_id=self.instrument_id,
             fields=tuple(fields),
             desired_state=tuple(desired),
@@ -364,7 +360,7 @@ class ManagedNativeInstrument:
                 diagnostics.append(
                     _diagnostic(
                         "error",
-                        "managed_native_resource_mismatch",
+                        "managed_instrument_resource_mismatch",
                         f"{self.instrument_id} cannot control {resource.resource_id}",
                         "resource_id",
                     )
@@ -373,7 +369,7 @@ class ManagedNativeInstrument:
                 diagnostics.append(
                     _diagnostic(
                         "error",
-                        "managed_native_unsupported_capability",
+                        "managed_instrument_unsupported_capability",
                         f"{self.instrument_id} does not support "
                         f"{resource.capability_id}",
                         "capability_id",
@@ -386,7 +382,7 @@ class ManagedNativeInstrument:
                     diagnostics.append(
                         _diagnostic(
                             "error",
-                            "managed_native_unsupported_field",
+                            "managed_instrument_unsupported_field",
                             f"{self.instrument_id} does not support {field.field_path}",
                             "field_path",
                         )
@@ -422,7 +418,7 @@ class ManagedNativeInstrument:
         )
 
 
-class ManagedNativeProvider:
+class ManagedInstrumentProvider:
     def __init__(
         self,
         *,
@@ -448,8 +444,8 @@ class ManagedNativeProvider:
     def provider_id(self) -> str:
         return self._provider_id
 
-    def describe(self) -> NativeInstrumentProviderDescription:
-        return NativeInstrumentProviderDescription(
+    def describe(self) -> InstrumentProviderDescription:
+        return InstrumentProviderDescription(
             provider_id=self.provider_id,
             label=self._label,
             description=self._description,
@@ -459,24 +455,22 @@ class ManagedNativeProvider:
             metadata=self._metadata,
         )
 
-    def provide(
-        self, context: NativeInstrumentProviderContext
-    ) -> NativeInstrumentProviderResult:
+    def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
         assets = _experiment_assets(context.experiment)
-        build_context = NativeProviderBuildContext(
+        build_context = ProviderBuildContext(
             config=context.config,
             experiment=context.experiment,
             assets=assets,
         )
         try:
             instruments = tuple(self._build(build_context))
-        except NativeDriverDiagnostic as error:
+        except DriverDiagnostic as error:
             build_context.diagnostics.append(error.to_diagnostic())
             instruments = ()
         for instrument in instruments:
-            if isinstance(instrument, ManagedNativeInstrument):
+            if isinstance(instrument, ManagedInstrument):
                 instrument.attach_assets(assets)
-        return NativeInstrumentProviderResult(
+        return InstrumentProviderResult(
             instruments=() if build_context.diagnostics else instruments,
             diagnostics=tuple(build_context.diagnostics),
             metadata={
@@ -496,11 +490,11 @@ def _experiment_assets(
 def capability(
     id: str,  # noqa: A002
     *,
-    fields: Sequence[NativeCapabilityField] = (),
+    fields: Sequence[ManagedCapabilityField] = (),
     acquisition: bool = False,
     metadata: Mapping[str, Any] | None = None,
-) -> NativeCapability:
-    return NativeCapability(
+) -> ManagedCapability:
+    return ManagedCapability(
         id=id,
         fields=tuple(fields),
         acquisition=acquisition,
@@ -514,8 +508,8 @@ def quantity_field(
     unit: str,
     required: bool = True,
     metadata: Mapping[str, Any] | None = None,
-) -> NativeCapabilityField:
-    return NativeCapabilityField(
+) -> ManagedCapabilityField:
+    return ManagedCapabilityField(
         id=id,
         kind="quantity",
         unit=unit,
@@ -529,8 +523,8 @@ def number_field(
     *,
     required: bool = True,
     metadata: Mapping[str, Any] | None = None,
-) -> NativeCapabilityField:
-    return NativeCapabilityField(
+) -> ManagedCapabilityField:
+    return ManagedCapabilityField(
         id=id,
         kind="number",
         required=required,
@@ -544,8 +538,8 @@ def asset_field(
     asset_kinds: Sequence[str] = (),
     required: bool = True,
     metadata: Mapping[str, Any] | None = None,
-) -> NativeCapabilityField:
-    return NativeCapabilityField(
+) -> ManagedCapabilityField:
+    return ManagedCapabilityField(
         id=id,
         kind="asset",
         required=required,
@@ -557,13 +551,13 @@ def asset_field(
 def _validate_value(
     field_path: str,
     value: StateValue,
-    spec: NativeCapabilityField,
+    spec: ManagedCapabilityField,
 ) -> list[Diagnostic]:
     if value.kind != spec.kind:
         return [
             _diagnostic(
                 "error",
-                "managed_native_field_kind_mismatch",
+                "managed_instrument_field_kind_mismatch",
                 f"{field_path} must be {spec.kind}, got {value.kind}",
                 "value",
             )
@@ -573,7 +567,7 @@ def _validate_value(
             return [
                 _diagnostic(
                     "error",
-                    "managed_native_field_not_quantity",
+                    "managed_instrument_field_not_quantity",
                     f"{field_path} must be a quantity",
                     "value",
                 )
@@ -584,7 +578,7 @@ def _validate_value(
             return [
                 _diagnostic(
                     "error",
-                    "managed_native_unit_mismatch",
+                    "managed_instrument_unit_mismatch",
                     f"{field_path} must use {spec.unit}-compatible units",
                     "value.unit",
                 )
@@ -596,7 +590,7 @@ def _validate_asset_field(
     *,
     field_path: str,
     value: StateValue,
-    spec: NativeCapabilityField,
+    spec: ManagedCapabilityField,
     assets: Mapping[str, ArtifactRef],
 ) -> list[Diagnostic]:
     if not assets:
@@ -606,7 +600,7 @@ def _validate_asset_field(
         return [
             _diagnostic(
                 "error",
-                "managed_native_unknown_asset",
+                "managed_instrument_unknown_asset",
                 f"{field_path} references unknown asset {value.asset_id}",
                 "value.asset_id",
             )
@@ -615,7 +609,7 @@ def _validate_asset_field(
         return [
             _diagnostic(
                 "error",
-                "managed_native_asset_kind_mismatch",
+                "managed_instrument_asset_kind_mismatch",
                 f"{field_path} expects asset kind {', '.join(spec.asset_kinds)}, "
                 f"got {asset.kind}",
                 "value.asset_id",
@@ -629,7 +623,7 @@ def _normalize_diagnostics(
 ) -> list[Diagnostic]:
     normalized: list[Diagnostic] = []
     for diagnostic in diagnostics:
-        if isinstance(diagnostic, NativeDriverDiagnostic):
+        if isinstance(diagnostic, DriverDiagnostic):
             normalized.append(diagnostic.to_diagnostic())
         else:
             normalized.append(diagnostic)
@@ -643,12 +637,12 @@ def _diagnostic(
 
 
 __all__ = [
-    "ManagedNativeInstrument",
-    "ManagedNativeProvider",
-    "NativeDriverDiagnostic",
-    "NativeMeasurementContext",
-    "NativeProviderBuildContext",
-    "NativeStateChange",
+    "DriverDiagnostic",
+    "ManagedInstrument",
+    "ManagedInstrumentProvider",
+    "MeasurementContext",
+    "ProviderBuildContext",
+    "StateChange",
     "asset_field",
     "capability",
     "number_field",

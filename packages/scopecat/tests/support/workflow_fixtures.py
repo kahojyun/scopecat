@@ -18,9 +18,7 @@ from scopecat.relations import param
 from scopecat.runs import open_run_store
 from tests.support.records import read_model
 
-WORKFLOW_FIXTURE_DIR = (
-    Path(__file__).parents[4] / "fixtures" / "core" / "simulated_scan"
-)
+WORKFLOW_FIXTURE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
 
 def load_config() -> ConfigProfileSnapshot:
@@ -45,7 +43,7 @@ def config_with_instrument_id(instrument_id: str) -> ConfigProfileSnapshot:
     )
     connection = config.connection_profile.connections[0].model_copy(
         update={
-            "id": f"{instrument_id}-simulated",
+            "id": f"{instrument_id}-connection",
             "instrument_id": instrument_id,
         }
     )

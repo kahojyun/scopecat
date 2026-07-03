@@ -8,9 +8,9 @@ from scopecat._steps import ArtifactInputDiagnostics, StepArtifactDiagnostics
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import load_config_profile
 from tests.support.records import read_model
-from tests.support.signal_testkit import execute_signal_native_run
+from tests.support.signal_testkit import execute_signal_run
 
-EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simulated_scan"
+EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
 
 class StepResult(BaseModel):
@@ -43,10 +43,10 @@ def input_diagnostics() -> ArtifactInputDiagnostics:
     )
 
 
-def make_simulated_run(tmp_path: Path) -> str:
+def make_signal_run(tmp_path: Path) -> str:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     experiment = read_model(EXAMPLE_DIR / "experiment.json", ExperimentSpec)
-    manifest, _snapshot = execute_signal_native_run(
+    manifest, _snapshot = execute_signal_run(
         config=config,
         experiment=experiment,
         workspace=tmp_path,

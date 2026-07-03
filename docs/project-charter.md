@@ -27,7 +27,7 @@ instead of accumulating compatibility layers.
   identity.
 - Keep accepted configuration separate from run-time overrides, analysis
   outputs, live device state, legacy registries, and GUI/session state.
-- Support both native structured execution and low-intrusion capture of
+- Support both structured execution and low-intrusion capture of
   existing notebook/script workflows.
 - Make raw data, derived data, analysis evidence, candidate changes, and review
   decisions first-class records rather than side effects of a runner.
@@ -47,13 +47,13 @@ Scopecat targets these local workflows:
   private runner inputs through anti-corruption boundaries.
 - Build structured experiments through reusable modules, runnable templates,
   explicit run requests, and closed per-segment experiment specs.
-- Validate and dry-run structured work before side effects, including config,
-  point identity, desired state, output records, result contracts, programs,
-  routing, and capability compatibility.
-- Execute native simulated or hardware runs through runtime, instrument groups,
-  and thin instrument adapters.
+- Validate structured work before side effects, including config, point
+  identity, desired state, output records, result contracts, programs, routing,
+  capability compatibility, and explicit previews.
+- Execute runs against hardware-backed or virtual-lab provider configurations
+  through runtime and thin instrument adapters.
 - Capture legacy notebook/script runs through `RunScope` / `TraceScope` when
-  reproducible native execution is not yet available.
+  reproducible structured execution is not yet available.
 - Persist raw and derived measurement datasets, typed artifacts, events,
   diagnostics, attachments, and provenance under a run manifest.
 - Inspect run data through stable artifact ids, typed schemas, and result
@@ -107,8 +107,10 @@ adapting Scopecat to their own experiment domains.
   side effects.
 - Treat accepted parameters and routing as configuration state, not live
   hardware state or private runner dictionaries.
-- Make dry-run and simulation first-class paths, not testing shortcuts.
-- Treat structured native execution and legacy capture as different contracts:
+- Keep preview and validation explicit methods, and model virtual or lab modes
+  through instrument-group/runtime configuration instead of separate execution
+  paths.
+- Treat structured execution and legacy capture as different contracts:
   one aims at reproducibility, the other at auditable evidence.
 - Keep data and analysis independent enough that analysis can be manual,
   promoted, rerun, reviewed, and compared without rewriting raw run evidence.
@@ -122,7 +124,7 @@ adapting Scopecat to their own experiment domains.
 
 ## Structured Experiment Direction
 
-Structured native experiments are a central UX path, but they are one part of
+Structured experiments are a central UX path, but they are one part of
 the platform. Their target architecture is:
 
 ```text
@@ -164,7 +166,7 @@ script keeps execution control while Scopecat captures run identity, inputs,
 config files or snapshots, generated artifacts, events, measurements, notes,
 analysis, and provenance level. This is capture, not reproducible execution.
 
-Native migration extracts pure or pure-ish pieces into Scopecat modules or
+Structured migration extracts pure or pure-ish pieces into Scopecat modules or
 adapters:
 
 - settings and config generation;
@@ -177,5 +179,5 @@ adapters:
 Legacy hardware connection, setup, upload, play, acquire, registry mutation,
 data-vault writes, GUI state, and background side effects are not migrated into
 core contracts. If a legacy runner has a stable batch boundary, it may be
-wrapped as an optional backend or instrument-group adapter, but it must not
-shape core records around legacy compatibility.
+wrapped behind an instrument group, but it must not shape core records around
+legacy compatibility.

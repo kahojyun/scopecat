@@ -9,11 +9,11 @@ from scopecat.errors import ValidationFailed
 from scopecat.results import MeasurementDatasetInputDiagnostics
 from scopecat.runs import open_run_store
 from tests.support.records import assert_artifact_ref
-from tests.support.steps import input_diagnostics, make_simulated_run
+from tests.support.steps import input_diagnostics, make_signal_run
 
 
 def test_step_input_resolver_reads_measurement_records(tmp_path: Path) -> None:
-    run_id = make_simulated_run(tmp_path)
+    run_id = make_signal_run(tmp_path)
     storage = open_run_store(tmp_path)
     resolver = StepInputResolver(
         storage=storage,
@@ -44,7 +44,7 @@ def test_step_input_resolver_reads_measurement_records(tmp_path: Path) -> None:
 
 
 def test_step_input_resolver_reads_measurement_dataset(tmp_path: Path) -> None:
-    run_id = make_simulated_run(tmp_path)
+    run_id = make_signal_run(tmp_path)
     storage = open_run_store(tmp_path)
     resolver = StepInputResolver(
         storage=storage,
@@ -82,7 +82,7 @@ def test_step_input_resolver_reads_measurement_dataset(tmp_path: Path) -> None:
 def test_step_input_resolver_requires_measurement_dataset_schema(
     tmp_path: Path,
 ) -> None:
-    run_id = make_simulated_run(tmp_path)
+    run_id = make_signal_run(tmp_path)
     storage = open_run_store(tmp_path)
     manifest = storage.read_manifest(run_id)
     raw_artifact = assert_artifact_ref(manifest.artifact_refs, "raw-measurements")
@@ -118,7 +118,7 @@ def test_step_input_resolver_requires_measurement_dataset_schema(
 def test_step_input_resolver_rejects_invalid_measurement_dataset_schema(
     tmp_path: Path,
 ) -> None:
-    run_id = make_simulated_run(tmp_path)
+    run_id = make_signal_run(tmp_path)
     storage = open_run_store(tmp_path)
     manifest = storage.read_manifest(run_id)
     raw_artifact = assert_artifact_ref(manifest.artifact_refs, "raw-measurements")

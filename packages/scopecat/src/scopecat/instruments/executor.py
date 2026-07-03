@@ -1,4 +1,4 @@
-"""Native instrument execution orchestration."""
+"""Instrument execution orchestration."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from typing import Literal, cast
 
 from scopecat._execution import (
     build_raw_measurement_artifact,
+    build_run_manifest,
     expected_measurement_indices,
     parse_expected_dataset_schema,
     ref_for_artifact,
     validate_measurement_index_shape,
     validate_raw_measurement_dataset,
     write_final_execution_artifacts,
-    write_planned_run_inputs,
 )
 from scopecat._storage.local import LocalRunStore
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
@@ -26,15 +26,14 @@ from scopecat.experiments import (
 )
 from scopecat.ids import new_run_id
 from scopecat.instruments.sdk import (
+    AcquisitionContext,
+    Instrument,
     InstrumentDescription,
     InstrumentStateSnapshot,
-    NativeAcquisitionContext,
-    NativeInstrument,
 )
 from scopecat.instruments.snapshots import (
-    NativePointSnapshot,
-    NativeRunSnapshot,
-    build_native_boundary_manifest,
+    ExecutionPointSnapshot,
+    ExecutionSnapshot,
 )
 from scopecat.instruments.state import (
     AcquisitionPlan,
@@ -45,9 +44,8 @@ from scopecat.instruments.state import (
 )
 from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.execution import ExecutionProfile
 from scopecat.models.parameter import Quantity
-from scopecat.models.run import RunEvent, RunManifest, RunStatus
+from scopecat.models.run import RunManifest, RunStatus
 from scopecat.planning.validation import (
     has_blocking_diagnostics,
     validate_config,
@@ -58,22 +56,19 @@ from scopecat.results import (
     MeasurementSink,
 )
 
-NATIVE_RUNNER_ID = "scopecat.native"
-NATIVE_RUN_SNAPSHOT_FILENAME = "native-run.snapshot.json"
-NATIVE_BOUNDARY_MANIFEST_FILENAME = "native-run.boundary.json"
-NATIVE_BOUNDARY_MANIFEST_ARTIFACT_ID = "native-run-boundary"
-NATIVE_RAW_MEASUREMENTS_FILENAME = "raw-measurements.jsonl"
-NATIVE_RAW_MEASUREMENTS_ARTIFACT_ID = "raw-measurements"
+EXECUTION_SNAPSHOT_FILENAME = "execution.snapshot.json"
+RAW_MEASUREMENTS_FILENAME = "raw-measurements.jsonl"
+RAW_MEASUREMENTS_ARTIFACT_ID = "raw-measurements"
 
 
-def execute_native_run(
+def execute_run(
     *,
     config: ConfigProfileSnapshot,
     experiment: ExperimentSpec,
-    instruments: list[NativeInstrument],
+    instruments: list[Instrument],
     workspace: str | Path,
-) -> tuple[RunManifest, NativeRunSnapshot]:
-    preflight_diagnostics = validate_config(config) + _validate_native_instruments(
+) -> tuple[RunManifest, ExecutionSnapshot]:
+    preflight_diagnostics = validate_config(config) + _validate_instruments(
         config=config,
         instruments=instruments,
     )
@@ -82,7 +77,7 @@ def execute_native_run(
             _diagnostic(
                 "blocker",
                 "missing_parameter_build_snapshot",
-                "native execution requires a parameter build snapshot",
+                "run execution requires a parameter build snapshot",
                 "parameter_build",
             )
         )
@@ -90,7 +85,7 @@ def execute_native_run(
         raise ValidationFailed(preflight_diagnostics)
     assert config.parameter_build is not None
     plan = plan_experiment(experiment, config.parameter_build)
-    return _execute_native_plan(
+    return _execute_plan(
         config=config,
         experiment_id=experiment.id,
         instruments=instruments,
@@ -100,25 +95,23 @@ def execute_native_run(
     )
 
 
-def _execute_native_plan(
+def _execute_plan(
     *,
     config: ConfigProfileSnapshot,
     experiment_id: str,
-    instruments: list[NativeInstrument],
+    instruments: list[Instrument],
     workspace: str | Path,
     plan: PlanSnapshot,
     preflight_diagnostics: list[Diagnostic],
-) -> tuple[RunManifest, NativeRunSnapshot]:
+) -> tuple[RunManifest, ExecutionSnapshot]:
     workspace_path = Path(workspace)
     instruments_by_id = {
         instrument.instrument_id: instrument for instrument in instruments
     }
-    execution = ExecutionProfile(runner_id=NATIVE_RUNNER_ID)
     run_id = new_run_id()
     storage = LocalRunStore(workspace_path)
-    snapshot_ref = ref_for_artifact(NATIVE_RUN_SNAPSHOT_FILENAME)
-    boundary_ref = ref_for_artifact(NATIVE_BOUNDARY_MANIFEST_FILENAME)
-    data_ref = ref_for_artifact(NATIVE_RAW_MEASUREMENTS_FILENAME)
+    snapshot_ref = ref_for_artifact(EXECUTION_SNAPSHOT_FILENAME)
+    data_ref = ref_for_artifact(RAW_MEASUREMENTS_FILENAME)
     descriptions, description_diagnostics = _describe_instruments(instruments)
     expected_schema, schema_diagnostics = parse_expected_dataset_schema(plan)
     raw_measurement_schema = _raw_measurement_schema(expected_schema)
@@ -135,41 +128,12 @@ def _execute_native_plan(
     if has_blocking_diagnostics(diagnostics):
         raise ValidationFailed(diagnostics)
 
-    planned_manifest = _manifest(
-        config=config,
-        experiment_id=experiment_id,
-        execution=execution,
-        run_id=run_id,
-        status="planned",
-        snapshot_ref=snapshot_ref,
-        boundary_ref=boundary_ref,
-        data_ref=data_ref,
-        instruments=instruments,
-        measurements=[],
-        expected_schema=raw_measurement_schema,
-        finalization_summary="Native run planned.",
-    )
-    write_planned_run_inputs(
-        storage=storage,
-        manifest=planned_manifest,
-        config=config,
-        plan=plan,
-    )
-
     sink = MeasurementSink(run_id=run_id)
     initial_state: list[InstrumentStateSnapshot] = []
     final_state: list[InstrumentStateSnapshot] = []
-    point_snapshots: list[NativePointSnapshot] = []
+    point_snapshots: list[ExecutionPointSnapshot] = []
     current_states: dict[str, InstrumentStateSnapshot] = {}
-    events = [
-        RunEvent(
-            event_type="native_run_started",
-            message="Native run started.",
-            metadata={"instrument_ids": sorted(instruments_by_id)},
-        )
-    ]
     execution_diagnostics: list[Diagnostic] = []
-    result_events: list[RunEvent] = []
 
     try:
         initial_state = _readback_all(instruments, execution_diagnostics)
@@ -199,8 +163,8 @@ def _execute_native_plan(
                         execution_diagnostics.append(
                             _diagnostic_from_exception(
                                 "error",
-                                "native_instrument_acquire_failed",
-                                "native instrument acquire failed for "
+                                "instrument_acquire_failed",
+                                "instrument acquire failed for "
                                 f"{instrument.instrument_id}: "
                                 f"{type(error).__name__}: {error}",
                                 instrument.instrument_id,
@@ -209,10 +173,9 @@ def _execute_native_plan(
                         )
                         continue
                     execution_diagnostics.extend(result.diagnostics)
-                    result_events.extend(result.events)
                 acquired_count = len(sink.measurements) - before_count
                 point_snapshots.append(
-                    NativePointSnapshot(
+                    ExecutionPointSnapshot(
                         point_index=point_index,
                         changed_field_count=changed_field_count,
                         acquired_record_count=acquired_count,
@@ -231,17 +194,17 @@ def _execute_native_plan(
     measurement_diagnostics = validate_measurement_index_shape(
         measurements=measurements,
         expected_indices=expected_measurement_indices(plan),
-        duplicate_code="native_duplicate_measurement_index",
-        duplicate_message="native run recorded duplicate measurement",
-        unknown_code="native_unknown_measurement_index",
-        unknown_message="native run recorded unknown measurement",
-        missing_observables_code="native_missing_observables",
-        missing_observables_message="native measurement has no observables",
+        duplicate_code="duplicate_measurement_index",
+        duplicate_message="run recorded duplicate measurement",
+        unknown_code="unknown_measurement_index",
+        unknown_message="run recorded unknown measurement",
+        missing_observables_code="missing_observables",
+        missing_observables_message="measurement has no observables",
     )
     dataset_contract_diagnostics = validate_raw_measurement_dataset(
         records=measurements,
         expected_schema=raw_measurement_schema,
-        dataset_id=NATIVE_RAW_MEASUREMENTS_ARTIFACT_ID,
+        dataset_id=RAW_MEASUREMENTS_ARTIFACT_ID,
     )
     diagnostics = [
         *diagnostics,
@@ -252,25 +215,16 @@ def _execute_native_plan(
     success = not has_blocking_diagnostics(diagnostics)
     status: RunStatus = "completed" if success else "failed"
     final_manifest = _manifest(
-        config=config,
-        experiment_id=experiment_id,
-        execution=execution,
         run_id=run_id,
         status=status,
         snapshot_ref=snapshot_ref,
-        boundary_ref=boundary_ref,
         data_ref=data_ref,
-        instruments=instruments,
         measurements=measurements,
         expected_schema=raw_measurement_schema,
-        finalization_summary=(
-            "Native run completed." if success else "Native run failed."
-        ),
     )
-    snapshot = NativeRunSnapshot(
+    snapshot = ExecutionSnapshot(
         run_id=run_id,
         experiment_id=experiment_id,
-        runner_id=execution.runner_id,
         status=status,
         instrument_ids=sorted(instruments_by_id),
         descriptions=descriptions,
@@ -278,51 +232,26 @@ def _execute_native_plan(
         final_state=final_state,
         point_count=_point_count(plan),
         measurement_count=len(measurements),
-        data_ref=data_ref,
         diagnostics=diagnostics,
         points=point_snapshots,
-        plan=plan,
-    )
-    events.extend(result_events)
-    events.extend(
-        RunEvent(
-            event_type="native_measurement_recorded",
-            message=f"Recorded native measurement {measurement.point_index}.",
-            metadata={"point_index": measurement.point_index},
-        )
-        for measurement in measurements
-    )
-    events.append(
-        RunEvent(
-            severity="info" if success else "error",
-            event_type="native_run_completed" if success else "native_run_failed",
-            message="Native run completed." if success else "Native run failed.",
-            metadata={"measurement_count": len(measurements)},
-        )
-    )
-    boundary_manifest = build_native_boundary_manifest(
-        manifest=final_manifest,
-        snapshot=snapshot,
-        plan=plan,
-        event_count=len(events),
     )
     write_final_execution_artifacts(
         storage=storage,
         manifest=final_manifest,
+        config=config,
+        plan=plan,
         snapshot_ref=snapshot_ref,
         snapshot=snapshot,
         data_ref=data_ref,
         measurements=measurements,
-        events=events,
     )
-    storage.write_model(run_id, boundary_ref, boundary_manifest)
     if not success:
         raise ValidationFailed(diagnostics)
     return final_manifest, snapshot
 
 
 def _describe_instruments(
-    instruments: list[NativeInstrument],
+    instruments: list[Instrument],
 ) -> tuple[list[InstrumentDescription], list[Diagnostic]]:
     descriptions: list[InstrumentDescription] = []
     diagnostics: list[Diagnostic] = []
@@ -333,8 +262,8 @@ def _describe_instruments(
             diagnostics.append(
                 _diagnostic_from_exception(
                     "error",
-                    "native_instrument_describe_failed",
-                    "native instrument describe failed for "
+                    "instrument_describe_failed",
+                    "instrument describe failed for "
                     f"{instrument.instrument_id}: {type(error).__name__}: {error}",
                     instrument.instrument_id,
                     error,
@@ -349,12 +278,12 @@ def _raw_measurement_schema(
     if expected_schema is None:
         return None
     return expected_schema.model_copy(
-        update={"dataset_id": NATIVE_RAW_MEASUREMENTS_ARTIFACT_ID}
+        update={"dataset_id": RAW_MEASUREMENTS_ARTIFACT_ID}
     )
 
 
-def _validate_native_instruments(
-    *, config: ConfigProfileSnapshot, instruments: list[NativeInstrument]
+def _validate_instruments(
+    *, config: ConfigProfileSnapshot, instruments: list[Instrument]
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     seen: set[str] = set()
@@ -366,8 +295,8 @@ def _validate_native_instruments(
             diagnostics.append(
                 _diagnostic(
                     "error",
-                    "native_instrument_missing_id",
-                    "native instrument_id must be non-empty",
+                    "instrument_missing_id",
+                    "instrument_id must be non-empty",
                     "instrument.instrument_id",
                 )
             )
@@ -376,8 +305,8 @@ def _validate_native_instruments(
             diagnostics.append(
                 _diagnostic(
                     "error",
-                    "native_instrument_duplicate_id",
-                    f"duplicate native instrument id {instrument.instrument_id}",
+                    "instrument_duplicate_id",
+                    f"duplicate instrument id {instrument.instrument_id}",
                     "instrument.instrument_id",
                 )
             )
@@ -386,8 +315,8 @@ def _validate_native_instruments(
             diagnostics.append(
                 _diagnostic(
                     "error",
-                    "native_instrument_not_in_config",
-                    f"native instrument {instrument.instrument_id} is not in config",
+                    "instrument_not_in_config",
+                    f"instrument {instrument.instrument_id} is not in config",
                     "instrument.instrument_id",
                 )
             )
@@ -395,8 +324,8 @@ def _validate_native_instruments(
             diagnostics.append(
                 _diagnostic(
                     "error",
-                    "native_instrument_missing_implementation_id",
-                    "native implementation_id must be non-empty",
+                    "instrument_missing_implementation_id",
+                    "implementation_id must be non-empty",
                     "instrument.implementation_id",
                 )
             )
@@ -404,8 +333,8 @@ def _validate_native_instruments(
             diagnostics.append(
                 _diagnostic(
                     "error",
-                    "native_instrument_missing_implementation_version",
-                    "native implementation_version must be non-empty",
+                    "instrument_missing_implementation_version",
+                    "implementation_version must be non-empty",
                     "instrument.implementation_version",
                 )
             )
@@ -415,7 +344,7 @@ def _validate_native_instruments(
 def _validate_plan_instruments(
     *,
     plan: PlanSnapshot,
-    instruments_by_id: dict[str, NativeInstrument],
+    instruments_by_id: dict[str, Instrument],
     descriptions: list[InstrumentDescription],
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
@@ -445,8 +374,8 @@ def _validate_plan_instruments(
             diagnostics.append(
                 _diagnostic(
                     "error",
-                    "native_missing_instrument",
-                    f"no native instrument provided for resource {resource_id}",
+                    "missing_instrument",
+                    f"no instrument provided for resource {resource_id}",
                     "desired_state_plan.resource_ids",
                 )
             )
@@ -454,8 +383,8 @@ def _validate_plan_instruments(
             diagnostics.append(
                 _diagnostic(
                     "error",
-                    "native_missing_instrument_description",
-                    f"native instrument {resource_id} did not provide a description",
+                    "missing_instrument_description",
+                    f"instrument {resource_id} did not provide a description",
                     "instruments",
                 )
             )
@@ -469,8 +398,8 @@ def _validate_plan_instruments(
                 diagnostics.append(
                     _diagnostic(
                         "error",
-                        "native_unsupported_capability",
-                        f"native instrument {resource.resource_id} does not support "
+                        "unsupported_capability",
+                        f"instrument {resource.resource_id} does not support "
                         f"capability {resource.capability_id}",
                         "desired_state_plan.points",
                     )
@@ -482,8 +411,8 @@ def _validate_plan_instruments(
                     diagnostics.append(
                         _diagnostic(
                             "error",
-                            "native_unsupported_field",
-                            f"native instrument {resource.resource_id} capability "
+                            "unsupported_field",
+                            f"instrument {resource.resource_id} capability "
                             f"{resource.capability_id} does not support field "
                             f"{field.field_path}",
                             "desired_state_plan.points",
@@ -493,8 +422,8 @@ def _validate_plan_instruments(
                     diagnostics.append(
                         _diagnostic(
                             "error",
-                            "native_field_kind_mismatch",
-                            f"native field {field.field_path} expects "
+                            "field_kind_mismatch",
+                            f"field {field.field_path} expects "
                             f"{field_spec.kind}, got {field.value.kind}",
                             "desired_state_plan.points",
                         )
@@ -503,7 +432,7 @@ def _validate_plan_instruments(
 
 
 def _readback_all(
-    instruments: list[NativeInstrument], diagnostics: list[Diagnostic]
+    instruments: list[Instrument], diagnostics: list[Diagnostic]
 ) -> list[InstrumentStateSnapshot]:
     states: list[InstrumentStateSnapshot] = []
     for instrument in instruments:
@@ -513,8 +442,8 @@ def _readback_all(
             diagnostics.append(
                 _diagnostic_from_exception(
                     "error",
-                    "native_instrument_readback_failed",
-                    "native instrument readback failed for "
+                    "instrument_readback_failed",
+                    "instrument readback failed for "
                     f"{instrument.instrument_id}: {type(error).__name__}: {error}",
                     instrument.instrument_id,
                     error,
@@ -527,7 +456,7 @@ def _apply_desired_state(
     *,
     desired: list[DesiredResourceState],
     current_states: dict[str, InstrumentStateSnapshot],
-    instruments_by_id: dict[str, NativeInstrument],
+    instruments_by_id: dict[str, Instrument],
     diagnostics: list[Diagnostic],
 ) -> int:
     changed_field_count = 0
@@ -540,8 +469,8 @@ def _apply_desired_state(
             diagnostics.append(
                 _diagnostic_from_exception(
                     "error",
-                    "native_instrument_validate_failed",
-                    "native instrument validate failed for "
+                    "instrument_validate_failed",
+                    "instrument validate failed for "
                     f"{resource.resource_id}: {type(error).__name__}: {error}",
                     resource.resource_id,
                     error,
@@ -555,7 +484,7 @@ def _apply_desired_state(
             diagnostics.append(
                 _diagnostic(
                     "error",
-                    "native_missing_current_state",
+                    "missing_current_state",
                     f"missing current state for {resource.resource_id}",
                     resource.resource_id,
                 )
@@ -569,8 +498,8 @@ def _apply_desired_state(
             diagnostics.append(
                 _diagnostic_from_exception(
                     "error",
-                    "native_instrument_apply_failed",
-                    "native instrument apply failed for "
+                    "instrument_apply_failed",
+                    "instrument apply failed for "
                     f"{resource.resource_id}: {type(error).__name__}: {error}",
                     resource.resource_id,
                     error,
@@ -597,8 +526,8 @@ def _desired_points(
             diagnostics.append(
                 _diagnostic(
                     "error",
-                    "native_state_field_requires_capability",
-                    "native state fields must use capability.field syntax",
+                    "state_field_requires_capability",
+                    "state fields must use capability.field syntax",
                     "desired_state.field",
                 )
             )
@@ -608,9 +537,8 @@ def _desired_points(
             diagnostics.append(
                 _diagnostic(
                     "error",
-                    "native_state_value_unsupported",
-                    "native state values must be quantities, numbers, "
-                    "or asset references",
+                    "state_value_unsupported",
+                    "state values must be quantities, numbers, or asset references",
                     "desired_state.value",
                 )
             )
@@ -651,13 +579,13 @@ def _acquisition_context(
     plan: PlanSnapshot,
     point_index: int,
     desired: list[DesiredResourceState],
-) -> NativeAcquisitionContext:
+) -> AcquisitionContext:
     point = _execution_point(plan, point_index)
     records_for_point = _records_for_point(plan)
     record_index_offset = (
         point_index * records_for_point if _record(plan) == "shot" else point_index
     )
-    return NativeAcquisitionContext(
+    return AcquisitionContext(
         run_id=run_id,
         plan=plan,
         point=point,
@@ -722,9 +650,7 @@ def _record(
     return None
 
 
-def _abort_all(
-    instruments: list[NativeInstrument], diagnostics: list[Diagnostic]
-) -> None:
+def _abort_all(instruments: list[Instrument], diagnostics: list[Diagnostic]) -> None:
     for instrument in instruments:
         try:
             instrument.abort()
@@ -732,8 +658,8 @@ def _abort_all(
             diagnostics.append(
                 _diagnostic_from_exception(
                     "error",
-                    "native_instrument_abort_failed",
-                    "native instrument abort failed for "
+                    "instrument_abort_failed",
+                    "instrument abort failed for "
                     f"{instrument.instrument_id}: {type(error).__name__}: {error}",
                     instrument.instrument_id,
                     error,
@@ -741,9 +667,7 @@ def _abort_all(
             )
 
 
-def _cleanup_all(
-    instruments: list[NativeInstrument], diagnostics: list[Diagnostic]
-) -> None:
+def _cleanup_all(instruments: list[Instrument], diagnostics: list[Diagnostic]) -> None:
     for instrument in instruments:
         try:
             instrument.cleanup()
@@ -751,8 +675,8 @@ def _cleanup_all(
             diagnostics.append(
                 _diagnostic_from_exception(
                     "error",
-                    "native_instrument_cleanup_failed",
-                    "native instrument cleanup failed for "
+                    "instrument_cleanup_failed",
+                    "instrument cleanup failed for "
                     f"{instrument.instrument_id}: {type(error).__name__}: {error}",
                     instrument.instrument_id,
                     error,
@@ -762,72 +686,41 @@ def _cleanup_all(
 
 def _manifest(
     *,
-    config: ConfigProfileSnapshot,
-    experiment_id: str,
-    execution: ExecutionProfile,
     run_id: str,
     status: RunStatus,
     snapshot_ref: str,
-    boundary_ref: str,
     data_ref: str,
-    instruments: list[NativeInstrument],
     measurements: list[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
-    finalization_summary: str,
 ) -> RunManifest:
-    return RunManifest(
+    return build_run_manifest(
         run_id=run_id,
         status=status,
-        runner_id=execution.runner_id,
-        dry_run=execution.dry_run,
-        workspace_ref=config.workspace_id,
-        device_ref=config.device_under_test_id,
-        experiment_ref=experiment_id,
-        config_profile_snapshot_ref="config-profile.snapshot.json",
-        plan_snapshot_ref="plan.snapshot.json",
-        runner_versions=_runner_versions(instruments),
-        events_ref="events.jsonl",
         artifact_refs=_artifact_refs(
             snapshot_ref=snapshot_ref,
-            boundary_ref=boundary_ref,
             data_ref=data_ref,
             measurements=measurements,
             expected_schema=expected_schema,
         ),
-        finalization_summary=finalization_summary,
     )
-
-
-def _runner_versions(instruments: list[NativeInstrument]) -> dict[str, str]:
-    return {
-        instrument.implementation_id: instrument.implementation_version
-        for instrument in instruments
-    }
 
 
 def _artifact_refs(
     *,
     snapshot_ref: str,
-    boundary_ref: str,
     data_ref: str,
     measurements: list[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
 ) -> list[Artifact]:
     return [
         Artifact(
-            id="native-run-snapshot",
-            kind="native_run_snapshot",
+            id="execution-snapshot",
+            kind="execution_snapshot",
             path=snapshot_ref,
             media_type="application/json",
         ),
-        Artifact(
-            id=NATIVE_BOUNDARY_MANIFEST_ARTIFACT_ID,
-            kind="native_boundary_manifest",
-            path=boundary_ref,
-            media_type="application/json",
-        ),
         build_raw_measurement_artifact(
-            artifact_id=NATIVE_RAW_MEASUREMENTS_ARTIFACT_ID,
+            artifact_id=RAW_MEASUREMENTS_ARTIFACT_ID,
             ref=data_ref,
             records=measurements,
             expected_schema=expected_schema,

@@ -2,27 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from scopecat.authoring import (
+    ResolvedExperiment,
     resolve_experiment_with_config,
 )
+from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
-from scopecat.execution.dry_run import (
-    execute_dry_run as execute_planned_dry_run,
-)
-from scopecat.experiments import ExperimentSpec
-from scopecat.instruments import execute_native_run
+from scopecat.experiments import ExperimentSpec, PlanSnapshot, plan_experiment
+from scopecat.instruments import execute_run
 from scopecat.instruments.sdk import (
-    NativeInstrumentProvider,
-    NativeInstrumentProviderContext,
+    InstrumentProvider,
+    InstrumentProviderContext,
 )
 from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.planning.validation import has_blocking_diagnostics
+from scopecat.models.run import RunManifest
+from scopecat.planning.validation import has_blocking_diagnostics, validate_config
 from scopecat.results import MeasurementDatasetInputDiagnostics
-from scopecat.runner import RunnerAdapter, execute_runner_adapter
 from scopecat.runs import (
     list_artifacts,
     open_run_store,
@@ -38,140 +36,22 @@ from scopecat.workflows._diagnostics import diagnostic as _diagnostic
 from scopecat.workflows._types import (
     ConfigProfileInput,
     ExperimentInput,
-    RoutineRunExecutor,
-    RoutineRunStart,
+    PreviewExperimentResult,
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
-    RunArtifactView,
     RunDataArrayResult,
     RunDataTableResult,
     RunDetails,
     RunMeasurementDatasetResult,
-    RunMode,
-    RunSummaryView,
-    StartRunResult,
+    ValidateExperimentResult,
 )
 from scopecat.workflows.config import resolve_config_source
 
 
-@dataclass(frozen=True)
-class _RunModeExecutor:
-    mode: RunMode
-    native_instrument_provider: NativeInstrumentProvider | None = None
-
-    @property
-    def id(self) -> str:
-        return self.mode
-
-    def start(
-        self,
-        *,
-        config: ConfigProfileSnapshot,
-        experiment: ExperimentInput,
-        workspace: str | Path,
-    ) -> StartRunResult:
-        return start_run(
-            mode=self.mode,
-            config=config,
-            experiment=experiment,
-            workspace=workspace,
-            native_instrument_provider=self.native_instrument_provider,
-        )
-
-
-@dataclass(frozen=True)
-class _NativeRunExecutor:
-    instrument_provider: NativeInstrumentProvider
-
-    @property
-    def id(self) -> str:
-        return self.instrument_provider.provider_id
-
-    def start(
-        self,
-        *,
-        config: ConfigProfileSnapshot,
-        experiment: ExperimentInput,
-        workspace: str | Path,
-    ) -> StartRunResult:
-        return start_run(
-            mode="native_simulate",
-            config=config,
-            experiment=experiment,
-            workspace=workspace,
-            native_instrument_provider=self.instrument_provider,
-        )
-
-
-@dataclass(frozen=True)
-class _RunnerAdapterRunExecutor:
-    adapter: RunnerAdapter
-
-    @property
-    def id(self) -> str:
-        return self.adapter.adapter_id
-
-    def start(
-        self,
-        *,
-        config: ConfigProfileSnapshot,
-        experiment: ExperimentInput,
-        workspace: str | Path,
-    ) -> StartRunResult:
-        return start_runner_adapter_run(
-            config=config,
-            experiment=experiment,
-            adapter=self.adapter,
-            workspace=workspace,
-        )
-
-
-@dataclass(frozen=True)
-class _CallableRunExecutor:
-    executor_id: str
-    start_fn: RoutineRunStart
-
-    @property
-    def id(self) -> str:
-        return self.executor_id
-
-    def start(
-        self,
-        *,
-        config: ConfigProfileSnapshot,
-        experiment: ExperimentInput,
-        workspace: str | Path,
-    ) -> StartRunResult:
-        if isinstance(experiment, ExperimentSpec):
-            return self.start_fn(
-                config=config,
-                experiment=experiment,
-                workspace=workspace,
-            )
-        resolved = resolve_experiment_with_config(
-            experiment,
-            config=config,
-            workspace=workspace,
-        )
-        result = self.start_fn(
-            config=config,
-            experiment=resolved.experiment,
-            workspace=workspace,
-        )
-        if result.resolved_experiment is not None:
-            return result
-        return StartRunResult(
-            manifest=result.manifest,
-            snapshot=result.snapshot,
-            data_ref=result.data_ref,
-            resolved_experiment=resolved,
-        )
-
-
-def list_runs(*, workspace: str | Path) -> list[RunSummaryView]:
+def list_runs(*, workspace: str | Path) -> list[RunManifest]:
     storage = open_run_store(workspace)
-    return [RunSummaryView(manifest=manifest) for manifest in storage.list_runs()]
+    return storage.list_runs()
 
 
 def load_run(*, run_id: str, workspace: str | Path) -> RunDetails:
@@ -185,13 +65,10 @@ def load_run(*, run_id: str, workspace: str | Path) -> RunDetails:
 
 def list_run_artifacts(
     *, run_id: str, workspace: str | Path, kind: str | None = None
-) -> list[RunArtifactView]:
+) -> tuple[Artifact, ...]:
     storage = open_run_store(workspace)
     manifest = storage.read_manifest(run_id)
-    return [
-        RunArtifactView(artifact=artifact)
-        for artifact in list_artifacts(manifest, kind=kind)
-    ]
+    return list_artifacts(manifest, kind=kind)
 
 
 def read_run_artifact_text(
@@ -345,189 +222,42 @@ def read_run_data_array(
     )
 
 
-def start_dry_run(
-    *,
-    config: ConfigProfileSnapshot,
-    experiment: ExperimentInput,
-    workspace: str | Path,
-) -> StartRunResult:
-    if isinstance(experiment, ExperimentSpec):
-        manifest, snapshot = execute_planned_dry_run(
-            config=config,
-            experiment=experiment,
-            workspace=workspace,
-        )
-        return StartRunResult(manifest=manifest, snapshot=snapshot)
-
-    raise ValidationFailed(
-        [
-            _diagnostic(
-                "error",
-                "unsupported_dry_run_experiment_input",
-                "dry-run requires an ExperimentSpec",
-                "experiment",
-            )
-        ]
-    )
-
-
 def start_run(
     *,
-    mode: RunMode,
     config: ConfigProfileSnapshot,
     experiment: ExperimentInput,
     workspace: str | Path,
-    native_instrument_provider: NativeInstrumentProvider | None = None,
-) -> StartRunResult:
-    if isinstance(experiment, ExperimentSpec):
-        if mode == "dry":
-            return start_dry_run(
-                config=config,
-                experiment=experiment,
-                workspace=workspace,
-            )
-        if mode == "native_simulate":
-            return start_native_run(
-                config=config,
-                experiment=experiment,
-                workspace=workspace,
-                instrument_provider=native_instrument_provider,
-            )
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "unsupported_run_mode",
-                    f"Experiment specs do not support run mode {mode}",
-                    "mode",
-                )
-            ]
-        )
-    if mode == "dry":
-        resolved = resolve_experiment_with_config(
-            experiment,
-            config=config,
-            workspace=workspace,
-        )
-        dry_result = start_dry_run(
-            config=config,
-            experiment=resolved.experiment,
-            workspace=workspace,
-        )
-        return StartRunResult(
-            manifest=dry_result.manifest,
-            snapshot=dry_result.snapshot,
-            data_ref=dry_result.data_ref,
-            resolved_experiment=resolved,
-        )
-    resolved = resolve_experiment_with_config(
+    instrument_provider: InstrumentProvider | None = None,
+) -> RunManifest:
+    experiment, _ = _resolve_experiment_input(
         experiment,
         config=config,
         workspace=workspace,
     )
-    experiment_spec = resolved.experiment
-    if mode == "native_simulate":
-        native_result = start_native_run(
-            config=config,
-            experiment=experiment_spec,
-            workspace=workspace,
-            instrument_provider=native_instrument_provider,
-        )
-        return StartRunResult(
-            manifest=native_result.manifest,
-            snapshot=native_result.snapshot,
-            data_ref=native_result.data_ref,
-            resolved_experiment=resolved,
-        )
-    raise ValidationFailed(
-        [
-            _diagnostic(
-                "error",
-                "unsupported_run_mode",
-                f"unsupported run mode {mode}",
-                "mode",
-            )
-        ]
-    )
-
-
-def start_native_run(
-    *,
-    config: ConfigProfileSnapshot,
-    experiment: ExperimentInput,
-    workspace: str | Path,
-    instrument_provider: NativeInstrumentProvider | None = None,
-) -> StartRunResult:
     if instrument_provider is None:
         raise ValidationFailed(
             [
                 _diagnostic(
                     "error",
-                    "missing_native_instrument_provider",
-                    "native execution requires an explicit instrument provider",
+                    "missing_instrument_provider",
+                    "run execution requires an explicit instrument provider",
                     "instrument_provider",
                 )
             ]
         )
-    if isinstance(experiment, ExperimentSpec):
-        provider_result = instrument_provider.provide(
-            NativeInstrumentProviderContext(config=config, experiment=experiment)
-        )
-        diagnostics = list(provider_result.diagnostics)
-        if has_blocking_diagnostics(diagnostics):
-            raise ValidationFailed(diagnostics)
-        manifest, snapshot = execute_native_run(
-            config=config,
-            experiment=experiment,
-            instruments=list(provider_result.instruments),
-            workspace=workspace,
-        )
-        return StartRunResult(
-            manifest=manifest,
-            snapshot=snapshot,
-            data_ref=snapshot.data_ref,
-        )
-    raise ValidationFailed(
-        [
-            _diagnostic(
-                "error",
-                "unsupported_native_experiment_input",
-                "native execution requires an ExperimentSpec",
-                "experiment",
-            )
-        ]
+    provider_result = instrument_provider.provide(
+        InstrumentProviderContext(config=config, experiment=experiment)
     )
-
-
-def start_runner_adapter_run(
-    *,
-    config: ConfigProfileSnapshot,
-    experiment: ExperimentInput,
-    adapter: RunnerAdapter,
-    workspace: str | Path,
-) -> StartRunResult:
-    if isinstance(experiment, ExperimentSpec):
-        manifest, snapshot = execute_runner_adapter(
-            config=config,
-            experiment=experiment,
-            adapter=adapter,
-            workspace=workspace,
-        )
-        return StartRunResult(
-            manifest=manifest,
-            snapshot=snapshot,
-            data_ref=snapshot.data_ref,
-        )
-    raise ValidationFailed(
-        [
-            _diagnostic(
-                "error",
-                "unsupported_runner_adapter_experiment_input",
-                "runner adapter execution requires an ExperimentSpec",
-                "experiment",
-            )
-        ]
+    diagnostics = list(provider_result.diagnostics)
+    if has_blocking_diagnostics(diagnostics):
+        raise ValidationFailed(diagnostics)
+    manifest, _ = execute_run(
+        config=config,
+        experiment=experiment,
+        instruments=list(provider_result.instruments),
+        workspace=workspace,
     )
+    return manifest
 
 
 def run_experiment(
@@ -536,11 +266,94 @@ def run_experiment(
     workspace: str | Path,
     config: str | ConfigProfileSnapshot = "active",
     config_profile: ConfigProfileInput | None = None,
-    mode: RunMode = "dry",
-    native_instrument_provider: NativeInstrumentProvider | None = None,
-) -> StartRunResult:
+    instrument_provider: InstrumentProvider | None = None,
+) -> RunManifest:
+    config_snapshot = _resolve_config_snapshot(
+        workspace=workspace,
+        config=config,
+        config_profile=config_profile,
+    )
+    return start_run(
+        config=config_snapshot,
+        experiment=experiment,
+        workspace=workspace,
+        instrument_provider=instrument_provider,
+    )
+
+
+def validate_experiment(
+    experiment: ExperimentInput,
+    *,
+    workspace: str | Path,
+    config: str | ConfigProfileSnapshot = "active",
+    config_profile: ConfigProfileInput | None = None,
+) -> ValidateExperimentResult:
+    config_snapshot = _resolve_config_snapshot(
+        workspace=workspace,
+        config=config,
+        config_profile=config_profile,
+    )
+    experiment, resolved = _resolve_experiment_input(
+        experiment,
+        config=config_snapshot,
+        workspace=workspace,
+    )
+    diagnostics = list(validate_config(config_snapshot))
+    plan = None
+    if config_snapshot.parameter_build is None:
+        diagnostics.append(
+            _diagnostic(
+                "blocker",
+                "missing_parameter_build_snapshot",
+                "experiment validation requires a parameter build snapshot",
+                "parameter_build",
+            )
+        )
+    if not has_blocking_diagnostics(diagnostics):
+        assert config_snapshot.parameter_build is not None
+        plan = plan_experiment(experiment, config_snapshot.parameter_build)
+        diagnostics.extend(_plan_diagnostics(plan))
+    return ValidateExperimentResult(
+        experiment=experiment,
+        config=config_snapshot,
+        diagnostics=tuple(diagnostics),
+        plan=plan,
+        resolved_experiment=resolved,
+    )
+
+
+def preview_experiment(
+    experiment: ExperimentInput,
+    *,
+    workspace: str | Path,
+    config: str | ConfigProfileSnapshot = "active",
+    config_profile: ConfigProfileInput | None = None,
+) -> PreviewExperimentResult:
+    validation = validate_experiment(
+        experiment,
+        workspace=workspace,
+        config=config,
+        config_profile=config_profile,
+    )
+    if not validation.ok:
+        raise ValidationFailed(list(validation.diagnostics))
+    assert validation.plan is not None
+    return PreviewExperimentResult(
+        experiment=validation.experiment,
+        config=validation.config,
+        plan=validation.plan,
+        diagnostics=validation.diagnostics,
+        resolved_experiment=validation.resolved_experiment,
+    )
+
+
+def _resolve_config_snapshot(
+    *,
+    workspace: str | Path,
+    config: str | ConfigProfileSnapshot,
+    config_profile: ConfigProfileInput | None,
+) -> ConfigProfileSnapshot:
     if isinstance(config, ConfigProfileSnapshot):
-        config_snapshot = config
         if config_profile is not None:
             raise ValidationFailed(
                 [
@@ -552,51 +365,33 @@ def run_experiment(
                     )
                 ]
             )
-    else:
-        config_entry = (
-            None if config_profile is not None and config == "active" else config
-        )
-        source = resolve_config_source(
-            workspace=workspace,
-            config_profile=config_profile,
-            config_entry=config_entry,
-        )
-        config_snapshot = source.config
-    return start_run(
-        mode=mode,
-        config=config_snapshot,
-        experiment=experiment,
+        return config
+    config_entry = None if config_profile is not None and config == "active" else config
+    return resolve_config_source(
         workspace=workspace,
-        native_instrument_provider=native_instrument_provider,
-    )
+        config_profile=config_profile,
+        config_entry=config_entry,
+    ).config
 
 
-def run_mode_executor(
-    mode: RunMode,
+def _resolve_experiment_input(
+    experiment: ExperimentInput,
     *,
-    native_instrument_provider: NativeInstrumentProvider | None = None,
-) -> RoutineRunExecutor:
-    return _RunModeExecutor(
-        mode=mode,
-        native_instrument_provider=native_instrument_provider,
+    config: ConfigProfileSnapshot,
+    workspace: str | Path,
+) -> tuple[ExperimentSpec, ResolvedExperiment | None]:
+    if isinstance(experiment, ExperimentSpec):
+        return experiment, None
+    resolved = resolve_experiment_with_config(
+        experiment,
+        config=config,
+        workspace=workspace,
     )
+    return resolved.experiment, resolved
 
 
-def native_run_executor(
-    instrument_provider: NativeInstrumentProvider,
-) -> RoutineRunExecutor:
-    return _NativeRunExecutor(instrument_provider=instrument_provider)
-
-
-def runner_adapter_executor(adapter: RunnerAdapter) -> RoutineRunExecutor:
-    return _RunnerAdapterRunExecutor(adapter=adapter)
-
-
-def callable_run_executor(
-    executor_id: str,
-    start: RoutineRunStart,
-) -> RoutineRunExecutor:
-    return _CallableRunExecutor(executor_id=executor_id, start_fn=start)
+def _plan_diagnostics(plan: PlanSnapshot) -> list[Diagnostic]:
+    return [Diagnostic.model_validate(diagnostic) for diagnostic in plan.diagnostics]
 
 
 def _artifact_supports_text(artifact: Artifact) -> bool:

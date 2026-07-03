@@ -11,14 +11,14 @@ from scopecat.parameter_changes import (
     review_parameter_changes,
 )
 from scopecat.runs import open_run_store
-from tests.support.config_registry import simulate_with_parameter_change
+from tests.support.config_registry import signal_run_with_parameter_change
 from tests.support.records import assert_artifact_ref
 
 
 def test_invalidate_parameter_change_records_decision_without_mutating_change_set(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate_with_parameter_change(tmp_path)
+    run_id = signal_run_with_parameter_change(tmp_path)
     before = load_parameter_change(
         run_id=run_id,
         selector="best-signal",
@@ -66,7 +66,7 @@ def test_invalidate_parameter_change_records_decision_without_mutating_change_se
 
 
 def test_parameter_change_decision_rejects_second_decision(tmp_path: Path) -> None:
-    run_id = simulate_with_parameter_change(tmp_path)
+    run_id = signal_run_with_parameter_change(tmp_path)
     review_parameter_changes(
         run_id=run_id,
         selector="best-signal",

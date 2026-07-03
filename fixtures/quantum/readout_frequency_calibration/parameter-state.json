@@ -4,7 +4,7 @@
   "metadata": {
     "sample_reference": "sample-public://readout/frequency-calibration-s21",
     "example_status": "synthetic role-based identifiers and offline resources",
-    "adapter_goal": "anti-corruption boundary and adapter authoring SDK design"
+    "instrument_group_goal": "instrument-group boundary and provider design"
   },
   "scalar_values": {
     "id": "example-readout-calibration-parameter-values",

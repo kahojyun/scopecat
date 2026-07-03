@@ -9,10 +9,10 @@ import scopecat as sc
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec, PlanSnapshot
 from scopecat.models.parameter import Quantity
-from tests.support.native_signal import TestSignalInstrumentProvider
 from tests.support.records import read_model
+from tests.support.signal_instruments import TestSignalInstrumentProvider
 
-EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simulated_scan"
+EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
 
 class AnalysisArtifactPayload(BaseModel):
@@ -29,8 +29,7 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
 
     run = lab.run(load_experiment())
@@ -73,8 +72,7 @@ def test_data_selectors_report_notebook_friendly_diagnostics(tmp_path: Path) -> 
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
     data = run.data()
@@ -94,8 +92,7 @@ def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
 
@@ -130,8 +127,7 @@ def test_workspace_experiment_wraps_existing_source(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     experiment = (
         lab.experiment("readout scan", load_experiment())
@@ -155,8 +151,7 @@ def test_workspace_experiment_builder_lowers_to_runnable_spec(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     experiment = (
         lab.experiment("manual signal scan")
@@ -174,17 +169,17 @@ def test_workspace_experiment_builder_lowers_to_runnable_spec(
     run = lab.run(experiment)
 
     assert run.manifest.status == "completed"
-    assert run.result.resolved_experiment is not None
-    assert run.result.resolved_experiment.experiment.id == "manual-signal-scan"
-    planned_frequencies = [
-        point.row["drive_frequency"] for point in run.result.snapshot.plan.points
-    ]
+    assert (
+        run.data().json("execution-snapshot").content["experiment_id"]
+        == "manual-signal-scan"
+    )
+    planned_frequencies = [point.row["drive_frequency"] for point in run.plan.points]
     assert planned_frequencies == [
         Quantity(value=4.9, unit="GHz"),
         Quantity(value=5.0, unit="GHz"),
         Quantity(value=5.1, unit="GHz"),
     ]
-    assert run.result.snapshot.plan.expected_dataset_schema is not None
+    assert run.plan.expected_dataset_schema is not None
 
 
 def test_workspace_experiment_builder_supports_active_center_sweep(
@@ -193,7 +188,6 @@ def test_workspace_experiment_builder_supports_active_center_sweep(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="dry",
     )
     experiment = (
         lab.experiment("active centered scan")
@@ -201,11 +195,10 @@ def test_workspace_experiment_builder_supports_active_center_sweep(
         .measure("signal")
     )
 
-    run = lab.run(experiment)
+    preview = lab.preview(experiment)
 
-    assert run.manifest.status == "completed"
     planned_frequencies = [
-        point.row["drive_frequency"] for point in run.result.snapshot.plan.points
+        point.row["drive_frequency"] for point in preview.plan.points
     ]
     assert planned_frequencies == [
         Quantity(value=4.9, unit="GHz"),
@@ -220,8 +213,7 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
     raw = run.data().measurements()
@@ -288,8 +280,7 @@ def test_run_analysis_persists_output_artifacts(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
     source_report = tmp_path / "fit-report.html"
@@ -371,8 +362,7 @@ def test_run_analysis_persists_owned_artifacts(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
     source = tmp_path / "source-report.html"
@@ -448,7 +438,7 @@ def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="dry",
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
 
@@ -504,8 +494,7 @@ def test_analysis_artifact_refs_dedupe_sources_and_feed_overview(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
 
@@ -539,8 +528,7 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     experiment = load_experiment()
     baseline = lab.run(experiment)
@@ -569,8 +557,7 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     reopened = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     gui_runs = reopened.runs()
     gui_run = reopened.get_run(baseline.id)
@@ -578,7 +565,6 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
 
     assert [run.id for run in gui_runs] == [baseline.id, follow_up.id]
     assert gui_run.id == baseline.id
-    assert gui_run.data_ref == "artifacts/raw-measurements.jsonl"
     assert gui_data.measurements().artifact.id == "raw-measurements"
     assert [artifact.id for artifact in gui_data.list(kind="analysis")] == [
         saved.artifact.id
@@ -619,7 +605,7 @@ def test_analysis_rejects_invalid_notebook_payloads(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="dry",
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
 
@@ -652,8 +638,7 @@ def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
     )
     run = lab.run(load_experiment())
     step: sc.AnalysisStep = ReadoutFit()

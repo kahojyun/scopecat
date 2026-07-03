@@ -5,38 +5,10 @@ from demo_lab_test_paths import READOUT_FREQUENCY_FIXTURE_DIR
 from scopecat.authoring import around, resolve_experiment
 from scopecat.experiments import ExperimentSpec, plan_experiment
 from scopecat.models.parameter import Quantity
-from scopecat.workflows import AnalysisStepCatalogContext
 
 from quantum_lab_demo.readout import (
-    READOUT_FREQUENCY_ANALYSIS_STEP,
-    ReadoutFrequencyAnalysisStep,
     frequency_calibration,
 )
-from quantum_lab_demo.readout.analysis_catalog import (
-    ReadoutAnalysisCatalog,
-)
-
-
-def test_readout_frequency_catalog_resolves_expected_analysis_step() -> None:
-    catalog = ReadoutAnalysisCatalog()
-    description = catalog.describe()
-
-    analysis = catalog.analysis_step(
-        AnalysisStepCatalogContext(step_id=READOUT_FREQUENCY_ANALYSIS_STEP)
-    )
-    unsupported = catalog.analysis_step(
-        AnalysisStepCatalogContext(step_id="missing-analysis")
-    )
-
-    assert description.catalog_id == "quantum_lab_demo.readout_analysis"
-    assert [step.step_id for step in description.steps] == [
-        "readout.frequency.analysis",
-        "readout.iq_quality.analysis",
-    ]
-    assert description.steps[0].output_artifact_kinds == ("analysis",)
-    assert description.steps[0].parameter_change_kinds == ("readout_frequency",)
-    assert isinstance(analysis.step, ReadoutFrequencyAnalysisStep)
-    assert unsupported.diagnostics[0].code == "readout_analysis_step_unsupported"
 
 
 def test_readout_frequency_template_resolves_fixture_equivalent_plan() -> None:

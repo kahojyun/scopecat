@@ -35,8 +35,7 @@ def readout_frequency_lab(
     return sc.open(
         workspace,
         config_profile=config_profile,
-        mode="native_simulate",
-        native_instrument_provider=ReadoutFrequencyVirtualProvider(
+        instrument_provider=ReadoutFrequencyVirtualProvider(
             profile=virtual_lab_profile,
         ),
     )
@@ -51,14 +50,13 @@ def readout_iq_lab(
     return sc.open(
         workspace,
         config_profile=config_profile,
-        mode="native_simulate",
-        native_instrument_provider=ReadoutIQVirtualProvider(
+        instrument_provider=ReadoutIQVirtualProvider(
             profile=virtual_lab_profile,
         ),
     )
 
 
-def sample_native_lab(
+def sample_lab(
     *,
     workspace: PathInput = DEFAULT_SAMPLE_TEMPLATES_WORKSPACE,
     config_profile: PathInput = SAMPLE_TEMPLATES_FIXTURE_DIR / "config-profile.json",
@@ -67,8 +65,7 @@ def sample_native_lab(
     return sc.open(
         workspace,
         config_profile=config_profile,
-        mode="native_simulate",
-        native_instrument_provider=SampleVirtualProvider(profile=virtual_lab_profile),
+        instrument_provider=SampleVirtualProvider(profile=virtual_lab_profile),
     )
 
 
@@ -76,5 +73,5 @@ __all__ = [
     "PathInput",
     "readout_frequency_lab",
     "readout_iq_lab",
-    "sample_native_lab",
+    "sample_lab",
 ]

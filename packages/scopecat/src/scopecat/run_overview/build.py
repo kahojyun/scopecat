@@ -98,12 +98,7 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
         run=RunHeader(
             run_id=manifest.run_id,
             status=manifest.status,
-            runner_id=manifest.runner_id,
-            dry_run=manifest.dry_run,
-            experiment_ref=manifest.experiment_ref,
             created_at=manifest.created_at,
-            workspace_ref=manifest.workspace_ref,
-            device_ref=manifest.device_ref,
         ),
         config_source=config_source,
         artifact_refs=list(manifest.artifact_refs),

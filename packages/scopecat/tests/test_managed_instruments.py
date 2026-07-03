@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat.instruments import (
-    ManagedNativeInstrument,
-    ManagedNativeProvider,
-    NativeProviderBuildContext,
+    ManagedInstrument,
+    ManagedInstrumentProvider,
+    ProviderBuildContext,
     asset_field,
     capability,
 )
-from scopecat.instruments.executor import execute_native_run
-from scopecat.instruments.sdk import NativeInstrumentProviderContext
+from scopecat.instruments.executor import execute_run
+from scopecat.instruments.sdk import InstrumentProviderContext
 from scopecat.models.artifact import ArtifactRef
 from tests.support.managed_instruments import (
     ManagedSignalInstrument,
@@ -70,9 +70,9 @@ def test_managed_instrument_validates_declared_field_shapes() -> None:
         )
     )
 
-    assert unsupported[0].code == "managed_native_unsupported_field"
-    assert unit_mismatch[0].code == "managed_native_unit_mismatch"
-    assert kind_mismatch[0].code == "managed_native_field_kind_mismatch"
+    assert unsupported[0].code == "managed_instrument_unsupported_field"
+    assert unit_mismatch[0].code == "managed_instrument_unit_mismatch"
+    assert kind_mismatch[0].code == "managed_instrument_field_kind_mismatch"
 
 
 def test_managed_instrument_validates_asset_references_and_kinds() -> None:
@@ -81,7 +81,7 @@ def test_managed_instrument_validates_asset_references_and_kinds() -> None:
         kind="pulse_program",
         uri="scopecat-asset:program-a",
     )
-    instrument = ManagedNativeInstrument(
+    instrument = ManagedInstrument(
         instrument_id="source-0",
         implementation_id="tests.managed_asset",
         implementation_version="v0",
@@ -108,7 +108,7 @@ def test_managed_instrument_validates_asset_references_and_kinds() -> None:
             value=asset_state("missing-program"),
         )
     )
-    wrong_kind = ManagedNativeInstrument(
+    wrong_kind = ManagedInstrument(
         instrument_id="source-0",
         implementation_id="tests.managed_asset",
         implementation_version="v0",
@@ -128,16 +128,16 @@ def test_managed_instrument_validates_asset_references_and_kinds() -> None:
     )
 
     assert valid == []
-    assert missing[0].code == "managed_native_unknown_asset"
-    assert wrong_kind[0].code == "managed_native_asset_kind_mismatch"
+    assert missing[0].code == "managed_instrument_unknown_asset"
+    assert wrong_kind[0].code == "managed_instrument_asset_kind_mismatch"
 
 
 def test_managed_provider_builds_fresh_instruments() -> None:
-    def build(context: NativeProviderBuildContext):
-        assert context.experiment.id == "simulated-frequency-scan"
+    def build(context: ProviderBuildContext):
+        assert context.experiment.id == "simple-frequency-scan"
         return [ManagedSignalInstrument()]
 
-    provider = ManagedNativeProvider(
+    provider = ManagedInstrumentProvider(
         provider_id="tests.managed_provider",
         build=build,
         label="Managed provider",
@@ -146,13 +146,13 @@ def test_managed_provider_builds_fresh_instruments() -> None:
         metadata={"mode": "test_offline"},
     )
     first = provider.provide(
-        NativeInstrumentProviderContext(
+        InstrumentProviderContext(
             config=load_config(),
             experiment=load_experiment(),
         )
     )
     second = provider.provide(
-        NativeInstrumentProviderContext(
+        InstrumentProviderContext(
             config=load_config(),
             experiment=load_experiment(),
         )
@@ -163,10 +163,10 @@ def test_managed_provider_builds_fresh_instruments() -> None:
     assert first.instruments[0] is not second.instruments[0]
 
 
-def test_execute_native_run_accepts_managed_instrument(tmp_path: Path) -> None:
+def test_execute_run_accepts_managed_instrument(tmp_path: Path) -> None:
     instrument = ManagedSignalInstrument()
 
-    manifest, snapshot = execute_native_run(
+    manifest, snapshot = execute_run(
         config=load_config(),
         experiment=load_experiment(),
         instruments=[instrument],

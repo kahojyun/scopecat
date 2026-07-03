@@ -12,7 +12,7 @@ from scopecat.run_comparison import (
 )
 from scopecat.runs import open_run_store
 from tests.support.records import assert_artifact_ref
-from tests.support.run_comparison import simulate
+from tests.support.run_comparison import run_signal_experiment
 
 
 def test_list_and_review_run_comparison_updates_baseline_manifest(
@@ -85,7 +85,7 @@ def test_review_run_comparison_rejects_second_review(tmp_path: Path) -> None:
 
 
 def test_review_run_comparison_rejects_path_escape(tmp_path: Path) -> None:
-    baseline_run_id = simulate(tmp_path)
+    baseline_run_id = run_signal_experiment(tmp_path)
 
     with pytest.raises(ValidationFailed) as error:
         review_run_comparison(
@@ -120,8 +120,8 @@ def test_review_run_comparison_rejects_invalid_json(tmp_path: Path) -> None:
 
 
 def _write_comparison(tmp_path: Path) -> tuple[str, str]:
-    baseline_run_id = simulate(tmp_path)
-    candidate_run_id = simulate(tmp_path)
+    baseline_run_id = run_signal_experiment(tmp_path)
+    candidate_run_id = run_signal_experiment(tmp_path)
     execute_run_comparison(
         baseline_run_id=baseline_run_id,
         candidate_run_id=candidate_run_id,

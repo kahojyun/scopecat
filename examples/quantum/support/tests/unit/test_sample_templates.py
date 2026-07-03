@@ -11,7 +11,7 @@ from scopecat.experiments import (
     plan_experiment,
 )
 from scopecat.models.parameter import Quantity
-from scopecat.workflows import run_experiment
+from scopecat.workflows import preview_experiment
 
 from quantum_lab_demo.sample import (
     CZ_RB_TEMPLATE_ID,
@@ -71,7 +71,7 @@ def test_sample_template_registry_covers_sample_templates() -> None:
         ),
     ],
 )
-def test_sample_templates_resolve_to_and_run_draft_dry_run(
+def test_sample_templates_resolve_to_and_preview_draft(
     tmp_path: Path,
     label: str,
     draft: ExperimentDraft,
@@ -93,15 +93,14 @@ def test_sample_templates_resolve_to_and_run_draft_dry_run(
     plan = plan_experiment(resolved.experiment, sample_parameter_build())
     assert plan.expected_dataset_schema is not None
 
-    dry_run = run_experiment(
+    preview = preview_experiment(
         draft,
-        mode="dry",
         workspace=tmp_path,
         config_profile=config,
     )
-    assert dry_run.manifest.status == "completed", label
-    assert dry_run.resolved_experiment is not None
-    assert dry_run.resolved_experiment.template_id == template_id
+    assert preview.plan.expected_dataset_schema is not None, label
+    assert preview.resolved_experiment is not None
+    assert preview.resolved_experiment.template_id == template_id
 
 
 def test_sample_rabi_infers_default_sweep_from_config(tmp_path: Path) -> None:

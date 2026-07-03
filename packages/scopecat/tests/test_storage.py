@@ -3,10 +3,15 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import BaseModel
 
 from scopecat._storage.local import LocalRunLayout, LocalRunStore
 from scopecat.errors import ValidationFailed
-from scopecat.models.run import RunEvent, RunManifest
+from scopecat.models.run import RunManifest
+
+
+class JsonlRecord(BaseModel):
+    message: str
 
 
 def test_local_run_layout_resolves_run_relative_refs(tmp_path) -> None:
@@ -29,18 +34,18 @@ def test_local_run_store_round_trips_model_text_and_jsonl(tmp_path) -> None:
     store = LocalRunStore(tmp_path)
     run_id = "run-000001"
     manifest = _manifest(run_id, datetime(2026, 1, 1, tzinfo=UTC))
-    events = [
-        RunEvent(event_type="started", message="Started."),
-        RunEvent(event_type="completed", message="Completed."),
+    records = [
+        JsonlRecord(message="Started."),
+        JsonlRecord(message="Completed."),
     ]
 
     store.write_manifest(manifest)
     store.write_text(run_id, "artifacts/summary.md", "# Summary")
-    store.write_jsonl(run_id, "events.jsonl", events)
+    store.write_jsonl(run_id, "records.jsonl", records)
 
     assert store.read_manifest(run_id) == manifest
     assert store.read_text(run_id, "artifacts/summary.md") == "# Summary\n"
-    assert store.read_jsonl(run_id, "events.jsonl", RunEvent) == events
+    assert store.read_jsonl(run_id, "records.jsonl", JsonlRecord) == records
 
 
 def test_local_run_store_lists_runs_by_created_at(tmp_path) -> None:
@@ -63,7 +68,7 @@ def test_local_run_store_writes_manifest_atomically(tmp_path) -> None:
     store.write_manifest(_manifest(run_id, datetime(2026, 1, 1, tzinfo=UTC)))
 
     updated = _manifest(run_id, datetime(2026, 1, 1, tzinfo=UTC)).model_copy(
-        update={"status": "failed", "finalization_summary": "Failed."}
+        update={"status": "failed"}
     )
     store.write_manifest(updated)
 
@@ -75,14 +80,7 @@ def _manifest(run_id: str, created_at: datetime) -> RunManifest:
     return RunManifest(
         run_id=run_id,
         created_at=created_at,
-        status="planned",
-        runner_id="test.runner",
-        dry_run=False,
-        workspace_ref="workspace",
-        device_ref="device",
-        experiment_ref="experiment",
+        status="completed",
         config_profile_snapshot_ref="config-profile.snapshot.json",
         plan_snapshot_ref="plan.snapshot.json",
-        events_ref="events.jsonl",
-        finalization_summary="Planned.",
     )

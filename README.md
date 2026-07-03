@@ -3,7 +3,7 @@
 <p align="center"><img src="assets/branding/app-icon.svg" alt="Scopecat app icon" width="160"></p>
 
 Scopecat is a local-first Python workspace for describing experiments, running
-them through dry-run, adapter, or native instrument paths, and keeping the
+previews or executing them through instrument providers, and keeping the
 resulting runs, data, analysis records, candidate configs, comparisons, and
 operator attachments and artifacts together in a workspace.
 
@@ -32,8 +32,7 @@ import scopecat as sc
 lab = sc.open(
     ".scopecat",
     config="active",
-    mode="native_simulate",
-    native_instrument_provider=provider,
+    instrument_provider=provider,
 )
 
 experiment = lab.experiment("readout frequency", source=readout_frequency_spec)
@@ -71,7 +70,7 @@ use stable keys, declare their inputs, and can be produced manually or through
 an `AnalysisStep` without changing the saved record shape.
 
 Durable `ExperimentSpec` JSON is still useful for debugging, fixtures, and
-adapter-boundary tests, but it is not the preferred authoring surface for new
+execution-boundary tests, but it is not the preferred authoring surface for new
 notebook or script users.
 
 ## Examples

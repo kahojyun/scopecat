@@ -104,7 +104,6 @@ def format_readout_frequency_summary(result: ReadoutFrequencyWorkflowResult) -> 
         raise TypeError(msg)
     lines = [
         f"Run: {result.run.id}",
-        f"Raw measurements: {result.run.data_ref}",
         f"Processed points: {result.processed_points}",
         f"Plot: {result.figure_ref}",
         (f"Candidate readout_frequency: {value.value} {value.unit}"),
@@ -115,7 +114,6 @@ def format_readout_frequency_summary(result: ReadoutFrequencyWorkflowResult) -> 
 def format_readout_iq_summary(result: ReadoutIQWorkflowResult) -> str:
     lines = [
         f"Run: {result.run.id}",
-        f"Raw measurements: {result.run.data_ref}",
         f"Processed shots: {result.processed_shots}",
         f"Figure: {result.figure_ref}",
     ]

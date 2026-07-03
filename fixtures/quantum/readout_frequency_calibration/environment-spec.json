@@ -5,15 +5,15 @@
   "connection_profile": {
     "connections": [
       {
-        "id": "readout-stack-simulated",
+        "id": "readout-stack-virtual-lab",
         "instrument_id": "readout-stack",
-        "kind": "simulated",
+        "kind": "virtual_lab",
         "resource_hint": "offline readout response fixture"
       },
       {
-        "id": "flux-bias-source-simulated",
+        "id": "flux-bias-source-virtual-lab",
         "instrument_id": "flux-bias-source",
-        "kind": "simulated",
+        "kind": "virtual_lab",
         "resource_hint": "offline flux-bias validation fixture"
       }
     ]
@@ -21,6 +21,6 @@
   "metadata": {
     "sample_reference": "sample-public://readout/frequency-calibration-s21",
     "example_status": "synthetic role-based identifiers and offline resources",
-    "adapter_goal": "anti-corruption boundary and adapter authoring SDK design"
+    "instrument_group_goal": "instrument-group boundary and provider design"
   }
 }

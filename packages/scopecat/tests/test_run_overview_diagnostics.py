@@ -9,13 +9,13 @@ from scopecat.models.artifact import Artifact
 from scopecat.run_overview import build_run_overview
 from scopecat.runs import open_run_store
 from tests.support.config_registry import seed_best_signal_parameter_change
-from tests.support.run_overview import simulate
+from tests.support.run_overview import run_signal_experiment
 
 
 def test_build_run_overview_rejects_parameter_change_path_escape(
     tmp_path: Path,
 ) -> None:
-    run_id = simulate(tmp_path)
+    run_id = run_signal_experiment(tmp_path)
     seed_best_signal_parameter_change(tmp_path=tmp_path, run_id=run_id)
     storage = open_run_store(tmp_path)
     manifest = storage.read_manifest(run_id)
@@ -34,7 +34,7 @@ def test_build_run_overview_rejects_parameter_change_path_escape(
 
 
 def test_build_run_overview_rejects_directory_artifact(tmp_path: Path) -> None:
-    run_id = simulate(tmp_path)
+    run_id = run_signal_experiment(tmp_path)
     storage = open_run_store(tmp_path)
     manifest = storage.read_manifest(run_id)
     manifest.artifact_refs.append(

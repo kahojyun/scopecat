@@ -16,14 +16,13 @@ from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
 from scopecat.run_comparison import RunComparisonView
 from scopecat.run_refs import RunRef, run_id
-from scopecat.runs.access import get_artifact_by_id, open_run_store
+from scopecat.runs.access import open_run_store
 from scopecat.session_analysis import Analysis, AnalysisContext, AnalysisStep
 from scopecat.session_data import Data
 from scopecat.workflows import (
     RunArtifactJsonResult,
     RunArtifactTextResult,
     RunMeasurementDatasetResult,
-    StartRunResult,
 )
 from scopecat.workflows.comparison import list_run_comparisons
 from scopecat.workflows.runs import (
@@ -35,7 +34,6 @@ from scopecat.workflows.runs import (
 )
 
 if TYPE_CHECKING:
-    from scopecat.authoring import ExperimentDraft, ResolvedExperiment
     from scopecat.run_overview import RunOverview
 
 
@@ -51,55 +49,17 @@ class RunSession(Protocol):
 
     def overview(self, run: RunHandle | RunRef) -> RunOverview: ...
 
-    def preview(
-        self,
-        experiment: ExperimentDraft,
-    ) -> ResolvedExperiment: ...
 
-
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True)
 class RunHandle:
     """Typed handle for a run created by a session."""
 
     session: RunSession
-    _manifest: RunManifest
-    _result: StartRunResult | None
-
-    def __init__(
-        self,
-        *,
-        session: RunSession,
-        result: StartRunResult | None = None,
-        manifest: RunManifest | None = None,
-    ) -> None:
-        selected_manifest = result.manifest if result is not None else manifest
-        if selected_manifest is None:
-            _raise_diagnostic(
-                "run_handle_manifest_missing",
-                "run handle requires a run result or manifest",
-                "run",
-            )
-        object.__setattr__(self, "session", session)
-        object.__setattr__(self, "_manifest", selected_manifest)
-        object.__setattr__(self, "_result", result)
-
-    @property
-    def result(self) -> StartRunResult:
-        if self._result is None:
-            _raise_diagnostic(
-                "run_execution_snapshot_not_loaded",
-                "run execution snapshot is not loaded for this workspace run handle",
-                "run",
-            )
-        return self._result
+    manifest: RunManifest
 
     @property
     def id(self) -> str:
         return self.manifest.run_id
-
-    @property
-    def manifest(self) -> RunManifest:
-        return self._manifest
 
     @property
     def config(self) -> ConfigProfileSnapshot:
@@ -110,23 +70,10 @@ class RunHandle:
         return load_run(run_id=self.id, workspace=self.session.workspace).plan
 
     @property
-    def resolved_experiment(self) -> ResolvedExperiment | None:
-        if self._result is None:
-            return None
-        return self._result.resolved_experiment
-
-    @property
-    def data_ref(self) -> str | None:
-        if self._result is not None:
-            return self._result.data_ref
-        artifact = get_artifact_by_id(self.manifest, "raw-measurements")
-        return artifact.path if artifact is not None else None
-
-    @property
     def artifacts(self) -> tuple[str, ...]:
         return tuple(
-            view.artifact.id
-            for view in list_run_artifacts(
+            artifact.id
+            for artifact in list_run_artifacts(
                 run_id=self.id,
                 workspace=self.session.workspace,
             )

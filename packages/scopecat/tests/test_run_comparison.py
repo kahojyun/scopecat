@@ -9,25 +9,24 @@ from scopecat.run_comparison import (
     execute_run_comparison,
 )
 from scopecat.runs import open_run_store
-from scopecat.workflows import StartRunResult
 from tests.support.records import (
     assert_artifact_ref,
     read_model,
 )
 from tests.support.run_comparison import (
-    active_config_registry_simulated_run,
+    active_config_registry_signal_run,
     load_experiment,
-    load_simulated_config,
-    simulate,
+    load_signal_config,
+    run_signal_experiment,
 )
-from tests.support.signal_testkit import execute_signal_native_run
+from tests.support.signal_testkit import execute_signal_run
 
 
 def test_execute_run_comparison_writes_baseline_artifacts_and_manifest(
     tmp_path: Path,
 ) -> None:
-    baseline_run_id = simulate(tmp_path)
-    candidate_run_id = simulate(tmp_path)
+    baseline_run_id = run_signal_experiment(tmp_path)
+    candidate_run_id = run_signal_experiment(tmp_path)
     candidate_manifest_path = tmp_path / "runs" / candidate_run_id / "manifest.json"
     candidate_manifest_before = candidate_manifest_path.read_text()
 
@@ -115,8 +114,8 @@ def test_execute_run_comparison_writes_baseline_artifacts_and_manifest(
 def test_execute_run_comparison_includes_active_config_source(
     tmp_path: Path,
 ) -> None:
-    baseline_run_id = simulate(tmp_path)
-    candidate_run_id = active_config_registry_simulated_run(
+    baseline_run_id = run_signal_experiment(tmp_path)
+    candidate_run_id = active_config_registry_signal_run(
         baseline_run_id=baseline_run_id,
         tmp_path=tmp_path,
     )
@@ -140,26 +139,26 @@ def test_execute_run_comparison_includes_active_config_source(
 def test_execute_run_comparison_references_analysis_artifacts_by_id(
     tmp_path: Path,
 ) -> None:
-    config = load_simulated_config()
+    config = load_signal_config()
     experiment = load_experiment()
-    baseline_manifest, baseline_snapshot = execute_signal_native_run(
+    baseline_manifest, _baseline_snapshot = execute_signal_run(
         config=config,
         experiment=experiment,
         workspace=tmp_path,
     )
-    candidate_manifest, candidate_snapshot = execute_signal_native_run(
+    candidate_manifest, _candidate_snapshot = execute_signal_run(
         config=config,
         experiment=experiment,
         workspace=tmp_path,
     )
-    lab = sc.open(tmp_path, config=config, mode="native_simulate")
+    lab = sc.open(tmp_path, config=config)
     baseline = sc.Run(
         session=lab,
-        result=StartRunResult(manifest=baseline_manifest, snapshot=baseline_snapshot),
+        manifest=baseline_manifest,
     )
     candidate = sc.Run(
         session=lab,
-        result=StartRunResult(manifest=candidate_manifest, snapshot=candidate_snapshot),
+        manifest=candidate_manifest,
     )
     baseline.analysis("baseline review").input("raw-measurements").save()
     candidate.analysis("candidate review").input("raw-measurements").save()

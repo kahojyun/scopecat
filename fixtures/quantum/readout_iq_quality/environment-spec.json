@@ -5,9 +5,9 @@
   "connection_profile": {
     "connections": [
       {
-        "id": "readout-stack-simulated",
+        "id": "readout-stack-virtual-lab",
         "instrument_id": "readout-stack",
-        "kind": "simulated",
+        "kind": "virtual_lab",
         "resource_hint": "offline readout IQ response fixture"
       }
     ]
@@ -15,6 +15,6 @@
   "metadata": {
     "sample_reference": "sample-public://readout/iq-quality",
     "example_status": "synthetic role-based identifiers and offline resources",
-    "adapter_goal": "analysis step design for shot-level readout quality diagnostics"
+    "instrument_group_goal": "shot-level readout quality diagnostics"
   }
 }

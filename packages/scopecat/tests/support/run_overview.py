@@ -13,11 +13,11 @@ from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.records import read_model
 from tests.support.signal_testkit import (
     execute_best_signal_analysis,
-    execute_signal_native_run,
+    execute_signal_run,
     execute_summary_stats_analysis,
 )
 
-EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simulated_scan"
+EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
 
 def load_config() -> ConfigProfileSnapshot:
@@ -28,8 +28,8 @@ def load_experiment() -> ExperimentSpec:
     return read_model(EXAMPLE_DIR / "experiment.json", ExperimentSpec)
 
 
-def simulate(tmp_path: Path) -> str:
-    manifest, _simulated_run = execute_signal_native_run(
+def run_signal_experiment(tmp_path: Path) -> str:
+    manifest, _snapshot = execute_signal_run(
         config=load_config(),
         experiment=load_experiment(),
         workspace=tmp_path,
@@ -46,8 +46,8 @@ def _candidate_best_signal_analysis(
     return analysis.candidate_config()
 
 
-def simulate_analyze_and_review(tmp_path: Path) -> str:
-    run_id = simulate(tmp_path)
+def run_signal_experiment_with_review(tmp_path: Path) -> str:
+    run_id = run_signal_experiment(tmp_path)
     execute_summary_stats_analysis(run_id=run_id, workspace=tmp_path)
     candidate = _candidate_best_signal_analysis(tmp_path, run_id)
     resolved = resolve_candidate_config(candidate, workspace=tmp_path)
@@ -62,8 +62,8 @@ def simulate_analyze_and_review(tmp_path: Path) -> str:
     return run_id
 
 
-def simulate_analyze_and_activate(tmp_path: Path) -> str:
-    run_id = simulate(tmp_path)
+def run_signal_experiment_with_active_candidate(tmp_path: Path) -> str:
+    run_id = run_signal_experiment(tmp_path)
     candidate = _candidate_best_signal_analysis(tmp_path, run_id)
     register_and_activate_candidate_config(
         candidate=candidate,
@@ -76,8 +76,8 @@ def simulate_analyze_and_activate(tmp_path: Path) -> str:
     return run_id
 
 
-def config_registry_sourced_simulated_run(tmp_path: Path, *, selector: str) -> str:
-    simulate_analyze_and_activate(tmp_path)
+def config_registry_sourced_signal_run(tmp_path: Path, *, selector: str) -> str:
+    run_signal_experiment_with_active_candidate(tmp_path)
     source_selector = (
         "active"
         if selector == "active"
@@ -88,7 +88,7 @@ def config_registry_sourced_simulated_run(tmp_path: Path, *, selector: str) -> s
         selector=source_selector,
         workspace=tmp_path,
     )
-    manifest, _snapshot = execute_signal_native_run(
+    manifest, _snapshot = execute_signal_run(
         config=config,
         experiment=load_experiment(),
         workspace=tmp_path,
@@ -96,8 +96,8 @@ def config_registry_sourced_simulated_run(tmp_path: Path, *, selector: str) -> s
     return manifest.run_id
 
 
-def simulated_run_with_active_candidate_comparison(tmp_path: Path) -> str:
-    baseline_run_id = simulate(tmp_path)
+def signal_run_with_active_candidate_comparison(tmp_path: Path) -> str:
+    baseline_run_id = run_signal_experiment(tmp_path)
     candidate = _candidate_best_signal_analysis(tmp_path, baseline_run_id)
     register_and_activate_candidate_config(
         candidate=candidate,
@@ -111,7 +111,7 @@ def simulated_run_with_active_candidate_comparison(tmp_path: Path) -> str:
         selector="active",
         workspace=tmp_path,
     )
-    candidate_manifest, _snapshot = execute_signal_native_run(
+    candidate_manifest, _snapshot = execute_signal_run(
         config=config,
         experiment=load_experiment(),
         workspace=tmp_path,

@@ -206,8 +206,8 @@ runs, comparisons, and structured overviews.
 ## Diagnostics
 
 Diagnostics are durable boundary behavior. Planning, storage, analysis,
-runtime, and adapter APIs should report stable diagnostic codes and logical
-locations instead of raw exceptions or local file paths.
+runtime, and instrument-provider APIs should report stable diagnostic codes and
+logical locations instead of raw exceptions or local file paths.
 
 Important diagnostic families include:
 
@@ -220,7 +220,7 @@ Important diagnostic families include:
 - missing, duplicate, incomplete, or ineligible artifacts;
 - chunk gaps, duplicate chunks, or invalid finalization;
 - stale candidate expected values and activation invalidation;
-- backend, runtime, adapter, and unsupported-operation failures.
+- backend, runtime, instrument-provider, and unsupported-operation failures.
 
 A generated diagnostics catalog is preferable to a hand-maintained docs table.
 `docs/` preserves diagnostic policy, not every code.

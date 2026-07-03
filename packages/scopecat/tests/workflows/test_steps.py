@@ -8,7 +8,7 @@ from scopecat.workflows import (
     register_and_activate_candidate_config,
 )
 from scopecat.workflows.runs import start_run
-from tests.support.native_signal import TestSignalInstrumentProvider
+from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.signal_testkit import (
     BestSignalAnalysisStep,
     SummaryStatsAnalysisStep,
@@ -20,14 +20,13 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     tmp_path: Path,
 ) -> None:
     run = start_run(
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
         config=load_config(),
         experiment=load_experiment(),
         workspace=tmp_path,
     )
-    lab = sc.open(tmp_path, config=load_config(), mode="native_simulate")
-    run_handle = lab.get_run(run.manifest.run_id)
+    lab = sc.open(tmp_path, config=load_config())
+    run_handle = lab.get_run(run.run_id)
 
     summary = run_handle.analyze(SummaryStatsAnalysisStep())
     summary.save()
@@ -43,8 +42,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     )
     active_config = load_active_config(workspace=tmp_path)
     next_run = start_run(
-        mode="native_simulate",
-        native_instrument_provider=TestSignalInstrumentProvider(),
+        instrument_provider=TestSignalInstrumentProvider(),
         config=active_config.config,
         experiment=load_experiment(),
         workspace=tmp_path,
@@ -54,4 +52,4 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     assert candidate.parameter_changes[0].patches[0].parameter_id == "drive_frequency"
     assert activation.entry.id == "candidate-best-signal"
     assert active_config.provenance is not None
-    assert next_run.manifest.status == "completed"
+    assert next_run.status == "completed"

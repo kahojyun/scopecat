@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,20 +17,14 @@ import scopecat as sc
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec, PlanSnapshot
-from scopecat.instruments import NativeRunSnapshot
+from scopecat.instruments import ExecutionSnapshot
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
-from scopecat.models.provider import ProviderOptionDescription
 from scopecat.models.run import RunManifest
 from scopecat.results import MeasurementRecord
-from scopecat.workflows import (
-    AnalysisCatalogDescription,
-    AnalysisStepCatalogContext,
-    AnalysisStepCatalogResult,
-    AnalysisStepDescription,
-)
-from scopecat.workflows.runs import start_native_run
-from tests.support.native_signal import TestSignalInstrumentProvider
+from scopecat.runs import open_run_store
+from scopecat.workflows.runs import start_run
+from tests.support.signal_instruments import TestSignalInstrumentProvider
 
 SUMMARY_STATS_STEP = "summary-stats"
 SUMMARY_STATS_INPUT_REF = "artifacts/raw-measurements.jsonl"
@@ -255,87 +249,24 @@ class TestSignalAnalysisStep:
         )
 
 
-@dataclass(frozen=True)
-class TestSignalAnalysisCatalog:
-    __test__ = False
-
-    catalog_id: str = "tests.signal_analysis"
-
-    def describe(self) -> AnalysisCatalogDescription:
-        return AnalysisCatalogDescription(
-            catalog_id=self.catalog_id,
-            steps=(
-                AnalysisStepDescription(
-                    step_id=BEST_SIGNAL_ANALYSIS_STEP,
-                    label="Best signal analysis",
-                    options=(
-                        ProviderOptionDescription(
-                            id="input",
-                            dtype="string | None",
-                            default=None,
-                            label="Input dataset",
-                        ),
-                    ),
-                    input_artifact_kinds=("measurement_dataset",),
-                    output_artifact_kinds=(
-                        "test_summary_stats_result",
-                        "test_best_signal_analysis_result",
-                        "summary",
-                    ),
-                    parameter_change_kinds=("drive_frequency",),
-                    metadata=TEST_STEP_METADATA,
-                ),
-            ),
-            metadata=TEST_STEP_METADATA,
-        )
-
-    def analysis_step(
-        self, context: AnalysisStepCatalogContext
-    ) -> AnalysisStepCatalogResult:
-        if context.step_id != BEST_SIGNAL_ANALYSIS_STEP:
-            return AnalysisStepCatalogResult(
-                diagnostics=(
-                    _diagnostic(
-                        "error",
-                        "unsupported_analysis_step",
-                        f"unsupported analysis step {context.step_id}",
-                        "step",
-                    ),
-                ),
-                metadata={"catalog_id": self.catalog_id},
-            )
-        input_option = context.options.get("input")
-        if input_option is not None and not isinstance(input_option, str):
-            return AnalysisStepCatalogResult(
-                diagnostics=(
-                    _diagnostic(
-                        "error",
-                        "invalid_analysis_catalog_option",
-                        "best signal analysis option input must be a string",
-                        "options.input",
-                    ),
-                ),
-                metadata={"catalog_id": self.catalog_id},
-            )
-        return AnalysisStepCatalogResult(
-            step=TestSignalAnalysisStep(selector=input_option),
-            metadata={"catalog_id": self.catalog_id},
-        )
-
-
-def execute_signal_native_run(
+def execute_signal_run(
     *,
     config: ConfigProfileSnapshot,
     experiment: ExperimentSpec,
     workspace: str | Path,
-) -> tuple[RunManifest, NativeRunSnapshot]:
-    result = start_native_run(
+) -> tuple[RunManifest, ExecutionSnapshot]:
+    manifest = start_run(
         config=config,
         experiment=experiment,
         workspace=workspace,
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    return result.manifest, cast(NativeRunSnapshot, result.snapshot)
+    snapshot = open_run_store(workspace).read_model(
+        manifest.run_id,
+        "artifacts/execution.snapshot.json",
+        ExecutionSnapshot,
+    )
+    return manifest, snapshot
 
 
 def _analysis_run(*, run_id: str, workspace: str | Path) -> sc.Run:

@@ -2,7 +2,7 @@
 
 `quantum-lab-demo` is the installable support package behind
 `examples/quantum`. It exists to show how a real lab can keep experiment
-builders, virtual or native providers, reusable analysis steps, and fixture
+builders, virtual providers, reusable analysis steps, and fixture
 models next to the notebooks that exercise them.
 
 This package is not a stable domain extension. It is intentionally local demo

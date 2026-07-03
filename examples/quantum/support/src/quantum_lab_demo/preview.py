@@ -1,4 +1,4 @@
-"""Dry-run planning workflow for the quantum examples."""
+"""Preview planning workflow for the quantum examples."""
 
 from __future__ import annotations
 
@@ -7,13 +7,12 @@ from pathlib import Path
 import scopecat as sc
 import scopecat.experiments as experiments
 import scopecat.relations as relations
-from scopecat.experiments import DryRunSnapshot
 from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
 
 from quantum_lab_demo.fixtures import DEFAULT_WORKSPACE_ROOT, REPO_ROOT
 
-DEFAULT_DRY_RUN_WORKSPACE = DEFAULT_WORKSPACE_ROOT / "dry-run"
-CORE_FIXTURE_DIR = REPO_ROOT / "fixtures" / "core" / "simulated_scan"
+DEFAULT_PREVIEW_WORKSPACE = DEFAULT_WORKSPACE_ROOT / "preview"
+CORE_FIXTURE_DIR = REPO_ROOT / "fixtures" / "core" / "simple_scan"
 
 
 def drive_scan() -> experiments.ExperimentSpec:
@@ -43,35 +42,28 @@ def drive_scan() -> experiments.ExperimentSpec:
     )
 
 
-def load_dry_run_config() -> ConfigProfileSnapshot:
+def load_preview_config() -> ConfigProfileSnapshot:
     return load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
 
 
-def run_dry_run_plan(
+def preview_drive_scan(
     *,
-    workspace: str | Path = DEFAULT_DRY_RUN_WORKSPACE,
-) -> sc.Run:
+    workspace: str | Path = DEFAULT_PREVIEW_WORKSPACE,
+) -> sc.PreviewExperimentResult:
     lab = sc.open(
         workspace=workspace,
-        config_profile=load_dry_run_config(),
-        mode="dry",
+        config_profile=load_preview_config(),
     )
     experiment = lab.experiment("drive scan", source=drive_scan())
-    return lab.run(experiment)
+    return lab.preview(experiment)
 
 
-def format_dry_run_summary(run: sc.Run) -> str:
-    snapshot = run.result.snapshot
-    if not isinstance(snapshot, DryRunSnapshot):
-        msg = "dry-run example expected a dry-run snapshot"
-        raise TypeError(msg)
-    plan = snapshot.plan
+def format_preview_summary(preview: sc.PreviewExperimentResult) -> str:
+    plan = preview.plan
     return "\n".join(
         [
-            f"Run: {run.manifest.run_id}",
-            f"Experiment: {snapshot.experiment_id}",
-            f"Runner: {run.manifest.runner_id}",
-            f"Points: {snapshot.point_count}",
+            f"Experiment: {preview.experiment.id}",
+            f"Points: {len(plan.points)}",
             f"Result intents: {', '.join(intent.id for intent in plan.result_intents)}",
             f"Plan hash: {plan.content_hash}",
         ]
@@ -79,9 +71,9 @@ def format_dry_run_summary(run: sc.Run) -> str:
 
 
 __all__ = [
-    "DEFAULT_DRY_RUN_WORKSPACE",
+    "DEFAULT_PREVIEW_WORKSPACE",
     "drive_scan",
-    "format_dry_run_summary",
-    "load_dry_run_config",
-    "run_dry_run_plan",
+    "format_preview_summary",
+    "load_preview_config",
+    "preview_drive_scan",
 ]

@@ -8,17 +8,17 @@ from typing import Protocol
 from scopecat.authoring import (
     ExperimentDraft,
     ExperimentTemplate,
-    ResolvedExperiment,
     TemplateRegistry,
     templates,
 )
+from scopecat.workflows import PreviewExperimentResult
 
 
 class TemplateSession(Protocol):
     def preview(
         self,
         experiment: ExperimentDraft,
-    ) -> ResolvedExperiment: ...
+    ) -> PreviewExperimentResult: ...
 
 
 @dataclass(frozen=True)
@@ -46,7 +46,7 @@ class TemplateBrowser:
     def build(self, template_id: str, **inputs: object) -> ExperimentDraft:
         return self.selected_registry.build(template_id, **inputs)
 
-    def preview(self, draft: ExperimentDraft) -> ResolvedExperiment:
+    def preview(self, draft: ExperimentDraft) -> PreviewExperimentResult:
         return self.session.preview(draft)
 
 

@@ -16,7 +16,7 @@ sc.open
   -> Workspace.template / Workspace.module
   -> RunRequest
   -> compile ExperimentSpec
-  -> plan / dry-run
+  -> plan / validate
   -> run or capture
   -> Run.data
   -> Run.analysis
@@ -39,9 +39,9 @@ flowchart TD
     C --> D["Resolve ConfigSnapshot"]
     D --> E["Compile closed ExperimentSpec"]
     E --> F["Plan and validate"]
-    F --> G{"Execution path"}
-    G -->|Dry-run| H["Persist diagnostics and previews"]
-    G -->|Native| I["Build DeviceProgram and run"]
+    F --> H["Return explicit preview / validation result"]
+    F --> G{"Run boundary"}
+    G -->|Structured execution| I["Build DeviceProgram and run"]
     G -->|Legacy capture| J["Open RunScope and capture evidence"]
     I --> K["Inspect data"]
     J --> K
@@ -92,7 +92,7 @@ run boundary captures enough structure to compile a closed spec.
 - point axes, parameter sweeps, repeats, randomization inputs, and seeds;
 - extra point columns when declared by a column spec or extension slot;
 - extra records such as readbacks, derived coordinates, or instrument products;
-- execution mode and policy;
+- execution flags and policy;
 - segment lineage for adaptive or follow-up runs.
 
 Run requests should support ad-hoc sweeps without creating a new template for
@@ -149,12 +149,13 @@ refs, and device program records, not on local preview file layout.
 
 ## Execution
 
-Dry runs persist spec, plan, result contract, diagnostics, previews, and
-optional device-program validation without acquiring measurements.
+Preview and validation APIs return spec, plan, result contract, diagnostics,
+and optional device-program validation without acquiring measurements or
+creating a run manifest.
 
-Native runs build a `DeviceProgram` from the plan, program artifacts, routing,
-instrument-group capabilities, and runtime policy. Runtime applies state
-patches, uploads programs, coordinates arms/triggers/barriers, records
+Structured runs build a `DeviceProgram` from the plan, program artifacts,
+routing, instrument-group capabilities, and runtime policy. Runtime applies
+state patches, uploads programs, coordinates arms/triggers/barriers, records
 readbacks, acquires products, validates returned rows, handles retries or
 early stop, and persists events and artifacts.
 
@@ -164,8 +165,8 @@ generated artifacts, events, measurements, notes, analysis, and provenance
 level. Capture records are useful evidence, not proof that Scopecat can replay
 the run.
 
-Runner-style wrappers are optional advanced adapters only when a legacy runner
-has a stable batch boundary. They do not define the core model.
+Legacy batch runners can be wrapped behind instrument groups or
+captured as run evidence when needed. They do not define the core model.
 
 ## Data And Analysis
 
@@ -192,7 +193,7 @@ candidate config resolves those patches against an accepted `ConfigSnapshot`
 and produces a candidate snapshot for follow-up runs.
 
 Accepted configuration changes happen only through explicit activation.
-Analysis, instruments, runner adapters, and online decisions must not silently
+Analysis, instruments, instrument providers, and online decisions must not silently
 mutate accepted state.
 
 Review is attached to concrete decision points such as fit assessment,

@@ -12,30 +12,30 @@ from tests.support.config_registry import (
     seed_best_signal_parameter_change,
 )
 from tests.support.records import read_measurement_records, read_model
-from tests.support.signal_testkit import execute_signal_native_run
+from tests.support.signal_testkit import execute_signal_run
 
 ROOT = Path(__file__).parents[4]
-SIMULATED_EXAMPLE_DIR = ROOT / "fixtures" / "core" / "simulated_scan"
+SIGNAL_EXAMPLE_DIR = ROOT / "fixtures" / "core" / "simple_scan"
 
 
-def load_simulated_config() -> ConfigProfileSnapshot:
-    return load_config_profile(SIMULATED_EXAMPLE_DIR / "config-profile.json")
+def load_signal_config() -> ConfigProfileSnapshot:
+    return load_config_profile(SIGNAL_EXAMPLE_DIR / "config-profile.json")
 
 
 def load_experiment() -> ExperimentSpec:
-    return read_model(SIMULATED_EXAMPLE_DIR / "experiment.json", ExperimentSpec)
+    return read_model(SIGNAL_EXAMPLE_DIR / "experiment.json", ExperimentSpec)
 
 
-def simulate(tmp_path: Path) -> str:
-    manifest, _snapshot = execute_signal_native_run(
-        config=load_simulated_config(),
+def run_signal_experiment(tmp_path: Path) -> str:
+    manifest, _snapshot = execute_signal_run(
+        config=load_signal_config(),
         experiment=load_experiment(),
         workspace=tmp_path,
     )
     return manifest.run_id
 
 
-def active_config_registry_simulated_run(
+def active_config_registry_signal_run(
     *,
     baseline_run_id: str,
     tmp_path: Path,
@@ -50,7 +50,7 @@ def active_config_registry_simulated_run(
         selector="active",
         workspace=tmp_path,
     )
-    manifest, _snapshot = execute_signal_native_run(
+    manifest, _snapshot = execute_signal_run(
         config=config,
         experiment=load_experiment(),
         workspace=tmp_path,

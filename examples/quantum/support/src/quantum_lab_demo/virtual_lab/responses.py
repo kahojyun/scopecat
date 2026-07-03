@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from scopecat.instruments import NativeDriverDiagnostic, NativeMeasurementContext
+from scopecat.instruments import DriverDiagnostic, MeasurementContext
 from scopecat.models.parameter import Quantity
 from scopecat.results import MeasurementSink
 
@@ -19,7 +19,7 @@ from quantum_lab_demo.virtual_lab.models import VirtualResponseProfile
 
 def readout_response_model(profile: VirtualResponseProfile) -> ReadoutResponseModel:
     if profile.kind != "readout_frequency_response":
-        raise NativeDriverDiagnostic(
+        raise DriverDiagnostic(
             severity="error",
             code="virtual_lab_response_kind_mismatch",
             message=(
@@ -34,7 +34,7 @@ def readout_iq_response_model(
     profile: VirtualResponseProfile,
 ) -> ReadoutIQResponseModel:
     if profile.kind != "readout_iq_response":
-        raise NativeDriverDiagnostic(
+        raise DriverDiagnostic(
             severity="error",
             code="virtual_lab_response_kind_mismatch",
             message="readout IQ response requires kind=readout_iq_response",
@@ -46,17 +46,17 @@ def readout_iq_response_model(
 def record_readout_frequency_measurement(
     *,
     sink: MeasurementSink,
-    context: NativeMeasurementContext,
+    context: MeasurementContext,
     readout: VirtualDevice,
     flux_bias: VirtualDevice,
     response_model: ReadoutResponseModel,
     instrument_id: str,
 ) -> None:
     if context.record != "point":
-        raise NativeDriverDiagnostic(
+        raise DriverDiagnostic(
             severity="error",
-            code="quantum_native_readout_frr_granularity_unsupported",
-            message="readout frequency native stack requires point records",
+            code="quantum_readout_frr_granularity_unsupported",
+            message="readout frequency stack requires point records",
             path="acquisition.record",
         )
     _record_raw_measurement(
@@ -65,23 +65,22 @@ def record_readout_frequency_measurement(
         settings=_readout_settings(readout=readout, flux_bias=flux_bias),
         response_model=response_model,
         producer_id=instrument_id,
-        producer_kind="instrument",
     )
 
 
 def record_readout_iq_measurements(
     *,
     sink: MeasurementSink,
-    context: NativeMeasurementContext,
+    context: MeasurementContext,
     readout: VirtualDevice,
     response_model: ReadoutIQResponseModel,
     instrument_id: str,
 ) -> None:
     if context.record != "shot":
-        raise NativeDriverDiagnostic(
+        raise DriverDiagnostic(
             severity="error",
-            code="quantum_native_readout_iq_granularity_unsupported",
-            message="readout IQ native stack requires shot records",
+            code="quantum_readout_iq_granularity_unsupported",
+            message="readout IQ stack requires shot records",
             path="acquisition.record",
         )
     readout.measurement_metadata()
@@ -92,14 +91,13 @@ def record_readout_iq_measurements(
             shot_index=shot_index,
             response_model=response_model,
             producer_id=instrument_id,
-            producer_kind="instrument",
         )
 
 
 def record_sample_measurement(
     *,
     sink: MeasurementSink,
-    context: NativeMeasurementContext,
+    context: MeasurementContext,
     readout: VirtualDevice,
     implementation_id: str,
 ) -> None:
@@ -179,7 +177,7 @@ def _frequency_to_ghz(quantity: Quantity) -> float:
         return quantity.value / 1_000_000
     if quantity.unit == "Hz":
         return quantity.value / 1_000_000_000
-    raise NativeDriverDiagnostic(
+    raise DriverDiagnostic(
         severity="error",
         code="virtual_lab_unsupported_frequency_unit",
         message=f"unsupported frequency unit: {quantity.unit}",
@@ -196,7 +194,7 @@ def _frequency_to_mhz(quantity: Quantity) -> float:
         return quantity.value / 1000
     if quantity.unit == "Hz":
         return quantity.value / 1_000_000
-    raise NativeDriverDiagnostic(
+    raise DriverDiagnostic(
         severity="error",
         code="virtual_lab_unsupported_frequency_unit",
         message=f"unsupported frequency unit: {quantity.unit}",
@@ -213,7 +211,7 @@ def _time_to_ns(quantity: Quantity) -> float:
         return quantity.value * 1000
     if quantity.unit == "ns":
         return quantity.value
-    raise NativeDriverDiagnostic(
+    raise DriverDiagnostic(
         severity="error",
         code="virtual_lab_unsupported_time_unit",
         message=f"unsupported time unit: {quantity.unit}",
@@ -223,7 +221,7 @@ def _time_to_ns(quantity: Quantity) -> float:
 
 def _power_to_dbm(quantity: Quantity) -> float:
     if quantity.unit != "dBm":
-        raise NativeDriverDiagnostic(
+        raise DriverDiagnostic(
             severity="error",
             code="virtual_lab_unsupported_power_unit",
             message=f"unsupported power unit: {quantity.unit}",
@@ -237,7 +235,7 @@ def _phase_to_rad(quantity: Quantity) -> float:
         return quantity.value
     if quantity.unit == "deg":
         return quantity.value * 3.141592653589793 / 180
-    raise NativeDriverDiagnostic(
+    raise DriverDiagnostic(
         severity="error",
         code="virtual_lab_unsupported_phase_unit",
         message=f"unsupported phase unit: {quantity.unit}",

@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-from demo_lab_records import read_model
 from demo_lab_test_paths import (
     READOUT_FREQUENCY_FIXTURE_DIR,
-    READOUT_FREQUENCY_RESPONSE_FIXTURE,
+    READOUT_FREQUENCY_VIRTUAL_LAB_PROFILE,
 )
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
 
-from quantum_lab_demo.readout.frequency_adapter import (
-    ReadoutFrequencyCalibrationAdapter,
-)
-from quantum_lab_demo.readout.responses import load_readout_response_model
+from quantum_lab_demo.virtual_lab.provider import ReadoutFrequencyVirtualProvider
 
 
 def config_profile_snapshot() -> ConfigProfileSnapshot:
@@ -19,13 +15,12 @@ def config_profile_snapshot() -> ConfigProfileSnapshot:
 
 
 def readout_frequency_experiment() -> ExperimentSpec:
-    return read_model(
-        READOUT_FREQUENCY_FIXTURE_DIR / "experiment.json",
-        ExperimentSpec,
+    return ExperimentSpec.model_validate_json(
+        (READOUT_FREQUENCY_FIXTURE_DIR / "experiment.json").read_text()
     )
 
 
-def readout_frequency_adapter() -> ReadoutFrequencyCalibrationAdapter:
-    return ReadoutFrequencyCalibrationAdapter(
-        response_model=load_readout_response_model(READOUT_FREQUENCY_RESPONSE_FIXTURE)
+def readout_frequency_provider() -> ReadoutFrequencyVirtualProvider:
+    return ReadoutFrequencyVirtualProvider(
+        profile=READOUT_FREQUENCY_VIRTUAL_LAB_PROFILE
     )

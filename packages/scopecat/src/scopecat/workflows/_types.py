@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import Any
 
 from scopecat.authoring import ExperimentDraft, ResolvedExperiment
 from scopecat.config_registry import (
@@ -17,15 +16,12 @@ from scopecat.config_registry import (
 )
 from scopecat.diagnostics import Diagnostic
 from scopecat.experiments import (
-    DryRunSnapshot,
     ExperimentSpec,
     PlanSnapshot,
 )
-from scopecat.instruments import NativeRunSnapshot
 from scopecat.models.artifact import Artifact
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.data_artifact import DataArrayArtifact, DataTableArtifact
-from scopecat.models.provider import ProviderOptionDescription
 from scopecat.models.run import RunManifest
 from scopecat.results import MeasurementDataset
 from scopecat.run_comparison import (
@@ -33,55 +29,9 @@ from scopecat.run_comparison import (
     RunComparisonResult,
     RunComparisonReviewRecord,
 )
-from scopecat.runner import RunnerAdapterRunSnapshot
 
-RunMode = Literal["dry", "native_simulate"]
 ExperimentInput = ExperimentSpec | ExperimentDraft
-RunSnapshot = DryRunSnapshot | RunnerAdapterRunSnapshot | NativeRunSnapshot
 ConfigProfileInput = str | Path | ConfigProfileSnapshot
-
-if TYPE_CHECKING:
-    from scopecat.candidate_configs import CandidateConfig
-    from scopecat.session_analysis import Analysis, AnalysisStep
-
-
-def _empty_catalog_options() -> dict[str, object]:
-    return {}
-
-
-class RoutineRunStart(Protocol):
-    def __call__(
-        self,
-        *,
-        config: ConfigProfileSnapshot,
-        experiment: ExperimentInput,
-        workspace: str | Path,
-    ) -> StartRunResult: ...
-
-
-class RoutineRunExecutor(Protocol):
-    @property
-    def id(self) -> str: ...
-
-    def start(
-        self,
-        *,
-        config: ConfigProfileSnapshot,
-        experiment: ExperimentInput,
-        workspace: str | Path,
-    ) -> StartRunResult: ...
-
-
-class AnalysisCatalog(Protocol):
-    @property
-    def catalog_id(self) -> str: ...
-
-    def describe(self) -> AnalysisCatalogDescription: ...
-
-    def analysis_step(
-        self,
-        context: AnalysisStepCatalogContext,
-    ) -> AnalysisStepCatalogResult: ...
 
 
 @dataclass(frozen=True)
@@ -131,16 +81,46 @@ class RollbackConfigRegistryResult:
 
 
 @dataclass(frozen=True)
-class StartRunResult:
-    manifest: RunManifest
-    snapshot: RunSnapshot
-    data_ref: str | None = None
+class ValidateExperimentResult:
+    experiment: ExperimentSpec
+    config: ConfigProfileSnapshot
+    diagnostics: tuple[Diagnostic, ...]
+    plan: PlanSnapshot | None = None
     resolved_experiment: ResolvedExperiment | None = None
+
+    @property
+    def ok(self) -> bool:
+        return not any(
+            diagnostic.severity in {"error", "blocker"}
+            for diagnostic in self.diagnostics
+        )
 
 
 @dataclass(frozen=True)
-class RunSummaryView:
-    manifest: RunManifest
+class PreviewExperimentResult:
+    experiment: ExperimentSpec
+    config: ConfigProfileSnapshot
+    plan: PlanSnapshot
+    diagnostics: tuple[Diagnostic, ...]
+    resolved_experiment: ResolvedExperiment | None = None
+
+    @property
+    def template_id(self) -> str | None:
+        if self.resolved_experiment is None:
+            return None
+        return self.resolved_experiment.template_id
+
+    @property
+    def inputs(self) -> dict[str, object]:
+        if self.resolved_experiment is None:
+            return {}
+        return dict(self.resolved_experiment.inputs)
+
+    @property
+    def config_provenance(self) -> ConfigRegistryConfigSourceProvenance | None:
+        if self.resolved_experiment is None:
+            return None
+        return self.resolved_experiment.config_provenance
 
 
 @dataclass(frozen=True)
@@ -148,11 +128,6 @@ class RunDetails:
     manifest: RunManifest
     config: ConfigProfileSnapshot
     plan: PlanSnapshot
-
-
-@dataclass(frozen=True)
-class RunArtifactView:
-    artifact: Artifact
 
 
 @dataclass(frozen=True)
@@ -192,38 +167,6 @@ class RunDataArrayResult:
 
 
 @dataclass(frozen=True)
-class AnalysisStepCatalogContext:
-    step_id: str
-    options: Mapping[str, object] = field(default_factory=_empty_catalog_options)
-
-
-@dataclass(frozen=True)
-class AnalysisStepCatalogResult:
-    step: AnalysisStep | None = None
-    diagnostics: tuple[Diagnostic, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class AnalysisStepDescription:
-    step_id: str
-    label: str | None = None
-    description: str | None = None
-    options: tuple[ProviderOptionDescription, ...] = ()
-    input_artifact_kinds: tuple[str, ...] = ()
-    output_artifact_kinds: tuple[str, ...] = ()
-    parameter_change_kinds: tuple[str, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class AnalysisCatalogDescription:
-    catalog_id: str
-    steps: tuple[AnalysisStepDescription, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
 class CompareRunsResult:
     job: RunComparisonJob
     result: RunComparisonResult
@@ -233,44 +176,3 @@ class CompareRunsResult:
 class ReviewRunComparisonResult:
     result: RunComparisonResult
     review: RunComparisonReviewRecord
-
-
-@dataclass(frozen=True)
-class CandidateActivationPolicy:
-    operator: str
-    entry_id: str | None = None
-    registered_by: str | None = None
-    note: str = ""
-
-
-@dataclass(frozen=True)
-class CalibrationRoutine:
-    id: str
-    experiment: ExperimentInput
-    run_executor: RoutineRunExecutor
-    analysis_steps: tuple[AnalysisStep, ...] = ()
-    activate_candidate: CandidateActivationPolicy | None = None
-    label: str | None = None
-    description: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class CalibrationRoutineResult:
-    routine_id: str
-    run: StartRunResult
-    analyses: tuple[Analysis, ...] = ()
-    candidate: CandidateConfig | None = None
-    activation: RegisterAndActivateCandidateConfigResult | None = None
-    active_config: ConfigSourceResult | None = None
-
-
-@dataclass(frozen=True)
-class CalibrationRoutineDescription:
-    routine_id: str
-    run_executor_id: str
-    analysis_steps: tuple[str, ...]
-    activates_candidate: bool = False
-    label: str | None = None
-    description: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
