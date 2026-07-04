@@ -9,7 +9,7 @@ changes.
 
 ## Public Flow
 
-The Python-first path is:
+The structured Python-first path is:
 
 ```text
 sc.open
@@ -17,7 +17,7 @@ sc.open
   -> RunRequest
   -> compile ExperimentSpec
   -> plan / validate
-  -> run or capture
+  -> run
   -> Run.data
   -> Run.analysis
   -> CandidateConfig
@@ -25,6 +25,23 @@ sc.open
   -> Workspace.compare
   -> review / activate
 ```
+
+Legacy capture is a separate low-intrusion path for existing notebooks,
+scripts, or runners that do not use Scopecat experiment definitions:
+
+```text
+sc.open
+  -> RunScope / TraceScope
+  -> capture inputs, config refs, artifacts, events, measurements, and notes
+  -> Run.data / attachments
+  -> Run.analysis
+  -> optional CandidateConfig
+  -> review / activate
+```
+
+Capture records may sit in the same run graph as structured records, but they
+do not imply an `ExperimentModule`, `ExperimentTemplate`, `RunRequest`,
+`ExperimentSpec`, `ExperimentPlan`, or `DeviceProgram`.
 
 Durable JSON records are useful for tests, storage, debugging, reproducibility,
 and adapter boundaries. They should not become the main authoring surface for
@@ -34,17 +51,18 @@ notebook or script users.
 
 ```mermaid
 flowchart TD
-    A["Open workspace"] --> B["Choose template or build module component"]
+    A["Open workspace"] --> S{"Workflow kind"}
+    S -->|Structured experiment| B["Choose template or build module component"]
     B --> C["Create RunRequest"]
     C --> D["Resolve ConfigProfileSnapshot"]
     D --> E["Compile closed ExperimentSpec"]
     E --> F["Plan and validate"]
     F --> H["Return explicit preview / validation result"]
-    F --> G{"Run boundary"}
-    G -->|Structured execution| I["Build DeviceProgram and run"]
-    G -->|Legacy capture| J["Open RunScope and capture evidence"]
+    F --> I["Build DeviceProgram and run"]
+    S -->|Legacy capture| J["Open RunScope or TraceScope"]
+    J --> R["Capture legacy inputs, config refs, artifacts, events, measurements, notes, and provenance"]
     I --> K["Inspect data"]
-    J --> K
+    R --> K
     K --> L["Analyze"]
     L --> M{"Candidate config?"}
     M -->|No| N["Attach context or compare"]
@@ -78,8 +96,10 @@ defaults, labels, descriptions, categories, and calls one or more module
 components. Templates should not compose other templates; composition happens
 at the module/component layer.
 
-Notebook and script users should be able to stay in ordinary Python while the
-run boundary captures enough structure to compile a closed spec.
+Structured notebook and script users should be able to stay in ordinary Python
+while the run boundary captures enough structure to compile a closed spec.
+Legacy notebooks or scripts that do not provide this structure use
+`RunScope` / `TraceScope` instead.
 
 ## RunRequest
 
@@ -159,11 +179,13 @@ state patches, uploads programs, coordinates arms/triggers/barriers, records
 readbacks, acquires products, validates returned rows, handles retries or
 early stop, and persists events and artifacts.
 
-Legacy capture runs use `RunScope` or `TraceScope`. The legacy script keeps
-execution control while Scopecat records run identity, inputs, config refs,
-generated artifacts, events, measurements, notes, analysis, and provenance
-level. Capture records are useful evidence, not proof that Scopecat can replay
-the run.
+Legacy capture runs use `RunScope` or `TraceScope` directly. They do not start
+from an `ExperimentTemplate`, `ExperimentModule`, `RunRequest`, compiled
+`ExperimentSpec`, planned `ExperimentPlan`, or `DeviceProgram`. The legacy
+script keeps execution control while Scopecat records run identity, inputs,
+config refs, generated artifacts, events, measurements, notes, analysis, and
+provenance level. Capture records are useful evidence, not proof that Scopecat
+can replay the run.
 
 Legacy batch runners can be wrapped behind instrument groups or
 captured as run evidence when needed. They do not define the core model.
