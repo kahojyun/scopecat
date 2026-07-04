@@ -4,13 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from scopecat.models.artifact import MeasurementDatasetRole
-from scopecat.models.attempt import (
-    AttemptValue,
-    PointAttemptSummary,
-    summarize_point_attempts,
-)
-from scopecat.models.data_artifact import (
+from scopecat.artifact_reports import (
     ArtifactAvailabilityReport,
     ArtifactChunk,
     ArtifactRequirement,
@@ -19,18 +13,22 @@ from scopecat.models.data_artifact import (
     assemble_chunked_artifact,
     evaluate_artifact_availability,
 )
+from scopecat.models.attempt import (
+    AttemptValue,
+    PointAttemptSummary,
+    summarize_point_attempts,
+)
 from scopecat.models.measurement import (
     MeasurementDataset,
     MeasurementDatasetInputDiagnostics,
+    MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementDType,
     MeasurementRecord,
     MeasurementVariable,
     MeasurementVariableRole,
-    build_measurement_dataset_artifact_metadata,
     infer_measurement_dataset_schema,
-    measurement_dataset_artifact_metadata,
     validate_measurement_records_against_schema,
 )
 from scopecat.models.parameter import Quantity
@@ -85,10 +83,8 @@ __all__ = [
     "PointArtifactStatus",
     "PointAttemptSummary",
     "assemble_chunked_artifact",
-    "build_measurement_dataset_artifact_metadata",
     "evaluate_artifact_availability",
     "infer_measurement_dataset_schema",
-    "measurement_dataset_artifact_metadata",
     "summarize_point_attempts",
     "validate_measurement_records_against_schema",
 ]

@@ -56,8 +56,6 @@ def artifact_diagnostics() -> StepArtifactDiagnostics:
         missing_id_code="test_missing_artifact",
         duplicate_id_code="test_duplicate_artifact",
         missing_kind_code="test_missing_kind",
-        invalid_filename_code="test_invalid_filename",
-        duplicate_filename_code="test_duplicate_artifact_filename",
         noun="test artifact",
         path_prefix="artifacts",
     )

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from demo_lab_test_paths import SAMPLE_TEMPLATES_FIXTURE_DIR
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.config_profiles import load_config_profile
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import ParameterBuildSnapshot
 
 

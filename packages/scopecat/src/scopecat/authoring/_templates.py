@@ -12,16 +12,15 @@ from scopecat.authoring.expressions import (
     Expression,
     linspace,
 )
-from scopecat.config_registry import (
-    ConfigRegistryConfigSourceProvenance,
-    resolve_config_registry_config_source,
-)
+from scopecat.config_profiles import load_config_profile
+from scopecat.config_registry import resolve_config_registry_config_source
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.models.provider import ProviderOptionDescription
+from scopecat.models.run import RunConfigSource
 from scopecat.planning.validation import has_blocking_diagnostics
 from scopecat.units import compatible_units, from_base_value, to_base_value
 
@@ -82,7 +81,7 @@ class ResolvedExperiment:
     template_id: str | None
     inputs: dict[str, object]
     config: ConfigProfileSnapshot
-    config_provenance: ConfigRegistryConfigSourceProvenance | None = None
+    config_source: RunConfigSource | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
 
 
@@ -90,7 +89,7 @@ class ResolvedExperiment:
 class ExperimentAuthoringContext:
     config: ConfigProfileSnapshot
     workspace: Path
-    config_provenance: ConfigRegistryConfigSourceProvenance | None = None
+    config_source: RunConfigSource | None = None
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
     def require_subject(self, subject_id: str) -> str:
@@ -311,7 +310,7 @@ def resolve_experiment(
     config_entry: str | None = "active",
     config_profile: ConfigProfileInput | None = None,
 ) -> ResolvedExperiment:
-    config, provenance = _resolve_config_source(
+    config, source = _resolve_config_source(
         workspace=workspace,
         config_entry=config_entry,
         config_profile=config_profile,
@@ -320,7 +319,7 @@ def resolve_experiment(
         experiment,
         config=config,
         workspace=workspace,
-        config_provenance=provenance,
+        config_source=source,
     )
 
 
@@ -329,13 +328,13 @@ def resolve_experiment_with_config(
     *,
     config: ConfigProfileSnapshot,
     workspace: str | Path,
-    config_provenance: ConfigRegistryConfigSourceProvenance | None = None,
+    config_source: RunConfigSource | None = None,
 ) -> ResolvedExperiment:
     return _resolve_draft(
         experiment,
         config=config,
         workspace=workspace,
-        config_provenance=config_provenance,
+        config_source=config_source,
     )
 
 
@@ -351,13 +350,13 @@ def _resolve_draft(
     *,
     config: ConfigProfileSnapshot,
     workspace: str | Path,
-    config_provenance: ConfigRegistryConfigSourceProvenance | None,
+    config_source: RunConfigSource | None,
 ) -> ResolvedExperiment:
     inputs = _merged_inputs(draft)
     context = ExperimentAuthoringContext(
         config=config,
         workspace=Path(workspace),
-        config_provenance=config_provenance,
+        config_source=config_source,
     )
     try:
         experiment = draft.build(context, **inputs)
@@ -379,7 +378,7 @@ def _resolve_draft(
         experiment,
         config=config,
         workspace=workspace,
-        config_provenance=config_provenance,
+        config_source=config_source,
         template_id=draft.template_id,
         inputs=inputs,
         authoring_diagnostics=context.diagnostics,
@@ -391,7 +390,7 @@ def _resolved_spec(
     *,
     config: ConfigProfileSnapshot,
     workspace: str | Path,
-    config_provenance: ConfigRegistryConfigSourceProvenance | None,
+    config_source: RunConfigSource | None,
     template_id: str | None,
     inputs: Mapping[str, object],
     authoring_diagnostics: list[Diagnostic] | None = None,
@@ -405,7 +404,7 @@ def _resolved_spec(
         template_id=template_id,
         inputs=dict(inputs),
         config=config,
-        config_provenance=config_provenance,
+        config_source=config_source,
         diagnostics=tuple(diagnostics),
     )
 
@@ -437,7 +436,7 @@ def _resolve_config_source(
     workspace: str | Path,
     config_entry: str | None,
     config_profile: ConfigProfileInput | None,
-) -> tuple[ConfigProfileSnapshot, ConfigRegistryConfigSourceProvenance | None]:
+) -> tuple[ConfigProfileSnapshot, RunConfigSource | None]:
     if config_profile is not None:
         if config_entry not in (None, "active"):
             raise ValidationFailed(

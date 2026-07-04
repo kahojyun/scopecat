@@ -52,7 +52,7 @@ summary = {
     "baseline": baseline.id,
     "follow_up": follow_up.id,
     "measurements": len(raw.dataset.records),
-    "saved_analysis": saved_analysis.artifact.id,
+    "saved_analysis": saved_analysis.record.id,
     "candidate": candidate.analysis_key,
     "parameter_change": f"{patch.parameter_id} = {patch.value}",
 }

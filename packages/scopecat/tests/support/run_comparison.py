@@ -4,9 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from scopecat._storage.refs import dataset_content_ref
+from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import resolve_config_registry_config_source
 from scopecat.experiments import ExperimentSpec
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.models.config import ConfigProfileSnapshot
 from tests.support.config_registry import (
     activate_best_signal,
     seed_best_signal_parameter_change,
@@ -46,7 +48,7 @@ def active_config_registry_signal_run(
         baseline_run_id,
         entry_id="best-signal-candidate-config",
     )
-    config, _provenance = resolve_config_registry_config_source(
+    config, source = resolve_config_registry_config_source(
         selector="active",
         workspace=tmp_path,
     )
@@ -54,12 +56,21 @@ def active_config_registry_signal_run(
         config=config,
         experiment=load_experiment(),
         workspace=tmp_path,
+        config_source=source,
     )
     return manifest.run_id
 
 
 def candidate_data_path(tmp_path: Path, run_id: str) -> Path:
-    return tmp_path / "runs" / run_id / "artifacts" / "raw-measurements.jsonl"
+    return (
+        tmp_path
+        / "runs"
+        / run_id
+        / dataset_content_ref(
+            dataset_id="raw-measurements",
+            kind="measurement_dataset",
+        )
+    )
 
 
 def candidate_data_lines(tmp_path: Path, run_id: str) -> list[str]:

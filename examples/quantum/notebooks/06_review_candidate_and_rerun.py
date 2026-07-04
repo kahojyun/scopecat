@@ -35,7 +35,7 @@ change = analysis.parameter_changes[0]
 summary = {
     "baseline": baseline.id,
     "parameter_change": change.id,
-    "saved_analysis": saved_analysis.artifact.id,
+    "saved_analysis": saved_analysis.record.id,
     "candidate": candidate.analysis_key,
     "follow_up": follow_up.id,
     "comparison": comparison.id,

@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from scopecat.experiments import PlanSnapshot
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.run import RunManifest
-from scopecat.runs.access import list_artifacts, require_artifact
+from scopecat.runs.access import list_payload_entries, require_artifact, require_dataset
 from scopecat.workflows import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
@@ -39,21 +39,37 @@ class Data:
     def artifacts(self) -> tuple[str, ...]:
         return self.run.artifacts
 
+    @property
+    def datasets(self) -> tuple[str, ...]:
+        return self.run.datasets
+
     def list(
         self,
         *,
         kind: str | None = None,
         metadata: Mapping[str, object] | None = None,
-    ) -> tuple[Artifact, ...]:
-        return list_artifacts(self._manifest(), kind=kind, metadata=metadata)
+    ) -> tuple[RunArtifactEntry | RunDatasetEntry, ...]:
+        return list_payload_entries(self._manifest(), kind=kind, metadata=metadata)
 
     def artifact(
         self,
         selector: str,
         *,
         expected_kind: str | None = None,
-    ) -> Artifact:
+    ) -> RunArtifactEntry:
         return require_artifact(
+            manifest=self._manifest(),
+            selector=selector,
+            expected_kind=expected_kind,
+        )
+
+    def dataset(
+        self,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunDatasetEntry:
+        return require_dataset(
             manifest=self._manifest(),
             selector=selector,
             expected_kind=expected_kind,

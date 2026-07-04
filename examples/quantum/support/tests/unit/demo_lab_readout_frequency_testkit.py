@@ -4,8 +4,9 @@ from demo_lab_test_paths import (
     READOUT_FREQUENCY_FIXTURE_DIR,
     READOUT_FREQUENCY_VIRTUAL_LAB_PROFILE,
 )
+from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import ExperimentSpec
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.models.config import ConfigProfileSnapshot
 
 from quantum_lab_demo.virtual_lab.provider import ReadoutFrequencyVirtualProvider
 

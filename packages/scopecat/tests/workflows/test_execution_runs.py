@@ -5,9 +5,7 @@ from pathlib import Path
 import pytest
 
 from scopecat.errors import ValidationFailed
-from scopecat.instruments import ExecutionSnapshot
-from scopecat.runs import open_run_store
-from scopecat.workflows.runs import start_run
+from scopecat.workflows.runs import read_run_record_json, start_run
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import (
     config_with_instrument_id,
@@ -26,14 +24,15 @@ def test_start_run_uses_provider_selected_config_instrument(
         workspace=tmp_path,
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    snapshot = open_run_store(tmp_path).read_model(
-        manifest.run_id,
-        "artifacts/execution.snapshot.json",
-        ExecutionSnapshot,
+    snapshot = read_run_record_json(
+        run_id=manifest.run_id,
+        selector="execution-snapshot",
+        workspace=tmp_path,
+        expected_kind="execution_snapshot",
     )
 
     assert manifest.status == "completed"
-    assert snapshot.instrument_ids == ["source-a"]
+    assert snapshot.content["instrument_ids"] == ["source-a"]
 
 
 def test_start_run_requires_explicit_instrument_provider(

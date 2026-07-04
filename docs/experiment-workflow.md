@@ -36,7 +36,7 @@ notebook or script users.
 flowchart TD
     A["Open workspace"] --> B["Choose template or build module component"]
     B --> C["Create RunRequest"]
-    C --> D["Resolve ConfigSnapshot"]
+    C --> D["Resolve ConfigProfileSnapshot"]
     D --> E["Compile closed ExperimentSpec"]
     E --> F["Plan and validate"]
     F --> H["Return explicit preview / validation result"]
@@ -55,17 +55,17 @@ flowchart TD
 
 ## Configuration
 
-Configuration resolution assembles an immutable `ConfigSnapshot` without
-hardware side effects. The snapshot may include accepted parameter state,
-topology, routing, instrument registry metadata, environment information,
-source provenance, and diagnostics.
+Configuration resolution assembles an immutable `ConfigProfileSnapshot` without
+hardware side effects. The snapshot includes accepted parameter state, topology,
+routing, instrument registry metadata, and environment information. Run-level
+source coordinates live on the run manifest instead of inside the snapshot.
 
 Raw spreadsheets, registry trees, private dictionaries, and external config
 formats are translated through importers or private adapters into typed
 Scopecat records. They are not planning inputs directly.
 
 Derived planning views can be materialized and hashed when useful, but the
-accepted input remains `ConfigSnapshot`.
+accepted input remains `ConfigProfileSnapshot`.
 
 ## Authoring
 
@@ -104,7 +104,7 @@ point-local config patch.
 Compilation combines:
 
 ```text
-ExperimentModule + ExperimentTemplate + RunRequest + ConfigSnapshot
+ExperimentModule + ExperimentTemplate + RunRequest + ConfigProfileSnapshot
   -> ExperimentSpec
 ```
 
@@ -189,7 +189,7 @@ analysis. They are the promotion path for repeated post-run logic.
 ## Candidate Configs
 
 Analysis may produce `ParameterChangeSet` or `ConfigPatch` records. A
-candidate config resolves those patches against an accepted `ConfigSnapshot`
+candidate config resolves those patches against an accepted `ConfigProfileSnapshot`
 and produces a candidate snapshot for follow-up runs.
 
 Accepted configuration changes happen only through explicit activation.

@@ -6,17 +6,18 @@ import pytest
 
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import PlanSnapshot
-from scopecat.runs import open_run_store
+from scopecat.runs import dataset_storage_ref, open_run_store
 from scopecat.workflows import (
     list_run_artifacts,
+    list_run_payload_entries,
     list_runs,
     load_run,
     read_run_artifact_bytes,
-    read_run_artifact_json,
     read_run_artifact_text,
     read_run_data_array,
     read_run_data_table,
     read_run_measurement_dataset,
+    read_run_record_json,
 )
 from scopecat.workflows.runs import start_run
 from tests.support.signal_instruments import TestSignalInstrumentProvider
@@ -53,22 +54,16 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         run_id=candidate.run_id,
         workspace=tmp_path,
     )
-    measurement_artifacts = list_run_artifacts(
+    payload_entries = list_run_payload_entries(
+        run_id=candidate.run_id,
+        workspace=tmp_path,
+    )
+    measurement_datasets = list_run_payload_entries(
         run_id=candidate.run_id,
         workspace=tmp_path,
         kind="measurement_dataset",
     )
-    raw_by_path = read_run_artifact_text(
-        run_id=candidate.run_id,
-        selector="artifacts/raw-measurements.jsonl",
-        workspace=tmp_path,
-    )
-    snapshot = read_run_artifact_json(
-        run_id=candidate.run_id,
-        selector="execution-snapshot",
-        workspace=tmp_path,
-    )
-    snapshot_bytes = read_run_artifact_bytes(
+    snapshot = read_run_record_json(
         run_id=candidate.run_id,
         selector="execution-snapshot",
         workspace=tmp_path,
@@ -93,23 +88,25 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         candidate.run_id,
     ]
     assert details.manifest.run_id == candidate.run_id
-    assert any(artifact.id == "metrics" for artifact in details.manifest.artifact_refs)
-    assert details.config.workspace_id == "example-workspace"
-    assert isinstance(details.plan, PlanSnapshot)
-    assert details.plan.expected_dataset_schema is not None
-    assert {artifact.id for artifact in artifacts} >= {
-        "execution-snapshot",
+    assert {dataset.id for dataset in details.manifest.datasets} >= {
         "raw-measurements",
         "metrics",
         "readout-matrix",
     }
-    assert [artifact.id for artifact in measurement_artifacts] == ["raw-measurements"]
-    assert raw_by_path.artifact.id == "raw-measurements"
-    assert '"observables"' in raw_by_path.content
+    assert any(record.id == "execution-snapshot" for record in details.manifest.records)
+    assert details.config.workspace_id == "example-workspace"
+    assert isinstance(details.plan, PlanSnapshot)
+    assert details.plan.expected_dataset_schema is not None
+    assert artifacts == ()
+    assert {entry.id for entry in payload_entries} >= {
+        "raw-measurements",
+        "metrics",
+        "readout-matrix",
+    }
+    assert [dataset.id for dataset in measurement_datasets] == ["raw-measurements"]
     assert snapshot.content["status"] == "completed"
     assert snapshot.content["measurement_count"] == 3
-    assert snapshot_bytes.content.startswith(b"{")
-    assert raw_dataset.artifact.id == "raw-measurements"
+    assert raw_dataset.dataset_entry.id == "raw-measurements"
     assert raw_dataset.dataset.dataset_schema.dataset_id == "raw-measurements"
     assert len(raw_dataset.dataset.records) == 3
     assert metrics.table.rows[0]["metric"] == "visibility"
@@ -175,7 +172,12 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
     invalid_measurement = raw_dataset.dataset.records[0].model_copy(
         update={"observables": {}}
     )
-    measurement_path = storage.ref_path(run.run_id, "artifacts/raw-measurements.jsonl")
+    raw_dataset_entry = next(
+        dataset for dataset in run.datasets if dataset.id == "raw-measurements"
+    )
+    measurement_path = storage.ref_path(
+        run.run_id, dataset_storage_ref(raw_dataset_entry)
+    )
     measurement_path.write_text(f"{invalid_measurement.model_dump_json()}\n")
     with pytest.raises(ValidationFailed) as invalid_scalar_row:
         read_run_measurement_dataset(

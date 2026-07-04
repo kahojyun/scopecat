@@ -4,14 +4,8 @@ from pathlib import Path
 
 import scopecat as sc
 from scopecat.run_comparison import (
-    RunComparisonJob,
-    RunComparisonResult,
     execute_run_comparison,
-)
-from scopecat.runs import open_run_store
-from tests.support.records import (
-    assert_artifact_ref,
-    read_model,
+    list_run_comparisons,
 )
 from tests.support.run_comparison import (
     active_config_registry_signal_run,
@@ -22,65 +16,19 @@ from tests.support.run_comparison import (
 from tests.support.signal_testkit import execute_signal_run
 
 
-def test_execute_run_comparison_writes_baseline_artifacts_and_manifest(
+def test_execute_run_comparison_returns_result_and_lists_baseline_comparison(
     tmp_path: Path,
 ) -> None:
     baseline_run_id = run_signal_experiment(tmp_path)
     candidate_run_id = run_signal_experiment(tmp_path)
-    candidate_manifest_path = tmp_path / "runs" / candidate_run_id / "manifest.json"
-    candidate_manifest_before = candidate_manifest_path.read_text()
 
-    job, result = execute_run_comparison(
+    result = execute_run_comparison(
         baseline_run_id=baseline_run_id,
         candidate_run_id=candidate_run_id,
         workspace=tmp_path,
     )
 
     comparison_id = f"run-comparison-{candidate_run_id}-signal"
-    baseline_run_dir = tmp_path / "runs" / baseline_run_id
-    assert (baseline_run_dir / "comparisons" / f"{comparison_id}.job.json").is_file()
-    assert (baseline_run_dir / "artifacts" / f"{comparison_id}.json").is_file()
-    stored_job = read_model(
-        baseline_run_dir / "comparisons" / f"{comparison_id}.job.json",
-        RunComparisonJob,
-    )
-    stored_result = read_model(
-        baseline_run_dir / "artifacts" / f"{comparison_id}.json",
-        RunComparisonResult,
-    )
-    assert stored_job == job
-    assert stored_result == result
-    assert stored_job.output_artifact_ids == [
-        f"{comparison_id}-result",
-    ]
-    assert [
-        (artifact.id, artifact.kind, artifact.path)
-        for artifact in stored_job.output_artifacts
-    ] == [
-        (
-            f"{comparison_id}-result",
-            "run_comparison_result",
-            f"artifacts/{comparison_id}.json",
-        ),
-    ]
-    assert stored_result.job_ref == f"comparisons/{comparison_id}.job.json"
-    assert stored_result.result_ref == f"artifacts/{comparison_id}.json"
-    assert [
-        (artifact.id, artifact.kind, artifact.path)
-        for artifact in stored_result.artifact_refs
-    ] == [
-        (
-            f"{comparison_id}-result",
-            "run_comparison_result",
-            f"artifacts/{comparison_id}.json",
-        ),
-        (
-            f"{comparison_id}-job",
-            "run_comparison_job",
-            f"comparisons/{comparison_id}.job.json",
-        ),
-    ]
-    assert job.id == comparison_id
     assert result.comparison_id == comparison_id
     assert result.measurement_count == 3
     assert result.outcome == "unchanged"
@@ -92,23 +40,14 @@ def test_execute_run_comparison_writes_baseline_artifacts_and_manifest(
     assert result.mean_value_delta.value == 0.0
     assert len(result.points) == 3
     assert result.points[0].value_delta.value == 0.0
-    assert result.baseline_config_source.status == "not_available"
-    assert result.candidate_config_source.status == "not_available"
+    assert result.baseline_config_source is None
+    assert result.candidate_config_source is None
 
-    baseline_manifest = open_run_store(tmp_path).read_manifest(baseline_run_id)
-    assert_artifact_ref(
-        baseline_manifest.artifact_refs,
-        f"{comparison_id}-result",
-        kind="run_comparison_result",
-        path=result.result_ref,
-    )
-    assert_artifact_ref(
-        baseline_manifest.artifact_refs,
-        f"{comparison_id}-job",
-        kind="run_comparison_job",
-        path=result.job_ref,
-    )
-    assert candidate_manifest_path.read_text() == candidate_manifest_before
+    assert [
+        view.id
+        for view in list_run_comparisons(run_id=baseline_run_id, workspace=tmp_path)
+    ] == [comparison_id]
+    assert list_run_comparisons(run_id=candidate_run_id, workspace=tmp_path) == []
 
 
 def test_execute_run_comparison_includes_active_config_source(
@@ -120,23 +59,19 @@ def test_execute_run_comparison_includes_active_config_source(
         tmp_path=tmp_path,
     )
 
-    _job, result = execute_run_comparison(
+    result = execute_run_comparison(
         baseline_run_id=baseline_run_id,
         candidate_run_id=candidate_run_id,
         workspace=tmp_path,
     )
 
-    assert result.baseline_config_source.status == "not_available"
-    assert result.candidate_config_source.status == "available"
+    assert result.baseline_config_source is None
+    assert result.candidate_config_source is not None
     assert result.candidate_config_source.selector == "active"
     assert result.candidate_config_source.entry_id == ("best-signal-candidate-config")
-    assert result.candidate_config_source.active_state_ref == (
-        "config-registry/active.json"
-    )
-    assert result.candidate_config_source.active_record_id == "activation-000001"
 
 
-def test_execute_run_comparison_references_analysis_artifacts_by_id(
+def test_execute_run_comparison_tracks_compared_runs(
     tmp_path: Path,
 ) -> None:
     config = load_signal_config()
@@ -160,24 +95,20 @@ def test_execute_run_comparison_references_analysis_artifacts_by_id(
         session=lab,
         manifest=candidate_manifest,
     )
-    baseline.analysis("baseline review").input("raw-measurements").save()
-    candidate.analysis("candidate review").input("raw-measurements").save()
+    baseline.analysis("baseline review").input(
+        "raw-measurements",
+        expected_kind="measurement_dataset",
+    ).save()
+    candidate.analysis("candidate review").input(
+        "raw-measurements",
+        expected_kind="measurement_dataset",
+    ).save()
 
-    job, result = execute_run_comparison(
+    result = execute_run_comparison(
         baseline_run_id=baseline.id,
         candidate_run_id=candidate.id,
         workspace=tmp_path,
     )
 
-    assert result.baseline_analysis_artifact_ids == ["analysis-baseline-review"]
-    assert result.candidate_analysis_artifact_ids == ["analysis-candidate-review"]
-    assert job.baseline_input_artifact_ids == [
-        "raw-measurements",
-        "analysis-baseline-review",
-    ]
-    assert job.candidate_input_artifact_ids == [
-        "raw-measurements",
-        "analysis-candidate-review",
-    ]
-    assert result.baseline_analysis_artifact_ids == ["analysis-baseline-review"]
-    assert result.candidate_analysis_artifact_ids == ["analysis-candidate-review"]
+    assert result.baseline_run_id == baseline.id
+    assert result.candidate_run_id == candidate.id

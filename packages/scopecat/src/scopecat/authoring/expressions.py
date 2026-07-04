@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from scopecat.models.artifact import ExperimentAsset as PlanExperimentAsset
 from scopecat.models.parameter import Quantity
 from scopecat.units import compatible_units, is_supported_unit
 
@@ -270,25 +273,28 @@ class BindingSpec(BaseModel):
         return value
 
 
-class ExperimentAsset(BaseModel):
-    """Opaque experiment-owned asset referenced by desired-state bindings."""
-
-    model_config = ConfigDict(extra="forbid")
+@dataclass(frozen=True)
+class LocalAssetSource:
+    """Authoring-only asset source that may point at a local file."""
 
     id: str
     kind: str
-    path: str | None = None
+    path: str | Path | None = None
+    uri: str | None = None
     media_type: str | None = None
     content_hash: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    @field_validator("id", "kind")
-    @classmethod
-    def validate_required_text(cls, value: str) -> str:
-        if not value:
+    def __post_init__(self) -> None:
+        if not self.id or not self.kind:
             msg = "asset id and kind must be non-empty"
             raise ValueError(msg)
-        return value
+        if self.path is not None and self.uri is not None:
+            msg = "local asset source cannot contain both path and uri"
+            raise ValueError(msg)
+
+
+type AssetInput = LocalAssetSource | PlanExperimentAsset
 
 
 def qty(value: float, unit: str) -> Expression:
@@ -309,10 +315,10 @@ def param(name: str) -> Expression:
     return Expression(kind="parameter", name=name)
 
 
-def asset_ref(asset: ExperimentAsset | str) -> Expression:
+def asset_ref(asset: AssetInput | str) -> Expression:
     """Reference an opaque experiment asset from an expression."""
 
-    asset_id = asset.id if isinstance(asset, ExperimentAsset) else asset
+    asset_id = asset if isinstance(asset, str) else asset.id
     return Expression(kind="asset", asset_id=asset_id)
 
 
@@ -364,7 +370,7 @@ def bind_asset(
     resource_id: str,
     capability_id: str,
     field_path: str,
-    asset: ExperimentAsset | str,
+    asset: AssetInput | str,
 ) -> BindingSpec:
     """Bind an opaque experiment asset to a desired-state field."""
 
@@ -380,17 +386,19 @@ def opaque_asset(
     *,
     id: str,  # noqa: A002
     kind: str,
-    path: str | None = None,
+    path: str | Path | None = None,
+    uri: str | None = None,
     media_type: str | None = None,
     content_hash: str | None = None,
     metadata: dict[str, Any] | None = None,
-) -> ExperimentAsset:
+) -> LocalAssetSource:
     """Create an opaque experiment asset for extension-defined payloads."""
 
-    return ExperimentAsset(
+    return LocalAssetSource(
         id=id,
         kind=kind,
         path=path,
+        uri=uri,
         media_type=media_type,
         content_hash=content_hash,
         metadata=metadata or {},

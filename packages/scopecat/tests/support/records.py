@@ -5,7 +5,7 @@ from typing import cast
 
 from pydantic import BaseModel
 
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunArtifactEntry
 from scopecat.results import MeasurementRecord
 
 
@@ -40,31 +40,32 @@ def read_measurement_records(path: Path) -> list[MeasurementRecord]:
     return read_jsonl_models(path, MeasurementRecord)
 
 
-def artifact_refs_by_id(artifacts: list[Artifact]) -> dict[str, Artifact]:
+def artifacts_by_id(artifacts: list[RunArtifactEntry]) -> dict[str, RunArtifactEntry]:
     return {artifact.id: artifact for artifact in artifacts}
 
 
-def require_artifact(artifacts: list[Artifact], artifact_id: str) -> Artifact:
-    refs = artifact_refs_by_id(artifacts)
-    return refs[artifact_id]
+def require_artifact(
+    artifacts: list[RunArtifactEntry], artifact_id: str
+) -> RunArtifactEntry:
+    artifacts_by_key = artifacts_by_id(artifacts)
+    return artifacts_by_key[artifact_id]
 
 
-def require_artifact_by_kind(artifacts: list[Artifact], kind: str) -> Artifact:
+def require_artifact_by_kind(
+    artifacts: list[RunArtifactEntry], kind: str
+) -> RunArtifactEntry:
     matches = [artifact for artifact in artifacts if artifact.kind == kind]
     assert len(matches) == 1
     return matches[0]
 
 
 def assert_artifact_ref(
-    artifacts: list[Artifact],
+    artifacts: list[RunArtifactEntry],
     artifact_id: str,
     *,
     kind: str | None = None,
-    path: str | None = None,
-) -> Artifact:
+) -> RunArtifactEntry:
     artifact = require_artifact(artifacts, artifact_id)
     if kind is not None:
         assert artifact.kind == kind
-    if path is not None:
-        assert artifact.path == path
     return artifact

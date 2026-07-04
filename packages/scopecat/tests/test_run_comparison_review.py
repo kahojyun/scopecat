@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from scopecat._storage.refs import record_content_ref
 from scopecat.errors import ValidationFailed
 from scopecat.run_comparison import (
     execute_run_comparison,
@@ -11,7 +12,6 @@ from scopecat.run_comparison import (
     review_run_comparison,
 )
 from scopecat.runs import open_run_store
-from tests.support.records import assert_artifact_ref
 from tests.support.run_comparison import run_signal_experiment
 
 
@@ -30,27 +30,21 @@ def test_list_and_review_run_comparison_updates_baseline_manifest(
         note="candidate is equivalent",
     )
     views_after = list_run_comparisons(run_id=baseline_run_id, workspace=tmp_path)
-    manifest = open_run_store(tmp_path).read_manifest(baseline_run_id)
 
     assert views_before[0].review_status == "not_reviewed"
     assert result.comparison_id == comparison_id
     assert review.decision == "accepted"
     assert views_after[0].review_status == "reviewed"
-    assert_artifact_ref(
-        manifest.artifact_refs,
-        f"{comparison_id}-review",
-        kind="run_comparison_review_record",
-    )
 
 
-def test_review_run_comparison_rejected_works_on_artifact_selector(
+def test_review_run_comparison_rejected_works_on_record_selector(
     tmp_path: Path,
 ) -> None:
     baseline_run_id, comparison_id = _write_comparison(tmp_path)
 
     _result, review = review_run_comparison(
         run_id=baseline_run_id,
-        selector=f"artifacts/{comparison_id}.json",
+        selector=f"{comparison_id}-result",
         workspace=tmp_path,
         state="rejected",
         reviewer="operator",
@@ -102,8 +96,12 @@ def test_review_run_comparison_rejects_path_escape(tmp_path: Path) -> None:
 
 def test_review_run_comparison_rejects_invalid_json(tmp_path: Path) -> None:
     baseline_run_id, comparison_id = _write_comparison(tmp_path)
-    (
-        tmp_path / "runs" / baseline_run_id / "artifacts" / f"{comparison_id}.json"
+    open_run_store(tmp_path).ref_path(
+        baseline_run_id,
+        record_content_ref(
+            record_id=f"{comparison_id}-result",
+            kind="run_comparison_result",
+        ),
     ).write_text("{}\n")
 
     with pytest.raises(ValidationFailed) as error:

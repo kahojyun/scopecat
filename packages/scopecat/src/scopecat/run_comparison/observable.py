@@ -6,21 +6,18 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import ValidationError
 
-from scopecat._manifest_updates import write_manifest_artifacts
-from scopecat.config_registry import ConfigRegistryConfigSourceProvenance
+from scopecat._manifest_updates import write_manifest_records
+from scopecat._storage.refs import dataset_content_ref, record_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.models.artifact import Artifact
-from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
 from scopecat.models.parameter import Quantity
-from scopecat.models.run import RunManifest
+from scopecat.models.run import RunConfigSource, RunManifest
 from scopecat.results import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.run_comparison.models import (
     ComparisonOutcome,
-    RunComparisonConfigSourceSummary,
-    RunComparisonJob,
     RunComparisonPoint,
     RunComparisonResult,
     RunComparisonReviewRecord,
@@ -30,13 +27,18 @@ from scopecat.run_comparison.models import (
 )
 from scopecat.runs import (
     RunStore,
+    get_dataset_by_id,
+    list_records,
     open_run_store,
     read_measurement_records,
 )
+from scopecat.runs.access import record_storage_ref
 
-MEASUREMENT_DATA_REF = "artifacts/raw-measurements.jsonl"
-MEASUREMENT_DATA_ARTIFACT_ID = "raw-measurements"
-CONFIG_PROFILE_SNAPSHOT_REF = "config-profile.snapshot.json"
+MEASUREMENT_DATASET_ID = "raw-measurements"
+MEASUREMENT_DATA_REF = dataset_content_ref(
+    dataset_id=MEASUREMENT_DATASET_ID,
+    kind="measurement_dataset",
+)
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
@@ -46,7 +48,7 @@ def execute_run_comparison(
     candidate_run_id: str,
     workspace: str | Path,
     observable_id: str | None = None,
-) -> tuple[RunComparisonJob, RunComparisonResult]:
+) -> RunComparisonResult:
     _validate_safe_id(baseline_run_id, "baseline_run_id")
     _validate_safe_id(candidate_run_id, "candidate_run_id")
     if observable_id is not None:
@@ -94,32 +96,20 @@ def execute_run_comparison(
         unit=baseline_peak.baseline_value.unit,
     )
     comparison_id = _comparison_id(candidate_run_id, resolved_observable_id)
-    refs = _comparison_refs(comparison_id)
-    artifacts = _comparison_output_artifacts(comparison_id=comparison_id, refs=refs)
-    baseline_analysis_artifacts = _analysis_artifacts(baseline_manifest)
-    candidate_analysis_artifacts = _analysis_artifacts(candidate_manifest)
+    result_record = _comparison_output_record(comparison_id=comparison_id)
     result = RunComparisonResult(
         comparison_id=comparison_id,
         baseline_run_id=baseline_run_id,
         candidate_run_id=candidate_run_id,
         observable_id=resolved_observable_id,
-        baseline_analysis_artifact_ids=[
-            artifact.id for artifact in baseline_analysis_artifacts
-        ],
-        candidate_analysis_artifact_ids=[
-            artifact.id for artifact in candidate_analysis_artifacts
-        ],
-        baseline_config_source=_read_config_source_summary(
+        baseline_config_source=_read_config_source(
             storage=storage,
             run_id=baseline_run_id,
         ),
-        candidate_config_source=_read_config_source_summary(
+        candidate_config_source=_read_config_source(
             storage=storage,
             run_id=candidate_run_id,
         ),
-        job_ref=refs.job_ref,
-        result_ref=refs.result_ref,
-        artifact_refs=artifacts,
         measurement_count=len(points),
         baseline_peak_point_index=baseline_peak.point_index,
         candidate_peak_point_index=candidate_peak.point_index,
@@ -131,37 +121,14 @@ def execute_run_comparison(
         outcome=_outcome(peak_value_delta.value),
         points=points,
     )
-    job = RunComparisonJob(
-        id=comparison_id,
-        baseline_run_id=baseline_run_id,
-        candidate_run_id=candidate_run_id,
-        observable_id=resolved_observable_id,
-        baseline_input_artifact_ids=[
-            MEASUREMENT_DATA_ARTIFACT_ID,
-            *[artifact.id for artifact in baseline_analysis_artifacts],
-        ],
-        candidate_input_artifact_ids=[
-            MEASUREMENT_DATA_ARTIFACT_ID,
-            *[artifact.id for artifact in candidate_analysis_artifacts],
-        ],
-        input_record_refs=[
-            f"runs/{baseline_run_id}/manifest.json",
-            f"runs/{baseline_run_id}/{CONFIG_PROFILE_SNAPSHOT_REF}",
-            f"runs/{candidate_run_id}/manifest.json",
-            f"runs/{candidate_run_id}/{CONFIG_PROFILE_SNAPSHOT_REF}",
-        ],
-        output_artifact_ids=[artifacts[0].id],
-        output_artifacts=artifacts[:1],
-    )
-    storage.write_model(baseline_run_id, refs.job_ref, job)
-    storage.write_model(baseline_run_id, refs.result_ref, result)
+    storage.write_model(baseline_run_id, record_storage_ref(result_record), result)
 
-    write_manifest_artifacts(
+    write_manifest_records(
         storage=storage,
         manifest=baseline_manifest,
-        artifacts=artifacts,
+        records=[result_record],
     )
-    return job, result
+    return result
 
 
 def list_run_comparisons(
@@ -170,12 +137,12 @@ def list_run_comparisons(
     storage = open_run_store(workspace)
     manifest = storage.read_manifest(run_id)
     views: list[RunComparisonView] = []
-    for artifact in _comparison_artifacts(manifest):
-        result = _load_comparison_artifact(
+    for record in _comparison_records(manifest):
+        result = _load_comparison_record(
             storage=storage,
             run_id=run_id,
-            artifact=artifact,
-            selector=artifact.id,
+            record=record,
+            selector=record.id,
         )
         views.append(
             RunComparisonView(
@@ -189,7 +156,6 @@ def list_run_comparisons(
                     run_id=run_id,
                     comparison_id=result.comparison_id,
                 ),
-                path=artifact.path,
             )
         )
     return views
@@ -211,13 +177,18 @@ def review_run_comparison(
 
     storage = open_run_store(workspace)
     manifest = storage.read_manifest(run_id)
-    artifact, result = _resolve_comparison(
+    _comparison_record, result = _resolve_comparison(
         manifest=manifest,
         storage=storage,
         run_id=run_id,
         selector=selector,
     )
-    review_ref = _review_ref(result.comparison_id)
+    review_record = RunRecordEntry(
+        id=f"{result.comparison_id}-review",
+        kind="run_comparison_review_record",
+        media_type="application/json",
+    )
+    review_ref = record_storage_ref(review_record)
     if storage.exists(run_id, review_ref):
         raise ValidationFailed(
             [
@@ -233,23 +204,15 @@ def review_run_comparison(
     review = RunComparisonReviewRecord(
         run_id=run_id,
         comparison_id=result.comparison_id,
-        comparison_ref=artifact.path,
         decision=state,
         reviewer=reviewer,
         note=note,
     )
     storage.write_model(run_id, review_ref, review)
-    write_manifest_artifacts(
+    write_manifest_records(
         storage=storage,
         manifest=manifest,
-        artifacts=[
-            Artifact(
-                id=f"{result.comparison_id}-review",
-                kind="run_comparison_review_record",
-                path=review_ref,
-                media_type="application/json",
-            )
-        ],
+        records=[review_record],
     )
     return result, review
 
@@ -263,58 +226,18 @@ def unsupported_run_comparison_review_state_diagnostic(state: str) -> Diagnostic
     )
 
 
-class _ComparisonRefs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    job_ref: str
-    result_ref: str
-
-
-def _comparison_refs(comparison_id: str) -> _ComparisonRefs:
-    return _ComparisonRefs(
-        job_ref=f"comparisons/{comparison_id}.job.json",
-        result_ref=f"artifacts/{comparison_id}.json",
+def _comparison_output_record(*, comparison_id: str) -> RunRecordEntry:
+    return RunRecordEntry(
+        id=f"{comparison_id}-result",
+        kind="run_comparison_result",
+        media_type="application/json",
     )
 
 
-def _comparison_output_artifacts(
-    *, comparison_id: str, refs: _ComparisonRefs
-) -> list[Artifact]:
-    return [
-        Artifact(
-            id=f"{comparison_id}-result",
-            kind="run_comparison_result",
-            path=refs.result_ref,
-            media_type="application/json",
-        ),
-        Artifact(
-            id=f"{comparison_id}-job",
-            kind="run_comparison_job",
-            path=refs.job_ref,
-            media_type="application/json",
-        ),
-    ]
-
-
-def _comparison_artifacts(manifest: RunManifest) -> list[Artifact]:
+def _comparison_records(manifest: RunManifest) -> list[RunRecordEntry]:
     return sorted(
-        (
-            artifact
-            for artifact in manifest.artifact_refs
-            if artifact.kind == "run_comparison_result"
-        ),
-        key=lambda artifact: artifact.id,
-    )
-
-
-def _analysis_artifacts(manifest: RunManifest) -> list[Artifact]:
-    return sorted(
-        (
-            artifact
-            for artifact in manifest.artifact_refs
-            if artifact.kind == "analysis"
-        ),
-        key=lambda artifact: artifact.id,
+        list_records(manifest, kind="run_comparison_result"),
+        key=lambda record: record.id,
     )
 
 
@@ -324,60 +247,60 @@ def _resolve_comparison(
     storage: RunStore,
     run_id: str,
     selector: str,
-) -> tuple[Artifact, RunComparisonResult]:
+) -> tuple[RunRecordEntry, RunComparisonResult]:
     _validate_selector_path(selector)
-    artifact_by_id = {artifact.id: artifact for artifact in manifest.artifact_refs}
-    artifact_by_path = {artifact.path: artifact for artifact in manifest.artifact_refs}
+    record_by_id = {record.id: record for record in manifest.records}
+    record_by_path = {record_storage_ref(record): record for record in manifest.records}
 
-    if selector in artifact_by_id:
-        artifact = artifact_by_id[selector]
-        if artifact.kind != "run_comparison_result":
+    if selector in record_by_id:
+        record = record_by_id[selector]
+        if record.kind != "run_comparison_result":
             raise ValidationFailed(
                 [
                     _diagnostic(
                         "error",
                         "invalid_run_comparison",
-                        f"artifact is not a run comparison result: {selector}",
+                        f"record is not a run comparison result: {selector}",
                         "comparison",
                     )
                 ]
             )
-        return artifact, _load_comparison_artifact(
+        return record, _load_comparison_record(
             storage=storage,
             run_id=run_id,
-            artifact=artifact,
+            record=record,
             selector=selector,
         )
 
-    if selector in artifact_by_path:
-        artifact = artifact_by_path[selector]
-        if artifact.kind != "run_comparison_result":
+    if selector in record_by_path:
+        record = record_by_path[selector]
+        if record.kind != "run_comparison_result":
             raise ValidationFailed(
                 [
                     _diagnostic(
                         "error",
                         "invalid_run_comparison",
-                        f"artifact is not a run comparison result: {selector}",
+                        f"record is not a run comparison result: {selector}",
                         "comparison",
                     )
                 ]
             )
-        return artifact, _load_comparison_artifact(
+        return record, _load_comparison_record(
             storage=storage,
             run_id=run_id,
-            artifact=artifact,
+            record=record,
             selector=selector,
         )
 
-    for artifact in _comparison_artifacts(manifest):
-        result = _load_comparison_artifact(
+    for record in _comparison_records(manifest):
+        result = _load_comparison_record(
             storage=storage,
             run_id=run_id,
-            artifact=artifact,
+            record=record,
             selector=selector,
         )
         if result.comparison_id == selector:
-            return artifact, result
+            return record, result
 
     raise ValidationFailed(
         [
@@ -391,14 +314,15 @@ def _resolve_comparison(
     )
 
 
-def _load_comparison_artifact(
+def _load_comparison_record(
     *,
     storage: RunStore,
     run_id: str,
-    artifact: Artifact,
+    record: RunRecordEntry,
     selector: str,
 ) -> RunComparisonResult:
-    path = storage.ref_path(run_id, artifact.path)
+    record_ref = record_storage_ref(record)
+    path = storage.ref_path(run_id, record_ref)
     if not path.exists():
         raise ValidationFailed(
             [
@@ -452,7 +376,10 @@ def _validate_selector_path(selector: str) -> None:
 
 
 def _review_ref(comparison_id: str) -> str:
-    return f"reviews/{comparison_id}.review.json"
+    return record_content_ref(
+        record_id=f"{comparison_id}-review",
+        kind="run_comparison_review_record",
+    )
 
 
 def _review_status(
@@ -517,19 +444,16 @@ def _primary_observables_from_manifest(
     manifest: RunManifest,
     side: str,
 ) -> list[str]:
-    artifact = _raw_measurement_artifact(manifest)
-    schema_data = artifact.metadata.get("dataset_schema")
-    path = (
-        f"runs/{manifest.run_id}/manifest.artifact_refs."
-        f"{artifact.id}.metadata.dataset_schema"
-    )
+    dataset = _raw_measurement_dataset(manifest)
+    schema_data = dataset.data_schema
+    path = f"runs/{manifest.run_id}/manifest.datasets.{dataset.id}.schema"
     if schema_data is None:
         raise ValidationFailed(
             [
                 _diagnostic(
                     "error",
                     "missing_run_comparison_dataset_schema",
-                    f"{side} raw measurement artifact is missing dataset_schema",
+                    f"{side} raw measurement dataset is missing schema",
                     path,
                 )
             ]
@@ -550,17 +474,17 @@ def _primary_observables_from_manifest(
     return schema.primary_observables
 
 
-def _raw_measurement_artifact(manifest: RunManifest) -> Artifact:
-    for artifact in manifest.artifact_refs:
-        if artifact.id == "raw-measurements" or artifact.path == MEASUREMENT_DATA_REF:
-            return artifact
+def _raw_measurement_dataset(manifest: RunManifest) -> RunDatasetEntry:
+    dataset = get_dataset_by_id(manifest, MEASUREMENT_DATASET_ID)
+    if dataset is not None:
+        return dataset
     raise ValidationFailed(
         [
             _diagnostic(
                 "error",
                 "missing_run_comparison_dataset_schema",
-                "run comparison input manifest is missing raw measurement artifact",
-                f"runs/{manifest.run_id}/manifest.artifact_refs",
+                "run comparison input manifest is missing raw measurement dataset",
+                f"runs/{manifest.run_id}/manifest.datasets",
             )
         ]
     )
@@ -729,54 +653,9 @@ def _outcome(peak_value_delta: float) -> ComparisonOutcome:
     return "unchanged"
 
 
-def _read_config_source_summary(
-    *, storage: RunStore, run_id: str
-) -> RunComparisonConfigSourceSummary:
-    config_path = storage.ref_path(run_id, CONFIG_PROFILE_SNAPSHOT_REF)
-    if not config_path.is_file():
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "missing_run_comparison_input",
-                    f"run comparison input is missing: {CONFIG_PROFILE_SNAPSHOT_REF}",
-                    CONFIG_PROFILE_SNAPSHOT_REF,
-                )
-            ]
-        )
-    try:
-        config = ConfigProfileSnapshot.model_validate_json(config_path.read_text())
-    except ValidationError as error:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "invalid_run_comparison_input",
-                    "run comparison input is not valid JSON for "
-                    f"{CONFIG_PROFILE_SNAPSHOT_REF}",
-                    CONFIG_PROFILE_SNAPSHOT_REF,
-                )
-            ]
-        ) from error
-    source = config.source
-    if source is None or source.kind != "config_registry_entry":
-        return RunComparisonConfigSourceSummary(status="not_available")
-    provenance = ConfigRegistryConfigSourceProvenance(
-        selector=source.selector or "",
-        entry_id=source.entry_id or "",
-        config_ref=source.config_ref or "",
-        active_state_ref=source.active_state_ref,
-        active_record_id=source.active_record_id,
-    )
-    return RunComparisonConfigSourceSummary(
-        status="available",
-        source_kind=provenance.source_kind,
-        selector=provenance.selector,
-        entry_id=provenance.entry_id,
-        config_ref=provenance.config_ref,
-        active_state_ref=provenance.active_state_ref,
-        active_record_id=provenance.active_record_id,
-    )
+def _read_config_source(*, storage: RunStore, run_id: str) -> RunConfigSource | None:
+    manifest = storage.read_manifest(run_id)
+    return manifest.config_source
 
 
 def _diagnostic(

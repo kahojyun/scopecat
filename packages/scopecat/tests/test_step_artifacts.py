@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from scopecat._steps import StepArtifactStore
-from scopecat._storage import ARTIFACTS_DIR
 from scopecat.errors import ValidationFailed
 from scopecat.models.parameter import Quantity
 from scopecat.results import (
@@ -20,20 +19,17 @@ from tests.support.steps import StepResult, artifact_diagnostics
 def test_step_artifact_store_collects_existing_artifacts_only(tmp_path: Path) -> None:
     store = StepArtifactStore(
         root_dir=tmp_path,
-        ref_dir=ARTIFACTS_DIR,
         diagnostics=artifact_diagnostics(),
     )
 
     store.write_model(
         id="result",
         kind="result",
-        filename="result.json",
         model=StepResult(value=1),
     )
     unwritten = store.reserve_file(
         id="reserved",
         kind="log",
-        filename="reserved.txt",
     )
 
     assert store.output_artifact_ids == ("result",)
@@ -45,20 +41,19 @@ def test_step_artifact_store_collects_existing_artifacts_only(tmp_path: Path) ->
     assert [artifact.id for artifact in store.artifacts] == ["result", "reserved"]
 
 
-def test_step_artifact_store_rejects_invalid_filename(
+def test_step_artifact_store_rejects_duplicate_id(
     tmp_path: Path,
 ) -> None:
     store = StepArtifactStore(
         root_dir=tmp_path,
-        ref_dir=ARTIFACTS_DIR,
         diagnostics=artifact_diagnostics(),
     )
-    store.write_text(id="one", kind="log", filename="one.txt", content="one")
+    store.write_text(id="one", kind="log", content="one")
 
-    with pytest.raises(ValidationFailed) as invalid_filename:
-        store.write_text(id="escape", kind="log", filename="../bad.txt", content="bad")
+    with pytest.raises(ValidationFailed) as duplicate_id:
+        store.write_text(id="one", kind="log", content="duplicate")
 
-    assert invalid_filename.value.diagnostics[0].code == "test_invalid_filename"
+    assert duplicate_id.value.diagnostics[0].code == "test_duplicate_artifact"
 
 
 def test_step_artifact_store_writes_measurement_dataset_metadata(
@@ -66,7 +61,6 @@ def test_step_artifact_store_writes_measurement_dataset_metadata(
 ) -> None:
     store = StepArtifactStore(
         root_dir=tmp_path,
-        ref_dir=ARTIFACTS_DIR,
         diagnostics=artifact_diagnostics(),
     )
     records = [
@@ -80,22 +74,21 @@ def test_step_artifact_store_writes_measurement_dataset_metadata(
 
     handle = store.write_measurement_dataset(
         id="derived-measurements",
-        filename="derived.jsonl",
         dataset_role="derived",
         records=records,
         source_step="test-step",
-        source_artifact_ids=["raw-measurements"],
     )
-    artifact = store.artifacts[0]
+    dataset = store.datasets[0]
 
     assert handle.kind == "measurement_dataset"
-    assert handle.media_type == "application/jsonl"
-    assert handle.path.read_text().count("\n") == 1
-    assert artifact.metadata["dataset_role"] == "derived"
-    assert artifact.metadata["source_step"] == "test-step"
-    assert artifact.metadata["source_artifact_ids"] == ["raw-measurements"]
-    assert artifact.metadata["dataset_schema"]["dataset_id"] == "derived-measurements"
-    assert artifact.metadata["dataset_schema"]["primary_observables"] == ["signal"]
+    assert handle.path.is_file()
+    assert store.output_artifact_ids == ()
+    assert store.output_dataset_ids == ("derived-measurements",)
+    assert dataset.role == "derived"
+    assert dataset.produced_by == "test-step"
+    assert dataset.data_schema is not None
+    assert dataset.data_schema["dataset_id"] == "derived-measurements"
+    assert dataset.data_schema["primary_observables"] == ["signal"]
 
 
 def test_step_artifact_store_validates_measurement_dataset_schema(
@@ -103,7 +96,6 @@ def test_step_artifact_store_validates_measurement_dataset_schema(
 ) -> None:
     store = StepArtifactStore(
         root_dir=tmp_path,
-        ref_dir=ARTIFACTS_DIR,
         diagnostics=artifact_diagnostics(),
     )
     schema = MeasurementDatasetSchema(
@@ -143,7 +135,6 @@ def test_step_artifact_store_validates_measurement_dataset_schema(
     with pytest.raises(ValidationFailed) as error:
         store.write_measurement_dataset(
             id="derived-measurements",
-            filename="derived.jsonl",
             dataset_role="derived",
             records=records,
             schema=schema,
@@ -154,4 +145,4 @@ def test_step_artifact_store_validates_measurement_dataset_schema(
         "measurement_record_unexpected_observable",
     ]
     assert store.output_artifact_ids == ()
-    assert not (tmp_path / ARTIFACTS_DIR / "derived.jsonl").exists()
+    assert store.output_dataset_ids == ()

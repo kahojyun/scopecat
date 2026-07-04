@@ -165,7 +165,7 @@ The GUI may add navigation, filtering, plotting, diffing, and review
 affordances, but it should not create GUI-only workflow records, artifact
 indexes, candidate models, or analysis state.
 
-Workbench screens should resolve artifacts by `Artifact.id` first. Paths are
+Workbench screens should resolve artifacts by `RunArtifactEntry.id` first. Paths are
 display and storage details, not navigation keys.
 
 GUI write actions should be reproducible from Python APIs:

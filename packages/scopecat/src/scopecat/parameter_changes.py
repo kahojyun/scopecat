@@ -10,12 +10,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from scopecat._manifest_updates import write_manifest_artifacts
+from scopecat._manifest_updates import write_manifest_records
 from scopecat._planning_parameter_patches import ParameterPatchSpec
+from scopecat._storage.refs import record_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.ids import artifact_slug
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunRecordEntry
 from scopecat.models.parameter import (
     ParameterChangeSet,
     ParameterPatch,
@@ -23,7 +24,7 @@ from scopecat.models.parameter import (
 )
 from scopecat.models.run import RunManifest, utc_now
 from scopecat.relations import ScalarExpr
-from scopecat.runs import RunStore, list_artifacts, open_run_store
+from scopecat.runs import RunStore, list_records, open_run_store
 
 ParameterChangeReviewState = Literal["approved", "rejected"]
 ParameterChangeDecision = Literal["approved", "rejected", "invalidated"]
@@ -41,7 +42,7 @@ class ParameterChangeSetView(BaseModel):
     confidence: float | None = None
     patch_count: int
     patches: list[ParameterPatch] = Field(default_factory=list)
-    path: str
+    record_id: str
 
 
 class ParameterChangeDecisionRecord(BaseModel):
@@ -49,10 +50,9 @@ class ParameterChangeDecisionRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.parameter_change_decision_record.v1"
+    schema_version: str = "scopecat.parameter_change_decision_record.v2"
     run_id: str
     change_set_id: str
-    change_set_artifact_id: str
     decision: ParameterChangeDecision
     actor: str
     note: str = ""
@@ -96,11 +96,11 @@ def list_parameter_changes(
     storage = open_run_store(workspace)
     manifest = storage.read_manifest(run_id)
     changes: list[ParameterChangeSetView] = []
-    for change_artifact in _change_set_artifacts(manifest):
-        change_set, resolved_ref = _load_ref(
+    for change_record in _change_set_records(manifest):
+        change_set = _load_record(
             storage=storage,
             run_id=run_id,
-            change_set_record_ref=change_artifact.path,
+            change_record=change_record,
         )
         changes.append(
             ParameterChangeSetView(
@@ -110,7 +110,7 @@ def list_parameter_changes(
                 confidence=change_set.confidence,
                 patch_count=len(change_set.patches),
                 patches=list(change_set.patches),
-                path=resolved_ref,
+                record_id=change_record.id,
             )
         )
     return changes
@@ -120,15 +120,15 @@ def load_parameter_change(
     *, run_id: str, selector: str, workspace: str | Path
 ) -> ParameterChangeSet:
     storage = open_run_store(workspace)
-    _change_set, change_artifact = _resolve_change_set_ref(
+    _change_set, change_record = _resolve_change_set_ref(
         storage=storage,
         run_id=run_id,
         selector=selector,
     )
-    change_set, _resolved_ref = _load_ref(
+    change_set = _load_record(
         storage=storage,
         run_id=run_id,
-        change_set_record_ref=change_artifact.path,
+        change_record=change_record,
     )
     return change_set
 
@@ -186,12 +186,20 @@ def record_parameter_change_decision(
     related_refs: list[str] | None = None,
 ) -> ParameterChangeDecisionRecord:
     storage = open_run_store(workspace)
-    change_set, change_artifact = _resolve_change_set_ref(
+    change_set, _change_record = _resolve_change_set_ref(
         storage=storage,
         run_id=run_id,
         selector=selector,
     )
-    record_ref = parameter_change_decision_ref(change_set.id)
+    decision_record = RunRecordEntry(
+        id=f"{change_set.id}-decision",
+        kind="parameter_change_decision_record",
+        media_type="application/json",
+    )
+    record_ref = record_content_ref(
+        record_id=decision_record.id,
+        kind=decision_record.kind,
+    )
     record_path = storage.ref_path(run_id, record_ref)
     if record_path.exists():
         raise ValidationFailed(
@@ -207,7 +215,6 @@ def record_parameter_change_decision(
     record = ParameterChangeDecisionRecord(
         run_id=run_id,
         change_set_id=change_set.id,
-        change_set_artifact_id=change_artifact.id,
         decision=decision,
         actor=actor,
         note=note,
@@ -216,47 +223,36 @@ def record_parameter_change_decision(
     storage.write_model(run_id, record_ref, record)
 
     manifest = storage.read_manifest(run_id)
-    write_manifest_artifacts(
+    write_manifest_records(
         storage=storage,
         manifest=manifest,
-        artifacts=[
-            Artifact(
-                id=f"{change_set.id}-decision",
-                kind="parameter_change_decision_record",
-                path=record_ref,
-                media_type="application/json",
-            )
-        ],
+        records=[decision_record],
     )
     return record
 
 
 def parameter_change_decision_ref(change_set_id: str) -> str:
-    return f"reviews/{change_set_id}.parameter-change-decision.json"
+    return record_content_ref(
+        record_id=f"{change_set_id}-decision",
+        kind="parameter_change_decision_record",
+    )
 
 
 def parameter_change_record_ref(change_set_id: str) -> str:
-    return f"parameter-changes/{change_set_id}.json"
+    return record_content_ref(
+        record_id=change_set_id,
+        kind="parameter_change_set",
+    )
 
 
-def parameter_change_set_artifact(
+def parameter_change_set_record(
     *,
     change: ParameterChangeSet,
-    source: str,
-    analysis_title: str | None = None,
-    analysis_key: str | None = None,
-) -> Artifact:
-    metadata: dict[str, str] = {"source": source}
-    if analysis_title is not None:
-        metadata["analysis_title"] = analysis_title
-    if analysis_key is not None:
-        metadata["analysis_key"] = analysis_key
-    return Artifact(
+) -> RunRecordEntry:
+    return RunRecordEntry(
         id=change.id,
         kind="parameter_change_set",
-        path=parameter_change_record_ref(change.id),
         media_type="application/json",
-        metadata=metadata,
     )
 
 
@@ -316,25 +312,29 @@ def _literal_expr_value(expr: ScalarExpr) -> ParameterPatchValue:
 
 def _resolve_change_set_ref(
     *, storage: RunStore, run_id: str, selector: str
-) -> tuple[ParameterChangeSet, Artifact]:
+) -> tuple[ParameterChangeSet, RunRecordEntry]:
     manifest = storage.read_manifest(run_id)
     _validate_selector_path(selector)
-    for change_artifact in _change_set_artifacts(manifest):
-        change_set, _resolved_ref = _load_ref(
+    for change_record in _change_set_records(manifest):
+        change_set = _load_record(
             storage=storage,
             run_id=run_id,
-            change_set_record_ref=change_artifact.path,
+            change_record=change_record,
         )
-        if change_set.id == selector or change_artifact.id == selector:
-            return change_set, change_artifact
-    for change_artifact in _change_set_artifacts(manifest):
-        if change_artifact.path == selector:
-            change_set, _resolved_ref = _load_ref(
+        if change_set.id == selector or change_record.id == selector:
+            return change_set, change_record
+    for change_record in _change_set_records(manifest):
+        record_ref = record_content_ref(
+            record_id=change_record.id,
+            kind=change_record.kind,
+        )
+        if record_ref == selector:
+            change_set = _load_record(
                 storage=storage,
                 run_id=run_id,
-                change_set_record_ref=change_artifact.path,
+                change_record=change_record,
             )
-            return change_set, change_artifact
+            return change_set, change_record
     raise ValidationFailed(
         [
             _diagnostic(
@@ -347,9 +347,13 @@ def _resolve_change_set_ref(
     )
 
 
-def _load_ref(
-    *, storage: RunStore, run_id: str, change_set_record_ref: str
-) -> tuple[ParameterChangeSet, str]:
+def _load_record(
+    *, storage: RunStore, run_id: str, change_record: RunRecordEntry
+) -> ParameterChangeSet:
+    change_set_record_ref = record_content_ref(
+        record_id=change_record.id,
+        kind=change_record.kind,
+    )
     path = _change_set_path(
         storage=storage,
         run_id=run_id,
@@ -378,8 +382,7 @@ def _load_ref(
             ]
         )
     try:
-        change_set = ParameterChangeSet.model_validate_json(path.read_text())
-        return change_set, change_set_record_ref
+        return ParameterChangeSet.model_validate_json(path.read_text())
     except ValidationError as error:
         raise ValidationFailed(
             [
@@ -396,8 +399,8 @@ def _load_ref(
         ) from error
 
 
-def _change_set_artifacts(manifest: RunManifest) -> tuple[Artifact, ...]:
-    return list_artifacts(manifest, kind="parameter_change_set")
+def _change_set_records(manifest: RunManifest) -> tuple[RunRecordEntry, ...]:
+    return list_records(manifest, kind="parameter_change_set")
 
 
 def _change_set_path(
@@ -446,8 +449,8 @@ __all__ = [
     "load_parameter_change",
     "parameter_change_decision_ref",
     "parameter_change_record_ref",
-    "parameter_change_set_artifact",
     "parameter_change_set_from_analysis_patches",
+    "parameter_change_set_record",
     "record_parameter_change_decision",
     "review_parameter_changes",
 ]

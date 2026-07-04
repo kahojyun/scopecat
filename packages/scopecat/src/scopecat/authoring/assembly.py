@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import quote
 
 from scopecat.authoring._bindings import (
     AssetBindingIntent,
@@ -38,10 +40,11 @@ from scopecat.authoring._templates import (
     template as authoring_template,
 )
 from scopecat.authoring.expressions import (
+    AssetInput,
     BindingSpec,
-    ExperimentAsset,
     ExperimentVariable,
     Expression,
+    LocalAssetSource,
 )
 from scopecat.authoring.expressions import (
     asset_ref as asset_ref_expr,
@@ -62,7 +65,7 @@ from scopecat.experiments import (
 from scopecat.experiments import (
     acquire as build_acquisition_spec,
 )
-from scopecat.models.artifact import ArtifactRef
+from scopecat.models.artifact import ExperimentAsset as PlanExperimentAsset
 from scopecat.models.parameter import Quantity
 from scopecat.models.provider import ProviderOptionDescription
 from scopecat.relations import (
@@ -190,7 +193,7 @@ class ExperimentRecipe:
     bindings: tuple[ExperimentBindingIntent, ...] = ()
     acquisition: AcquisitionSpecIntent = field(default_factory=AcquisitionIntent)
     dataset: DatasetIntent | None = None
-    assets: tuple[ExperimentAsset, ...] = ()
+    assets: tuple[AssetInput, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __call__(self, **inputs: object) -> ExperimentDraft:
@@ -240,7 +243,7 @@ class ExperimentRecipe:
             points=_points_relation(variables),
             state=_state_specs(bindings),
             acquire=acquisition,
-            assets=[_artifact_ref(asset) for asset in self.assets],
+            assets=[_experiment_asset(asset) for asset in self.assets],
             metadata=dict(self.metadata),
         )
 
@@ -256,7 +259,7 @@ def recipe(
     bindings: Sequence[ExperimentBindingIntent] = (),
     acquisition: AcquisitionSpecIntent | None = None,
     dataset: DatasetIntent | None = None,
-    assets: Sequence[ExperimentAsset] = (),
+    assets: Sequence[AssetInput] = (),
     metadata: Mapping[str, Any] | None = None,
 ) -> ExperimentRecipe:
     return ExperimentRecipe(
@@ -310,7 +313,7 @@ def param_ref(parameter_id: str) -> Expression:
     return param_expr(parameter_id)
 
 
-def asset_ref(asset: ExperimentAsset | str) -> Expression:
+def asset_ref(asset: AssetInput | str) -> Expression:
     return asset_ref_expr(asset)
 
 
@@ -520,17 +523,29 @@ def _relation_params(ctx: ExperimentAuthoringContext) -> ParameterRelationData:
     return ParameterRelationData.from_build_snapshot(ctx.config.parameter_build)
 
 
-def _artifact_ref(asset: ExperimentAsset) -> ArtifactRef:
-    uri = None if asset.path or asset.content_hash else f"scopecat-asset:{asset.id}"
-    return ArtifactRef(
+def _experiment_asset(asset: AssetInput) -> PlanExperimentAsset:
+    if isinstance(asset, PlanExperimentAsset):
+        return asset
+    uri = _asset_uri(asset)
+    return PlanExperimentAsset(
         id=asset.id,
         kind=asset.kind,
         uri=uri,
-        path=asset.path,
         content_hash=asset.content_hash,
         media_type=asset.media_type,
         metadata=asset.metadata,
     )
+
+
+def _asset_uri(asset: LocalAssetSource) -> str | None:
+    if asset.uri is not None:
+        return asset.uri
+    if asset.path is None:
+        return None if asset.content_hash else f"scopecat-asset:{asset.id}"
+    path = Path(asset.path)
+    if path.is_absolute():
+        return path.as_uri()
+    return f"file:{quote(path.as_posix(), safe='/')}"
 
 
 def _quantity_from_value(value: Quantity | Expression) -> Quantity:

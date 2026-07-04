@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat.run_comparison import (
+    RunComparisonResult,
     RunComparisonReviewState,
     RunComparisonView,
     execute_run_comparison,
@@ -15,7 +16,7 @@ from scopecat.run_comparison import (
 from scopecat.run_comparison import (
     review_run_comparison as review_run_comparison_impl,
 )
-from scopecat.workflows._types import CompareRunsResult, ReviewRunComparisonResult
+from scopecat.workflows._types import ReviewRunComparisonResult
 
 
 def compare_runs(
@@ -24,14 +25,13 @@ def compare_runs(
     candidate_run_id: str,
     workspace: str | Path,
     observable_id: str | None = None,
-) -> CompareRunsResult:
-    job, result = execute_run_comparison(
+) -> RunComparisonResult:
+    return execute_run_comparison(
         baseline_run_id=baseline_run_id,
         candidate_run_id=candidate_run_id,
         workspace=workspace,
         observable_id=observable_id,
     )
-    return CompareRunsResult(job=job, result=result)
 
 
 def list_run_comparisons(

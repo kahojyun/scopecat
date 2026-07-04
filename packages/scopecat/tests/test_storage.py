@@ -23,11 +23,11 @@ def test_local_run_layout_resolves_run_relative_refs(tmp_path) -> None:
 
     with pytest.raises(ValidationFailed) as relative_escape:
         layout.ref_path("run-000001", "../outside.json")
-    assert relative_escape.value.diagnostics[0].code == "artifact_path_escape"
+    assert relative_escape.value.diagnostics[0].code == "run_ref_path_escape"
 
     with pytest.raises(ValidationFailed) as absolute_escape:
         layout.ref_path("run-000001", "/outside.json")
-    assert absolute_escape.value.diagnostics[0].code == "artifact_path_escape"
+    assert absolute_escape.value.diagnostics[0].code == "run_ref_path_escape"
 
 
 def test_local_run_store_round_trips_model_text_and_jsonl(tmp_path) -> None:
@@ -81,6 +81,4 @@ def _manifest(run_id: str, created_at: datetime) -> RunManifest:
         run_id=run_id,
         created_at=created_at,
         status="completed",
-        config_profile_snapshot_ref="config-profile.snapshot.json",
-        plan_snapshot_ref="plan.snapshot.json",
     )

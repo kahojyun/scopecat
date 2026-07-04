@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import (
     ExperimentSpec,
     acquire,
@@ -8,7 +9,6 @@ from scopecat.experiments import (
     set_param,
     set_state,
 )
-from scopecat.models.config import load_config_profile
 from scopecat.models.parameter import Quantity
 from scopecat.relations import col, grid, param, range_values
 from scopecat.workflows.runs import preview_experiment, validate_experiment

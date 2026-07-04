@@ -128,7 +128,7 @@ Structured experiments are a central UX path, but they are one part of
 the platform. Their target architecture is:
 
 ```text
-ExperimentModule + ExperimentTemplate + RunRequest + ConfigSnapshot
+ExperimentModule + ExperimentTemplate + RunRequest + ConfigProfileSnapshot
   -> ExperimentSpec
   -> ExperimentPlan
   -> DeviceProgram

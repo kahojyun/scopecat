@@ -50,7 +50,7 @@ from scopecat._planning_state import (
     validate_asset_references,
     validate_state_records,
 )
-from scopecat.models.artifact import ArtifactRef
+from scopecat.models.artifact import ExperimentAsset
 from scopecat.models.parameter import (
     ParameterBuildSnapshot,
 )
@@ -86,7 +86,7 @@ class ExperimentSpec(BaseModel):
     params: list[ParameterPatchSpec] = Field(default_factory=list)
     state: list[StateSpec] = Field(default_factory=list)
     acquire: AcquisitionSpec
-    assets: list[ArtifactRef] = Field(default_factory=list)
+    assets: list[ExperimentAsset] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -120,12 +120,12 @@ class PlanSnapshot(BaseModel):
     result_intents: list[ResultIntent] = Field(default_factory=list)
     expected_dataset_schema: MeasurementDatasetSchema | None = None
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
-    assets: list[ArtifactRef] = Field(default_factory=list)
+    assets: list[ExperimentAsset] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
-class ParameterRowRef:
-    """Authoring reference to one parameter-table row."""
+class ParameterRowSelector:
+    """Authoring selector for one parameter-table row."""
 
     table_id: str
     key: dict[str, object]
@@ -163,8 +163,8 @@ def rows(table_id: str, **where: object) -> RelationExpr:
     return relation
 
 
-def param_row(table_id: str, **key: object) -> ParameterRowRef:
-    return ParameterRowRef(table_id=table_id, key=dict(key))
+def param_row(table_id: str, **key: object) -> ParameterRowSelector:
+    return ParameterRowSelector(table_id=table_id, key=dict(key))
 
 
 def configure(*params: ParameterPatchSpec) -> list[ParameterPatchSpec]:
@@ -172,7 +172,7 @@ def configure(*params: ParameterPatchSpec) -> list[ParameterPatchSpec]:
 
 
 def scan_parameter(
-    row: ParameterRowRef,
+    row: ParameterRowSelector,
     column: str,
     source: object,
     *,
@@ -335,7 +335,7 @@ def experiment(
     params: list[ParameterPatchSpec] | None = None,
     state: list[StateSpec] | None = None,
     acquire: AcquisitionSpec,
-    assets: list[ArtifactRef] | None = None,
+    assets: list[ExperimentAsset] | None = None,
 ) -> ExperimentSpec:
     return ExperimentSpec(
         id=id,
@@ -559,7 +559,7 @@ __all__ = [
     "ObservationSpec",
     "ParameterPatchPlanRecord",
     "ParameterPatchSpec",
-    "ParameterRowRef",
+    "ParameterRowSelector",
     "ParameterScan",
     "PlanSnapshot",
     "PointRecord",

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -125,14 +124,6 @@ class ConnectionProfile(BaseModel):
         return _ensure_unique(value, "connection")
 
 
-ConfigProfileSnapshotSourceKind = Literal[
-    "config_profile_file",
-    "config_registry_entry",
-    "candidate_config",
-    "analysis_candidate_config",
-]
-
-
 class SystemSpec(BaseModel):
     """Stable system topology and logical parameter definitions."""
 
@@ -162,40 +153,6 @@ class EnvironmentSpec(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class ConfigProfile(BaseModel):
-    """User-authored configuration profile that references split config inputs."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal["scopecat.config_profile.v0"] = "scopecat.config_profile.v0"
-    id: str
-    system_ref: str
-    environment_ref: str
-    parameter_state_ref: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class ConfigProfileSnapshotSource(BaseModel):
-    """Typed provenance for a config profile snapshot lifecycle transition."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: ConfigProfileSnapshotSourceKind
-    profile_ref: str | None = None
-    system_ref: str | None = None
-    environment_ref: str | None = None
-    parameter_state_ref: str | None = None
-    selector: str | None = None
-    entry_id: str | None = None
-    config_ref: str | None = None
-    active_state_ref: str | None = None
-    active_record_id: str | None = None
-    source_run_id: str | None = None
-    change_set_ids: list[str] = Field(default_factory=list)
-    change_set_artifact_ids: list[str] = Field(default_factory=list)
-    candidate_artifact_id: str | None = None
-
-
 class ConfigProfileSnapshot(BaseModel):
     """Immutable config profile snapshot used by runs and ConfigRegistry entries."""
 
@@ -210,7 +167,6 @@ class ConfigProfileSnapshot(BaseModel):
     parameter_state: ParameterState
     parameter_build: ParameterBuildSnapshot | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-    source: ConfigProfileSnapshotSource | None = None
 
     @model_validator(mode="after")
     def refresh_parameter_build(self) -> ConfigProfileSnapshot:
@@ -251,42 +207,13 @@ class ConfigProfileSnapshot(BaseModel):
         return self.parameter_state.tables
 
 
-def load_config_profile(path: str | Path) -> ConfigProfileSnapshot:
-    """Load a config profile and freeze referenced config inputs."""
-
-    profile_path = Path(path)
-    profile = ConfigProfile.model_validate_json(profile_path.read_text())
-    base_dir = profile_path.parent
-    system_path = _resolve_profile_ref(base_dir, profile.system_ref)
-    environment_path = _resolve_profile_ref(base_dir, profile.environment_ref)
-    parameter_state_path = _resolve_profile_ref(base_dir, profile.parameter_state_ref)
-    system = SystemSpec.model_validate_json(system_path.read_text())
-    environment = EnvironmentSpec.model_validate_json(environment_path.read_text())
-    parameter_state = ParameterState.model_validate_json(
-        parameter_state_path.read_text()
-    )
-    return snapshot_config_profile(
-        profile=profile,
-        system=system,
-        environment=environment,
-        parameter_state=parameter_state,
-        source=ConfigProfileSnapshotSource(
-            kind="config_profile_file",
-            profile_ref=str(profile_path),
-            system_ref=str(system_path),
-            environment_ref=str(environment_path),
-            parameter_state_ref=str(parameter_state_path),
-        ),
-    )
-
-
 def snapshot_config_profile(
     *,
-    profile: ConfigProfile,
+    profile_id: str,
     system: SystemSpec,
     environment: EnvironmentSpec,
     parameter_state: ParameterState,
-    source: ConfigProfileSnapshotSource | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> ConfigProfileSnapshot:
     """Freeze split config content as an immutable runtime snapshot."""
 
@@ -295,13 +222,12 @@ def snapshot_config_profile(
         parameter_state=parameter_state,
     )
     return ConfigProfileSnapshot(
-        id=profile.id,
+        id=profile_id,
         system=system,
         environment=environment,
         parameter_state=parameter_state,
         parameter_build=parameter_build,
-        metadata=profile.metadata,
-        source=source,
+        metadata=dict(metadata or {}),
     )
 
 
@@ -309,7 +235,7 @@ def config_content_equal(
     left: ConfigProfileSnapshot,
     right: ConfigProfileSnapshot,
 ) -> bool:
-    """Compare config content while ignoring lifecycle schema/source fields."""
+    """Compare config content while ignoring lifecycle schema fields."""
 
     return _config_content(left) == _config_content(right)
 
@@ -317,12 +243,5 @@ def config_content_equal(
 def _config_content(config: ConfigProfileSnapshot) -> dict[str, Any]:
     return config.model_dump(
         mode="python",
-        exclude={"schema_version", "source"},
+        exclude={"schema_version"},
     )
-
-
-def _resolve_profile_ref(base_dir: Path, ref: str) -> Path:
-    path = Path(ref)
-    if path.is_absolute():
-        return path
-    return base_dir / path

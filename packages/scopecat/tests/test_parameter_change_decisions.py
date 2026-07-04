@@ -12,7 +12,6 @@ from scopecat.parameter_changes import (
 )
 from scopecat.runs import open_run_store
 from tests.support.config_registry import signal_run_with_parameter_change
-from tests.support.records import assert_artifact_ref
 
 
 def test_invalidate_parameter_change_records_decision_without_mutating_change_set(
@@ -34,9 +33,8 @@ def test_invalidate_parameter_change_records_decision_without_mutating_change_se
         invalidated_by_refs=["config-profile.snapshot.json"],
     )
 
-    assert record.schema_version == "scopecat.parameter_change_decision_record.v1"
+    assert record.schema_version == "scopecat.parameter_change_decision_record.v2"
     assert record.change_set_id == "best-signal"
-    assert record.change_set_artifact_id == "best-signal"
     assert record.decision == "invalidated"
     assert record.note == "active config changed before review"
     assert record.actor == "operator"
@@ -49,20 +47,11 @@ def test_invalidate_parameter_change_records_decision_without_mutating_change_se
         )
         == before
     )
-    assert (
-        tmp_path
-        / "runs"
-        / run_id
-        / "reviews"
-        / "best-signal.parameter-change-decision.json"
-    ).is_file()
-
     manifest = open_run_store(tmp_path).read_manifest(run_id)
-    assert_artifact_ref(
-        manifest.artifact_refs,
-        "best-signal-decision",
-        kind="parameter_change_decision_record",
+    decision_record = next(
+        record for record in manifest.records if record.id == "best-signal-decision"
     )
+    assert decision_record.kind == "parameter_change_decision_record"
 
 
 def test_parameter_change_decision_rejects_second_decision(tmp_path: Path) -> None:

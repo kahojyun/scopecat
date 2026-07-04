@@ -11,7 +11,7 @@ from scopecat.instruments import (
 )
 from scopecat.instruments.executor import execute_run
 from scopecat.instruments.sdk import InstrumentProviderContext
-from scopecat.models.artifact import ArtifactRef
+from scopecat.models.artifact import ExperimentAsset
 from tests.support.managed_instruments import (
     ManagedSignalInstrument,
     asset_state,
@@ -76,7 +76,7 @@ def test_managed_instrument_validates_declared_field_shapes() -> None:
 
 
 def test_managed_instrument_validates_asset_references_and_kinds() -> None:
-    asset = ArtifactRef(
+    asset = ExperimentAsset(
         id="program-a",
         kind="pulse_program",
         uri="scopecat-asset:program-a",

@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.config_profiles import load_config_profile
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.planning.validation import (
     has_blocking_diagnostics,
     validate_config,

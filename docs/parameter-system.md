@@ -34,21 +34,21 @@ mutation targets.
 
 ## Source Of Truth
 
-`ConfigSnapshot` is the authoritative input for planning. Parameter state is
+`ConfigProfileSnapshot` is the authoritative input for planning. Parameter state is
 one part of that snapshot.
 
 Accepted state changes through explicit activation:
 
 ```text
-accepted ConfigSnapshot
+accepted ConfigProfileSnapshot
   + reviewed ConfigPatch / ParameterChangeSet
-  -> new accepted ConfigSnapshot
+  -> new accepted ConfigProfileSnapshot
 ```
 
 Derived planning views are deterministic projections:
 
 ```text
-ConfigSnapshot + explicit inputs -> DerivedConfigView
+ConfigProfileSnapshot + explicit inputs -> DerivedConfigView
 ```
 
 A view may be materialized, cached, hashed, displayed, diffed, or referenced by
@@ -59,8 +59,8 @@ an `ExperimentSpec`, but it is not where accepted changes are written.
 | Concept | Responsibility |
 | --- | --- |
 | `ParameterCatalog` | Defines scalar and table schemas, units, constraints, keys, lifecycle metadata, and validation policy. |
-| `ParameterState` | Stores accepted scalar values and table rows inside a config snapshot, with source provenance and content hashes. |
-| `ConfigSnapshot` | Immutable accepted planning input containing parameter state plus topology, routing, environment, registry metadata, and provenance. |
+| `ParameterState` | Stores accepted scalar values and table rows inside a config snapshot, with deterministic content hashes. |
+| `ConfigProfileSnapshot` | Immutable accepted planning input containing parameter state plus topology, routing, environment, and registry metadata. |
 | `DerivedConfigView` | Deterministic projection such as planning parameters, topology view, backend compile view, review view, or analysis feature view. |
 | `ParameterPatch` | Scalar or table change used for experiment-time patched views, point-local sweeps, and candidate resolution. |
 | `ParameterChangeSet` | Candidate accepted-state patch set with source, reason, confidence, expected values, diagnostics, and provenance. |
@@ -165,7 +165,7 @@ system step:
 ```text
 analysis outputs
   -> ParameterChangeSet / ConfigPatch
-  -> candidate ConfigSnapshot
+  -> candidate ConfigProfileSnapshot
   -> validation, diff, preview
   -> follow-up run
   -> review / activation

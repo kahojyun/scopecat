@@ -26,14 +26,15 @@ Stable run-level records include:
 - comparison and review records;
 - attachments and legacy capture artifacts.
 
-The manifest indexes artifacts. Artifact payloads own detailed schemas,
-provenance, nested refs, and validation metadata.
+The manifest indexes artifacts. RunArtifactEntry payloads own detailed schemas,
+provenance, and validation metadata.
 
-`Artifact.id` is the stable user and record selector. `Artifact.path` is a
-storage locator. Cross-record references should use the smallest stable id:
+`RunArtifactEntry.id` is the stable user and record selector. Storage paths are derived
+at storage API boundaries. Cross-record references should use the smallest
+stable id:
 
 - `run_id` across runs;
-- `Artifact.id` inside a run;
+- `RunArtifactEntry.id` inside a run;
 - `ArtifactRef` for content-addressed or external assets;
 - normalized run-relative paths only at storage API boundaries.
 
@@ -190,7 +191,7 @@ records were actually produced.
 ## Calibration Evidence
 
 Accepted calibration values are accepted parameter/config values inside a
-`ConfigSnapshot`. Do not introduce a second accepted-state root for values that
+`ConfigProfileSnapshot`. Do not introduce a second accepted-state root for values that
 can be represented as parameter scalars, parameter table rows, routing entries,
 or config sections.
 

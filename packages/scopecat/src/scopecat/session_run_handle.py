@@ -8,14 +8,15 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, NoReturn, Protocol
 
 from scopecat._manifest_updates import write_manifest_artifacts
+from scopecat._storage.refs import artifact_content_ref
 from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import PlanSnapshot
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunArtifactEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
 from scopecat.run_comparison import RunComparisonView
-from scopecat.run_refs import RunRef, run_id
+from scopecat.run_selectors import RunSelector, selected_run_id
 from scopecat.runs.access import open_run_store
 from scopecat.session_analysis import Analysis, AnalysisContext, AnalysisStep
 from scopecat.session_data import Data
@@ -23,6 +24,7 @@ from scopecat.workflows import (
     RunArtifactJsonResult,
     RunArtifactTextResult,
     RunMeasurementDatasetResult,
+    RunRecordJsonResult,
 )
 from scopecat.workflows.comparison import list_run_comparisons
 from scopecat.workflows.runs import (
@@ -31,6 +33,7 @@ from scopecat.workflows.runs import (
     read_run_artifact_json,
     read_run_artifact_text,
     read_run_measurement_dataset,
+    read_run_record_json,
 )
 
 if TYPE_CHECKING:
@@ -47,7 +50,7 @@ class RunSession(Protocol):
     @property
     def workspace(self) -> Path: ...
 
-    def overview(self, run: RunHandle | RunRef) -> RunOverview: ...
+    def overview(self, run: RunHandle | RunSelector) -> RunOverview: ...
 
 
 @dataclass(frozen=True)
@@ -77,6 +80,16 @@ class RunHandle:
                 run_id=self.id,
                 workspace=self.session.workspace,
             )
+        )
+
+    @property
+    def datasets(self) -> tuple[str, ...]:
+        return tuple(
+            dataset.id
+            for dataset in load_run(
+                run_id=self.id,
+                workspace=self.session.workspace,
+            ).manifest.datasets
         )
 
     def measurements(
@@ -130,7 +143,7 @@ class RunHandle:
         filename: str | None = None,
         media_type: str | None = None,
         metadata: dict[str, object] | None = None,
-    ) -> Artifact:
+    ) -> RunArtifactEntry:
         selected_sources = [path is not None, text is not None, content is not None]
         if selected_sources.count(True) != 1:
             _raise_diagnostic(
@@ -174,7 +187,7 @@ class RunHandle:
             filename=selected_filename,
             text=text,
         )
-        ref = f"artifacts/{selected_filename}"
+        ref = artifact_content_ref(artifact_id=key, kind=kind)
         storage = open_run_store(self.session.workspace)
         if source_path is not None:
             storage.ref_path(self.id, ref).parent.mkdir(parents=True, exist_ok=True)
@@ -184,21 +197,12 @@ class RunHandle:
         elif content is not None:
             storage.ref_path(self.id, ref).parent.mkdir(parents=True, exist_ok=True)
             storage.ref_path(self.id, ref).write_bytes(content)
-        artifact_metadata = dict(metadata or {})
-        artifact_metadata.update(
-            {
-                "owner_type": "run",
-                "owner_key": key,
-                "attachment_key": key,
-                "source_run_id": self.id,
-            }
-        )
-        artifact = Artifact(
+        artifact = RunArtifactEntry(
             id=key,
             kind=kind,
-            path=ref,
             media_type=selected_media_type,
-            metadata=artifact_metadata,
+            produced_by="run.attach",
+            metadata=dict(metadata or {}),
         )
         write_manifest_artifacts(
             storage=storage,
@@ -233,6 +237,19 @@ class RunHandle:
             expected_kind=expected_kind,
         )
 
+    def record_json(
+        self,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunRecordJsonResult:
+        return read_run_record_json(
+            run_id=self.id,
+            workspace=self.session.workspace,
+            selector=selector,
+            expected_kind=expected_kind,
+        )
+
     def overview(self) -> RunOverview:
         return self.session.overview(self)
 
@@ -242,10 +259,10 @@ class RunHandle:
         )
 
 
-def run_handle_id(run: RunHandle | RunRef) -> str:
+def run_handle_id(run: RunHandle | RunSelector) -> str:
     if isinstance(run, RunHandle):
         return run.id
-    return run_id(run)
+    return selected_run_id(run)
 
 
 def _raise_diagnostic(code: str, message: str, path: str) -> NoReturn:

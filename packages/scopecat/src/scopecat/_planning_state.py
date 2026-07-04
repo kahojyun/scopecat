@@ -5,7 +5,7 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from scopecat._planning_diagnostics import planning_diagnostic
-from scopecat.models.artifact import ArtifactRef
+from scopecat.models.artifact import ExperimentAsset
 from scopecat.relations import CellValue, EvalContext, RelationExpr, ScalarExpr
 
 type StateSpecKind = Literal["set", "for_each"]
@@ -121,7 +121,7 @@ def validate_state_records(records: list[StateRecord]) -> list[dict[str, Any]]:
 
 def validate_asset_references(
     *,
-    assets: list[ArtifactRef],
+    assets: list[ExperimentAsset],
     state_records: list[StateRecord],
 ) -> list[dict[str, Any]]:
     asset_ids = {asset.id for asset in assets}

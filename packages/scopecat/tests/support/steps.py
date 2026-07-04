@@ -5,8 +5,8 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from scopecat._steps import ArtifactInputDiagnostics, StepArtifactDiagnostics
+from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import ExperimentSpec
-from scopecat.models.config import load_config_profile
 from tests.support.records import read_model
 from tests.support.signal_testkit import execute_signal_run
 
@@ -24,8 +24,6 @@ def artifact_diagnostics() -> StepArtifactDiagnostics:
         missing_id_code="test_missing_id",
         duplicate_id_code="test_duplicate_artifact",
         missing_kind_code="test_missing_kind",
-        invalid_filename_code="test_invalid_filename",
-        duplicate_filename_code="test_duplicate_artifact_filename",
         noun="test artifact",
         path_prefix="artifacts",
     )

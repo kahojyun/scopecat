@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat._manifest_updates import write_manifest_artifacts
+from scopecat._manifest_updates import write_manifest_records
 from scopecat.candidate_configs import CandidateConfig
+from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import ExperimentSpec
-from scopecat.models.artifact import Artifact
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.models.artifact import RunRecordEntry
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import ParameterChangeSet, ParameterPatch, Quantity
-from scopecat.runs import open_run_store
+from scopecat.runs import open_run_store, record_storage_ref
 from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.records import read_model
 from tests.support.signal_testkit import execute_signal_run
@@ -59,21 +60,18 @@ def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
         ],
         confidence=1.0,
     )
-    ref = "parameter-changes/best-signal.json"
+    record = RunRecordEntry(
+        id=change_set.id,
+        kind="parameter_change_set",
+        media_type="application/json",
+    )
+    ref = record_storage_ref(record)
     storage.write_model(run_id, ref, change_set)
     manifest = storage.read_manifest(run_id)
-    write_manifest_artifacts(
+    write_manifest_records(
         storage=storage,
         manifest=manifest,
-        artifacts=[
-            Artifact(
-                id=change_set.id,
-                kind="parameter_change_set",
-                path=ref,
-                media_type="application/json",
-                metadata={"source": "test_fixture"},
-            )
-        ],
+        records=[record],
     )
 
 
@@ -85,7 +83,7 @@ def activate_best_signal(
 ) -> str:
     change_set = open_run_store(tmp_path).read_model(
         run_id,
-        "parameter-changes/best-signal.json",
+        "records/parameter_change_set/best-signal.json",
         ParameterChangeSet,
     )
     candidate = CandidateConfig(

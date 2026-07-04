@@ -5,28 +5,26 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ValidationError
 
-from scopecat._storage import ARTIFACTS_DIR
+from scopecat._storage.refs import artifact_content_ref, dataset_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.data_artifact import (
     DataArrayArtifact,
     DataArraySchema,
     DataTableArtifact,
     DataTableSchema,
-    data_array_artifact_metadata,
-    data_table_artifact_metadata,
 )
 from scopecat.results import (
     MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementRecord,
-    measurement_dataset_artifact_metadata,
+    infer_measurement_dataset_schema,
     validate_measurement_records_against_schema,
 )
 
@@ -36,8 +34,6 @@ class StepArtifactDiagnostics:
     missing_id_code: str
     duplicate_id_code: str
     missing_kind_code: str
-    invalid_filename_code: str
-    duplicate_filename_code: str
     noun: str
     path_prefix: str
 
@@ -48,41 +44,65 @@ class StepArtifactHandle:
 
     id: str
     kind: str
-    filename: str
     path: Path
     media_type: str | None = None
+    dataset_role: str | None = None
+    dataset_schema: dict[str, Any] | None = None
+    produced_by: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    ref_dir: str = ARTIFACTS_DIR
 
     @property
     def ref(self) -> str:
-        return f"{self.ref_dir}/{self.filename}"
+        return _content_ref(id=self.id, kind=self.kind, is_dataset=self.is_dataset)
 
-    def to_artifact(self) -> Artifact:
-        return Artifact(
+    def to_artifact(self) -> RunArtifactEntry:
+        return RunArtifactEntry(
             id=self.id,
             kind=self.kind,
-            path=self.ref,
             media_type=self.media_type,
+            produced_by=self.produced_by,
             metadata=self.metadata,
         )
 
-
-class StepArtifactWriter(Protocol):
-    """Artifact writer surface exposed to artifact-producing helpers."""
+    def to_dataset(self) -> RunDatasetEntry:
+        if self.dataset_schema is None:
+            msg = f"step output {self.id!r} is not a dataset"
+            raise ValueError(msg)
+        return RunDatasetEntry(
+            id=self.id,
+            kind=self.kind,
+            media_type=self.media_type,
+            role=self.dataset_role,
+            schema=self.dataset_schema,
+            produced_by=self.produced_by,
+            metadata=self.metadata,
+        )
 
     @property
-    def artifacts(self) -> tuple[Artifact, ...]: ...
+    def is_dataset(self) -> bool:
+        return self.dataset_schema is not None
+
+
+class StepArtifactWriter(Protocol):
+    """RunArtifactEntry writer surface exposed to artifact-producing helpers."""
+
+    @property
+    def artifacts(self) -> tuple[RunArtifactEntry, ...]: ...
+
+    @property
+    def datasets(self) -> tuple[RunDatasetEntry, ...]: ...
 
     @property
     def output_artifact_ids(self) -> tuple[str, ...]: ...
+
+    @property
+    def output_dataset_ids(self) -> tuple[str, ...]: ...
 
     def reserve_file(
         self,
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         media_type: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> StepArtifactHandle: ...
@@ -92,7 +112,6 @@ class StepArtifactWriter(Protocol):
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         model: BaseModel,
         media_type: str | None = "application/json",
         metadata: dict[str, Any] | None = None,
@@ -103,7 +122,6 @@ class StepArtifactWriter(Protocol):
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         records: Iterable[BaseModel],
         media_type: str | None = "application/jsonl",
         metadata: dict[str, Any] | None = None,
@@ -113,12 +131,10 @@ class StepArtifactWriter(Protocol):
         self,
         *,
         id: str,  # noqa: A002
-        filename: str,
         dataset_role: MeasurementDatasetRole,
         records: Iterable[MeasurementRecord],
         media_type: str | None = "application/jsonl",
         source_step: str | None = None,
-        source_artifact_ids: Sequence[str] = (),
         schema: MeasurementDatasetSchema | None = None,
         schema_metadata: dict[str, Any] | None = None,
     ) -> StepArtifactHandle: ...
@@ -127,12 +143,10 @@ class StepArtifactWriter(Protocol):
         self,
         *,
         id: str,  # noqa: A002
-        filename: str,
         schema: DataTableSchema,
         rows: Iterable[Mapping[str, Any]],
         media_type: str | None = "application/json",
         source_step: str | None = None,
-        source_artifact_ids: Sequence[str] = (),
         metadata: dict[str, Any] | None = None,
     ) -> StepArtifactHandle: ...
 
@@ -140,12 +154,10 @@ class StepArtifactWriter(Protocol):
         self,
         *,
         id: str,  # noqa: A002
-        filename: str,
         schema: DataArraySchema,
         variables: Mapping[str, Any],
         media_type: str | None = "application/json",
         source_step: str | None = None,
-        source_artifact_ids: Sequence[str] = (),
         metadata: dict[str, Any] | None = None,
     ) -> StepArtifactHandle: ...
 
@@ -154,7 +166,6 @@ class StepArtifactWriter(Protocol):
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         content: str,
         media_type: str | None = "text/plain",
         metadata: dict[str, Any] | None = None,
@@ -165,7 +176,6 @@ class StepArtifactWriter(Protocol):
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         content: bytes,
         media_type: str | None = "application/octet-stream",
         metadata: dict[str, Any] | None = None,
@@ -179,41 +189,61 @@ class StepArtifactStore:
         self,
         *,
         root_dir: Path,
-        ref_dir: str,
         diagnostics: StepArtifactDiagnostics,
     ) -> None:
         self._root_dir = root_dir
-        self._ref_dir = ref_dir
         self._diagnostics = diagnostics
         self._handles: list[StepArtifactHandle] = []
         self._seen_ids: set[str] = set()
-        self._seen_filenames: set[str] = set()
 
     @property
-    def artifacts(self) -> tuple[Artifact, ...]:
+    def artifacts(self) -> tuple[RunArtifactEntry, ...]:
         return tuple(
-            handle.to_artifact() for handle in self._handles if handle.path.is_file()
+            handle.to_artifact()
+            for handle in self._handles
+            if handle.path.is_file() and not handle.is_dataset
+        )
+
+    @property
+    def datasets(self) -> tuple[RunDatasetEntry, ...]:
+        return tuple(
+            handle.to_dataset()
+            for handle in self._handles
+            if handle.path.is_file() and handle.is_dataset
         )
 
     @property
     def output_artifact_ids(self) -> tuple[str, ...]:
-        return tuple(handle.id for handle in self._handles if handle.path.is_file())
+        return tuple(
+            handle.id
+            for handle in self._handles
+            if handle.path.is_file() and not handle.is_dataset
+        )
+
+    @property
+    def output_dataset_ids(self) -> tuple[str, ...]:
+        return tuple(
+            handle.id
+            for handle in self._handles
+            if handle.path.is_file() and handle.is_dataset
+        )
 
     def reserve_file(
         self,
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         media_type: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> StepArtifactHandle:
         handle = self._register(
             id=id,
             kind=kind,
-            filename=filename,
             media_type=media_type,
             metadata=metadata,
+            dataset_role=None,
+            dataset_schema=None,
+            produced_by=None,
         )
         handle.path.parent.mkdir(parents=True, exist_ok=True)
         return handle
@@ -223,7 +253,6 @@ class StepArtifactStore:
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         model: BaseModel,
         media_type: str | None = "application/json",
         metadata: dict[str, Any] | None = None,
@@ -231,7 +260,6 @@ class StepArtifactStore:
         handle = self.reserve_file(
             id=id,
             kind=kind,
-            filename=filename,
             media_type=media_type,
             metadata=metadata,
         )
@@ -244,7 +272,6 @@ class StepArtifactStore:
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         records: Iterable[BaseModel],
         media_type: str | None = "application/jsonl",
         metadata: dict[str, Any] | None = None,
@@ -252,7 +279,6 @@ class StepArtifactStore:
         handle = self.reserve_file(
             id=id,
             kind=kind,
-            filename=filename,
             media_type=media_type,
             metadata=metadata,
         )
@@ -265,12 +291,10 @@ class StepArtifactStore:
         self,
         *,
         id: str,  # noqa: A002
-        filename: str,
         dataset_role: MeasurementDatasetRole,
         records: Iterable[MeasurementRecord],
         media_type: str | None = "application/jsonl",
         source_step: str | None = None,
-        source_artifact_ids: Sequence[str] = (),
         schema: MeasurementDatasetSchema | None = None,
         schema_metadata: dict[str, Any] | None = None,
     ) -> StepArtifactHandle:
@@ -284,33 +308,32 @@ class StepArtifactStore:
             )
             if diagnostics:
                 raise ValidationFailed(diagnostics)
-        return self.write_jsonl(
+        dataset_schema = _measurement_dataset_schema(
+            dataset_id=id,
+            dataset_role=dataset_role,
+            records=record_list,
+            expected_schema=schema,
+            schema_metadata=schema_metadata,
+        )
+        return self._write_jsonl_dataset(
             id=id,
             kind="measurement_dataset",
-            filename=filename,
             records=record_list,
             media_type=media_type,
-            metadata=measurement_dataset_artifact_metadata(
-                dataset_id=id,
-                dataset_role=dataset_role,
-                records=record_list,
-                expected_schema=schema,
-                source_step=source_step,
-                source_artifact_ids=source_artifact_ids,
-                metadata=schema_metadata,
-            ),
+            role=dataset_role,
+            schema=dataset_schema.model_dump(mode="json"),
+            metadata={},
+            produced_by=_output_produced_by(source_step=source_step),
         )
 
     def write_data_table(
         self,
         *,
         id: str,  # noqa: A002
-        filename: str,
         schema: DataTableSchema,
         rows: Iterable[Mapping[str, Any]],
         media_type: str | None = "application/json",
         source_step: str | None = None,
-        source_artifact_ids: Sequence[str] = (),
         metadata: dict[str, Any] | None = None,
     ) -> StepArtifactHandle:
         row_list = [dict(row) for row in rows]
@@ -327,30 +350,24 @@ class StepArtifactStore:
                     )
                 ]
             ) from error
-        return self.write_text(
+        return self._write_text_dataset(
             id=id,
             kind="data_table",
-            filename=filename,
             content=artifact.model_dump_json(by_alias=True, indent=2),
             media_type=media_type,
-            metadata=data_table_artifact_metadata(
-                schema=schema,
-                source_step=source_step,
-                source_artifact_ids=source_artifact_ids,
-                metadata=metadata,
-            ),
+            schema=schema.model_dump(mode="json"),
+            metadata=dict(metadata or {}),
+            produced_by=_output_produced_by(source_step=source_step),
         )
 
     def write_data_array(
         self,
         *,
         id: str,  # noqa: A002
-        filename: str,
         schema: DataArraySchema,
         variables: Mapping[str, Any],
         media_type: str | None = "application/json",
         source_step: str | None = None,
-        source_artifact_ids: Sequence[str] = (),
         metadata: dict[str, Any] | None = None,
     ) -> StepArtifactHandle:
         try:
@@ -366,18 +383,14 @@ class StepArtifactStore:
                     )
                 ]
             ) from error
-        return self.write_text(
+        return self._write_text_dataset(
             id=id,
             kind="data_array",
-            filename=filename,
             content=artifact.model_dump_json(by_alias=True, indent=2),
             media_type=media_type,
-            metadata=data_array_artifact_metadata(
-                schema=schema,
-                source_step=source_step,
-                source_artifact_ids=source_artifact_ids,
-                metadata=metadata,
-            ),
+            schema=schema.model_dump(mode="json"),
+            metadata=dict(metadata or {}),
+            produced_by=_output_produced_by(source_step=source_step),
         )
 
     def write_text(
@@ -385,7 +398,6 @@ class StepArtifactStore:
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         content: str,
         media_type: str | None = "text/plain",
         metadata: dict[str, Any] | None = None,
@@ -393,7 +405,6 @@ class StepArtifactStore:
         handle = self.reserve_file(
             id=id,
             kind=kind,
-            filename=filename,
             media_type=media_type,
             metadata=metadata,
         )
@@ -407,7 +418,6 @@ class StepArtifactStore:
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         content: bytes,
         media_type: str | None = "application/octet-stream",
         metadata: dict[str, Any] | None = None,
@@ -415,11 +425,63 @@ class StepArtifactStore:
         handle = self.reserve_file(
             id=id,
             kind=kind,
-            filename=filename,
             media_type=media_type,
             metadata=metadata,
         )
         handle.path.write_bytes(content)
+        return handle
+
+    def _write_jsonl_dataset(
+        self,
+        *,
+        id: str,  # noqa: A002
+        kind: str,
+        records: Iterable[BaseModel],
+        media_type: str | None,
+        role: str | None,
+        schema: dict[str, Any],
+        metadata: dict[str, Any] | None,
+        produced_by: str | None,
+    ) -> StepArtifactHandle:
+        handle = self._register(
+            id=id,
+            kind=kind,
+            media_type=media_type,
+            metadata=metadata,
+            dataset_role=role,
+            dataset_schema=schema,
+            produced_by=produced_by,
+        )
+        handle.path.parent.mkdir(parents=True, exist_ok=True)
+        with handle.path.open("w") as data_file:
+            for record in records:
+                data_file.write(record.model_dump_json() + "\n")
+        return handle
+
+    def _write_text_dataset(
+        self,
+        *,
+        id: str,  # noqa: A002
+        kind: str,
+        content: str,
+        media_type: str | None,
+        schema: dict[str, Any],
+        metadata: dict[str, Any] | None,
+        produced_by: str | None,
+    ) -> StepArtifactHandle:
+        handle = self._register(
+            id=id,
+            kind=kind,
+            media_type=media_type,
+            metadata=metadata,
+            dataset_role=None,
+            dataset_schema=schema,
+            produced_by=produced_by,
+        )
+        handle.path.parent.mkdir(parents=True, exist_ok=True)
+        if content and not content.endswith("\n"):
+            content = f"{content}\n"
+        handle.path.write_text(content)
         return handle
 
     def _register(
@@ -427,28 +489,34 @@ class StepArtifactStore:
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
         media_type: str | None,
         metadata: dict[str, Any] | None,
+        dataset_role: str | None,
+        dataset_schema: dict[str, Any] | None,
+        produced_by: str | None,
     ) -> StepArtifactHandle:
         diagnostics = self._registration_diagnostics(
             id=id,
             kind=kind,
-            filename=filename,
         )
         if diagnostics:
             raise ValidationFailed(diagnostics)
         handle = StepArtifactHandle(
             id=id,
             kind=kind,
-            filename=filename,
-            path=self._root_dir / filename,
-            ref_dir=self._ref_dir,
             media_type=media_type,
+            dataset_role=dataset_role,
+            dataset_schema=dataset_schema,
+            produced_by=produced_by,
             metadata=dict(metadata or {}),
+            path=self._root_dir
+            / _content_ref(
+                id=id,
+                kind=kind,
+                is_dataset=dataset_schema is not None,
+            ),
         )
         self._seen_ids.add(id)
-        self._seen_filenames.add(filename)
         self._handles.append(handle)
         return handle
 
@@ -457,7 +525,6 @@ class StepArtifactStore:
         *,
         id: str,  # noqa: A002
         kind: str,
-        filename: str,
     ) -> list[Diagnostic]:
         diagnostics: list[Diagnostic] = []
         if not id:
@@ -491,43 +558,42 @@ class StepArtifactStore:
                     ),
                 )
             )
-        if not _is_artifact_filename(filename):
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    self._diagnostics.invalid_filename_code,
-                    (
-                        f"{self._diagnostics.noun} filename must be a basename: "
-                        f"{filename}"
-                    ),
-                    (
-                        f"{self._diagnostics.path_prefix}.{id}.filename"
-                        if id
-                        else f"{self._diagnostics.path_prefix}.filename"
-                    ),
-                )
-            )
-        elif filename in self._seen_filenames:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    self._diagnostics.duplicate_filename_code,
-                    f"{self._diagnostics.noun} filename is duplicated: {filename}",
-                    (
-                        f"{self._diagnostics.path_prefix}.{id}.filename"
-                        if id
-                        else f"{self._diagnostics.path_prefix}.filename"
-                    ),
-                )
-            )
         return diagnostics
 
 
-def _is_artifact_filename(filename: str) -> bool:
-    if not filename or "\\" in filename:
-        return False
-    path = PurePosixPath(filename)
-    return path.name == filename and not path.is_absolute() and ".." not in path.parts
+def _measurement_dataset_schema(
+    *,
+    dataset_id: str,
+    dataset_role: MeasurementDatasetRole,
+    records: Sequence[MeasurementRecord],
+    expected_schema: MeasurementDatasetSchema | None,
+    schema_metadata: dict[str, Any] | None,
+) -> MeasurementDatasetSchema:
+    if expected_schema is None:
+        return infer_measurement_dataset_schema(
+            dataset_id=dataset_id,
+            dataset_role=dataset_role,
+            records=records,
+            metadata=schema_metadata,
+        )
+    if not schema_metadata:
+        return expected_schema
+    return expected_schema.model_copy(
+        update={"metadata": dict(expected_schema.metadata) | schema_metadata}
+    )
+
+
+def _output_produced_by(
+    *,
+    source_step: str | None,
+) -> str | None:
+    return source_step
+
+
+def _content_ref(*, id: str, kind: str, is_dataset: bool) -> str:  # noqa: A002
+    if is_dataset:
+        return dataset_content_ref(dataset_id=id, kind=kind)
+    return artifact_content_ref(artifact_id=id, kind=kind)
 
 
 def _diagnostic(

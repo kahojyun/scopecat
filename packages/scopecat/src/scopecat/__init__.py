@@ -2,9 +2,8 @@
 
 from scopecat.session import (
     Analysis,
-    AnalysisArtifactRef,
     AnalysisContext,
-    AnalysisInputRef,
+    AnalysisInput,
     AnalysisOutput,
     AnalysisStep,
     CandidateConfig,
@@ -30,9 +29,8 @@ Run = RunHandle
 
 __all__ = [
     "Analysis",
-    "AnalysisArtifactRef",
     "AnalysisContext",
-    "AnalysisInputRef",
+    "AnalysisInput",
     "AnalysisOutput",
     "AnalysisStep",
     "CandidateConfig",

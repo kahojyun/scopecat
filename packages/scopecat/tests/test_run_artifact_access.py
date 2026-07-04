@@ -1,51 +1,60 @@
 from __future__ import annotations
 
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
 from scopecat.models.run import RunManifest
 from scopecat.runs import (
     get_artifact_by_id,
+    get_dataset_by_id,
+    get_record_by_id,
     list_artifacts,
-    list_artifacts_by_kind,
     list_artifacts_by_metadata,
+    list_datasets,
+    list_payload_entries,
+    list_records,
     upsert_artifacts,
+    upsert_datasets,
+    upsert_records,
 )
 
 
-def test_manifest_artifact_helpers_query_by_id_kind_and_metadata() -> None:
+def test_manifest_entry_helpers_query_by_id_kind_and_metadata() -> None:
     manifest = _manifest(
-        [
-            Artifact(
+        artifacts=[
+            RunArtifactEntry(
+                id="summary",
+                kind="summary",
+                metadata={"source_step": "manual"},
+            ),
+        ],
+        datasets=[
+            RunDatasetEntry(
                 id="raw-measurements",
                 kind="measurement_dataset",
-                path="artifacts/raw-measurements.jsonl",
-                metadata={"dataset_role": "raw", "source_step": "instrument"},
-            ),
-            Artifact(
+                role="raw",
+            )
+        ],
+        records=[
+            RunRecordEntry(
                 id="analysis-review",
                 kind="analysis",
-                path="artifacts/analysis-review.json",
-                metadata={"source_step": "manual", "source_artifact_ids": ["raw"]},
             ),
-            Artifact(
+            RunRecordEntry(
                 id="analysis-promoted",
                 kind="analysis",
-                path="artifacts/analysis-promoted.json",
-                metadata={"source_step": "analysis-step"},
             ),
-        ]
+        ],
     )
 
-    assert (
-        get_artifact_by_id(manifest, "raw-measurements") == (manifest.artifact_refs[0])
-    )
+    assert get_artifact_by_id(manifest, "summary") == manifest.artifacts[0]
+    assert get_dataset_by_id(manifest, "raw-measurements") == manifest.datasets[0]
+    assert get_record_by_id(manifest, "analysis-review") == manifest.records[0]
     assert get_artifact_by_id(manifest, "missing") is None
     assert [artifact.id for artifact in list_artifacts(manifest)] == [
-        "raw-measurements",
-        "analysis-review",
-        "analysis-promoted",
+        "summary",
     ]
-    analysis_artifacts = list_artifacts_by_kind(manifest, "analysis")
-    assert [artifact.id for artifact in analysis_artifacts] == [
+    assert [dataset.id for dataset in list_datasets(manifest)] == ["raw-measurements"]
+    analysis_records = list_records(manifest, kind="analysis")
+    assert [record.id for record in analysis_records] == [
         "analysis-review",
         "analysis-promoted",
     ]
@@ -55,42 +64,61 @@ def test_manifest_artifact_helpers_query_by_id_kind_and_metadata() -> None:
             manifest,
             {"source_step": "manual"},
         )
-    ] == ["analysis-review"]
-    assert [
-        artifact.id
-        for artifact in list_artifacts(
-            manifest,
-            kind="analysis",
-            metadata={"source_step": "analysis-step"},
-        )
-    ] == ["analysis-promoted"]
+    ] == ["summary"]
+    assert [entry.id for entry in list_payload_entries(manifest)] == [
+        "raw-measurements",
+        "summary",
+    ]
 
 
 def test_upsert_artifacts_replaces_by_artifact_id() -> None:
     existing = [
-        Artifact(id="summary", kind="summary", path="artifacts/old.md"),
-        Artifact(id="raw", kind="measurement_dataset", path="artifacts/raw.jsonl"),
+        RunArtifactEntry(id="summary", kind="summary"),
+        RunArtifactEntry(id="plot", kind="figure"),
     ]
     updated = upsert_artifacts(
         existing,
         [
-            Artifact(id="summary", kind="summary", path="artifacts/new.md"),
-            Artifact(id="analysis", kind="analysis", path="artifacts/analysis.json"),
+            RunArtifactEntry(id="summary", kind="updated_summary"),
+            RunArtifactEntry(id="notes", kind="notes"),
         ],
     )
 
-    assert [(artifact.id, artifact.path) for artifact in updated] == [
-        ("raw", "artifacts/raw.jsonl"),
-        ("summary", "artifacts/new.md"),
-        ("analysis", "artifacts/analysis.json"),
+    assert [(artifact.id, artifact.kind) for artifact in updated] == [
+        ("plot", "figure"),
+        ("summary", "updated_summary"),
+        ("notes", "notes"),
     ]
 
 
-def _manifest(artifacts: list[Artifact]) -> RunManifest:
+def test_upsert_datasets_and_records_replace_by_id() -> None:
+    datasets = upsert_datasets(
+        [RunDatasetEntry(id="raw", kind="measurement_dataset")],
+        [RunDatasetEntry(id="raw", kind="data_table")],
+    )
+    records = upsert_records(
+        [RunRecordEntry(id="analysis", kind="analysis")],
+        [RunRecordEntry(id="analysis", kind="parameter_change_set")],
+    )
+
+    assert [(dataset.id, dataset.kind) for dataset in datasets] == [
+        ("raw", "data_table")
+    ]
+    assert [(record.id, record.kind) for record in records] == [
+        ("analysis", "parameter_change_set")
+    ]
+
+
+def _manifest(
+    *,
+    artifacts: list[RunArtifactEntry],
+    datasets: list[RunDatasetEntry],
+    records: list[RunRecordEntry],
+) -> RunManifest:
     return RunManifest(
         run_id="run_test",
         status="completed",
-        config_profile_snapshot_ref="config-profile.snapshot.json",
-        plan_snapshot_ref="plan.snapshot.json",
-        artifact_refs=artifacts,
+        records=records,
+        datasets=datasets,
+        artifacts=artifacts,
     )

@@ -8,6 +8,7 @@ from scopecat.errors import ValidationFailed
 from scopecat.run_comparison import execute_run_comparison
 from tests.support.diagnostics import assert_diagnostic
 from tests.support.run_comparison import (
+    candidate_data_path,
     candidate_data_records,
     run_signal_experiment,
     write_candidate_records,
@@ -28,9 +29,7 @@ def test_run_comparison_rejects_unsafe_run_id(tmp_path: Path) -> None:
 def test_run_comparison_reports_missing_data(tmp_path: Path) -> None:
     baseline_run_id = run_signal_experiment(tmp_path)
     candidate_run_id = run_signal_experiment(tmp_path)
-    (
-        tmp_path / "runs" / candidate_run_id / "artifacts" / "raw-measurements.jsonl"
-    ).unlink()
+    candidate_data_path(tmp_path, candidate_run_id).unlink()
 
     with pytest.raises(ValidationFailed) as error:
         execute_run_comparison(

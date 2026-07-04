@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from scopecat.authoring import (
     ResolvedExperiment,
@@ -16,13 +16,15 @@ from scopecat.instruments.sdk import (
     InstrumentProvider,
     InstrumentProviderContext,
 )
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.run import RunManifest
+from scopecat.models.run import RunConfigSource, RunManifest
 from scopecat.planning.validation import has_blocking_diagnostics, validate_config
 from scopecat.results import MeasurementDatasetInputDiagnostics
 from scopecat.runs import (
+    dataset_storage_ref,
     list_artifacts,
+    list_payload_entries,
     open_run_store,
     read_artifact_bytes,
     read_artifact_json,
@@ -30,13 +32,17 @@ from scopecat.runs import (
     read_data_array_artifact,
     read_data_table_artifact,
     read_measurement_dataset,
+    read_record_json,
     require_artifact,
+    require_dataset,
+    require_record,
 )
 from scopecat.workflows._diagnostics import diagnostic as _diagnostic
 from scopecat.workflows._types import (
     ConfigProfileInput,
     ExperimentInput,
     PreviewExperimentResult,
+    ResolvedConfig,
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
@@ -44,6 +50,7 @@ from scopecat.workflows._types import (
     RunDataTableResult,
     RunDetails,
     RunMeasurementDatasetResult,
+    RunRecordJsonResult,
     ValidateExperimentResult,
 )
 from scopecat.workflows.config import resolve_config_source
@@ -65,10 +72,18 @@ def load_run(*, run_id: str, workspace: str | Path) -> RunDetails:
 
 def list_run_artifacts(
     *, run_id: str, workspace: str | Path, kind: str | None = None
-) -> tuple[Artifact, ...]:
+) -> tuple[RunArtifactEntry, ...]:
     storage = open_run_store(workspace)
     manifest = storage.read_manifest(run_id)
     return list_artifacts(manifest, kind=kind)
+
+
+def list_run_payload_entries(
+    *, run_id: str, workspace: str | Path, kind: str | None = None
+) -> tuple[RunArtifactEntry | RunDatasetEntry, ...]:
+    storage = open_run_store(workspace)
+    manifest = storage.read_manifest(run_id)
+    return list_payload_entries(manifest, kind=kind)
 
 
 def read_run_artifact_text(
@@ -131,6 +146,30 @@ def read_run_artifact_json(
     )
 
 
+def read_run_record_json(
+    *,
+    run_id: str,
+    selector: str,
+    workspace: str | Path,
+    expected_kind: str | None = None,
+) -> RunRecordJsonResult:
+    storage = open_run_store(workspace)
+    record = require_record(
+        manifest=storage.read_manifest(run_id),
+        selector=selector,
+        expected_kind=expected_kind,
+    )
+    return RunRecordJsonResult(
+        record=record,
+        content=read_record_json(
+            storage=storage,
+            run_id=run_id,
+            selector=selector,
+            expected_kind=expected_kind,
+        ),
+    )
+
+
 def read_run_artifact_bytes(
     *,
     run_id: str,
@@ -162,7 +201,7 @@ def read_run_measurement_dataset(
     selector: str = "raw-measurements",
 ) -> RunMeasurementDatasetResult:
     storage = open_run_store(workspace)
-    artifact = require_artifact(
+    dataset_entry = require_dataset(
         manifest=storage.read_manifest(run_id),
         selector=selector,
         expected_kind="measurement_dataset",
@@ -170,7 +209,7 @@ def read_run_measurement_dataset(
     dataset = read_measurement_dataset(
         storage=storage,
         run_id=run_id,
-        artifact=artifact,
+        dataset=dataset_entry,
         diagnostics=MeasurementDatasetInputDiagnostics(
             missing_code="run_measurement_dataset_missing",
             empty_code="run_measurement_dataset_empty",
@@ -178,23 +217,23 @@ def read_run_measurement_dataset(
             missing_schema_code="run_measurement_dataset_missing_schema",
             invalid_schema_code="run_measurement_dataset_invalid_schema",
             noun="run measurement dataset",
-            diagnostic_path=artifact.path,
+            diagnostic_path=dataset_storage_ref(dataset_entry),
         ),
     )
-    return RunMeasurementDatasetResult(artifact=artifact, dataset=dataset)
+    return RunMeasurementDatasetResult(dataset_entry=dataset_entry, dataset=dataset)
 
 
 def read_run_data_table(
     *, run_id: str, selector: str, workspace: str | Path
 ) -> RunDataTableResult:
     storage = open_run_store(workspace)
-    artifact = require_artifact(
+    dataset_entry = require_dataset(
         manifest=storage.read_manifest(run_id),
         selector=selector,
         expected_kind="data_table",
     )
     return RunDataTableResult(
-        artifact=artifact,
+        dataset_entry=dataset_entry,
         table=read_data_table_artifact(
             storage=storage,
             run_id=run_id,
@@ -207,13 +246,13 @@ def read_run_data_array(
     *, run_id: str, selector: str, workspace: str | Path
 ) -> RunDataArrayResult:
     storage = open_run_store(workspace)
-    artifact = require_artifact(
+    dataset_entry = require_dataset(
         manifest=storage.read_manifest(run_id),
         selector=selector,
         expected_kind="data_array",
     )
     return RunDataArrayResult(
-        artifact=artifact,
+        dataset_entry=dataset_entry,
         array=read_data_array_artifact(
             storage=storage,
             run_id=run_id,
@@ -228,11 +267,13 @@ def start_run(
     experiment: ExperimentInput,
     workspace: str | Path,
     instrument_provider: InstrumentProvider | None = None,
+    config_source: RunConfigSource | None = None,
 ) -> RunManifest:
     experiment, _ = _resolve_experiment_input(
         experiment,
         config=config,
         workspace=workspace,
+        config_source=config_source,
     )
     if instrument_provider is None:
         raise ValidationFailed(
@@ -256,6 +297,7 @@ def start_run(
         experiment=experiment,
         instruments=list(provider_result.instruments),
         workspace=workspace,
+        config_source=config_source,
     )
     return manifest
 
@@ -268,16 +310,17 @@ def run_experiment(
     config_profile: ConfigProfileInput | None = None,
     instrument_provider: InstrumentProvider | None = None,
 ) -> RunManifest:
-    config_snapshot = _resolve_config_snapshot(
+    config_result = _resolve_config(
         workspace=workspace,
         config=config,
         config_profile=config_profile,
     )
     return start_run(
-        config=config_snapshot,
+        config=config_result.config,
         experiment=experiment,
         workspace=workspace,
         instrument_provider=instrument_provider,
+        config_source=config_result.config_source,
     )
 
 
@@ -288,15 +331,17 @@ def validate_experiment(
     config: str | ConfigProfileSnapshot = "active",
     config_profile: ConfigProfileInput | None = None,
 ) -> ValidateExperimentResult:
-    config_snapshot = _resolve_config_snapshot(
+    config_result = _resolve_config(
         workspace=workspace,
         config=config,
         config_profile=config_profile,
     )
+    config_snapshot = config_result.config
     experiment, resolved = _resolve_experiment_input(
         experiment,
         config=config_snapshot,
         workspace=workspace,
+        config_source=config_result.config_source,
     )
     diagnostics = list(validate_config(config_snapshot))
     plan = None
@@ -347,12 +392,12 @@ def preview_experiment(
     )
 
 
-def _resolve_config_snapshot(
+def _resolve_config(
     *,
     workspace: str | Path,
     config: str | ConfigProfileSnapshot,
     config_profile: ConfigProfileInput | None,
-) -> ConfigProfileSnapshot:
+) -> ResolvedConfig:
     if isinstance(config, ConfigProfileSnapshot):
         if config_profile is not None:
             raise ValidationFailed(
@@ -365,13 +410,13 @@ def _resolve_config_snapshot(
                     )
                 ]
             )
-        return config
+        return ResolvedConfig(config=config)
     config_entry = None if config_profile is not None and config == "active" else config
     return resolve_config_source(
         workspace=workspace,
         config_profile=config_profile,
         config_entry=config_entry,
-    ).config
+    )
 
 
 def _resolve_experiment_input(
@@ -379,6 +424,7 @@ def _resolve_experiment_input(
     *,
     config: ConfigProfileSnapshot,
     workspace: str | Path,
+    config_source: RunConfigSource | None = None,
 ) -> tuple[ExperimentSpec, ResolvedExperiment | None]:
     if isinstance(experiment, ExperimentSpec):
         return experiment, None
@@ -386,6 +432,7 @@ def _resolve_experiment_input(
         experiment,
         config=config,
         workspace=workspace,
+        config_source=config_source,
     )
     return resolved.experiment, resolved
 
@@ -394,17 +441,15 @@ def _plan_diagnostics(plan: PlanSnapshot) -> list[Diagnostic]:
     return [Diagnostic.model_validate(diagnostic) for diagnostic in plan.diagnostics]
 
 
-def _artifact_supports_text(artifact: Artifact) -> bool:
+def _artifact_supports_text(artifact: RunArtifactEntry) -> bool:
     media_type = artifact.media_type
-    if media_type is not None and (
+    return media_type is not None and (
         media_type.startswith("text/")
         or media_type in {"application/json", "application/x-ndjson"}
-    ):
-        return True
-    return PurePosixPath(artifact.path).suffix in {".md", ".json", ".jsonl"}
+    )
 
 
-def _artifact_media_label(artifact: Artifact) -> str:
+def _artifact_media_label(artifact: RunArtifactEntry) -> str:
     if artifact.media_type is None:
         return "unknown"
     return artifact.media_type

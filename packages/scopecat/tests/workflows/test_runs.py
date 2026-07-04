@@ -28,9 +28,4 @@ def test_preview_and_start_run_use_separate_paths(
     assert preview.plan.points[0].point_id == 0
     assert len(preview.plan.points) == 3
     assert provider_run.status == "completed"
-    raw_artifact_paths = [
-        artifact.path
-        for artifact in provider_run.artifact_refs
-        if artifact.id == "raw-measurements"
-    ]
-    assert raw_artifact_paths == ["artifacts/raw-measurements.jsonl"]
+    assert {dataset.id for dataset in provider_run.datasets} == {"raw-measurements"}

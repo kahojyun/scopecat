@@ -21,8 +21,8 @@ from scopecat.instruments.state import (
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunManifest
+from scopecat.runs import dataset_storage_ref
 from tests.support.records import (
-    assert_artifact_ref,
     assert_model_round_trip,
     read_measurement_records,
     read_model,
@@ -89,17 +89,10 @@ def test_execute_run_persists_measurements_and_run_files(
 
     run_dir = tmp_path / "runs" / manifest.run_id
     assert manifest.status == "completed"
-    assert {artifact.id for artifact in manifest.artifact_refs} == {
-        "execution-snapshot",
-        "raw-measurements",
-    }
-    raw_artifact = assert_artifact_ref(
-        manifest.artifact_refs,
-        "raw-measurements",
-        kind="measurement_dataset",
-        path="artifacts/raw-measurements.jsonl",
-    )
-    assert raw_artifact.path == "artifacts/raw-measurements.jsonl"
+    assert {record.id for record in manifest.records} == {"execution-snapshot"}
+    assert {dataset.id for dataset in manifest.datasets} == {"raw-measurements"}
+    raw_dataset = manifest.datasets[0]
+    assert raw_dataset.kind == "measurement_dataset"
     assert snapshot.experiment_id == load_experiment().id
     assert snapshot.instrument_ids == ["source-0"]
     assert snapshot.measurement_count == 3
@@ -112,17 +105,13 @@ def test_execute_run_persists_measurements_and_run_files(
         ConfigProfileSnapshot,
     )
     persisted_plan = read_model(run_dir / "plan.snapshot.json", PlanSnapshot)
-    assert (run_dir / "artifacts" / "execution.snapshot.json").is_file()
-    assert (run_dir / "artifacts" / "raw-measurements.jsonl").is_file()
     assert persisted_manifest == manifest
     assert persisted_config == config
     assert persisted_plan.schema_version == "scopecat.plan_snapshot.v1"
     assert persisted_plan.experiment_id == snapshot.experiment_id
     assert len(persisted_plan.points) == snapshot.point_count
 
-    measurements = read_measurement_records(
-        run_dir / "artifacts" / "raw-measurements.jsonl"
-    )
+    measurements = read_measurement_records(run_dir / dataset_storage_ref(raw_dataset))
     assert [item.point_index for item in measurements] == [0, 1, 2]
     assert [item.coordinates["drive_frequency"].value for item in measurements] == [
         4.9,

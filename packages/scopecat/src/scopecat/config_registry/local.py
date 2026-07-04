@@ -6,10 +6,9 @@ Entries can be registered directly from a ``ConfigProfileSnapshot`` or from a
 candidate configuration. Activating an entry records the previous active
 entry so rollback can restore it without depending on external state.
 
-Runs started from a registry entry copy source provenance into
-``config-profile.snapshot.json``. Reporting code can then show whether a run
-used a direct profile, a specific registry entry, or the active selector at the
-time the run was created.
+Runs started from a registry entry carry source coordinates on the run
+manifest. Reporting code can then show which registry selector and entry were
+used without mixing run lifecycle data into the config snapshot.
 """
 
 from __future__ import annotations
@@ -19,40 +18,50 @@ import re
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.models.artifact import Artifact
-from scopecat.models.config import (
-    ConfigProfileSnapshot,
-    ConfigProfileSnapshotSource,
-    config_content_equal,
-)
-from scopecat.models.run import RunManifest, utc_now
-from scopecat.runs import get_artifact_by_id, open_run_store
+from scopecat.models.artifact import RunRecordEntry
+from scopecat.models.config import ConfigProfileSnapshot, config_content_equal
+from scopecat.models.run import RunConfigSource, RunManifest, utc_now
+from scopecat.runs import get_record_by_id, open_run_store
 
 CONFIG_REGISTRY_ROOT = "config-registry"
 CONFIG_REGISTRY_INDEX_REF = f"{CONFIG_REGISTRY_ROOT}/index.json"
 CONFIG_REGISTRY_ACTIVE_REF = f"{CONFIG_REGISTRY_ROOT}/active.json"
-CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION = "scopecat.config_registry_entry.v0"
+CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION = "scopecat.config_registry_entry.v3"
 CONFIG_REGISTRY_INDEX_SCHEMA_VERSION = "scopecat.config_registry_index.v0"
-CONFIG_REGISTRY_REGISTRATION_JOB_SCHEMA_VERSION = (
-    "scopecat.config_registry_registration_job.v0"
-)
-CONFIG_REGISTRY_ACTIVE_STATE_SCHEMA_VERSION = "scopecat.config_registry_active_state.v0"
+CONFIG_REGISTRY_ACTIVE_STATE_SCHEMA_VERSION = "scopecat.config_registry_active_state.v1"
 CONFIG_REGISTRY_ACTIVATION_RECORD_SCHEMA_VERSION = (
-    "scopecat.config_registry_activation_record.v0"
-)
-CONFIG_REGISTRY_CONFIG_SOURCE_PROVENANCE_SCHEMA_VERSION = (
-    "scopecat.config_registry_config_source_provenance.v0"
+    "scopecat.config_registry_activation_record.v1"
 )
 ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR = "active"
 SAFE_ENTRY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 CONFIG_PROFILE_SNAPSHOT_REF = "config-profile.snapshot.json"
-ConfigRegistryEntrySourceKind = Literal["direct_config_profile", "candidate_config"]
+
+
+class DirectConfigRegistrySource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["direct_config_profile"] = "direct_config_profile"
+
+
+class CandidateConfigRegistrySource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["candidate_config"] = "candidate_config"
+    run_id: str
+    change_set_ids: list[str] = Field(default_factory=list)
+    candidate_record_id: str
+
+
+ConfigRegistryEntrySource = Annotated[
+    DirectConfigRegistrySource | CandidateConfigRegistrySource,
+    Field(discriminator="kind"),
+]
 
 
 class ConfigRegistryEntry(BaseModel):
@@ -61,16 +70,9 @@ class ConfigRegistryEntry(BaseModel):
     schema_version: str = CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION
     id: str
     status: str = "registered"
-    source_kind: ConfigRegistryEntrySourceKind
-    config_ref: str
-    registration_job_ref: str
+    source: ConfigRegistryEntrySource
     registered_by: str
     note: str = ""
-    source_run_id: str | None = None
-    change_set_ids: list[str] = Field(default_factory=list)
-    change_set_artifact_ids: list[str] = Field(default_factory=list)
-    candidate_artifact_id: str | None = None
-    source_candidate_artifact_id: str | None = None
     diagnostics: list[Diagnostic] = Field(default_factory=list)
     registered_at: datetime = Field(default_factory=utc_now)
 
@@ -83,22 +85,6 @@ class ConfigRegistryIndex(BaseModel):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
-class ConfigRegistryRegistrationJob(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: str = CONFIG_REGISTRY_REGISTRATION_JOB_SCHEMA_VERSION
-    id: str
-    entry_id: str
-    source_kind: ConfigRegistryEntrySourceKind
-    input_refs: list[str]
-    output_refs: list[str]
-    source_run_id: str | None = None
-    change_set_ids: list[str] = Field(default_factory=list)
-    status: str = "completed"
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
-    registered_at: datetime = Field(default_factory=utc_now)
-
-
 class ConfigRegistryActivationRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -109,7 +95,6 @@ class ConfigRegistryActivationRecord(BaseModel):
     previous_entry_id: str | None = None
     operator: str
     note: str = ""
-    config_ref: str
     recorded_at: datetime = Field(default_factory=utc_now)
 
 
@@ -118,21 +103,8 @@ class ConfigRegistryActiveState(BaseModel):
 
     schema_version: str = CONFIG_REGISTRY_ACTIVE_STATE_SCHEMA_VERSION
     active_entry_id: str
-    active_config_ref: str
     history: list[ConfigRegistryActivationRecord] = Field(default_factory=list)
     updated_at: datetime = Field(default_factory=utc_now)
-
-
-class ConfigRegistryConfigSourceProvenance(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: str = CONFIG_REGISTRY_CONFIG_SOURCE_PROVENANCE_SCHEMA_VERSION
-    source_kind: Literal["config_registry"] = "config_registry"
-    selector: str
-    entry_id: str
-    config_ref: str
-    active_state_ref: str | None = None
-    active_record_id: str | None = None
 
 
 def register_config_profile(
@@ -142,31 +114,14 @@ def register_config_profile(
     entry_id: str,
     registered_by: str,
     note: str = "",
-    source_ref: str | None = None,
-) -> tuple[ConfigRegistryRegistrationJob, ConfigRegistryEntry]:
+) -> ConfigRegistryEntry:
     workspace_path = Path(workspace)
     _validate_entry_id(entry_id)
-    refs = _entry_refs(entry_id)
     entry = ConfigRegistryEntry(
         id=entry_id,
-        source_kind="direct_config_profile",
-        config_ref=refs.config_ref,
-        registration_job_ref=refs.job_ref,
+        source=DirectConfigRegistrySource(),
         registered_by=registered_by,
         note=note,
-    )
-    input_refs = [source_ref] if source_ref is not None else []
-    job = ConfigRegistryRegistrationJob(
-        id=entry_id,
-        entry_id=entry_id,
-        source_kind="direct_config_profile",
-        input_refs=input_refs,
-        output_refs=[
-            CONFIG_REGISTRY_INDEX_REF,
-            refs.entry_ref,
-            refs.config_ref,
-            refs.job_ref,
-        ],
     )
 
     index = _read_index(workspace_path)
@@ -176,19 +131,15 @@ def register_config_profile(
         entry_id=entry_id,
     )
     if existing is not None:
+        existing_refs = _entry_refs(existing.id)
         existing_config = _read_config(
-            _config_registry_config_path(workspace_path, existing.config_ref),
-            existing.config_ref,
+            _config_registry_config_path(workspace_path, existing_refs.config_ref),
+            existing_refs.config_ref,
         )
         if _same_registration(existing, entry) and _same_config_profile(
             existing_config, config
         ):
-            existing_job = _read_model(
-                _workspace_relative_path(workspace_path, existing.registration_job_ref),
-                ConfigRegistryRegistrationJob,
-                existing.registration_job_ref,
-            )
-            return existing_job, existing
+            return existing
         raise ValidationFailed(
             [
                 _diagnostic(
@@ -204,10 +155,9 @@ def register_config_profile(
         workspace=workspace_path,
         index=index,
         entry=entry,
-        job=job,
         config=config,
     )
-    return job, entry
+    return entry
 
 
 def register_and_activate_config_profile(
@@ -219,20 +169,17 @@ def register_and_activate_config_profile(
     operator: str,
     note: str = "",
     activation_note: str | None = None,
-    source_ref: str | None = None,
 ) -> tuple[
-    ConfigRegistryRegistrationJob,
     ConfigRegistryEntry,
     ConfigRegistryActiveState,
     ConfigRegistryActivationRecord,
 ]:
-    job, entry = register_config_profile(
+    entry = register_config_profile(
         config=config,
         workspace=workspace,
         entry_id=entry_id,
         registered_by=registered_by,
         note=note,
-        source_ref=source_ref,
     )
     active_state, activation = activate_config_registry_entry(
         entry_id=entry.id,
@@ -240,7 +187,7 @@ def register_and_activate_config_profile(
         operator=operator,
         note=note if activation_note is None else activation_note,
     )
-    return job, entry, active_state, activation
+    return entry, active_state, activation
 
 
 def register_candidate_config(
@@ -251,14 +198,12 @@ def register_candidate_config(
     registered_by: str,
     run_id: str,
     change_set_ids: Sequence[str],
-    change_set_artifact_ids: Sequence[str],
-    candidate_artifact_id: str,
+    candidate_record_id: str,
     note: str = "",
-    source_ref: str | None = None,
-) -> tuple[ConfigRegistryRegistrationJob, ConfigRegistryEntry]:
+) -> ConfigRegistryEntry:
     workspace_path = Path(workspace)
     _validate_entry_id(entry_id)
-    if not change_set_ids or not change_set_artifact_ids:
+    if not change_set_ids:
         raise ValidationFailed(
             [
                 _diagnostic(
@@ -269,65 +214,27 @@ def register_candidate_config(
                 )
             ]
         )
-    if len(change_set_ids) != len(change_set_artifact_ids):
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_candidate_config_change_mismatch",
-                    "candidate config change ids and artifact ids must match",
-                    "change_set_ids",
-                )
-            ]
-        )
-    refs = _entry_refs(entry_id)
     entry = ConfigRegistryEntry(
         id=entry_id,
-        source_kind="candidate_config",
-        source_run_id=run_id,
-        change_set_ids=list(change_set_ids),
-        change_set_artifact_ids=list(change_set_artifact_ids),
-        candidate_artifact_id=candidate_artifact_id,
-        source_candidate_artifact_id=candidate_artifact_id,
-        config_ref=refs.config_ref,
-        registration_job_ref=refs.job_ref,
+        source=CandidateConfigRegistrySource(
+            run_id=run_id,
+            change_set_ids=list(change_set_ids),
+            candidate_record_id=candidate_record_id,
+        ),
         registered_by=registered_by,
         note=note,
     )
     source_manifest = open_run_store(workspace_path).read_manifest(run_id)
-    change_artifacts = [
-        _require_run_artifact(
+    for change_set_id in change_set_ids:
+        _require_run_record(
             source_manifest=source_manifest,
-            artifact_id=artifact_id,
+            record_id=change_set_id,
             kind="parameter_change_set",
         )
-        for artifact_id in change_set_artifact_ids
-    ]
-    candidate_artifact = _require_run_artifact(
+    _require_run_record(
         source_manifest=source_manifest,
-        artifact_id=candidate_artifact_id,
+        record_id=candidate_record_id,
         kind="candidate_config",
-    )
-    input_refs = [
-        f"runs/{run_id}/manifest.json",
-        *[f"runs/{run_id}/{artifact.path}" for artifact in change_artifacts],
-        f"runs/{run_id}/{candidate_artifact.path}",
-    ]
-    if source_ref is not None:
-        input_refs.append(source_ref)
-    job = ConfigRegistryRegistrationJob(
-        id=entry_id,
-        entry_id=entry_id,
-        source_kind="candidate_config",
-        source_run_id=run_id,
-        change_set_ids=list(change_set_ids),
-        input_refs=input_refs,
-        output_refs=[
-            CONFIG_REGISTRY_INDEX_REF,
-            refs.entry_ref,
-            refs.config_ref,
-            refs.job_ref,
-        ],
     )
 
     index = _read_index(workspace_path)
@@ -338,12 +245,7 @@ def register_candidate_config(
     )
     if existing is not None:
         if _same_registration(existing, entry):
-            existing_job = _read_model(
-                _workspace_relative_path(workspace_path, existing.registration_job_ref),
-                ConfigRegistryRegistrationJob,
-                existing.registration_job_ref,
-            )
-            return existing_job, existing
+            return existing
         raise ValidationFailed(
             [
                 _diagnostic(
@@ -359,10 +261,9 @@ def register_candidate_config(
         workspace=workspace_path,
         index=index,
         entry=entry,
-        job=job,
         config=config,
     )
-    return job, entry
+    return entry
 
 
 def list_config_registry_entries(*, workspace: str | Path) -> list[ConfigRegistryEntry]:
@@ -395,8 +296,9 @@ def load_config_registry_config(
 ) -> ConfigProfileSnapshot:
     workspace_path = Path(workspace)
     entry = load_config_registry_entry(entry_id=entry_id, workspace=workspace_path)
-    config_path = _config_registry_config_path(workspace_path, entry.config_ref)
-    return _read_config(config_path, entry.config_ref)
+    config_ref = _entry_refs(entry.id).config_ref
+    config_path = _config_registry_config_path(workspace_path, config_ref)
+    return _read_config(config_path, config_ref)
 
 
 def load_active_config_registry_config(
@@ -408,24 +310,14 @@ def load_active_config_registry_config(
         entry_id=state.active_entry_id,
         workspace=workspace_path,
     )
-    if state.active_config_ref != entry.config_ref:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "invalid_config_registry_active_state",
-                    "config registry active config does not match active entry",
-                    "active_config_ref",
-                )
-            ]
-        )
-    config_path = _config_registry_config_path(workspace_path, state.active_config_ref)
-    return _read_config(config_path, state.active_config_ref)
+    config_ref = _entry_refs(entry.id).config_ref
+    config_path = _config_registry_config_path(workspace_path, config_ref)
+    return _read_config(config_path, config_ref)
 
 
 def resolve_config_registry_config_source(
     *, selector: str, workspace: str | Path
-) -> tuple[ConfigProfileSnapshot, ConfigRegistryConfigSourceProvenance]:
+) -> tuple[ConfigProfileSnapshot, RunConfigSource]:
     if selector == ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR:
         return _resolve_active_config_registry_config_source(workspace=Path(workspace))
     return _resolve_entry_config_registry_config_source(
@@ -456,11 +348,9 @@ def activate_config_registry_entry(
         previous_entry_id=previous_entry_id,
         operator=operator,
         note=note,
-        config_ref=entry.config_ref,
     )
     state = ConfigRegistryActiveState(
         active_entry_id=entry.id,
-        active_config_ref=entry.config_ref,
         history=[*history, record],
     )
     _write_model_atomic(workspace_path / CONFIG_REGISTRY_ACTIVE_REF, state)
@@ -489,11 +379,9 @@ def rollback_config_registry(
         previous_entry_id=current_state.active_entry_id,
         operator=operator,
         note=note,
-        config_ref=entry.config_ref,
     )
     state = ConfigRegistryActiveState(
         active_entry_id=entry.id,
-        active_config_ref=entry.config_ref,
         history=[*history, record],
     )
     _write_model_atomic(workspace_path / CONFIG_REGISTRY_ACTIVE_REF, state)
@@ -530,62 +418,34 @@ def load_active_config_registry_entry(*, workspace: str | Path) -> ConfigRegistr
 
 def _resolve_entry_config_registry_config_source(
     *, selector: str, workspace: Path
-) -> tuple[ConfigProfileSnapshot, ConfigRegistryConfigSourceProvenance]:
+) -> tuple[ConfigProfileSnapshot, RunConfigSource]:
     entry = load_config_registry_entry(entry_id=selector, workspace=workspace)
-    config_path = _config_registry_config_path(workspace, entry.config_ref)
-    config = _read_config(config_path, entry.config_ref)
-    provenance = ConfigRegistryConfigSourceProvenance(
+    config_ref = _entry_refs(entry.id).config_ref
+    config_path = _config_registry_config_path(workspace, config_ref)
+    config = _read_config(config_path, config_ref)
+    source = RunConfigSource(
         selector=selector,
         entry_id=entry.id,
-        config_ref=entry.config_ref,
     )
-    return _config_with_config_registry_source(config, provenance), provenance
+    return config, source
 
 
 def _resolve_active_config_registry_config_source(
     *, workspace: Path
-) -> tuple[ConfigProfileSnapshot, ConfigRegistryConfigSourceProvenance]:
+) -> tuple[ConfigProfileSnapshot, RunConfigSource]:
     state = load_active_config_registry_state(workspace=workspace)
     entry = load_config_registry_entry(
         entry_id=state.active_entry_id,
         workspace=workspace,
     )
-    if state.active_config_ref != entry.config_ref:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "invalid_config_registry_active_state",
-                    "config registry active config does not match active entry",
-                    "active_config_ref",
-                )
-            ]
-        )
-    config_path = _config_registry_config_path(workspace, state.active_config_ref)
-    config = _read_config(config_path, state.active_config_ref)
-    provenance = ConfigRegistryConfigSourceProvenance(
+    config_ref = _entry_refs(entry.id).config_ref
+    config_path = _config_registry_config_path(workspace, config_ref)
+    config = _read_config(config_path, config_ref)
+    source = RunConfigSource(
         selector=ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR,
         entry_id=entry.id,
-        config_ref=state.active_config_ref,
-        active_state_ref=CONFIG_REGISTRY_ACTIVE_REF,
-        active_record_id=state.history[-1].id if state.history else None,
     )
-    return _config_with_config_registry_source(config, provenance), provenance
-
-
-def _config_with_config_registry_source(
-    config: ConfigProfileSnapshot,
-    provenance: ConfigRegistryConfigSourceProvenance,
-) -> ConfigProfileSnapshot:
-    source = ConfigProfileSnapshotSource(
-        kind="config_registry_entry",
-        selector=provenance.selector,
-        entry_id=provenance.entry_id,
-        config_ref=provenance.config_ref,
-        active_state_ref=provenance.active_state_ref,
-        active_record_id=provenance.active_record_id,
-    )
-    return config.model_copy(update={"source": source}, deep=True)
+    return config, source
 
 
 class _EntryRefs(BaseModel):
@@ -593,7 +453,6 @@ class _EntryRefs(BaseModel):
 
     entry_ref: str
     config_ref: str
-    job_ref: str
 
 
 def _entry_refs(entry_id: str) -> _EntryRefs:
@@ -602,7 +461,6 @@ def _entry_refs(entry_id: str) -> _EntryRefs:
         config_ref=(
             f"{CONFIG_REGISTRY_ROOT}/configs/{entry_id}.config-profile-snapshot.json"
         ),
-        job_ref=f"{CONFIG_REGISTRY_ROOT}/jobs/{entry_id}.registration.job.json",
     )
 
 
@@ -620,36 +478,36 @@ def _validate_entry_id(entry_id: str) -> None:
         )
 
 
-def _require_run_artifact(
-    *, source_manifest: RunManifest, artifact_id: str, kind: str
-) -> Artifact:
-    artifact = get_artifact_by_id(source_manifest, artifact_id)
-    if artifact is None:
+def _require_run_record(
+    *, source_manifest: RunManifest, record_id: str, kind: str
+) -> RunRecordEntry:
+    record = get_record_by_id(source_manifest, record_id)
+    if record is None:
         raise ValidationFailed(
             [
                 _diagnostic(
                     "error",
-                    "config_registry_missing_source_artifact",
-                    f"config registry source artifact not found: {artifact_id}",
-                    "artifact_id",
+                    "config_registry_missing_source_record",
+                    f"config registry source record not found: {record_id}",
+                    "record_id",
                 )
             ]
         )
-    if artifact.kind != kind:
+    if record.kind != kind:
         raise ValidationFailed(
             [
                 _diagnostic(
                     "error",
-                    "config_registry_invalid_source_artifact_kind",
+                    "config_registry_invalid_source_record_kind",
                     (
-                        "config registry source artifact has kind "
-                        f"{artifact.kind}, expected {kind}: {artifact_id}"
+                        "config registry source record has kind "
+                        f"{record.kind}, expected {kind}: {record_id}"
                     ),
-                    "artifact_id",
+                    "record_id",
                 )
             ]
         )
-    return artifact
+    return record
 
 
 def _find_existing_entry(
@@ -671,22 +529,18 @@ def _find_existing_entry(
 def _same_registration(
     existing: ConfigRegistryEntry, requested: ConfigRegistryEntry
 ) -> bool:
-    if existing.source_kind != requested.source_kind:
-        return False
-    if existing.source_kind == "direct_config_profile":
+    if isinstance(existing.source, DirectConfigRegistrySource) and isinstance(
+        requested.source, DirectConfigRegistrySource
+    ):
         return (
             existing.registered_by == requested.registered_by
             and existing.note == requested.note
-            and existing.config_ref == requested.config_ref
         )
-    return (
-        existing.source_run_id == requested.source_run_id
-        and existing.change_set_ids == requested.change_set_ids
-        and existing.change_set_artifact_ids == requested.change_set_artifact_ids
-        and existing.candidate_artifact_id == requested.candidate_artifact_id
-        and existing.source_candidate_artifact_id
-        == requested.source_candidate_artifact_id
-    )
+    if isinstance(existing.source, CandidateConfigRegistrySource) and isinstance(
+        requested.source, CandidateConfigRegistrySource
+    ):
+        return existing.source == requested.source
+    return False
 
 
 def _same_config_profile(
@@ -776,8 +630,9 @@ def _read_config(path: Path, ref: str) -> ConfigProfileSnapshot:
 
 
 def _validate_entry_config(workspace: Path, entry: ConfigRegistryEntry) -> None:
-    config_path = _config_registry_config_path(workspace, entry.config_ref)
-    _read_config(config_path, entry.config_ref)
+    config_ref = _entry_refs(entry.id).config_ref
+    config_path = _config_registry_config_path(workspace, config_ref)
+    _read_config(config_path, config_ref)
 
 
 def _previous_distinct_entry_id(state: ConfigRegistryActiveState) -> str:
@@ -846,7 +701,6 @@ def _write_config_registry_registration(
     workspace: Path,
     index: ConfigRegistryIndex,
     entry: ConfigRegistryEntry,
-    job: ConfigRegistryRegistrationJob,
     config: ConfigProfileSnapshot,
 ) -> None:
     refs = _entry_refs(entry.id)
@@ -860,7 +714,6 @@ def _write_config_registry_registration(
 
     _write_model(_workspace_relative_path(workspace, refs.entry_ref), entry)
     _write_model(_workspace_relative_path(workspace, refs.config_ref), config)
-    _write_model(_workspace_relative_path(workspace, refs.job_ref), job)
     _write_model_atomic(workspace / CONFIG_REGISTRY_INDEX_REF, updated_index)
 
 

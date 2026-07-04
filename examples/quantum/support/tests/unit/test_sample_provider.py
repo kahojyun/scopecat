@@ -8,9 +8,10 @@ from demo_lab_test_paths import (
     SAMPLE_TEMPLATES_VIRTUAL_LAB_PROFILE,
 )
 from scopecat.authoring import ExperimentDraft, resolve_experiment
+from scopecat.config_profiles import load_config_profile
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.workflows import read_run_measurement_dataset, run_experiment
 
 from quantum_lab_demo.sample import (

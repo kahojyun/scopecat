@@ -7,16 +7,17 @@ from pathlib import Path
 from typing import Literal, cast
 
 from scopecat._execution import (
-    build_raw_measurement_artifact,
+    build_raw_measurement_dataset,
     build_run_manifest,
     expected_measurement_indices,
     parse_expected_dataset_schema,
-    ref_for_artifact,
+    ref_for_dataset,
     validate_measurement_index_shape,
     validate_raw_measurement_dataset,
     write_final_execution_artifacts,
 )
 from scopecat._storage.local import LocalRunStore
+from scopecat._storage.refs import record_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import (
@@ -42,10 +43,10 @@ from scopecat.instruments.state import (
     ExecutionPoint,
     StateValue,
 )
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
-from scopecat.models.run import RunManifest, RunStatus
+from scopecat.models.run import RunConfigSource, RunManifest, RunStatus
 from scopecat.planning.validation import (
     has_blocking_diagnostics,
     validate_config,
@@ -56,9 +57,9 @@ from scopecat.results import (
     MeasurementSink,
 )
 
-EXECUTION_SNAPSHOT_FILENAME = "execution.snapshot.json"
-RAW_MEASUREMENTS_FILENAME = "raw-measurements.jsonl"
-RAW_MEASUREMENTS_ARTIFACT_ID = "raw-measurements"
+RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
+EXECUTION_SNAPSHOT_ID = "execution-snapshot"
+EXECUTION_SNAPSHOT_KIND = "execution_snapshot"
 
 
 def execute_run(
@@ -67,6 +68,7 @@ def execute_run(
     experiment: ExperimentSpec,
     instruments: list[Instrument],
     workspace: str | Path,
+    config_source: RunConfigSource | None = None,
 ) -> tuple[RunManifest, ExecutionSnapshot]:
     preflight_diagnostics = validate_config(config) + _validate_instruments(
         config=config,
@@ -92,6 +94,7 @@ def execute_run(
         workspace=workspace,
         plan=plan,
         preflight_diagnostics=preflight_diagnostics,
+        config_source=config_source,
     )
 
 
@@ -103,6 +106,7 @@ def _execute_plan(
     workspace: str | Path,
     plan: PlanSnapshot,
     preflight_diagnostics: list[Diagnostic],
+    config_source: RunConfigSource | None,
 ) -> tuple[RunManifest, ExecutionSnapshot]:
     workspace_path = Path(workspace)
     instruments_by_id = {
@@ -110,8 +114,11 @@ def _execute_plan(
     }
     run_id = new_run_id()
     storage = LocalRunStore(workspace_path)
-    snapshot_ref = ref_for_artifact(EXECUTION_SNAPSHOT_FILENAME)
-    data_ref = ref_for_artifact(RAW_MEASUREMENTS_FILENAME)
+    snapshot_ref = record_content_ref(
+        record_id=EXECUTION_SNAPSHOT_ID,
+        kind=EXECUTION_SNAPSHOT_KIND,
+    )
+    data_ref = ref_for_dataset(RAW_MEASUREMENTS_DATASET_ID)
     descriptions, description_diagnostics = _describe_instruments(instruments)
     expected_schema, schema_diagnostics = parse_expected_dataset_schema(plan)
     raw_measurement_schema = _raw_measurement_schema(expected_schema)
@@ -204,7 +211,7 @@ def _execute_plan(
     dataset_contract_diagnostics = validate_raw_measurement_dataset(
         records=measurements,
         expected_schema=raw_measurement_schema,
-        dataset_id=RAW_MEASUREMENTS_ARTIFACT_ID,
+        dataset_id=RAW_MEASUREMENTS_DATASET_ID,
     )
     diagnostics = [
         *diagnostics,
@@ -217,10 +224,9 @@ def _execute_plan(
     final_manifest = _manifest(
         run_id=run_id,
         status=status,
-        snapshot_ref=snapshot_ref,
-        data_ref=data_ref,
         measurements=measurements,
         expected_schema=raw_measurement_schema,
+        config_source=config_source,
     )
     snapshot = ExecutionSnapshot(
         run_id=run_id,
@@ -278,7 +284,7 @@ def _raw_measurement_schema(
     if expected_schema is None:
         return None
     return expected_schema.model_copy(
-        update={"dataset_id": RAW_MEASUREMENTS_ARTIFACT_ID}
+        update={"dataset_id": RAW_MEASUREMENTS_DATASET_ID}
     )
 
 
@@ -688,40 +694,40 @@ def _manifest(
     *,
     run_id: str,
     status: RunStatus,
-    snapshot_ref: str,
-    data_ref: str,
     measurements: list[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
+    config_source: RunConfigSource | None,
 ) -> RunManifest:
     return build_run_manifest(
         run_id=run_id,
         status=status,
-        artifact_refs=_artifact_refs(
-            snapshot_ref=snapshot_ref,
-            data_ref=data_ref,
+        config_source=config_source,
+        records=_records(),
+        datasets=_datasets(
             measurements=measurements,
             expected_schema=expected_schema,
         ),
     )
 
 
-def _artifact_refs(
+def _records() -> list[RunRecordEntry]:
+    return [
+        RunRecordEntry(
+            id=EXECUTION_SNAPSHOT_ID,
+            kind=EXECUTION_SNAPSHOT_KIND,
+            media_type="application/json",
+        )
+    ]
+
+
+def _datasets(
     *,
-    snapshot_ref: str,
-    data_ref: str,
     measurements: list[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
-) -> list[Artifact]:
+) -> list[RunDatasetEntry]:
     return [
-        Artifact(
-            id="execution-snapshot",
-            kind="execution_snapshot",
-            path=snapshot_ref,
-            media_type="application/json",
-        ),
-        build_raw_measurement_artifact(
-            artifact_id=RAW_MEASUREMENTS_ARTIFACT_ID,
-            ref=data_ref,
+        build_raw_measurement_dataset(
+            dataset_id=RAW_MEASUREMENTS_DATASET_ID,
             records=measurements,
             expected_schema=expected_schema,
         ),

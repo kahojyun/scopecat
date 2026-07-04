@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING, Literal, NoReturn, Protocol, cast
 
 from pydantic import BaseModel
 
-from scopecat._manifest_updates import write_manifest_artifacts
+from scopecat._manifest_updates import write_manifest_artifacts, write_manifest_records
+from scopecat._storage.refs import record_content_ref
 from scopecat.candidate_configs import (
     CandidateConfig,
     CandidateSelection,
@@ -19,61 +20,146 @@ from scopecat.candidate_configs import (
 from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
 from scopecat.ids import artifact_slug
-from scopecat.models.artifact import Artifact
+from scopecat.models.analysis import (
+    AnalysisRecord,
+    AnalysisRecordInput,
+    AnalysisRecordOutput,
+    AnalysisRecordOutputKind,
+)
+from scopecat.models.artifact import RunArtifactEntry, RunRecordEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import ParameterChangeSet
 from scopecat.parameter_changes import (
     AnalysisParameterPatch,
     parameter_change_set_from_analysis_patches,
 )
-from scopecat.runs.access import RunStore, open_run_store
+from scopecat.runs.access import RunStore, artifact_storage_ref, open_run_store
 from scopecat.session_data import Data
 
 if TYPE_CHECKING:
     from scopecat.session_run_handle import RunHandle
 
 
-AnalysisOutputKind = Literal[
-    "note",
-    "table",
-    "array",
-    "figure",
-    "artifact",
-    "parameter_change",
-]
+AnalysisOutputKind = AnalysisRecordOutputKind
 
 
 @dataclass(frozen=True)
-class AnalysisArtifactRef:
+class AnalysisInput:
     target: str
-    target_type: Literal["artifact"]
-    artifact_kind: str | None = None
-    path: str | None = None
-    media_type: str | None = None
-
-
-@dataclass(frozen=True)
-class AnalysisInputRef:
-    target: str
-    target_type: Literal["artifact", "uri"]
+    kind: Literal["artifact", "dataset", "uri"]
     role: str
     title: str | None = None
-    artifact_kind: str | None = None
-    path: str | None = None
-    media_type: str | None = None
     metadata: Mapping[str, object] | None = None
+
+
+class _AnalysisArtifactSource(Protocol):
+    def default_filename(self) -> str | None: ...
+
+    def default_extension(self) -> str: ...
+
+    def default_media_type(self) -> str: ...
+
+    def write(self, *, storage: RunStore, run_id: str, ref: str) -> None: ...
+
+
+@dataclass(frozen=True)
+class _AnalysisModelArtifactSource:
+    model: BaseModel
+
+    def default_filename(self) -> str | None:
+        return None
+
+    def default_extension(self) -> str:
+        return ".json"
+
+    def default_media_type(self) -> str:
+        return "application/json"
+
+    def write(self, *, storage: RunStore, run_id: str, ref: str) -> None:
+        storage.write_text(
+            run_id,
+            ref,
+            json.dumps(self.model.model_dump(mode="json"), indent=2, sort_keys=True),
+        )
+
+
+@dataclass(frozen=True)
+class _AnalysisJsonArtifactSource:
+    content: object
+
+    def default_filename(self) -> str | None:
+        return None
+
+    def default_extension(self) -> str:
+        return ".json"
+
+    def default_media_type(self) -> str:
+        return "application/json"
+
+    def write(self, *, storage: RunStore, run_id: str, ref: str) -> None:
+        storage.write_text(
+            run_id,
+            ref,
+            json.dumps(_json_safe(self.content), indent=2, sort_keys=True),
+        )
+
+
+@dataclass(frozen=True)
+class _AnalysisTextArtifactSource:
+    content: str
+
+    def default_filename(self) -> str | None:
+        return None
+
+    def default_extension(self) -> str:
+        return ".txt"
+
+    def default_media_type(self) -> str:
+        return "text/plain"
+
+    def write(self, *, storage: RunStore, run_id: str, ref: str) -> None:
+        storage.write_text(run_id, ref, self.content)
+
+
+@dataclass(frozen=True)
+class _AnalysisBytesArtifactSource:
+    content: bytes
+
+    def default_filename(self) -> str | None:
+        return None
+
+    def default_extension(self) -> str:
+        return ".bin"
+
+    def default_media_type(self) -> str:
+        return "application/octet-stream"
+
+    def write(self, *, storage: RunStore, run_id: str, ref: str) -> None:
+        _write_run_bytes(storage, run_id, ref, self.content)
+
+
+@dataclass(frozen=True)
+class _AnalysisFileArtifactSource:
+    path: Path
+
+    def default_filename(self) -> str | None:
+        return self.path.name
+
+    def default_extension(self) -> str:
+        return ""
+
+    def default_media_type(self) -> str:
+        return "application/octet-stream"
+
+    def write(self, *, storage: RunStore, run_id: str, ref: str) -> None:
+        _write_run_bytes(storage, run_id, ref, self.path.read_bytes())
 
 
 @dataclass(frozen=True)
 class _AnalysisArtifactSpec:
     title: str
     kind: str
-    source_kind: Literal["model", "json", "text", "bytes", "path"]
-    source_path: Path | None
-    model: BaseModel | None
-    json_content: object | None
-    text: str | None
-    content: bytes | None
+    source: _AnalysisArtifactSource
     artifact_id: str | None
     filename: str | None
     media_type: str | None
@@ -83,8 +169,8 @@ class _AnalysisArtifactSpec:
 @dataclass(frozen=True)
 class _PreparedAnalysisArtifact:
     spec: _AnalysisArtifactSpec
-    artifact: Artifact
-    ref: AnalysisArtifactRef
+    artifact: RunArtifactEntry
+    artifact_id: str
 
 
 @dataclass(frozen=True)
@@ -97,12 +183,10 @@ class AnalysisOutput:
 
 @dataclass(frozen=True)
 class SavedAnalysis:
-    artifact: Artifact
-    path: str
+    record: RunRecordEntry
     analysis_key: str
-    inputs: tuple[AnalysisInputRef, ...] = ()
-    source_artifact_ids: tuple[str, ...] = ()
-    output_artifacts: tuple[Artifact, ...] = ()
+    inputs: tuple[AnalysisInput, ...] = ()
+    output_artifacts: tuple[RunArtifactEntry, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -113,7 +197,7 @@ class Analysis:
     title: str
     key: str | None = None
     step_id: str | None = None
-    inputs: tuple[AnalysisInputRef, ...] = ()
+    inputs: tuple[AnalysisInput, ...] = ()
     outputs: tuple[AnalysisOutput, ...] = ()
     parameter_changes: tuple[ParameterChangeSet, ...] = ()
 
@@ -193,27 +277,34 @@ class Analysis:
                     "analysis input URI must be non-empty",
                     "uri",
                 )
-            ref = AnalysisInputRef(
+            analysis_input = AnalysisInput(
                 target=uri,
-                target_type="uri",
+                kind="uri",
                 role=role,
                 title=title,
                 metadata=metadata,
             )
-            return replace(self, inputs=(*self.inputs, ref))
+            return replace(self, inputs=(*self.inputs, analysis_input))
         assert selector is not None
-        artifact = self.run.data().artifact(selector, expected_kind=expected_kind)
-        ref = AnalysisInputRef(
-            target=artifact.id,
-            target_type="artifact",
-            role=role,
-            title=title or artifact.id,
-            artifact_kind=artifact.kind,
-            path=artifact.path,
-            media_type=artifact.media_type,
-            metadata=metadata,
-        )
-        return replace(self, inputs=(*self.inputs, ref))
+        if expected_kind in {"measurement_dataset", "data_table", "data_array"}:
+            dataset = self.run.data().dataset(selector, expected_kind=expected_kind)
+            analysis_input = AnalysisInput(
+                target=dataset.id,
+                kind="dataset",
+                role=role,
+                title=title or dataset.id,
+                metadata=metadata,
+            )
+        else:
+            artifact = self.run.data().artifact(selector, expected_kind=expected_kind)
+            analysis_input = AnalysisInput(
+                target=artifact.id,
+                kind="artifact",
+                role=role,
+                title=title or artifact.id,
+                metadata=metadata,
+            )
+        return replace(self, inputs=(*self.inputs, analysis_input))
 
     def artifact(
         self,
@@ -270,10 +361,7 @@ class Analysis:
                 f"analysis artifact filename must be a basename: {filename}",
                 "filename",
             )
-        source_path: Path | None = None
-        source_kind: Literal["model", "json", "text", "bytes", "path"]
         if path is not None:
-            source_kind = "path"
             source_path = Path(path)
             if not source_path.is_file():
                 _raise_analysis_diagnostic(
@@ -291,23 +379,30 @@ class Analysis:
                     ),
                     "filename",
                 )
+            source: _AnalysisArtifactSource = _AnalysisFileArtifactSource(
+                path=source_path,
+            )
         elif model is not None:
-            source_kind = "model"
+            source = _AnalysisModelArtifactSource(model=model)
         elif json_content is not None:
-            source_kind = "json"
+            source = _AnalysisJsonArtifactSource(content=json_content)
         elif text is not None:
-            source_kind = "text"
+            source = _AnalysisTextArtifactSource(content=text)
         else:
-            source_kind = "bytes"
+            if content is None:
+                _raise_analysis_diagnostic(
+                    "analysis_artifact_source_invalid",
+                    (
+                        "analysis artifact requires exactly one of model, "
+                        "json_content, text, content, or path"
+                    ),
+                    "artifact",
+                )
+            source = _AnalysisBytesArtifactSource(content=content)
         artifact_spec = _AnalysisArtifactSpec(
             title=title,
             kind=kind,
-            source_kind=source_kind,
-            source_path=source_path,
-            model=model,
-            json_content=json_content,
-            text=text,
-            content=content,
+            source=source,
             artifact_id=artifact_id,
             filename=filename,
             media_type=media_type,
@@ -393,82 +488,49 @@ class Analysis:
 
     def save(self) -> SavedAnalysis:
         analysis_key = self.analysis_key
-        selected_artifact_id = f"analysis-{analysis_key}"
-        ref = f"artifacts/{selected_artifact_id}.json"
-        source_artifact_ids = _analysis_source_artifact_ids(self.inputs)
+        selected_record_id = f"analysis-{analysis_key}"
+        ref = record_content_ref(record_id=selected_record_id, kind="analysis")
         storage = open_run_store(self.run.session.workspace)
         output_artifacts, output_refs = _write_analysis_output_artifacts(
             storage=storage,
             run_id=self.run.id,
-            analysis_title=self.title,
             analysis_key=analysis_key,
             step_id=self.step_id,
-            analysis_artifact_id=selected_artifact_id,
+            analysis_record_id=selected_record_id,
             outputs=self.outputs,
-            inputs=self.inputs,
-            source_artifact_ids=source_artifact_ids,
         )
-        output_ref_iter = iter(output_refs)
-        content = {
-            "schema_version": "scopecat.analysis.v2",
-            "run_id": self.run.id,
-            "title": self.title,
-            "key": analysis_key,
-            "step_id": self.step_id,
-            "inputs": [_json_safe(input_ref) for input_ref in self.inputs],
-            "source_artifact_ids": list(source_artifact_ids),
-            "outputs": [
-                {
-                    "kind": output.kind,
-                    "title": output.title,
-                    "content": _json_safe(
-                        _saved_analysis_output_content(
-                            output=output,
-                            output_refs=output_ref_iter,
-                        )
-                    ),
-                    "metadata": _json_safe(output.metadata),
-                }
-                for output in self.outputs
-            ],
-            "parameter_changes": [
-                _json_safe(change) for change in self.parameter_changes
-            ],
-        }
-        storage.write_text(
-            self.run.id,
-            ref,
-            json.dumps(content, indent=2, sort_keys=True),
+        analysis_record = AnalysisRecord(
+            run_id=self.run.id,
+            title=self.title,
+            key=analysis_key,
+            step_id=self.step_id,
+            inputs=_analysis_record_inputs(self.inputs),
+            outputs=_analysis_record_outputs(
+                outputs=self.outputs,
+                output_refs=iter(output_refs),
+            ),
+            parameter_changes=list(self.parameter_changes),
         )
-        artifact = Artifact(
-            id=selected_artifact_id,
+        storage.write_model(self.run.id, ref, analysis_record)
+        record = RunRecordEntry(
+            id=selected_record_id,
             kind="analysis",
-            path=ref,
             media_type="application/json",
-            metadata={
-                "analysis_title": self.title,
-                "analysis_key": analysis_key,
-                "owner_type": "analysis",
-                "owner_key": analysis_key,
-                "step_id": self.step_id,
-                "output_kinds": [output.kind for output in self.outputs],
-                "parameter_change_count": len(self.parameter_changes),
-                "source_run_id": self.run.id,
-                "inputs": [_json_safe(input_ref) for input_ref in self.inputs],
-                "source_artifact_ids": list(source_artifact_ids),
-            },
+        )
+        write_manifest_records(
+            storage=storage,
+            manifest=storage.read_manifest(self.run.id),
+            records=[record],
         )
         write_manifest_artifacts(
             storage=storage,
             manifest=storage.read_manifest(self.run.id),
-            artifacts=[artifact, *output_artifacts],
+            artifacts=output_artifacts,
         )
         return SavedAnalysis(
-            artifact=artifact,
-            path=ref,
+            record=record,
             analysis_key=analysis_key,
             inputs=self.inputs,
-            source_artifact_ids=source_artifact_ids,
             output_artifacts=tuple(output_artifacts),
         )
 
@@ -587,53 +649,73 @@ def _select_candidate_changes(
     return tuple(selected)
 
 
-def _analysis_source_artifact_ids(
-    inputs: Sequence[AnalysisInputRef],
-) -> tuple[str, ...]:
-    artifact_ids: list[str] = []
-    seen: set[str] = set()
-    for input_ref in inputs:
-        if input_ref.target_type != "artifact":
-            continue
-        artifact_id = input_ref.target
-        if artifact_id in seen:
-            continue
-        artifact_ids.append(artifact_id)
-        seen.add(artifact_id)
-    return tuple(artifact_ids)
-
-
 def _saved_analysis_output_content(
     *,
     output: AnalysisOutput,
-    output_refs: Iterator[AnalysisArtifactRef],
+    output_refs: Iterator[str],
 ) -> object:
     if output.kind == "artifact":
-        return next(output_refs)
+        return {"artifact_id": next(output_refs)}
     return output.content
+
+
+def _analysis_record_inputs(
+    inputs: Sequence[AnalysisInput],
+) -> list[AnalysisRecordInput]:
+    record_inputs: list[AnalysisRecordInput] = []
+    for input_ref in inputs:
+        metadata = input_ref.metadata
+        record_inputs.append(
+            AnalysisRecordInput(
+                target=input_ref.target,
+                kind=input_ref.kind,
+                role=input_ref.role,
+                title=input_ref.title,
+                metadata=(
+                    _json_mapping(cast("Mapping[object, object]", metadata))
+                    if metadata is not None
+                    else None
+                ),
+            )
+        )
+    return record_inputs
+
+
+def _analysis_record_outputs(
+    *,
+    outputs: Sequence[AnalysisOutput],
+    output_refs: Iterator[str],
+) -> list[AnalysisRecordOutput]:
+    return [
+        AnalysisRecordOutput(
+            kind=output.kind,
+            title=output.title,
+            content=_json_safe(
+                _saved_analysis_output_content(output=output, output_refs=output_refs)
+            ),
+            metadata=_json_mapping(cast("Mapping[object, object]", output.metadata)),
+        )
+        for output in outputs
+    ]
 
 
 def _write_analysis_output_artifacts(
     *,
     storage: RunStore,
     run_id: str,
-    analysis_title: str,
     analysis_key: str,
     step_id: str | None,
-    analysis_artifact_id: str,
+    analysis_record_id: str,
     outputs: Sequence[AnalysisOutput],
-    inputs: Sequence[AnalysisInputRef],
-    source_artifact_ids: Sequence[str],
 ) -> tuple[
-    list[Artifact],
-    list[AnalysisArtifactRef],
+    list[RunArtifactEntry],
+    list[str],
 ]:
     artifact_specs = _analysis_artifact_specs(outputs)
     if not artifact_specs:
         return [], []
     prepared_artifacts: list[_PreparedAnalysisArtifact] = []
-    seen_artifact_ids = {analysis_artifact_id}
-    seen_filenames = {f"{analysis_artifact_id}.json"}
+    seen_artifact_ids: set[str] = set()
     default_artifact_id_counts: dict[str, int] = {}
     for spec in artifact_specs:
         selected_artifact_id = _analysis_artifact_artifact_id(
@@ -643,61 +725,41 @@ def _write_analysis_output_artifacts(
             seen_artifact_ids=seen_artifact_ids,
         )
         selected_filename = _analysis_artifact_filename(spec, selected_artifact_id)
-        if selected_filename in seen_filenames:
-            _raise_analysis_diagnostic(
-                "analysis_artifact_filename_duplicated",
-                f"analysis artifact filename is duplicated: {selected_filename}",
-                "filename",
-            )
-        seen_filenames.add(selected_filename)
-        ref = f"artifacts/{selected_filename}"
         media_type = _analysis_artifact_media_type(spec, selected_filename)
         metadata = _json_mapping(cast("Mapping[object, object]", spec.metadata))
         metadata.update(
             {
-                "analysis_title": analysis_title,
-                "analysis_key": analysis_key,
-                "owner_type": "analysis",
-                "owner_key": analysis_key,
-                "step_id": step_id,
-                "source_run_id": run_id,
-                "source_analysis_artifact_id": analysis_artifact_id,
                 "artifact_title": spec.title,
-                "inputs": [_json_safe(input_ref) for input_ref in inputs],
-                "source_artifact_ids": list(source_artifact_ids),
             }
         )
-        artifact = Artifact(
+        artifact = RunArtifactEntry(
             id=selected_artifact_id,
             kind=spec.kind,
-            path=ref,
             media_type=media_type,
+            produced_by=(
+                f"analysis_step:{step_id}"
+                if step_id is not None
+                else f"analysis:{analysis_record_id}"
+            ),
             metadata=metadata,
-        )
-        artifact_ref = AnalysisArtifactRef(
-            target=selected_artifact_id,
-            target_type="artifact",
-            artifact_kind=spec.kind,
-            path=ref,
-            media_type=media_type,
         )
         prepared_artifacts.append(
             _PreparedAnalysisArtifact(
                 spec=spec,
                 artifact=artifact,
-                ref=artifact_ref,
+                artifact_id=selected_artifact_id,
             )
         )
     for prepared in prepared_artifacts:
         _write_analysis_artifact_content(
             storage=storage,
             run_id=run_id,
-            ref=prepared.artifact.path,
+            ref=artifact_storage_ref(prepared.artifact),
             spec=prepared.spec,
         )
     return (
         [prepared.artifact for prepared in prepared_artifacts],
-        [prepared.ref for prepared in prepared_artifacts],
+        [prepared.artifact_id for prepared in prepared_artifacts],
     )
 
 
@@ -753,15 +815,10 @@ def _analysis_artifact_filename(
 ) -> str:
     if spec.filename is not None:
         return spec.filename
-    if spec.source_path is not None:
-        return spec.source_path.name
-    extension = {
-        "model": ".json",
-        "json": ".json",
-        "text": ".txt",
-        "bytes": ".bin",
-        "path": "",
-    }[spec.source_kind]
+    source_filename = spec.source.default_filename()
+    if source_filename is not None:
+        return source_filename
+    extension = spec.source.default_extension()
     return f"{artifact_slug(selected_artifact_id, fallback='analysis')}{extension}"
 
 
@@ -774,11 +831,7 @@ def _analysis_artifact_media_type(
     guessed, _encoding = mimetypes.guess_type(filename)
     if guessed is not None:
         return guessed
-    if spec.source_kind in {"model", "json"}:
-        return "application/json"
-    if spec.source_kind == "text":
-        return "text/plain"
-    return "application/octet-stream"
+    return spec.source.default_media_type()
 
 
 def _write_analysis_artifact_content(
@@ -788,37 +841,7 @@ def _write_analysis_artifact_content(
     ref: str,
     spec: _AnalysisArtifactSpec,
 ) -> None:
-    if spec.source_path is not None:
-        _write_run_bytes(storage, run_id, ref, spec.source_path.read_bytes())
-        return
-    if spec.model is not None:
-        storage.write_text(
-            run_id,
-            ref,
-            json.dumps(spec.model.model_dump(mode="json"), indent=2, sort_keys=True),
-        )
-        return
-    if spec.json_content is not None:
-        storage.write_text(
-            run_id,
-            ref,
-            json.dumps(_json_safe(spec.json_content), indent=2, sort_keys=True),
-        )
-        return
-    if spec.text is not None:
-        storage.write_text(run_id, ref, spec.text)
-        return
-    if spec.content is not None:
-        _write_run_bytes(storage, run_id, ref, spec.content)
-        return
-    _raise_analysis_diagnostic(
-        "analysis_artifact_source_invalid",
-        (
-            "analysis artifact requires exactly one of model, json_content, "
-            "text, content, or path"
-        ),
-        "artifact",
-    )
+    spec.source.write(storage=storage, run_id=run_id, ref=ref)
 
 
 def _write_run_bytes(
@@ -883,9 +906,8 @@ def _json_mapping(value: Mapping[object, object]) -> dict[str, object]:
 
 __all__ = [
     "Analysis",
-    "AnalysisArtifactRef",
     "AnalysisContext",
-    "AnalysisInputRef",
+    "AnalysisInput",
     "AnalysisOutput",
     "AnalysisStep",
     "PromotedAnalysisStep",

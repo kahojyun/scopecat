@@ -9,9 +9,9 @@ from demo_lab_test_paths import (
     READOUT_IQ_FIXTURE_DIR,
     READOUT_IQ_VIRTUAL_LAB_PROFILE,
 )
+from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import acquire, experiment
 from scopecat.instruments.sdk import InstrumentProviderContext
-from scopecat.models.config import load_config_profile
 from scopecat.relations import grid, values
 
 from quantum_lab_demo.readout import frequency_calibration, iq_quality

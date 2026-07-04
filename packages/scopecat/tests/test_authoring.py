@@ -209,8 +209,8 @@ def test_resolve_experiment_uses_active_config_and_template_defaults(
     resolved = resolve_experiment(draft, workspace=tmp_path)
 
     assert resolved.template_id == "test.simple_scan"
-    assert resolved.config_provenance is not None
-    assert resolved.config_provenance.entry_id == "seed"
+    assert resolved.config_source is not None
+    assert resolved.config_source.entry_id == "seed"
     experiment = resolved.experiment
     assert isinstance(experiment, ExperimentSpec)
     plan = plan_experiment(experiment, _parameter_build())
@@ -237,8 +237,29 @@ def test_opaque_asset_binding_is_preserved_in_experiment_and_plan() -> None:
 
     assert experiment.assets[0].id == program.id
     assert experiment.assets[0].kind == program.kind
+    assert experiment.assets[0].uri == "scopecat-asset:custom-pulse-program"
+    assert "path" not in experiment.assets[0].model_dump(mode="python")
     assert plan.desired_state[0].field == "set_frequency.program"
     assert plan.desired_state[0].value == {
         "kind": "asset",
         "asset_id": "custom-pulse-program",
     }
+
+
+def test_opaque_asset_path_lowers_to_uri() -> None:
+    program = opaque_asset(
+        id="custom-pulse-program",
+        kind="pulse_program",
+        path="programs/custom pulse.py",
+        media_type="text/x-python",
+    )
+    resolved = resolve_experiment(
+        custom_asset_recipe(program)(subject="q0"),
+        workspace=Path("/tmp/scopecat-test"),
+        config_profile=load_config(),
+    )
+    experiment = resolved.experiment
+    assert isinstance(experiment, ExperimentSpec)
+
+    assert experiment.assets[0].uri == "file:programs/custom%20pulse.py"
+    assert "path" not in experiment.assets[0].model_dump(mode="python")

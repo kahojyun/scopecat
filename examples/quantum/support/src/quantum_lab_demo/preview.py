@@ -7,7 +7,8 @@ from pathlib import Path
 import scopecat as sc
 import scopecat.experiments as experiments
 import scopecat.relations as relations
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.config_profiles import load_config_profile
+from scopecat.models.config import ConfigProfileSnapshot
 
 from quantum_lab_demo.fixtures import DEFAULT_WORKSPACE_ROOT, REPO_ROOT
 

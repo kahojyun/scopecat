@@ -50,8 +50,8 @@ def test_readout_frequency_demo_lab_runs_provider_workflow(
     assert result.run.manifest.status == "completed"
     assert result.processed_points == 101
     assert result.candidate.parameter_changes[0].patches
-    assert [artifact.kind for artifact in result.run.data().list(kind="analysis")] == [
-        "analysis"
+    assert [record.id for record in result.run.overview().analysis_records] == [
+        "analysis-readout-frequency-analysis"
     ]
 
 
@@ -62,8 +62,8 @@ def test_readout_iq_demo_lab_runs_provider_workflow(
 
     assert result.run.manifest.status == "completed"
     assert result.processed_shots == 240
-    assert [artifact.kind for artifact in result.run.data().list(kind="analysis")] == [
-        "analysis"
+    assert [record.id for record in result.run.overview().analysis_records] == [
+        "analysis-readout-iq_quality-analysis"
     ]
 
 

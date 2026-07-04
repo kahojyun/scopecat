@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 from scopecat.authoring._templates import ExperimentAuthoringContext
 from scopecat.authoring.expressions import (
+    AssetInput,
     BindingSpec,
-    ExperimentAsset,
     Expression,
 )
 from scopecat.authoring.expressions import (
@@ -60,7 +60,7 @@ class BindingIntent:
 @dataclass(frozen=True)
 class AssetBindingIntent:
     role_path: str
-    asset: ExperimentAsset | str
+    asset: AssetInput | str
 
     def build(
         self,
@@ -109,7 +109,7 @@ def bind(
 
 def asset_binding(
     role_path: str,
-    asset: ExperimentAsset | str,
+    asset: AssetInput | str,
 ) -> AssetBindingIntent:
     return AssetBindingIntent(role_path=role_path, asset=asset)
 

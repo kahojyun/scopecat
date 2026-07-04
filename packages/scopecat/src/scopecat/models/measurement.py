@@ -15,12 +15,12 @@ from scopecat.models._schema_utils import (
     validate_shape_rank,
     validate_supported_unit,
 )
-from scopecat.models.artifact import MeasurementDatasetRole
 from scopecat.models.parameter import Quantity
 from scopecat.units import compatible_units
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v0"
 MEASUREMENT_DATASET_SCHEMA_VERSION = "scopecat.measurement_dataset_schema.v0"
+MeasurementDatasetRole = Literal["raw", "derived"]
 
 MeasurementVariableRole = Literal[
     "coordinate",
@@ -153,8 +153,7 @@ class MeasurementRecord(BaseModel):
 class MeasurementDataset(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    artifact_id: str
-    ref: str | None = None
+    dataset_id: str
     dataset_schema: MeasurementDatasetSchema = Field(alias="schema")
     records: list[MeasurementRecord]
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -220,71 +219,6 @@ def infer_measurement_dataset_schema(
         primary_coordinates=list(coordinate_units),
         primary_observables=list(observable_units),
         metadata=metadata or {},
-    )
-
-
-def build_measurement_dataset_artifact_metadata(
-    *,
-    schema: MeasurementDatasetSchema,
-    source_step: str | None = None,
-    source_artifact_ids: Sequence[str] = (),
-) -> dict[str, Any]:
-    metadata: dict[str, Any] = {
-        "dataset_role": schema.dataset_role,
-        "record_schema": schema.record_schema,
-        "dataset_schema": schema.model_dump(mode="json"),
-    }
-    if source_step is not None:
-        metadata["source_step"] = source_step
-    if source_artifact_ids:
-        metadata["source_artifact_ids"] = list(source_artifact_ids)
-    return metadata
-
-
-def measurement_dataset_artifact_metadata(
-    *,
-    dataset_id: str,
-    dataset_role: MeasurementDatasetRole,
-    records: Sequence[MeasurementRecord],
-    expected_schema: MeasurementDatasetSchema | None = None,
-    source_step: str | None = None,
-    source_artifact_ids: Sequence[str] = (),
-    metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    schema = (
-        _schema_with_metadata(expected_schema, metadata)
-        if expected_schema is not None
-        else infer_measurement_dataset_schema(
-            dataset_id=dataset_id,
-            dataset_role=dataset_role,
-            records=records,
-            metadata=metadata,
-        )
-    )
-    return build_measurement_dataset_artifact_metadata(
-        schema=schema,
-        source_step=source_step,
-        source_artifact_ids=source_artifact_ids,
-    )
-
-
-def infer_measurement_dataset_artifact_metadata(
-    *,
-    dataset_id: str,
-    dataset_role: MeasurementDatasetRole,
-    records: Sequence[MeasurementRecord],
-    source_step: str | None = None,
-    source_artifact_ids: Sequence[str] = (),
-    metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return measurement_dataset_artifact_metadata(
-        dataset_id=dataset_id,
-        dataset_role=dataset_role,
-        records=records,
-        expected_schema=None,
-        source_step=source_step,
-        source_artifact_ids=source_artifact_ids,
-        metadata=metadata,
     )
 
 
@@ -493,15 +427,6 @@ def _validate_record_variables(
                 )
             )
     return diagnostics
-
-
-def _schema_with_metadata(
-    schema: MeasurementDatasetSchema, metadata: dict[str, Any] | None
-) -> MeasurementDatasetSchema:
-    if not metadata:
-        return schema
-    merged_metadata = {**schema.metadata, **metadata}
-    return schema.model_copy(update={"metadata": merged_metadata})
 
 
 def _diagnostic(code: str, message: str, path: str | None = None) -> Diagnostic:

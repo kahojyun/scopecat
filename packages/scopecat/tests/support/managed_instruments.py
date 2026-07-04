@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import plan_experiment
 from scopecat.instruments import (
     DriverDiagnostic,
@@ -21,7 +22,7 @@ from scopecat.instruments.state import (
     ExecutionPoint,
     StateValue,
 )
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.results import MeasurementSink
 from tests.support.workflow_fixtures import load_experiment

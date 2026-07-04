@@ -35,8 +35,8 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
     run = lab.run(load_experiment())
     data = run.data()
     raw = data.measurements()
-    measurement_artifacts = data.list(kind="measurement_dataset")
-    raw_artifact = data.artifact(
+    measurement_datasets = data.list(kind="measurement_dataset")
+    data.dataset(
         "raw-measurements",
         expected_kind="measurement_dataset",
     )
@@ -57,15 +57,15 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
 
     assert isinstance(lab, sc.Workspace)
     assert isinstance(run, sc.Run)
-    assert raw.artifact.id == "raw-measurements"
-    assert [artifact.id for artifact in measurement_artifacts] == ["raw-measurements"]
-    assert raw_artifact.path == "artifacts/raw-measurements.jsonl"
+    assert raw.dataset_entry.id == "raw-measurements"
+    assert [dataset.id for dataset in measurement_datasets] == ["raw-measurements"]
     assert len(raw.dataset.records) == 3
     assert figure.artifact.id == "analysis-plot"
     assert figure.content == b"\x89PNG\r\n"
     assert isinstance(plan_preview, PlanSnapshot)
     assert plan_preview.expected_dataset_schema is not None
     assert data.artifacts == run.artifacts
+    assert data.datasets == run.datasets
 
 
 def test_data_selectors_report_notebook_friendly_diagnostics(tmp_path: Path) -> None:
@@ -110,16 +110,18 @@ def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
         .note("used notebook notes and raw measurements")
         .save()
     )
-    payload = run.data().json(saved.artifact.id).content
 
     assert attachment.id == "notebook"
     assert attachment.kind == "attachment"
+    assert attachment.produced_by == "run.attach"
     assert run.data().text("notebook").content == "manual fit notes\n"
-    assert run.data().artifact("notebook").metadata["owner_type"] == "run"
-    assert saved.source_artifact_ids == ("notebook", "raw-measurements")
-    assert [input_ref["target"] for input_ref in payload["inputs"]] == [
+    assert [input_ref.target for input_ref in saved.inputs] == [
         "notebook",
         "raw-measurements",
+    ]
+    assert run.overview().analysis_records[0].input_ids == [
+        "artifact:notebook",
+        "dataset:raw-measurements",
     ]
 
 
@@ -170,7 +172,7 @@ def test_workspace_experiment_builder_lowers_to_runnable_spec(
 
     assert run.manifest.status == "completed"
     assert (
-        run.data().json("execution-snapshot").content["experiment_id"]
+        run.record_json("execution-snapshot").content["experiment_id"]
         == "manual-signal-scan"
     )
     planned_frequencies = [point.row["drive_frequency"] for point in run.plan.points]
@@ -236,7 +238,6 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     )
     candidate = analysis.candidate_config()
     saved = analysis.save()
-    saved_payload = run.data().json(saved.artifact.id)
 
     assert [output.kind for output in analysis.outputs] == [
         "note",
@@ -251,25 +252,9 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     assert candidate.analysis_title == "manual readout review"
     assert candidate.analysis_key == "manual-readout-review"
     assert candidate.parameter_changes[0].patches[0].parameter_id == "drive_frequency"
-    assert saved.artifact.kind == "analysis"
-    assert saved.artifact.path == "artifacts/analysis-manual-readout-review.json"
-    assert saved.source_artifact_ids == ("raw-measurements",)
-    assert saved.artifact.metadata["source_artifact_ids"] == ["raw-measurements"]
-    assert saved_payload.content["schema_version"] == "scopecat.analysis.v2"
-    assert saved_payload.content["title"] == "manual readout review"
-    assert saved_payload.content["key"] == "manual-readout-review"
-    assert saved_payload.content["source_artifact_ids"] == ["raw-measurements"]
-    assert saved_payload.content["inputs"][0]["target_type"] == "artifact"
-    assert saved_payload.content["inputs"][0]["target"] == ("raw-measurements")
-    assert saved_payload.content["inputs"][1]["target_type"] == "uri"
-    assert saved_payload.content["inputs"][1]["target"] == (
-        "file:///tmp/manual-notes.ipynb"
-    )
-    assert (
-        saved_payload.content["parameter_changes"][0]["patches"][0]["parameter_id"]
-        == "drive_frequency"
-    )
-    assert [artifact.id for artifact in run.data().list(kind="analysis")] == [
+    assert saved.record.kind == "analysis"
+    assert saved.record.id == "analysis-manual-readout-review"
+    assert [record.id for record in run.overview().analysis_records] == [
         "analysis-manual-readout-review"
     ]
 
@@ -311,14 +296,8 @@ def test_run_analysis_persists_output_artifacts(
         )
         .save()
     )
-    saved_payload = run.data().json(saved.artifact.id)
     overview = run.overview()
 
-    assert [output["kind"] for output in saved_payload.content["outputs"]] == [
-        "artifact",
-        "artifact",
-        "artifact",
-    ]
     assert [artifact.kind for artifact in saved.output_artifacts] == [
         "analysis_html",
         "analysis_notes",
@@ -340,16 +319,7 @@ def test_run_analysis_persists_output_artifacts(
         == b"\x89PNG\r\n"
     )
     assert saved.output_artifacts[0].metadata["section"] == "fit"
-    assert saved.output_artifacts[0].metadata["source_analysis_artifact_id"] == (
-        saved.artifact.id
-    )
-    assert saved.output_artifacts[0].metadata["source_artifact_ids"] == [
-        "raw-measurements"
-    ]
-    assert saved_payload.content["outputs"][0]["content"]["target"] == (
-        "manual-html-artifact"
-    )
-    assert overview.analysis_records[0].output_artifact_ids == [
+    assert overview.analysis_records[0].output_ids == [
         "manual-html-artifact",
         "analysis-manual-report-review-fit-markdown",
         "analysis-manual-report-review-plot-bytes",
@@ -405,7 +375,6 @@ def test_run_analysis_persists_owned_artifacts(
         )
         .save()
     )
-    payload = run.data().json(saved.artifact.id).content
 
     assert [artifact.id for artifact in saved.output_artifacts] == [
         "analysis-model",
@@ -419,17 +388,6 @@ def test_run_analysis_persists_owned_artifacts(
     assert run.data().text("analysis-text").content == "hello\n"
     assert run.data().bytes("analysis-bytes").content == b"abc"
     assert run.data().text("analysis-file").content == "<h1>source</h1>\n"
-    assert [output["kind"] for output in payload["outputs"]] == [
-        "artifact",
-        "artifact",
-        "artifact",
-        "artifact",
-        "artifact",
-    ]
-    assert payload["outputs"][0]["content"]["target"] == "analysis-model"
-    assert saved.output_artifacts[0].metadata["source_artifact_ids"] == [
-        "raw-measurements"
-    ]
 
 
 def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
@@ -462,33 +420,29 @@ def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
             .save()
         )
     assert duplicate_id.value.diagnostics[0].code == "analysis_artifact_id_duplicated"
-    assert not (tmp_path / "runs" / run.id / "artifacts" / "one.md").exists()
 
-    with pytest.raises(ValidationFailed) as duplicate_filename:
-        (
-            run.analysis("artifact review")
-            .artifact(
-                title="first",
-                kind="summary",
-                artifact_id="one",
-                filename="duplicate.md",
-                text="one",
-            )
-            .artifact(
-                title="second",
-                kind="summary",
-                artifact_id="two",
-                filename="duplicate.md",
-                text="two",
-            )
-            .save()
+    saved = (
+        run.analysis("artifact review")
+        .artifact(
+            title="first",
+            kind="summary",
+            artifact_id="one",
+            filename="duplicate.md",
+            text="one",
         )
-    assert duplicate_filename.value.diagnostics[0].code == (
-        "analysis_artifact_filename_duplicated"
+        .artifact(
+            title="second",
+            kind="summary",
+            artifact_id="two",
+            filename="duplicate.md",
+            text="two",
+        )
+        .save()
     )
+    assert [artifact.id for artifact in saved.output_artifacts] == ["one", "two"]
 
 
-def test_analysis_artifact_refs_dedupe_sources_and_feed_overview(
+def test_analysis_artifacts_dedupe_sources_and_feed_overview(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -513,14 +467,15 @@ def test_analysis_artifact_refs_dedupe_sources_and_feed_overview(
         )
         .save()
     )
-    saved_payload = run.data().json(saved.artifact.id)
     overview = run.overview()
 
-    assert saved.source_artifact_ids == ("raw-measurements",)
-    assert saved.artifact.metadata["source_artifact_ids"] == ["raw-measurements"]
-    assert saved_payload.content["source_artifact_ids"] == ["raw-measurements"]
-    assert [analysis.source_artifact_ids for analysis in overview.analysis_records] == [
-        ["raw-measurements"]
+    assert [input_ref.target for input_ref in saved.inputs] == [
+        "raw-measurements",
+        "file:///tmp/manual-source-review.ipynb",
+        "raw-measurements",
+    ]
+    assert [analysis.input_ids for analysis in overview.analysis_records] == [
+        ["dataset:raw-measurements", "uri:file:///tmp/manual-source-review.ipynb"]
     ]
 
 
@@ -562,19 +517,13 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     gui_runs = reopened.runs()
     gui_run = reopened.get_run(baseline.id)
     gui_data = gui_run.data()
+    gui_overview = gui_run.overview()
 
     assert [run.id for run in gui_runs] == [baseline.id, follow_up.id]
     assert gui_run.id == baseline.id
-    assert gui_data.measurements().artifact.id == "raw-measurements"
-    assert [artifact.id for artifact in gui_data.list(kind="analysis")] == [
-        saved.artifact.id
-    ]
-    assert [artifact.kind for artifact in gui_data.list(kind="candidate_config")] == [
-        "candidate_config"
-    ]
-    assert gui_data.json(saved.artifact.id).content["source_artifact_ids"] == [
-        "raw-measurements"
-    ]
+    assert gui_data.measurements().dataset_entry.id == "raw-measurements"
+    assert [record.id for record in gui_overview.analysis_records] == [saved.record.id]
+    assert gui_overview.analysis_records[0].input_ids == ["dataset:raw-measurements"]
     assert [artifact.id for artifact in gui_data.list(kind="fit_notes")] == [
         saved.output_artifacts[0].id
     ]

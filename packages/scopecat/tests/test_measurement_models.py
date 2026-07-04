@@ -5,12 +5,7 @@ from scopecat.models.measurement import (
     MEASUREMENT_RECORD_SCHEMA_VERSION,
     MeasurementDataset,
     MeasurementDatasetInputDiagnostics,
-    MeasurementDatasetSchema,
-    MeasurementDimension,
-    MeasurementVariable,
-    infer_measurement_dataset_artifact_metadata,
     infer_measurement_dataset_schema,
-    measurement_dataset_artifact_metadata,
 )
 from tests.support.measurement_models import signal_point_schema, signal_record
 from tests.support.records import assert_model_round_trip
@@ -65,62 +60,6 @@ def test_infer_measurement_dataset_schema_from_records() -> None:
     assert variables["signal"].unit == "ratio"
 
 
-def test_infer_measurement_dataset_artifact_metadata_from_records() -> None:
-    metadata = infer_measurement_dataset_artifact_metadata(
-        dataset_id="derived-sample",
-        dataset_role="derived",
-        records=[signal_record()],
-        source_step="fake-analysis",
-        source_artifact_ids=["raw-measurements"],
-    )
-
-    assert metadata["dataset_role"] == "derived"
-    assert metadata["record_schema"] == MEASUREMENT_RECORD_SCHEMA_VERSION
-    assert metadata["source_step"] == "fake-analysis"
-    assert metadata["source_artifact_ids"] == ["raw-measurements"]
-    assert metadata["dataset_schema"]["dataset_id"] == "derived-sample"
-    assert metadata["dataset_schema"]["primary_observables"] == ["signal"]
-
-
-def test_measurement_dataset_artifact_metadata_uses_expected_schema() -> None:
-    expected_schema = MeasurementDatasetSchema(
-        dataset_id="raw-measurements",
-        dataset_role="raw",
-        dimensions=[MeasurementDimension(id="shot", kind="shot", size=1)],
-        variables=[
-            MeasurementVariable(
-                id="drive_frequency",
-                role="coordinate",
-                dtype="float64",
-                unit="GHz",
-                dims=["shot"],
-                shape=[1],
-            ),
-            MeasurementVariable(
-                id="signal",
-                role="observable",
-                dtype="float64",
-                unit="ratio",
-                dims=["shot"],
-                shape=[1],
-            ),
-        ],
-        primary_coordinates=["drive_frequency"],
-        primary_observables=["signal"],
-    )
-
-    metadata = measurement_dataset_artifact_metadata(
-        dataset_id="raw-measurements",
-        dataset_role="raw",
-        records=[signal_record()],
-        expected_schema=expected_schema,
-    )
-
-    dataset_schema = MeasurementDatasetSchema.model_validate(metadata["dataset_schema"])
-    assert dataset_schema == expected_schema
-    assert dataset_schema.dimensions[0].id == "shot"
-
-
 def test_measurement_dataset_round_trip() -> None:
     record = signal_record()
     schema = infer_measurement_dataset_schema(
@@ -129,16 +68,14 @@ def test_measurement_dataset_round_trip() -> None:
         records=[record],
     )
     dataset = MeasurementDataset(
-        artifact_id="raw-measurements",
-        ref="artifacts/raw-measurements.jsonl",
+        dataset_id="raw-measurements",
         schema=schema,
         records=[record],
         metadata={"dataset_role": "raw"},
     )
     restored = assert_model_round_trip(dataset)
 
-    assert restored.artifact_id == "raw-measurements"
-    assert restored.ref == "artifacts/raw-measurements.jsonl"
+    assert restored.dataset_id == "raw-measurements"
     assert restored.dataset_schema.primary_observables == ["signal"]
     assert restored.records[0].point_index == 0
     assert dataset.model_dump(mode="json", by_alias=True)["schema"]["dataset_id"] == (

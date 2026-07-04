@@ -4,8 +4,9 @@ from pathlib import Path
 
 import scopecat.authoring as authoring
 from scopecat.authoring import ExperimentRecipe, ExperimentTemplate
-from scopecat.authoring.expressions import ExperimentAsset, linspace
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.authoring.expressions import AssetInput, linspace
+from scopecat.config_profiles import load_config_profile
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.models.provider import ProviderOptionDescription
 
@@ -57,7 +58,7 @@ def simple_template() -> ExperimentTemplate:
     )
 
 
-def custom_asset_recipe(program: ExperimentAsset | str) -> ExperimentRecipe:
+def custom_asset_recipe(program: AssetInput | str) -> ExperimentRecipe:
     return authoring.recipe(
         id="custom-echo",
         experiment_id="custom-echo",
@@ -78,5 +79,5 @@ def custom_asset_recipe(program: ExperimentAsset | str) -> ExperimentRecipe:
         bindings=[
             authoring.asset_binding("source.set_frequency.program", program),
         ],
-        assets=[program] if isinstance(program, ExperimentAsset) else [],
+        assets=[program] if not isinstance(program, str) else [],
     )

@@ -50,17 +50,9 @@ def test_candidate_config_resolves_parameter_change_and_runs_follow_up(
         "drive_frequency",
         note="checked parameter change",
     )
-    change_set = run.data().json("drive_frequency").content
-    candidate_config_artifact = run.data().list(kind="candidate_config")[0]
-    candidate_config = run.data().json(candidate_config_artifact.id).content
 
     assert decision.decision == "approved"
-    assert candidate_config_artifact.kind == "candidate_config"
-    assert change_set["schema_version"] == "scopecat.parameter_change_set.v1"
-    assert change_set["patches"][0]["parameter_id"] == "drive_frequency"
-    assert change_set["patches"][0]["value"] == {"value": 5.5, "unit": "GHz"}
-    assert candidate_config["source"]["kind"] == "analysis_candidate_config"
-    assert candidate_config["source"]["change_set_ids"] == ["drive_frequency"]
+    assert candidate.change_set_ids == ("drive_frequency",)
     updated = follow_up.config.parameter_state.scalar_value_set().get("drive_frequency")
     assert updated is not None
     assert updated.quantity.value == 5.5

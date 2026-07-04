@@ -9,6 +9,8 @@ from demo_lab_readout_frequency_testkit import (
     readout_frequency_provider,
 )
 from scopecat.config_registry import (
+    CandidateConfigRegistrySource,
+    DirectConfigRegistrySource,
     load_config_registry_entry,
     resolve_config_registry_config_source,
 )
@@ -36,10 +38,10 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
     )
     initial_entry = registration.entry
     active_state = registration.active_state
-    assert initial_entry.source_kind == "direct_config_profile"
+    assert isinstance(initial_entry.source, DirectConfigRegistrySource)
     assert active_state.active_entry_id == "readout-frr-seed"
 
-    first_active_config, first_provenance = resolve_config_registry_config_source(
+    first_active_config, first_config_source = resolve_config_registry_config_source(
         selector="active",
         workspace=tmp_path,
     )
@@ -48,6 +50,7 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
         experiment=readout_frequency_experiment(),
         instrument_provider=readout_frequency_provider(),
         workspace=tmp_path,
+        config_source=first_config_source,
     )
     run_id = first_run.run_id
 
@@ -58,10 +61,10 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
         value=5.94,
         unit="GHz",
     )
-    assert first_config.source is not None
-    assert first_config.source.selector == "active"
-    assert first_config.source.entry_id == "readout-frr-seed"
-    assert first_provenance.entry_id == "readout-frr-seed"
+    assert first_run.config_source is not None
+    assert first_run.config_source.kind == "config_registry"
+    assert first_run.config_source.selector == "active"
+    assert first_run.config_source.entry_id == "readout-frr-seed"
 
     update_result = execute_readout_frequency_analysis_update(
         run=run,
@@ -76,37 +79,26 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
         entry_id=update_result.config_registry_entry_id,
         workspace=tmp_path,
     )
-    assert entry.source_kind == "candidate_config"
+    assert isinstance(entry.source, CandidateConfigRegistrySource)
     assert entry.registered_by == "operator"
-    assert entry.source_run_id == run_id
-    assert entry.change_set_ids == ["readout_frequency"]
-    assert entry.change_set_artifact_ids == [update_result.change_set_artifact_id]
-    assert entry.source_candidate_artifact_id == update_result.candidate_artifact_id
+    assert entry.source.run_id == run_id
+    assert entry.source.change_set_ids == ["readout_frequency"]
+    assert entry.source.candidate_record_id == update_result.candidate_record_id
 
     candidate_config = ConfigProfileSnapshot.model_validate(
-        run.data()
-        .json(
-            update_result.candidate_artifact_id,
-            expected_kind="candidate_config",
-        )
-        .content
+        run.record_json(update_result.candidate_record_id).content
     )
-    candidate_artifact = run.data().artifact(
-        update_result.candidate_artifact_id,
-        expected_kind="candidate_config",
-    )
-    assert candidate_artifact.id == entry.source_candidate_artifact_id
     assert _parameter_value(candidate_config, "readout_frequency") == Quantity(
         value=5.953,
         unit="GHz",
     )
 
-    active_config, provenance = resolve_config_registry_config_source(
+    active_config, config_source = resolve_config_registry_config_source(
         selector="active",
         workspace=tmp_path,
     )
-    assert provenance.selector == "active"
-    assert provenance.entry_id == update_result.config_registry_entry_id
+    assert config_source.selector == "active"
+    assert config_source.entry_id == update_result.config_registry_entry_id
     assert _parameter_value(active_config, "readout_frequency") == Quantity(
         value=5.953,
         unit="GHz",
@@ -117,14 +109,16 @@ def test_readout_frequency_parameter_update_loop_activates_config_registry(
         experiment=readout_frequency_experiment(),
         instrument_provider=readout_frequency_provider(),
         workspace=tmp_path,
+        config_source=config_source,
     )
     next_config = lab.get_run(next_run.run_id).config
     assert _parameter_value(next_config, "readout_frequency") == Quantity(
         value=5.953,
         unit="GHz",
     )
-    assert next_config.source is not None
-    assert next_config.source.selector == "active"
+    assert next_run.config_source is not None
+    assert next_run.config_source.kind == "config_registry"
+    assert next_run.config_source.selector == "active"
 
 
 def _config_with_readout_frequency(value: float) -> ConfigProfileSnapshot:

@@ -7,7 +7,7 @@ from scopecat.experiments import (
     trace,
     update_param_rows,
 )
-from scopecat.models.artifact import ArtifactRef
+from scopecat.models.artifact import ExperimentAsset
 from scopecat.models.parameter import Quantity
 from scopecat.relations import (
     col,
@@ -180,8 +180,8 @@ def test_kernel_plan_carries_parameter_build_diagnostics() -> None:
     assert plan.diagnostics == params.diagnostics
 
 
-def test_kernel_plan_carries_typed_artifact_refs() -> None:
-    artifact = ArtifactRef(
+def test_kernel_plan_carries_typed_artifacts() -> None:
+    artifact = ExperimentAsset(
         id="compiled-waveforms",
         kind="waveform_bundle",
         content_hash=_hash("waveforms"),

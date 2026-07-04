@@ -2,12 +2,13 @@
 
 from scopecat.config_registry.local import (
     ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR,
+    CandidateConfigRegistrySource,
     ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
-    ConfigRegistryConfigSourceProvenance,
     ConfigRegistryEntry,
+    ConfigRegistryEntrySource,
     ConfigRegistryIndex,
-    ConfigRegistryRegistrationJob,
+    DirectConfigRegistrySource,
     activate_config_registry_entry,
     list_config_registry_entries,
     load_active_config_registry_config,
@@ -24,12 +25,13 @@ from scopecat.config_registry.local import (
 
 __all__ = [
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
+    "CandidateConfigRegistrySource",
     "ConfigRegistryActivationRecord",
     "ConfigRegistryActiveState",
-    "ConfigRegistryConfigSourceProvenance",
     "ConfigRegistryEntry",
+    "ConfigRegistryEntrySource",
     "ConfigRegistryIndex",
-    "ConfigRegistryRegistrationJob",
+    "DirectConfigRegistrySource",
     "activate_config_registry_entry",
     "list_config_registry_entries",
     "load_active_config_registry_config",

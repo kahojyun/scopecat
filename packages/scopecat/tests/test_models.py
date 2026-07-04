@@ -3,10 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from scopecat.models.config import (
-    ConfigProfile,
-    load_config_profile,
-)
+from scopecat.config_profiles import load_config_profile
 from scopecat.models.parameter import (
     ParameterCatalog,
     ParameterState,
@@ -16,21 +13,9 @@ from scopecat.models.parameter import (
     ParameterValueSet,
     Quantity,
 )
-from tests.support.records import assert_model_round_trip, read_model
+from tests.support.records import assert_model_round_trip
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
-
-
-def test_config_profile_round_trip() -> None:
-    config = read_model(EXAMPLE_DIR / "config-profile.json", ConfigProfile)
-    restored = assert_model_round_trip(
-        config,
-        schema_version="scopecat.config_profile.v0",
-    )
-
-    assert restored.system_ref == "system-spec.json"
-    assert restored.environment_ref == "environment-spec.json"
-    assert restored.parameter_state_ref == "parameter-state.json"
 
 
 def test_config_profile_snapshot_round_trip() -> None:
@@ -40,8 +25,7 @@ def test_config_profile_snapshot_round_trip() -> None:
         schema_version="scopecat.config_profile_snapshot.v0",
     )
 
-    assert restored.source is not None
-    assert restored.source.system_ref is not None
+    assert "source" not in restored.model_dump(mode="python")
     assert restored.parameter_build is not None
     assert restored.parameter_build.schema_version == (
         "scopecat.parameter_build_snapshot.v1"

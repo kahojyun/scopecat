@@ -46,10 +46,12 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
         config=active_config.config,
         experiment=load_experiment(),
         workspace=tmp_path,
+        config_source=active_config.config_source,
     )
 
     assert summary.outputs[1].kind == "artifact"
     assert candidate.parameter_changes[0].patches[0].parameter_id == "drive_frequency"
     assert activation.entry.id == "candidate-best-signal"
-    assert active_config.provenance is not None
+    assert active_config.config_source is not None
     assert next_run.status == "completed"
+    assert next_run.config_source == active_config.config_source

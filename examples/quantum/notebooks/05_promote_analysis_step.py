@@ -30,8 +30,8 @@ overview = completed_run.overview()
 patch = candidate.parameter_changes[0].patches[0]
 summary = {
     "run": completed_run.id,
-    "analysis": saved_analysis.artifact.id,
-    "overview_artifacts": len(overview.artifact_refs),
+    "analysis": saved_analysis.record.id,
+    "run_artifacts": len(completed_run.artifacts),
     "candidate_parameter_change": patch.parameter_id,
 }
 print(summary)

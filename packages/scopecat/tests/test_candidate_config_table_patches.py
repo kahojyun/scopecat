@@ -3,6 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
+from scopecat.config_registry import (
+    CandidateConfigRegistrySource,
+    load_config_registry_config,
+)
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import (
     ParameterTable,
@@ -13,7 +17,6 @@ from scopecat.models.parameter import (
 from scopecat.runs import open_run_store
 from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.config_registry import signal_run_with_parameter_change
-from tests.support.records import assert_artifact_ref, read_model
 
 
 def test_candidate_config_activation_applies_table_patches(tmp_path: Path) -> None:
@@ -93,17 +96,11 @@ def test_candidate_config_activation_applies_table_patches(tmp_path: Path) -> No
         entry_id="candidate-table-patch",
     )
     entry = activation.entry
+    assert isinstance(entry.source, CandidateConfigRegistrySource)
 
-    updated_manifest = storage.read_manifest(run_id)
-    assert entry.candidate_artifact_id is not None
-    candidate_config_artifact = assert_artifact_ref(
-        updated_manifest.artifact_refs,
-        entry.candidate_artifact_id,
-        kind="candidate_config",
-    )
-    candidate_config = read_model(
-        storage.ref_path(run_id, candidate_config_artifact.path),
-        ConfigProfileSnapshot,
+    candidate_config = load_config_registry_config(
+        entry_id=entry.id,
+        workspace=tmp_path,
     )
     table = candidate_config.parameter_state.tables[0]
     assert table.id == "drive_channels"

@@ -6,16 +6,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from scopecat._manifest_updates import write_manifest_artifacts
+from scopecat._manifest_updates import write_manifest_records
+from scopecat._storage.refs import record_content_ref
 from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
 from scopecat.ids import artifact_slug
-from scopecat.models.artifact import Artifact
-from scopecat.models.config import ConfigProfileSnapshot, ConfigProfileSnapshotSource
+from scopecat.models.artifact import RunRecordEntry
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import ParameterChangeSet
 from scopecat.parameter_changes import (
     is_safe_parameter_change_id,
-    parameter_change_set_artifact,
+    parameter_change_set_record,
 )
 from scopecat.parameters import apply_parameter_patches, build_parameter_snapshot
 from scopecat.runs.access import open_run_store
@@ -51,16 +52,12 @@ class CandidateConfig:
 class ResolvedCandidateConfig:
     candidate: CandidateConfig
     config: ConfigProfileSnapshot
-    change_set_artifacts: tuple[Artifact, ...]
-    candidate_config_artifact: Artifact
+    change_set_records: tuple[RunRecordEntry, ...]
+    candidate_config_record: RunRecordEntry
 
     @property
-    def change_set_artifact_ids(self) -> tuple[str, ...]:
-        return tuple(artifact.id for artifact in self.change_set_artifacts)
-
-    @property
-    def candidate_config_artifact_id(self) -> str:
-        return self.candidate_config_artifact.id
+    def candidate_config_record_id(self) -> str:
+        return self.candidate_config_record.id
 
 
 def resolve_candidate_config(
@@ -77,7 +74,6 @@ def _build_candidate_config_snapshot(
     *,
     config: ConfigProfileSnapshot,
     changes: Sequence[ParameterChangeSet],
-    source: ConfigProfileSnapshotSource,
 ) -> ConfigProfileSnapshot:
     parameter_state = config.parameter_state
     for index, change in enumerate(changes):
@@ -108,7 +104,6 @@ def _build_candidate_config_snapshot(
         | {
             "parameter_state": parameter_state,
             "parameter_build": parameter_build,
-            "source": source,
         }
     )
 
@@ -122,59 +117,44 @@ def _resolve_candidate_config(
     storage = open_run_store(workspace)
     source_config = storage.read_config_profile_snapshot(candidate.source_run_id)
     candidate_id = _candidate_config_id(candidate)
-    candidate_artifact_id = f"{candidate_id}-candidate-config"
-    change_artifacts = tuple(
-        parameter_change_set_artifact(
+    candidate_record_id = f"{candidate_id}-candidate-config"
+    change_records = tuple(
+        parameter_change_set_record(
             change=change,
-            source="analysis_candidate_config",
-            analysis_title=candidate.analysis_title,
-            analysis_key=candidate.analysis_key,
         )
         for change in candidate.changes
     )
     candidate_config = _build_candidate_config_snapshot(
         config=source_config,
         changes=candidate.changes,
-        source=ConfigProfileSnapshotSource(
-            kind="analysis_candidate_config",
-            source_run_id=candidate.source_run_id,
-            change_set_ids=list(candidate.change_set_ids),
-            change_set_artifact_ids=[artifact.id for artifact in change_artifacts],
-            candidate_artifact_id=candidate_artifact_id,
-        ),
     )
-    for change, artifact in zip(candidate.changes, change_artifacts, strict=True):
-        storage.write_model(candidate.source_run_id, artifact.path, change)
-    candidate_artifact = Artifact(
-        id=candidate_artifact_id,
+    for change, record in zip(candidate.changes, change_records, strict=True):
+        storage.write_model(
+            candidate.source_run_id,
+            record_content_ref(record_id=record.id, kind=record.kind),
+            change,
+        )
+    candidate_record = RunRecordEntry(
+        id=candidate_record_id,
         kind="candidate_config",
-        path=_candidate_config_record_ref(candidate_id),
         media_type="application/json",
-        metadata={
-            "source": "analysis_candidate_config",
-            "source_parameter_change_artifact_ids": [
-                artifact.id for artifact in change_artifacts
-            ],
-            "analysis_title": candidate.analysis_title,
-            "analysis_key": candidate.analysis_key,
-        },
     )
     storage.write_model(
         candidate.source_run_id,
-        candidate_artifact.path,
+        record_content_ref(record_id=candidate_record.id, kind=candidate_record.kind),
         candidate_config,
     )
     manifest = storage.read_manifest(candidate.source_run_id)
-    write_manifest_artifacts(
+    write_manifest_records(
         storage=storage,
         manifest=manifest,
-        artifacts=[*change_artifacts, candidate_artifact],
+        records=[*change_records, candidate_record],
     )
     return ResolvedCandidateConfig(
         candidate=candidate,
         config=candidate_config,
-        change_set_artifacts=change_artifacts,
-        candidate_config_artifact=candidate_artifact,
+        change_set_records=change_records,
+        candidate_config_record=candidate_record,
     )
 
 
@@ -211,7 +191,7 @@ def _validate_candidate(candidate: CandidateConfig) -> None:
                         severity="error",
                         code="parameter_change_invalid_id",
                         message=(
-                            "parameter change id is not safe for artifact paths: "
+                            "parameter change id is not safe for record paths: "
                             f"{change.id}"
                         ),
                         path="parameter_change.id",
@@ -235,10 +215,6 @@ def _validate_candidate(candidate: CandidateConfig) -> None:
 def _candidate_config_id(candidate: CandidateConfig) -> str:
     selected = "-".join(artifact_slug(change.id) for change in candidate.changes)
     return f"candidate-{artifact_slug(candidate.analysis_key)}-{selected}"
-
-
-def _candidate_config_record_ref(candidate_id: str) -> str:
-    return f"artifacts/{candidate_id}.json"
 
 
 __all__ = [

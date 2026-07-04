@@ -6,6 +6,7 @@ from pathlib import Path
 
 import scopecat as sc
 from pydantic import BaseModel, ConfigDict
+from scopecat.config_registry import CandidateConfigRegistrySource
 from scopecat.workflows import register_and_activate_candidate_config
 
 from quantum_lab_demo.readout.analysis_steps import ReadoutFrequencyAnalysisStep
@@ -18,11 +19,9 @@ class ReadoutFrequencyParameterUpdateResult(BaseModel):
 
     run_id: str
     change_set_id: str
-    change_set_artifact_id: str
-    candidate_artifact_id: str
+    candidate_record_id: str
     config_registry_entry_id: str
     active_entry_id: str
-    active_config_ref: str
 
 
 def execute_readout_frequency_parameter_update(
@@ -67,16 +66,14 @@ def execute_readout_frequency_analysis_update(
         operator=operator,
         note=update_note,
     )
-    candidate_artifact_id = result.entry.candidate_artifact_id
-    if candidate_artifact_id is None:
-        raise AssertionError("candidate activation did not record candidate artifact")
+    source = result.entry.source
+    if not isinstance(source, CandidateConfigRegistrySource):
+        raise AssertionError("candidate activation did not record candidate record")
 
     return ReadoutFrequencyParameterUpdateResult(
         run_id=run.id,
-        change_set_id=result.entry.change_set_ids[0],
-        change_set_artifact_id=result.entry.change_set_artifact_ids[0],
-        candidate_artifact_id=candidate_artifact_id,
+        change_set_id=source.change_set_ids[0],
+        candidate_record_id=source.candidate_record_id,
         config_registry_entry_id=result.entry.id,
         active_entry_id=result.active_state.active_entry_id,
-        active_config_ref=result.active_state.active_config_ref,
     )

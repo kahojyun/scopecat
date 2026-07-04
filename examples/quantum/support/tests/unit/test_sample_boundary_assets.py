@@ -37,9 +37,9 @@ def test_sample_sequence_compilation_stays_domain_asset_boundary(
             "application/vnd.scopecat.opaque+json",
         ),
     ]
-    assert [(asset.uri, asset.path, asset.content_hash) for asset in plan.assets] == [
-        ("scopecat-asset:q0-sqg-rb-sequence", None, None),
-        ("scopecat-asset:q0-sqg-rb-pulsedict", None, None),
+    assert [(asset.uri, asset.content_hash) for asset in plan.assets] == [
+        ("scopecat-asset:q0-sqg-rb-sequence", None),
+        ("scopecat-asset:q0-sqg-rb-pulsedict", None),
     ]
     assert [point.row["clifford_count"] for point in plan.points] == [
         Quantity(value=4, unit="count"),

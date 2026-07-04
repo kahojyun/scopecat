@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from scopecat.config_registry import DirectConfigRegistrySource
 from scopecat.errors import ValidationFailed
-from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.workflows import (
     activate_config_entry,
     load_active_config,
@@ -15,7 +15,6 @@ from scopecat.workflows import (
     rollback_config,
     validate_config_profile,
 )
-from tests.support.records import read_model
 from tests.support.workflow_fixtures import (
     WORKFLOW_FIXTURE_DIR as EXAMPLE_DIR,
 )
@@ -32,7 +31,7 @@ def test_resolve_config_source_loads_file_or_active_registry(
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
     assert file_source.config.workspace_id == "example-workspace"
-    assert file_source.provenance is None
+    assert file_source.config_source is None
 
     registration = register_and_activate_config_profile(
         config=file_source.config,
@@ -45,11 +44,10 @@ def test_resolve_config_source_loads_file_or_active_registry(
     active_source = resolve_config_source(workspace=tmp_path, config_entry="active")
     loaded_active = load_active_config(workspace=tmp_path)
 
-    assert active_source.provenance is not None
-    assert active_source.provenance.entry_id == entry.id
-    assert loaded_active.provenance is not None
-    assert loaded_active.provenance.entry_id == entry.id
-    assert loaded_active.config.source is not None
+    assert active_source.config_source is not None
+    assert active_source.config_source.entry_id == entry.id
+    assert loaded_active.config_source is not None
+    assert loaded_active.config_source.entry_id == entry.id
 
 
 def test_config_workflow_validates_file_and_config_object() -> None:
@@ -92,7 +90,6 @@ def test_config_workflow_registers_direct_entry_idempotently(
         entry_id="seed",
         registered_by="operator",
         note="seed config",
-        source_ref="fixtures/core/simple_scan/config-profile.json",
     )
     repeated = register_config_profile(
         config=load_config(),
@@ -100,19 +97,17 @@ def test_config_workflow_registers_direct_entry_idempotently(
         entry_id="seed",
         registered_by="operator",
         note="seed config",
-        source_ref="fixtures/core/simple_scan/config-profile.json",
     )
 
-    assert result.job.id == "seed"
-    assert result.job.input_refs == ["fixtures/core/simple_scan/config-profile.json"]
-    assert result.entry.source_kind == "direct_config_profile"
-    persisted_config = read_model(
-        tmp_path / result.entry.config_ref,
-        ConfigProfileSnapshot,
+    assert isinstance(result.source, DirectConfigRegistrySource)
+    persisted_config = resolve_config_source(
+        workspace=tmp_path,
+        config_entry=result.id,
     )
-    assert persisted_config == config
-    assert repeated.job.id == result.job.id
-    assert repeated.entry.id == result.entry.id
+    assert persisted_config.config.model_copy(update={"source": None}) == (
+        config.model_copy(update={"source": None})
+    )
+    assert repeated.id == result.id
 
 
 def test_config_workflow_register_activate_activate_and_rollback(

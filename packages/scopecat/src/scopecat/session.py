@@ -36,12 +36,11 @@ from scopecat.parameter_changes import (
 )
 from scopecat.relations import col, grid, linspace, literal_rows
 from scopecat.run_overview import RunOverview, build_run_overview
-from scopecat.run_refs import RunRef
+from scopecat.run_selectors import RunSelector
 from scopecat.session_analysis import (
     Analysis,
-    AnalysisArtifactRef,
     AnalysisContext,
-    AnalysisInputRef,
+    AnalysisInput,
     AnalysisOutput,
     AnalysisStep,
     PromotedAnalysisStep,
@@ -59,7 +58,7 @@ from scopecat.session_templates import (
 from scopecat.workflows import (
     ConfigProfileInput,
     PreviewExperimentResult,
-    RegisterAndActivateCandidateConfigResult,
+    RegisteredConfigActivation,
     ValidateExperimentResult,
     compare_runs,
     list_runs,
@@ -221,8 +220,8 @@ class Workspace:
 
     def compare(
         self,
-        baseline: RunHandle | RunRef,
-        candidate: RunHandle | RunRef,
+        baseline: RunHandle | RunSelector,
+        candidate: RunHandle | RunSelector,
         *,
         observable: str | None = None,
     ) -> ComparisonHandle:
@@ -236,10 +235,10 @@ class Workspace:
         return ComparisonHandle(
             session=self,
             baseline_run_id=baseline_id,
-            workflow=result,
+            result=result,
         )
 
-    def overview(self, run: RunHandle | RunRef) -> RunOverview:
+    def overview(self, run: RunHandle | RunSelector) -> RunOverview:
         return build_run_overview(
             run_id=run_handle_id(run),
             workspace=self.workspace,
@@ -251,13 +250,13 @@ class Workspace:
             for manifest in list_runs(workspace=self.workspace)
         )
 
-    def get_run(self, run: RunRef) -> RunHandle:
+    def get_run(self, run: RunSelector) -> RunHandle:
         details = load_run(run_id=run_handle_id(run), workspace=self.workspace)
         return RunHandle(session=self, manifest=details.manifest)
 
     def review_parameter_changes(
         self,
-        run: RunHandle | RunRef,
+        run: RunHandle | RunSelector,
         selector: str,
         *,
         reviewer: str | None = None,
@@ -282,7 +281,7 @@ class Workspace:
         operator: str | None = None,
         note: str = "",
         activation_note: str | None = None,
-    ) -> RegisterAndActivateCandidateConfigResult:
+    ) -> RegisteredConfigActivation:
         return register_and_activate_candidate_config(
             candidate=candidate,
             workspace=self.workspace,
@@ -432,9 +431,8 @@ def _safe_experiment_id(name: str) -> str:
 
 __all__ = [
     "Analysis",
-    "AnalysisArtifactRef",
     "AnalysisContext",
-    "AnalysisInputRef",
+    "AnalysisInput",
     "AnalysisOutput",
     "AnalysisStep",
     "CandidateConfig",

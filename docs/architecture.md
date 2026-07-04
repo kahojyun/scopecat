@@ -13,7 +13,7 @@ example support packages, or private adapters.
 Structured execution follows this stack:
 
 ```text
-ExperimentModule + ExperimentTemplate + RunRequest + ConfigSnapshot
+ExperimentModule + ExperimentTemplate + RunRequest + ConfigProfileSnapshot
   -> ExperimentSpec
   -> ExperimentPlan
   -> DeviceProgram
@@ -22,7 +22,7 @@ ExperimentModule + ExperimentTemplate + RunRequest + ConfigSnapshot
 ```
 
 `ExperimentModule` and `ExperimentTemplate` are reusable authoring objects.
-`RunRequest` is the user's request for one run or segment. `ConfigSnapshot` is
+`RunRequest` is the user's request for one run or segment. `ConfigProfileSnapshot` is
 the immutable configuration input. `ExperimentSpec` is the closed per-segment
 HIR produced from those inputs. `ExperimentPlan` is the lower execution
 contract. `DeviceProgram` is the device-aware command plan. Runtime and
@@ -56,7 +56,7 @@ decoded backend results are also records.
 
 | Concept | Responsibility |
 | --- | --- |
-| `ConfigSnapshot` | Immutable accepted configuration, including parameters, topology, environment, routing, registry refs, and provenance. |
+| `ConfigProfileSnapshot` | Immutable accepted configuration, including parameters, topology, environment, routing, and registry metadata. |
 | `DerivedConfigView` | Deterministic projection from config and other explicit inputs. It may be cached, hashed, and diagnosed, but is not an accepted-state root. |
 | `ExperimentModule` | Reusable experiment library declaring point variables, defaults, state helpers, record helpers, program assets, dependencies, and pure utility boundaries. |
 | `ExperimentTemplate` | Runnable entrypoint with input schema, defaults, label, description, category, and calls into modules. Templates should not compose other templates. |
@@ -79,7 +79,7 @@ decoded backend results are also records.
 
 `ExperimentSpec` is the authority for one structured run segment. It is not the
 reusable recipe. Reusable intent lives in modules and templates; operator input
-lives in `RunRequest`; accepted configuration lives in `ConfigSnapshot`.
+lives in `RunRequest`; accepted configuration lives in `ConfigProfileSnapshot`.
 
 A spec is semantically complete even when stored as immutable refs:
 
@@ -178,16 +178,17 @@ The default shape rule is conservative:
 
 ## Config And Derived Views
 
-`ConfigSnapshot` is the authoritative planning input. It may contain accepted
-parameter state, topology, environment, routing, instrument registry metadata,
-and provenance. Derived views such as planning parameter views, backend compile
+`ConfigProfileSnapshot` is the authoritative planning input. It may contain
+accepted parameter state, topology, environment, routing, and instrument
+registry metadata. Run-level config source coordinates live on the run request
+or manifest. Derived views such as planning parameter views, backend compile
 views, topology views, or analysis feature views are deterministic projections.
 
 Candidate configs patch accepted config, not derived views:
 
 ```text
 ParameterChangeSet / ConfigPatch
-  -> candidate ConfigSnapshot
+  -> candidate ConfigProfileSnapshot
   -> recompute affected views
   -> validate / diff / preview
   -> activate explicitly

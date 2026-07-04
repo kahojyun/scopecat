@@ -5,49 +5,31 @@ from pathlib import Path
 import pytest
 
 from scopecat.errors import ValidationFailed
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunArtifactEntry
 from scopecat.run_overview import build_run_overview
-from scopecat.runs import open_run_store
-from tests.support.config_registry import seed_best_signal_parameter_change
+from scopecat.runs import artifact_storage_ref, open_run_store
 from tests.support.run_overview import run_signal_experiment
 
 
-def test_build_run_overview_rejects_parameter_change_path_escape(
-    tmp_path: Path,
-) -> None:
-    run_id = run_signal_experiment(tmp_path)
-    seed_best_signal_parameter_change(tmp_path=tmp_path, run_id=run_id)
-    storage = open_run_store(tmp_path)
-    manifest = storage.read_manifest(run_id)
-    change_artifact = next(
-        artifact
-        for artifact in manifest.artifact_refs
-        if artifact.kind == "parameter_change_set"
-    )
-    change_artifact.path = "../escape.json"
-    storage.write_manifest(manifest)
-
-    with pytest.raises(ValidationFailed) as error:
-        build_run_overview(run_id=run_id, workspace=tmp_path)
-
-    assert error.value.diagnostics[0].code == "artifact_path_escape"
+def test_run_local_artifact_rejects_path_id() -> None:
+    with pytest.raises(ValueError):
+        RunArtifactEntry(id="../escape", kind="bad")
 
 
 def test_build_run_overview_rejects_directory_artifact(tmp_path: Path) -> None:
     run_id = run_signal_experiment(tmp_path)
     storage = open_run_store(tmp_path)
     manifest = storage.read_manifest(run_id)
-    manifest.artifact_refs.append(
-        Artifact(
-            id="bad-dir",
-            kind="bad",
-            path="artifacts",
-            media_type="application/json",
-        )
+    artifact = RunArtifactEntry(
+        id="bad-dir",
+        kind="bad",
+        media_type="application/json",
     )
+    manifest.artifacts.append(artifact)
     storage.write_manifest(manifest)
+    storage.ref_path(run_id, artifact_storage_ref(artifact)).mkdir(parents=True)
 
     with pytest.raises(ValidationFailed) as error:
         build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert error.value.diagnostics[0].code == "overview_artifact_is_directory"
+    assert error.value.diagnostics[0].code == "overview_ref_is_directory"

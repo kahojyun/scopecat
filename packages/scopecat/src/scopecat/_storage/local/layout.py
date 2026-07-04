@@ -60,9 +60,9 @@ def _path_escape(ref: str) -> ValidationFailed:
         [
             _diagnostic(
                 "error",
-                "artifact_path_escape",
-                f"artifact path escapes run directory: {ref}",
-                "artifact",
+                "run_ref_path_escape",
+                f"run ref path escapes run directory: {ref}",
+                "ref",
             )
         ]
     )

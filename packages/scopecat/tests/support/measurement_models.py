@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from scopecat.models.artifact import MeasurementDatasetRole
 from scopecat.models.measurement import (
+    MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementRecord,

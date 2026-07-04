@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import ExperimentSpec, plan_experiment
-from scopecat.models.config import load_config_profile
 from tests.support.records import read_model
 
 REPO_ROOT = Path(__file__).parents[3]

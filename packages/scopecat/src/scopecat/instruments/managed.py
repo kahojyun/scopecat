@@ -30,7 +30,7 @@ from scopecat.instruments.state import (
     StatePatchField,
     StateValue,
 )
-from scopecat.models.artifact import ArtifactRef
+from scopecat.models.artifact import ExperimentAsset
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.models.provider import ProviderOptionDescription
@@ -165,10 +165,10 @@ class MeasurementContext:
 class ProviderBuildContext:
     config: ConfigProfileSnapshot
     experiment: ExperimentSpec
-    assets: Mapping[str, ArtifactRef]
+    assets: Mapping[str, ExperimentAsset]
     diagnostics: list[Diagnostic] = dc_field(default_factory=list)
 
-    def asset(self, asset_id: str) -> ArtifactRef | None:
+    def asset(self, asset_id: str) -> ExperimentAsset | None:
         return self.assets.get(asset_id)
 
     def error(
@@ -205,7 +205,7 @@ class ManagedInstrument:
         capabilities: Sequence[ManagedCapability],
         metadata: Mapping[str, Any] | None = None,
         initial_state: Mapping[tuple[str, str], StateValue] | None = None,
-        asset_catalog: Mapping[str, ArtifactRef] | None = None,
+        asset_catalog: Mapping[str, ExperimentAsset] | None = None,
     ) -> None:
         self.instrument_id = instrument_id
         self.implementation_id = implementation_id
@@ -221,7 +221,7 @@ class ManagedInstrument:
         }
         self._capability_ids = {capability.id for capability in self._capabilities}
 
-    def attach_assets(self, assets: Mapping[str, ArtifactRef]) -> None:
+    def attach_assets(self, assets: Mapping[str, ExperimentAsset]) -> None:
         self._asset_catalog = dict(assets)
 
     def describe(self) -> InstrumentDescription:
@@ -483,7 +483,7 @@ class ManagedInstrumentProvider:
 
 def _experiment_assets(
     experiment: ExperimentSpec,
-) -> dict[str, ArtifactRef]:
+) -> dict[str, ExperimentAsset]:
     return {asset.id: asset for asset in experiment.assets}
 
 
@@ -591,7 +591,7 @@ def _validate_asset_field(
     field_path: str,
     value: StateValue,
     spec: ManagedCapabilityField,
-    assets: Mapping[str, ArtifactRef],
+    assets: Mapping[str, ExperimentAsset],
 ) -> list[Diagnostic]:
     if not assets:
         return []

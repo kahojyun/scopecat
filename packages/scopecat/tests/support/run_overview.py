@@ -4,9 +4,10 @@ from pathlib import Path
 
 import scopecat as sc
 from scopecat.candidate_configs import resolve_candidate_config
+from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import resolve_config_registry_config_source
 from scopecat.experiments import ExperimentSpec
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.parameter_changes import review_parameter_changes
 from scopecat.run_comparison import execute_run_comparison
 from scopecat.workflows import register_and_activate_candidate_config
@@ -84,7 +85,7 @@ def config_registry_sourced_signal_run(tmp_path: Path, *, selector: str) -> str:
         else "candidate-best-signal-analysis-candidate-config"
     )
 
-    config, _provenance = resolve_config_registry_config_source(
+    config, source = resolve_config_registry_config_source(
         selector=source_selector,
         workspace=tmp_path,
     )
@@ -92,6 +93,7 @@ def config_registry_sourced_signal_run(tmp_path: Path, *, selector: str) -> str:
         config=config,
         experiment=load_experiment(),
         workspace=tmp_path,
+        config_source=source,
     )
     return manifest.run_id
 
@@ -107,7 +109,7 @@ def signal_run_with_active_candidate_comparison(tmp_path: Path) -> str:
         operator="operator",
         note="ready to use",
     )
-    config, _provenance = resolve_config_registry_config_source(
+    config, source = resolve_config_registry_config_source(
         selector="active",
         workspace=tmp_path,
     )
@@ -115,6 +117,7 @@ def signal_run_with_active_candidate_comparison(tmp_path: Path) -> str:
         config=config,
         experiment=load_experiment(),
         workspace=tmp_path,
+        config_source=source,
     )
     execute_run_comparison(
         baseline_run_id=baseline_run_id,

@@ -6,14 +6,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scopecat._storage.local import LocalRunStore
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.run import RunManifest
 from scopecat.results import (
     MeasurementDataset,
     MeasurementDatasetInputDiagnostics,
     MeasurementRecord,
 )
-from scopecat.runs.access import resolve_artifact, validate_run_ref_selector
+from scopecat.runs.access import (
+    artifact_storage_ref,
+    dataset_storage_ref,
+    get_dataset_by_id,
+    resolve_artifact,
+    resolve_dataset,
+    validate_run_entry_selector,
+)
 from scopecat.runs.measurements import (
     read_measurement_dataset_path,
     read_measurement_records_path,
@@ -27,7 +34,9 @@ class StepInputArtifact:
     artifact_id: str
     ref: str
     path: Path
-    artifact: Artifact | None = None
+    artifact: RunArtifactEntry | None = None
+    dataset: RunDatasetEntry | None = None
+    is_dataset: bool = False
 
 
 @dataclass(frozen=True)
@@ -60,15 +69,20 @@ class StepInputResolver:
         self._run_id = run_id
         self._manifest = manifest
         self._input_artifact_ids: list[str] = []
-        self._input_record_refs: list[str] = []
+        self._input_dataset_ids: list[str] = []
+        self._input_records: list[str] = []
 
     @property
     def input_artifact_ids(self) -> tuple[str, ...]:
         return tuple(self._input_artifact_ids)
 
     @property
-    def input_record_refs(self) -> tuple[str, ...]:
-        return tuple(self._input_record_refs)
+    def input_dataset_ids(self) -> tuple[str, ...]:
+        return tuple(self._input_dataset_ids)
+
+    @property
+    def input_records(self) -> tuple[str, ...]:
+        return tuple(self._input_records)
 
     def record_ref(
         self,
@@ -78,7 +92,7 @@ class StepInputResolver:
         path_escape_message: str,
         diagnostic_path: str,
     ) -> None:
-        validate_run_ref_selector(
+        validate_run_entry_selector(
             ref,
             code=path_escape_code,
             message_prefix=path_escape_message,
@@ -95,7 +109,7 @@ class StepInputResolver:
         path_escape_message: str,
         diagnostic_path: str,
     ) -> StepInputArtifact:
-        validate_run_ref_selector(
+        validate_run_entry_selector(
             ref,
             code=path_escape_code,
             message_prefix=path_escape_message,
@@ -106,6 +120,31 @@ class StepInputResolver:
             artifact_id=artifact_id,
             ref=ref,
             path=self._storage.ref_path(self._run_id, ref),
+        )
+
+    def dataset_ref(
+        self,
+        *,
+        dataset_id: str,
+        ref: str,
+        path_escape_code: str,
+        path_escape_message: str,
+        diagnostic_path: str,
+    ) -> StepInputArtifact:
+        validate_run_entry_selector(
+            ref,
+            code=path_escape_code,
+            message_prefix=path_escape_message,
+            path=diagnostic_path,
+        )
+        self._append_input_dataset_id(dataset_id)
+        dataset = get_dataset_by_id(self._manifest, dataset_id)
+        return StepInputArtifact(
+            artifact_id=dataset_id,
+            ref=ref,
+            path=self._storage.ref_path(self._run_id, ref),
+            dataset=dataset,
+            is_dataset=True,
         )
 
     def resolve_artifact(
@@ -128,11 +167,41 @@ class StepInputResolver:
             diagnostic_path=diagnostics.diagnostic_path,
         )
         self._append_input_artifact_id(artifact.id)
+        ref = artifact_storage_ref(artifact)
         return StepInputArtifact(
             artifact_id=artifact.id,
-            ref=artifact.path,
-            path=self._storage.ref_path(self._run_id, artifact.path),
+            ref=ref,
+            path=self._storage.ref_path(self._run_id, ref),
             artifact=artifact,
+        )
+
+    def resolve_dataset(
+        self,
+        *,
+        selector: str,
+        expected_kind: str,
+        diagnostics: ArtifactInputDiagnostics,
+    ) -> StepInputArtifact:
+        dataset = resolve_dataset(
+            manifest=self._manifest,
+            selector=selector,
+            expected_kind=expected_kind,
+            not_found_code=diagnostics.not_found_code,
+            invalid_kind_code=diagnostics.invalid_kind_code,
+            path_escape_code=diagnostics.path_escape_code,
+            not_found_message=diagnostics.not_found_message,
+            invalid_kind_message=diagnostics.invalid_kind_message,
+            path_escape_message=diagnostics.path_escape_message,
+            diagnostic_path=diagnostics.diagnostic_path,
+        )
+        self._append_input_dataset_id(dataset.id)
+        ref = dataset_storage_ref(dataset)
+        return StepInputArtifact(
+            artifact_id=dataset.id,
+            ref=ref,
+            path=self._storage.ref_path(self._run_id, ref),
+            dataset=dataset,
+            is_dataset=True,
         )
 
     def read_measurement_records(
@@ -141,7 +210,10 @@ class StepInputResolver:
         *,
         diagnostics: MeasurementInputDiagnostics,
     ) -> list[MeasurementRecord]:
-        self._append_input_artifact_id(input_artifact.artifact_id)
+        if input_artifact.is_dataset:
+            self._append_input_dataset_id(input_artifact.artifact_id)
+        else:
+            self._append_input_artifact_id(input_artifact.artifact_id)
         return read_measurement_records_path(
             path=input_artifact.path,
             ref=input_artifact.ref,
@@ -158,16 +230,16 @@ class StepInputResolver:
         *,
         diagnostics: MeasurementDatasetInputDiagnostics,
     ) -> MeasurementDataset:
-        self._append_input_artifact_id(input_artifact.artifact_id)
+        self._append_input_dataset_id(input_artifact.artifact_id)
+        if input_artifact.dataset is None:
+            msg = "measurement dataset input requires a resolved RunDatasetEntry"
+            raise AssertionError(msg)
         return read_measurement_dataset_path(
             path=input_artifact.path,
-            artifact_id=input_artifact.artifact_id,
+            dataset_id=input_artifact.artifact_id,
             ref=input_artifact.ref,
-            metadata=(
-                input_artifact.artifact.metadata
-                if input_artifact.artifact is not None
-                else {}
-            ),
+            schema_data=input_artifact.dataset.data_schema,
+            metadata=input_artifact.dataset.metadata,
             diagnostics=diagnostics,
         )
 
@@ -175,6 +247,10 @@ class StepInputResolver:
         if artifact_id not in self._input_artifact_ids:
             self._input_artifact_ids.append(artifact_id)
 
+    def _append_input_dataset_id(self, dataset_id: str) -> None:
+        if dataset_id not in self._input_dataset_ids:
+            self._input_dataset_ids.append(dataset_id)
+
     def _append_input_record_ref(self, ref: str) -> None:
-        if ref not in self._input_record_refs:
-            self._input_record_refs.append(ref)
+        if ref not in self._input_records:
+            self._input_records.append(ref)

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import ExperimentSpec, set_state
-from scopecat.models.artifact import Artifact
-from scopecat.models.config import ConfigProfileSnapshot, load_config_profile
+from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.data_artifact import (
     DataArrayArtifact,
     DataArrayDimension,
@@ -15,7 +16,7 @@ from scopecat.models.data_artifact import (
     DataTableSchema,
 )
 from scopecat.relations import param
-from scopecat.runs import open_run_store
+from scopecat.runs import artifact_storage_ref, dataset_storage_ref, open_run_store
 from tests.support.records import read_model
 
 WORKFLOW_FIXTURE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
@@ -99,58 +100,53 @@ def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
         ],
         primary_variables=["readout_probability"],
     )
-    metrics_ref = "artifacts/metrics.json"
-    matrix_ref = "artifacts/readout-matrix.json"
+    metrics_entry = RunDatasetEntry(
+        id="metrics",
+        kind="data_table",
+        media_type="application/json",
+        role="analysis",
+        schema=metrics_schema.model_dump(mode="json"),
+        metadata={"data_shape": "table"},
+    )
+    matrix_entry = RunDatasetEntry(
+        id="readout-matrix",
+        kind="data_array",
+        media_type="application/json",
+        role="analysis",
+        schema=matrix_schema.model_dump(mode="json"),
+        metadata={"data_shape": "array"},
+    )
+    metrics_ref = dataset_storage_ref(metrics_entry)
+    matrix_ref = dataset_storage_ref(matrix_entry)
+    storage.ref_path(run_id, metrics_ref).parent.mkdir(parents=True, exist_ok=True)
     storage.ref_path(run_id, metrics_ref).write_text(
         DataTableArtifact(
             schema=metrics_schema,
             rows=[{"metric": "visibility", "value": 0.98}],
         ).model_dump_json(by_alias=True)
     )
+    storage.ref_path(run_id, matrix_ref).parent.mkdir(parents=True, exist_ok=True)
     storage.ref_path(run_id, matrix_ref).write_text(
         DataArrayArtifact(
             schema=matrix_schema,
             variables={"readout_probability": [[0.99, 0.03], [0.01, 0.97]]},
         ).model_dump_json(by_alias=True)
     )
-    manifest.artifact_refs.extend(
-        [
-            Artifact(
-                id="metrics",
-                kind="data_table",
-                path=metrics_ref,
-                media_type="application/json",
-                metadata={
-                    "data_shape": "table",
-                    "data_schema": metrics_schema.model_dump(mode="json"),
-                },
-            ),
-            Artifact(
-                id="readout-matrix",
-                kind="data_array",
-                path=matrix_ref,
-                media_type="application/json",
-                metadata={
-                    "data_shape": "array",
-                    "data_schema": matrix_schema.model_dump(mode="json"),
-                },
-            ),
-        ]
-    )
+    manifest.datasets.extend([metrics_entry, matrix_entry])
     storage.write_manifest(manifest)
 
 
 def attach_binary_artifact(workspace: Path, run_id: str) -> None:
     storage = open_run_store(workspace)
     manifest = storage.read_manifest(run_id)
-    binary_ref = "artifacts/binary.bin"
-    storage.ref_path(run_id, binary_ref).write_bytes(b"\x00\x01")
-    manifest.artifact_refs.append(
-        Artifact(
-            id="binary-artifact",
-            kind="binary",
-            path=binary_ref,
-            media_type="application/octet-stream",
-        )
+    binary = RunArtifactEntry(
+        id="binary-artifact",
+        kind="binary",
+        media_type="application/octet-stream",
     )
+    binary_ref = artifact_storage_ref(binary)
+    binary_path = storage.ref_path(run_id, binary_ref)
+    binary_path.parent.mkdir(parents=True, exist_ok=True)
+    binary_path.write_bytes(b"\x00\x01")
+    manifest.artifacts.append(binary)
     storage.write_manifest(manifest)

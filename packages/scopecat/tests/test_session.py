@@ -97,9 +97,12 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     overview = baseline.overview()
 
     assert baseline.id.startswith("run_")
-    assert raw.artifact.id == "raw-measurements"
-    assert saved.source_artifact_ids == ("raw-measurements",)
-    assert baseline.data().list(kind="candidate_config")[0].kind == "candidate_config"
+    assert raw.dataset_entry.id == "raw-measurements"
+    assert [input_ref.target for input_ref in saved.inputs] == ["raw-measurements"]
+    assert any(
+        record.kind == "candidate_config"
+        for record in lab.get_run(baseline.id).manifest.records
+    )
     assert candidate.manifest.status == "completed"
     assert comparison.result.outcome == "unchanged"
     assert comparison_review.review.decision == "accepted"
@@ -134,7 +137,7 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
 
     assert baseline.manifest.status == "completed"
     assert baseline.plan.schema_version == "scopecat.plan_snapshot.v1"
-    assert raw.artifact.id == "raw-measurements"
+    assert raw.dataset_entry.id == "raw-measurements"
     assert (
         candidate_config.parameter_changes[0].patches[0].parameter_id
         == "drive_frequency"

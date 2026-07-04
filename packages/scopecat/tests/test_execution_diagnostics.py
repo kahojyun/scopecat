@@ -5,10 +5,7 @@ from pathlib import Path
 import pytest
 
 from scopecat.errors import ValidationFailed
-from scopecat.instruments import (
-    ExecutionSnapshot,
-    execute_run,
-)
+from scopecat.instruments import execute_run
 from scopecat.instruments.sdk import (
     AcquisitionContext,
     InstrumentResult,
@@ -16,7 +13,7 @@ from scopecat.instruments.sdk import (
 from scopecat.models.parameter import Quantity
 from scopecat.results import MeasurementSink
 from scopecat.runs import open_run_store
-from tests.support.records import read_model
+from scopecat.workflows import read_run_record_json
 from tests.support.signal_instruments import TestSignalInstrument
 from tests.support.workflow_fixtures import load_config, load_experiment
 
@@ -93,15 +90,14 @@ def test_instrument_exception_keeps_failed_run(tmp_path: Path) -> None:
     manifests = open_run_store(tmp_path).list_runs()
     assert len(manifests) == 1
     assert manifests[0].status == "failed"
-    run_dir = tmp_path / "runs" / manifests[0].run_id
-    assert (run_dir / "artifacts" / "execution.snapshot.json").is_file()
-    assert (run_dir / "artifacts" / "raw-measurements.jsonl").read_text() == ""
-    snapshot = read_model(
-        run_dir / "artifacts" / "execution.snapshot.json",
-        ExecutionSnapshot,
+    snapshot = read_run_record_json(
+        run_id=manifests[0].run_id,
+        selector="execution-snapshot",
+        workspace=tmp_path,
+        expected_kind="execution_snapshot",
     )
-    assert snapshot.status == "failed"
-    assert {diagnostic.code for diagnostic in snapshot.diagnostics} >= {
+    assert snapshot.content["status"] == "failed"
+    assert {diagnostic["code"] for diagnostic in snapshot.content["diagnostics"]} >= {
         "instrument_acquire_failed"
     }
 

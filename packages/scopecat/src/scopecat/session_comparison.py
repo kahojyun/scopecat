@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from scopecat.run_comparison import RunComparisonReviewState
-from scopecat.workflows import CompareRunsResult, ReviewRunComparisonResult
+from scopecat.run_comparison import RunComparisonResult, RunComparisonReviewState
+from scopecat.workflows import ReviewRunComparisonResult
 from scopecat.workflows.comparison import review_run_comparison
 
 
@@ -23,15 +23,11 @@ class ComparisonSession(Protocol):
 class ComparisonHandle:
     session: ComparisonSession
     baseline_run_id: str
-    workflow: CompareRunsResult
-
-    @property
-    def result(self):
-        return self.workflow.result
+    result: RunComparisonResult
 
     @property
     def id(self) -> str:
-        return self.workflow.result.comparison_id
+        return self.result.comparison_id
 
     def review(
         self,

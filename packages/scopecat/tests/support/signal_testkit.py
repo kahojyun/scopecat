@@ -20,26 +20,31 @@ from scopecat.experiments import ExperimentSpec, PlanSnapshot
 from scopecat.instruments import ExecutionSnapshot
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
-from scopecat.models.run import RunManifest
+from scopecat.models.run import RunConfigSource, RunManifest
 from scopecat.results import MeasurementRecord
-from scopecat.runs import open_run_store
+from scopecat.runs import dataset_storage_ref, open_run_store, record_storage_ref
 from scopecat.workflows.runs import start_run
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 
 SUMMARY_STATS_STEP = "summary-stats"
-SUMMARY_STATS_INPUT_REF = "artifacts/raw-measurements.jsonl"
-SUMMARY_STATS_RESULT_REF = "artifacts/summary-stats.json"
-SUMMARY_STATS_SUMMARY_REF = "artifacts/summary-stats.md"
+SUMMARY_STATS_INPUT_REF = "data/measurement_dataset/raw-measurements"
+SUMMARY_STATS_RESULT_REF = "artifacts/test_summary_stats_result/summary-stats-result"
+SUMMARY_STATS_SUMMARY_REF = "artifacts/summary/summary-stats-summary"
 BEST_SIGNAL_ANALYSIS_STEP = "best-signal-analysis"
-BEST_SIGNAL_INPUT_REF = "artifacts/raw-measurements.jsonl"
+BEST_SIGNAL_INPUT_REF = "data/measurement_dataset/raw-measurements"
 BEST_SIGNAL_CONFIG_REF = "config-profile.snapshot.json"
 BEST_SIGNAL_PLAN_REF = "plan.snapshot.json"
-BEST_SIGNAL_ANALYSIS_RESULT_REF = "artifacts/best-signal-analysis.json"
-BEST_SIGNAL_ANALYSIS_SUMMARY_REF = "artifacts/best-signal-analysis.md"
 BEST_SIGNAL_ANALYSIS_RESULT_ARTIFACT_ID = "best-signal-analysis-result"
 BEST_SIGNAL_ANALYSIS_SUMMARY_ARTIFACT_ID = "best-signal-analysis-summary"
-RAW_MEASUREMENTS_ARTIFACT_ID = "raw-measurements"
-MEASUREMENT_DATASET_ARTIFACT_KIND = "measurement_dataset"
+BEST_SIGNAL_ANALYSIS_RESULT_REF = (
+    "artifacts/test_best_signal_analysis_result/"
+    f"{BEST_SIGNAL_ANALYSIS_RESULT_ARTIFACT_ID}"
+)
+BEST_SIGNAL_ANALYSIS_SUMMARY_REF = (
+    f"artifacts/summary/{BEST_SIGNAL_ANALYSIS_SUMMARY_ARTIFACT_ID}"
+)
+RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
+MEASUREMENT_DATASET_KIND = "measurement_dataset"
 TEST_STEP_METADATA = {"scope": "test"}
 
 
@@ -116,20 +121,21 @@ class SummaryStatsAnalysisStep:
     id: str = SUMMARY_STATS_STEP
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
-        raw = context.data.measurements(self.selector or RAW_MEASUREMENTS_ARTIFACT_ID)
+        raw = context.data.measurements(self.selector or RAW_MEASUREMENTS_DATASET_ID)
+        input_ref = dataset_storage_ref(raw.dataset_entry)
         result = _build_summary_result(
             run_id=context.run.id,
             step=SUMMARY_STATS_STEP,
-            input_ref=raw.artifact.path,
-            diagnostic_path=raw.artifact.path,
+            input_ref=input_ref,
+            diagnostic_path=input_ref,
             measurements=raw.dataset.records,
         )
         return (
             context.result("summary stats")
             .input(
-                raw.artifact.id,
+                raw.dataset_entry.id,
                 title="raw measurements",
-                expected_kind=MEASUREMENT_DATASET_ARTIFACT_KIND,
+                expected_kind=MEASUREMENT_DATASET_KIND,
             )
             .artifact(
                 title="summary stats result",
@@ -157,7 +163,7 @@ class BestSignalAnalysisStep:
     id: str = BEST_SIGNAL_ANALYSIS_STEP
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
-        raw = context.data.measurements(RAW_MEASUREMENTS_ARTIFACT_ID)
+        raw = context.data.measurements(RAW_MEASUREMENTS_DATASET_ID)
         parameter_id = _sweep_parameter_id(context.data.plan_preview())
         old_value = _old_parameter_value(context.config, parameter_id)
         best_measurement = _best_signal_measurement(raw.dataset.records)
@@ -175,9 +181,9 @@ class BestSignalAnalysisStep:
         return (
             context.result("best signal analysis")
             .input(
-                raw.artifact.id,
+                raw.dataset_entry.id,
                 title="raw measurements",
-                expected_kind=MEASUREMENT_DATASET_ARTIFACT_KIND,
+                expected_kind=MEASUREMENT_DATASET_KIND,
             )
             .artifact(
                 title="best signal analysis result",
@@ -214,12 +220,13 @@ class TestSignalAnalysisStep:
     id: str = BEST_SIGNAL_ANALYSIS_STEP
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
-        raw = context.data.measurements(self.selector or RAW_MEASUREMENTS_ARTIFACT_ID)
+        raw = context.data.measurements(self.selector or RAW_MEASUREMENTS_DATASET_ID)
+        input_ref = dataset_storage_ref(raw.dataset_entry)
         summary = _build_summary_result(
             run_id=context.run.id,
             step=BEST_SIGNAL_ANALYSIS_STEP,
-            input_ref=raw.artifact.path,
-            diagnostic_path=raw.artifact.path,
+            input_ref=input_ref,
+            diagnostic_path=input_ref,
             measurements=raw.dataset.records,
         )
         parameter_id = _sweep_parameter_id(context.data.plan_preview())
@@ -228,9 +235,9 @@ class TestSignalAnalysisStep:
         return (
             context.result("best signal analysis")
             .input(
-                raw.artifact.id,
+                raw.dataset_entry.id,
                 title="raw measurements",
-                expected_kind=MEASUREMENT_DATASET_ARTIFACT_KIND,
+                expected_kind=MEASUREMENT_DATASET_KIND,
             )
             .table(
                 [
@@ -254,16 +261,21 @@ def execute_signal_run(
     config: ConfigProfileSnapshot,
     experiment: ExperimentSpec,
     workspace: str | Path,
+    config_source: RunConfigSource | None = None,
 ) -> tuple[RunManifest, ExecutionSnapshot]:
     manifest = start_run(
         config=config,
         experiment=experiment,
         workspace=workspace,
         instrument_provider=TestSignalInstrumentProvider(),
+        config_source=config_source,
+    )
+    snapshot_record = next(
+        record for record in manifest.records if record.kind == "execution_snapshot"
     )
     snapshot = open_run_store(workspace).read_model(
         manifest.run_id,
-        "artifacts/execution.snapshot.json",
+        record_storage_ref(snapshot_record),
         ExecutionSnapshot,
     )
     return manifest, snapshot

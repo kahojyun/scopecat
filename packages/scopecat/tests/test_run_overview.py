@@ -5,7 +5,6 @@ from pathlib import Path
 import scopecat as sc
 from scopecat.run_overview import build_run_overview
 from scopecat.runs import open_run_store
-from tests.support.records import assert_artifact_ref
 from tests.support.run_overview import (
     config_registry_sourced_signal_run,
     load_config,
@@ -27,7 +26,7 @@ def test_build_run_overview_for_signal_run_does_not_update_manifest(
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert overview.config_source.status == "not_available"
+    assert overview.config_source is None
     assert overview.parameter_changes == []
     assert overview.run_comparisons == []
     assert open_run_store(tmp_path).read_manifest(run_id).status == "completed"
@@ -40,10 +39,10 @@ def test_build_run_overview_for_full_local_workflow(
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert overview.config_source.status == "not_available"
+    assert overview.config_source is None
     assert [
         (
-            analysis.artifact_id,
+            analysis.id,
             analysis.output_kinds,
             analysis.parameter_change_count,
         )
@@ -58,8 +57,8 @@ def test_build_run_overview_for_full_local_workflow(
     ]
     assert sorted(
         [
-            (artifact.id, artifact.kind, artifact.path)
-            for artifact in overview.artifact_refs
+            (artifact.id, artifact.kind)
+            for artifact in open_run_store(tmp_path).read_manifest(run_id).artifacts
             if artifact.id
             in {
                 "summary-stats-result",
@@ -72,22 +71,18 @@ def test_build_run_overview_for_full_local_workflow(
         (
             "best-signal-analysis-result",
             "test_best_signal_analysis_result",
-            "artifacts/best-signal-analysis.json",
         ),
         (
             "best-signal-analysis-summary",
             "summary",
-            "artifacts/best-signal-analysis.md",
         ),
         (
             "summary-stats-result",
             "test_summary_stats_result",
-            "artifacts/summary-stats.json",
         ),
         (
             "summary-stats-summary",
             "summary",
-            "artifacts/summary-stats.md",
         ),
     ]
     assert len(overview.parameter_changes) == 1
@@ -100,7 +95,7 @@ def test_build_run_overview_for_full_local_workflow(
     assert overview.run_comparisons == []
 
 
-def test_build_run_overview_includes_manual_analysis_artifact_refs(
+def test_build_run_overview_includes_manual_analysis_records(
     tmp_path: Path,
 ) -> None:
     manifest, _snapshot = execute_signal_run(
@@ -123,44 +118,41 @@ def test_build_run_overview_includes_manual_analysis_artifact_refs(
         )
         .save()
     )
-    analysis_artifact = run.data().artifact("analysis-report-review")
-    assert analysis_artifact.metadata["source_artifact_ids"] == ["raw-measurements"]
-
     overview = build_run_overview(run_id=run.id, workspace=tmp_path)
 
     assert [
         (
-            analysis.artifact_id,
-            analysis.ref,
+            analysis.id,
             analysis.output_kinds,
             analysis.parameter_change_count,
-            analysis.source_artifact_ids,
-            analysis.output_artifact_ids,
+            analysis.input_ids,
+            analysis.output_ids,
         )
         for analysis in overview.analysis_records
     ] == [
         (
             "analysis-report-review",
-            "artifacts/analysis-report-review.json",
             ["note", "parameter_change"],
             1,
-            ["raw-measurements"],
+            ["dataset:raw-measurements"],
             [],
         )
     ]
 
 
-def test_build_run_overview_includes_activation_generated_candidate_config_artifact(
+def test_build_run_overview_includes_activation_generated_candidate_config_record(
     tmp_path: Path,
 ) -> None:
     run_id = run_signal_experiment_with_active_candidate(tmp_path)
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
+    manifest = open_run_store(tmp_path).read_manifest(run_id)
 
-    assert overview.config_source.status == "not_available"
-    assert_artifact_ref(
-        overview.artifact_refs,
-        "candidate-best-signal-analysis-drive_frequency-candidate-config",
+    assert overview.config_source is None
+    assert any(
+        record.id == "candidate-best-signal-analysis-drive_frequency-candidate-config"
+        and record.kind == "candidate_config"
+        for record in manifest.records
     )
 
 
@@ -172,7 +164,7 @@ def test_build_run_overview_marks_missing_optional_sections(
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert overview.config_source.status == "not_available"
+    assert overview.config_source is None
     assert len(overview.analysis_records) == 1
     assert overview.parameter_changes == []
 
@@ -184,20 +176,14 @@ def test_build_run_overview_includes_literal_config_registry_config_source(
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert overview.config_source.status == "available"
-    assert overview.config_source.source_kind == "config_registry"
+    assert overview.config_source is not None
+    assert overview.config_source.kind == "config_registry"
     assert overview.config_source.selector == (
         "candidate-best-signal-analysis-candidate-config"
     )
     assert overview.config_source.entry_id == (
         "candidate-best-signal-analysis-candidate-config"
     )
-    assert (
-        overview.config_source.config_ref == "config-registry/configs/"
-        "candidate-best-signal-analysis-candidate-config.config-profile-snapshot.json"
-    )
-    assert overview.config_source.active_state_ref is None
-    assert overview.config_source.active_record_id is None
 
 
 def test_build_run_overview_includes_active_config_registry_config_source(
@@ -207,14 +193,8 @@ def test_build_run_overview_includes_active_config_registry_config_source(
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert overview.config_source.status == "available"
+    assert overview.config_source is not None
     assert overview.config_source.selector == "active"
     assert overview.config_source.entry_id == (
         "candidate-best-signal-analysis-candidate-config"
     )
-    assert (
-        overview.config_source.config_ref == "config-registry/configs/"
-        "candidate-best-signal-analysis-candidate-config.config-profile-snapshot.json"
-    )
-    assert overview.config_source.active_state_ref == "config-registry/active.json"
-    assert overview.config_source.active_record_id == "activation-000001"

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import scopecat as sc
+from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import (
     activate_config_registry_entry,
     load_config_registry_config,
@@ -11,7 +12,6 @@ from scopecat.config_registry import (
     rollback_config_registry,
 )
 from scopecat.experiments import ExperimentSpec
-from scopecat.models.config import load_config_profile
 from scopecat.run_comparison import execute_run_comparison, review_run_comparison
 from scopecat.run_overview import build_run_overview
 from scopecat.workflows import register_and_activate_candidate_config
@@ -140,7 +140,7 @@ def exercise_config_registry(workspace: Path) -> None:
         operator="operator",
     )
     rollback_config_registry(workspace=workspace, operator="operator")
-    config_source_config, _provenance = resolve_config_registry_config_source(
+    config_source_config, config_source = resolve_config_registry_config_source(
         selector="active",
         workspace=workspace,
     )
@@ -148,6 +148,7 @@ def exercise_config_registry(workspace: Path) -> None:
         config=config_source_config,
         experiment=experiment,
         workspace=workspace,
+        config_source=config_source,
     )
     execute_run_comparison(
         baseline_run_id=manifest.run_id,

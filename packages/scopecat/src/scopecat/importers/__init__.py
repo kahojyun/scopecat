@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.diagnostics import DiagnosticSeverity
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunArtifactEntry
 from scopecat.models.parameter import (
     ParameterState,
     ParameterTable,
@@ -105,7 +105,7 @@ class ParameterImportResult(BaseModel):
     source_kind: ImportSourceKind
     source_uri: str
     parameter_state: ParameterState
-    artifact_refs: list[Artifact] = Field(default_factory=list)
+    artifacts: list[RunArtifactEntry] = Field(default_factory=list)
     diagnostics: list[ImportDiagnostic] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -124,7 +124,7 @@ def parameter_import_result(
     source_uri: str,
     scalars: list[ImportedScalarParameter] | None = None,
     tables: list[ImportedParameterTable] | None = None,
-    artifact_refs: list[Artifact] | None = None,
+    artifacts: list[RunArtifactEntry] | None = None,
     diagnostics: list[ImportDiagnostic] | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> ParameterImportResult:
@@ -144,7 +144,7 @@ def parameter_import_result(
                 "import_source_uri": source_uri,
             },
         ),
-        artifact_refs=artifact_refs or [],
+        artifacts=artifacts or [],
         diagnostics=diagnostics or [],
         metadata=metadata or {},
     )

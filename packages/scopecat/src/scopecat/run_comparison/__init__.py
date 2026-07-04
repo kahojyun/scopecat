@@ -1,8 +1,6 @@
 """Run-to-run comparison helpers."""
 
 from scopecat.run_comparison.models import (
-    RunComparisonConfigSourceSummary,
-    RunComparisonJob,
     RunComparisonPoint,
     RunComparisonResult,
     RunComparisonReviewRecord,
@@ -17,8 +15,6 @@ from scopecat.run_comparison.observable import (
 )
 
 __all__ = [
-    "RunComparisonConfigSourceSummary",
-    "RunComparisonJob",
     "RunComparisonPoint",
     "RunComparisonResult",
     "RunComparisonReviewRecord",

@@ -18,7 +18,7 @@ from scopecat.authoring.expressions import (
 )
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec, acquire, observe, set_state
-from scopecat.models.artifact import ArtifactRef
+from scopecat.models.artifact import ExperimentAsset
 from scopecat.models.parameter import Quantity
 from scopecat.models.provider import ProviderOptionDescription
 from scopecat.relations import RelationExpr, col, grid, linspace, param, values
@@ -26,13 +26,13 @@ from scopecat.relations import RelationExpr, col, grid, linspace, param, values
 TableVariable = tuple[str, str, str | None]
 
 
-def _asset_ref(
+def _asset(
     *,
     id: str,  # noqa: A002
     kind: str,
     media_type: str,
-) -> ArtifactRef:
-    return ArtifactRef(
+) -> ExperimentAsset:
+    return ExperimentAsset(
         id=id,
         kind=kind,
         uri=f"scopecat-asset:{id}",
@@ -129,7 +129,7 @@ def _build_rabi(
         default_span=Quantity(value=80.0, unit="ns"),
         default_points=5,
     )
-    program = _asset_ref(
+    program = _asset(
         id=f"{qubit_id}-rabi-pulse-program",
         kind="pulse_program",
         media_type="text/x-python",
@@ -186,7 +186,7 @@ def _build_readout_frequency(
         default_span=Quantity(value=100.0, unit="MHz"),
         default_points=5,
     )
-    program = _asset_ref(
+    program = _asset(
         id=f"{qubit_id}-find-frr-with-pi-pulse",
         kind="readout_program",
         media_type="text/x-python",
@@ -248,12 +248,12 @@ def _build_sqg_rb(
         (4, 8, 16) if lengths is None else lengths,
         path="lengths",
     )
-    sequence = _asset_ref(
+    sequence = _asset(
         id=f"{qubit_id}-sqg-rb-sequence",
         kind="gate_sequence",
         media_type="application/vnd.scopecat.opaque+json",
     )
-    pulse_program = _asset_ref(
+    pulse_program = _asset(
         id=f"{qubit_id}-sqg-rb-pulsedict",
         kind="pulse_program",
         media_type="application/vnd.scopecat.opaque+json",
@@ -314,12 +314,12 @@ def _build_cz_rb(
         path="lengths",
     )
     pair_id = f"{control_id}-{partner_id}"
-    sequence = _asset_ref(
+    sequence = _asset(
         id=f"{pair_id}-cz-rb-sequence",
         kind="gate_sequence",
         media_type="application/vnd.scopecat.opaque+json",
     )
-    coupler_program = _asset_ref(
+    coupler_program = _asset(
         id=f"{pair_id}-cz-rb-coupler-pulse",
         kind="pulse_program",
         media_type="application/vnd.scopecat.opaque+json",
@@ -394,7 +394,7 @@ def _asset_state(
     resource_id: str,
     capability_id: str,
     field_path: str,
-    asset: ArtifactRef,
+    asset: ExperimentAsset,
 ):
     return set_state(
         resource_id,

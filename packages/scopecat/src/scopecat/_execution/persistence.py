@@ -6,26 +6,28 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel
 
-from scopecat._storage import ARTIFACTS_DIR
 from scopecat._storage.local import LocalRunStore
+from scopecat._storage.refs import dataset_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.experiments import PlanSnapshot
-from scopecat.models.artifact import Artifact
+from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.run import RunManifest, RunStatus
+from scopecat.models.run import RunConfigSource, RunManifest, RunStatus
 from scopecat.results import (
     MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementRecord,
-    measurement_dataset_artifact_metadata,
+    infer_measurement_dataset_schema,
     validate_measurement_records_against_schema,
 )
 
-RAW_MEASUREMENT_DATASET_ARTIFACT_KIND = "measurement_dataset"
+RAW_MEASUREMENT_DATASET_KIND = "measurement_dataset"
 
 
-def ref_for_artifact(filename: str) -> str:
-    return f"{ARTIFACTS_DIR}/{filename}"
+def ref_for_dataset(
+    dataset_id: str, *, kind: str = RAW_MEASUREMENT_DATASET_KIND
+) -> str:
+    return dataset_content_ref(dataset_id=dataset_id, kind=kind)
 
 
 def parse_expected_dataset_schema(
@@ -114,24 +116,25 @@ def validate_raw_measurement_dataset(
     )
 
 
-def build_raw_measurement_artifact(
+def build_raw_measurement_dataset(
     *,
-    artifact_id: str,
-    ref: str,
+    dataset_id: str,
     records: Sequence[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
-) -> Artifact:
-    return Artifact(
-        id=artifact_id,
-        kind=RAW_MEASUREMENT_DATASET_ARTIFACT_KIND,
-        path=ref,
-        media_type="application/x-ndjson",
-        metadata=measurement_dataset_artifact_metadata(
-            dataset_id=artifact_id,
+) -> RunDatasetEntry:
+    schema = expected_schema
+    if schema is None:
+        schema = infer_measurement_dataset_schema(
+            dataset_id=dataset_id,
             dataset_role="raw",
             records=records,
-            expected_schema=expected_schema,
-        ),
+        )
+    return RunDatasetEntry(
+        id=dataset_id,
+        kind=RAW_MEASUREMENT_DATASET_KIND,
+        media_type="application/x-ndjson",
+        role="raw",
+        schema=schema.model_dump(mode="json"),
     )
 
 
@@ -139,14 +142,16 @@ def build_run_manifest(
     *,
     run_id: str,
     status: RunStatus,
-    artifact_refs: Sequence[Artifact],
+    config_source: RunConfigSource | None = None,
+    records: Sequence[RunRecordEntry] = (),
+    datasets: Sequence[RunDatasetEntry] = (),
 ) -> RunManifest:
     return RunManifest(
         run_id=run_id,
         status=status,
-        config_profile_snapshot_ref="config-profile.snapshot.json",
-        plan_snapshot_ref="plan.snapshot.json",
-        artifact_refs=list(artifact_refs),
+        config_source=config_source,
+        records=list(records),
+        datasets=list(datasets),
     )
 
 
