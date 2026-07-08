@@ -1,0 +1,10 @@
+{
+  "schema_version": "scopecat.config_profile.v0",
+  "id": "templates-profile",
+  "system_ref": "system-spec.json",
+  "environment_ref": "environment-spec.json",
+  "parameter_state_ref": "parameter-state.json",
+  "metadata": {
+    "purpose": "experiment-system template validation"
+  }
+}

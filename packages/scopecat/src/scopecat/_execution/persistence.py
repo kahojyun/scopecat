@@ -4,24 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from pydantic import BaseModel
-
-from scopecat._storage.local import LocalRunStore
+from scopecat._measurement_storage import (
+    MEASUREMENT_DATASET_KIND,
+    measurement_dataset_entry,
+    validate_measurement_dataset_records,
+)
 from scopecat._storage.refs import dataset_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.experiments import PlanSnapshot
 from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
-from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunConfigSource, RunManifest, RunStatus
 from scopecat.results import (
     MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementRecord,
-    infer_measurement_dataset_schema,
-    validate_measurement_records_against_schema,
 )
 
-RAW_MEASUREMENT_DATASET_KIND = "measurement_dataset"
+RAW_MEASUREMENT_DATASET_KIND = MEASUREMENT_DATASET_KIND
 
 
 def ref_for_dataset(
@@ -31,12 +29,14 @@ def ref_for_dataset(
 
 
 def parse_expected_dataset_schema(
-    plan: PlanSnapshot,
+    expected_dataset_schema: MeasurementDatasetSchema | dict[str, object] | None,
 ) -> tuple[MeasurementDatasetSchema | None, list[Diagnostic]]:
-    if plan.expected_dataset_schema is None:
+    if expected_dataset_schema is None:
         return None, []
+    if isinstance(expected_dataset_schema, MeasurementDatasetSchema):
+        return expected_dataset_schema, []
     try:
-        return MeasurementDatasetSchema.model_validate(plan.expected_dataset_schema), []
+        return MeasurementDatasetSchema.model_validate(expected_dataset_schema), []
     except ValueError as error:
         return None, [
             _diagnostic(
@@ -46,12 +46,6 @@ def parse_expected_dataset_schema(
                 "expected_dataset_schema",
             )
         ]
-
-
-def expected_measurement_indices(plan: PlanSnapshot) -> set[int]:
-    if plan.acquisition.record == "shot":
-        return set(range(plan.acquisition.estimated_records))
-    return {point.point_id for point in plan.points}
 
 
 def validate_measurement_index_shape(
@@ -108,7 +102,7 @@ def validate_raw_measurement_dataset(
 ) -> list[Diagnostic]:
     if expected_schema is None:
         return []
-    return validate_measurement_records_against_schema(
+    return validate_measurement_dataset_records(
         records=records,
         schema=expected_schema,
         dataset_id=dataset_id,
@@ -122,19 +116,11 @@ def build_raw_measurement_dataset(
     records: Sequence[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
 ) -> RunDatasetEntry:
-    schema = expected_schema
-    if schema is None:
-        schema = infer_measurement_dataset_schema(
-            dataset_id=dataset_id,
-            dataset_role="raw",
-            records=records,
-        )
-    return RunDatasetEntry(
-        id=dataset_id,
-        kind=RAW_MEASUREMENT_DATASET_KIND,
-        media_type="application/x-ndjson",
-        role="raw",
-        schema=schema.model_dump(mode="json"),
+    return measurement_dataset_entry(
+        dataset_id=dataset_id,
+        dataset_role="raw",
+        records=records,
+        expected_schema=expected_schema,
     )
 
 
@@ -153,23 +139,6 @@ def build_run_manifest(
         records=list(records),
         datasets=list(datasets),
     )
-
-
-def write_final_execution_artifacts(
-    *,
-    storage: LocalRunStore,
-    manifest: RunManifest,
-    config: ConfigProfileSnapshot,
-    plan: BaseModel,
-    snapshot_ref: str,
-    snapshot: BaseModel,
-    data_ref: str | None,
-    measurements: Sequence[MeasurementRecord] = (),
-) -> None:
-    storage.write_run_inputs(manifest=manifest, config=config, plan=plan)
-    storage.write_model(manifest.run_id, snapshot_ref, snapshot)
-    if data_ref is not None:
-        storage.write_jsonl(manifest.run_id, data_ref, measurements)
 
 
 def _diagnostic(

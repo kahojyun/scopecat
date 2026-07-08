@@ -3,10 +3,14 @@ from __future__ import annotations
 from scopecat.models.measurement import (
     MEASUREMENT_DATASET_SCHEMA_VERSION,
     MEASUREMENT_RECORD_SCHEMA_VERSION,
+    ComplexQuantity,
+    MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetInputDiagnostics,
+    MeasurementRecord,
     infer_measurement_dataset_schema,
 )
+from scopecat.models.parameter import Quantity
 from tests.support.measurement_models import signal_point_schema, signal_record
 from tests.support.records import assert_model_round_trip
 
@@ -20,7 +24,63 @@ def test_measurement_record_round_trip() -> None:
     )
 
     assert restored.point_index == 0
-    assert restored.observables["signal"].value == 0.5
+    signal = restored.observables["signal"]
+    assert isinstance(signal, Quantity)
+    assert signal.value == 0.5
+
+
+def test_measurement_array_record_round_trip() -> None:
+    measurement = MeasurementRecord(
+        run_id="run-test",
+        point_index=0,
+        coordinates={},
+        observables={
+            "i0": MeasurementArray(
+                dtype="float64",
+                unit="ratio",
+                shape=[3],
+                values=[0.1, 0.2, 0.3],
+            )
+        },
+    )
+
+    restored = assert_model_round_trip(
+        measurement,
+        schema_version="scopecat.measurement_record.v0",
+    )
+    i0 = restored.observables["i0"]
+
+    assert isinstance(i0, MeasurementArray)
+    assert i0.shape == [3]
+    assert i0.values == [0.1, 0.2, 0.3]
+
+
+def test_complex_measurement_record_round_trip_and_infers_dtype() -> None:
+    measurement = MeasurementRecord(
+        run_id="run-test",
+        point_index=0,
+        coordinates={},
+        observables={
+            "raw_iq": ComplexQuantity(real=0.3, imag=-0.4, unit="ratio"),
+        },
+    )
+
+    restored = assert_model_round_trip(
+        measurement,
+        schema_version="scopecat.measurement_record.v0",
+    )
+    raw_iq = restored.observables["raw_iq"]
+    schema = infer_measurement_dataset_schema(
+        dataset_id="raw-measurements",
+        dataset_role="raw",
+        records=[restored],
+    )
+    variables = {variable.id: variable for variable in schema.variables}
+
+    assert isinstance(raw_iq, ComplexQuantity)
+    assert raw_iq.real == 0.3
+    assert raw_iq.imag == -0.4
+    assert variables["raw_iq"].dtype == "complex128"
 
 
 def test_measurement_dataset_schema_round_trip() -> None:
@@ -58,6 +118,38 @@ def test_infer_measurement_dataset_schema_from_records() -> None:
     assert variables["drive_frequency"].shape == [2]
     assert variables["signal"].role == "observable"
     assert variables["signal"].unit == "ratio"
+
+
+def test_infer_measurement_dataset_schema_from_array_records() -> None:
+    records = [
+        MeasurementRecord(
+            run_id="run-test",
+            point_index=0,
+            coordinates={},
+            observables={
+                "i0": MeasurementArray(
+                    dtype="float64",
+                    unit="ratio",
+                    shape=[3],
+                    values=[0.1, 0.2, 0.3],
+                )
+            },
+        ),
+    ]
+
+    schema = infer_measurement_dataset_schema(
+        dataset_id="raw-measurements",
+        dataset_role="raw",
+        records=records,
+    )
+    variables = {variable.id: variable for variable in schema.variables}
+    dimensions = {dimension.id: dimension for dimension in schema.dimensions}
+
+    assert dimensions["point"].size == 1
+    assert dimensions["i0_dim_0"].kind == "array"
+    assert dimensions["i0_dim_0"].size == 3
+    assert variables["i0"].dims == ["point", "i0_dim_0"]
+    assert variables["i0"].shape == [1, 3]
 
 
 def test_measurement_dataset_round_trip() -> None:

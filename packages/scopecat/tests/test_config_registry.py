@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scopecat._workflows.config import register_and_activate_candidate_config
 from scopecat.candidate_configs import CandidateConfig
 from scopecat.config_registry import (
     CandidateConfigRegistrySource,
@@ -15,7 +16,6 @@ from scopecat.config_registry import (
     resolve_config_registry_config_source,
 )
 from scopecat.parameter_changes import load_parameter_change, review_parameter_changes
-from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.config_registry import (
     load_config,
     signal_run_with_parameter_change,

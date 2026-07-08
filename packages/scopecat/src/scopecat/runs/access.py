@@ -17,7 +17,6 @@ from scopecat._storage.refs import (
 )
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import PlanSnapshot
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.data_artifact import DataArrayArtifact, DataTableArtifact
@@ -36,10 +35,6 @@ def load_config_profile_snapshot(
     *, storage: LocalRunStore, run_id: str
 ) -> ConfigProfileSnapshot:
     return storage.read_config_profile_snapshot(run_id)
-
-
-def load_plan_snapshot(*, storage: LocalRunStore, run_id: str) -> PlanSnapshot:
-    return storage.read_plan_snapshot(run_id)
 
 
 def append_unique(values: list[str], value: str) -> list[str]:

@@ -4,25 +4,23 @@ from pathlib import Path
 
 import scopecat as sc
 import scopecat.authoring as authoring
-from scopecat.authoring import ExperimentDraft, ExperimentTemplate, TemplateRegistry
-from scopecat.experiments import acquire
+from scopecat.authoring import (
+    ExperimentInvocation,
+    ExperimentTemplate,
+)
 from scopecat.models.parameter import Quantity
-from scopecat.session import TemplateBrowser
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import load_experiment
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
 
-SIMPLE_FREQUENCY_SCAN = authoring.recipe(
+SIMPLE_FREQUENCY_SCAN = authoring.module(
     id="test.session.simple_frequency_scan",
-    experiment_id="session-test-frequency-scan",
-    kind="simple_frequency_scan",
     resources=[
-        authoring.resource_role(
+        authoring.resource_port(
             "source",
             authoring.requires("set_frequency"),
-            resource_id="source-0",
         )
     ],
     variables=[
@@ -38,16 +36,18 @@ SIMPLE_FREQUENCY_SCAN = authoring.recipe(
             authoring.var_ref("drive_frequency"),
         )
     ],
-    acquisition=acquire("scalar"),
+    records=[authoring.observable("signal", resource="source", unit="ratio")],
 )
 
 
-def simple_frequency_scan(*, subject: str) -> ExperimentDraft:
+def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
     return simple_frequency_scan_template()(subject=subject)
 
 
 def simple_frequency_scan_template() -> ExperimentTemplate:
     return SIMPLE_FREQUENCY_SCAN.template(
+        experiment_id="session-test-frequency-scan",
+        kind="simple_frequency_scan",
         label="Session test frequency scan",
         metadata={"category": "session-test"},
     )
@@ -61,8 +61,8 @@ def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
 
     preview = lab.preview(load_experiment())
 
-    assert preview.plan.schema_version == "scopecat.plan_snapshot.v1"
-    assert len(preview.plan.points) == 3
+    assert preview.point_count == 3
+    assert preview.primary_observables == ("signal",)
 
 
 def test_workspace_closed_loop_uses_notebook_first_candidate_config(
@@ -109,6 +109,25 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     assert overview.run_id == baseline.id
 
 
+def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+        instrument_provider=TestSignalInstrumentProvider(),
+    )
+    event_kinds: list[str] = []
+
+    run = lab.run(
+        load_experiment(),
+        event_sink=lambda event: event_kinds.append(event.kind),
+    )
+
+    assert run.manifest.status == "completed"
+    assert event_kinds[0] == "run_started"
+    assert event_kinds[-1] == "run_finished"
+    assert event_kinds.count("record_emitted") == 3
+
+
 def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
     tmp_path: Path,
 ) -> None:
@@ -136,7 +155,7 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
     overview = baseline.overview()
 
     assert baseline.manifest.status == "completed"
-    assert baseline.plan.schema_version == "scopecat.plan_snapshot.v1"
+    assert baseline.preview.point_count == 3
     assert raw.dataset_entry.id == "raw-measurements"
     assert (
         candidate_config.parameter_changes[0].patches[0].parameter_id
@@ -146,21 +165,3 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
     assert comparison.result.outcome == "unchanged"
     assert review.review.decision == "accepted"
     assert overview.run_id == baseline.id
-
-
-def test_session_template_browser_lists_builds_and_previews(tmp_path: Path) -> None:
-    template = simple_frequency_scan_template()
-    registry = TemplateRegistry()
-    registry.register(template)
-    lab = sc.open(
-        tmp_path,
-        config_profile=EXAMPLE_DIR / "config-profile.json",
-    )
-    browser = TemplateBrowser(session=lab, registry=registry)
-
-    selected_templates = browser.list(category="session-test")
-    draft = browser.build("test.session.simple_frequency_scan", subject="q0")
-    preview = browser.preview(draft)
-
-    assert template in selected_templates
-    assert preview.template_id == "test.session.simple_frequency_scan"

@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 # %%
-from quantum_lab_demo import notebook_workspace, readout_frequency_lab
+from quantum_lab_demo import notebook_workspace, quantum_lab
 
 # %%
 workspace = notebook_workspace("01-open-workspace")
-lab = readout_frequency_lab(workspace=workspace)
+lab = quantum_lab(workspace=workspace)
 
 # %%
+system = lab.system()
 summary = {
     "workspace": lab.workspace,
     "run_count": len(lab.runs()),
+    "primary_entity": system.primary_entity_id,
+    "entities": [entity.id for entity in system.entities],
+    "lines": [line.id for line in system.lines],
+    "resources": [resource.id for resource in system.resources],
 }
 print(summary)

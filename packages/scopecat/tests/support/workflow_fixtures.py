@@ -39,7 +39,15 @@ def config_with_instrument_id(instrument_id: str) -> ConfigProfileSnapshot:
         update={
             "instrument_registry": config.instrument_registry.model_copy(
                 update={"instruments": [instrument]}
-            )
+            ),
+            "routing": config.routing.model_copy(
+                update={
+                    "resources": [
+                        resource.model_copy(update={"id": instrument_id})
+                        for resource in config.routing.resources
+                    ]
+                }
+            ),
         }
     )
     connection = config.connection_profile.connections[0].model_copy(
@@ -60,6 +68,10 @@ def config_with_instrument_id(instrument_id: str) -> ConfigProfileSnapshot:
 
 def experiment_with_resource_id(resource_id: str) -> ExperimentSpec:
     experiment = load_experiment()
+    records = [
+        record.model_copy(update={"resource": resource_id})
+        for record in experiment.records
+    ]
     return experiment.model_copy(
         update={
             "state": [
@@ -68,7 +80,8 @@ def experiment_with_resource_id(resource_id: str) -> ExperimentSpec:
                     "set_frequency.frequency",
                     param("drive_frequency"),
                 )
-            ]
+            ],
+            "records": records,
         }
     )
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": "scopecat.experiment_spec.v1",
+  "schema_version": "scopecat.experiment_spec.v3",
   "id": "simple-frequency-scan",
   "kind": "simple_scan",
   "points": {
@@ -53,19 +53,13 @@
       }
     }
   ],
-  "acquire": {
-    "kind": "scalar",
-    "shots": 1,
-    "record": "point",
-    "channels": [
-      "source-0"
-    ],
-    "observations": [
-      {
-        "id": "signal",
-        "kind": "observable",
-        "unit": "ratio"
-      }
-    ]
-  }
+  "records": [
+    {
+      "id": "signal",
+      "kind": "observable",
+      "source": "instrument",
+      "resource": "source-0",
+      "unit": "ratio"
+    }
+  ]
 }

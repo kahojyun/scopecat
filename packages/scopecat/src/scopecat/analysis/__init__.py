@@ -7,7 +7,6 @@ from scopecat.session_analysis import (
     AnalysisInput,
     AnalysisOutput,
     AnalysisStep,
-    PromotedAnalysisStep,
     SavedAnalysis,
 )
 
@@ -18,7 +17,6 @@ __all__ = [
     "AnalysisOutput",
     "AnalysisStep",
     "EarlyStopDecision",
-    "PromotedAnalysisStep",
     "SavedAnalysis",
     "decide_online_convergence",
 ]

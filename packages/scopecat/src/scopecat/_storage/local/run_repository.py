@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from pathlib import Path
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from scopecat._storage.local.io import (
     read_jsonl as _read_jsonl,
@@ -32,12 +31,13 @@ from scopecat._storage.local.io import (
 from scopecat._storage.local.layout import LocalRunLayout
 from scopecat._storage.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
+    EXPERIMENT_SPEC_REF,
     MANIFEST_REF,
-    PLAN_SNAPSHOT_REF,
+    RUN_REQUEST_REF,
 )
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import PlanSnapshot
+from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
 
@@ -86,49 +86,22 @@ class LocalRunStore:
             manifests.append(_read_model(manifest_path, RunManifest))
         return sorted(manifests, key=lambda manifest: manifest.created_at)
 
-    def write_run_inputs(
+    def write_structured_run_inputs(
         self,
         *,
         manifest: RunManifest,
+        experiment: ExperimentSpec,
         config: ConfigProfileSnapshot,
-        plan: BaseModel,
     ) -> None:
         self.write_model(manifest.run_id, MANIFEST_REF, manifest)
+        if experiment.request is not None:
+            self.write_model(manifest.run_id, RUN_REQUEST_REF, experiment.request)
+        self.write_model(manifest.run_id, EXPERIMENT_SPEC_REF, experiment)
         self.write_model(manifest.run_id, CONFIG_PROFILE_SNAPSHOT_REF, config)
-        self.write_model(manifest.run_id, PLAN_SNAPSHOT_REF, plan)
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
         return self.read_model(
             run_id, CONFIG_PROFILE_SNAPSHOT_REF, ConfigProfileSnapshot
-        )
-
-    def read_plan_snapshot(self, run_id: str) -> PlanSnapshot:
-        path = self.ref_path(run_id, PLAN_SNAPSHOT_REF)
-        payload = json.loads(path.read_text())
-        schema_version = payload.get("schema_version")
-        if schema_version == "scopecat.plan_snapshot.v1":
-            try:
-                return PlanSnapshot.model_validate(payload)
-            except ValidationError as error:
-                raise ValidationFailed(
-                    [
-                        _diagnostic(
-                            "error",
-                            "invalid_plan_snapshot",
-                            f"plan snapshot is invalid: {error}",
-                            PLAN_SNAPSHOT_REF,
-                        )
-                    ]
-                ) from error
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "unsupported_plan_snapshot_schema",
-                    "run plan snapshot must use scopecat.plan_snapshot.v1",
-                    PLAN_SNAPSHOT_REF,
-                )
-            ]
         )
 
     def read_model[TModel: BaseModel](

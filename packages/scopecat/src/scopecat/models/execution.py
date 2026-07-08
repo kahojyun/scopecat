@@ -1,0 +1,62 @@
+"""Structured execution evidence models."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from scopecat.diagnostics import Diagnostic
+from scopecat.instruments.sdk import InstrumentStateSnapshot
+
+EXECUTION_SUMMARY_SCHEMA_VERSION = "scopecat.execution_summary.v1"
+INSTRUMENT_STATE_EVIDENCE_SCHEMA_VERSION = "scopecat.instrument_state_evidence.v1"
+
+
+class StateExecutionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    changed_field_count: int = 0
+    skipped_field_count: int = 0
+    state_command_count: int = 0
+    payload_count: int = 0
+
+
+class ComputeExecutionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    evaluated_node_count: int = 0
+    reused_node_count: int = 0
+    payload_count: int = 0
+
+
+class ExecutionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = EXECUTION_SUMMARY_SCHEMA_VERSION
+    run_id: str
+    experiment_id: str
+    status: str
+    point_count: int
+    completed_point_count: int
+    measurement_count: int
+    instrument_ids: list[str]
+    diagnostic_count: int
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+    state: StateExecutionSummary = Field(default_factory=StateExecutionSummary)
+    compute: ComputeExecutionSummary = Field(default_factory=ComputeExecutionSummary)
+
+
+class InstrumentStateEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = INSTRUMENT_STATE_EVIDENCE_SCHEMA_VERSION
+    run_id: str
+    initial_state: list[InstrumentStateSnapshot] = Field(default_factory=list)
+    final_state: list[InstrumentStateSnapshot] = Field(default_factory=list)
+
+
+__all__ = [
+    "ComputeExecutionSummary",
+    "ExecutionSummary",
+    "InstrumentStateEvidence",
+    "StateExecutionSummary",
+]

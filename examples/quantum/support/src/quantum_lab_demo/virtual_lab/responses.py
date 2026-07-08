@@ -2,245 +2,176 @@
 
 from __future__ import annotations
 
-from scopecat.instruments import DriverDiagnostic, MeasurementContext
-from scopecat.models.parameter import Quantity
-from scopecat.results import MeasurementSink
-
-from quantum_lab_demo.readout.responses import (
-    ReadoutIQResponseModel,
-    ReadoutResponseModel,
-    ReadoutSettings,
-    _record_iq_shot,
-    _record_raw_measurement,
+from scopecat.instruments import (
+    CollectCommand,
+    CollectProductRequest,
 )
+from scopecat.models.parameter import Quantity
+from scopecat.results import ComplexQuantity, MeasurementArray, MeasurementValue
+
 from quantum_lab_demo.virtual_lab.devices import VirtualDevice
-from quantum_lab_demo.virtual_lab.models import VirtualResponseProfile
 
 
-def readout_response_model(profile: VirtualResponseProfile) -> ReadoutResponseModel:
-    if profile.kind != "readout_frequency_response":
-        raise DriverDiagnostic(
-            severity="error",
-            code="virtual_lab_response_kind_mismatch",
-            message=(
-                "readout frequency response requires kind=readout_frequency_response"
-            ),
-            path="response_models.kind",
-        )
-    return ReadoutResponseModel.model_validate(profile.parameters)
-
-
-def readout_iq_response_model(
-    profile: VirtualResponseProfile,
-) -> ReadoutIQResponseModel:
-    if profile.kind != "readout_iq_response":
-        raise DriverDiagnostic(
-            severity="error",
-            code="virtual_lab_response_kind_mismatch",
-            message="readout IQ response requires kind=readout_iq_response",
-            path="response_models.kind",
-        )
-    return ReadoutIQResponseModel.model_validate(profile.parameters)
-
-
-def record_readout_frequency_measurement(
+def record_quantum_measurement(
     *,
-    sink: MeasurementSink,
-    context: MeasurementContext,
-    readout: VirtualDevice,
-    flux_bias: VirtualDevice,
-    response_model: ReadoutResponseModel,
-    instrument_id: str,
-) -> None:
-    if context.record != "point":
-        raise DriverDiagnostic(
-            severity="error",
-            code="quantum_readout_frr_granularity_unsupported",
-            message="readout frequency stack requires point records",
-            path="acquisition.record",
-        )
-    _record_raw_measurement(
-        sink=sink,
-        point=context.point,
-        settings=_readout_settings(readout=readout, flux_bias=flux_bias),
-        response_model=response_model,
-        producer_id=instrument_id,
-    )
-
-
-def record_readout_iq_measurements(
-    *,
-    sink: MeasurementSink,
-    context: MeasurementContext,
-    readout: VirtualDevice,
-    response_model: ReadoutIQResponseModel,
-    instrument_id: str,
-) -> None:
-    if context.record != "shot":
-        raise DriverDiagnostic(
-            severity="error",
-            code="quantum_readout_iq_granularity_unsupported",
-            message="readout IQ stack requires shot records",
-            path="acquisition.record",
-        )
-    readout.measurement_metadata()
-    for shot_index in range(context.records_for_point):
-        _record_iq_shot(
-            sink=sink,
-            point_index=context.record_index_offset + shot_index,
-            shot_index=shot_index,
-            response_model=response_model,
-            producer_id=instrument_id,
-        )
-
-
-def record_sample_measurement(
-    *,
-    sink: MeasurementSink,
-    context: MeasurementContext,
+    command: CollectCommand,
     readout: VirtualDevice,
     implementation_id: str,
-) -> None:
-    schema = context.expected_schema
-    if schema is None:
-        return
-    observables = {
-        variable.id: Quantity(
+) -> dict[str, MeasurementValue]:
+    del readout, implementation_id
+    requested_keys = {request.id for request in command.requests}
+    products: dict[str, MeasurementValue] = {}
+    scalar_products = [
+        ("probability_0", "ratio"),
+        ("probability_1", "ratio"),
+        ("state0_iq_stdev", "ratio"),
+        ("state1_iq_stdev", "ratio"),
+    ]
+    for variable_index, (product_key, unit) in enumerate(scalar_products):
+        if product_key not in requested_keys:
+            continue
+        products[product_key] = Quantity(
             value=_observable_value(
-                point_index=context.point_index,
-                point_count=context.point_count,
+                point_index=command.point_index,
+                point_count=command.point_count,
                 variable_index=variable_index,
             ),
-            unit=variable.unit or "ratio",
+            unit=unit,
         )
-        for variable_index, variable in enumerate(schema.variables)
-        if variable.role == "observable"
-    }
-    sink.record(
-        point_index=context.point_index,
-        coordinates=context.coordinates,
-        observables=observables,
-        metadata={
-            "instrument": readout.id,
-            "implementation": implementation_id,
-            "virtual_lab": True,
-            **readout.measurement_metadata(),
-        },
-    )
-
-
-def _readout_settings(
-    *, readout: VirtualDevice, flux_bias: VirtualDevice
-) -> ReadoutSettings:
-    return ReadoutSettings(
-        readout_frequency_ghz=_frequency_to_ghz(
-            _quantity(readout, "readout_pulse", "frequency", 5.95, "GHz")
-        ),
-        readout_power_dbm=_power_to_dbm(
-            _quantity(readout, "readout_pulse", "power", -27.0, "dBm")
-        ),
-        demod_frequency_mhz=_frequency_to_mhz(
-            _quantity(readout, "demodulate_iq", "demod_frequency", 100.0, "MHz")
-        ),
-        start_delay_ns=_time_to_ns(
-            _quantity(readout, "capture_dataset", "start_delay", 240.0, "ns")
-        ),
-        phase_offset_rad=_phase_to_rad(
-            _quantity(readout, "readout_pulse", "phase", 0.0, "rad")
-        ),
-        reps=int(
-            _quantity(readout, "capture_dataset", "repetitions", 600.0, "count").value
-        ),
-        z_offset=_quantity(flux_bias, "set_offset", "offset", 0.0, "arb").value,
-    )
-
-
-def _quantity(
-    device: VirtualDevice,
-    capability_id: str,
-    field_path: str,
-    default_value: float,
-    default_unit: str,
-) -> Quantity:
-    return device.quantity(capability_id, field_path) or Quantity(
-        value=default_value,
-        unit=default_unit,
-    )
-
-
-def _frequency_to_ghz(quantity: Quantity) -> float:
-    if quantity.unit == "GHz":
-        return quantity.value
-    if quantity.unit == "MHz":
-        return quantity.value / 1000
-    if quantity.unit == "kHz":
-        return quantity.value / 1_000_000
-    if quantity.unit == "Hz":
-        return quantity.value / 1_000_000_000
-    raise DriverDiagnostic(
-        severity="error",
-        code="virtual_lab_unsupported_frequency_unit",
-        message=f"unsupported frequency unit: {quantity.unit}",
-        path="state.quantity.unit",
-    )
-
-
-def _frequency_to_mhz(quantity: Quantity) -> float:
-    if quantity.unit == "GHz":
-        return quantity.value * 1000
-    if quantity.unit == "MHz":
-        return quantity.value
-    if quantity.unit == "kHz":
-        return quantity.value / 1000
-    if quantity.unit == "Hz":
-        return quantity.value / 1_000_000
-    raise DriverDiagnostic(
-        severity="error",
-        code="virtual_lab_unsupported_frequency_unit",
-        message=f"unsupported frequency unit: {quantity.unit}",
-        path="state.quantity.unit",
-    )
-
-
-def _time_to_ns(quantity: Quantity) -> float:
-    if quantity.unit == "s":
-        return quantity.value * 1_000_000_000
-    if quantity.unit == "ms":
-        return quantity.value * 1_000_000
-    if quantity.unit == "us":
-        return quantity.value * 1000
-    if quantity.unit == "ns":
-        return quantity.value
-    raise DriverDiagnostic(
-        severity="error",
-        code="virtual_lab_unsupported_time_unit",
-        message=f"unsupported time unit: {quantity.unit}",
-        path="state.quantity.unit",
-    )
-
-
-def _power_to_dbm(quantity: Quantity) -> float:
-    if quantity.unit != "dBm":
-        raise DriverDiagnostic(
-            severity="error",
-            code="virtual_lab_unsupported_power_unit",
-            message=f"unsupported power unit: {quantity.unit}",
-            path="state.quantity.unit",
+    multiplexed_product = _requested_product(command, "multiplexed_iq")
+    if multiplexed_product is not None:
+        products["multiplexed_iq"] = MeasurementArray(
+            dtype="complex128",
+            unit="ratio",
+            shape=[_axis_size(multiplexed_product, "qubit")],
+            values=[
+                ComplexQuantity(
+                    real=_observable_value(
+                        point_index=command.point_index,
+                        point_count=command.point_count,
+                        variable_index=8 + entity_index,
+                    ),
+                    imag=_observable_value(
+                        point_index=command.point_index,
+                        point_count=command.point_count,
+                        variable_index=16 + entity_index,
+                    ),
+                    unit="ratio",
+                )
+                for entity_index in range(_axis_size(multiplexed_product, "qubit"))
+            ],
         )
-    return quantity.value
+    qnd_product = _requested_product(command, "qnd_iq")
+    if qnd_product is not None:
+        round_count = _axis_size(qnd_product, "round")
+        shot_count = _axis_size(qnd_product, "shot")
+        products["qnd_iq"] = MeasurementArray(
+            dtype="complex128",
+            unit="ratio",
+            shape=[round_count, shot_count],
+            values=[
+                [
+                    ComplexQuantity(
+                        real=_observable_value(
+                            point_index=command.point_index + round_index,
+                            point_count=max(command.point_count, 1),
+                            variable_index=24 + shot_index,
+                        ),
+                        imag=_observable_value(
+                            point_index=command.point_index + shot_index,
+                            point_count=max(command.point_count, 1),
+                            variable_index=32 + round_index,
+                        ),
+                        unit="ratio",
+                    )
+                    for shot_index in range(shot_count)
+                ]
+                for round_index in range(round_count)
+            ],
+        )
+    stabilizer_product = _requested_product(command, "stabilizer_iq")
+    if stabilizer_product is not None:
+        round_count = _axis_size(stabilizer_product, "round")
+        qubit_count = _axis_size(stabilizer_product, "qubit")
+        products["stabilizer_iq"] = MeasurementArray(
+            dtype="complex128",
+            unit="ratio",
+            shape=[round_count, qubit_count],
+            values=[
+                [
+                    ComplexQuantity(
+                        real=_observable_value(
+                            point_index=command.point_index + round_index,
+                            point_count=max(command.point_count, 1),
+                            variable_index=40 + qubit_index,
+                        ),
+                        imag=_observable_value(
+                            point_index=command.point_index + qubit_index,
+                            point_count=max(command.point_count, 1),
+                            variable_index=48 + round_index,
+                        ),
+                        unit="ratio",
+                    )
+                    for qubit_index in range(qubit_count)
+                ]
+                for round_index in range(round_count)
+            ],
+        )
+    backend_product = _requested_product(command, "backend_probabilities")
+    if backend_product is not None:
+        backend_point_count = _axis_size(backend_product, "backend_point")
+        products["backend_probabilities"] = MeasurementArray(
+            dtype="float64",
+            unit="ratio",
+            shape=[backend_point_count],
+            values=[
+                Quantity(
+                    value=_observable_value(
+                        point_index=backend_index,
+                        point_count=max(backend_point_count, 1),
+                        variable_index=56,
+                    ),
+                    unit="ratio",
+                )
+                for backend_index in range(backend_point_count)
+            ],
+        )
+    complex_products = ["raw_iq", "state0_iq", "state1_iq"]
+    for variable_index, product_key in enumerate(
+        complex_products,
+        start=len(scalar_products),
+    ):
+        if product_key not in requested_keys:
+            continue
+        real = _observable_value(
+            point_index=command.point_index,
+            point_count=command.point_count,
+            variable_index=variable_index,
+        )
+        imag = _observable_value(
+            point_index=command.point_index,
+            point_count=command.point_count,
+            variable_index=variable_index + len(complex_products),
+        )
+        products[product_key] = ComplexQuantity(real=real, imag=imag, unit="ratio")
+    return products
 
 
-def _phase_to_rad(quantity: Quantity) -> float:
-    if quantity.unit == "rad":
-        return quantity.value
-    if quantity.unit == "deg":
-        return quantity.value * 3.141592653589793 / 180
-    raise DriverDiagnostic(
-        severity="error",
-        code="virtual_lab_unsupported_phase_unit",
-        message=f"unsupported phase unit: {quantity.unit}",
-        path="state.quantity.unit",
-    )
+def _requested_product(
+    command: CollectCommand,
+    product_key: str,
+) -> CollectProductRequest | None:
+    for request in command.requests:
+        if request.id == product_key:
+            return request
+    return None
+
+
+def _axis_size(product: CollectProductRequest, axis_id: str) -> int:
+    for dimension in product.dimensions:
+        if dimension.id == axis_id:
+            return dimension.size
+    return 1
 
 
 def _observable_value(
@@ -254,9 +185,5 @@ def _observable_value(
 
 
 __all__ = [
-    "readout_iq_response_model",
-    "readout_response_model",
-    "record_readout_frequency_measurement",
-    "record_readout_iq_measurements",
-    "record_sample_measurement",
+    "record_quantum_measurement",
 ]

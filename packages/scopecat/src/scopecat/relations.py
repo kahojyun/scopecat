@@ -1,9 +1,9 @@
-"""shared relation and scalar expression IR.
+"""Shared relation and scalar expression IR.
 
-This module is the production foundation for the shared shared relation
-language. It is intentionally small: it gives parameter derivation and
-experiment planning a durable IR plus a deterministic local evaluator without
-depending on pandas, Polars, notebooks, or domain packages.
+This module is the production foundation for the shared relation
+language. It is intentionally small: it gives parameter derivations and
+planner snapshots a shared expression IR plus a deterministic local evaluator
+without depending on pandas, Polars, notebooks, or domain packages.
 """
 
 from __future__ import annotations
@@ -19,15 +19,17 @@ from scopecat._relation_scalar_eval import (
     is_cell_value,
     read_path,
 )
-from scopecat.models.parameter import ParameterBuildSnapshot, Quantity
+from scopecat.models.entity import EntityArray, EntityRef
+from scopecat.models.parameter import ParameterViewSnapshot, Quantity
 
-type ScalarValue = str | int | float | bool | None | Quantity
+type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | EntityArray
 type CellValue = ScalarValue | dict[str, Any]
 type Row = dict[str, CellValue]
 type ScalarExprKind = Literal[
     "literal",
     "column",
     "outer_column",
+    "input",
     "param_scalar",
     "param_lookup",
     "binary",
@@ -72,13 +74,13 @@ class ParameterRelationData(BaseModel):
     tables: dict[str, list[Row]] = Field(default_factory=dict)
 
     @classmethod
-    def from_build_snapshot(
-        cls, snapshot: ParameterBuildSnapshot
+    def from_parameter_view(
+        cls, snapshot: ParameterViewSnapshot
     ) -> ParameterRelationData:
         return cls(
             scalars={value.id: value.quantity for value in snapshot.scalar_values},
             tables={
-                table.id: [cast(Row, dict(row)) for row in table.rows]
+                table.id: [_normalize_table_row(row) for row in table.rows]
                 for table in snapshot.tables
             },
         )
@@ -101,7 +103,9 @@ class ParameterRelationData(BaseModel):
         matches = [
             row
             for row in self.table_rows(table_id)
-            if all(row.get(column) == value for column, value in key.items())
+            if all(
+                _cell_matches(row.get(column), value) for column, value in key.items()
+            )
         ]
         if len(matches) != 1:
             msg = f"{table_id!r} key {dict(key)!r} matched {len(matches)} rows"
@@ -113,8 +117,14 @@ class ParameterRelationData(BaseModel):
         *,
         row: Row | None = None,
         outer_row: Row | None = None,
+        inputs: Mapping[str, CellValue] | None = None,
     ) -> EvalContext:
-        return EvalContext(params=self, row=row or {}, outer_row=outer_row)
+        return EvalContext(
+            params=self,
+            row=row or {},
+            outer_row=outer_row,
+            inputs=dict(inputs or {}),
+        )
 
 
 class EvalContext(BaseModel):
@@ -125,6 +135,7 @@ class EvalContext(BaseModel):
     params: ParameterRelationData = Field(default_factory=ParameterRelationData)
     row: Row = Field(default_factory=dict)
     outer_row: Row | None = None
+    inputs: Row = Field(default_factory=dict)
 
 
 class CaseBranch(BaseModel):
@@ -159,7 +170,7 @@ class ScalarExpr(BaseModel):
                 raise ValueError(msg)
             self._reject("name", "table_id", "key", "column", "op", "left", "right")
             self._reject("cases", "fallback")
-        elif self.kind in {"column", "outer_column", "param_scalar"}:
+        elif self.kind in {"column", "outer_column", "input", "param_scalar"}:
             if not self.name:
                 msg = f"{self.kind} expression requires name"
                 raise ValueError(msg)
@@ -194,6 +205,8 @@ class ScalarExpr(BaseModel):
                 msg = f"outer column {_required(self.name)!r} used outside scope"
                 raise ValueError(msg)
             return read_path(ctx.outer_row, _required(self.name))
+        if self.kind == "input":
+            return read_path(ctx.inputs, _required(self.name))
         if self.kind == "param_scalar":
             return ctx.params.scalar(_required(self.name))
         if self.kind == "param_lookup":
@@ -503,10 +516,11 @@ class RelationExpr(BaseModel):
 
     def evaluate(
         self,
-        params: ParameterRelationData | ParameterBuildSnapshot | None = None,
+        params: ParameterRelationData | ParameterViewSnapshot | None = None,
         *,
         row: Row | None = None,
         outer_row: Row | None = None,
+        inputs: Mapping[str, CellValue] | None = None,
     ) -> list[Row]:
         relation_params = _relation_params(params)
         return self.evaluate_in_context(
@@ -514,6 +528,7 @@ class RelationExpr(BaseModel):
                 params=relation_params,
                 row=row or {},
                 outer_row=outer_row,
+                inputs=dict(inputs or {}),
             )
         )
 
@@ -544,6 +559,7 @@ class RelationExpr(BaseModel):
                     params=ctx.params,
                     row=source_row,
                     outer_row=ctx.outer_row,
+                    inputs=ctx.inputs,
                 )
                 if _required(self.condition).eval(child_ctx) is True:
                     filtered_rows.append(source_row)
@@ -564,7 +580,13 @@ class RelationExpr(BaseModel):
         if self.kind == "cross":
             crossed: list[Row] = []
             for left_row in _required(self.left).evaluate_in_context(ctx):
-                for right_row in _required(self.right).evaluate_in_context(ctx):
+                child_ctx = EvalContext(
+                    params=ctx.params,
+                    row=_merge_rows(ctx.row, left_row) if ctx.row else left_row,
+                    outer_row=ctx.outer_row,
+                    inputs=ctx.inputs,
+                )
+                for right_row in _required(self.right).evaluate_in_context(child_ctx):
                     crossed.append(_merge_rows(left_row, right_row))
             return crossed
         if self.kind == "with_columns":
@@ -575,6 +597,7 @@ class RelationExpr(BaseModel):
                     params=ctx.params,
                     row=next_row,
                     outer_row=ctx.outer_row,
+                    inputs=ctx.inputs,
                 )
                 for name, expr in _required(self.new_columns).items():
                     next_row[name] = expr.eval(child_ctx)
@@ -661,6 +684,18 @@ def col(name: str) -> ScalarExpr:
 
 def outer(name: str) -> ScalarExpr:
     return ScalarExpr(kind="outer_column", name=name)
+
+
+def input_ref(name: str) -> ScalarExpr:
+    return ScalarExpr(kind="input", name=name)
+
+
+def _cell_matches(left: CellValue, right: CellValue) -> bool:
+    if isinstance(left, EntityRef) and isinstance(right, str):
+        return left.id == right
+    if isinstance(left, str) and isinstance(right, EntityRef):
+        return left == right.id
+    return left == right
 
 
 def param(
@@ -805,13 +840,13 @@ def _grid_column(source: object) -> GridColumn:
 
 
 def _relation_params(
-    params: ParameterRelationData | ParameterBuildSnapshot | None,
+    params: ParameterRelationData | ParameterViewSnapshot | None,
 ) -> ParameterRelationData:
     if params is None:
         return ParameterRelationData()
     if isinstance(params, ParameterRelationData):
         return params
-    return ParameterRelationData.from_build_snapshot(params)
+    return ParameterRelationData.from_parameter_view(params)
 
 
 def _unit_literal(value: object, *, unit: str | None) -> object:
@@ -860,6 +895,27 @@ def _merge_rows(left: Row, right: Row) -> Row:
     return merged
 
 
+def _normalize_table_row(row: Mapping[str, object]) -> Row:
+    return {key: _normalize_table_cell(value) for key, value in row.items()}
+
+
+def _normalize_table_cell(value: object) -> CellValue:
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[object, object], value)
+        if set(mapping) == {"value", "unit"}:
+            return Quantity.model_validate(mapping)
+        if "id" in mapping and set(mapping) <= {"id", "kind", "metadata"}:
+            return EntityRef.model_validate(mapping)
+        if "entities" in mapping and set(mapping) <= {"entities", "kind", "metadata"}:
+            return EntityArray.model_validate(mapping)
+        msg = f"parameter table cell contains unsupported mapping {value!r}"
+        raise TypeError(msg)
+    if is_cell_value(value):
+        return value
+    msg = f"parameter table cell contains unsupported value {value!r}"
+    raise TypeError(msg)
+
+
 def _required[T](value: T | None) -> T:
     if value is None:
         raise AssertionError("validated field is unexpectedly missing")
@@ -885,6 +941,7 @@ __all__ = [
     "case",
     "col",
     "grid",
+    "input_ref",
     "linspace",
     "lit",
     "literal_rows",

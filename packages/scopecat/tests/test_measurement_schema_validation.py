@@ -4,8 +4,10 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.models.measurement import (
+    MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementRecord,
     MeasurementVariable,
     validate_measurement_records_against_schema,
 )
@@ -88,6 +90,59 @@ def test_validate_measurement_records_against_schema_accepts_compatible_units() 
 
     diagnostics = validate_measurement_records_against_schema(
         records,
+        schema,
+        "raw-measurements",
+        "raw",
+    )
+
+    assert diagnostics == []
+
+
+def test_validate_schema_accepts_point_local_arrays() -> None:
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        dataset_role="raw",
+        dimensions=[
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(id="shot", kind="shot", size=3, unit="count"),
+        ],
+        variables=[
+            MeasurementVariable(
+                id="drive_frequency",
+                role="coordinate",
+                dtype="float64",
+                unit="GHz",
+                dims=["point"],
+                shape=[1],
+            ),
+            MeasurementVariable(
+                id="i0",
+                role="observable",
+                dtype="float64",
+                unit="ratio",
+                dims=["point", "shot"],
+                shape=[1, 3],
+            ),
+        ],
+        primary_coordinates=["drive_frequency"],
+        primary_observables=["i0"],
+    )
+    record = MeasurementRecord(
+        run_id="run-test",
+        point_index=0,
+        coordinates={"drive_frequency": Quantity(value=5.0, unit="GHz")},
+        observables={
+            "i0": MeasurementArray(
+                dtype="float64",
+                unit="ratio",
+                shape=[3],
+                values=[0.1, 0.2, 0.3],
+            )
+        },
+    )
+
+    diagnostics = validate_measurement_records_against_schema(
+        [record],
         schema,
         "raw-measurements",
         "raw",

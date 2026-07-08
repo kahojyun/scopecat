@@ -15,7 +15,11 @@ from scopecat.errors import ValidationFailed
 from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
 from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunConfigSource, RunManifest
-from scopecat.results import MeasurementDatasetSchema, MeasurementRecord
+from scopecat.results import (
+    ComplexQuantity,
+    MeasurementDatasetSchema,
+    MeasurementRecord,
+)
 from scopecat.run_comparison.models import (
     ComparisonOutcome,
     RunComparisonPoint,
@@ -628,6 +632,22 @@ def _observable(
                     "error",
                     "run_comparison_missing_observable",
                     f"run comparison measurement is missing {observable_id}: {run_id}",
+                    f"observables.{observable_id}",
+                )
+            ]
+        )
+    if not isinstance(value, Quantity):
+        if isinstance(value, ComplexQuantity):
+            return Quantity(
+                value=round(abs(complex(value.real, value.imag)), 12),
+                unit=value.unit,
+            )
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "run_comparison_array_observable_unsupported",
+                    f"run comparison observable must be scalar: {observable_id}",
                     f"observables.{observable_id}",
                 )
             ]

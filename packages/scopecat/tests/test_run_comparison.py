@@ -9,9 +9,11 @@ from scopecat.run_comparison import (
 )
 from tests.support.run_comparison import (
     active_config_registry_signal_run,
+    candidate_data_records,
     load_experiment,
     load_signal_config,
     run_signal_experiment,
+    write_candidate_records,
 )
 from tests.support.signal_testkit import execute_signal_run
 
@@ -48,6 +50,32 @@ def test_execute_run_comparison_returns_result_and_lists_baseline_comparison(
         for view in list_run_comparisons(run_id=baseline_run_id, workspace=tmp_path)
     ] == [comparison_id]
     assert list_run_comparisons(run_id=candidate_run_id, workspace=tmp_path) == []
+
+
+def test_execute_run_comparison_compares_complex_scalar_magnitude(
+    tmp_path: Path,
+) -> None:
+    baseline_run_id = run_signal_experiment(tmp_path)
+    candidate_run_id = run_signal_experiment(tmp_path)
+    baseline_records = candidate_data_records(tmp_path, baseline_run_id)
+    candidate_records = candidate_data_records(tmp_path, candidate_run_id)
+    for record in baseline_records:
+        record["observables"] = {"raw_iq": {"real": 3.0, "imag": 4.0, "unit": "ratio"}}
+    for record in candidate_records:
+        record["observables"] = {"raw_iq": {"real": 6.0, "imag": 8.0, "unit": "ratio"}}
+    write_candidate_records(tmp_path, baseline_run_id, baseline_records)
+    write_candidate_records(tmp_path, candidate_run_id, candidate_records)
+
+    result = execute_run_comparison(
+        baseline_run_id=baseline_run_id,
+        candidate_run_id=candidate_run_id,
+        observable_id="raw_iq",
+        workspace=tmp_path,
+    )
+
+    assert result.baseline_peak_value.value == 5.0
+    assert result.candidate_peak_value.value == 10.0
+    assert result.points[0].value_delta.value == 5.0
 
 
 def test_execute_run_comparison_includes_active_config_source(

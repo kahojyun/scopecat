@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat._manifest_updates import write_manifest_records
+from scopecat._workflows.config import register_and_activate_candidate_config
 from scopecat.candidate_configs import CandidateConfig
 from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.artifact import RunRecordEntry
-from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
 from scopecat.models.parameter import ParameterChangeSet, ParameterPatch, Quantity
 from scopecat.runs import open_run_store, record_storage_ref
-from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.records import read_model
 from tests.support.signal_testkit import execute_signal_run
 
@@ -38,11 +38,7 @@ def signal_run_with_parameter_change(tmp_path: Path) -> str:
 def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
     storage = open_run_store(tmp_path)
     config = storage.read_config_profile_snapshot(run_id)
-    parameter = (
-        config.parameter_build.get("drive_frequency")
-        if config.parameter_build is not None
-        else None
-    )
+    parameter = build_config_parameters(config).get("drive_frequency")
     old_value = (
         parameter.quantity if parameter is not None else Quantity(value=5.0, unit="GHz")
     )

@@ -1,9 +1,0 @@
-{
-  "schema_version": "quantum_lab_demo.readout_response_model.v0",
-  "resonance_frequency_ghz": 5.953,
-  "linewidth_mhz": 16.0,
-  "baseline_amplitude": 0.92,
-  "dip_depth": 0.52,
-  "repeatable_variation_amplitude": 0.0,
-  "phase_slope": 0.55
-}

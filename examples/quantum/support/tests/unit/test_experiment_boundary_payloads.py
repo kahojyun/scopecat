@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from demo_lab_experiment_testkit import load_experiment_config
+from scopecat.authoring import ExperimentInvocation, resolve_experiment
+from scopecat.experiments import (
+    ExperimentSpec,
+)
+from scopecat.instruments import RuntimePayloadObservation
+from scopecat.models.artifact import CommandPayload
+from scopecat.models.parameter import Quantity
+
+from quantum_lab_demo.experiments import SQG_RB_TEMPLATE
+from quantum_lab_demo.experiments.payloads import (
+    RandomizedBenchmarkingPulseBundle,
+    RandomizedBenchmarkingSequence,
+)
+from quantum_lab_demo.lab import quantum_lab
+
+
+def test_sequence_compilation_stays_memory_payload_boundary(
+    tmp_path: Path,
+) -> None:
+    invocation = SQG_RB_TEMPLATE.bind(qubit="q0", lengths=[4, 8], seed=11)
+    resolved = resolve_experiment(
+        invocation,
+        workspace=tmp_path,
+        config_profile=load_experiment_config(),
+    )
+    assert isinstance(resolved.experiment, ExperimentSpec)
+    preview = quantum_lab(
+        workspace=tmp_path,
+        config_profile=load_experiment_config(),
+    ).preview(invocation)
+    payloads = _run_observed_payloads(tmp_path, invocation)
+
+    assert [point.coordinates["clifford_count"] for point in preview.points] == [
+        Quantity(value=4, unit="count"),
+        Quantity(value=8, unit="count"),
+    ]
+    assert [
+        (field.resource_id, field.capability_id, field.field_path)
+        for field in preview.state_fields
+        if field.value_kind == "payload"
+    ] == [
+        ("drive-stack", "play_gate_sequence", "sequence"),
+        ("drive-stack", "play_pulse_program", "program"),
+        ("drive-stack", "play_gate_sequence", "sequence"),
+        ("drive-stack", "play_pulse_program", "program"),
+    ]
+    assert [payload.kind for payload in payloads] == [
+        "gate_sequence",
+        "pulse_program",
+        "gate_sequence",
+        "pulse_program",
+    ]
+    payload_values = [payload.payload for payload in payloads]
+    assert (
+        sum(
+            isinstance(payload, RandomizedBenchmarkingSequence)
+            for payload in payload_values
+        )
+        == 2
+    )
+    assert (
+        sum(
+            isinstance(payload, RandomizedBenchmarkingPulseBundle)
+            for payload in payload_values
+        )
+        == 2
+    )
+
+
+def _run_observed_payloads(
+    tmp_path: Path,
+    invocation: ExperimentInvocation,
+) -> list[CommandPayload]:
+    observations: list[RuntimePayloadObservation] = []
+    quantum_lab(workspace=tmp_path).run(
+        invocation,
+        payload_observer=observations.append,
+    )
+    return [observation.payload for observation in observations]

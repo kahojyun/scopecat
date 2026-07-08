@@ -5,73 +5,34 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
+from scopecat.models.config import ConfigProfileSnapshot
 
 from quantum_lab_demo.fixtures import (
-    DEFAULT_READOUT_FREQUENCY_WORKSPACE,
-    DEFAULT_READOUT_IQ_WORKSPACE,
-    DEFAULT_SAMPLE_TEMPLATES_WORKSPACE,
-    READOUT_FREQUENCY_FIXTURE_DIR,
-    READOUT_FREQUENCY_VIRTUAL_LAB_PROFILE,
-    READOUT_IQ_FIXTURE_DIR,
-    READOUT_IQ_VIRTUAL_LAB_PROFILE,
-    SAMPLE_TEMPLATES_FIXTURE_DIR,
-    SAMPLE_TEMPLATES_VIRTUAL_LAB_PROFILE,
+    DEFAULT_EXPERIMENT_WORKSPACE,
+    EXPERIMENT_VIRTUAL_LAB_PROFILE,
 )
-from quantum_lab_demo.virtual_lab.provider import (
-    ReadoutFrequencyVirtualProvider,
-    ReadoutIQVirtualProvider,
-    SampleVirtualProvider,
-)
+from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
+from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
 PathInput = str | Path
+ConfigProfileInput = PathInput | ConfigProfileSnapshot
 
 
-def readout_frequency_lab(
+def quantum_lab(
     *,
-    workspace: PathInput = DEFAULT_READOUT_FREQUENCY_WORKSPACE,
-    config_profile: PathInput = READOUT_FREQUENCY_FIXTURE_DIR / "config-profile.json",
-    virtual_lab_profile: PathInput = READOUT_FREQUENCY_VIRTUAL_LAB_PROFILE,
+    workspace: PathInput = DEFAULT_EXPERIMENT_WORKSPACE,
+    config_profile: ConfigProfileInput | None = None,
+    virtual_lab_profile: PathInput = EXPERIMENT_VIRTUAL_LAB_PROFILE,
 ) -> sc.Workspace:
     return sc.open(
         workspace,
-        config_profile=config_profile,
-        instrument_provider=ReadoutFrequencyVirtualProvider(
-            profile=virtual_lab_profile,
-        ),
-    )
-
-
-def readout_iq_lab(
-    *,
-    workspace: PathInput = DEFAULT_READOUT_IQ_WORKSPACE,
-    config_profile: PathInput = READOUT_IQ_FIXTURE_DIR / "config-profile.json",
-    virtual_lab_profile: PathInput = READOUT_IQ_VIRTUAL_LAB_PROFILE,
-) -> sc.Workspace:
-    return sc.open(
-        workspace,
-        config_profile=config_profile,
-        instrument_provider=ReadoutIQVirtualProvider(
-            profile=virtual_lab_profile,
-        ),
-    )
-
-
-def sample_lab(
-    *,
-    workspace: PathInput = DEFAULT_SAMPLE_TEMPLATES_WORKSPACE,
-    config_profile: PathInput = SAMPLE_TEMPLATES_FIXTURE_DIR / "config-profile.json",
-    virtual_lab_profile: PathInput = SAMPLE_TEMPLATES_VIRTUAL_LAB_PROFILE,
-) -> sc.Workspace:
-    return sc.open(
-        workspace,
-        config_profile=config_profile,
-        instrument_provider=SampleVirtualProvider(profile=virtual_lab_profile),
+        config_profile=config_profile or quantum_wiring_config_profile(),
+        instrument_provider=QuantumLabVirtualProvider(profile=virtual_lab_profile),
     )
 
 
 __all__ = [
+    "ConfigProfileInput",
     "PathInput",
-    "readout_frequency_lab",
-    "readout_iq_lab",
-    "sample_lab",
+    "quantum_lab",
 ]

@@ -2,164 +2,175 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import cast
 
-from scopecat.authoring._templates import ExperimentAuthoringContext
+from scopecat.authoring.context import ExperimentAuthoringContext
 from scopecat.authoring.expressions import (
-    AssetInput,
     BindingSpec,
     Expression,
 )
 from scopecat.authoring.expressions import (
     bind as spec_bind,
 )
-from scopecat.authoring.expressions import (
-    bind_asset as spec_bind_asset,
-)
+from scopecat.experiments import ResourceRouteIntent
+from scopecat.models.entity import EntityArray, EntityRef, entity_array
 from scopecat.models.parameter import Quantity
+from scopecat.relations import ScalarExpr, col
 
 
 @dataclass(frozen=True)
 class ResourceSelector:
     capabilities: tuple[str, ...] = ()
+    entity_inputs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
-class ResourceRole:
+class ResourcePort:
     id: str
     selector: ResourceSelector
-    resource_id: str | None = None
 
 
 @dataclass(frozen=True)
 class BindingIntent:
-    role_path: str
-    value: Expression | Quantity | float
+    port_path: str
+    value: Expression | ScalarExpr | Quantity | float
 
     def build(
         self,
         ctx: ExperimentAuthoringContext,
-        resource_ids: Mapping[str, str],
+        resource_ports: Mapping[str, ResourcePort],
     ) -> BindingSpec:
-        role_id, capability_id, field_path = _parse_role_path(ctx, self.role_path)
-        resource_id = resource_ids.get(role_id)
-        if resource_id is None:
+        port_id, capability_id, field_path = _parse_port_path(ctx, self.port_path)
+        resource_port = resource_ports.get(port_id)
+        if resource_port is None:
             ctx.raise_diagnostic(
-                "recipe_unknown_resource_role",
-                f"binding references unknown resource role {role_id}",
+                "module_unknown_resource_port",
+                f"binding references unknown resource port {port_id}",
                 "bindings",
             )
-        ctx.require_binding_capability(resource_id, capability_id)
+        _require_port_capability(ctx, resource_port, capability_id)
         return spec_bind(
-            resource_id,
+            port_id,
             capability_id,
             field_path,
             self.value,
         )
 
 
-@dataclass(frozen=True)
-class AssetBindingIntent:
-    role_path: str
-    asset: AssetInput | str
-
-    def build(
-        self,
-        ctx: ExperimentAuthoringContext,
-        resource_ids: Mapping[str, str],
-    ) -> BindingSpec:
-        role_id, capability_id, field_path = _parse_role_path(ctx, self.role_path)
-        resource_id = resource_ids.get(role_id)
-        if resource_id is None:
-            ctx.raise_diagnostic(
-                "recipe_unknown_resource_role",
-                f"binding references unknown resource role {role_id}",
-                "bindings",
-            )
-        ctx.require_binding_capability(resource_id, capability_id)
-        return spec_bind_asset(
-            resource_id,
-            capability_id,
-            field_path,
-            self.asset,
-        )
+ExperimentBindingIntent = BindingIntent
 
 
-ExperimentBindingIntent = BindingIntent | AssetBindingIntent
+def requires(
+    *capabilities: str,
+    for_entities: Sequence[str] = (),
+) -> ResourceSelector:
+    return ResourceSelector(
+        capabilities=tuple(capabilities),
+        entity_inputs=tuple(for_entities),
+    )
 
 
-def requires(*capabilities: str) -> ResourceSelector:
-    return ResourceSelector(capabilities=tuple(capabilities))
-
-
-def resource_role(
+def resource_port(
     id: str,  # noqa: A002
     selector: ResourceSelector,
-    *,
-    resource_id: str | None = None,
-) -> ResourceRole:
-    return ResourceRole(id=id, selector=selector, resource_id=resource_id)
+) -> ResourcePort:
+    return ResourcePort(id=id, selector=selector)
 
 
 def bind(
-    role_path: str,
-    value: Expression | Quantity | float,
+    port_path: str,
+    value: Expression | ScalarExpr | Quantity | float,
 ) -> BindingIntent:
-    return BindingIntent(role_path=role_path, value=value)
+    return BindingIntent(port_path=port_path, value=value)
 
 
-def asset_binding(
-    role_path: str,
-    asset: AssetInput | str,
-) -> AssetBindingIntent:
-    return AssetBindingIntent(role_path=role_path, asset=asset)
-
-
-def resolve_resource_roles(
+def build_route_intents(
     ctx: ExperimentAuthoringContext,
-    roles: Sequence[ResourceRole],
-) -> dict[str, str]:
-    resolved: dict[str, str] = {}
-    for role in roles:
-        if role.resource_id is not None:
-            ctx.require_resource(role.resource_id)
-            for capability in role.selector.capabilities:
-                ctx.require_capability(role.resource_id, capability)
-            resolved[role.id] = role.resource_id
-            continue
-        candidates = [
-            instrument.id
-            for instrument in ctx.config.instrument_registry.instruments
-            if all(
-                capability in instrument.capabilities
-                for capability in role.selector.capabilities
+    ports: Sequence[ResourcePort],
+    *,
+    inputs: Mapping[str, object],
+) -> list[ResourceRouteIntent]:
+    route_intents: list[ResourceRouteIntent] = []
+    for port in ports:
+        route_intents.append(
+            ResourceRouteIntent(
+                port_id=port.id,
+                capabilities=list(port.selector.capabilities),
+                entity_exprs=[
+                    _route_entity_expr(ctx, input_id, inputs)
+                    for input_id in port.selector.entity_inputs
+                ],
+                resource_id=None,
             )
-        ]
-        if not candidates:
-            ctx.raise_diagnostic(
-                "recipe_resource_role_not_found",
-                f"no resource satisfies role {role.id}",
-                f"resources.{role.id}",
-            )
-        if len(candidates) > 1:
-            ctx.raise_diagnostic(
-                "recipe_resource_role_ambiguous",
-                f"resource role {role.id} matches multiple resources: "
-                f"{', '.join(candidates)}",
-                f"resources.{role.id}",
-            )
-        resolved[role.id] = candidates[0]
-    return resolved
+        )
+    return route_intents
 
 
-def _parse_role_path(
+def ports_by_id(
     ctx: ExperimentAuthoringContext,
-    role_path: str,
+    ports: Sequence[ResourcePort],
+) -> dict[str, ResourcePort]:
+    result: dict[str, ResourcePort] = {}
+    for port in ports:
+        if port.id in result:
+            ctx.raise_diagnostic(
+                "module_resource_port_duplicate",
+                f"duplicate resource port {port.id}",
+                f"resources.{port.id}",
+            )
+        result[port.id] = port
+    return result
+
+
+def _route_entity_expr(
+    ctx: ExperimentAuthoringContext,
+    input_id: str,
+    inputs: Mapping[str, object],
+) -> ScalarExpr:
+    if input_id not in inputs:
+        return col(input_id)
+    value = inputs[input_id]
+    if isinstance(value, str) and value:
+        return ScalarExpr(kind="literal", value=ctx.require_entity(value))
+    if isinstance(value, EntityRef):
+        return ScalarExpr(kind="literal", value=ctx.require_entity(value))
+    if isinstance(value, EntityArray):
+        return ScalarExpr(kind="literal", value=ctx.require_entity_array(value))
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        selected = entity_array(cast("Sequence[EntityRef | str]", value))
+        return ScalarExpr(
+            kind="literal",
+            value=ctx.require_entity_array(selected),
+        )
+    ctx.raise_diagnostic(
+        "module_resource_entity_input_invalid",
+        f"resource entity input {input_id} must be an entity or entity array",
+        f"inputs.{input_id}",
+    )
+
+
+def _require_port_capability(
+    ctx: ExperimentAuthoringContext,
+    port: ResourcePort,
+    capability_id: str,
+) -> None:
+    if port.selector.capabilities and capability_id not in port.selector.capabilities:
+        ctx.raise_diagnostic(
+            "module_resource_port_capability_missing",
+            f"resource port {port.id} does not declare capability {capability_id}",
+            f"resources.{port.id}",
+        )
+
+
+def _parse_port_path(
+    ctx: ExperimentAuthoringContext,
+    port_path: str,
 ) -> tuple[str, str, str]:
-    parts = role_path.split(".")
+    parts = port_path.split(".")
     if len(parts) < 3:
         ctx.raise_diagnostic(
-            "recipe_binding_path_invalid",
-            "binding path must be '<role>.<capability>.<field>'",
+            "module_binding_path_invalid",
+            "binding path must be '<port>.<capability>.<field>'",
             "bindings",
         )
     return parts[0], parts[1], ".".join(parts[2:])

@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 # %%
-from quantum_lab_demo import notebook_workspace, readout_frequency_lab
-from quantum_lab_demo.readout import frequency_calibration
+from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo.experiments import READOUT_TEMPLATE
 
 # %%
 workspace = notebook_workspace("03-run-and-read-data")
-lab = readout_frequency_lab(workspace=workspace)
-experiment = lab.experiment(
-    "readout frequency",
-    source=frequency_calibration(qubit="q0"),
-)
+lab = quantum_lab(workspace=workspace)
 
 # %%
-completed_run = lab.run(experiment)
+completed_run = lab.run(
+    READOUT_TEMPLATE,
+    inputs={"qubit": "q0"},
+    name="readout frequency",
+    tags=("notebook", "calibration"),
+)
 data = completed_run.data()
 
 # %%

@@ -52,7 +52,7 @@ class PointArtifactStatus(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    point_id: int
+    point_index: int
     available: list[str] = Field(default_factory=list)
     missing_required: list[str] = Field(default_factory=list)
     missing_optional: list[str] = Field(default_factory=list)
@@ -64,12 +64,12 @@ class ArtifactAvailabilityReport(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.artifact_availability_report.v1"] = (
-        "scopecat.artifact_availability_report.v1"
+    schema_version: Literal["scopecat.artifact_availability_report.v2"] = (
+        "scopecat.artifact_availability_report.v2"
     )
     points: list[PointArtifactStatus] = Field(default_factory=list)
-    eligible_point_ids: list[int] = Field(default_factory=list)
-    partial_point_ids: list[int] = Field(default_factory=list)
+    eligible_point_indices: list[int] = Field(default_factory=list)
+    partial_point_indices: list[int] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
@@ -160,39 +160,39 @@ def evaluate_artifact_availability(
     diagnostics: list[Diagnostic] = []
     by_point: dict[int, Mapping[str, Any]] = {}
     for row_index, row in enumerate(rows):
-        point_id = row.get("point_id")
-        if not isinstance(point_id, int) or isinstance(point_id, bool):
+        point_index = row.get("point_index")
+        if not isinstance(point_index, int) or isinstance(point_index, bool):
             diagnostics.append(
                 _diagnostic(
                     "invalid_artifact_point",
-                    f"row {row_index} has invalid point_id {point_id!r}",
-                    f"rows.{row_index}.point_id",
+                    f"row {row_index} has invalid point_index {point_index!r}",
+                    f"rows.{row_index}.point_index",
                 )
             )
             continue
-        if point_id < 0 or point_id >= point_count:
+        if point_index < 0 or point_index >= point_count:
             diagnostics.append(
                 _diagnostic(
                     "invalid_artifact_point",
-                    f"row {row_index} point_id {point_id} is out of range",
-                    f"rows.{row_index}.point_id",
+                    f"row {row_index} point_index {point_index} is out of range",
+                    f"rows.{row_index}.point_index",
                 )
             )
             continue
-        if point_id in by_point:
+        if point_index in by_point:
             diagnostics.append(
                 _diagnostic(
                     "duplicate_artifact_point",
-                    f"row {row_index} repeats point_id {point_id}",
-                    f"rows.{row_index}.point_id",
+                    f"row {row_index} repeats point_index {point_index}",
+                    f"rows.{row_index}.point_index",
                 )
             )
             continue
-        by_point[point_id] = row
+        by_point[point_index] = row
 
     point_statuses: list[PointArtifactStatus] = []
-    for point_id in range(point_count):
-        row = by_point.get(point_id, {})
+    for point_index in range(point_count):
+        row = by_point.get(point_index, {})
         available: list[str] = []
         missing_required: list[str] = []
         missing_optional: list[str] = []
@@ -205,10 +205,10 @@ def evaluate_artifact_availability(
                     _diagnostic(
                         "missing_required_artifact",
                         (
-                            f"point {point_id} is missing required artifact "
+                            f"point {point_index} is missing required artifact "
                             f"{requirement.label!r}"
                         ),
-                        f"points.{point_id}.{requirement.label}",
+                        f"points.{point_index}.{requirement.label}",
                     )
                 )
             else:
@@ -217,15 +217,15 @@ def evaluate_artifact_availability(
                     _diagnostic(
                         "missing_optional_artifact",
                         (
-                            f"point {point_id} is missing optional artifact "
+                            f"point {point_index} is missing optional artifact "
                             f"{requirement.label!r}"
                         ),
-                        f"points.{point_id}.{requirement.label}",
+                        f"points.{point_index}.{requirement.label}",
                     )
                 )
         point_statuses.append(
             PointArtifactStatus(
-                point_id=point_id,
+                point_index=point_index,
                 available=available,
                 missing_required=missing_required,
                 missing_optional=missing_optional,
@@ -235,11 +235,11 @@ def evaluate_artifact_availability(
 
     return ArtifactAvailabilityReport(
         points=point_statuses,
-        eligible_point_ids=[
-            point.point_id for point in point_statuses if point.eligible
+        eligible_point_indices=[
+            point.point_index for point in point_statuses if point.eligible
         ],
-        partial_point_ids=[
-            point.point_id
+        partial_point_indices=[
+            point.point_index
             for point in point_statuses
             if point.eligible and point.missing_optional
         ],

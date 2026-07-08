@@ -15,9 +15,9 @@ class EarlyStopDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.early_stop_decision.v1"
+    schema_version: str = "scopecat.early_stop_decision.v2"
     stop: bool
-    completed_point_ids: list[int] = Field(default_factory=list)
+    completed_point_indices: list[int] = Field(default_factory=list)
     reason: str | None = None
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
@@ -43,7 +43,7 @@ def decide_online_convergence(
     if len(accepted) < min_points:
         return EarlyStopDecision(
             stop=False,
-            completed_point_ids=_completed_point_ids(accepted),
+            completed_point_indices=_completed_point_indices(accepted),
             diagnostics=[
                 _diagnostic(
                     "insufficient_convergence_points",
@@ -56,13 +56,13 @@ def decide_online_convergence(
     diagnostics: list[Diagnostic] = []
     values: list[float] = []
     for row in accepted:
-        point_id = row.get("point_id")
+        point_index = row.get("point_index")
         if x_column not in row or y_column not in row:
             diagnostics.append(
                 _diagnostic(
                     "missing_convergence_column",
-                    f"row {point_id!r} is missing x/y columns",
-                    f"rows.{point_id}",
+                    f"row {point_index!r} is missing x/y columns",
+                    f"rows.{point_index}",
                 )
             )
             continue
@@ -71,18 +71,18 @@ def decide_online_convergence(
             diagnostics.append(
                 _diagnostic(
                     "invalid_convergence_value",
-                    f"row {point_id!r} has nonnumeric y value",
-                    f"rows.{point_id}.{y_column}",
+                    f"row {point_index!r} has nonnumeric y value",
+                    f"rows.{point_index}.{y_column}",
                 )
             )
             continue
         values.append(float(cast("int | float", y_value)))
 
-    completed_point_ids = _completed_point_ids(accepted)
+    completed_point_indices = _completed_point_indices(accepted)
     if diagnostics:
         return EarlyStopDecision(
             stop=False,
-            completed_point_ids=completed_point_ids,
+            completed_point_indices=completed_point_indices,
             diagnostics=diagnostics,
         )
 
@@ -90,7 +90,7 @@ def decide_online_convergence(
     converged = len(tail) >= window and (max(tail) - min(tail)) <= tolerance
     return EarlyStopDecision(
         stop=converged,
-        completed_point_ids=completed_point_ids,
+        completed_point_indices=completed_point_indices,
         reason=(
             f"last {window} {y_column!r} values within {tolerance}"
             if converged
@@ -107,23 +107,23 @@ def _online_accepted_rows(
     accepted: list[dict[str, Any]] = []
     seen_points: set[int] = set()
     for row in rows:
-        point_id = row.get("point_id")
-        if not isinstance(point_id, int) or isinstance(point_id, bool):
+        point_index = row.get("point_index")
+        if not isinstance(point_index, int) or isinstance(point_index, bool):
             continue
-        if point_id < 0 or point_id >= point_count or point_id in seen_points:
+        if point_index < 0 or point_index >= point_count or point_index in seen_points:
             continue
         accepted.append(dict(row))
-        seen_points.add(point_id)
-    return sorted(accepted, key=lambda row: cast("int", row["point_id"]))
+        seen_points.add(point_index)
+    return sorted(accepted, key=lambda row: cast("int", row["point_index"]))
 
 
-def _completed_point_ids(rows: Sequence[Mapping[str, Any]]) -> list[int]:
-    point_ids: list[int] = []
+def _completed_point_indices(rows: Sequence[Mapping[str, Any]]) -> list[int]:
+    point_indices: list[int] = []
     for row in rows:
-        point_id = row.get("point_id")
-        if isinstance(point_id, int) and not isinstance(point_id, bool):
-            point_ids.append(point_id)
-    return point_ids
+        point_index = row.get("point_index")
+        if isinstance(point_index, int) and not isinstance(point_index, bool):
+            point_indices.append(point_index)
+    return point_indices
 
 
 def _is_number(value: object) -> bool:

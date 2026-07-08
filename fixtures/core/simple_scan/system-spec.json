@@ -2,8 +2,22 @@
   "schema_version": "scopecat.system_spec.v0",
   "id": "example-workspace-system",
   "workspace_id": "example-workspace",
-  "device_under_test_id": "example-device",
-  "device_topology": {
+  "primary_entity_id": "q0",
+  "topology": {
+    "entities": [
+      {
+        "id": "q0",
+        "kind": "logical_device"
+      },
+      {
+        "id": "drive-q0",
+        "kind": "drive_channel"
+      },
+      {
+        "id": "readout-q0",
+        "kind": "readout_channel"
+      }
+    ],
     "devices": [
       {
         "id": "q0",
@@ -34,13 +48,7 @@
     "instruments": [
       {
         "id": "source-0",
-        "kind": "rf_source",
-        "channels": [
-          "drive-q0"
-        ],
-        "capabilities": [
-          "set_frequency"
-        ]
+        "kind": "rf_source"
       }
     ]
   },
@@ -65,5 +73,22 @@
     ],
     "table_definitions": [],
     "metadata": {}
+  },
+  "routing": {
+    "resources": [
+      {
+        "id": "source-0",
+        "kind": "instrument",
+        "capabilities": [
+          "set_frequency"
+        ],
+        "served_entities": [
+          "q0"
+        ],
+        "channels": [
+          "drive-q0"
+        ]
+      }
+    ]
   }
 }

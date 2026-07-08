@@ -5,8 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from scopecat.instruments import DriverDiagnostic, StateChange
-from scopecat.instruments.state import StatePatchField, StateValue
+from scopecat.instruments import (
+    DriverDiagnostic,
+    InstrumentStateCommand,
+    InstrumentStateCommandField,
+)
+from scopecat.instruments.state import StateValue
 from scopecat.models.parameter import Quantity
 
 from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile
@@ -43,15 +47,15 @@ class VirtualDevice:
     def state(self) -> dict[tuple[str, str], StateValue]:
         return dict(self._state)
 
-    def apply(self, changes: StateChange) -> None:
-        if changes.instrument_id != self.id:
+    def apply(self, command: InstrumentStateCommand) -> None:
+        if command.instrument_id != self.id:
             raise DriverDiagnostic(
                 severity="error",
                 code="virtual_lab_device_mismatch",
-                message=f"{self.id} cannot apply changes for {changes.instrument_id}",
+                message=f"{self.id} cannot apply command for {command.instrument_id}",
                 path="instrument_id",
             )
-        for field in changes.fields:
+        for field in command.fields:
             self._apply_field(field)
 
     def quantity(self, capability_id: str, field_path: str) -> Quantity | None:
@@ -62,34 +66,34 @@ class VirtualDevice:
         value = self._state.get((capability_id, field_path))
         return value.value if value is not None else None
 
-    def asset_id(self, capability_id: str, field_path: str) -> str | None:
+    def payload_id(self, capability_id: str, field_path: str) -> str | None:
         value = self._state.get((capability_id, field_path))
-        return value.asset_id if value is not None else None
+        return value.payload_id if value is not None else None
 
     def measurement_metadata(self) -> dict[str, Any]:
-        assets = {
-            _encode_state_key(capability_id, field_path): value.asset_id
+        payloads = {
+            _encode_state_key(capability_id, field_path): value.payload_id
             for (capability_id, field_path), value in self._state.items()
-            if value.kind == "asset"
+            if value.kind == "payload"
         }
         return {
             "virtual_device": self.id,
             "virtual_device_kind": self.kind,
-            "virtual_assets": assets,
+            "virtual_payloads": payloads,
             "applied_patch_count": len(self._patch_log),
         }
 
-    def _apply_field(self, field: StatePatchField) -> None:
+    def _apply_field(self, field: InstrumentStateCommandField) -> None:
         key = (field.capability_id, field.field_path)
         before = self._state.get(key)
-        self._state[key] = field.after
+        self._state[key] = field.value
         self._patch_log.append(
             VirtualPatchRecord(
                 instrument_id=self.id,
                 capability_id=field.capability_id,
                 field_path=field.field_path,
                 before=before,
-                after=field.after,
+                after=field.value,
             )
         )
 

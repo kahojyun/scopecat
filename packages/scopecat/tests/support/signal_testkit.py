@@ -14,16 +14,16 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 import scopecat as sc
+from scopecat._workflows.runs import start_run
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import ExperimentSpec, PlanSnapshot
-from scopecat.instruments import ExecutionSnapshot
-from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.experiments import ExperimentSpec
+from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
+from scopecat.models.execution import ExecutionSummary
 from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunConfigSource, RunManifest
-from scopecat.results import MeasurementRecord
+from scopecat.results import MeasurementArray, MeasurementRecord, MeasurementValue
 from scopecat.runs import dataset_storage_ref, open_run_store, record_storage_ref
-from scopecat.workflows.runs import start_run
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 
 SUMMARY_STATS_STEP = "summary-stats"
@@ -33,7 +33,7 @@ SUMMARY_STATS_SUMMARY_REF = "artifacts/summary/summary-stats-summary"
 BEST_SIGNAL_ANALYSIS_STEP = "best-signal-analysis"
 BEST_SIGNAL_INPUT_REF = "data/measurement_dataset/raw-measurements"
 BEST_SIGNAL_CONFIG_REF = "config-profile.snapshot.json"
-BEST_SIGNAL_PLAN_REF = "plan.snapshot.json"
+BEST_SIGNAL_SCHEMA_REF = "data/measurement_dataset/raw-measurements.schema"
 BEST_SIGNAL_ANALYSIS_RESULT_ARTIFACT_ID = "best-signal-analysis-result"
 BEST_SIGNAL_ANALYSIS_SUMMARY_ARTIFACT_ID = "best-signal-analysis-summary"
 BEST_SIGNAL_ANALYSIS_RESULT_REF = (
@@ -49,7 +49,7 @@ TEST_STEP_METADATA = {"scope": "test"}
 
 
 class _MeasurementWithObservables(Protocol):
-    observables: dict[str, Quantity]
+    observables: dict[str, MeasurementValue]
 
 
 class SummaryStatsObservable(BaseModel):
@@ -164,11 +164,14 @@ class BestSignalAnalysisStep:
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
         raw = context.data.measurements(RAW_MEASUREMENTS_DATASET_ID)
-        parameter_id = _sweep_parameter_id(context.data.plan_preview())
+        parameter_id = _sweep_parameter_id(context.data.schema())
         old_value = _old_parameter_value(context.config, parameter_id)
         best_measurement = _best_signal_measurement(raw.dataset.records)
         proposed_value = _proposed_value(best_measurement, parameter_id)
-        best_signal = best_measurement.observables["signal"]
+        best_signal = _signal_quantity(
+            measurement=best_measurement,
+            diagnostic_path=BEST_SIGNAL_INPUT_REF,
+        )
         reason = f"Best signal observed at point {best_measurement.point_index}."
         result = BestSignalAnalysisResult(
             run_id=context.run.id,
@@ -229,7 +232,7 @@ class TestSignalAnalysisStep:
             diagnostic_path=input_ref,
             measurements=raw.dataset.records,
         )
-        parameter_id = _sweep_parameter_id(context.data.plan_preview())
+        parameter_id = _sweep_parameter_id(context.data.schema())
         best_measurement = _best_signal_measurement(raw.dataset.records)
         proposed_value = _proposed_value(best_measurement, parameter_id)
         return (
@@ -262,7 +265,7 @@ def execute_signal_run(
     experiment: ExperimentSpec,
     workspace: str | Path,
     config_source: RunConfigSource | None = None,
-) -> tuple[RunManifest, ExecutionSnapshot]:
+) -> tuple[RunManifest, ExecutionSummary]:
     manifest = start_run(
         config=config,
         experiment=experiment,
@@ -270,15 +273,15 @@ def execute_signal_run(
         instrument_provider=TestSignalInstrumentProvider(),
         config_source=config_source,
     )
-    snapshot_record = next(
-        record for record in manifest.records if record.kind == "execution_snapshot"
+    summary_record = next(
+        record for record in manifest.records if record.kind == "execution_summary"
     )
-    snapshot = open_run_store(workspace).read_model(
+    summary = open_run_store(workspace).read_model(
         manifest.run_id,
-        record_storage_ref(snapshot_record),
-        ExecutionSnapshot,
+        record_storage_ref(summary_record),
+        ExecutionSummary,
     )
-    return manifest, snapshot
+    return manifest, summary
 
 
 def _analysis_run(*, run_id: str, workspace: str | Path) -> sc.Run:
@@ -358,30 +361,38 @@ def _build_summary_result(
 ) -> SummaryStatsResult:
     accumulators: dict[str, _Accumulator] = {}
     for measurement in measurements:
-        for name, quantity in measurement.observables.items():
+        for name, observable in measurement.observables.items():
+            values, unit = _numeric_observable_values(
+                name=name,
+                observable=observable,
+                diagnostic_path=diagnostic_path,
+            )
             accumulator = accumulators.get(name)
             if accumulator is None:
+                first_value = values[0]
                 accumulators[name] = _Accumulator(
                     count=1,
-                    total=quantity.value,
-                    minimum=quantity.value,
-                    maximum=quantity.value,
-                    unit=quantity.unit,
+                    total=first_value,
+                    minimum=first_value,
+                    maximum=first_value,
+                    unit=unit,
                 )
-                continue
-            try:
-                accumulator.add(quantity.value, quantity.unit)
-            except ValueError as error:
-                raise ValidationFailed(
-                    [
-                        _diagnostic(
-                            "error",
-                            "invalid_analysis_input",
-                            f"observable {name} uses inconsistent units",
-                            diagnostic_path,
-                        )
-                    ]
-                ) from error
+                accumulator = accumulators[name]
+                values = values[1:]
+            for value in values:
+                try:
+                    accumulator.add(value, unit)
+                except ValueError as error:
+                    raise ValidationFailed(
+                        [
+                            _diagnostic(
+                                "error",
+                                "invalid_analysis_input",
+                                f"observable {name} uses inconsistent units",
+                                diagnostic_path,
+                            )
+                        ]
+                    ) from error
 
     if not accumulators:
         raise ValidationFailed(
@@ -407,8 +418,90 @@ def _build_summary_result(
     )
 
 
-def _sweep_parameter_id(plan: PlanSnapshot) -> str:
-    coordinate_ids = _primary_coordinates(plan)
+def _numeric_observable_values(
+    *,
+    name: str,
+    observable: MeasurementValue,
+    diagnostic_path: str,
+) -> tuple[list[float], str]:
+    unit = observable.unit
+    if unit is None:
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "invalid_analysis_input",
+                    f"observable {name} is missing unit",
+                    diagnostic_path,
+                )
+            ]
+        )
+    if isinstance(observable, Quantity):
+        return [observable.value], unit
+    if not isinstance(observable, MeasurementArray):
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "invalid_analysis_input",
+                    f"observable {name} must use numeric values",
+                    diagnostic_path,
+                )
+            ]
+        )
+    if observable.dtype not in {"float64", "int64"}:
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "invalid_analysis_input",
+                    f"observable {name} must use numeric values",
+                    diagnostic_path,
+                )
+            ]
+        )
+    try:
+        values = _flatten_numeric_array_values(observable.values)
+    except ValueError as error:
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "invalid_analysis_input",
+                    f"observable {name} must use numeric values",
+                    diagnostic_path,
+                )
+            ]
+        ) from error
+    if not values:
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "invalid_analysis_input",
+                    f"observable {name} contains no values",
+                    diagnostic_path,
+                )
+            ]
+        )
+    return values, unit
+
+
+def _flatten_numeric_array_values(values: Sequence[object]) -> list[float]:
+    flattened: list[float] = []
+    for value in values:
+        if isinstance(value, list):
+            flattened.extend(_flatten_numeric_array_values(value))
+        elif isinstance(value, int | float):
+            flattened.append(float(value))
+        else:
+            msg = "measurement array contains a non-numeric value"
+            raise ValueError(msg)
+    return flattened
+
+
+def _sweep_parameter_id(schema: sc.MeasurementDatasetSchema) -> str:
+    coordinate_ids = list(schema.primary_coordinates)
     if len(coordinate_ids) != 1 or not coordinate_ids[0]:
         raise ValidationFailed(
             [
@@ -416,25 +509,15 @@ def _sweep_parameter_id(plan: PlanSnapshot) -> str:
                     "error",
                     "missing_sweep_coordinate",
                     "analysis requires exactly one sweep coordinate",
-                    "plan.snapshot.json",
+                    BEST_SIGNAL_SCHEMA_REF,
                 )
             ]
         )
     return coordinate_ids[0]
 
 
-def _primary_coordinates(plan: PlanSnapshot) -> list[str]:
-    if plan.expected_dataset_schema is not None:
-        return plan.expected_dataset_schema.primary_coordinates
-    return plan.point_coordinate_ids
-
-
 def _old_parameter_value(config: ConfigProfileSnapshot, parameter_id: str) -> Quantity:
-    parameter = (
-        config.parameter_build.get(parameter_id)
-        if config.parameter_build is not None
-        else None
-    )
+    parameter = build_config_parameters(config).get(parameter_id)
     if parameter is None:
         raise ValidationFailed(
             [
@@ -455,7 +538,7 @@ def _best_signal_measurement(
     candidates = [
         measurement
         for measurement in measurements
-        if measurement.observables.get("signal") is not None
+        if isinstance(measurement.observables.get("signal"), Quantity)
     ]
     if not candidates:
         raise ValidationFailed(
@@ -471,15 +554,38 @@ def _best_signal_measurement(
     return max(
         candidates,
         key=lambda measurement: (
-            measurement.observables["signal"].value,
+            _signal_quantity(
+                measurement=measurement,
+                diagnostic_path=BEST_SIGNAL_INPUT_REF,
+            ).value,
             -measurement.point_index,
         ),
     )
 
 
+def _signal_quantity(
+    *,
+    measurement: MeasurementRecord,
+    diagnostic_path: str,
+) -> Quantity:
+    signal = measurement.observables.get("signal")
+    if isinstance(signal, Quantity):
+        return signal
+    raise ValidationFailed(
+        [
+            _diagnostic(
+                "error",
+                "invalid_signal_observable",
+                "signal observable must be scalar",
+                diagnostic_path,
+            )
+        ]
+    )
+
+
 def _proposed_value(measurement: MeasurementRecord, parameter_id: str) -> Quantity:
     quantity = measurement.coordinates.get(parameter_id)
-    if quantity is None:
+    if not isinstance(quantity, Quantity):
         raise ValidationFailed(
             [
                 _diagnostic(

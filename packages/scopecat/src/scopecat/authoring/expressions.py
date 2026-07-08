@@ -1,15 +1,13 @@
-"""Authoring expression, variable, asset, and binding helpers."""
+"""Authoring expression, variable, and binding helpers."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from scopecat.models.artifact import ExperimentAsset as PlanExperimentAsset
 from scopecat.models.parameter import Quantity
+from scopecat.relations import ScalarExpr
 from scopecat.units import compatible_units, is_supported_unit
 
 ExpressionKind = Literal[
@@ -17,7 +15,6 @@ ExpressionKind = Literal[
     "number",
     "variable",
     "parameter",
-    "asset",
     "binary",
 ]
 BinaryOperator = Literal["+", "-", "*", "/"]
@@ -33,7 +30,6 @@ class Expression(BaseModel):
     quantity: Quantity | None = None
     value: float | None = None
     name: str | None = None
-    asset_id: str | None = None
     op: BinaryOperator | None = None
     left: Expression | None = None
     right: Expression | None = None
@@ -57,7 +53,6 @@ class Expression(BaseModel):
                 for item in (
                     self.value,
                     self.name,
-                    self.asset_id,
                     self.op,
                     self.left,
                     self.right,
@@ -75,7 +70,6 @@ class Expression(BaseModel):
                 for item in (
                     self.quantity,
                     self.name,
-                    self.asset_id,
                     self.op,
                     self.left,
                     self.right,
@@ -93,7 +87,6 @@ class Expression(BaseModel):
                 for item in (
                     self.quantity,
                     self.value,
-                    self.asset_id,
                     self.op,
                     self.left,
                     self.right,
@@ -102,32 +95,11 @@ class Expression(BaseModel):
                 msg = f"{self.kind} expression cannot contain other expression fields"
                 raise ValueError(msg)
             return self
-        if self.kind == "asset":
-            if not self.asset_id:
-                msg = "asset expression requires asset_id"
-                raise ValueError(msg)
-            if any(
-                item is not None
-                for item in (
-                    self.quantity,
-                    self.value,
-                    self.name,
-                    self.op,
-                    self.left,
-                    self.right,
-                )
-            ):
-                msg = "asset expression cannot contain other expression fields"
-                raise ValueError(msg)
-            return self
         if self.kind == "binary":
             if self.op is None or self.left is None or self.right is None:
                 msg = "binary expression requires op, left, and right"
                 raise ValueError(msg)
-            if any(
-                item is not None
-                for item in (self.quantity, self.value, self.name, self.asset_id)
-            ):
+            if any(item is not None for item in (self.quantity, self.value, self.name)):
                 msg = "binary expression cannot contain scalar expression fields"
                 raise ValueError(msg)
             return self
@@ -261,7 +233,7 @@ class BindingSpec(BaseModel):
     resource_id: str
     capability_id: str
     field_path: str
-    value: Expression
+    value: Expression | ScalarExpr
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("resource_id", "capability_id", "field_path")
@@ -271,30 +243,6 @@ class BindingSpec(BaseModel):
             msg = "binding identifiers must be non-empty"
             raise ValueError(msg)
         return value
-
-
-@dataclass(frozen=True)
-class LocalAssetSource:
-    """Authoring-only asset source that may point at a local file."""
-
-    id: str
-    kind: str
-    path: str | Path | None = None
-    uri: str | None = None
-    media_type: str | None = None
-    content_hash: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if not self.id or not self.kind:
-            msg = "asset id and kind must be non-empty"
-            raise ValueError(msg)
-        if self.path is not None and self.uri is not None:
-            msg = "local asset source cannot contain both path and uri"
-            raise ValueError(msg)
-
-
-type AssetInput = LocalAssetSource | PlanExperimentAsset
 
 
 def qty(value: float, unit: str) -> Expression:
@@ -313,13 +261,6 @@ def param(name: str) -> Expression:
     """Reference a parameter value from the active config snapshot."""
 
     return Expression(kind="parameter", name=name)
-
-
-def asset_ref(asset: AssetInput | str) -> Expression:
-    """Reference an opaque experiment asset from an expression."""
-
-    asset_id = asset if isinstance(asset, str) else asset.id
-    return Expression(kind="asset", asset_id=asset_id)
 
 
 def linspace(
@@ -354,7 +295,7 @@ def bind(
     resource_id: str,
     capability_id: str,
     field_path: str,
-    value: Expression | Quantity | float,
+    value: Expression | ScalarExpr | Quantity | float,
 ) -> BindingSpec:
     """Bind an expression to a desired-state field."""
 
@@ -362,46 +303,7 @@ def bind(
         resource_id=resource_id,
         capability_id=capability_id,
         field_path=field_path,
-        value=Expression.from_value(value),
-    )
-
-
-def bind_asset(
-    resource_id: str,
-    capability_id: str,
-    field_path: str,
-    asset: AssetInput | str,
-) -> BindingSpec:
-    """Bind an opaque experiment asset to a desired-state field."""
-
-    return BindingSpec(
-        resource_id=resource_id,
-        capability_id=capability_id,
-        field_path=field_path,
-        value=asset_ref(asset),
-    )
-
-
-def opaque_asset(
-    *,
-    id: str,  # noqa: A002
-    kind: str,
-    path: str | Path | None = None,
-    uri: str | None = None,
-    media_type: str | None = None,
-    content_hash: str | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> LocalAssetSource:
-    """Create an opaque experiment asset for extension-defined payloads."""
-
-    return LocalAssetSource(
-        id=id,
-        kind=kind,
-        path=path,
-        uri=uri,
-        media_type=media_type,
-        content_hash=content_hash,
-        metadata=metadata or {},
+        value=value if isinstance(value, ScalarExpr) else Expression.from_value(value),
     )
 
 

@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ValidationError
 
+from scopecat._measurement_storage import (
+    MEASUREMENT_DATASET_KIND,
+    MEASUREMENT_DATASET_MEDIA_TYPE,
+    measurement_dataset_schema,
+    validate_measurement_dataset_records,
+    write_measurement_records_path,
+)
 from scopecat._storage.refs import artifact_content_ref, dataset_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
@@ -24,8 +31,6 @@ from scopecat.results import (
     MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementRecord,
-    infer_measurement_dataset_schema,
-    validate_measurement_records_against_schema,
 )
 
 
@@ -133,7 +138,7 @@ class StepArtifactWriter(Protocol):
         id: str,  # noqa: A002
         dataset_role: MeasurementDatasetRole,
         records: Iterable[MeasurementRecord],
-        media_type: str | None = "application/jsonl",
+        media_type: str | None = MEASUREMENT_DATASET_MEDIA_TYPE,
         source_step: str | None = None,
         schema: MeasurementDatasetSchema | None = None,
         schema_metadata: dict[str, Any] | None = None,
@@ -293,14 +298,14 @@ class StepArtifactStore:
         id: str,  # noqa: A002
         dataset_role: MeasurementDatasetRole,
         records: Iterable[MeasurementRecord],
-        media_type: str | None = "application/jsonl",
+        media_type: str | None = MEASUREMENT_DATASET_MEDIA_TYPE,
         source_step: str | None = None,
         schema: MeasurementDatasetSchema | None = None,
         schema_metadata: dict[str, Any] | None = None,
     ) -> StepArtifactHandle:
         record_list = list(records)
         if schema is not None:
-            diagnostics = validate_measurement_records_against_schema(
+            diagnostics = validate_measurement_dataset_records(
                 records=record_list,
                 schema=schema,
                 dataset_id=id,
@@ -308,23 +313,24 @@ class StepArtifactStore:
             )
             if diagnostics:
                 raise ValidationFailed(diagnostics)
-        dataset_schema = _measurement_dataset_schema(
+        dataset_schema = measurement_dataset_schema(
             dataset_id=id,
             dataset_role=dataset_role,
             records=record_list,
             expected_schema=schema,
-            schema_metadata=schema_metadata,
+            metadata=schema_metadata,
         )
-        return self._write_jsonl_dataset(
+        handle = self._register(
             id=id,
-            kind="measurement_dataset",
-            records=record_list,
+            kind=MEASUREMENT_DATASET_KIND,
             media_type=media_type,
-            role=dataset_role,
-            schema=dataset_schema.model_dump(mode="json"),
             metadata={},
+            dataset_role=dataset_role,
+            dataset_schema=dataset_schema.model_dump(mode="json"),
             produced_by=_output_produced_by(source_step=source_step),
         )
+        write_measurement_records_path(path=handle.path, records=record_list)
+        return handle
 
     def write_data_table(
         self,
@@ -559,28 +565,6 @@ class StepArtifactStore:
                 )
             )
         return diagnostics
-
-
-def _measurement_dataset_schema(
-    *,
-    dataset_id: str,
-    dataset_role: MeasurementDatasetRole,
-    records: Sequence[MeasurementRecord],
-    expected_schema: MeasurementDatasetSchema | None,
-    schema_metadata: dict[str, Any] | None,
-) -> MeasurementDatasetSchema:
-    if expected_schema is None:
-        return infer_measurement_dataset_schema(
-            dataset_id=dataset_id,
-            dataset_role=dataset_role,
-            records=records,
-            metadata=schema_metadata,
-        )
-    if not schema_metadata:
-        return expected_schema
-    return expected_schema.model_copy(
-        update={"metadata": dict(expected_schema.metadata) | schema_metadata}
-    )
 
 
 def _output_produced_by(

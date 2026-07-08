@@ -1,4 +1,4 @@
-"""Run-local payload, dataset, record, and experiment asset models."""
+"""Run-local payload, dataset, record, and command payload models."""
 
 from __future__ import annotations
 
@@ -64,8 +64,12 @@ class RunRecordEntry(BaseModel):
         return _validate_run_segment(value)
 
 
-class ExperimentAsset(BaseModel):
-    """Durable experiment asset available to planning and instruments."""
+class CommandPayload(BaseModel):
+    """Runtime command payload referenced by instrument state commands.
+
+    Payloads are transient command inputs produced while lowering in-memory
+    compute results. They are not persisted as experiment IR.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -75,11 +79,12 @@ class ExperimentAsset(BaseModel):
     content_hash: str | None = None
     media_type: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    payload: Any | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
-    def validate_location(self) -> ExperimentAsset:
-        if self.uri is None and self.content_hash is None:
-            msg = "experiment asset requires uri or content_hash"
+    def validate_location(self) -> CommandPayload:
+        if self.uri is None and self.content_hash is None and self.payload is None:
+            msg = "command payload requires uri, content_hash, or payload"
             raise ValueError(msg)
         return self
 

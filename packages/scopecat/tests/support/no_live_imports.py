@@ -4,6 +4,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 import scopecat as sc
+from scopecat._workflows.config import register_and_activate_candidate_config
+from scopecat._workflows.runs import preview_experiment, start_run
 from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import (
     activate_config_registry_entry,
@@ -14,8 +16,6 @@ from scopecat.config_registry import (
 from scopecat.experiments import ExperimentSpec
 from scopecat.run_comparison import execute_run_comparison, review_run_comparison
 from scopecat.run_overview import build_run_overview
-from scopecat.workflows import register_and_activate_candidate_config
-from scopecat.workflows.runs import preview_experiment, start_run
 from tests.support.records import read_model
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.signal_testkit import (

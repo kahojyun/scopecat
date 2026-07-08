@@ -1,9 +1,9 @@
 """Lower-level run storage helpers.
 
-Notebook and GUI clients should prefer the read-only helpers in
-``scopecat.workflows``. This module remains available for feature modules,
-storage-oriented tests, and implementation code that needs direct access to
-the local run store boundary.
+Notebook and GUI clients should prefer ``scopecat.open`` and the session/run
+handles. This module remains available for feature modules, storage-oriented
+tests, and implementation code that needs direct access to the local run store
+boundary.
 """
 
 from scopecat.runs.access import (
@@ -26,7 +26,6 @@ from scopecat.runs.access import (
     list_records,
     list_records_by_kind,
     load_config_profile_snapshot,
-    load_plan_snapshot,
     open_run_store,
     read_artifact_bytes,
     read_artifact_json,
@@ -81,7 +80,6 @@ __all__ = [
     "list_records",
     "list_records_by_kind",
     "load_config_profile_snapshot",
-    "load_plan_snapshot",
     "open_run_store",
     "read_artifact_bytes",
     "read_artifact_json",

@@ -8,7 +8,8 @@ DATASETS_DIR = "data"
 RECORDS_DIR = "records"
 MANIFEST_REF = "manifest.json"
 CONFIG_PROFILE_SNAPSHOT_REF = "config-profile.snapshot.json"
-PLAN_SNAPSHOT_REF = "plan.snapshot.json"
+EXPERIMENT_SPEC_REF = "experiment-spec.json"
+RUN_REQUEST_REF = "run-request.json"
 
 
 def artifact_content_ref(*, artifact_id: str, kind: str) -> str:

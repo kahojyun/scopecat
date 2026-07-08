@@ -18,7 +18,7 @@ from scopecat.parameter_changes import (
     is_safe_parameter_change_id,
     parameter_change_set_record,
 )
-from scopecat.parameters import apply_parameter_patches, build_parameter_snapshot
+from scopecat.parameters import apply_parameter_patches
 from scopecat.runs.access import open_run_store
 
 type CandidateConfigInput = CandidateConfig | ResolvedCandidateConfig
@@ -95,15 +95,10 @@ def _build_candidate_config_snapshot(
                     )
                 ]
             ) from error
-    parameter_build = build_parameter_snapshot(
-        catalog=config.parameter_catalog,
-        parameter_state=parameter_state,
-    )
     return ConfigProfileSnapshot.model_validate(
         config.model_dump(mode="python")
         | {
             "parameter_state": parameter_state,
-            "parameter_build": parameter_build,
         }
     )
 

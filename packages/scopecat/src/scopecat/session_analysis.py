@@ -483,9 +483,6 @@ class Analysis:
             changes=changes,
         )
 
-    def promote_step(self, step_id: str) -> PromotedAnalysisStep:
-        return PromotedAnalysisStep(id=step_id, source=self)
-
     def save(self) -> SavedAnalysis:
         analysis_key = self.analysis_key
         selected_record_id = f"analysis-{analysis_key}"
@@ -578,23 +575,6 @@ class AnalysisStep(Protocol):
     id: str
 
     def run(self, context: AnalysisContext) -> Analysis: ...
-
-
-@dataclass(frozen=True)
-class PromotedAnalysisStep:
-    id: str
-    source: Analysis
-
-    def run(self, run: RunHandle) -> Analysis:
-        return Analysis(
-            run=run,
-            title=self.source.title,
-            key=self.id,
-            step_id=self.id,
-            inputs=self.source.inputs,
-            outputs=self.source.outputs,
-            parameter_changes=self.source.parameter_changes,
-        )
 
 
 def _select_candidate_changes(
@@ -910,6 +890,5 @@ __all__ = [
     "AnalysisInput",
     "AnalysisOutput",
     "AnalysisStep",
-    "PromotedAnalysisStep",
     "SavedAnalysis",
 ]

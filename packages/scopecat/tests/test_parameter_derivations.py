@@ -1,7 +1,7 @@
 from scopecat.models.config import (
-    DeviceTopology,
     InstrumentRegistry,
     SystemSpec,
+    Topology,
 )
 from scopecat.models.parameter import (
     ParameterCatalog,
@@ -15,7 +15,7 @@ from scopecat.parameters import (
     ParameterDerivationSet,
     ScalarParameterDerivation,
     TableParameterDerivation,
-    build_parameter_snapshot,
+    build_parameter_view,
 )
 from scopecat.relations import col, param, table
 from tests.support.records import assert_model_round_trip
@@ -31,21 +31,21 @@ def test_parameter_derivation_set_round_trips_separately_from_state() -> None:
     assert restored.scalars[0].id == "drive.center_frequency"
 
 
-def test_build_parameter_snapshot_evaluates_relation_derivations() -> None:
+def test_build_parameter_view_evaluates_relation_derivations() -> None:
     state = _parameter_state()
     system = _system()
     derivations = _parameter_derivations()
-    build = build_parameter_snapshot(
+    build = build_parameter_view(
         catalog=system.parameter_catalog,
         parameter_state=state,
         derivations=derivations,
     )
-    repeated = build_parameter_snapshot(
+    repeated = build_parameter_view(
         catalog=system.parameter_catalog,
         parameter_state=state,
         derivations=derivations,
     )
-    changed = build_parameter_snapshot(
+    changed = build_parameter_view(
         catalog=system.parameter_catalog,
         parameter_state=state.model_copy(
             update={
@@ -69,8 +69,8 @@ def test_build_parameter_snapshot_evaluates_relation_derivations() -> None:
 
     assert build.derivation_set_id == "drive-derivations"
     assert build.derivation_set_hash is not None
-    assert build.build_implementation_id == "scopecat.parameter_build.local"
-    assert build.build_implementation_version == "v1"
+    assert build.view_implementation_id == "scopecat.parameter_view.local"
+    assert build.view_implementation_version == "v1"
     assert _is_sha256(build.catalog_hash)
     assert _is_sha256(build.source_state_hash)
     assert _is_sha256(build.derivation_set_hash)
@@ -154,8 +154,8 @@ def _system() -> SystemSpec:
     return SystemSpec(
         id="system",
         workspace_id="workspace",
-        device_under_test_id="sample",
-        device_topology=DeviceTopology(devices=[]),
+        primary_entity_id="sample",
+        topology=Topology(devices=[]),
         instrument_registry=InstrumentRegistry(instruments=[]),
         parameter_catalog=ParameterCatalog(id="catalog"),
     )

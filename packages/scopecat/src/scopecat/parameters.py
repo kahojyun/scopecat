@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat._parameter_patching import apply_parameter_patches, diff_parameter_states
 from scopecat.models.parameter import (
-    ParameterBuildSnapshot,
     ParameterCatalog,
     ParameterChangeSet,
     ParameterDefinition,
@@ -21,6 +21,7 @@ from scopecat.models.parameter import (
     ParameterTableDefinition,
     ParameterValue,
     ParameterValueSet,
+    ParameterViewSnapshot,
     Quantity,
 )
 from scopecat.relations import ParameterRelationData, RelationExpr, ScalarExpr
@@ -56,7 +57,7 @@ class TableParameterDerivation(BaseModel):
 
 
 class ParameterDerivationSet(BaseModel):
-    """Deterministic parameter build recipe evaluated before planning."""
+    """Deterministic parameter view recipe evaluated before planning."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
@@ -101,16 +102,33 @@ class ParameterDerivationSet(BaseModel):
         return scalar_values, tables
 
 
-PARAMETER_BUILD_IMPLEMENTATION_ID = "scopecat.parameter_build.local"
-PARAMETER_BUILD_IMPLEMENTATION_VERSION = "v1"
+def combine_parameter_derivations(
+    *,
+    id: str,  # noqa: A002
+    derivations: Sequence[ParameterDerivationSet | None],
+) -> ParameterDerivationSet | None:
+    """Chain multiple in-memory parameter derivation graphs in order."""
+
+    selected = [item for item in derivations if item is not None]
+    if not selected:
+        return None
+    return ParameterDerivationSet(
+        id=id,
+        scalars=[scalar for derivation in selected for scalar in derivation.scalars],
+        tables=[table for derivation in selected for table in derivation.tables],
+    )
 
 
-def build_parameter_snapshot(
+PARAMETER_VIEW_IMPLEMENTATION_ID = "scopecat.parameter_view.local"
+PARAMETER_VIEW_IMPLEMENTATION_VERSION = "v1"
+
+
+def build_parameter_view(
     *,
     catalog: ParameterCatalog,
     parameter_state: ParameterState,
     derivations: ParameterDerivationSet | None = None,
-) -> ParameterBuildSnapshot:
+) -> ParameterViewSnapshot:
     """Resolve accepted parameter inputs into an immutable build snapshot."""
 
     diagnostics: list[dict[str, Any]] = []
@@ -154,7 +172,7 @@ def build_parameter_snapshot(
                         "info",
                         "derived_scalar_replaces_source",
                         f"derived scalar {value.id} replaces a source value",
-                        f"parameter_build.scalar_values.{value.id}",
+                        f"parameter_view.scalar_values.{value.id}",
                     )
                 )
             scalar_by_id[value.id] = value
@@ -165,7 +183,7 @@ def build_parameter_snapshot(
                         "info",
                         "derived_table_replaces_source",
                         f"derived table {table.id} replaces a source table",
-                        f"parameter_build.tables.{table.id}",
+                        f"parameter_view.tables.{table.id}",
                     )
                 )
             table_by_id[table.id] = table
@@ -184,8 +202,8 @@ def build_parameter_snapshot(
     derivation_set_hash = _model_hash(derivations) if derivations is not None else None
     scalar_values = list(scalar_by_id.values())
     tables = list(table_by_id.values())
-    content_hash = _parameter_build_content_hash(
-        id=f"{parameter_state.id}-parameter-build",
+    content_hash = _parameter_view_content_hash(
+        id=f"{parameter_state.id}-parameter-view",
         catalog_id=catalog.id,
         catalog_hash=catalog_hash,
         source_state_id=parameter_state.id,
@@ -197,8 +215,8 @@ def build_parameter_snapshot(
         diagnostics=diagnostics,
     )
 
-    return ParameterBuildSnapshot(
-        id=f"{parameter_state.id}-parameter-build",
+    return ParameterViewSnapshot(
+        id=f"{parameter_state.id}-parameter-view",
         catalog_id=catalog.id,
         catalog_hash=catalog_hash,
         source_state_id=parameter_state.id,
@@ -206,15 +224,15 @@ def build_parameter_snapshot(
         derivation_set_id=derivations.id if derivations is not None else None,
         derivation_set_hash=derivation_set_hash,
         content_hash=content_hash,
-        build_implementation_id=PARAMETER_BUILD_IMPLEMENTATION_ID,
-        build_implementation_version=PARAMETER_BUILD_IMPLEMENTATION_VERSION,
+        view_implementation_id=PARAMETER_VIEW_IMPLEMENTATION_ID,
+        view_implementation_version=PARAMETER_VIEW_IMPLEMENTATION_VERSION,
         scalar_values=scalar_values,
         tables=tables,
         diagnostics=diagnostics,
     )
 
 
-def _parameter_build_content_hash(
+def _parameter_view_content_hash(
     *,
     id: str,  # noqa: A002
     catalog_id: str,
@@ -229,7 +247,7 @@ def _parameter_build_content_hash(
 ) -> str:
     return _payload_hash(
         {
-            "schema_version": "scopecat.parameter_build_snapshot.v1",
+            "schema_version": "scopecat.parameter_view_snapshot.v1",
             "id": id,
             "catalog_id": catalog_id,
             "catalog_hash": catalog_hash,
@@ -237,8 +255,8 @@ def _parameter_build_content_hash(
             "source_state_hash": source_state_hash,
             "derivation_set_id": derivation_set_id,
             "derivation_set_hash": derivation_set_hash,
-            "build_implementation_id": PARAMETER_BUILD_IMPLEMENTATION_ID,
-            "build_implementation_version": PARAMETER_BUILD_IMPLEMENTATION_VERSION,
+            "view_implementation_id": PARAMETER_VIEW_IMPLEMENTATION_ID,
+            "view_implementation_version": PARAMETER_VIEW_IMPLEMENTATION_VERSION,
             "scalar_values": [value.model_dump(mode="json") for value in scalar_values],
             "tables": [table.model_dump(mode="json") for table in tables],
             "diagnostics": diagnostics,
@@ -574,6 +592,7 @@ __all__ = [
     "ScalarParameterDerivation",
     "TableParameterDerivation",
     "apply_parameter_patches",
-    "build_parameter_snapshot",
+    "build_parameter_view",
+    "combine_parameter_derivations",
     "diff_parameter_states",
 ]

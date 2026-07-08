@@ -11,12 +11,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from scopecat._manifest_updates import write_manifest_records
-from scopecat._planning_parameter_patches import ParameterPatchSpec
+from scopecat._planning.parameter_patches import ParameterPatchSpec
 from scopecat._storage.refs import record_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.ids import artifact_slug
 from scopecat.models.artifact import RunRecordEntry
+from scopecat.models.entity import EntityArray, EntityRef
 from scopecat.models.parameter import (
     ParameterChangeSet,
     ParameterPatch,
@@ -307,7 +308,11 @@ def _literal_expr_value(expr: ScalarExpr) -> ParameterPatchValue:
             f"got {expr.kind!r}"
         )
         raise ValueError(msg)
-    return expr.value
+    value = expr.value
+    if isinstance(value, EntityArray | EntityRef):
+        msg = "analysis parameter changes cannot patch entity values"
+        raise ValueError(msg)
+    return value
 
 
 def _resolve_change_set_ref(

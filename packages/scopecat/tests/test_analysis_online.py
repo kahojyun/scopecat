@@ -6,12 +6,12 @@ from scopecat.analysis import EarlyStopDecision, decide_online_convergence
 def test_decide_online_convergence_stops_when_tail_is_stable() -> None:
     decision = decide_online_convergence(
         [
-            {"point_id": 2, "x": 2.0, "score": 1.001},
-            {"point_id": 0, "x": 0.0, "score": 0.7},
-            {"point_id": 1, "x": 1.0, "score": 1.0},
-            {"point_id": 1, "x": 1.0, "score": 9.0},
-            {"point_id": 10, "x": 10.0, "score": 0.0},
-            {"point_id": "3", "x": 3.0, "score": 1.0},
+            {"point_index": 2, "x": 2.0, "score": 1.001},
+            {"point_index": 0, "x": 0.0, "score": 0.7},
+            {"point_index": 1, "x": 1.0, "score": 1.0},
+            {"point_index": 1, "x": 1.0, "score": 9.0},
+            {"point_index": 10, "x": 10.0, "score": 0.0},
+            {"point_index": "3", "x": 3.0, "score": 1.0},
         ],
         point_count=3,
         x_column="x",
@@ -24,9 +24,9 @@ def test_decide_online_convergence_stops_when_tail_is_stable() -> None:
     restored = EarlyStopDecision.model_validate_json(decision.model_dump_json())
 
     assert restored == decision
-    assert decision.schema_version == "scopecat.early_stop_decision.v1"
+    assert decision.schema_version == "scopecat.early_stop_decision.v2"
     assert decision.stop is True
-    assert decision.completed_point_ids == [0, 1, 2]
+    assert decision.completed_point_indices == [0, 1, 2]
     assert decision.reason == "last 2 'score' values within 0.01"
     assert decision.diagnostics == []
 
@@ -34,8 +34,8 @@ def test_decide_online_convergence_stops_when_tail_is_stable() -> None:
 def test_decide_online_convergence_reports_insufficient_points() -> None:
     decision = decide_online_convergence(
         [
-            {"point_id": 0, "x": 0.0, "score": 0.7},
-            {"point_id": 3, "x": 3.0, "score": 1.0},
+            {"point_index": 0, "x": 0.0, "score": 0.7},
+            {"point_index": 3, "x": 3.0, "score": 1.0},
         ],
         point_count=3,
         x_column="x",
@@ -45,7 +45,7 @@ def test_decide_online_convergence_reports_insufficient_points() -> None:
     )
 
     assert decision.stop is False
-    assert decision.completed_point_ids == [0]
+    assert decision.completed_point_indices == [0]
     assert [diagnostic.code for diagnostic in decision.diagnostics] == [
         "insufficient_convergence_points",
     ]
@@ -54,9 +54,9 @@ def test_decide_online_convergence_reports_insufficient_points() -> None:
 def test_decide_online_convergence_reports_invalid_rows() -> None:
     decision = decide_online_convergence(
         [
-            {"point_id": 0, "x": 0.0, "score": 0.7},
-            {"point_id": 1, "score": 0.8},
-            {"point_id": 2, "x": 2.0, "score": "0.9"},
+            {"point_index": 0, "x": 0.0, "score": 0.7},
+            {"point_index": 1, "score": 0.8},
+            {"point_index": 2, "x": 2.0, "score": "0.9"},
         ],
         point_count=3,
         x_column="x",
@@ -66,7 +66,7 @@ def test_decide_online_convergence_reports_invalid_rows() -> None:
     )
 
     assert decision.stop is False
-    assert decision.completed_point_ids == [0, 1, 2]
+    assert decision.completed_point_indices == [0, 1, 2]
     assert [diagnostic.code for diagnostic in decision.diagnostics] == [
         "missing_convergence_column",
         "invalid_convergence_value",

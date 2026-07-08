@@ -3,11 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
+from scopecat._workflows.config import register_and_activate_candidate_config
 from scopecat.config_registry import (
     CandidateConfigRegistrySource,
     load_config_registry_config,
 )
-from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
 from scopecat.models.parameter import (
     ParameterTable,
     ParameterTableColumn,
@@ -15,7 +16,6 @@ from scopecat.models.parameter import (
     Quantity,
 )
 from scopecat.runs import open_run_store
-from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.config_registry import signal_run_with_parameter_change
 
 
@@ -105,5 +105,5 @@ def test_candidate_config_activation_applies_table_patches(tmp_path: Path) -> No
     table = candidate_config.parameter_state.tables[0]
     assert table.id == "drive_channels"
     assert table.rows[0]["gain"] == 0.75
-    assert candidate_config.parameter_build is not None
-    assert candidate_config.parameter_build.table("drive_channels") is not None
+    candidate_parameters = build_config_parameters(candidate_config)
+    assert candidate_parameters.table("drive_channels") is not None

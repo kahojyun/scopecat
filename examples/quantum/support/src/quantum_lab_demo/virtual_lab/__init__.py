@@ -10,18 +10,34 @@ from quantum_lab_demo.virtual_lab.profiles import (
     load_virtual_lab_profile,
 )
 from quantum_lab_demo.virtual_lab.provider import (
-    ReadoutFrequencyVirtualProvider,
-    ReadoutIQVirtualProvider,
-    SampleVirtualProvider,
+    QuantumLabVirtualProvider,
+)
+from quantum_lab_demo.virtual_lab.wiring import (
+    CouplerWiring,
+    LineWiring,
+    QuantumWiring,
+    QuantumWiringBuilder,
+    QubitWiring,
+    compile_quantum_wiring_system,
+    default_quantum_wiring,
+    quantum_wiring,
+    quantum_wiring_config_profile,
 )
 
 __all__ = [
-    "ReadoutFrequencyVirtualProvider",
-    "ReadoutIQVirtualProvider",
-    "SampleVirtualProvider",
+    "CouplerWiring",
+    "LineWiring",
+    "QuantumLabVirtualProvider",
+    "QuantumWiring",
+    "QuantumWiringBuilder",
+    "QubitWiring",
     "VirtualDeviceProfile",
     "VirtualLabProfile",
     "VirtualLabProfileInput",
     "VirtualResponseProfile",
+    "compile_quantum_wiring_system",
+    "default_quantum_wiring",
     "load_virtual_lab_profile",
+    "quantum_wiring",
+    "quantum_wiring_config_profile",
 ]

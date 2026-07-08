@@ -17,7 +17,9 @@ from pydantic import BaseModel, ValidationError
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.models.analysis import AnalysisRecord
-from scopecat.models.artifact import RunRecordEntry
+from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
+from scopecat.models.execution import ExecutionSummary
+from scopecat.models.measurement import MeasurementDatasetSchema
 from scopecat.models.parameter import ParameterChangeSet
 from scopecat.models.run import RunManifest
 from scopecat.parameter_changes import (
@@ -30,11 +32,16 @@ from scopecat.run_comparison import (
 )
 from scopecat.run_overview.models import (
     AnalysisRecordEntry,
+    DatasetOverviewEntry,
+    DatasetVariableEntry,
+    ExecutionOverviewEntry,
     ParameterChangeDecisionInfo,
     ParameterChangeEntry,
     RunComparisonEntry,
     RunHeader,
     RunOverview,
+    RuntimeExecutionEntry,
+    StateExecutionEntry,
 )
 from scopecat.runs import RunStore, list_records, open_run_store
 from scopecat.runs.access import record_storage_ref, storage_ref
@@ -51,6 +58,12 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
         run_id=run_id,
         manifest=manifest,
     )
+    execution = _read_execution_overview(
+        storage=storage,
+        run_id=run_id,
+        manifest=manifest,
+    )
+    datasets = _dataset_overviews(manifest)
     parameter_changes = _read_parameter_changes(
         storage=storage, run_id=run_id, manifest=manifest
     )
@@ -65,10 +78,120 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
             created_at=manifest.created_at,
         ),
         config_source=manifest.config_source,
+        execution=execution,
+        datasets=datasets,
         analysis_records=analysis_records,
         parameter_changes=parameter_changes,
         run_comparisons=run_comparisons,
     )
+
+
+def _read_execution_overview(
+    *, storage: RunStore, run_id: str, manifest: RunManifest
+) -> ExecutionOverviewEntry | None:
+    summary_records = _records_by_kind(manifest, "execution_summary")
+    if not summary_records:
+        return None
+    summary_record = summary_records[0]
+    summary_ref = record_storage_ref(summary_record)
+    summary = _read_model(
+        storage.ref_path(run_id, summary_ref),
+        ExecutionSummary,
+        summary_ref,
+    )
+    state = StateExecutionEntry(
+        changed_field_count=summary.state.changed_field_count,
+        skipped_field_count=summary.state.skipped_field_count,
+        state_command_count=summary.state.state_command_count,
+        payload_count=summary.state.payload_count,
+    )
+    return ExecutionOverviewEntry(
+        experiment_id=summary.experiment_id,
+        status=summary.status,
+        point_count=summary.point_count,
+        measurement_count=summary.measurement_count,
+        instrument_ids=list(summary.instrument_ids),
+        diagnostic_count=summary.diagnostic_count,
+        runtime=_runtime_summary(summary),
+        state=state,
+    )
+
+
+def _runtime_summary(summary: ExecutionSummary) -> RuntimeExecutionEntry:
+    return RuntimeExecutionEntry(
+        completed_point_count=summary.completed_point_count,
+        compute_evaluated_node_count=summary.compute.evaluated_node_count,
+        compute_reused_node_count=summary.compute.reused_node_count,
+        compute_payload_count=summary.compute.payload_count,
+    )
+
+
+def _dataset_overviews(manifest: RunManifest) -> list[DatasetOverviewEntry]:
+    return [_dataset_overview(dataset) for dataset in manifest.datasets]
+
+
+def _dataset_overview(dataset: RunDatasetEntry) -> DatasetOverviewEntry:
+    schema = _dataset_schema(dataset)
+    dimensions = (
+        {
+            dimension.id: dimension.size
+            for dimension in schema.dimensions
+            if dimension.size is not None
+        }
+        if schema is not None
+        else {}
+    )
+    return DatasetOverviewEntry(
+        id=dataset.id,
+        kind=dataset.kind,
+        role=dataset.role,
+        record_count=_record_count(schema),
+        coordinate_ids=list(schema.primary_coordinates) if schema is not None else [],
+        observable_ids=list(schema.primary_observables) if schema is not None else [],
+        dimensions=dimensions,
+        variables=[
+            DatasetVariableEntry(
+                id=variable.id,
+                role=variable.role,
+                dtype=variable.dtype,
+                unit=variable.unit,
+                dims=list(variable.dims),
+                shape=list(variable.shape),
+            )
+            for variable in schema.variables
+        ]
+        if schema is not None
+        else [],
+        metadata=dict(dataset.metadata),
+    )
+
+
+def _dataset_schema(dataset: RunDatasetEntry) -> MeasurementDatasetSchema | None:
+    if dataset.data_schema is None:
+        return None
+    try:
+        return MeasurementDatasetSchema.model_validate(dataset.data_schema)
+    except ValidationError as error:
+        ref = f"manifest.datasets.{dataset.id}.schema"
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "invalid_overview_input",
+                    f"overview input is not valid JSON for {ref}",
+                    ref,
+                )
+            ]
+        ) from error
+
+
+def _record_count(schema: MeasurementDatasetSchema | None) -> int | None:
+    if schema is None:
+        return None
+    for dimension in schema.dimensions:
+        if dimension.kind == "point" and dimension.size is not None:
+            return dimension.size
+    return None
 
 
 def _read_analysis_records(

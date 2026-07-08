@@ -75,17 +75,19 @@ Structured experiments are a central UX path, but they are one part of
 the platform. The active design direction is:
 
 ```text
-ExperimentModule + ExperimentTemplate + RunRequest + ConfigProfileSnapshot
+ExperimentModule + ExperimentTemplate + facade-generated RunRequest
+  + ConfigProfileSnapshot
   -> ExperimentSpec
-  -> ExperimentPlan
-  -> DeviceProgram
-  -> InstrumentRuntime
-  -> InstrumentGroup / Instrument
+  -> PlannerSnapshot          transient planner IR
+  -> RuntimeGraph            transient runtime graph
+  -> RuntimeExecutor
+  -> InstrumentDriver(s)
 ```
 
-The charter-level rule is that structured runs should compile into closed,
-auditable segment inputs before side effects. The current working model lives
-in [Experiment core](experiment-core.md).
+The charter-level rule is that structured runs should persist closed,
+auditable segment inputs before side effects while keeping planner and runtime
+lowering products free to change. The current working model lives in
+[Experiment core](experiment-core.md).
 
 ## Data And Analysis Direction
 
@@ -113,8 +115,8 @@ modules or adapters: settings and config generation, sweep construction,
 sequence or pulse construction, backend-program generation, dataset metadata,
 and analysis-to-candidate calculations.
 
-Legacy hardware connection, setup, upload, play, acquire, registry mutation,
+Legacy hardware connection, setup, upload, play, collect, registry mutation,
 data-vault writes, GUI state, and background side effects are not migrated into
 core. If a legacy runner has a useful batch boundary, it may be wrapped behind
-an instrument group, but it should not shape the core model around legacy
-compatibility.
+one logical instrument driver, but it should not shape the core model around
+legacy compatibility.

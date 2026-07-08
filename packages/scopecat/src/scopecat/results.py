@@ -19,6 +19,9 @@ from scopecat.models.attempt import (
     summarize_point_attempts,
 )
 from scopecat.models.measurement import (
+    ComplexQuantity,
+    CoordinateValue,
+    MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetInputDiagnostics,
     MeasurementDatasetRole,
@@ -26,12 +29,12 @@ from scopecat.models.measurement import (
     MeasurementDimension,
     MeasurementDType,
     MeasurementRecord,
+    MeasurementValue,
     MeasurementVariable,
     MeasurementVariableRole,
     infer_measurement_dataset_schema,
     validate_measurement_records_against_schema,
 )
-from scopecat.models.parameter import Quantity
 
 
 class MeasurementSink:
@@ -49,8 +52,8 @@ class MeasurementSink:
         self,
         *,
         point_index: int,
-        coordinates: dict[str, Quantity],
-        observables: dict[str, Quantity],
+        coordinates: dict[str, CoordinateValue],
+        observables: dict[str, MeasurementValue],
         metadata: dict[str, Any] | None = None,
     ) -> None:
         self._measurements.append(
@@ -70,6 +73,9 @@ __all__ = [
     "ArtifactRequirement",
     "AttemptValue",
     "ChunkedArtifactManifest",
+    "ComplexQuantity",
+    "CoordinateValue",
+    "MeasurementArray",
     "MeasurementDType",
     "MeasurementDataset",
     "MeasurementDatasetInputDiagnostics",
@@ -78,6 +84,7 @@ __all__ = [
     "MeasurementDimension",
     "MeasurementRecord",
     "MeasurementSink",
+    "MeasurementValue",
     "MeasurementVariable",
     "MeasurementVariableRole",
     "PointArtifactStatus",

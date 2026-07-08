@@ -3,31 +3,39 @@
 from __future__ import annotations
 
 # %%
-from quantum_lab_demo import notebook_workspace, readout_frequency_lab
-from quantum_lab_demo.readout import (
+from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo.experiments import (
+    READOUT_TEMPLATE,
     ReadoutFrequencyAnalysisStep,
-    frequency_calibration,
 )
 
 # %%
 workspace = notebook_workspace("06-review-and-rerun")
-lab = readout_frequency_lab(workspace=workspace)
-experiment = lab.experiment(
-    "readout frequency",
-    source=frequency_calibration(qubit="q0"),
-)
+lab = quantum_lab(workspace=workspace)
+readout_inputs = {"qubit": "q0"}
 
 # %%
-baseline = lab.run(experiment)
+baseline = lab.run(
+    READOUT_TEMPLATE,
+    inputs=readout_inputs,
+    name="readout frequency baseline",
+    tags=("notebook", "calibration", "baseline"),
+)
 analysis = baseline.analyze(ReadoutFrequencyAnalysisStep())
 saved_analysis = analysis.save()
 
 # %%
 candidate = analysis.candidate_config()
-follow_up = lab.run(experiment, config=candidate)
+follow_up = lab.run(
+    READOUT_TEMPLATE,
+    inputs=readout_inputs,
+    config=candidate,
+    name="readout frequency follow-up",
+    tags=("notebook", "calibration", "candidate"),
+)
 
 # %%
-comparison = lab.compare(baseline, follow_up, observable="raw_i")
+comparison = lab.compare(baseline, follow_up, observable="raw_iq")
 comparison_review = comparison.review(state="accepted")
 
 # %%

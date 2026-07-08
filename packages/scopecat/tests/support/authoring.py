@@ -3,12 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat.authoring as authoring
-from scopecat.authoring import ExperimentRecipe, ExperimentTemplate
-from scopecat.authoring.expressions import AssetInput, linspace
+from scopecat.authoring import ExperimentTemplate, InputDescription
 from scopecat.config_profiles import load_config_profile
-from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
 from scopecat.models.parameter import Quantity
-from scopecat.models.provider import ProviderOptionDescription
 
 EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
@@ -17,24 +15,22 @@ def load_config() -> ConfigProfileSnapshot:
     return load_config_profile(EXAMPLE_DIR / "config-profile.json")
 
 
-def parameter_build():
-    parameter_build = load_config().parameter_build
-    assert parameter_build is not None
-    return parameter_build
+def parameter_view():
+    return build_config_parameters(load_config())
 
 
-SIMPLE_RECIPE = authoring.recipe(
+SIMPLE_MODULE = authoring.module(
     id="test.simple_scan",
-    experiment_id="authored-simple-scan",
-    kind="simple_scan",
+    entity_inputs=("subject",),
     resources=[
-        authoring.resource_role("source", authoring.requires("set_frequency")),
+        authoring.resource_port("source", authoring.requires("set_frequency")),
     ],
     variables=[
         authoring.sweep(
             "drive_frequency",
             default_span=Quantity(value=200.0, unit="MHz"),
             points=5,
+            input_id="drive_frequency",
         )
     ],
     bindings=[
@@ -43,41 +39,19 @@ SIMPLE_RECIPE = authoring.recipe(
             authoring.var_ref("drive_frequency"),
         )
     ],
-    dataset=None,
-    metadata={"assembled_by": "recipe"},
+    records=[authoring.observable("signal", resource="source", unit="ratio")],
+    metadata={"assembled_by": "module"},
 )
 
 
 def simple_template() -> ExperimentTemplate:
-    return SIMPLE_RECIPE.template(
+    return SIMPLE_MODULE.template(
+        experiment_id="authored-simple-scan",
+        kind="simple_scan",
         label="Simple scan",
         inputs=(
-            ProviderOptionDescription(id="subject", dtype="str", required=True),
-            ProviderOptionDescription(id="sweep", dtype="AroundSweep | None"),
+            InputDescription(id="subject", kind="entity"),
+            InputDescription(id="drive_frequency", kind="quantity"),
         ),
-    )
-
-
-def custom_asset_recipe(program: AssetInput | str) -> ExperimentRecipe:
-    return authoring.recipe(
-        id="custom-echo",
-        experiment_id="custom-echo",
-        kind="custom",
-        resources=[
-            authoring.resource_role(
-                "source",
-                authoring.requires("set_frequency"),
-                resource_id="source-0",
-            )
-        ],
-        variables=[
-            authoring.variable(
-                "drive_frequency",
-                linspace(4.9, 5.1, 3, unit="GHz"),
-            )
-        ],
-        bindings=[
-            authoring.asset_binding("source.set_frequency.program", program),
-        ],
-        assets=[program] if not isinstance(program, str) else [],
+        defaults={"drive_frequency": None},
     )

@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.diagnostics import Diagnostic
+from scopecat.models.measurement import CoordinateValue
 from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunConfigSource, utc_now
 
@@ -23,8 +24,8 @@ class RunComparisonPoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     point_index: int
-    baseline_coordinates: dict[str, Quantity]
-    candidate_coordinates: dict[str, Quantity]
+    baseline_coordinates: dict[str, CoordinateValue]
+    candidate_coordinates: dict[str, CoordinateValue]
     baseline_value: Quantity
     candidate_value: Quantity
     value_delta: Quantity

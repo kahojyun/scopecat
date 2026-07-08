@@ -323,13 +323,13 @@ class ParameterState(BaseModel):
         return self.scalar_values
 
 
-class ParameterBuildSnapshot(BaseModel):
+class ParameterViewSnapshot(BaseModel):
     """Resolved parameter values consumed by planning and execution."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.parameter_build_snapshot.v1"] = (
-        "scopecat.parameter_build_snapshot.v1"
+    schema_version: Literal["scopecat.parameter_view_snapshot.v1"] = (
+        "scopecat.parameter_view_snapshot.v1"
     )
     id: str
     catalog_id: str
@@ -339,8 +339,8 @@ class ParameterBuildSnapshot(BaseModel):
     derivation_set_id: str | None = None
     derivation_set_hash: str | None = None
     content_hash: str
-    build_implementation_id: str
-    build_implementation_version: str
+    view_implementation_id: str
+    view_implementation_version: str
     scalar_values: list[ParameterValue] = Field(default_factory=list)
     tables: list[ParameterTable] = Field(default_factory=list)
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
@@ -351,12 +351,12 @@ class ParameterBuildSnapshot(BaseModel):
     def validate_scalar_values(
         cls, value: list[ParameterValue]
     ) -> list[ParameterValue]:
-        return _ensure_unique_ids(value, "parameter build scalar value")
+        return _ensure_unique_ids(value, "parameter view scalar value")
 
     @field_validator("tables")
     @classmethod
     def validate_tables(cls, value: list[ParameterTable]) -> list[ParameterTable]:
-        return _ensure_unique_ids(value, "parameter build table")
+        return _ensure_unique_ids(value, "parameter view table")
 
     def get(self, value_id: str) -> ParameterValue | None:
         for value in self.scalar_values:

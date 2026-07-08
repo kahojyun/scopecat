@@ -1,5 +1,60 @@
 """Notebook-first public workflow facade."""
 
+from scopecat.authoring import (
+    AroundSweep,
+    ComputeContext,
+    ComputeResultRef,
+    ExperimentInvocation,
+    ExperimentModule,
+    ExperimentTemplate,
+    InputDescription,
+    ModuleBuilder,
+    ModuleInputPort,
+    ModuleProductPort,
+    RouteBindingRef,
+    around,
+    around_points,
+    compute_result,
+    entity_axis,
+    entity_points,
+    input_ref,
+    record_axis,
+    record_product,
+    route,
+    shot_axis,
+    template,
+    value_points,
+)
+from scopecat.authoring import (
+    module_builder as module,
+)
+from scopecat.authoring import (
+    param_ref as param,
+)
+from scopecat.authoring import (
+    var_ref as var,
+)
+from scopecat.experiments import (
+    RunParameterSweep,
+    RunPointSweep,
+    RunSweep,
+    RunSweepGroup,
+    cartesian,
+    param_row,
+    sweep,
+    sweep_param,
+)
+from scopecat.experiments import zip as zip  # noqa: A004
+from scopecat.instruments import RuntimePayloadObservation, RuntimePayloadObserver
+from scopecat.models.entity import EntityArray, EntityRef, entity_array, entity_ref
+from scopecat.preview import (
+    ExperimentPreview,
+    ExperimentPreviewComputeStep,
+    PreviewExperimentResult,
+    ValidateExperimentResult,
+)
+from scopecat.relations import param as table_param
+from scopecat.results import MeasurementDatasetSchema
 from scopecat.session import (
     Analysis,
     AnalysisContext,
@@ -11,7 +66,6 @@ from scopecat.session import (
     Data,
     EarlyStopDecision,
     Experiment,
-    PromotedAnalysisStep,
     Quantity,
     RunHandle,
     SavedAnalysis,
@@ -23,9 +77,18 @@ from scopecat.session import (
     set_param,
     update_param_rows,
 )
-from scopecat.workflows import PreviewExperimentResult, ValidateExperimentResult
+from scopecat.session_data import DataDatasetSummary, DataSummary
+from scopecat.system_overview import (
+    SystemChannelSummary,
+    SystemEntitySummary,
+    SystemGroupSummary,
+    SystemLineSummary,
+    SystemResourceSummary,
+    SystemSummary,
+)
 
 Run = RunHandle
+input = input_ref  # noqa: A001
 
 __all__ = [
     "Analysis",
@@ -33,23 +96,75 @@ __all__ = [
     "AnalysisInput",
     "AnalysisOutput",
     "AnalysisStep",
+    "AroundSweep",
     "CandidateConfig",
     "ComparisonHandle",
+    "ComputeContext",
+    "ComputeResultRef",
     "Data",
+    "DataDatasetSummary",
+    "DataSummary",
     "EarlyStopDecision",
+    "EntityArray",
+    "EntityRef",
     "Experiment",
+    "ExperimentInvocation",
+    "ExperimentModule",
+    "ExperimentPreview",
+    "ExperimentPreviewComputeStep",
+    "ExperimentTemplate",
+    "InputDescription",
+    "MeasurementDatasetSchema",
+    "ModuleBuilder",
+    "ModuleInputPort",
+    "ModuleProductPort",
     "PreviewExperimentResult",
-    "PromotedAnalysisStep",
     "Quantity",
+    "RouteBindingRef",
     "Run",
     "RunHandle",
+    "RunParameterSweep",
+    "RunPointSweep",
+    "RunSweep",
+    "RunSweepGroup",
+    "RuntimePayloadObservation",
+    "RuntimePayloadObserver",
     "SavedAnalysis",
+    "SystemChannelSummary",
+    "SystemEntitySummary",
+    "SystemGroupSummary",
+    "SystemLineSummary",
+    "SystemResourceSummary",
+    "SystemSummary",
     "ValidateExperimentResult",
     "Workspace",
+    "around",
+    "around_points",
+    "cartesian",
+    "compute_result",
     "decide_online_convergence",
     "delete_param_rows",
+    "entity_array",
+    "entity_axis",
+    "entity_points",
+    "entity_ref",
+    "input",
     "insert_param_rows",
+    "module",
     "open",
+    "param",
+    "param_row",
+    "record_axis",
+    "record_product",
+    "route",
     "set_param",
+    "shot_axis",
+    "sweep",
+    "sweep_param",
+    "table_param",
+    "template",
     "update_param_rows",
+    "value_points",
+    "var",
+    "zip",
 ]

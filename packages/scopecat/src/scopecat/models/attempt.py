@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.diagnostics import Diagnostic
 
-POINT_ATTEMPT_SUMMARY_SCHEMA_VERSION = "scopecat.point_attempt_summary.v1"
+POINT_ATTEMPT_SUMMARY_SCHEMA_VERSION = "scopecat.point_attempt_summary.v2"
 
 type AttemptValue = str | int | float | bool
 
@@ -19,10 +19,10 @@ class PointAttemptSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.point_attempt_summary.v1"] = (
+    schema_version: Literal["scopecat.point_attempt_summary.v2"] = (
         POINT_ATTEMPT_SUMMARY_SCHEMA_VERSION
     )
-    point_id: int
+    point_index: int
     success: bool
     attempts: int
     selected_attempt: int | None = None
@@ -34,15 +34,15 @@ class PointAttemptSummary(BaseModel):
 def summarize_point_attempts(
     rows: Sequence[Mapping[str, Any]],
     *,
-    point_id: int,
+    point_index: int,
     max_attempts: int,
     target_value: AttemptValue,
     attempt_column: str = "attempt",
     value_column: str = "value",
     value_label: str | None = None,
 ) -> PointAttemptSummary:
-    if point_id < 0:
-        msg = "point_id must be nonnegative"
+    if point_index < 0:
+        msg = "point_index must be nonnegative"
         raise ValueError(msg)
     if max_attempts <= 0:
         msg = "max_attempts must be positive"
@@ -103,8 +103,8 @@ def summarize_point_attempts(
         diagnostics.append(
             _diagnostic(
                 "point_attempt_target_not_reached",
-                f"point {point_id} did not reach target value {target_value!r}",
-                f"points.{point_id}",
+                f"point {point_index} did not reach target value {target_value!r}",
+                f"points.{point_index}",
             )
         )
 
@@ -112,7 +112,7 @@ def summarize_point_attempts(
         selected_attempt + 1 if selected_attempt is not None else len(seen_attempts)
     )
     return PointAttemptSummary(
-        point_id=point_id,
+        point_index=point_index,
         success=success,
         attempts=attempts,
         selected_attempt=selected_attempt,

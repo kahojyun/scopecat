@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+from scopecat.experiments import (
+    bind_each,
+    experiment,
+    set_state,
+    update_param_rows,
+)
+from scopecat.models.parameter import Quantity
+from scopecat.relations import (
+    col,
+    grid,
+    linspace,
+    literal_rows,
+    outer,
+    param,
+    table,
+)
+from tests.support.experiment_preview import preview_contract
+from tests.support.parameter_fixtures import parameter_view as _parameter_view
+
+
+def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
+    unchanged = experiment(
+        id="unchanged-state-patches",
+        kind="diagnostic",
+        points=grid(index=[0, 1]),
+        state=[
+            set_state(
+                "drive-a",
+                "carrier_frequency",
+                Quantity(value=5.0, unit="GHz"),
+            )
+        ],
+    )
+    swept = experiment(
+        id="swept-state-patches",
+        kind="diagnostic",
+        points=grid(frequency=linspace(5.0, 5.1, 2, unit="GHz")),
+        state=[
+            set_state(
+                "drive-a",
+                "carrier_frequency",
+                col("frequency"),
+            )
+        ],
+    )
+
+    unchanged_preview = preview_contract(unchanged, _parameter_view())
+    swept_preview = preview_contract(swept, _parameter_view())
+    unchanged_patches = [
+        (change.point_index, change.resource, change.field, change.before, change.after)
+        for change in unchanged_preview.state_changes
+    ]
+    swept_patches = [
+        (change.point_index, change.resource, change.field, change.before, change.after)
+        for change in swept_preview.state_changes
+    ]
+
+    assert unchanged_patches == [
+        (0, "drive-a", "carrier_frequency", None, Quantity(value=5.0, unit="GHz"))
+    ]
+    assert swept_patches == [
+        (0, "drive-a", "carrier_frequency", None, Quantity(value=5.0, unit="GHz")),
+        (
+            1,
+            "drive-a",
+            "carrier_frequency",
+            Quantity(value=5.0, unit="GHz"),
+            Quantity(value=5.1, unit="GHz"),
+        ),
+    ]
+    assert unchanged_patches != swept_patches
+
+
+def test_preview_repeated_state_uses_outer_point_row() -> None:
+    spec = experiment(
+        id="shared-lo-fixed-if-scan",
+        kind="drive.shared_lo_scan",
+        points=grid(lo_frequency=linspace(4.9, 5.0, 2, unit="GHz")),
+        state=[
+            bind_each(
+                table("drive_channels"),
+                set_state(
+                    col("resource_id"),
+                    "carrier_frequency",
+                    outer("lo_frequency") + col("fixed_if"),
+                ),
+            )
+        ],
+    )
+
+    preview = preview_contract(spec, _parameter_view())
+
+    assert [point.coordinates["lo_frequency"] for point in preview.points] == [
+        Quantity(value=4.9, unit="GHz"),
+        Quantity(value=5.0, unit="GHz"),
+    ]
+    assert [
+        (change.point_index, change.resource, change.field, change.after)
+        for change in preview.state_changes
+    ] == [
+        (0, "xy0", "carrier_frequency", Quantity(value=5.0, unit="GHz")),
+        (0, "xy1", "carrier_frequency", Quantity(value=5.02, unit="GHz")),
+        (1, "xy0", "carrier_frequency", Quantity(value=5.1, unit="GHz")),
+        (1, "xy1", "carrier_frequency", Quantity(value=5.12, unit="GHz")),
+    ]
+
+
+def test_preview_selected_target_table_plans_simultaneous_resources() -> None:
+    spec = experiment(
+        id="selected-readouts-with-shared-drives",
+        kind="readout.selected_parallel_scan",
+        points=(
+            table("readout_devices")
+            .join(
+                literal_rows([{"device_id": "r1"}, {"device_id": "r0"}]),
+                on={"device_id": "device_id"},
+            )
+            .sort("device_id")
+        ),
+        params=[
+            update_param_rows(
+                "readout_devices",
+                key={"device_id": col("device_id")},
+                values={"frequency": col("frequency") + Quantity(value=50, unit="MHz")},
+            )
+        ],
+        state=[
+            set_state(
+                col("resource_id"),
+                "readout.frequency",
+                param(
+                    "readout_devices",
+                    key={"device_id": col("device_id")},
+                    column="frequency",
+                ),
+            ),
+            bind_each(
+                table("drive_channels"),
+                set_state(
+                    col("resource_id"),
+                    "drive.carrier_frequency",
+                    outer("frequency") + col("fixed_if"),
+                ),
+            ),
+        ],
+    )
+
+    preview = preview_contract(spec, _parameter_view())
+
+    assert [point.coordinates["device_id"] for point in preview.points] == ["r0", "r1"]
+    assert [
+        (change.point_index, change.resource, change.field, change.after)
+        for change in preview.state_changes
+    ] == [
+        (0, "readout-a", "readout.frequency", Quantity(value=6.0, unit="GHz")),
+        (0, "xy0", "drive.carrier_frequency", Quantity(value=6.05, unit="GHz")),
+        (0, "xy1", "drive.carrier_frequency", Quantity(value=6.07, unit="GHz")),
+        (1, "readout-b", "readout.frequency", Quantity(value=6.15, unit="GHz")),
+        (1, "xy0", "drive.carrier_frequency", Quantity(value=6.2, unit="GHz")),
+        (1, "xy1", "drive.carrier_frequency", Quantity(value=6.22, unit="GHz")),
+    ]
+    assert preview.records == ()

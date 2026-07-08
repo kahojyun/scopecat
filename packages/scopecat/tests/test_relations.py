@@ -1,9 +1,9 @@
 import pytest
 
 from scopecat.models.parameter import (
-    ParameterBuildSnapshot,
     ParameterTable,
     ParameterValue,
+    ParameterViewSnapshot,
     Quantity,
 )
 from scopecat.relations import (
@@ -72,16 +72,16 @@ def test_relation_grid_filter_select_and_round_trip() -> None:
     ]
 
 
-def test_parameter_build_snapshot_drives_variable_key_lookup_and_joins() -> None:
-    params = ParameterBuildSnapshot(
+def test_parameter_view_snapshot_drives_variable_key_lookup_and_joins() -> None:
+    params = ParameterViewSnapshot(
         id="readout-build",
         catalog_id="catalog",
         catalog_hash=_hash("catalog"),
         source_state_id="state",
         source_state_hash=_hash("state"),
         content_hash=_hash("build"),
-        build_implementation_id="test",
-        build_implementation_version="v1",
+        view_implementation_id="test",
+        view_implementation_version="v1",
         scalar_values=[
             ParameterValue(
                 id="readout.demod_frequency",
@@ -138,6 +138,51 @@ def test_parameter_table_root_is_durable_table_relation() -> None:
     restored = assert_model_round_trip(relation)
 
     assert restored == table("readout_devices")
+
+
+def test_cross_evaluates_right_relation_with_left_row_context() -> None:
+    relation = grid(qubit=["q0", "q1"]).cross(
+        grid(
+            frequency=linspace(
+                param(
+                    "qubits",
+                    key={"qubit": col("qubit")},
+                    column="center_frequency",
+                )
+                - Quantity(value=100, unit="MHz"),
+                param(
+                    "qubits",
+                    key={"qubit": col("qubit")},
+                    column="center_frequency",
+                )
+                + Quantity(value=100, unit="MHz"),
+                3,
+            )
+        )
+    )
+    params = ParameterRelationData(
+        tables={
+            "qubits": [
+                {
+                    "qubit": "q0",
+                    "center_frequency": Quantity(value=5.0, unit="GHz"),
+                },
+                {
+                    "qubit": "q1",
+                    "center_frequency": Quantity(value=6.0, unit="GHz"),
+                },
+            ]
+        }
+    )
+
+    assert relation.evaluate(params) == [
+        {"qubit": "q0", "frequency": Quantity(value=4.9, unit="GHz")},
+        {"qubit": "q0", "frequency": Quantity(value=5.0, unit="GHz")},
+        {"qubit": "q0", "frequency": Quantity(value=5.1, unit="GHz")},
+        {"qubit": "q1", "frequency": Quantity(value=5.9, unit="GHz")},
+        {"qubit": "q1", "frequency": Quantity(value=6.0, unit="GHz")},
+        {"qubit": "q1", "frequency": Quantity(value=6.1, unit="GHz")},
+    ]
 
 
 def test_relation_join_sort_and_limit_are_durable_operations() -> None:

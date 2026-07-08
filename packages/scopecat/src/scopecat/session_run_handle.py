@@ -9,32 +9,34 @@ from typing import TYPE_CHECKING, NoReturn, Protocol
 
 from scopecat._manifest_updates import write_manifest_artifacts
 from scopecat._storage.refs import artifact_content_ref
-from scopecat.diagnostics import Diagnostic
-from scopecat.errors import ValidationFailed
-from scopecat.experiments import PlanSnapshot
-from scopecat.models.artifact import RunArtifactEntry
-from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.run import RunManifest
-from scopecat.run_comparison import RunComparisonView
-from scopecat.run_selectors import RunSelector, selected_run_id
-from scopecat.runs.access import open_run_store
-from scopecat.session_analysis import Analysis, AnalysisContext, AnalysisStep
-from scopecat.session_data import Data
-from scopecat.workflows import (
-    RunArtifactJsonResult,
-    RunArtifactTextResult,
-    RunMeasurementDatasetResult,
-    RunRecordJsonResult,
-)
-from scopecat.workflows.comparison import list_run_comparisons
-from scopecat.workflows.runs import (
+from scopecat._workflows.comparison import list_run_comparisons
+from scopecat._workflows.preview import build_experiment_preview
+from scopecat._workflows.runs import (
     list_run_artifacts,
     load_run,
+    load_structured_run,
     read_run_artifact_json,
     read_run_artifact_text,
     read_run_measurement_dataset,
     read_run_record_json,
 )
+from scopecat.diagnostics import Diagnostic
+from scopecat.errors import ValidationFailed
+from scopecat.models.artifact import RunArtifactEntry
+from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
+from scopecat.models.run import RunManifest
+from scopecat.preview import ExperimentPreview
+from scopecat.run_comparison import RunComparisonView
+from scopecat.run_data import (
+    RunArtifactJsonResult,
+    RunArtifactTextResult,
+    RunMeasurementDatasetResult,
+    RunRecordJsonResult,
+)
+from scopecat.run_selectors import RunSelector, selected_run_id
+from scopecat.runs.access import open_run_store
+from scopecat.session_analysis import Analysis, AnalysisContext, AnalysisStep
+from scopecat.session_data import Data
 
 if TYPE_CHECKING:
     from scopecat.run_overview import RunOverview
@@ -66,11 +68,23 @@ class RunHandle:
 
     @property
     def config(self) -> ConfigProfileSnapshot:
-        return load_run(run_id=self.id, workspace=self.session.workspace).config
+        return load_structured_run(
+            run_id=self.id,
+            workspace=self.session.workspace,
+        ).config
 
     @property
-    def plan(self) -> PlanSnapshot:
-        return load_run(run_id=self.id, workspace=self.session.workspace).plan
+    def preview(self) -> ExperimentPreview:
+        details = load_structured_run(
+            run_id=self.id,
+            workspace=self.session.workspace,
+        )
+        preview, _ = build_experiment_preview(
+            details.experiment,
+            build_config_parameters(details.config),
+            config=details.config,
+        )
+        return preview
 
     @property
     def artifacts(self) -> tuple[str, ...]:

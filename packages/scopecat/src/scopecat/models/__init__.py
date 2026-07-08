@@ -1,7 +1,6 @@
 """Scopecat parameter model facade."""
 
 from scopecat.models.parameter import (
-    ParameterBuildSnapshot,
     ParameterCatalog,
     ParameterChangeSet,
     ParameterPatch,
@@ -11,6 +10,7 @@ from scopecat.models.parameter import (
     ParameterTableDefinition,
     ParameterValue,
     ParameterValueSet,
+    ParameterViewSnapshot,
     Quantity,
 )
 from scopecat.parameters import (
@@ -20,7 +20,6 @@ from scopecat.parameters import (
 )
 
 __all__ = [
-    "ParameterBuildSnapshot",
     "ParameterCatalog",
     "ParameterChangeSet",
     "ParameterDerivationSet",
@@ -31,6 +30,7 @@ __all__ = [
     "ParameterTableDefinition",
     "ParameterValue",
     "ParameterValueSet",
+    "ParameterViewSnapshot",
     "Quantity",
     "ScalarParameterDerivation",
     "TableParameterDerivation",

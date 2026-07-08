@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
+from scopecat._workflows.config import register_and_activate_candidate_config
 from scopecat.candidate_configs import CandidateConfig
 from scopecat.config_registry import list_config_registry_entries
 from scopecat.errors import ValidationFailed
@@ -13,7 +14,6 @@ from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.parameter_changes import load_parameter_change
 from scopecat.relations import col
-from scopecat.workflows import register_and_activate_candidate_config
 from tests.support.config_registry import signal_run_with_parameter_change
 from tests.support.records import read_model
 from tests.support.signal_instruments import TestSignalInstrumentProvider

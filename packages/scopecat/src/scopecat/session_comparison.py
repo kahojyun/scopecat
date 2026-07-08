@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from scopecat._workflows.comparison import (
+    ReviewRunComparisonResult,
+    review_run_comparison,
+)
 from scopecat.run_comparison import RunComparisonResult, RunComparisonReviewState
-from scopecat.workflows import ReviewRunComparisonResult
-from scopecat.workflows.comparison import review_run_comparison
 
 
 class ComparisonSession(Protocol):

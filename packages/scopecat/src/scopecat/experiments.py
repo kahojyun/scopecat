@@ -1,62 +1,42 @@
-"""experiment kernel and planner.
+"""Durable experiment spec and low-level experiment helpers.
 
-The kernel is intentionally small and mirrors the accepted shape:
+The spec is intentionally small and mirrors the accepted linked IR shape:
 
-``points -> params -> state -> acquire``
+``points -> params -> state -> records``
 
-This module is the durable experiment path for production planning and
-execution.
+The transient planner lives in :mod:`scopecat._planning.planner`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+import builtins
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict, dataclass, is_dataclass
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat._planning_acquisition import (
-    AcquisitionPlan,
-    AcquisitionRecordMode,
-    AcquisitionSpec,
-    ObservationSpec,
-    ObservationSpecKind,
-    ResultIntent,
-    estimated_records,
-    expected_dataset_schema,
-    point_coordinate_ids,
-    result_intents,
-    validate_acquisition_plan,
-)
-from scopecat._planning_diagnostics import (
-    PlanningDiagnosticError,
-    planning_diagnostic,
-)
-from scopecat._planning_hashes import (
-    PLAN_IMPLEMENTATION_ID,
-    PLAN_IMPLEMENTATION_VERSION,
-    payload_hash,
-    plan_content_hash,
-)
-from scopecat._planning_parameter_patches import (
-    ParameterPatchPlanRecord,
+from scopecat._planning.parameter_patches import (
     ParameterPatchSpec,
 )
-from scopecat._planning_state import (
-    StatePatchRecord,
+from scopecat._planning.records import (
+    RecordAxisPlan,
+    RecordAxisSpec,
+    RecordKind,
+    RecordSource,
+    RecordSpec,
+)
+from scopecat._planning.state import (
     StateRecord,
     StateSpec,
-    state_patches,
-    validate_asset_references,
-    validate_state_records,
 )
-from scopecat.models.artifact import ExperimentAsset
+from scopecat.models.artifact import CommandPayload
+from scopecat.models.config import RoutingChannelBinding
 from scopecat.models.parameter import (
-    ParameterBuildSnapshot,
+    Quantity,
 )
-from scopecat.parameters import ParameterDerivationSet
 from scopecat.relations import (
-    EvalContext,
+    CellValue,
     ParameterRelationData,
     RelationExpr,
     Row,
@@ -64,63 +44,237 @@ from scopecat.relations import (
     as_scalar_expr,
     col,
     grid,
+    literal_rows,
     param,
 )
 from scopecat.relations import (
     table as parameter_table_relation,
 )
+from scopecat.relations import (
+    values as relation_values,
+)
 from scopecat.results import (
-    MeasurementDatasetSchema,
+    MeasurementDType,
 )
 
 
-class ExperimentSpec(BaseModel):
-    """Durable experiment recipe."""
+class RunRequest(BaseModel):
+    """Operator request for one structured run segment."""
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.experiment_spec.v1"
+    schema_version: str = "scopecat.run_request.v1"
     id: str
-    kind: str
-    points: RelationExpr
-    params: list[ParameterPatchSpec] = Field(default_factory=list)
-    state: list[StateSpec] = Field(default_factory=list)
-    acquire: AcquisitionSpec
-    assets: list[ExperimentAsset] = Field(default_factory=list)
+    template_id: str | None = None
+    template_inputs: dict[str, Any] = Field(default_factory=dict)
+    config_source: str | None = None
+    operator: str | None = None
+    run_overrides: dict[str, Any] = Field(default_factory=dict)
+    point_axes: dict[str, Any] = Field(default_factory=dict)
+    parameter_sweeps: list[dict[str, Any]] = Field(default_factory=list)
+    sweep_groups: list[dict[str, Any]] = Field(default_factory=list)
+    seeds: dict[str, int] = Field(default_factory=dict)
+    extra_records: dict[str, Any] = Field(default_factory=dict)
+    execution_flags: dict[str, Any] = Field(default_factory=dict)
+    segment_lineage: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class PointRecord(BaseModel):
+class ExperimentSpec(BaseModel):
+    """Closed structured experiment input for one run segment."""
+
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
-    point_id: int
+    schema_version: str = "scopecat.experiment_spec.v3"
+    id: str
+    kind: str
+    request: RunRequest | None = None
+    config_snapshot_id: str | None = None
+    points: RelationExpr
+    route_intents: list[ResourceRouteIntent] = Field(default_factory=list)
+    params: list[ParameterPatchSpec] = Field(default_factory=list)
+    compute_nodes: list[ComputeNodeSpec] = Field(default_factory=list)
+    state: list[StateSpec] = Field(default_factory=list)
+    records: list[RecordSpec] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+ComputeNodeFunction = Callable[..., object]
+
+
+class ComputeNodeInput(BaseModel):
+    """Input edge for a point-local pure compute node."""
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    kind: Literal["value", "compute_result", "route"]
+    value: ScalarExpr | None = None
+    node_id: str | None = None
+    port_id: str | None = None
+    source_inputs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> ComputeNodeInput:
+        if self.kind == "value":
+            if (
+                self.value is None
+                or self.node_id is not None
+                or self.port_id is not None
+            ):
+                msg = "value compute node input requires value only"
+                raise ValueError(msg)
+            return self
+        if self.kind == "compute_result":
+            if (
+                self.node_id is None
+                or self.value is not None
+                or self.port_id is not None
+            ):
+                msg = "compute result input requires node_id only"
+                raise ValueError(msg)
+            return self
+        if self.port_id is None or self.value is not None or self.node_id is not None:
+            msg = "route compute node input requires port_id only"
+            raise ValueError(msg)
+        return self
+
+
+class ComputeNodeSpec(BaseModel):
+    """Runtime-lowered pure code island declared by authoring modules."""
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    id: str
+    inputs: dict[str, ComputeNodeInput] = Field(default_factory=dict)
+    route_ports: list[str] = Field(default_factory=list)
+    fn: ComputeNodeFunction | None = Field(default=None, exclude=True)
+
+
+@dataclass(frozen=True)
+class ComputeNodeContext:
+    """Point-local inputs supplied to context-style compute functions."""
+
+    node_id: str
+    point_index: int
+    point_uid: str
     row: Row
+    params: ParameterRelationData
+    inputs: Mapping[str, object]
+    routes: tuple[PointRouteBinding, ...]
+    payloads: Mapping[str, CommandPayload]
+
+    def scalar(self, parameter_id: str) -> CellValue:
+        return self.params.scalar(parameter_id)
+
+    def route(self, port_id: str) -> PointRouteBinding:
+        for binding in self.routes:
+            if binding.port_id == port_id:
+                return binding
+        msg = f"compute node {self.node_id!r} has no route binding for {port_id!r}"
+        raise KeyError(msg)
 
 
-class PlanSnapshot(BaseModel):
-    """Durable experiment plan snapshot produced by `plan_experiment`."""
+class ProductBinding(BaseModel):
+    """Runtime mapping from a device-local product to an experiment record."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
-    schema_version: str = "scopecat.plan_snapshot.v1"
-    experiment_id: str
-    experiment_kind: str
-    experiment_hash: str
-    parameter_build_id: str | None = None
-    parameter_build_hash: str | None = None
-    content_hash: str
-    plan_implementation_id: str
-    plan_implementation_version: str
-    point_coordinate_ids: list[str] = Field(default_factory=list)
-    points: list[PointRecord]
-    parameter_patches: list[ParameterPatchPlanRecord]
-    desired_state: list[StateRecord]
-    state_patches: list[StatePatchRecord]
-    acquisition: AcquisitionPlan
-    result_intents: list[ResultIntent] = Field(default_factory=list)
-    expected_dataset_schema: MeasurementDatasetSchema | None = None
-    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
-    assets: list[ExperimentAsset] = Field(default_factory=list)
+    record_id: str
+    instrument_id: str | None = None
+    product_key: str
+    kind: RecordKind
+    capability: str | None = None
+    unit: str | None = None
+    dtype: MeasurementDType
+    axes: list[RecordAxisPlan] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ResourceRouteIntent(BaseModel):
+    """Symbolic resource route preserved until point-local program compilation."""
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    port_id: str
+    capabilities: list[str] = Field(default_factory=list)
+    entity_exprs: list[ScalarExpr] = Field(default_factory=list)
+    resource_id: str | None = None
+
+
+class PointRouteBinding(BaseModel):
+    """Concrete route selected for one point program."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    port_id: str
+    resource_id: str
+    capabilities: list[str] = Field(default_factory=list)
+    entity_ids: list[str] = Field(default_factory=list)
+    product_axis_order: list[str] = Field(default_factory=list)
+    channel_bindings: list[RoutingChannelBinding] = Field(default_factory=list)
+
+
+class ProgramStateValue(BaseModel):
+    """Device-program state value before conversion to driver SDK commands."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["quantity", "number", "payload"]
+    quantity: Quantity | None = None
+    value: float | None = None
+    payload_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> ProgramStateValue:
+        if self.kind == "quantity":
+            if self.quantity is None:
+                msg = "quantity program state value requires quantity"
+                raise ValueError(msg)
+            if self.value is not None or self.payload_id is not None:
+                msg = "quantity program state value cannot contain value or payload_id"
+                raise ValueError(msg)
+            return self
+        if self.kind == "number":
+            if self.value is None:
+                msg = "number program state value requires value"
+                raise ValueError(msg)
+            if self.quantity is not None or self.payload_id is not None:
+                msg = "number program state value cannot contain quantity or payload_id"
+                raise ValueError(msg)
+            return self
+        if self.payload_id is None:
+            msg = "payload program state value requires payload_id"
+            raise ValueError(msg)
+        if self.quantity is not None or self.value is not None:
+            msg = "payload program state value cannot contain quantity or value"
+            raise ValueError(msg)
+        return self
+
+
+class ProgramStateField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field_path: str
+    value: ProgramStateValue
+    channel_bindings: list[RoutingChannelBinding] = Field(default_factory=list)
+
+
+class ProgramResourceState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource_id: str
+    capability_id: str
+    fields: list[ProgramStateField] = Field(default_factory=list)
+
+
+class CollectInstructionPlan(BaseModel):
+    """Runtime collection request for one point and one logical instrument."""
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    point_index: int
+    instrument_id: str | None = None
+    products: list[ProductBinding] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -149,6 +303,182 @@ class ParameterScan:
 
 
 @dataclass(frozen=True)
+class RunPointSweep:
+    """Run-time point-axis sweep appended to a template invocation."""
+
+    axis_id: str
+    values: tuple[object, ...]
+    unit: str | None = None
+
+    @property
+    def points(self) -> RelationExpr:
+        source = (
+            relation_values(self.values, unit=self.unit)
+            if self.unit is not None
+            else list(self.values)
+        )
+        return grid(**{self.axis_id: source})
+
+    def request_record(self) -> dict[str, object]:
+        return {
+            "kind": "point",
+            "axis_id": self.axis_id,
+            "values": [_request_value(value) for value in self.values],
+            "unit": self.unit,
+        }
+
+
+@dataclass(frozen=True)
+class RunParameterSweep:
+    """Run-time parameter-table sweep lowered into point-local patches."""
+
+    table_id: str
+    key: dict[str, object]
+    column: str
+    axis_id: str
+    values: tuple[object, ...]
+    unit: str | None = None
+
+    @property
+    def points(self) -> RelationExpr:
+        source = (
+            relation_values(self.values, unit=self.unit)
+            if self.unit is not None
+            else list(self.values)
+        )
+        return grid(**{self.axis_id: source})
+
+    def request_record(self) -> dict[str, object]:
+        return {
+            "kind": "parameter",
+            "table_id": self.table_id,
+            "key": _request_value(self.key),
+            "column": self.column,
+            "axis_id": self.axis_id,
+            "values": [_request_value(value) for value in self.values],
+            "unit": self.unit,
+        }
+
+
+@dataclass(frozen=True)
+class RunSweepGroup:
+    """Explicit run-time sweep composition."""
+
+    kind: Literal["cartesian", "zip"]
+    sweeps: tuple[RunSweep, ...]
+
+    @property
+    def points(self) -> RelationExpr:
+        if self.kind == "cartesian":
+            return _cartesian_sweep_points(self.sweeps)
+        return _zip_sweep_points(self.sweeps)
+
+    def request_record(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "sweeps": [sweep.request_record() for sweep in self.sweeps],
+        }
+
+
+type RunSweep = RunPointSweep | RunParameterSweep | RunSweepGroup
+
+
+def sweep(
+    axis_id: str,
+    values: Sequence[object],
+    *,
+    unit: str | None = None,
+) -> RunPointSweep:
+    if not axis_id:
+        msg = "run sweep axis id must be non-empty"
+        raise ValueError(msg)
+    if not values:
+        msg = "run sweep values must contain at least one value"
+        raise ValueError(msg)
+    return RunPointSweep(axis_id=axis_id, values=tuple(values), unit=unit)
+
+
+def sweep_param(
+    row: ParameterRowSelector,
+    column: str,
+    values: Sequence[object],
+    *,
+    axis: str | None = None,
+    unit: str | None = None,
+) -> RunParameterSweep:
+    if not column:
+        msg = "run parameter sweep column must be non-empty"
+        raise ValueError(msg)
+    if not values:
+        msg = "run parameter sweep values must contain at least one value"
+        raise ValueError(msg)
+    return RunParameterSweep(
+        table_id=row.table_id,
+        key=dict(row.key),
+        column=column,
+        axis_id=axis or column,
+        values=tuple(values),
+        unit=unit,
+    )
+
+
+def cartesian(*sweeps: RunSweep) -> RunSweepGroup:
+    if not sweeps:
+        msg = "cartesian sweep group requires at least one sweep"
+        raise ValueError(msg)
+    return RunSweepGroup(kind="cartesian", sweeps=tuple(sweeps))
+
+
+def zip(*sweeps: RunSweep) -> RunSweepGroup:  # noqa: A001
+    if not sweeps:
+        msg = "zip sweep group requires at least one sweep"
+        raise ValueError(msg)
+    return RunSweepGroup(kind="zip", sweeps=tuple(sweeps))
+
+
+def iter_run_sweep_leaves(
+    sweep: RunSweep,
+) -> tuple[RunPointSweep | RunParameterSweep, ...]:
+    if isinstance(sweep, RunSweepGroup):
+        return tuple(
+            leaf for child in sweep.sweeps for leaf in iter_run_sweep_leaves(child)
+        )
+    return (sweep,)
+
+
+def _cartesian_sweep_points(sweeps: Sequence[RunSweep]) -> RelationExpr:
+    relation = sweeps[0].points
+    for next_sweep in sweeps[1:]:
+        relation = relation.cross(next_sweep.points)
+    return relation
+
+
+def _zip_sweep_points(sweeps: Sequence[RunSweep]) -> RelationExpr:
+    rows_by_sweep = [_sweep_rows(sweep) for sweep in sweeps]
+    lengths = {len(rows) for rows in rows_by_sweep}
+    if len(lengths) != 1:
+        msg = "zip sweep group requires sweeps with equal length"
+        raise ValueError(msg)
+    rows: list[Row] = []
+    for row_group in builtins.zip(*rows_by_sweep, strict=True):
+        merged: Row = {}
+        for row in row_group:
+            overlap = set(merged).intersection(row)
+            if overlap:
+                msg = "zip sweep group contains duplicate axes: " + ", ".join(
+                    sorted(overlap)
+                )
+                raise ValueError(msg)
+            merged.update(row)
+        rows.append(merged)
+    return literal_rows(rows)
+
+
+def _sweep_rows(sweep: RunSweep) -> list[Row]:
+    return sweep.points.evaluate()
+
+
+@dataclass(frozen=True)
 class LocalOverrides:
     """Authoring fragment for resource-local override axes and desired state."""
 
@@ -169,6 +499,20 @@ def param_row(table_id: str, **key: object) -> ParameterRowSelector:
 
 def configure(*params: ParameterPatchSpec) -> list[ParameterPatchSpec]:
     return list(params)
+
+
+def _request_value(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if is_dataclass(value) and not isinstance(value, type):
+        return _request_value(asdict(value))
+    if isinstance(value, dict):
+        mapping = cast("dict[Any, object]", value)
+        return {str(key): _request_value(item) for key, item in mapping.items()}
+    if isinstance(value, list | tuple):
+        sequence = cast("list[object] | tuple[object, ...]", value)
+        return [_request_value(item) for item in sequence]
+    return value
 
 
 def scan_parameter(
@@ -265,12 +609,19 @@ def delete_param_rows(
     )
 
 
-def set_state(resource: object, field: str, value: object) -> StateSpec:
+def set_state(
+    resource: object,
+    field: str,
+    value: object,
+    *,
+    route_entities: Sequence[object] = (),
+) -> StateSpec:
     return StateSpec(
         kind="set",
         resource=as_scalar_expr(resource),
         field=field,
         value=as_scalar_expr(value),
+        route_entities=[as_scalar_expr(entity) for entity in route_entities],
     )
 
 
@@ -278,53 +629,74 @@ def bind_each(relation: RelationExpr, *state: StateSpec) -> StateSpec:
     return StateSpec(kind="for_each", relation=relation, state=list(state))
 
 
-def acquire(
-    kind: str,
+def record_axis(
+    id: str,  # noqa: A002
     *,
-    shots: int = 1,
-    repetitions: int = 1,
-    record: AcquisitionRecordMode = "point",
-    dimensions: list[str] | None = None,
-    channels: list[str] | None = None,
-    observations: list[ObservationSpec] | None = None,
-) -> AcquisitionSpec:
-    return AcquisitionSpec(
-        kind=kind,
-        shots=shots,
-        repetitions=repetitions,
-        record=record,
-        dimensions=dimensions or [],
-        channels=channels or [],
-        observations=observations or [],
+    size: int,
+    kind: str | None = None,
+    unit: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> RecordAxisSpec:
+    return RecordAxisSpec(
+        id=id,
+        kind=kind or id,
+        size=size,
+        unit=unit,
+        metadata=dict(metadata or {}),
     )
 
 
-def observe(
+def shot_axis(size: int) -> RecordAxisSpec:
+    return record_axis("shot", size=size, kind="shot", unit="count")
+
+
+def record_output(
     id: str,  # noqa: A002
     *,
-    kind: ObservationSpecKind = "observable",
+    kind: RecordKind = "observable",
+    source: RecordSource = "instrument",
     unit: str | None = None,
     resource: str | None = None,
-) -> ObservationSpec:
-    return ObservationSpec(id=id, kind=kind, unit=unit, resource=resource)
+    capability: str | None = None,
+    product_key: str | None = None,
+    dtype: MeasurementDType = "float64",
+    axes: list[RecordAxisSpec] | None = None,
+) -> RecordSpec:
+    return RecordSpec(
+        id=id,
+        kind=kind,
+        source=source,
+        resource=resource,
+        capability=capability,
+        product_key=product_key,
+        unit=unit,
+        dtype=dtype,
+        axes=axes or [],
+    )
 
 
-def point(
+def observable(
     id: str,  # noqa: A002
     *,
+    source: RecordSource = "instrument",
     unit: str | None = None,
     resource: str | None = None,
-) -> ObservationSpec:
-    return observe(id, kind="observable", unit=unit, resource=resource)
-
-
-def trace(
-    id: str,  # noqa: A002
-    *,
-    unit: str | None = None,
-    resource: str | None = None,
-) -> ObservationSpec:
-    return observe(id, kind="artifact", unit=unit, resource=resource)
+    capability: str | None = None,
+    product_key: str | None = None,
+    dtype: MeasurementDType = "float64",
+    axes: list[RecordAxisSpec] | None = None,
+) -> RecordSpec:
+    return record_output(
+        id,
+        kind="observable",
+        source=source,
+        unit=unit,
+        resource=resource,
+        capability=capability,
+        product_key=product_key,
+        dtype=dtype,
+        axes=axes,
+    )
 
 
 def experiment(
@@ -334,8 +706,7 @@ def experiment(
     points: RelationExpr,
     params: list[ParameterPatchSpec] | None = None,
     state: list[StateSpec] | None = None,
-    acquire: AcquisitionSpec,
-    assets: list[ExperimentAsset] | None = None,
+    records: list[RecordSpec] | None = None,
 ) -> ExperimentSpec:
     return ExperimentSpec(
         id=id,
@@ -343,202 +714,8 @@ def experiment(
         points=points,
         params=params or [],
         state=state or [],
-        acquire=acquire,
-        assets=assets or [],
+        records=records or [],
     )
-
-
-def plan_experiment(
-    spec: ExperimentSpec,
-    params: ParameterRelationData | ParameterBuildSnapshot,
-    *,
-    derivations: ParameterDerivationSet | None = None,
-    allow_table_row_changes: bool = False,
-) -> PlanSnapshot:
-    experiment_hash = payload_hash(spec.model_dump(mode="json"))
-    parameter_build_id = None
-    parameter_build_hash = None
-    diagnostics: list[dict[str, Any]] = []
-    if isinstance(params, ParameterBuildSnapshot):
-        parameter_build_id = params.id
-        parameter_build_hash = params.content_hash
-        diagnostics.extend(params.diagnostics)
-    relation_params = (
-        params
-        if isinstance(params, ParameterRelationData)
-        else ParameterRelationData.from_build_snapshot(params)
-    )
-    try:
-        point_rows = spec.points.evaluate(relation_params)
-    except Exception as error:
-        point_rows = []
-        diagnostics.append(
-            planning_diagnostic(
-                "error",
-                "experiment_points_evaluation_failed",
-                f"experiment point relation failed: {error}",
-                "points",
-            )
-        )
-    points = [
-        PointRecord(point_id=point_id, row=row)
-        for point_id, row in enumerate(point_rows)
-    ]
-    patch_records: list[ParameterPatchPlanRecord] = []
-    state_records: list[StateRecord] = []
-
-    for point in points:
-        point_params = relation_params.model_copy(deep=True)
-        point_ctx = EvalContext(params=point_params, row=point.row)
-        patch_failed = False
-        for patch_index, patch in enumerate(spec.params):
-            try:
-                patch_records.append(
-                    patch.apply(
-                        point_id=point.point_id,
-                        ctx=point_ctx,
-                        params=point_params,
-                        allow_table_row_changes=allow_table_row_changes,
-                    )
-                )
-            except PlanningDiagnosticError as error:
-                patch_failed = True
-                diagnostics.append(
-                    planning_diagnostic(
-                        "error",
-                        error.code,
-                        str(error),
-                        f"params.{patch_index}",
-                    )
-                )
-            except Exception as error:
-                patch_failed = True
-                diagnostics.append(
-                    planning_diagnostic(
-                        "error",
-                        "experiment_parameter_patch_failed",
-                        (
-                            f"experiment parameter patch failed for point "
-                            f"{point.point_id}: {error}"
-                        ),
-                        f"params.{patch_index}",
-                    )
-                )
-        if patch_failed:
-            continue
-        try:
-            _refresh_parameter_derivations(point_params, derivations)
-        except Exception as error:
-            diagnostics.append(
-                planning_diagnostic(
-                    "error",
-                    "experiment_parameter_derivation_failed",
-                    (
-                        f"experiment parameter derivation failed for point "
-                        f"{point.point_id}: {error}"
-                    ),
-                    "parameter_derivations",
-                )
-            )
-            continue
-        patched_ctx = EvalContext(params=point_params, row=point.row)
-        for state_index, state in enumerate(spec.state):
-            try:
-                state_records.extend(
-                    state.evaluate(point_id=point.point_id, ctx=patched_ctx)
-                )
-            except Exception as error:
-                diagnostics.append(
-                    planning_diagnostic(
-                        "error",
-                        "experiment_state_evaluation_failed",
-                        (
-                            f"experiment state binding failed for point "
-                            f"{point.point_id}: {error}"
-                        ),
-                        f"state.{state_index}",
-                    )
-                )
-
-    diagnostics.extend(validate_state_records(state_records))
-    diagnostics.extend(
-        validate_asset_references(assets=spec.assets, state_records=state_records)
-    )
-    acquisition = AcquisitionPlan(
-        kind=spec.acquire.kind,
-        shots=spec.acquire.shots,
-        repetitions=spec.acquire.repetitions,
-        record=spec.acquire.record,
-        dimensions=spec.acquire.dimensions,
-        channels=spec.acquire.channels,
-        observations=spec.acquire.observations,
-        estimated_records=estimated_records(spec.acquire, len(points)),
-    )
-    acquisition_diagnostics = validate_acquisition_plan(acquisition)
-    diagnostics.extend(acquisition_diagnostics)
-    plan_result_intents = result_intents(acquisition)
-    plan_point_coordinate_ids = point_coordinate_ids(points)
-    plan_expected_dataset_schema = (
-        None
-        if acquisition_diagnostics
-        else expected_dataset_schema(
-            experiment_id=spec.id,
-            points=points,
-            acquisition=acquisition,
-            result_intents=plan_result_intents,
-        )
-    )
-    state_patch_records = state_patches(state_records)
-    content_hash = plan_content_hash(
-        experiment_id=spec.id,
-        experiment_kind=spec.kind,
-        experiment_hash=experiment_hash,
-        parameter_build_id=parameter_build_id,
-        parameter_build_hash=parameter_build_hash,
-        point_coordinate_ids=plan_point_coordinate_ids,
-        points=points,
-        parameter_patches=patch_records,
-        desired_state=state_records,
-        state_patches=state_patch_records,
-        acquisition=acquisition,
-        result_intents=plan_result_intents,
-        expected_dataset_schema=plan_expected_dataset_schema,
-        diagnostics=diagnostics,
-        assets=spec.assets,
-    )
-    return PlanSnapshot(
-        experiment_id=spec.id,
-        experiment_kind=spec.kind,
-        experiment_hash=experiment_hash,
-        parameter_build_id=parameter_build_id,
-        parameter_build_hash=parameter_build_hash,
-        content_hash=content_hash,
-        plan_implementation_id=PLAN_IMPLEMENTATION_ID,
-        plan_implementation_version=PLAN_IMPLEMENTATION_VERSION,
-        point_coordinate_ids=plan_point_coordinate_ids,
-        points=points,
-        parameter_patches=patch_records,
-        desired_state=state_records,
-        state_patches=state_patch_records,
-        acquisition=acquisition,
-        result_intents=plan_result_intents,
-        expected_dataset_schema=plan_expected_dataset_schema,
-        diagnostics=diagnostics,
-        assets=spec.assets,
-    )
-
-
-def _refresh_parameter_derivations(
-    params: ParameterRelationData,
-    derivations: ParameterDerivationSet | None,
-) -> None:
-    if derivations is None:
-        return
-    scalars, tables = derivations.evaluate(params)
-    for scalar in scalars:
-        params.scalars[scalar.id] = scalar.quantity
-    for table in tables:
-        params.tables[table.id] = [dict(row) for row in table.rows]
 
 
 def _axis_name(prefix: str, resource: str) -> str:
@@ -552,37 +729,41 @@ def _axis_name(prefix: str, resource: str) -> str:
 ExperimentSpec.model_rebuild()
 
 __all__ = [
-    "AcquisitionPlan",
-    "AcquisitionSpec",
     "ExperimentSpec",
     "LocalOverrides",
-    "ObservationSpec",
-    "ParameterPatchPlanRecord",
     "ParameterPatchSpec",
     "ParameterRowSelector",
     "ParameterScan",
-    "PlanSnapshot",
-    "PointRecord",
-    "ResultIntent",
-    "StatePatchRecord",
+    "RecordAxisSpec",
+    "RecordKind",
+    "RecordSource",
+    "RecordSpec",
+    "ResourceRouteIntent",
+    "RunParameterSweep",
+    "RunPointSweep",
+    "RunSweep",
+    "RunSweepGroup",
     "StateRecord",
     "StateSpec",
-    "acquire",
     "bind_each",
+    "cartesian",
     "configure",
     "delete_param_rows",
     "experiment",
     "insert_param_rows",
     "local_overrides",
     "local_scan",
-    "observe",
+    "observable",
     "param_row",
-    "plan_experiment",
-    "point",
+    "record_axis",
+    "record_output",
     "rows",
     "scan_parameter",
     "set_param",
     "set_state",
-    "trace",
+    "shot_axis",
+    "sweep",
+    "sweep_param",
     "update_param_rows",
+    "zip",
 ]

@@ -27,6 +27,29 @@ def test_build_run_overview_for_signal_run_does_not_update_manifest(
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
     assert overview.config_source is None
+    assert overview.execution is not None
+    assert overview.execution.status == "completed"
+    assert overview.execution.point_count == 3
+    assert overview.execution.measurement_count == 3
+    assert overview.execution.instrument_ids == ["source-0"]
+    assert overview.execution.runtime.completed_point_count == 3
+    assert overview.execution.runtime.compute_evaluated_node_count == 0
+    assert overview.execution.runtime.compute_reused_node_count == 0
+    assert overview.execution.state.state_command_count == 3
+    assert overview.execution.state.changed_field_count == 3
+    assert len(overview.datasets) == 1
+    dataset = overview.datasets[0]
+    assert dataset.id == "raw-measurements"
+    assert dataset.kind == "measurement_dataset"
+    assert dataset.role == "raw"
+    assert dataset.record_count == 3
+    assert dataset.coordinate_ids == ["drive_frequency"]
+    assert dataset.observable_ids == ["signal"]
+    assert dataset.dimensions == {"point": 3}
+    assert [(variable.id, variable.role) for variable in dataset.variables] == [
+        ("drive_frequency", "coordinate"),
+        ("signal", "observable"),
+    ]
     assert overview.parameter_changes == []
     assert overview.run_comparisons == []
     assert open_run_store(tmp_path).read_manifest(run_id).status == "completed"
