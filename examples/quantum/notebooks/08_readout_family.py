@@ -17,57 +17,48 @@ workspace = notebook_workspace("08-readout-family")
 lab = quantum_lab(workspace=workspace)
 
 # %%
-single_readout_preview = lab.preview(
-    READOUT_TEMPLATE,
-    inputs={
-        "qubit": "q0",
-        "readout_frequency": sc.around(
-            "readout_frequency",
-            span=sc.Quantity(value=80.0, unit="MHz"),
-            points=5,
-        ),
-    },
-    name="readout family single-qubit frequency scan",
-    tags=("readout", "frequency"),
-    description="single-qubit readout frequency scan with dense complex IQ records",
+single_readout_preview = (
+    lab.prepare(READOUT_TEMPLATE)
+    .input("qubit", "q0")
+    .scan("readout_frequency", span=sc.Quantity(value=80.0, unit="MHz"), points=5)
+    .preview(
+        name="readout family single-qubit frequency scan",
+        tags=("readout", "frequency"),
+        description="single-qubit readout frequency scan with dense complex IQ records",
+    )
 )
 
 # %%
-multiplexed_preview = lab.preview(
-    MULTIPLEXED_READOUT_TEMPLATE,
-    inputs={"qubits": sc.entity_array(("q0", "q1"))},
+multiplexed_preview = lab.prepare(MULTIPLEXED_READOUT_TEMPLATE).preview(
     name="readout family multiplexed readout",
     tags=("readout", "multiplexed"),
     description="one logical point returning a complex array over the qubit axis",
 )
 
 # %%
-multiplexed_calibration_preview = lab.preview(
-    MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE,
-    inputs={
-        "qubits": sc.entity_array(("q0", "q1")),
-        "readout_frequency": sc.around(
-            "readout_frequency",
-            span=sc.Quantity(value=80.0, unit="MHz"),
-            points=5,
-        ),
-    },
-    name="readout family multiplexed calibration",
-    tags=("readout", "multiplexed", "calibration"),
-    description="shared readout pulse scan returning an entity-axis array",
+multiplexed_calibration_preview = (
+    lab.prepare(MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE)
+    .scan("readout_frequency", span=sc.Quantity(value=80.0, unit="MHz"), points=5)
+    .preview(
+        name="readout family multiplexed calibration",
+        tags=("readout", "multiplexed", "calibration"),
+        description="shared readout pulse scan returning an entity-axis array",
+    )
 )
 
 # %%
-qnd_preview = lab.preview(
-    QND_REPEATED_MEASUREMENT_TEMPLATE,
-    inputs={
-        "qubit": "q0",
-        "rounds": sc.Quantity(value=3.0, unit="count"),
-        "shots": sc.Quantity(value=5.0, unit="count"),
-    },
-    name="readout family QND repeated measurement",
-    tags=("readout", "qnd"),
-    description="single logical point returning a dense round-by-shot IQ array",
+qnd_preview = (
+    lab.prepare(QND_REPEATED_MEASUREMENT_TEMPLATE)
+    .inputs(
+        qubit="q0",
+        rounds=sc.Quantity(value=3.0, unit="count"),
+        shots=sc.Quantity(value=5.0, unit="count"),
+    )
+    .preview(
+        name="readout family QND repeated measurement",
+        tags=("readout", "qnd"),
+        description="single logical point returning a dense round-by-shot IQ array",
+    )
 )
 
 # %%

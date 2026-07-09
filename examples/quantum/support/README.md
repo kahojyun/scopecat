@@ -26,7 +26,7 @@ code used to validate Scopecat's notebook-first UX.
 | Goal | Start here |
 |---|---|
 | Change reusable template inputs, default points, selected products, or seed inputs | `src/quantum_lab_demo/experiments/templates.py` |
-| Add one-off point scans or run-time point/parameter sweeps | `Workspace.prepare(...).scan(...).preview()/run()` or `Workspace.run(..., sweeps=sc.cartesian(sc.sweep(...), sc.sweep_param(...)))` in notebooks |
+| Add one-off point or parameter scans | `Workspace.prepare(...).input(...).scan(sc.cartesian(sc.axis(...), sc.param_axis(...))).preview()/run()` in notebooks |
 | Reuse resource, state, compute, record, or product declarations | focused `src/quantum_lab_demo/experiments/*_modules.py` files |
 | Generate point-local pulse programs | `src/quantum_lab_demo/experiments/compute.py`, with in-memory payload types in `src/quantum_lab_demo/experiments/payloads.py` |
 | Edit lab wiring with qubit/coupler/line vocabulary | `quantum_wiring()`, `default_quantum_wiring()`, and `quantum_wiring_config_profile()` in `src/quantum_lab_demo/virtual_lab/wiring.py` |
@@ -46,8 +46,7 @@ Those examples should stay thin: they open `Workspace` objects, keep reusable
 `two_qubit_modules.py`; keep reusable `ExperimentTemplate` entrypoints in
 `templates.py`; pass template constants directly to notebooks; prepare or run
 them with fluent terminal calls such as
-`Workspace.prepare(...).input(...).scan(...).preview()/run()` or
-`Workspace.run(..., inputs=..., sweeps=..., name=..., tags=...)`, inspect
+`Workspace.prepare(...).input(...).scan(...).preview()/run()`, inspect
 `Run.data()`, save `Analysis`, try candidate configs, and review candidate run
 comparisons.
 

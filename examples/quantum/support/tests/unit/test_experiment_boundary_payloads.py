@@ -29,10 +29,14 @@ def test_sequence_compilation_stays_memory_payload_boundary(
         config_profile=load_experiment_config(),
     )
     assert isinstance(resolved.experiment, ExperimentSpec)
-    preview = quantum_lab(
-        workspace=tmp_path,
-        config_profile=load_experiment_config(),
-    ).preview(invocation)
+    preview = (
+        quantum_lab(
+            workspace=tmp_path,
+            config_profile=load_experiment_config(),
+        )
+        .prepare(invocation)
+        .preview()
+    )
     payloads = _run_observed_payloads(tmp_path, invocation)
 
     assert [point.coordinates["clifford_count"] for point in preview.points] == [
@@ -77,8 +81,7 @@ def _run_observed_payloads(
     invocation: ExperimentInvocation,
 ) -> list[CommandPayload]:
     observations: list[RuntimePayloadObservation] = []
-    quantum_lab(workspace=tmp_path).run(
-        invocation,
+    quantum_lab(workspace=tmp_path).prepare(invocation).run(
         payload_observer=observations.append,
     )
     return [observation.payload for observation in observations]

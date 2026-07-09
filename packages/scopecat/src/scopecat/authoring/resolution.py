@@ -5,12 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from scopecat._planning.parameter_patches import ParameterPatchSpec
-from scopecat.authoring.context import (
-    ExperimentAuthoringContext,
-)
+from scopecat.authoring.context import ExperimentAuthoringContext
 from scopecat.authoring.context import (
     diagnostic as _diagnostic,
 )
@@ -25,11 +23,14 @@ from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import (
     ExperimentSpec,
-    RunParameterSweep,
+    ParameterScanAxis,
     RunRequest,
-    RunSweep,
+    ScanAxis,
+    ScanGroup,
+    ScanItem,
+    ScanLeaf,
     cartesian,
-    iter_run_sweep_leaves,
+    iter_scan_leaves,
 )
 from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
 from scopecat.models.parameter import ParameterViewSnapshot
@@ -39,7 +40,7 @@ from scopecat.planning.validation import has_blocking_diagnostics
 from scopecat.relations import RelationExpr, ScalarExpr, as_scalar_expr, col
 
 if TYPE_CHECKING:
-    from scopecat.authoring.assembly import ExperimentAssembly, PointSourceIntent
+    from scopecat.authoring.assembly import ExperimentAssembly
 
 
 @dataclass(frozen=True)
@@ -106,8 +107,9 @@ def _resolve_invocation(
 
 
 def _compile_invocation(invocation: ExperimentInvocation) -> ExperimentAssembly:
-    inputs = _merged_inputs(invocation)
-    request = _materialized_request(invocation, inputs=inputs)
+    scans = _effective_scans(invocation)
+    inputs = _merged_inputs(invocation, scans=scans)
+    request = _materialized_request(invocation, inputs=inputs, scans=scans)
     from scopecat.authoring.assembly import ExperimentAssembly
 
     try:
@@ -132,10 +134,10 @@ def _compile_invocation(invocation: ExperimentInvocation) -> ExperimentAssembly:
             inputs=inputs,
             parameter_derivations=invocation.parameter_derivations,
         )
-        if invocation.runtime_sweeps:
-            return _apply_runtime_sweeps(
+        if scans:
+            return _apply_scans(
                 assembly,
-                invocation.runtime_sweeps,
+                scans,
                 inputs=inputs,
             )
         return assembly
@@ -148,51 +150,6 @@ def _compile_invocation(invocation: ExperimentInvocation) -> ExperimentAssembly:
                 "authoring",
             )
         ]
-    )
-
-
-def compile_composed_source(source: object) -> ExperimentAssembly:
-    from scopecat.authoring.assembly import (
-        AroundPointSourceIntent,
-        CompositePointSourceIntent,
-        ExperimentAssembly,
-        ExperimentModule,
-        ModuleBuilder,
-        ModuleInvocation,
-        ProductSelectionIntent,
-        ValuePointSourceIntent,
-    )
-    from scopecat.relations import RelationExpr
-
-    if isinstance(source, ExperimentAssembly):
-        return source
-    if isinstance(
-        source,
-        (
-            RelationExpr,
-            AroundPointSourceIntent,
-            ValuePointSourceIntent,
-            CompositePointSourceIntent,
-            ProductSelectionIntent,
-        ),
-    ):
-        if isinstance(source, ProductSelectionIntent):
-            return ExperimentAssembly(
-                entity_inputs=(),
-                record_selections=(source,),
-            )
-        return ExperimentAssembly(entity_inputs=(), point_source=source)
-    if isinstance(source, ModuleBuilder):
-        return source.build().assemble()
-    if isinstance(source, ModuleInvocation):
-        return source.assemble()
-    if isinstance(source, ExperimentModule):
-        return source().assemble()
-    if isinstance(source, ExperimentInvocation):
-        return _compile_invocation(source)
-    raise TypeError(
-        "compose sources must be ExperimentModule, ModuleInvocation, "
-        "ExperimentInvocation, ExperimentAssembly, or point source"
     )
 
 
@@ -290,18 +247,103 @@ def _resolved_spec(
     )
 
 
-def _merged_inputs(invocation: ExperimentInvocation) -> dict[str, object]:
+def _effective_scans(invocation: ExperimentInvocation) -> tuple[ScanItem, ...]:
+    defaults = tuple(invocation.default_scans)
+    overrides = tuple(invocation.scans)
+    if not defaults:
+        _validate_group_override_shape((), overrides)
+        return overrides
+    default_axis_ids = {
+        leaf.axis_id for scan in defaults for leaf in iter_scan_leaves(scan)
+    }
+    _validate_group_override_shape(default_axis_ids, overrides)
+    override_leaves = {
+        leaf.axis_id: leaf
+        for scan in overrides
+        for leaf in iter_scan_leaves(scan)
+        if leaf.axis_id in default_axis_ids
+    }
+    replaced = tuple(_replace_scan_leaves(scan, override_leaves) for scan in defaults)
+    covered = set(override_leaves)
+    additions = tuple(
+        scan
+        for scan in overrides
+        if not any(leaf.axis_id in covered for leaf in iter_scan_leaves(scan))
+    )
+    return (*replaced, *additions)
+
+
+def _replace_scan_leaves(
+    scan: ScanItem,
+    replacements: Mapping[str, ScanLeaf],
+) -> ScanItem:
+    if isinstance(scan, ScanGroup):
+        return scan.__class__(
+            kind=scan.kind,
+            scans=tuple(
+                _replace_scan_leaves(child, replacements) for child in scan.scans
+            ),
+        )
+    replacement = replacements.get(scan.axis_id)
+    if replacement is None:
+        return scan
+    return _inherit_default_scan_fields(scan, replacement)
+
+
+def _inherit_default_scan_fields(
+    default: ScanLeaf,
+    replacement: ScanLeaf,
+) -> ScanLeaf:
+    if not isinstance(default, ScanAxis) or not isinstance(replacement, ScanAxis):
+        return replacement
+    if replacement.point_values or not replacement.implicit_center:
+        return replacement
+    return replace(
+        replacement,
+        target_id=default.target_id,
+        center=default.center,
+        input_id=replacement.input_id or default.input_id,
+    )
+
+
+def _validate_group_override_shape(
+    default_axis_ids: set[str] | tuple[()],
+    overrides: Sequence[ScanItem],
+) -> None:
+    known = set(default_axis_ids)
+    for scan in overrides:
+        if not isinstance(scan, ScanGroup):
+            continue
+        axis_ids = {leaf.axis_id for leaf in iter_scan_leaves(scan)}
+        existing = axis_ids & known
+        if existing and existing != axis_ids:
+            raise ValidationFailed(
+                [
+                    _diagnostic(
+                        "error",
+                        "scan_group_mixed_override",
+                        (
+                            "scan group cannot mix overridden default axes with "
+                            "new axes: " + ", ".join(sorted(axis_ids))
+                        ),
+                        "scans",
+                    )
+                ]
+            )
+
+
+def _merged_inputs(
+    invocation: ExperimentInvocation,
+    *,
+    scans: Sequence[ScanItem],
+) -> dict[str, object]:
     merged = dict(invocation.defaults)
     merged.update(invocation.build_inputs)
-    runtime_axes = {
-        leaf.axis_id
-        for sweep in invocation.runtime_sweeps
-        for leaf in iter_run_sweep_leaves(sweep)
-    }
+    scan_axes = {leaf.axis_id for scan in scans for leaf in iter_scan_leaves(scan)}
     missing = [
         option.id
         for option in invocation.input_descriptions
-        if option.id not in merged and option.id not in runtime_axes
+        if option.id not in merged and option.id not in scan_axes
     ]
     if missing:
         raise ValidationFailed(
@@ -321,42 +363,44 @@ def _materialized_request(
     invocation: ExperimentInvocation,
     *,
     inputs: Mapping[str, object],
+    scans: Sequence[ScanItem],
 ) -> RunRequest:
     template_inputs = dict(invocation.request.template_inputs)
     template_inputs.update(materialize_request_inputs(inputs))
-    point_axes = dict(invocation.request.point_axes)
-    parameter_sweeps = list(invocation.request.parameter_sweeps)
-    sweep_groups = list(invocation.request.sweep_groups)
-    for sweep in invocation.runtime_sweeps:
-        sweep_groups.append(sweep.request_record())
-        for leaf in iter_run_sweep_leaves(sweep):
-            record = leaf.request_record()
-            point_axes[leaf.axis_id] = record
-            if isinstance(leaf, RunParameterSweep):
-                parameter_sweeps.append(record)
+    request_scans = list(invocation.request.scans)
+    for scan in scans:
+        selected_scan = _bind_scan_inputs(scan, inputs)
+        request_scans.append(selected_scan.request_record())
     return invocation.request.model_copy(
         update={
             "template_inputs": template_inputs,
-            "point_axes": point_axes,
-            "parameter_sweeps": parameter_sweeps,
-            "sweep_groups": sweep_groups,
+            "scans": request_scans,
         }
     )
 
 
-def _apply_runtime_sweeps(
+def _apply_scans(
     assembly: ExperimentAssembly,
-    sweeps: Sequence[RunSweep],
+    scans: Sequence[ScanItem],
     *,
     inputs: Mapping[str, object],
 ) -> ExperimentAssembly:
-    _validate_runtime_sweeps(sweeps)
-    input_sweeps, extra_sweeps = _split_runtime_sweeps(assembly, sweeps)
+    _validate_scans(scans)
+    input_scans, extra_scans = _split_scans(assembly, scans)
+    input_scans = tuple(sorted(input_scans, key=_scan_depends_on_point_row))
     point_source = _combine_ordered_point_sources(
         (
-            *((_combined_runtime_sweep_points(input_sweeps),) if input_sweeps else ()),
+            *(
+                (_combined_scan_points(input_scans, inputs=inputs),)
+                if input_scans
+                else ()
+            ),
             *(() if assembly.point_source is None else (assembly.point_source,)),
-            *((_combined_runtime_sweep_points(extra_sweeps),) if extra_sweeps else ()),
+            *(
+                (_combined_scan_points(extra_scans, inputs=inputs),)
+                if extra_scans
+                else ()
+            ),
         )
     )
     return replace(
@@ -365,53 +409,57 @@ def _apply_runtime_sweeps(
         params=(
             *assembly.params,
             *tuple(
-                _runtime_parameter_patch(sweep, inputs)
-                for root in sweeps
-                for sweep in iter_run_sweep_leaves(root)
-                if isinstance(sweep, RunParameterSweep)
+                _runtime_parameter_patch(scan, inputs)
+                for root in scans
+                for scan in iter_scan_leaves(root)
+                if isinstance(scan, ParameterScanAxis)
             ),
         ),
     )
 
 
-def _split_runtime_sweeps(
+def _split_scans(
     assembly: ExperimentAssembly,
-    sweeps: Sequence[RunSweep],
-) -> tuple[tuple[RunSweep, ...], tuple[RunSweep, ...]]:
+    scans: Sequence[ScanItem],
+) -> tuple[tuple[ScanItem, ...], tuple[ScanItem, ...]]:
     input_axis_ids = {port.id for port in assembly.input_ports} | set(
         assembly.entity_inputs
     )
-    input_sweeps: list[RunSweep] = []
-    extra_sweeps: list[RunSweep] = []
-    for sweep in sweeps:
+    input_scans: list[ScanItem] = []
+    extra_scans: list[ScanItem] = []
+    for scan in scans:
         target = (
-            input_sweeps
-            if any(
-                leaf.axis_id in input_axis_ids for leaf in iter_run_sweep_leaves(sweep)
-            )
-            else extra_sweeps
+            input_scans
+            if any(leaf.axis_id in input_axis_ids for leaf in iter_scan_leaves(scan))
+            else extra_scans
         )
-        target.append(sweep)
-    return tuple(input_sweeps), tuple(extra_sweeps)
+        target.append(scan)
+    return tuple(input_scans), tuple(extra_scans)
+
+
+def _scan_depends_on_point_row(scan: ScanItem) -> bool:
+    return any(
+        isinstance(leaf, ScanAxis) and leaf.center is not None
+        for leaf in iter_scan_leaves(scan)
+    )
 
 
 def _combine_ordered_point_sources(
-    sources: Sequence[RelationExpr | PointSourceIntent],
-) -> RelationExpr | PointSourceIntent | None:
+    sources: Sequence[RelationExpr],
+) -> RelationExpr | None:
     selected = tuple(sources)
     if not selected:
         return None
     if len(selected) == 1:
         return selected[0]
-    from scopecat.authoring.assembly import CompositePointSourceIntent
+    relation = selected[0]
+    for next_relation in selected[1:]:
+        relation = relation.cross(next_relation)
+    return relation
 
-    return CompositePointSourceIntent(sources=selected)
 
-
-def _validate_runtime_sweeps(sweeps: Sequence[RunSweep]) -> None:
-    axis_ids = [
-        leaf.axis_id for sweep in sweeps for leaf in iter_run_sweep_leaves(sweep)
-    ]
+def _validate_scans(scans: Sequence[ScanItem]) -> None:
+    axis_ids = [leaf.axis_id for scan in scans for leaf in iter_scan_leaves(scan)]
     duplicates = sorted(
         {axis_id for axis_id in axis_ids if axis_ids.count(axis_id) > 1}
     )
@@ -420,40 +468,89 @@ def _validate_runtime_sweeps(sweeps: Sequence[RunSweep]) -> None:
             [
                 _diagnostic(
                     "error",
-                    "runtime_sweep_axis_duplicate",
-                    "duplicate run-time sweep axis: " + ", ".join(duplicates),
-                    "run.sweeps",
+                    "scan_axis_duplicate",
+                    "duplicate scan axis: " + ", ".join(duplicates),
+                    "scans",
                 )
             ]
         )
 
 
-def _combined_runtime_sweep_points(
-    sweeps: Sequence[RunSweep],
-) -> RelationExpr | PointSourceIntent:
-    from scopecat.authoring.assembly import CompositePointSourceIntent
-
-    selected = tuple(sweeps)
+def _combined_scan_points(
+    scans: Sequence[ScanItem],
+    *,
+    inputs: Mapping[str, object],
+) -> RelationExpr:
+    selected = tuple(_bind_scan_inputs(scan, inputs) for scan in scans)
     if len(selected) > 1:
         selected = (cartesian(*selected),)
-    point_sources = tuple(sweep.points for sweep in selected)
+    point_sources = tuple(scan.points for scan in selected)
     if len(point_sources) == 1:
         return point_sources[0]
-    return CompositePointSourceIntent(sources=point_sources)
+    relation = point_sources[0]
+    for next_relation in point_sources[1:]:
+        relation = relation.cross(next_relation)
+    return relation
+
+
+def _bind_scan_inputs(scan: ScanItem, inputs: Mapping[str, object]) -> ScanItem:
+    from scopecat.authoring.assembly import bind_input_refs
+
+    if isinstance(scan, ScanAxis):
+        selected = _scan_with_input_override(scan, inputs)
+        if selected.center is not None:
+            return replace(selected, center=bind_input_refs(selected.center, inputs))
+        return selected
+    if isinstance(scan, ScanGroup):
+        return replace(
+            scan,
+            scans=tuple(_bind_scan_inputs(child, inputs) for child in scan.scans),
+        )
+    return scan
+
+
+def _scan_with_input_override(
+    scan: ScanAxis,
+    inputs: Mapping[str, object],
+) -> ScanAxis:
+    if scan.input_id is None or scan.input_id not in inputs:
+        return scan
+    value = inputs[scan.input_id]
+    if value is None:
+        return scan
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        if not value:
+            raise ValidationFailed(
+                [
+                    _diagnostic(
+                        "error",
+                        "module_point_values_empty",
+                        f"{scan.axis_id} point values must contain at least one value",
+                        scan.input_id or scan.axis_id,
+                    )
+                ]
+            )
+        return replace(
+            scan,
+            point_values=tuple(cast("Sequence[object]", value)),
+            center=None,
+            span=None,
+        )
+    return scan
 
 
 def _runtime_parameter_patch(
-    sweep: RunParameterSweep,
+    scan: ParameterScanAxis,
     inputs: Mapping[str, object],
 ) -> ParameterPatchSpec:
     return ParameterPatchSpec(
         kind="update_rows",
-        table_id=sweep.table_id,
+        table_id=scan.table_id,
         key={
             name: _bind_runtime_input_refs(as_scalar_expr(value), inputs)
-            for name, value in sweep.key.items()
+            for name, value in scan.key.items()
         },
-        values={sweep.column: col(sweep.axis_id)},
+        values={scan.column: col(scan.axis_id)},
     )
 
 
@@ -468,9 +565,9 @@ def _bind_runtime_input_refs(
                 [
                     _diagnostic(
                         "error",
-                        "runtime_sweep_input_missing",
-                        "run-time sweep key references an unnamed input",
-                        "run.sweeps",
+                        "runtime_scan_input_missing",
+                        "run-time scan key references an unnamed input",
+                        "run.scans",
                     )
                 ]
             )
@@ -529,9 +626,9 @@ def _required_scalar(value: ScalarExpr | None, path: str) -> ScalarExpr:
             [
                 _diagnostic(
                     "error",
-                    "runtime_sweep_expression_invalid",
-                    f"run-time sweep expression missing {path}",
-                    "run.sweeps",
+                    "runtime_scan_expression_invalid",
+                    f"run-time scan expression missing {path}",
+                    "run.scans",
                 )
             ]
         )

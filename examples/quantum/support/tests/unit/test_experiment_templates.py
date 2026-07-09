@@ -249,7 +249,7 @@ def test_experiment_system_resolve_to_and_preview_invocation(
     assert preview.template_id == template_id
 
 
-def test_rabi_infers_default_sweep_from_config(tmp_path: Path) -> None:
+def test_rabi_infers_default_scan_from_config(tmp_path: Path) -> None:
     preview = _preview(tmp_path, RABI_TEMPLATE.bind(qubit="q0"))
 
     assert preview.point_count == 5
@@ -263,15 +263,12 @@ def test_rabi_infers_default_sweep_from_config(tmp_path: Path) -> None:
     )
 
 
-def test_rabi_runtime_qubit_sweep_drives_default_length_center(
+def test_rabi_runtime_qubit_scan_drives_default_length_center(
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
 
-    preview = lab.preview(
-        RABI_TEMPLATE,
-        sweeps=sc.cartesian(sc.sweep("qubit", ["q0", "q1"])),
-    )
+    preview = lab.prepare(RABI_TEMPLATE).scan("qubit", ["q0", "q1"]).preview()
 
     assert preview.point_count == 10
     assert preview.coordinate_ids == ("qubit", "drive_length")
@@ -502,20 +499,18 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
     }
 
 
-def test_run_time_point_sweep_extends_template_without_variant(
+def test_run_time_point_scan_extends_template_without_duplicate_template(
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
 
-    preview = lab.preview(
-        CZ_CHEVRON_TEMPLATE,
-        inputs={
-            "control_qubit": "q0",
-            "partner_qubit": "q1",
-            "durations": [24],
-            "amplitudes": [0.18],
-        },
-        sweeps=sc.cartesian(sc.sweep("phase_offset", [0.0, 0.5], unit="rad")),
+    preview = (
+        lab.prepare(CZ_CHEVRON_TEMPLATE)
+        .inputs(control_qubit="q0", partner_qubit="q1")
+        .scan("coupler_duration", [24], unit="ns")
+        .scan("coupler_amplitude", [0.18], unit="arb")
+        .scan("phase_offset", [0.0, 0.5], unit="rad")
+        .preview()
     )
 
     assert preview.point_count == 2
@@ -530,20 +525,18 @@ def test_run_time_point_sweep_extends_template_without_variant(
     ]
 
 
-def test_workspace_preview_accepts_template_with_run_inputs_and_sweeps(
+def test_workspace_preview_accepts_template_with_run_inputs_and_scans(
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
 
-    preview = lab.preview(
-        CZ_CHEVRON_TEMPLATE,
-        inputs={
-            "control_qubit": "q0",
-            "partner_qubit": "q1",
-            "durations": [24],
-            "amplitudes": [0.18],
-        },
-        sweeps=sc.cartesian(sc.sweep("phase_offset", [0.0, 0.5], unit="rad")),
+    preview = (
+        lab.prepare(CZ_CHEVRON_TEMPLATE)
+        .inputs(control_qubit="q0", partner_qubit="q1")
+        .scan("coupler_duration", [24], unit="ns")
+        .scan("coupler_amplitude", [0.18], unit="arb")
+        .scan("phase_offset", [0.0, 0.5], unit="rad")
+        .preview()
     )
 
     assert preview.template_id == CZ_CHEVRON_TEMPLATE_ID
@@ -555,21 +548,18 @@ def test_workspace_preview_accepts_template_with_run_inputs_and_sweeps(
     )
 
 
-def test_run_time_parameter_sweep_extends_template_without_variant(
+def test_run_time_parameter_scan_extends_template_without_duplicate_template(
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
 
-    preview = lab.preview(
-        CZ_CHEVRON_TEMPLATE,
-        inputs={
-            "control_qubit": "q0",
-            "partner_qubit": "q1",
-            "durations": [24],
-            "amplitudes": [0.18],
-        },
-        sweeps=sc.cartesian(
-            sc.sweep_param(
+    preview = (
+        lab.prepare(CZ_CHEVRON_TEMPLATE)
+        .inputs(control_qubit="q0", partner_qubit="q1")
+        .scan("coupler_duration", [24], unit="ns")
+        .scan("coupler_amplitude", [0.18], unit="arb")
+        .scan(
+            sc.param_axis(
                 sc.param_row(
                     "two_qubit_gates",
                     control_qubit=sc.input("control_qubit"),
@@ -578,10 +568,11 @@ def test_run_time_parameter_sweep_extends_template_without_variant(
                 ),
                 "coupler_parking_flux",
                 [0.02, 0.04],
-                axis="parking_flux",
+                axis_id="parking_flux",
                 unit="arb",
             )
-        ),
+        )
+        .preview()
     )
 
     assert preview.point_count == 2
@@ -751,8 +742,7 @@ def _run_observed_payloads(
     invocation: ExperimentInvocation,
 ) -> list[CommandPayload]:
     observations: list[RuntimePayloadObservation] = []
-    quantum_lab(workspace=tmp_path).run(
-        invocation,
+    quantum_lab(workspace=tmp_path).prepare(invocation).run(
         payload_observer=observations.append,
     )
     return [observation.payload for observation in observations]
@@ -763,7 +753,11 @@ def _preview(
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot | None = None,
 ):
-    return quantum_lab(
-        workspace=tmp_path,
-        config_profile=config or load_experiment_config(),
-    ).preview(invocation)
+    return (
+        quantum_lab(
+            workspace=tmp_path,
+            config_profile=config or load_experiment_config(),
+        )
+        .prepare(invocation)
+        .preview()
+    )

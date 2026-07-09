@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, NoReturn, cast
+from typing import Any, cast
 
 from scopecat._planning.parameter_patches import ParameterPatchSpec
 from scopecat.authoring._bindings import (
@@ -19,7 +19,7 @@ from scopecat.authoring._bindings import (
     requires,
     resource_port,
 )
-from scopecat.authoring.context import AroundSweep, ExperimentAuthoringContext
+from scopecat.authoring.context import ExperimentAuthoringContext
 from scopecat.authoring.expressions import (
     BindingSpec,
     ExperimentVariable,
@@ -34,26 +34,31 @@ from scopecat.authoring.expressions import (
 from scopecat.authoring.templates import (
     materialize_request_inputs,
 )
-from scopecat.diagnostics import Diagnostic
-from scopecat.errors import ValidationFailed
 from scopecat.experiments import (
     ComputeNodeFunction,
     ComputeNodeInput,
     ComputeNodeSpec,
     ExperimentSpec,
+    ParameterScanAxis,
     RecordAxisSpec,
     RecordKind,
     RecordSource,
     RecordSpec,
     RunRequest,
+    ScanAxis,
+    ScanGroup,
+    ScanItem,
     StateSpec,
     bind_each,
     set_state,
 )
 from scopecat.experiments import (
+    axis as scan_axis,
+)
+from scopecat.experiments import (
     record_axis as experiment_record_axis,
 )
-from scopecat.models.entity import EntityArray, EntityRef, entity_array, entity_ref
+from scopecat.models.entity import EntityArray, EntityRef, entity_array
 from scopecat.models.parameter import Quantity
 from scopecat.parameters import ParameterDerivationSet, combine_parameter_derivations
 from scopecat.relations import (
@@ -100,34 +105,6 @@ QUANTITY_RE = re.compile(
 
 
 @dataclass(frozen=True)
-class SweepAroundIntent:
-    variable_id: str
-    parameter_id: str
-    default_span: Quantity | Expression
-    default_points: int
-    input_id: str | None = None
-
-    def build(
-        self,
-        ctx: ExperimentAuthoringContext,
-        inputs: Mapping[str, object],
-    ) -> ExperimentVariable:
-        sweep_input = inputs.get(self.input_id or self.variable_id)
-        if sweep_input is not None and not isinstance(sweep_input, AroundSweep):
-            ctx.raise_diagnostic(
-                "module_sweep_input_invalid",
-                f"{self.variable_id} sweep input must be AroundSweep",
-                self.input_id or self.variable_id,
-            )
-        return ctx.around_sweep(
-            sweep_input,
-            parameter_id=self.parameter_id,
-            default_span=_quantity_from_value(self.default_span),
-            default_points=self.default_points,
-        )
-
-
-@dataclass(frozen=True)
 class DerivedVariableIntent:
     variable_id: str
     expression: Expression
@@ -157,113 +134,8 @@ class ExplicitVariableIntent:
         return ExperimentVariable(kind="derived", expression=value)
 
 
-VariableIntent = SweepAroundIntent | DerivedVariableIntent | ExplicitVariableIntent
-
-
-@dataclass(frozen=True)
-class AroundPointSourceIntent:
-    axis_id: str
-    center: ScalarExpr
-    default_span: Quantity
-    default_points: int
-    input_id: str | None = None
-
-    def build(self, inputs: Mapping[str, object]) -> RelationExpr:
-        selected_span = self.default_span
-        selected_points = self.default_points
-        selected = inputs.get(self.input_id) if self.input_id is not None else None
-        if selected is not None:
-            if not isinstance(selected, AroundSweep):
-                _raise_compile_diagnostic(
-                    "module_point_sweep_input_invalid",
-                    f"{self.axis_id} sweep input must be AroundSweep",
-                    self.input_id or self.axis_id,
-                )
-            if selected.parameter_id != self.axis_id:
-                _raise_compile_diagnostic(
-                    "authoring_sweep_parameter_mismatch",
-                    f"sweep parameter must be {self.axis_id}",
-                    "sweep.parameter_id",
-                )
-            if selected.points < 2:
-                _raise_compile_diagnostic(
-                    "authoring_points_invalid",
-                    "sweep points must be at least 2",
-                    "sweep.points",
-                )
-            selected_span = _quantity_from_value(selected.span)
-            selected_points = selected.points
-        center = _bind_input_refs(self.center, inputs)
-        return grid(
-            **{
-                self.axis_id: relation_linspace(
-                    center - selected_span / 2,
-                    center + selected_span / 2,
-                    selected_points,
-                )
-            }
-        )
-
-
-@dataclass(frozen=True)
-class ValuePointSourceIntent:
-    axis_id: str
-    default_values: tuple[float, ...]
-    unit: str | None = None
-    input_id: str | None = None
-
-    def build(self, inputs: Mapping[str, object]) -> RelationExpr:
-        raw_values = (
-            inputs.get(self.input_id)
-            if self.input_id is not None and inputs.get(self.input_id) is not None
-            else self.default_values
-        )
-        if not isinstance(raw_values, Sequence) or isinstance(raw_values, str | bytes):
-            _raise_compile_diagnostic(
-                "module_point_values_input_invalid",
-                f"{self.axis_id} point values input must be a sequence",
-                self.input_id or self.axis_id,
-            )
-        point_values: list[float] = []
-        for value in cast("Sequence[object]", raw_values):
-            if not isinstance(value, int | float) or isinstance(value, bool):
-                _raise_compile_diagnostic(
-                    "module_point_values_input_invalid",
-                    f"{self.axis_id} point values must be numeric",
-                    self.input_id or self.axis_id,
-                )
-            point_values.append(float(value))
-        if not point_values:
-            _raise_compile_diagnostic(
-                "module_point_values_empty",
-                f"{self.axis_id} point values must contain at least one value",
-                self.input_id or self.axis_id,
-            )
-        if any(value <= 0 for value in point_values):
-            _raise_compile_diagnostic(
-                "module_point_values_invalid",
-                f"{self.axis_id} point values must be positive",
-                self.input_id or self.axis_id,
-            )
-        return grid(**{self.axis_id: values(point_values, unit=self.unit)})
-
-
-@dataclass(frozen=True)
-class CompositePointSourceIntent:
-    sources: tuple[RelationExpr | PointSourceIntent, ...]
-
-    def build(self, inputs: Mapping[str, object]) -> RelationExpr:
-        relations = tuple(
-            source if isinstance(source, RelationExpr) else source.build(inputs)
-            for source in self.sources
-        )
-        return _combine_relations(relations)
-
-
-PointSourceIntent = (
-    AroundPointSourceIntent | ValuePointSourceIntent | CompositePointSourceIntent
-)
-type PointSourceInput = RelationExpr | PointSourceIntent | None
+VariableIntent = DerivedVariableIntent | ExplicitVariableIntent
+type PointSourceInput = RelationExpr | None
 
 
 @dataclass(frozen=True)
@@ -426,18 +298,6 @@ class ComputeNodeIntent:
 
 
 @dataclass(frozen=True)
-class ModuleSweepIntent:
-    parameter_id: str
-    variable_id: str
-    values: tuple[object, ...] = ()
-    unit: str | None = None
-    around: object | None = None
-    span: object | None = None
-    points: int | None = None
-    input_id: str | None = None
-
-
-@dataclass(frozen=True)
 class ModuleInputPort:
     id: str
     kind: str | None = None
@@ -580,7 +440,7 @@ class ModuleBuilder:
 
     Modules deliberately stop before point generation and record selection.
     That keeps a module composable: it can declare what it needs and what it can
-    produce without also choosing how a notebook should sweep it or which
+    produce without also choosing how a notebook should scan it or which
     products a specific run should persist.
     """
 
@@ -812,8 +672,8 @@ class ModuleBuilder:
 class WorkspaceExperimentBuilder:
     """Scratch builder used by `Workspace.experiment(...)`.
 
-    Workspace experiments are allowed to make one-off choices such as sweeps,
-    point sources, and product selections because they represent a local
+    Workspace experiments are allowed to make one-off choices such as scans,
+    variables, bindings, and product selections because they represent a local
     notebook workflow, not reusable source. When that shape becomes durable,
     the intended extraction path is editing module/template source rather than
     converting this builder through another API rule.
@@ -823,7 +683,7 @@ class WorkspaceExperimentBuilder:
     entity_inputs: tuple[str, ...] = ()
     resources: tuple[ResourcePort, ...] = ()
     variables: tuple[VariableIntent, ...] = ()
-    point_sources: tuple[RelationExpr | PointSourceIntent, ...] = ()
+    point_sources: tuple[RelationExpr, ...] = ()
     bindings: tuple[ExperimentBindingIntent, ...] = ()
     state_intents: tuple[ExperimentStateIntent, ...] = ()
     compute_nodes: tuple[ComputeNodeIntent, ...] = ()
@@ -831,7 +691,7 @@ class WorkspaceExperimentBuilder:
     product_ports: tuple[ModuleProductPort, ...] = ()
     record_selections: tuple[ProductSelectionIntent, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
-    sweeps: tuple[ModuleSweepIntent, ...] = ()
+    scans: tuple[ScanItem, ...] = ()
 
     @property
     def observables(self) -> tuple[str, ...]:
@@ -851,6 +711,7 @@ class WorkspaceExperimentBuilder:
                 self.records,
                 self.product_ports,
                 self.record_selections,
+                self.scans,
             )
         )
 
@@ -883,89 +744,28 @@ class WorkspaceExperimentBuilder:
             ),
         )
 
-    def sweep(
+    def scan(
         self,
-        parameter_id: str,
+        target: str | ScanItem,
         values: Sequence[object] = (),
         *,
         unit: str | None = None,
-        around: object | None = None,
+        center: ScalarExpr | None = None,
         span: object | None = None,
         points: int | None = None,
-        variable_id: str | None = None,
-        input_id: str | None = None,
     ) -> WorkspaceExperimentBuilder:
-        selected_variable_id = variable_id or parameter_id
-        sweep_intent = ModuleSweepIntent(
-            parameter_id=parameter_id,
-            variable_id=selected_variable_id,
-            values=tuple(values),
+        selected = _workspace_scan_item(
+            target,
+            values,
             unit=unit,
-            around=around,
+            center=center,
             span=span,
             points=points,
-            input_id=input_id,
         )
-        if sweep_intent.values:
-            point_source = (
-                ValuePointSourceIntent(
-                    axis_id=selected_variable_id,
-                    default_values=tuple(_numeric_values(sweep_intent.values)),
-                    unit=unit,
-                    input_id=input_id,
-                )
-                if input_id is not None
-                else grid(
-                    **{
-                        selected_variable_id: _values_series(
-                            sweep_intent.values,
-                            unit=unit,
-                        )
-                    }
-                )
-            )
-            return replace(
-                self,
-                point_sources=(*self.point_sources, point_source),
-                sweeps=(*self.sweeps, sweep_intent),
-            )
-        if around != "active" and not isinstance(around, ScalarExpr):
-            msg = f"sweep {parameter_id!r} requires explicit values or around='active'"
-            raise ValueError(msg)
-        if span is None:
-            msg = f"sweep {parameter_id!r} around='active' requires span"
-            raise ValueError(msg)
-        if points is None:
-            msg = f"sweep {parameter_id!r} around='active' requires points"
-            raise ValueError(msg)
-        if isinstance(around, ScalarExpr):
-            return replace(
-                self,
-                point_sources=(
-                    *self.point_sources,
-                    AroundPointSourceIntent(
-                        axis_id=selected_variable_id,
-                        center=around,
-                        default_span=_quantity_from_builder_value(span),
-                        default_points=points,
-                        input_id=input_id,
-                    ),
-                ),
-                sweeps=(*self.sweeps, sweep_intent),
-            )
         return replace(
             self,
-            variables=(
-                *self.variables,
-                SweepAroundIntent(
-                    variable_id=selected_variable_id,
-                    parameter_id=parameter_id,
-                    default_span=_quantity_from_builder_value(span),
-                    default_points=points,
-                    input_id=None,
-                ),
-            ),
-            sweeps=(*self.sweeps, sweep_intent),
+            point_sources=(*self.point_sources, selected.points),
+            scans=(*self.scans, selected),
         )
 
     def derive(
@@ -985,9 +785,6 @@ class WorkspaceExperimentBuilder:
             self,
             variables=(*self.variables, variable(variable_id, value)),
         )
-
-    def points(self, relation: RelationExpr) -> WorkspaceExperimentBuilder:
-        return replace(self, point_sources=(*self.point_sources, relation))
 
     def bind(
         self,
@@ -1283,18 +1080,6 @@ def _module_from_parts(
     parameter_derivations: ParameterDerivationInput = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> ExperimentModule:
-    sweep_variables = [
-        variable.variable_id
-        for variable in variables
-        if isinstance(variable, SweepAroundIntent)
-    ]
-    if sweep_variables:
-        msg = (
-            "reusable modules cannot declare sweeps; define point sources "
-            "in a template or workspace experiment: "
-            + ", ".join(sorted(sweep_variables))
-        )
-        raise ValueError(msg)
     return _module(
         id=id,
         input_ports=input_ports,
@@ -1424,20 +1209,39 @@ def workspace_experiment_module(
     )
 
 
-def sweep(
-    parameter_id: str,
+def _workspace_scan_item(
+    target: str | ScanItem,
+    values: Sequence[object] = (),
     *,
-    default_span: Quantity | Expression,
-    points: int,
-    variable_id: str | None = None,
-    input_id: str | None = None,
-) -> SweepAroundIntent:
-    return SweepAroundIntent(
-        variable_id=variable_id or parameter_id,
-        parameter_id=parameter_id,
-        default_span=default_span,
-        default_points=points,
-        input_id=input_id,
+    unit: str | None = None,
+    center: ScalarExpr | None = None,
+    span: object | None = None,
+    points: int | None = None,
+) -> ScanItem:
+    if isinstance(target, ScanAxis | ParameterScanAxis | ScanGroup):
+        if (
+            values
+            or unit is not None
+            or center is not None
+            or span is not None
+            or points is not None
+        ):
+            msg = "scan item cannot be combined with scan construction arguments"
+            raise ValueError(msg)
+        return target
+    if values:
+        if center is not None or span is not None or points is not None:
+            msg = "scan values cannot be combined with center/span/points"
+            raise ValueError(msg)
+        return scan_axis(target, values=values, unit=unit)
+    if span is None or points is None:
+        msg = "scan requires values or span and points"
+        raise ValueError(msg)
+    return scan_axis(
+        target,
+        center=center or param(target),
+        span=_quantity_from_builder_value(span),
+        points=points,
     )
 
 
@@ -1450,51 +1254,6 @@ def variable(
     value: VariableValue | VariableFactory,
 ) -> ExplicitVariableIntent:
     return ExplicitVariableIntent(variable_id=variable_id, value=value)
-
-
-def point_source(relation: RelationExpr) -> RelationExpr:
-    return relation
-
-
-def around_points(
-    axis_id: str,
-    *,
-    center: ScalarExpr,
-    default_span: Quantity,
-    points: int,
-    input_id: str | None = None,
-) -> AroundPointSourceIntent:
-    return AroundPointSourceIntent(
-        axis_id=axis_id,
-        center=center,
-        default_span=default_span,
-        default_points=points,
-        input_id=input_id,
-    )
-
-
-def value_points(
-    axis_id: str,
-    values: Sequence[float],
-    *,
-    unit: str | None = None,
-    input_id: str | None = None,
-) -> ValuePointSourceIntent:
-    return ValuePointSourceIntent(
-        axis_id=axis_id,
-        default_values=tuple(float(value) for value in values),
-        unit=unit,
-        input_id=input_id,
-    )
-
-
-def entity_points(
-    axis_id: str,
-    entities: Sequence[EntityRef | str],
-    *,
-    kind: str | None = None,
-) -> RelationExpr:
-    return grid(**{axis_id: [entity_ref(entity, kind=kind) for entity in entities]})
 
 
 def var_ref(variable_id: str) -> Expression:
@@ -1918,13 +1677,13 @@ def _combined_point_source(
 
 
 def _combined_point_source_input(
-    point_sources: Sequence[RelationExpr | PointSourceIntent],
+    point_sources: Sequence[RelationExpr],
 ) -> PointSourceInput:
     if not point_sources:
         return None
     if len(point_sources) == 1:
         return point_sources[0]
-    return CompositePointSourceIntent(sources=tuple(point_sources))
+    return _combine_relations(point_sources)
 
 
 def _combine_relations(relations: Sequence[RelationExpr]) -> RelationExpr:
@@ -1940,9 +1699,8 @@ def _build_point_source(
     point_source: PointSourceInput,
     inputs: Mapping[str, object],
 ) -> RelationExpr | None:
-    if point_source is None or isinstance(point_source, RelationExpr):
-        return point_source
-    return point_source.build(inputs)
+    del inputs
+    return point_source
 
 
 def _bind_input_refs(
@@ -1995,6 +1753,13 @@ def _bind_input_refs(
             }
         )
     return expression
+
+
+def bind_input_refs(
+    expression: ScalarExpr,
+    inputs: Mapping[str, object],
+) -> ScalarExpr:
+    return _bind_input_refs(expression, inputs)
 
 
 def _bind_input_refs_with_provenance(
@@ -2261,16 +2026,6 @@ def _assembly_derivation_id(
     return assembly.experiment_id or request.template_id or request.id
 
 
-def _raise_compile_diagnostic(
-    code: str,
-    message: str,
-    path: str | None,
-) -> NoReturn:
-    raise ValidationFailed(
-        [Diagnostic(severity="error", code=code, message=message, path=path)]
-    )
-
-
 def _module_parameter_derivations(
     module_id: str,
     derivations: ParameterDerivationInput,
@@ -2318,20 +2073,6 @@ def _quantity_from_builder_value(value: object) -> Quantity:
             return Quantity(value=float(match.group(1)), unit=match.group(2))
     msg = f"expected quantity value like '100 MHz', got {value!r}"
     raise TypeError(msg)
-
-
-def _values_series(items: Sequence[object], *, unit: str | None = None):
-    return values(items, unit=unit)
-
-
-def _numeric_values(items: Sequence[object]) -> list[float]:
-    point_values: list[float] = []
-    for item in items:
-        if not isinstance(item, int | float) or isinstance(item, bool):
-            msg = "input-overridable sweep values must be numeric"
-            raise TypeError(msg)
-        point_values.append(float(item))
-    return point_values
 
 
 def _literal(value: CellValue) -> ScalarExpr:
@@ -2398,7 +2139,6 @@ def _required_name(value: str | None, path: str) -> str:
 
 
 __all__ = [
-    "AroundPointSourceIntent",
     "BindingIntent",
     "ComputeNodeIntent",
     "ComputeResultRef",
@@ -2411,8 +2151,6 @@ __all__ = [
     "ModuleInputPort",
     "ModuleInvocation",
     "ModuleProductPort",
-    "ModuleSweepIntent",
-    "PointSourceIntent",
     "ProductSelectionIntent",
     "RecordAxisIntent",
     "RecordIntent",
@@ -2420,28 +2158,21 @@ __all__ = [
     "ResourceSelector",
     "RouteBindingRef",
     "StateTableIntent",
-    "SweepAroundIntent",
-    "ValuePointSourceIntent",
     "VariableIntent",
-    "around_points",
     "bind",
     "compute_result",
     "derive",
     "entity_axis",
-    "entity_points",
     "input_ref",
     "module",
     "observable",
     "param_ref",
-    "point_source",
     "record_axis",
     "record_product",
     "requires",
     "resource_port",
     "route",
     "shot_axis",
-    "sweep",
-    "value_points",
     "var_ref",
     "variable",
 ]

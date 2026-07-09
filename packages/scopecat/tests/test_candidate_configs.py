@@ -33,7 +33,7 @@ def test_candidate_config_resolves_parameter_change_and_runs_follow_up(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
     candidate = (
         run.analysis("manual readout review")
         .propose(
@@ -44,7 +44,7 @@ def test_candidate_config_resolves_parameter_change_and_runs_follow_up(
         .candidate_config()
     )
 
-    follow_up = lab.run(load_experiment(), config=candidate)
+    follow_up = lab.prepare(load_experiment(), config=candidate).run()
     decision = lab.review_parameter_changes(
         run,
         "drive_frequency",
@@ -66,7 +66,7 @@ def test_candidate_config_selects_independent_parameter_changes(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
     analysis = (
         run.analysis("multi fit")
         .propose(
@@ -87,13 +87,16 @@ def test_candidate_config_selects_independent_parameter_changes(
         "candidate_config_selection_required"
     )
 
-    follow_up = lab.run(load_experiment(), config=analysis.candidate_config("q0"))
+    follow_up = lab.prepare(
+        load_experiment(),
+        config=analysis.candidate_config("q0"),
+    ).run()
     updated = follow_up.config.parameter_state.scalar_value_set().get("drive_frequency")
     assert updated is not None
     assert updated.quantity.value == 5.5
 
     with pytest.raises(ValidationFailed) as invalid_change:
-        lab.run(load_experiment(), config=analysis.candidate_config("q1"))
+        lab.prepare(load_experiment(), config=analysis.candidate_config("q1")).run()
     assert invalid_change.value.diagnostics[0].code == (
         "parameter_change_candidate_patch_invalid"
     )
@@ -107,7 +110,7 @@ def test_analysis_rejects_point_local_parameter_change_patch(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
 
     with pytest.raises(ValidationFailed) as error:
         run.analysis("bad patch").propose(

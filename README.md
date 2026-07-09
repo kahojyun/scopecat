@@ -49,8 +49,8 @@ run = plan.run(name="readout frequency")
 raw = run.data().measurements()
 run.attach(
     key="notebook",
-    text="manual sweep notes",
-    filename="manual-sweep-notes.md",
+    text="manual scan notes",
+    filename="manual-scan-notes.md",
 )
 
 analysis = (
@@ -60,7 +60,7 @@ analysis = (
     .propose(
         "readout_frequency",
         sc.set_param("readout_frequency", sc.Quantity(value=5.5, unit="GHz")),
-        reason="lowest S21 point in the readout sweep",
+        reason="lowest S21 point in the readout scan",
     )
 )
 analysis.save()

@@ -11,11 +11,13 @@ workspace = notebook_workspace("03-run-and-read-data")
 lab = quantum_lab(workspace=workspace)
 
 # %%
-completed_run = lab.run(
-    READOUT_TEMPLATE,
-    inputs={"qubit": "q0"},
-    name="readout frequency",
-    tags=("notebook", "calibration"),
+completed_run = (
+    lab.prepare(READOUT_TEMPLATE)
+    .input("qubit", "q0")
+    .run(
+        name="readout frequency",
+        tags=("notebook", "calibration"),
+    )
 )
 data = completed_run.data()
 

@@ -235,10 +235,14 @@ def test_modules_leave_resource_selection_to_routing() -> None:
 def test_default_quantum_wiring_preview_includes_resolved_channel_routes(
     tmp_path,
 ) -> None:
-    preview = quantum_lab(
-        workspace=tmp_path,
-        config_profile=quantum_wiring_config_profile(),
-    ).preview(SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=sc.entity_array(("q0", "q1"))))
+    preview = (
+        quantum_lab(
+            workspace=tmp_path,
+            config_profile=quantum_wiring_config_profile(),
+        )
+        .prepare(SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=sc.entity_array(("q0", "q1"))))
+        .preview()
+    )
 
     drive = next(route for route in preview.routes if route.port_id == "drive")
     readout = next(route for route in preview.routes if route.port_id == "readout")

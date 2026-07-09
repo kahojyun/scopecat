@@ -14,11 +14,13 @@ workspace = notebook_workspace("05-promoted-analysis")
 lab = quantum_lab(workspace=workspace)
 
 # %%
-completed_run = lab.run(
-    READOUT_TEMPLATE,
-    inputs={"qubit": "q0"},
-    name="readout frequency",
-    tags=("notebook", "calibration"),
+completed_run = (
+    lab.prepare(READOUT_TEMPLATE)
+    .input("qubit", "q0")
+    .run(
+        name="readout frequency",
+        tags=("notebook", "calibration"),
+    )
 )
 analysis = completed_run.analyze(ReadoutFrequencyAnalysisStep())
 saved_analysis = analysis.save()

@@ -68,9 +68,7 @@ def test_experiment_system_run_provider_python_api(
     expected_coordinate_id: str,
     expected_measurements: int,
 ) -> None:
-    run = _lab(tmp_path).run(
-        invocation,
-    )
+    run = _lab(tmp_path).prepare(invocation).run()
     measurements = run.data().measurements()
 
     assert run.manifest.status == "completed"
@@ -83,14 +81,19 @@ def test_experiment_system_run_provider_python_api(
 def test_cz_chevron_emits_waveform_compute_summaries(tmp_path: Path) -> None:
     events: list[RuntimeEvent] = []
 
-    run = _lab(tmp_path).run(
-        CZ_CHEVRON_TEMPLATE.bind(
-            control_qubit="q0",
-            partner_qubit="q1",
-            durations=[24],
-            amplitudes=[0.18],
-        ),
-        event_sink=events.append,
+    run = (
+        _lab(tmp_path)
+        .prepare(
+            CZ_CHEVRON_TEMPLATE.bind(
+                control_qubit="q0",
+                partner_qubit="q1",
+                durations=[24],
+                amplitudes=[0.18],
+            )
+        )
+        .run(
+            event_sink=events.append,
+        )
     )
 
     compute_summaries = [
@@ -173,10 +176,7 @@ def test_array_record_cases_run_provider_python_api(
 ) -> None:
     events: list[RuntimeEvent] = []
 
-    run = _lab(tmp_path).run(
-        invocation,
-        event_sink=events.append,
-    )
+    run = _lab(tmp_path).prepare(invocation).run(event_sink=events.append)
     measurements = run.data().measurements()
     observable = next(
         variable
@@ -236,9 +236,7 @@ def test_rejects_invalid_payload_kind(
     )
 
     with pytest.raises(ValidationFailed) as error:
-        _lab(tmp_path).run(
-            experiment,
-        )
+        _lab(tmp_path).prepare(experiment).run()
 
     assert error.value.diagnostics[0].code == "instrument_driver_payload_kind_mismatch"
 

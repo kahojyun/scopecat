@@ -12,9 +12,9 @@ from __future__ import annotations
 import builtins
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from scopecat._planning.parameter_patches import (
     ParameterPatchSpec,
@@ -48,6 +48,9 @@ from scopecat.relations import (
     param,
 )
 from scopecat.relations import (
+    linspace as relation_linspace,
+)
+from scopecat.relations import (
     table as parameter_table_relation,
 )
 from scopecat.relations import (
@@ -56,6 +59,67 @@ from scopecat.relations import (
 from scopecat.results import (
     MeasurementDType,
 )
+
+
+class PointScanRecord(BaseModel):
+    """Persisted point-value scan axis record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["point"] = "point"
+    target_id: str
+    axis_id: str
+    values: list[Any]
+    unit: str | None = None
+    input_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class AroundScanRecord(BaseModel):
+    """Persisted center/span scan axis record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["scan"] = "scan"
+    target_id: str
+    axis_id: str
+    center: Any
+    span: Any
+    points: int
+    input_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class ParameterScanRecord(BaseModel):
+    """Persisted parameter-table scan axis record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["parameter"] = "parameter"
+    table_id: str
+    key: Any
+    column: str
+    axis_id: str
+    values: list[Any]
+    unit: str | None = None
+
+
+class ScanGroupRecord(BaseModel):
+    """Persisted explicit scan composition record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["cartesian", "zip"]
+    scans: list[ScanRecord]
+
+
+type ScanLeafRecord = PointScanRecord | AroundScanRecord | ParameterScanRecord
+type ScanRecord = Annotated[
+    PointScanRecord | AroundScanRecord | ParameterScanRecord | ScanGroupRecord,
+    Field(discriminator="kind"),
+]
+type ScanRecordLike = ScanRecord | Mapping[str, Any]
+
+_SCAN_RECORD_ADAPTER: TypeAdapter[ScanRecord] = TypeAdapter(ScanRecord)
+ScanGroupRecord.model_rebuild()
 
 
 class RunRequest(BaseModel):
@@ -70,9 +134,7 @@ class RunRequest(BaseModel):
     config_source: str | None = None
     operator: str | None = None
     run_overrides: dict[str, Any] = Field(default_factory=dict)
-    point_axes: dict[str, Any] = Field(default_factory=dict)
-    parameter_sweeps: list[dict[str, Any]] = Field(default_factory=list)
-    sweep_groups: list[dict[str, Any]] = Field(default_factory=list)
+    scans: list[ScanRecord] = Field(default_factory=list)
     seeds: dict[str, int] = Field(default_factory=dict)
     extra_records: dict[str, Any] = Field(default_factory=dict)
     execution_flags: dict[str, Any] = Field(default_factory=dict)
@@ -292,45 +354,116 @@ class ParameterRowSelector:
 
 
 @dataclass(frozen=True)
-class ParameterScan:
-    """Authoring fragment for a point relation plus matching parameter patch."""
+class ScanAxis:
+    """Point axis used by template defaults, invocations, and scratch experiments."""
 
-    points: RelationExpr
-    patch: ParameterPatchSpec
-
-    def params(self) -> list[ParameterPatchSpec]:
-        return [self.patch]
-
-
-@dataclass(frozen=True)
-class RunPointSweep:
-    """Run-time point-axis sweep appended to a template invocation."""
-
+    target_id: str
     axis_id: str
-    values: tuple[object, ...]
+    point_values: tuple[object, ...] = ()
     unit: str | None = None
+    center: ScalarExpr | None = None
+    span: object | None = None
+    point_count: int | None = None
+    input_id: str | None = None
+    implicit_center: bool = False
 
     @property
     def points(self) -> RelationExpr:
-        source = (
-            relation_values(self.values, unit=self.unit)
-            if self.unit is not None
-            else list(self.values)
+        if self.point_values:
+            source = (
+                relation_values(self.point_values, unit=self.unit)
+                if self.unit is not None
+                else list(self.point_values)
+            )
+            return grid(**{self.axis_id: source})
+        if self.center is None or self.span is None or self.point_count is None:
+            msg = f"scan axis {self.axis_id!r} requires values or center/span/points"
+            raise ValueError(msg)
+        if self.point_count < 2:
+            msg = "scan axis points must be at least 2"
+            raise ValueError(msg)
+        span = _scan_quantity(self.span)
+        return grid(
+            **{
+                self.axis_id: relation_linspace(
+                    self.center - span / 2,
+                    self.center + span / 2,
+                    self.point_count,
+                )
+            }
         )
-        return grid(**{self.axis_id: source})
 
-    def request_record(self) -> dict[str, object]:
-        return {
-            "kind": "point",
-            "axis_id": self.axis_id,
-            "values": [_request_value(value) for value in self.values],
-            "unit": self.unit,
-        }
+    def request_record(self) -> PointScanRecord | AroundScanRecord:
+        if self.point_values:
+            return PointScanRecord(
+                target_id=self.target_id,
+                axis_id=self.axis_id,
+                values=[_request_value(value) for value in self.point_values],
+                unit=self.unit,
+                input_id=self.input_id,
+            )
+        if self.center is None or self.span is None or self.point_count is None:
+            msg = f"scan axis {self.axis_id!r} requires values or center/span/points"
+            raise ValueError(msg)
+        return AroundScanRecord(
+            target_id=self.target_id,
+            axis_id=self.axis_id,
+            center=_request_value(self.center),
+            span=_request_value(self.span),
+            points=self.point_count,
+            input_id=self.input_id,
+        )
+
+    def values_axis(
+        self,
+        values: Sequence[object],
+        *,
+        unit: str | None = None,
+    ) -> ScanAxis:
+        return axis(
+            self.axis_id,
+            values=values,
+            unit=unit,
+            target_id=self.target_id,
+            input_id=self.input_id,
+        )
+
+    def values(
+        self,
+        values: Sequence[object],
+        *,
+        unit: str | None = None,
+    ) -> ScanAxis:
+        return self.values_axis(values, unit=unit)
+
+    def around_active(
+        self,
+        *,
+        span: object,
+        points: int,
+    ) -> ScanAxis:
+        return self.around(center=param(self.target_id), span=span, points=points)
+
+    def around(
+        self,
+        *,
+        center: ScalarExpr,
+        span: object,
+        points: int,
+    ) -> ScanAxis:
+        return ScanAxis(
+            target_id=self.target_id,
+            axis_id=self.axis_id,
+            center=center,
+            span=span,
+            point_count=points,
+            input_id=self.input_id,
+        )
 
 
 @dataclass(frozen=True)
-class RunParameterSweep:
-    """Run-time parameter-table sweep lowered into point-local patches."""
+class ParameterScanAxis:
+    """Parameter-table scan lowered into point-local patches."""
 
     table_id: str
     key: dict[str, object]
@@ -348,124 +481,186 @@ class RunParameterSweep:
         )
         return grid(**{self.axis_id: source})
 
-    def request_record(self) -> dict[str, object]:
-        return {
-            "kind": "parameter",
-            "table_id": self.table_id,
-            "key": _request_value(self.key),
-            "column": self.column,
-            "axis_id": self.axis_id,
-            "values": [_request_value(value) for value in self.values],
-            "unit": self.unit,
-        }
+    def request_record(self) -> ParameterScanRecord:
+        return ParameterScanRecord(
+            table_id=self.table_id,
+            key=_request_value(self.key),
+            column=self.column,
+            axis_id=self.axis_id,
+            values=[_request_value(value) for value in self.values],
+            unit=self.unit,
+        )
 
 
 @dataclass(frozen=True)
-class RunSweepGroup:
-    """Explicit run-time sweep composition."""
+class ScanGroup:
+    """Explicit scan-axis composition."""
 
     kind: Literal["cartesian", "zip"]
-    sweeps: tuple[RunSweep, ...]
+    scans: tuple[ScanItem, ...]
 
     @property
     def points(self) -> RelationExpr:
         if self.kind == "cartesian":
-            return _cartesian_sweep_points(self.sweeps)
-        return _zip_sweep_points(self.sweeps)
+            return _cartesian_scan_points(self.scans)
+        return _zip_scan_points(self.scans)
 
-    def request_record(self) -> dict[str, object]:
-        return {
-            "kind": self.kind,
-            "sweeps": [sweep.request_record() for sweep in self.sweeps],
-        }
-
-
-type RunSweep = RunPointSweep | RunParameterSweep | RunSweepGroup
+    def request_record(self) -> ScanGroupRecord:
+        return ScanGroupRecord(
+            kind=self.kind,
+            scans=[scan.request_record() for scan in self.scans],
+        )
 
 
-def sweep(
+type ScanLeaf = ScanAxis | ParameterScanAxis
+type ScanItem = ScanAxis | ParameterScanAxis | ScanGroup
+
+
+def axis(
     axis_id: str,
-    values: Sequence[object],
+    values: Sequence[object] = (),
     *,
     unit: str | None = None,
-) -> RunPointSweep:
+    center: ScalarExpr | None = None,
+    span: object | None = None,
+    points: int | None = None,
+    target_id: str | None = None,
+    input_id: str | None = None,
+) -> ScanAxis:
     if not axis_id:
-        msg = "run sweep axis id must be non-empty"
+        msg = "scan axis id must be non-empty"
         raise ValueError(msg)
-    if not values:
-        msg = "run sweep values must contain at least one value"
+    if values and (center is not None or span is not None or points is not None):
+        msg = "scan axis accepts either values or center/span/points, not both"
         raise ValueError(msg)
-    return RunPointSweep(axis_id=axis_id, values=tuple(values), unit=unit)
+    if (
+        not values
+        and any(item is not None for item in (center, span, points))
+        and (center is None or span is None or points is None)
+    ):
+        msg = "scan axis around form requires center, span, and points"
+        raise ValueError(msg)
+    return ScanAxis(
+        target_id=target_id or axis_id,
+        axis_id=axis_id,
+        point_values=tuple(values),
+        unit=unit,
+        center=center,
+        span=span,
+        point_count=points,
+        input_id=input_id,
+    )
 
 
-def sweep_param(
+def param_axis(
     row: ParameterRowSelector,
     column: str,
     values: Sequence[object],
     *,
-    axis: str | None = None,
+    axis_id: str | None = None,
     unit: str | None = None,
-) -> RunParameterSweep:
+) -> ParameterScanAxis:
     if not column:
-        msg = "run parameter sweep column must be non-empty"
+        msg = "parameter scan column must be non-empty"
         raise ValueError(msg)
     if not values:
-        msg = "run parameter sweep values must contain at least one value"
+        msg = "parameter scan values must contain at least one value"
         raise ValueError(msg)
-    return RunParameterSweep(
+    return ParameterScanAxis(
         table_id=row.table_id,
         key=dict(row.key),
         column=column,
-        axis_id=axis or column,
+        axis_id=axis_id or column,
         values=tuple(values),
         unit=unit,
     )
 
 
-def cartesian(*sweeps: RunSweep) -> RunSweepGroup:
-    if not sweeps:
-        msg = "cartesian sweep group requires at least one sweep"
+def cartesian(*scans: ScanItem) -> ScanGroup:
+    if not scans:
+        msg = "cartesian scan group requires at least one scan"
         raise ValueError(msg)
-    return RunSweepGroup(kind="cartesian", sweeps=tuple(sweeps))
+    return ScanGroup(kind="cartesian", scans=tuple(scans))
 
 
-def zip(*sweeps: RunSweep) -> RunSweepGroup:  # noqa: A001
-    if not sweeps:
-        msg = "zip sweep group requires at least one sweep"
+def zip(*scans: ScanItem) -> ScanGroup:  # noqa: A001
+    if not scans:
+        msg = "zip scan group requires at least one scan"
         raise ValueError(msg)
-    return RunSweepGroup(kind="zip", sweeps=tuple(sweeps))
+    return ScanGroup(kind="zip", scans=tuple(scans))
 
 
-def iter_run_sweep_leaves(
-    sweep: RunSweep,
-) -> tuple[RunPointSweep | RunParameterSweep, ...]:
-    if isinstance(sweep, RunSweepGroup):
-        return tuple(
-            leaf for child in sweep.sweeps for leaf in iter_run_sweep_leaves(child)
-        )
-    return (sweep,)
+def iter_scan_leaves(
+    scan: ScanItem,
+) -> tuple[ScanLeaf, ...]:
+    if isinstance(scan, ScanGroup):
+        return tuple(leaf for child in scan.scans for leaf in iter_scan_leaves(child))
+    return (scan,)
 
 
-def _cartesian_sweep_points(sweeps: Sequence[RunSweep]) -> RelationExpr:
-    relation = sweeps[0].points
-    for next_sweep in sweeps[1:]:
-        relation = relation.cross(next_sweep.points)
+def scan_axis_index(
+    scans: Sequence[ScanRecordLike],
+) -> dict[str, ScanLeafRecord]:
+    """Return a flat axis_id index derived from canonical scan records."""
+
+    axes: dict[str, ScanLeafRecord] = {}
+    for scan in scans:
+        for leaf in _scan_record_leaves(scan):
+            axes[leaf.axis_id] = leaf
+    return axes
+
+
+def parameter_scan_records(
+    scans: Sequence[ScanRecordLike],
+) -> list[ParameterScanRecord]:
+    """Return parameter-scan leaves derived from canonical scan records."""
+
+    return [
+        leaf
+        for scan in scans
+        for leaf in _scan_record_leaves(scan)
+        if isinstance(leaf, ParameterScanRecord)
+    ]
+
+
+def _scan_record_leaves(scan: ScanRecordLike) -> tuple[ScanLeafRecord, ...]:
+    typed_scan = _coerce_scan_record(scan)
+    if not isinstance(typed_scan, ScanGroupRecord):
+        return (typed_scan,)
+    return tuple(
+        leaf for child in typed_scan.scans for leaf in _scan_record_leaves(child)
+    )
+
+
+def _coerce_scan_record(scan: ScanRecordLike) -> ScanRecord:
+    if isinstance(
+        scan,
+        PointScanRecord | AroundScanRecord | ParameterScanRecord | ScanGroupRecord,
+    ):
+        return scan
+    return _SCAN_RECORD_ADAPTER.validate_python(scan)
+
+
+def _cartesian_scan_points(scans: Sequence[ScanItem]) -> RelationExpr:
+    relation = scans[0].points
+    for next_scan in scans[1:]:
+        relation = relation.cross(next_scan.points)
     return relation
 
 
-def _zip_sweep_points(sweeps: Sequence[RunSweep]) -> RelationExpr:
-    rows_by_sweep = [_sweep_rows(sweep) for sweep in sweeps]
-    lengths = {len(rows) for rows in rows_by_sweep}
+def _zip_scan_points(scans: Sequence[ScanItem]) -> RelationExpr:
+    rows_by_scan = [_scan_rows(scan) for scan in scans]
+    lengths = {len(rows) for rows in rows_by_scan}
     if len(lengths) != 1:
-        msg = "zip sweep group requires sweeps with equal length"
+        msg = "zip scan group requires scans with equal length"
         raise ValueError(msg)
     rows: list[Row] = []
-    for row_group in builtins.zip(*rows_by_sweep, strict=True):
+    for row_group in builtins.zip(*rows_by_scan, strict=True):
         merged: Row = {}
         for row in row_group:
             overlap = set(merged).intersection(row)
             if overlap:
-                msg = "zip sweep group contains duplicate axes: " + ", ".join(
+                msg = "zip scan group contains duplicate axes: " + ", ".join(
                     sorted(overlap)
                 )
                 raise ValueError(msg)
@@ -474,8 +669,24 @@ def _zip_sweep_points(sweeps: Sequence[RunSweep]) -> RelationExpr:
     return literal_rows(rows)
 
 
-def _sweep_rows(sweep: RunSweep) -> list[Row]:
-    return sweep.points.evaluate()
+def _scan_rows(scan: ScanItem) -> list[Row]:
+    return scan.points.evaluate()
+
+
+def _scan_quantity(value: object) -> Quantity:
+    if isinstance(value, Quantity):
+        return value
+    if isinstance(value, str):
+        import re
+
+        match = re.match(
+            r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s+([A-Za-z][A-Za-z0-9_]*)\s*$",
+            value,
+        )
+        if match is not None:
+            return Quantity(value=float(match.group(1)), unit=match.group(2))
+    msg = "scan span must be a Quantity or '<number> <unit>' string"
+    raise TypeError(msg)
 
 
 @dataclass(frozen=True)
@@ -513,20 +724,6 @@ def _request_value(value: object) -> object:
         sequence = cast("list[object] | tuple[object, ...]", value)
         return [_request_value(item) for item in sequence]
     return value
-
-
-def scan_parameter(
-    row: ParameterRowSelector,
-    column: str,
-    source: object,
-    *,
-    axis: str | None = None,
-) -> ParameterScan:
-    axis_id = axis or column
-    return ParameterScan(
-        points=grid(**{axis_id: source}),
-        patch=row.patch(**{column: col(axis_id)}),
-    )
 
 
 def local_overrides(
@@ -729,22 +926,29 @@ def _axis_name(prefix: str, resource: str) -> str:
 ExperimentSpec.model_rebuild()
 
 __all__ = [
+    "AroundScanRecord",
     "ExperimentSpec",
     "LocalOverrides",
     "ParameterPatchSpec",
     "ParameterRowSelector",
-    "ParameterScan",
+    "ParameterScanAxis",
+    "ParameterScanRecord",
+    "PointScanRecord",
     "RecordAxisSpec",
     "RecordKind",
     "RecordSource",
     "RecordSpec",
     "ResourceRouteIntent",
-    "RunParameterSweep",
-    "RunPointSweep",
-    "RunSweep",
-    "RunSweepGroup",
+    "ScanAxis",
+    "ScanGroup",
+    "ScanGroupRecord",
+    "ScanItem",
+    "ScanLeaf",
+    "ScanLeafRecord",
+    "ScanRecord",
     "StateRecord",
     "StateSpec",
+    "axis",
     "bind_each",
     "cartesian",
     "configure",
@@ -754,16 +958,16 @@ __all__ = [
     "local_overrides",
     "local_scan",
     "observable",
+    "param_axis",
     "param_row",
+    "parameter_scan_records",
     "record_axis",
     "record_output",
     "rows",
-    "scan_parameter",
+    "scan_axis_index",
     "set_param",
     "set_state",
     "shot_axis",
-    "sweep",
-    "sweep_param",
     "update_param_rows",
     "zip",
 ]

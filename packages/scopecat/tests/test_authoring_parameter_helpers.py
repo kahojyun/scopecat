@@ -6,7 +6,6 @@ from scopecat.experiments import (
     observable,
     param_row,
     rows,
-    scan_parameter,
     set_state,
 )
 from scopecat.models.parameter import Quantity
@@ -47,18 +46,17 @@ def test_rows_helper_selects_parameter_table_rows() -> None:
     ]
 
 
-def test_scan_parameter_helper_builds_points_and_patch() -> None:
-    scan = scan_parameter(
-        param_row("readout_devices", device_id="r0"),
-        "frequency",
-        linspace(5.9, 6.0, 2, unit="GHz"),
-        axis="readout_frequency",
-    )
+def test_parameter_row_patch_can_follow_point_axis() -> None:
+    axis_id = "readout_frequency"
     spec = experiment(
-        id="parameter-scan-helper",
+        id="parameter-row-patch-axis",
         kind="readout.frequency_scan",
-        points=scan.points,
-        params=scan.params(),
+        points=grid(**{axis_id: linspace(5.9, 6.0, 2, unit="GHz")}),
+        params=[
+            param_row("readout_devices", device_id="r0").patch(
+                frequency=col(axis_id),
+            )
+        ],
         state=[
             set_state(
                 "readout-a",

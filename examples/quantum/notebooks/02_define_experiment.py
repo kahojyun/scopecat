@@ -1,4 +1,4 @@
-"""Notebook-style example: define an experiment and customize its sweep."""
+"""Notebook-style example: define an experiment and customize its scan."""
 
 from __future__ import annotations
 
@@ -13,22 +13,18 @@ lab = quantum_lab(workspace=workspace)
 
 # %%
 qubit = "q0"
-sweep_points = 41
-sweep_span = sc.Quantity(value=60.0, unit="MHz")
+scan_points = 41
+scan_span = sc.Quantity(value=60.0, unit="MHz")
 
-preview = lab.preview(
-    READOUT_TEMPLATE,
-    inputs={
-        "qubit": qubit,
-        "readout_frequency": sc.around(
-            "readout_frequency",
-            span=sweep_span,
-            points=sweep_points,
-        ),
-    },
-    name="readout frequency",
-    tags=("notebook", "calibration"),
-    description="narrow sweep selected interactively in the notebook",
+preview = (
+    lab.prepare(READOUT_TEMPLATE)
+    .input("qubit", qubit)
+    .scan("readout_frequency", span=scan_span, points=scan_points)
+    .preview(
+        name="readout frequency",
+        tags=("notebook", "calibration"),
+        description="narrow scan selected interactively in the notebook",
+    )
 )
 
 # %%
@@ -36,6 +32,6 @@ summary = {
     "experiment": preview.experiment_id,
     "qubit": qubit,
     "planned_points": preview.point_count,
-    "sweep": f"{sweep_points} points over {sweep_span.value} {sweep_span.unit}",
+    "scan": f"{scan_points} points over {scan_span.value} {scan_span.unit}",
 }
 print(summary)

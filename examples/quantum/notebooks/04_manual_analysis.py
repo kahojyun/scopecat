@@ -10,14 +10,15 @@ from quantum_lab_demo.experiments import READOUT_TEMPLATE
 # %%
 workspace = notebook_workspace("04-manual-analysis")
 lab = quantum_lab(workspace=workspace)
-readout_inputs = {"qubit": "q0"}
 
 # %%
-baseline = lab.run(
-    READOUT_TEMPLATE,
-    inputs=readout_inputs,
-    name="readout frequency baseline",
-    tags=("notebook", "calibration", "baseline"),
+baseline = (
+    lab.prepare(READOUT_TEMPLATE)
+    .input("qubit", "q0")
+    .run(
+        name="readout frequency baseline",
+        tags=("notebook", "calibration", "baseline"),
+    )
 )
 raw = baseline.data().measurements()
 
@@ -37,7 +38,7 @@ analysis = (
     .propose(
         "readout_frequency",
         sc.set_param("readout_frequency", sc.Quantity(5.953, "GHz")),
-        reason="lowest S21 point in the readout sweep",
+        reason="lowest S21 point in the readout scan",
         confidence=0.8,
     )
 )
@@ -45,12 +46,13 @@ saved_analysis = analysis.save()
 
 # %%
 candidate = analysis.candidate_config()
-follow_up = lab.run(
-    READOUT_TEMPLATE,
-    inputs=readout_inputs,
-    config=candidate,
-    name="readout frequency follow-up",
-    tags=("notebook", "calibration", "candidate"),
+follow_up = (
+    lab.prepare(READOUT_TEMPLATE, config=candidate)
+    .input("qubit", "q0")
+    .run(
+        name="readout frequency follow-up",
+        tags=("notebook", "calibration", "candidate"),
+    )
 )
 
 # %%

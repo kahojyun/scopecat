@@ -18,14 +18,14 @@ def test_template_missing_input_and_unknown_subject_report_stable_diagnostics(
     tmp_path: Path,
 ) -> None:
     config = load_config()
-    missing_subject = simple_template()()
+    missing_subject = simple_template().bind()
     with pytest.raises(ValidationFailed) as missing_error:
         resolve_experiment(missing_subject, workspace=tmp_path, config_profile=config)
     assert missing_error.value.diagnostics[0].code == (
         "experiment_template_missing_input"
     )
 
-    unknown_subject = simple_template()(subject="missing")
+    unknown_subject = simple_template().bind(subject="missing")
     with pytest.raises(ValidationFailed) as subject_error:
         resolve_experiment(unknown_subject, workspace=tmp_path, config_profile=config)
     assert subject_error.value.diagnostics[0].code == "unknown_authoring_entity"
@@ -35,7 +35,7 @@ def test_preview_experiment_resolves_template_invocation_with_config_profile(
     tmp_path: Path,
 ) -> None:
     result = preview_experiment(
-        simple_template()(subject="q0"),
+        simple_template().bind(subject="q0"),
         workspace=tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
@@ -48,7 +48,7 @@ def test_preview_experiment_resolves_template_invocation_with_config_snapshot(
     tmp_path: Path,
 ) -> None:
     result = preview_experiment(
-        simple_template()(subject="q0"),
+        simple_template().bind(subject="q0"),
         workspace=tmp_path,
         config_profile=load_config(),
     )

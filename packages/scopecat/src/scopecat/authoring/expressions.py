@@ -132,7 +132,7 @@ class Expression(BaseModel):
 
 
 class ExperimentVariable(BaseModel):
-    """Named experiment variable, sweep source, or derived value."""
+    """Named experiment variable, scan source, or derived value."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -218,7 +218,7 @@ class ExperimentVariable(BaseModel):
                 value is not None
                 for value in (self.points, self.start, self.stop, self.step, self.count)
             ):
-                msg = "derived variable cannot contain sweep source fields"
+                msg = "derived variable cannot contain scan source fields"
                 raise ValueError(msg)
             return self
         msg = f"unsupported variable kind: {self.kind}"
@@ -270,7 +270,7 @@ def linspace(
     *,
     unit: str,
 ) -> ExperimentVariable:
-    """Create an evenly-spaced sweep variable."""
+    """Create an evenly-spaced scan variable."""
 
     return ExperimentVariable(
         kind="linspace",
@@ -285,7 +285,7 @@ def points(
     *,
     unit: str | None = None,
 ) -> ExperimentVariable:
-    """Create an explicit-point sweep variable."""
+    """Create an explicit-point scan variable."""
 
     quantities = [_coerce_quantity(value, unit=unit) for value in values]
     return ExperimentVariable(kind="points", points=quantities)

@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.config_profiles import load_config_profile
-from scopecat.experiments import RunRequest
+from scopecat.experiments import PointScanRecord, RunRequest
 from scopecat.models.config import build_config_parameters
 from scopecat.models.parameter import (
     ParameterCatalog,
@@ -51,12 +51,60 @@ def test_run_request_records_config_source() -> None:
     )
 
     assert restored.config_source == "active"
-    assert "config_selector" not in restored.model_dump(mode="python")
+
+
+def test_run_request_records_canonical_scans_only() -> None:
+    request = RunRequest(
+        id="request-001",
+        scans=[
+            PointScanRecord(
+                target_id="drive_frequency",
+                axis_id="drive_frequency",
+                values=[5.0, 5.1],
+                unit="GHz",
+            )
+        ],
+    )
+    restored = assert_model_round_trip(
+        request,
+        schema_version="scopecat.run_request.v1",
+    )
+
+    assert restored.scans == request.scans
+    assert isinstance(restored.scans[0], PointScanRecord)
+    assert restored.model_dump(mode="json")["scans"] == [
+        {
+            "kind": "point",
+            "target_id": "drive_frequency",
+            "axis_id": "drive_frequency",
+            "values": [5.0, 5.1],
+            "unit": "GHz",
+        }
+    ]
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
             {
-                "id": "request-002",
-                "config_selector": "active",
+                "id": "request-003",
+                "scans": [
+                    {
+                        "kind": "point",
+                        "target_id": "drive_frequency",
+                        "axis_id": "drive_frequency",
+                        "unit": "GHz",
+                    }
+                ],
+            }
+        )
+    with pytest.raises(ValidationError):
+        RunRequest.model_validate(
+            {
+                "id": "request-004",
+                "scans": [
+                    {
+                        "kind": "unknown",
+                        "axis_id": "drive_frequency",
+                    }
+                ],
             }
         )
 

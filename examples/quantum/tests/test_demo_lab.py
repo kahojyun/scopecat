@@ -36,8 +36,8 @@ def test_notebook_style_examples_execute_user_workflows(
     )
     assert gate_family["gate_family_summary"] == {
         "rabi_points": 7,
-        "rabi_qubit_sweep_points": 10,
-        "rabi_qubit_sweep_coordinates": ["qubit", "drive_length"],
+        "rabi_qubit_scan_points": 10,
+        "rabi_qubit_scan_coordinates": ["qubit", "drive_length"],
         "simultaneous_rabi_points": 5,
         "flux_background_state_count": 1,
         "system_background_state_channels": [
@@ -56,8 +56,8 @@ def test_notebook_style_examples_execute_user_workflows(
         ],
         "cz_rb_points": 3,
         "cz_chevron_points": 4,
-        "runtime_sweep_points": 2,
-        "runtime_sweep_coordinates": [
+        "runtime_scan_points": 2,
+        "runtime_scan_coordinates": [
             "coupler_duration",
             "coupler_amplitude",
             "parking_flux",

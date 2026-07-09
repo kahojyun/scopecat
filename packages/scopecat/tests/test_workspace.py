@@ -7,9 +7,18 @@ from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import ExperimentSpec, RunRequest
+from scopecat.experiments import (
+    AroundScanRecord,
+    ExperimentSpec,
+    PointScanRecord,
+    RunRequest,
+    ScanGroupRecord,
+    parameter_scan_records,
+    scan_axis_index,
+)
 from scopecat.models.config import build_config_parameters
 from scopecat.models.parameter import Quantity
+from scopecat.relations import lit
 from tests.support.authoring import SIMPLE_MODULE, simple_template
 from tests.support.records import read_model
 from tests.support.signal_instruments import TestSignalInstrumentProvider
@@ -34,7 +43,7 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
         instrument_provider=TestSignalInstrumentProvider(),
     )
 
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
     data = run.data()
     raw = data.measurements()
     measurement_datasets = data.list(kind="measurement_dataset")
@@ -102,7 +111,7 @@ def test_data_selectors_report_notebook_friendly_diagnostics(tmp_path: Path) -> 
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
     data = run.data()
 
     assert data.list(metadata={"source_step": "unknown"}) == ()
@@ -122,7 +131,7 @@ def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
 
     attachment = run.attach(
         key="notebook",
@@ -161,7 +170,7 @@ def test_workspace_experiment_wraps_existing_source(tmp_path: Path) -> None:
     )
     experiment = lab.experiment("readout scan", load_experiment())
 
-    run = lab.run(experiment)
+    run = experiment.run()
 
     assert experiment.name == "readout scan"
     assert run.manifest.status == "completed"
@@ -175,7 +184,7 @@ def test_workspace_experiment_rejects_closed_source_fragments(tmp_path: Path) ->
     experiment = lab.experiment("readout scan", load_experiment()).measure("signal")
 
     with pytest.raises(ValueError, match="closed ExperimentSpec"):
-        lab.preview(experiment)
+        experiment.preview()
 
 
 def test_workspace_experiment_builder_lowers_to_runnable_spec(
@@ -189,7 +198,7 @@ def test_workspace_experiment_builder_lowers_to_runnable_spec(
     experiment = (
         lab.experiment("manual signal scan")
         .entity("qubit", "q0")
-        .sweep(
+        .scan(
             "drive_frequency",
             [
                 Quantity(value=4.9, unit="GHz"),
@@ -200,7 +209,7 @@ def test_workspace_experiment_builder_lowers_to_runnable_spec(
         .measure("signal")
     )
 
-    run = lab.run(experiment)
+    run = experiment.run()
 
     assert run.manifest.status == "completed"
     assert (
@@ -221,7 +230,10 @@ def test_workspace_experiment_builder_lowers_to_runnable_spec(
     assert persisted_request.template_id == "scopecat.workspace.experiment"
     assert persisted_request.template_inputs["name"] == "manual signal scan"
     assert persisted_request.template_inputs["entity_inputs"] == {"qubit": "q0"}
-    assert persisted_request.parameter_sweeps[0]["parameter_id"] == "drive_frequency"
+    scan_axes = scan_axis_index(persisted_request.scans)
+    drive_frequency_scan = scan_axes["drive_frequency"]
+    assert isinstance(drive_frequency_scan, PointScanRecord)
+    assert drive_frequency_scan.axis_id == "drive_frequency"
     assert persisted_experiment.request == persisted_request
     assert persisted_experiment.config_snapshot_id == run.config.id
     assert run.preview.primary_observables == ("signal",)
@@ -236,23 +248,25 @@ def test_workspace_run_options_materialize_internal_run_request(
         instrument_provider=TestSignalInstrumentProvider(),
     )
 
-    run = lab.run(
-        simple_template()
-        .bind(subject="q0")
+    run = (
+        lab.prepare(simple_template())
+        .input("subject", "q0")
         .scan(
             "drive_frequency",
             span=Quantity(value=100.0, unit="MHz"),
             points=3,
-        ),
-        name="narrow readout scan",
-        tags=("notebook", "calibration"),
-        description="previewed in the notebook before running",
-        overrides={"analysis_mode": "debug"},
-        seeds={"fit": 7},
-        extra_records={"readback": True},
-        execution_flags={"dry_run": False},
-        metadata={"notebook": "02_define_experiment"},
-        operator="alice",
+        )
+        .run(
+            name="narrow readout scan",
+            tags=("notebook", "calibration"),
+            description="previewed in the notebook before running",
+            overrides={"analysis_mode": "debug"},
+            seeds={"fit": 7},
+            extra_records={"readback": True},
+            execution_flags={"dry_run": False},
+            metadata={"notebook": "02_define_experiment"},
+            operator="alice",
+        )
     )
 
     run_dir = tmp_path / "runs" / run.id
@@ -262,19 +276,15 @@ def test_workspace_run_options_materialize_internal_run_request(
     assert run.preview.point_count == 3
     assert persisted_request.template_id == "test.simple_scan"
     assert persisted_request.template_inputs["subject"] == "q0"
-    assert persisted_request.template_inputs["drive_frequency"] == {
-        "parameter_id": "drive_frequency",
-        "span": {"value": 100.0, "unit": "MHz"},
-        "points": 3,
-    }
-    assert persisted_request.parameter_sweeps == [
-        {
-            "parameter_id": "drive_frequency",
-            "around": "active",
-            "span": {"value": 100.0, "unit": "MHz"},
-            "points": 3,
-        }
-    ]
+    drive_scan = scan_axis_index(persisted_request.scans)["drive_frequency"]
+    assert isinstance(drive_scan, AroundScanRecord)
+    assert drive_scan.target_id == "drive_frequency"
+    assert drive_scan.axis_id == "drive_frequency"
+    assert drive_scan.center["kind"] == "param_scalar"
+    assert drive_scan.center["name"] == "drive_frequency"
+    assert drive_scan.span == {"value": 100.0, "unit": "MHz"}
+    assert drive_scan.points == 3
+    assert parameter_scan_records(persisted_request.scans) == []
     assert persisted_request.metadata == {
         "notebook": "02_define_experiment",
         "name": "narrow readout scan",
@@ -302,14 +312,11 @@ def test_prepared_template_builder_preview_and_run_terminals(
         .input("subject", kind="entity")
         .input("drive_frequency", kind="quantity")
         .defaults(drive_frequency=None)
-        .points(
-            sc.around_points(
-                "drive_frequency",
-                center=sc.table_param("drive_frequency"),
-                default_span=Quantity(value=200.0, unit="MHz"),
-                points=5,
-                input_id="drive_frequency",
-            )
+        .scan(
+            "drive_frequency",
+            center=lit(Quantity(value=5.0, unit="GHz")),
+            span=Quantity(value=200.0, unit="MHz"),
+            points=5,
         )
         .use(SIMPLE_MODULE)
     )
@@ -334,6 +341,10 @@ def test_prepared_template_builder_preview_and_run_terminals(
     )
     assert persisted_request.template_id == "test.prepared_builder"
     assert persisted_request.metadata["name"] == "prepared builder scan"
+    drive_scan = scan_axis_index(persisted_request.scans)["drive_frequency"]
+    assert isinstance(drive_scan, AroundScanRecord)
+    assert drive_scan.center["kind"] == "literal"
+    assert drive_scan.center["value"] == {"value": 5.0, "unit": "GHz"}
 
 
 def test_workspace_experiment_preview_and_run_terminals(tmp_path: Path) -> None:
@@ -345,7 +356,7 @@ def test_workspace_experiment_preview_and_run_terminals(tmp_path: Path) -> None:
     experiment = (
         lab.experiment("terminal signal scan")
         .entity("qubit", "q0")
-        .sweep("drive_frequency", around="active", span="200 MHz", points=3)
+        .scan("drive_frequency", span="200 MHz", points=3)
         .measure("signal")
     )
 
@@ -356,47 +367,126 @@ def test_workspace_experiment_preview_and_run_terminals(tmp_path: Path) -> None:
     assert run.manifest.status == "completed"
 
 
-def test_workspace_extra_sweeps_can_zip_axes(tmp_path: Path) -> None:
+def test_workspace_extra_scans_can_zip_axes(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
 
-    run = lab.run(
-        simple_template().bind(subject="q0"),
-        sweeps=sc.zip(
-            sc.sweep("phase_offset", [0.0, 0.5], unit="rad"),
-            sc.sweep("readout_gain", [1.0, 2.0]),
-        ),
+    run = (
+        lab.prepare(simple_template())
+        .input("subject", "q0")
+        .scan(
+            sc.zip(
+                sc.axis("phase_offset", [0.0, 0.5], unit="rad"),
+                sc.axis("readout_gain", [1.0, 2.0]),
+            )
+        )
+        .run()
     )
 
     run_dir = tmp_path / "runs" / run.id
     persisted_request = read_model(run_dir / "run-request.json", RunRequest)
 
     assert run.preview.point_count == 10
-    assert persisted_request.sweep_groups == [
-        {
-            "kind": "zip",
-            "sweeps": [
-                {
-                    "kind": "point",
-                    "axis_id": "phase_offset",
-                    "values": [0.0, 0.5],
-                    "unit": "rad",
-                },
-                {
-                    "kind": "point",
-                    "axis_id": "readout_gain",
-                    "values": [1.0, 2.0],
-                    "unit": None,
-                },
-            ],
-        }
+    scan_group = persisted_request.scans[-1]
+    assert isinstance(scan_group, ScanGroupRecord)
+    assert scan_group.model_dump(mode="json") == {
+        "kind": "zip",
+        "scans": [
+            {
+                "kind": "point",
+                "target_id": "phase_offset",
+                "axis_id": "phase_offset",
+                "values": [0.0, 0.5],
+                "unit": "rad",
+            },
+            {
+                "kind": "point",
+                "target_id": "readout_gain",
+                "axis_id": "readout_gain",
+                "values": [1.0, 2.0],
+                "unit": None,
+            },
+        ],
+    }
+
+
+def test_invocation_scan_overrides_axis_inside_default_zip_group(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+    )
+    template = (
+        sc.template("test.default_zip_override", kind="default_zip_override")
+        .experiment_id("default-zip-override")
+        .input("subject", kind="entity")
+        .scan(
+            sc.zip(
+                sc.axis("drive_frequency", [4.9, 5.0], unit="GHz"),
+                sc.axis("phase_offset", [0.0, 0.5], unit="rad"),
+            )
+        )
+        .use(SIMPLE_MODULE)
+    )
+
+    preview = (
+        lab.prepare(template)
+        .input("subject", "q0")
+        .scan(
+            "drive_frequency",
+            [5.1, 5.2],
+            unit="GHz",
+        )
+        .preview()
+    )
+
+    assert preview.point_count == 2
+    assert [point.coordinates["drive_frequency"] for point in preview.points] == [
+        Quantity(value=5.1, unit="GHz"),
+        Quantity(value=5.2, unit="GHz"),
+    ]
+    assert [point.coordinates["phase_offset"] for point in preview.points] == [
+        Quantity(value=0.0, unit="rad"),
+        Quantity(value=0.5, unit="rad"),
     ]
 
 
-def test_workspace_experiment_builder_supports_active_center_sweep(
+def test_invocation_scan_group_rejects_mixed_default_override(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+    )
+    template = (
+        sc.template("test.mixed_scan_override", kind="mixed_scan_override")
+        .experiment_id("mixed-scan-override")
+        .input("subject", kind="entity")
+        .scan("drive_frequency", [4.9, 5.0], unit="GHz")
+        .use(SIMPLE_MODULE)
+    )
+
+    with pytest.raises(ValidationFailed) as error:
+        (
+            lab.prepare(template)
+            .input("subject", "q0")
+            .scan(
+                sc.zip(
+                    sc.axis("drive_frequency", [5.1, 5.2], unit="GHz"),
+                    sc.axis("phase_offset", [0.0, 0.5], unit="rad"),
+                )
+            )
+            .preview()
+        )
+
+    assert error.value.diagnostics[0].code == "scan_group_mixed_override"
+
+
+def test_workspace_experiment_builder_supports_active_center_scan(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -405,11 +495,11 @@ def test_workspace_experiment_builder_supports_active_center_sweep(
     )
     experiment = (
         lab.experiment("active centered scan")
-        .sweep("drive_frequency", around="active", span="200 MHz", points=3)
+        .scan("drive_frequency", span="200 MHz", points=3)
         .measure("signal")
     )
 
-    preview = lab.preview(experiment)
+    preview = experiment.preview()
 
     planned_frequencies = [
         point.coordinates["drive_frequency"] for point in preview.points
@@ -432,12 +522,12 @@ def test_workspace_experiment_builder_defines_complete_experiment(
     experiment = (
         lab.experiment("complete scripted scan")
         .resource("source", requires=("set_frequency",))
-        .sweep("drive_frequency", around="active", span="200 MHz", points=3)
+        .scan("drive_frequency", span="200 MHz", points=3)
         .bind("source.set_frequency.frequency", sc.var("drive_frequency"))
         .record("signal", resource="source")
     )
 
-    run = lab.run(experiment)
+    run = experiment.run()
 
     assert run.manifest.status == "completed"
     assert run.preview.state_changes[0].resource == "source"
@@ -465,25 +555,18 @@ def test_workspace_module_can_be_composed(
         .build()
     )
 
-    run = lab.run(
+    run = (
         lab.experiment("composed signal scan")
         .use(signal_scan)
-        .sweep("drive_frequency", around="active", span="200 MHz", points=3)
+        .scan("drive_frequency", span="200 MHz", points=3)
         .record_product("signal")
+        .run()
     )
 
     assert run.manifest.status == "completed"
     assert run.record_json("execution-summary").content["experiment_id"] == (
         "composed-signal-scan"
     )
-
-
-def test_reusable_module_has_no_workspace_shape_methods() -> None:
-    builder = sc.module("workspace.bad_scan")
-
-    assert not hasattr(builder, "sweep")
-    assert not hasattr(builder, "points")
-    assert not hasattr(builder, "record_product")
 
 
 def test_run_analysis_collects_notebook_outputs_and_candidate_config(
@@ -494,7 +577,7 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
     raw = run.data().measurements()
 
     analysis = (
@@ -544,7 +627,7 @@ def test_run_analysis_persists_output_artifacts(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
     source_report = tmp_path / "fit-report.html"
     source_report.write_text("<h1>fit</h1>\n")
 
@@ -611,7 +694,7 @@ def test_run_analysis_persists_owned_artifacts(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
     source = tmp_path / "source-report.html"
     source.write_text("<h1>source</h1>\n")
 
@@ -675,7 +758,7 @@ def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
 
     with pytest.raises(ValidationFailed) as duplicate_id:
         (
@@ -727,7 +810,7 @@ def test_analysis_artifacts_dedupe_sources_and_feed_overview(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
 
     saved = (
         run.analysis("manual source review")
@@ -763,7 +846,7 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
         instrument_provider=TestSignalInstrumentProvider(),
     )
     experiment = load_experiment()
-    baseline = lab.run(experiment)
+    baseline = lab.prepare(experiment).run()
     analysis = (
         baseline.analysis("gui review")
         .input("raw-measurements", expected_kind="measurement_dataset")
@@ -782,7 +865,7 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     )
     saved = analysis.save()
     candidate = analysis.candidate_config()
-    follow_up = lab.run(experiment, config=candidate)
+    follow_up = lab.prepare(experiment, config=candidate).run()
     comparison = lab.compare(baseline, follow_up, observable="signal")
     overview = baseline.overview()
 
@@ -833,7 +916,7 @@ def test_analysis_rejects_invalid_notebook_payloads(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
 
     with pytest.raises(ValidationFailed) as error:
         action(run.analysis("manual review"))
@@ -869,7 +952,7 @@ def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.run(load_experiment())
+    run = lab.prepare(load_experiment()).run()
     step: sc.AnalysisStep = ReadoutFit()
 
     analysis = run.analyze(step)

@@ -9,29 +9,38 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
 
-from scopecat.authoring.context import (
-    AroundSweep,
-)
 from scopecat.authoring.expressions import (
     Expression,
 )
 from scopecat.experiments import (
+    ParameterScanAxis,
     RunRequest,
-    RunSweep,
+    ScanAxis,
+    ScanGroup,
+    ScanItem,
+    axis,
 )
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.parameters import ParameterDerivationSet
-from scopecat.relations import ScalarExpr
+from scopecat.relations import ScalarExpr, param
 
 if TYPE_CHECKING:
     from scopecat.authoring.assembly import (
         ExperimentAssembly,
+        ExperimentModule,
+        ModuleBuilder,
+        ProductSelectionIntent,
     )
+
+    type TemplateSource = ExperimentModule | ModuleBuilder
+    type TemplateRecordSelection = ProductSelectionIntent
+else:
+    type TemplateSource = object
+    type TemplateRecordSelection = object
 
 type TemplateBuild = Callable[..., object]
 type ConfigProfileInput = str | Path | ConfigProfileSnapshot
-type TemplateSource = object
 
 
 def _object_dict() -> dict[str, object]:
@@ -53,9 +62,11 @@ class ExperimentTemplate:
     id: str
     experiment_id: str | None = None
     kind: str | None = None
-    sources: Sequence[TemplateSource] = ((),)
+    sources: Sequence[TemplateSource] = ()
+    record_selections: tuple[TemplateRecordSelection, ...] = ()
     inputs: tuple[InputDescription, ...] = ()
     defaults: dict[str, object] = field(default_factory=_object_dict)
+    default_scans: tuple[ScanItem, ...] = ()
     parameter_derivations: ParameterDerivationSet | None = None
     label: str | None = None
     description: str | None = None
@@ -72,9 +83,6 @@ class ExperimentTemplate:
             msg = "experiment template sources require kind"
             raise ValueError(msg)
 
-    def __call__(self, **inputs: object) -> ExperimentInvocation:
-        return self.bind(**inputs)
-
     def bind(self, **inputs: object) -> ExperimentInvocation:
         return ExperimentInvocation(
             compile=_source_template_compile(self),
@@ -86,23 +94,9 @@ class ExperimentTemplate:
             ),
             defaults=self.defaults,
             input_descriptions=self.inputs,
+            default_scans=self.default_scans,
             parameter_derivations=self.parameter_derivations,
             template=self,
-        )
-
-    def scan(
-        self,
-        parameter_id: str,
-        *,
-        span: Expression | Quantity,
-        points: int,
-        input_id: str | None = None,
-    ) -> ExperimentInvocation:
-        return self.bind().scan(
-            parameter_id,
-            span=span,
-            points=points,
-            input_id=input_id,
         )
 
 
@@ -111,7 +105,8 @@ class ExperimentInvocation:
     compile: TemplateBuild
     request: RunRequest
     build_inputs: dict[str, object] = field(default_factory=_object_dict)
-    runtime_sweeps: tuple[RunSweep, ...] = ()
+    scans: tuple[ScanItem, ...] = ()
+    default_scans: tuple[ScanItem, ...] = ()
     defaults: dict[str, object] = field(default_factory=_object_dict)
     input_descriptions: tuple[InputDescription, ...] = ()
     parameter_derivations: ParameterDerivationSet | None = None
@@ -132,42 +127,25 @@ class ExperimentInvocation:
 
     def scan(
         self,
-        parameter_id: str,
+        target: str | ScanItem,
+        values: Sequence[object] = (),
         *,
-        span: Expression | Quantity,
-        points: int,
+        unit: str | None = None,
+        center: ScalarExpr | None = None,
+        span: Expression | Quantity | str | None = None,
+        points: int | None = None,
         input_id: str | None = None,
     ) -> ExperimentInvocation:
-        selected = AroundSweep(parameter_id=parameter_id, span=span, points=points)
-        return self._with_scan_input(input_id or parameter_id, selected)
-
-    def extra(self, *sweeps: RunSweep) -> ExperimentInvocation:
-        return replace(self, runtime_sweeps=(*self.runtime_sweeps, *sweeps))
-
-    def _with_scan_input(
-        self,
-        input_id: str,
-        selected: AroundSweep,
-    ) -> ExperimentInvocation:
-        bound = self.bind(**{input_id: selected})
-        request = bound.request
-        point_axes = dict(request.point_axes)
-        parameter_sweeps = [
-            record
-            for record in request.parameter_sweeps
-            if record.get("parameter_id") != selected.parameter_id
-        ]
-        record = _around_sweep_request_record(selected)
-        point_axes[selected.parameter_id] = record
-        parameter_sweeps.append(record)
-        return bound._replace_request(
-            request.model_copy(
-                update={
-                    "point_axes": point_axes,
-                    "parameter_sweeps": parameter_sweeps,
-                }
-            )
+        selected = _scan_item(
+            target,
+            values,
+            unit=unit,
+            center=center,
+            span=span,
+            points=points,
+            input_id=input_id,
         )
+        return replace(self, scans=(*self.scans, selected))
 
     def _replace_request(self, request: RunRequest) -> ExperimentInvocation:
         return replace(self, request=request)
@@ -177,7 +155,7 @@ class ExperimentInvocation:
 class TemplateBuilder:
     """Fluent builder for reusable experiment shapes.
 
-    Templates sit above modules because sweeps and product selection are part
+    Templates sit above modules because scans and product selection are part
     of an experiment shape, not a reusable component. Keeping those choices
     here lets the same module participate in multiple calibrated workflows.
     """
@@ -186,8 +164,10 @@ class TemplateBuilder:
     kind: str
     _experiment_id: str | None = None
     _sources: tuple[TemplateSource, ...] = ()
+    _record_selections: tuple[TemplateRecordSelection, ...] = ()
     _inputs: tuple[InputDescription, ...] = ()
     _defaults: dict[str, object] = field(default_factory=_object_dict)
+    _default_scans: tuple[ScanItem, ...] = ()
     _parameter_derivations: ParameterDerivationSet | None = None
     _label: str | None = None
     _description: str | None = None
@@ -201,9 +181,6 @@ class TemplateBuilder:
             msg = "experiment template kind must be non-empty"
             raise ValueError(msg)
 
-    def __call__(self, **inputs: object) -> ExperimentInvocation:
-        return self.bind(**inputs)
-
     def bind(self, **inputs: object) -> ExperimentInvocation:
         return self.build().bind(**inputs)
 
@@ -213,8 +190,10 @@ class TemplateBuilder:
             experiment_id=self._experiment_id,
             kind=self.kind,
             sources=self._sources,
+            record_selections=self._record_selections,
             inputs=self._inputs,
             defaults=self._defaults,
+            default_scans=self._default_scans,
             parameter_derivations=self._parameter_derivations,
             label=self._label,
             description=self._description,
@@ -225,30 +204,39 @@ class TemplateBuilder:
         return replace(self, _experiment_id=experiment_id)
 
     def use(self, *sources: TemplateSource) -> TemplateBuilder:
+        from scopecat.authoring.assembly import ExperimentModule, ModuleBuilder
+
+        for source in cast("tuple[object, ...]", sources):
+            if not isinstance(source, ExperimentModule | ModuleBuilder):
+                msg = "template use() accepts ExperimentModule or ModuleBuilder sources"
+                raise TypeError(msg)
         return replace(self, _sources=(*self._sources, *sources))
 
-    def points(self, *sources: TemplateSource) -> TemplateBuilder:
-        return self.use(*sources)
-
-    def scan_around(
+    def scan(
         self,
-        axis_id: str,
+        target: str | ScanItem,
+        values: Sequence[object] = (),
         *,
-        center: ScalarExpr,
-        span: Quantity,
-        points: int,
+        unit: str | None = None,
+        center: ScalarExpr | None = None,
+        span: Expression | Quantity | str | None = None,
+        points: int | None = None,
         input_id: str | None = None,
     ) -> TemplateBuilder:
-        from scopecat.authoring.assembly import around_points
-
-        return self.points(
-            around_points(
-                axis_id,
-                center=center,
-                default_span=span,
-                points=points,
-                input_id=input_id,
-            )
+        return replace(
+            self,
+            _default_scans=(
+                *self._default_scans,
+                _scan_item(
+                    target,
+                    values,
+                    unit=unit,
+                    center=center,
+                    span=span,
+                    points=points,
+                    input_id=input_id,
+                ),
+            ),
         )
 
     def input(
@@ -298,15 +286,19 @@ class TemplateBuilder:
             raise ValueError(msg)
         from scopecat.authoring.assembly import record_product
 
-        return self.use(
-            *(
-                record_product(
-                    product_id,
-                    record_id=record_id,
-                    metadata=metadata,
-                )
-                for product_id in product_ids
-            )
+        return replace(
+            self,
+            _record_selections=(
+                *self._record_selections,
+                *(
+                    record_product(
+                        product_id,
+                        record_id=record_id,
+                        metadata=metadata,
+                    )
+                    for product_id in product_ids
+                ),
+            ),
         )
 
     def parameter_derivations(
@@ -346,26 +338,26 @@ def template(
     )
 
 
-def around(
-    parameter_id: str,
-    *,
-    span: Expression | Quantity,
-    points: int,
-) -> AroundSweep:
-    return AroundSweep(parameter_id=parameter_id, span=span, points=points)
-
-
 def _source_template_compile(template: ExperimentTemplate) -> TemplateBuild:
     def assemble(**inputs: object) -> ExperimentAssembly:
-        from scopecat.authoring.assembly import ExperimentAssembly, ExperimentModule
-        from scopecat.authoring.resolution import compile_composed_source
+        from scopecat.authoring.assembly import (
+            ExperimentAssembly,
+            ExperimentModule,
+        )
 
         assemblies: list[ExperimentAssembly] = []
         for source in template.sources:
             if isinstance(source, ExperimentModule):
                 assemblies.append(source(**inputs).assemble())
             else:
-                assemblies.append(compile_composed_source(source))
+                assemblies.append(source.build()(**inputs).assemble())
+        if template.record_selections:
+            assemblies.append(
+                ExperimentAssembly(
+                    entity_inputs=(),
+                    record_selections=template.record_selections,
+                )
+            )
         return ExperimentAssembly.combine(
             experiment_id=template.experiment_id or template.id,
             kind=template.kind or template.id,
@@ -376,17 +368,59 @@ def _source_template_compile(template: ExperimentTemplate) -> TemplateBuild:
     return assemble
 
 
+def _scan_item(
+    target: str | ScanItem,
+    values: Sequence[object] = (),
+    *,
+    unit: str | None = None,
+    center: ScalarExpr | None = None,
+    span: Expression | Quantity | str | None = None,
+    points: int | None = None,
+    input_id: str | None = None,
+) -> ScanItem:
+    if isinstance(target, ScanAxis | ParameterScanAxis | ScanGroup):
+        if (
+            values
+            or unit is not None
+            or center is not None
+            or span is not None
+            or points is not None
+            or input_id is not None
+        ):
+            msg = "scan item cannot be combined with scan construction arguments"
+            raise ValueError(msg)
+        return target
+    if values:
+        if center is not None or span is not None or points is not None:
+            msg = "scan values cannot be combined with center/span/points"
+            raise ValueError(msg)
+        return axis(target, values=values, unit=unit, input_id=input_id)
+    if span is None or points is None:
+        msg = "scan requires values or span and points"
+        raise ValueError(msg)
+    return replace(
+        axis(
+            target,
+            center=center or param(target),
+            span=_scan_span_value(span),
+            points=points,
+            input_id=input_id,
+        ),
+        implicit_center=center is None,
+    )
+
+
+def _scan_span_value(value: Expression | Quantity | str) -> Quantity | str:
+    if isinstance(value, Quantity | str):
+        return value
+    if value.kind == "quantity" and value.quantity is not None:
+        return value.quantity
+    msg = "scan span must be a quantity literal"
+    raise ValueError(msg)
+
+
 def materialize_request_inputs(inputs: Mapping[str, object]) -> dict[str, object]:
     return {key: _request_value(value) for key, value in inputs.items()}
-
-
-def _around_sweep_request_record(sweep: AroundSweep) -> dict[str, object]:
-    return {
-        "parameter_id": sweep.parameter_id,
-        "around": "active",
-        "span": _request_value(sweep.span),
-        "points": sweep.points,
-    }
 
 
 def _request_value(value: object) -> object:
@@ -409,12 +443,10 @@ def _request_mapping(value: Mapping[object, object]) -> dict[str, object]:
 
 
 __all__ = [
-    "AroundSweep",
     "ExperimentInvocation",
     "ExperimentTemplate",
     "InputDescription",
     "TemplateBuilder",
-    "around",
     "materialize_request_inputs",
     "template",
 ]

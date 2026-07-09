@@ -164,7 +164,7 @@ class BestSignalAnalysisStep:
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
         raw = context.data.measurements(RAW_MEASUREMENTS_DATASET_ID)
-        parameter_id = _sweep_parameter_id(context.data.schema())
+        parameter_id = _scan_parameter_id(context.data.schema())
         old_value = _old_parameter_value(context.config, parameter_id)
         best_measurement = _best_signal_measurement(raw.dataset.records)
         proposed_value = _proposed_value(best_measurement, parameter_id)
@@ -232,7 +232,7 @@ class TestSignalAnalysisStep:
             diagnostic_path=input_ref,
             measurements=raw.dataset.records,
         )
-        parameter_id = _sweep_parameter_id(context.data.schema())
+        parameter_id = _scan_parameter_id(context.data.schema())
         best_measurement = _best_signal_measurement(raw.dataset.records)
         proposed_value = _proposed_value(best_measurement, parameter_id)
         return (
@@ -500,15 +500,15 @@ def _flatten_numeric_array_values(values: Sequence[object]) -> list[float]:
     return flattened
 
 
-def _sweep_parameter_id(schema: sc.MeasurementDatasetSchema) -> str:
+def _scan_parameter_id(schema: sc.MeasurementDatasetSchema) -> str:
     coordinate_ids = list(schema.primary_coordinates)
     if len(coordinate_ids) != 1 or not coordinate_ids[0]:
         raise ValidationFailed(
             [
                 _diagnostic(
                     "error",
-                    "missing_sweep_coordinate",
-                    "analysis requires exactly one sweep coordinate",
+                    "missing_scan_coordinate",
+                    "analysis requires exactly one scan coordinate",
                     BEST_SIGNAL_SCHEMA_REF,
                 )
             ]

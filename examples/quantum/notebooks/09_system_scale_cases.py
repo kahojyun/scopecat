@@ -15,26 +15,27 @@ workspace = notebook_workspace("09-system-scale-cases")
 lab = quantum_lab(workspace=workspace)
 
 # %%
-surface_code_preview = lab.preview(
-    TOY_SURFACE_CODE_ROUND_TEMPLATE,
-    inputs={"rounds": sc.Quantity(value=2.0, unit="count")},
-    name="system-scale toy surface-code round",
-    tags=("surface-code", "system"),
-    description="small stabilizer schedule with round and entity axes",
+surface_code_preview = (
+    lab.prepare(TOY_SURFACE_CODE_ROUND_TEMPLATE)
+    .input("rounds", sc.Quantity(value=2.0, unit="count"))
+    .preview(
+        name="system-scale toy surface-code round",
+        tags=("surface-code", "system"),
+        description="small stabilizer schedule with round and entity axes",
+    )
 )
 
 # %%
-backend_batch_preview = lab.preview(
-    BACKEND_BATCH_TEMPLATE,
-    inputs={
-        "logical_points": sc.Quantity(value=4.0, unit="count"),
-        "seed": 5,
-    },
-    name="system-scale backend batch",
-    tags=("backend", "system"),
-    description=(
-        "one logical run point containing backend logical points and return order"
-    ),
+backend_batch_preview = (
+    lab.prepare(BACKEND_BATCH_TEMPLATE)
+    .inputs(logical_points=sc.Quantity(value=4.0, unit="count"), seed=5)
+    .preview(
+        name="system-scale backend batch",
+        tags=("backend", "system"),
+        description=(
+            "one logical run point containing backend logical points and return order"
+        ),
+    )
 )
 
 # %%

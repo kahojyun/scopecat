@@ -61,14 +61,12 @@ from quantum_lab_demo.experiments.two_qubit_modules import (
 RABI_TEMPLATE = (
     sc.template(RABI_TEMPLATE_ID, kind="rabi")
     .experiment_id("rabi")
-    .points(
-        sc.around_points(
-            "drive_length",
-            center=qubit_param("rabi_pulse_length"),
-            default_span=sc.Quantity(value=80.0, unit="ns"),
-            points=5,
-            input_id="drive_length",
-        )
+    .scan(
+        "drive_length",
+        center=qubit_param("rabi_pulse_length"),
+        span=sc.Quantity(value=80.0, unit="ns"),
+        points=5,
+        input_id="drive_length",
     )
     .use(
         RABI_MODULE,
@@ -90,14 +88,12 @@ RABI_TEMPLATE = (
 SIMULTANEOUS_RABI_TEMPLATE = (
     sc.template(SIMULTANEOUS_RABI_TEMPLATE_ID, kind="simultaneous_rabi")
     .experiment_id("simultaneous-rabi")
-    .points(
-        sc.around_points(
-            "drive_length",
-            center=sc.input("center_length"),
-            default_span=sc.Quantity(value=60.0, unit="ns"),
-            points=5,
-            input_id="drive_length",
-        )
+    .scan(
+        "drive_length",
+        center=sc.input("center_length"),
+        span=sc.Quantity(value=60.0, unit="ns"),
+        points=5,
+        input_id="drive_length",
     )
     .use(
         SIMULTANEOUS_RABI_MODULE,
@@ -143,14 +139,12 @@ SIMULTANEOUS_RABI_TEMPLATE = (
 FLUX_BACKGROUND_RABI_TEMPLATE = (
     sc.template(FLUX_BACKGROUND_RABI_TEMPLATE_ID, kind="flux_background_rabi")
     .experiment_id("flux-background-rabi")
-    .points(
-        sc.around_points(
-            "drive_length",
-            center=qubit_param("rabi_pulse_length"),
-            default_span=sc.Quantity(value=80.0, unit="ns"),
-            points=5,
-            input_id="drive_length",
-        )
+    .scan(
+        "drive_length",
+        center=qubit_param("rabi_pulse_length"),
+        span=sc.Quantity(value=80.0, unit="ns"),
+        points=5,
+        input_id="drive_length",
     )
     .use(
         FLUX_BACKGROUND_MODULE,
@@ -187,14 +181,12 @@ FLUX_BACKGROUND_RABI_TEMPLATE = (
 SYSTEM_BACKGROUND_RABI_TEMPLATE = (
     sc.template(SYSTEM_BACKGROUND_RABI_TEMPLATE_ID, kind="system_background_rabi")
     .experiment_id("system-background-rabi")
-    .points(
-        sc.around_points(
-            "drive_length",
-            center=qubit_param("rabi_pulse_length"),
-            default_span=sc.Quantity(value=80.0, unit="ns"),
-            points=5,
-            input_id="drive_length",
-        )
+    .scan(
+        "drive_length",
+        center=qubit_param("rabi_pulse_length"),
+        span=sc.Quantity(value=80.0, unit="ns"),
+        points=5,
+        input_id="drive_length",
     )
     .use(
         SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE,
@@ -220,14 +212,12 @@ SYSTEM_BACKGROUND_RABI_TEMPLATE = (
 READOUT_TEMPLATE = (
     sc.template(READOUT_TEMPLATE_ID, kind="readout_frequency")
     .experiment_id("readout-frequency")
-    .points(
-        sc.around_points(
-            "readout_frequency",
-            center=qubit_param("readout_frequency"),
-            default_span=sc.Quantity(value=100.0, unit="MHz"),
-            points=5,
-            input_id="readout_frequency",
-        )
+    .scan(
+        "readout_frequency",
+        center=qubit_param("readout_frequency"),
+        span=sc.Quantity(value=100.0, unit="MHz"),
+        points=5,
+        input_id="readout_frequency",
     )
     .use(
         READOUT_MODULE,
@@ -274,14 +264,12 @@ MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
         kind="multiplexed_readout_calibration",
     )
     .experiment_id("multiplexed-readout-calibration")
-    .points(
-        sc.around_points(
-            "readout_frequency",
-            center=sc.input("center_frequency"),
-            default_span=sc.Quantity(value=120.0, unit="MHz"),
-            points=5,
-            input_id="readout_frequency",
-        )
+    .scan(
+        "readout_frequency",
+        center=sc.input("center_frequency"),
+        span=sc.Quantity(value=120.0, unit="MHz"),
+        points=5,
+        input_id="readout_frequency",
     )
     .use(
         MULTIPLEXED_READOUT_PULSE_MODULE,
@@ -321,14 +309,7 @@ MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
 SQG_RB_TEMPLATE = (
     sc.template(SQG_RB_TEMPLATE_ID, kind="sqg_rb")
     .experiment_id("sqg-rb")
-    .points(
-        sc.value_points(
-            "clifford_count",
-            (4, 8, 16),
-            unit="count",
-            input_id="lengths",
-        )
-    )
+    .scan("clifford_count", (4, 8, 16), unit="count", input_id="lengths")
     .use(
         SQG_RB_MODULE,
         READOUT_CAPTURE_MODULE,
@@ -350,14 +331,7 @@ SQG_RB_TEMPLATE = (
 CZ_RB_TEMPLATE = (
     sc.template(CZ_RB_TEMPLATE_ID, kind="cz_rb")
     .experiment_id("cz-rb")
-    .points(
-        sc.value_points(
-            "clifford_count",
-            (2, 4, 8),
-            unit="count",
-            input_id="lengths",
-        )
-    )
+    .scan("clifford_count", (2, 4, 8), unit="count", input_id="lengths")
     .use(
         CZ_RB_MODULE,
         READOUT_CAPTURE_MODULE,
@@ -387,19 +361,12 @@ CZ_RB_TEMPLATE = (
 CZ_CHEVRON_TEMPLATE = (
     sc.template(CZ_CHEVRON_TEMPLATE_ID, kind="cz_chevron")
     .experiment_id("cz-chevron")
-    .points(
-        sc.value_points(
-            "coupler_duration",
-            (24, 36, 48),
-            unit="ns",
-            input_id="durations",
-        ),
-        sc.value_points(
-            "coupler_amplitude",
-            (0.18, 0.24, 0.30),
-            unit="arb",
-            input_id="amplitudes",
-        ),
+    .scan("coupler_duration", (24, 36, 48), unit="ns", input_id="durations")
+    .scan(
+        "coupler_amplitude",
+        (0.18, 0.24, 0.30),
+        unit="arb",
+        input_id="amplitudes",
     )
     .use(
         CZ_CHEVRON_MODULE,
@@ -424,20 +391,8 @@ CZ_CHEVRON_TEMPLATE = (
 SPECTATOR_CZ_TEMPLATE = (
     sc.template(SPECTATOR_CZ_TEMPLATE_ID, kind="spectator_cz_calibration")
     .experiment_id("spectator-cz-calibration")
-    .points(
-        sc.value_points(
-            "coupler_duration",
-            (24, 36),
-            unit="ns",
-            input_id="durations",
-        ),
-        sc.value_points(
-            "coupler_amplitude",
-            (0.18, 0.24),
-            unit="arb",
-            input_id="amplitudes",
-        ),
-    )
+    .scan("coupler_duration", (24, 36), unit="ns", input_id="durations")
+    .scan("coupler_amplitude", (0.18, 0.24), unit="arb", input_id="amplitudes")
     .use(
         SPECTATOR_FLUX_BACKGROUND_MODULE,
         CZ_CHEVRON_MODULE,
@@ -481,14 +436,7 @@ SPECTATOR_CZ_TEMPLATE = (
 PARALLEL_GATE_SET_TEMPLATE = (
     sc.template(PARALLEL_GATE_SET_TEMPLATE_ID, kind="parallel_gate_set")
     .experiment_id("parallel-gate-set")
-    .points(
-        sc.value_points(
-            "gate_duration",
-            (28, 36),
-            unit="ns",
-            input_id="durations",
-        )
-    )
+    .scan("gate_duration", (28, 36), unit="ns", input_id="durations")
     .use(
         PARALLEL_GATE_SET_MODULE,
         MULTIPLEXED_READOUT_MODULE,

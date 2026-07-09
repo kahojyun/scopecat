@@ -12,26 +12,28 @@ from quantum_lab_demo.experiments import (
 # %%
 workspace = notebook_workspace("06-review-and-rerun")
 lab = quantum_lab(workspace=workspace)
-readout_inputs = {"qubit": "q0"}
 
 # %%
-baseline = lab.run(
-    READOUT_TEMPLATE,
-    inputs=readout_inputs,
-    name="readout frequency baseline",
-    tags=("notebook", "calibration", "baseline"),
+baseline = (
+    lab.prepare(READOUT_TEMPLATE)
+    .input("qubit", "q0")
+    .run(
+        name="readout frequency baseline",
+        tags=("notebook", "calibration", "baseline"),
+    )
 )
 analysis = baseline.analyze(ReadoutFrequencyAnalysisStep())
 saved_analysis = analysis.save()
 
 # %%
 candidate = analysis.candidate_config()
-follow_up = lab.run(
-    READOUT_TEMPLATE,
-    inputs=readout_inputs,
-    config=candidate,
-    name="readout frequency follow-up",
-    tags=("notebook", "calibration", "candidate"),
+follow_up = (
+    lab.prepare(READOUT_TEMPLATE, config=candidate)
+    .input("qubit", "q0")
+    .run(
+        name="readout frequency follow-up",
+        tags=("notebook", "calibration", "candidate"),
+    )
 )
 
 # %%

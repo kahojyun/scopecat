@@ -26,7 +26,7 @@ SIMPLE_FREQUENCY_SCAN = (
 
 
 def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
-    return simple_frequency_scan_template()(subject=subject)
+    return simple_frequency_scan_template().bind(subject=subject)
 
 
 def simple_frequency_scan_template() -> ExperimentTemplate:
@@ -36,13 +36,11 @@ def simple_frequency_scan_template() -> ExperimentTemplate:
             kind="simple_frequency_scan",
         )
         .experiment_id("session-test-frequency-scan")
-        .points(
-            authoring.around_points(
-                "drive_frequency",
-                center=param("drive_frequency"),
-                default_span=Quantity(value=200.0, unit="MHz"),
-                points=3,
-            )
+        .scan(
+            "drive_frequency",
+            center=param("drive_frequency"),
+            span=Quantity(value=200.0, unit="MHz"),
+            points=3,
         )
         .use(SIMPLE_FREQUENCY_SCAN)
         .label("Session test frequency scan")
@@ -57,7 +55,7 @@ def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
 
-    preview = lab.preview(load_experiment())
+    preview = lab.prepare(load_experiment()).preview()
 
     assert preview.point_count == 3
     assert preview.primary_observables == ("signal",)
@@ -73,7 +71,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     )
     experiment = load_experiment()
 
-    baseline = lab.run(experiment)
+    baseline = lab.prepare(experiment).run()
     raw = baseline.measurements()
     analysis = (
         baseline.analysis("manual best signal")
@@ -89,7 +87,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     )
     saved = analysis.save()
     candidate_config = analysis.candidate_config()
-    candidate = lab.run(experiment, config=candidate_config)
+    candidate = lab.prepare(experiment, config=candidate_config).run()
     comparison = lab.compare(baseline, candidate)
     comparison_review = comparison.review(state="accepted")
     overview = baseline.overview()
@@ -115,8 +113,7 @@ def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> N
     )
     event_kinds: list[str] = []
 
-    run = lab.run(
-        load_experiment(),
+    run = lab.prepare(load_experiment()).run(
         event_sink=lambda event: event_kinds.append(event.kind),
     )
 
@@ -136,7 +133,7 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
     )
     experiment = load_experiment()
 
-    baseline = lab.run(experiment)
+    baseline = lab.prepare(experiment).run()
     raw = baseline.measurements()
     analysis = baseline.analysis("manual center point").propose(
         "drive_frequency",
@@ -147,7 +144,7 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
         reason="manual center point",
     )
     candidate_config = analysis.candidate_config()
-    candidate = lab.run(experiment, config=candidate_config)
+    candidate = lab.prepare(experiment, config=candidate_config).run()
     comparison = lab.compare(baseline, candidate)
     review = comparison.review(state="accepted")
     overview = baseline.overview()

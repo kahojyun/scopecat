@@ -37,14 +37,11 @@ def simple_template() -> ExperimentTemplate:
     return (
         authoring.template("test.simple_scan", kind="simple_scan")
         .experiment_id("authored-simple-scan")
-        .points(
-            authoring.around_points(
-                "drive_frequency",
-                center=param("drive_frequency"),
-                default_span=Quantity(value=200.0, unit="MHz"),
-                points=5,
-                input_id="drive_frequency",
-            )
+        .scan(
+            "drive_frequency",
+            center=param("drive_frequency"),
+            span=Quantity(value=200.0, unit="MHz"),
+            points=5,
         )
         .use(SIMPLE_MODULE)
         .label("Simple scan")
