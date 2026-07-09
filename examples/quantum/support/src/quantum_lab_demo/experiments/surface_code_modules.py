@@ -83,7 +83,7 @@ TOY_SURFACE_CODE_ROUND_MODULE = (
         kind="pulse_program",
     )
     .bind("readout.acquire_iq.repetitions", sc.input("rounds"))
-    .as_module()
+    .build()
 )
 
 __all__ = [

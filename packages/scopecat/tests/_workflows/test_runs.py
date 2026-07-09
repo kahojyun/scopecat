@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import scopecat.authoring as authoring
 from scopecat._workflows.runs import preview_experiment, start_run
+from scopecat.models.parameter import Quantity
+from scopecat.relations import param
 from tests.support.authoring import SIMPLE_MODULE
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import load_config, load_experiment
@@ -34,10 +37,19 @@ def test_preview_and_start_run_use_separate_paths(
 
 def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> None:
     config = load_config()
-    experiment_template = SIMPLE_MODULE.template(
-        id="test.workflow_request_scan",
-        experiment_id="authored-simple-scan",
-        kind="simple_scan",
+    experiment_template = (
+        authoring.template("test.workflow_request_scan", kind="simple_scan")
+        .experiment_id("authored-simple-scan")
+        .points(
+            authoring.around_points(
+                "drive_frequency",
+                center=param("drive_frequency"),
+                default_span=Quantity(value=200.0, unit="MHz"),
+                points=5,
+            )
+        )
+        .use(SIMPLE_MODULE)
+        .build()
     )
     invocation = experiment_template(subject="q0")
 

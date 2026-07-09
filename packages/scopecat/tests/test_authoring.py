@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import inspect
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -9,7 +12,7 @@ from scopecat._workflows.config import register_and_activate_config_profile
 from scopecat.authoring import (
     resolve_experiment,
 )
-from scopecat.authoring.assembly import ExperimentAssembly
+from scopecat.authoring.assembly import ComputeNodeIntent, ExperimentAssembly
 from scopecat.authoring.resolution import _link_assembly
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import (
@@ -38,6 +41,78 @@ from tests.support.authoring import (
 from tests.support.experiment_preview import preview_contract, preview_result
 
 
+def _around_parameter_points(
+    parameter_id: str = "drive_frequency",
+    *,
+    points: int = 5,
+) -> authoring.AroundPointSourceIntent:
+    return authoring.around_points(
+        parameter_id,
+        center=param(parameter_id),
+        default_span=Quantity(value=200.0, unit="MHz"),
+        points=points,
+    )
+
+
+def _module_fixture(
+    *,
+    id: str,  # noqa: A002
+    entity_inputs: Sequence[str] = (),
+    resources: Sequence[authoring.ResourcePort] = (),
+    variables: Sequence[authoring.VariableIntent] = (),
+    bindings: Sequence[authoring.ExperimentBindingIntent] = (),
+    state_intents: Sequence[authoring.ExperimentStateIntent] = (),
+    compute_nodes: Sequence[ComputeNodeIntent] = (),
+    records: Sequence[authoring.RecordIntent] = (),
+    product_ports: Sequence[authoring.ModuleProductPort] = (),
+    parameter_derivations: ParameterDerivationSet | None = None,
+) -> authoring.ExperimentModule:
+    return authoring.ExperimentModule(
+        id=id,
+        entity_inputs=tuple(entity_inputs),
+        resource_ports=tuple(resources),
+        variables=tuple(variables),
+        bindings=tuple(bindings),
+        state_intents=tuple(state_intents),
+        compute_nodes=tuple(compute_nodes),
+        records=tuple(records),
+        product_ports=tuple(product_ports),
+        parameter_derivations=parameter_derivations,
+    )
+
+
+def _template_invocation(
+    *sources: object,
+    id: str,  # noqa: A002
+    kind: str,
+    experiment_id: str | None = None,
+    metadata: Mapping[str, object] | None = None,
+) -> authoring.ExperimentInvocation:
+    template = authoring.template(id, kind=kind).use(*sources)
+    if experiment_id is not None:
+        template = template.experiment_id(experiment_id)
+    if metadata is not None:
+        template = template.metadata(**metadata)
+    return template.bind()
+
+
+def test_authoring_facade_hides_workspace_experiment_builder() -> None:
+    assert not hasattr(authoring, "WorkspaceExperimentBuilder")
+    assert not hasattr(authoring, "workspace_experiment_builder")
+    assert not hasattr(authoring, "build_internal_module")
+    assert not hasattr(authoring, "module_builder")
+    assert not hasattr(authoring, "compose")
+
+
+def test_module_constructor_has_no_workspace_shape_parameters() -> None:
+    signature = inspect.signature(authoring.module)
+
+    assert "points" not in signature.parameters
+    assert "record_selections" not in signature.parameters
+    assert "_allow_experiment_shape" not in signature.parameters
+    assert authoring.module("test.module").build().id == "test.module"
+
+
 def test_module_invocation_resolves_roles_sweeps_bindings_and_metadata() -> None:
     resolved = resolve_experiment(
         simple_template()(subject="q0"),
@@ -50,7 +125,7 @@ def test_module_invocation_resolves_roles_sweeps_bindings_and_metadata() -> None
     assert isinstance(experiment, ExperimentSpec)
     assert experiment.id == "authored-simple-scan"
     assert experiment.kind == "simple_scan"
-    assert experiment.metadata == {"assembled_by": "module"}
+    assert experiment.metadata == {"assembled_by": "template"}
     preview = preview_contract(experiment, _parameter_view(), config=load_config())
 
     assert preview.coordinate_ids == ("drive_frequency",)
@@ -67,25 +142,28 @@ def test_module_invocation_resolves_roles_sweeps_bindings_and_metadata() -> None
 
 def test_template_selects_module_products_as_records() -> None:
     module = (
-        authoring.module_builder("test.product_module")
+        authoring.module("test.product_module")
         .entity("subject")
         .resource("source", requires=("set_frequency",))
         .product("signal", resource="source", unit="ratio")
-        .as_module()
+        .build()
     )
     points = grid(drive_frequency=linspace(4.9, 5.1, 3, unit="GHz"))
 
-    without_selection = authoring.template(
-        id="test.product_unselected",
-        experiment_id="product-unselected",
-        kind="product_test",
-        sources=(points, module),
+    without_selection = (
+        authoring.template("test.product_unselected", kind="product_test")
+        .experiment_id("product-unselected")
+        .points(points)
+        .use(module)
+        .build()
     )
-    with_selection = authoring.template(
-        id="test.product_selected",
-        experiment_id="product-selected",
-        kind="product_test",
-        sources=(points, module, authoring.record_product("signal")),
+    with_selection = (
+        authoring.template("test.product_selected", kind="product_test")
+        .experiment_id("product-selected")
+        .points(points)
+        .use(module)
+        .record_product("signal")
+        .build()
     )
 
     unselected = resolve_experiment(
@@ -104,12 +182,22 @@ def test_template_selects_module_products_as_records() -> None:
     assert selected.experiment.records[0].metadata == {"product_id": "signal"}
 
 
+def test_template_constructor_style_is_removed() -> None:
+    template_fn = cast(Any, authoring.template)
+    with pytest.raises(TypeError):
+        template_fn(
+            id="test.removed_constructor_style",
+            kind="removed",
+            sources=(grid(index=[0]),),
+        )
+
+
 def test_compute_inputs_keep_template_input_provenance() -> None:
     def build_program(**inputs: object) -> dict[str, object]:
         return dict(inputs)
 
     module = (
-        authoring.module_builder("test.compute_provenance")
+        authoring.module("test.compute_provenance")
         .input("qubit", kind="entity")
         .input("pulse_length", kind="quantity")
         .resource("drive", requires=("play_pulse_program",))
@@ -127,14 +215,14 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
             },
         )
         .bind_compute("drive.play_pulse_program.program", "build-program", kind="pulse")
-        .as_module()
+        .build()
     )
-    template = authoring.template(
-        id="test.compute_provenance",
-        experiment_id="compute-provenance",
-        kind="compute_provenance",
-        sources=(module,),
-        defaults={"pulse_length": Quantity(value=20.0, unit="ns")},
+    template = (
+        authoring.template("test.compute_provenance", kind="compute_provenance")
+        .experiment_id("compute-provenance")
+        .use(module)
+        .defaults(pulse_length=Quantity(value=20.0, unit="ns"))
+        .build()
     )
 
     resolved = resolve_experiment(
@@ -151,20 +239,18 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
 
 def test_template_can_sweep_entity_points_without_subject_special_case() -> None:
     module = (
-        authoring.module_builder("test.entity_sweep_module")
+        authoring.module("test.entity_sweep_module")
         .input("qubit", kind="entity")
         .product("signal", resource="source", unit="ratio")
-        .as_module()
+        .build()
     )
-    template = authoring.template(
-        id="test.entity_sweep",
-        experiment_id="entity-sweep",
-        kind="entity_sweep",
-        sources=(
-            authoring.entity_points("qubit", ["q0"]),
-            module,
-            authoring.record_product("signal"),
-        ),
+    template = (
+        authoring.template("test.entity_sweep", kind="entity_sweep")
+        .experiment_id("entity-sweep")
+        .points(authoring.entity_points("qubit", ["q0"]))
+        .use(module)
+        .record_product("signal")
+        .build()
     )
 
     resolved = resolve_experiment(
@@ -238,7 +324,7 @@ def test_entity_sweep_routes_resources_per_point() -> None:
     )
     config = seed_config.model_copy(update={"system": system})
     module = (
-        authoring.module_builder("test.entity_sweep_routing")
+        authoring.module("test.entity_sweep_routing")
         .entity("qubit")
         .resource(
             "drive",
@@ -246,17 +332,15 @@ def test_entity_sweep_routes_resources_per_point() -> None:
         )
         .bind("drive.set_frequency.frequency", Quantity(value=5.0, unit="GHz"))
         .product("signal", resource="drive", unit="ratio")
-        .as_module()
+        .build()
     )
-    template = authoring.template(
-        id="test.entity_sweep_routing",
-        experiment_id="entity-sweep-routing",
-        kind="entity_sweep_routing",
-        sources=(
-            authoring.entity_points("qubit", ["q0", "q1"]),
-            module,
-            authoring.record_product("signal"),
-        ),
+    template = (
+        authoring.template("test.entity_sweep_routing", kind="entity_sweep_routing")
+        .experiment_id("entity-sweep-routing")
+        .points(authoring.entity_points("qubit", ["q0", "q1"]))
+        .use(module)
+        .record_product("signal")
+        .build()
     )
 
     resolved = resolve_experiment(
@@ -376,7 +460,7 @@ def test_runtime_entity_sweep_feeds_routing_and_parameter_lookup() -> None:
         update={"system": system, "parameter_state": parameter_state}
     )
     module = (
-        authoring.module_builder("test.runtime_entity_sweep")
+        authoring.module("test.runtime_entity_sweep")
         .entity("qubit")
         .resource(
             "drive",
@@ -391,13 +475,14 @@ def test_runtime_entity_sweep_feeds_routing_and_parameter_lookup() -> None:
             ),
         )
         .product("signal", resource="drive", unit="ratio")
-        .as_module()
+        .build()
     )
-    template = authoring.template(
-        id="test.runtime_entity_sweep",
-        experiment_id="runtime-entity-sweep",
-        kind="runtime_entity_sweep",
-        sources=(module, authoring.record_product("signal")),
+    template = (
+        authoring.template("test.runtime_entity_sweep", kind="runtime_entity_sweep")
+        .experiment_id("runtime-entity-sweep")
+        .use(module)
+        .record_product("signal")
+        .build()
     )
 
     resolved = resolve_experiment(
@@ -489,16 +574,18 @@ def test_runtime_entity_sweep_can_drive_dependent_default_point_source() -> None
         update={"system": system, "parameter_state": parameter_state}
     )
     module = (
-        authoring.module_builder("test.runtime_entity_dependent_points")
+        authoring.module("test.runtime_entity_dependent_points")
         .entity("qubit")
         .product("signal", unit="ratio")
-        .as_module()
+        .build()
     )
-    template = authoring.template(
-        id="test.runtime_entity_dependent_points",
-        experiment_id="runtime-entity-dependent-points",
-        kind="runtime_entity_dependent_points",
-        sources=(
+    template = (
+        authoring.template(
+            "test.runtime_entity_dependent_points",
+            kind="runtime_entity_dependent_points",
+        )
+        .experiment_id("runtime-entity-dependent-points")
+        .points(
             authoring.around_points(
                 "drive_length",
                 center=param(
@@ -508,10 +595,11 @@ def test_runtime_entity_sweep_can_drive_dependent_default_point_source() -> None
                 ),
                 default_span=Quantity(value=20.0, unit="ns"),
                 points=3,
-            ),
-            module,
-            authoring.record_product("signal"),
-        ),
+            )
+        )
+        .use(module)
+        .record_product("signal")
+        .build()
     )
 
     resolved = resolve_experiment(
@@ -540,7 +628,7 @@ def test_runtime_entity_sweep_can_drive_dependent_default_point_source() -> None
 
 def test_entity_array_input_can_define_record_axis() -> None:
     module = (
-        authoring.module_builder("test.entity_array_axis_module")
+        authoring.module("test.entity_array_axis_module")
         .input("qubits", kind="entity_array")
         .product(
             "iq",
@@ -548,13 +636,14 @@ def test_entity_array_input_can_define_record_axis() -> None:
             dtype="complex128",
             axes=(authoring.entity_axis("qubit", authoring.input_ref("qubits")),),
         )
-        .as_module()
+        .build()
     )
-    template = authoring.template(
-        id="test.entity_array_axis",
-        experiment_id="entity-array-axis",
-        kind="entity_array_axis",
-        sources=(module, authoring.record_product("iq")),
+    template = (
+        authoring.template("test.entity_array_axis", kind="entity_array_axis")
+        .experiment_id("entity-array-axis")
+        .use(module)
+        .record_product("iq")
+        .build()
     )
 
     resolved = resolve_experiment(
@@ -605,7 +694,7 @@ def test_entity_array_routes_as_single_point_with_ordered_product_axis() -> None
     )
     config = seed_config.model_copy(update={"system": system})
     module = (
-        authoring.module_builder("test.entity_array_routing")
+        authoring.module("test.entity_array_routing")
         .input("qubits", kind="entity_array")
         .resource(
             "readout",
@@ -617,13 +706,14 @@ def test_entity_array_routes_as_single_point_with_ordered_product_axis() -> None
             dtype="complex128",
             axes=(authoring.entity_axis("qubit", authoring.input_ref("qubits")),),
         )
-        .as_module()
+        .build()
     )
-    template = authoring.template(
-        id="test.entity_array_routing",
-        experiment_id="entity-array-routing",
-        kind="entity_array_routing",
-        sources=(module, authoring.record_product("iq")),
+    template = (
+        authoring.template("test.entity_array_routing", kind="entity_array_routing")
+        .experiment_id("entity-array-routing")
+        .use(module)
+        .record_product("iq")
+        .build()
     )
 
     resolved = resolve_experiment(
@@ -662,10 +752,11 @@ def test_module_invocation_compiles_to_assembly_without_config_or_request() -> N
 
 def test_link_assembly_resolves_config_dependent_fragments() -> None:
     source = SIMPLE_MODULE(subject="q0").assemble()
+    points = ExperimentAssembly(point_source=_around_parameter_points())
     assembly = ExperimentAssembly.combine(
         experiment_id="authored-simple-scan",
         kind="simple_scan",
-        assemblies=(source,),
+        assemblies=(points, source),
     ).with_invocation(
         request=RunRequest(
             id="simple.request",
@@ -690,17 +781,12 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
 
 
 def test_short_authoring_helpers_lower_to_plan() -> None:
-    module = authoring.module(
+    module = _module_fixture(
         id="test.short_helpers",
         resources=[
             authoring.resource_port("source", authoring.requires("set_frequency")),
         ],
         variables=[
-            authoring.sweep(
-                "drive_frequency",
-                default_span=Quantity(value=200.0, unit="MHz"),
-                points=5,
-            ),
             authoring.derive(
                 "drive_detuning",
                 authoring.var_ref("drive_frequency")
@@ -717,7 +803,8 @@ def test_short_authoring_helpers_lower_to_plan() -> None:
     )
 
     resolved = resolve_experiment(
-        authoring.compose(
+        _template_invocation(
+            _around_parameter_points(),
             module(subject="q0"),
             id="test.short_helpers",
             experiment_id="short-helper-scan",
@@ -733,8 +820,8 @@ def test_short_authoring_helpers_lower_to_plan() -> None:
     assert preview.state_changes[0].field == "set_frequency.frequency"
 
 
-def test_compose_merges_shared_resource_port_capabilities() -> None:
-    pulse = authoring.module(
+def test_template_composition_merges_shared_resource_port_capabilities() -> None:
+    pulse = _module_fixture(
         id="test.shared_resource.pulse",
         resources=[
             authoring.resource_port("source", authoring.requires("set_frequency")),
@@ -746,7 +833,7 @@ def test_compose_merges_shared_resource_port_capabilities() -> None:
             )
         ],
     )
-    records = authoring.module(
+    records = _module_fixture(
         id="test.shared_resource.records",
         entity_inputs=(),
         resources=[
@@ -755,7 +842,7 @@ def test_compose_merges_shared_resource_port_capabilities() -> None:
         records=[authoring.observable("signal", resource="source", unit="ratio")],
     )
 
-    compiled = authoring.compose(
+    compiled = _template_invocation(
         pulse(subject="q0"),
         records,
         id="test.shared_resource",
@@ -772,15 +859,15 @@ def test_compose_merges_shared_resource_port_capabilities() -> None:
     )
 
 
-def test_compose_rejects_duplicate_record_ids() -> None:
-    first = authoring.module(
+def test_template_composition_rejects_duplicate_record_ids() -> None:
+    first = _module_fixture(
         id="test.duplicate_record.first",
         resources=[
             authoring.resource_port("source", authoring.requires("set_frequency")),
         ],
         records=[authoring.observable("signal", resource="source", unit="ratio")],
     )
-    second = authoring.module(
+    second = _module_fixture(
         id="test.duplicate_record.second",
         entity_inputs=(),
         records=[authoring.observable("signal", resource="source", unit="ratio")],
@@ -788,7 +875,7 @@ def test_compose_rejects_duplicate_record_ids() -> None:
 
     with pytest.raises(ValidationFailed) as error:
         resolve_experiment(
-            authoring.compose(
+            _template_invocation(
                 first(subject="q0"),
                 second,
                 id="test.duplicate_record",
@@ -827,17 +914,10 @@ def test_combined_module_parameter_derivations_chain_in_order() -> None:
             ],
         ),
     )
-    main = authoring.module(
+    main = _module_fixture(
         id="test.combined",
         resources=[
             authoring.resource_port("source", authoring.requires("set_frequency")),
-        ],
-        variables=[
-            authoring.sweep(
-                "drive_final",
-                default_span=Quantity(value=200.0, unit="MHz"),
-                points=5,
-            )
         ],
         bindings=[
             authoring.bind(
@@ -849,7 +929,12 @@ def test_combined_module_parameter_derivations_chain_in_order() -> None:
     assembly = ExperimentAssembly.combine(
         experiment_id="combined-scan",
         kind="simple_scan",
-        assemblies=(first, second, main),
+        assemblies=(
+            first,
+            second,
+            ExperimentAssembly(point_source=_around_parameter_points("drive_final")),
+            main,
+        ),
     ).with_invocation(
         request=RunRequest(
             id="combined.request",
@@ -883,7 +968,7 @@ def test_combined_module_parameter_derivations_chain_in_order() -> None:
     )
 
 
-def test_compose_runs_module_sources_directly() -> None:
+def test_template_invocation_runs_module_sources_directly() -> None:
     derived = ExperimentAssembly(
         entity_inputs=(),
         parameter_derivations=ParameterDerivationSet(
@@ -897,18 +982,11 @@ def test_compose_runs_module_sources_directly() -> None:
             ],
         ),
     )
-    scan = authoring.module(
+    scan = _module_fixture(
         id="test.scripted_source_scan",
         resources=[
             authoring.resource_port("source", authoring.requires("set_frequency")),
         ],
-        points=grid(
-            drive_frequency=linspace(
-                param("drive_final") - Quantity(value=100.0, unit="MHz"),
-                param("drive_final") + Quantity(value=100.0, unit="MHz"),
-                5,
-            )
-        ),
         bindings=[
             authoring.bind(
                 "source.set_frequency.frequency",
@@ -919,8 +997,14 @@ def test_compose_runs_module_sources_directly() -> None:
     )
 
     resolved = resolve_experiment(
-        authoring.compose(
+        _template_invocation(
             derived,
+            authoring.around_points(
+                "drive_frequency",
+                center=param("drive_final"),
+                default_span=Quantity(value=200.0, unit="MHz"),
+                points=5,
+            ),
             scan(subject="q0"),
             id="test.scripted_scan",
             kind="simple_scan",
@@ -945,17 +1029,10 @@ def test_compose_runs_module_sources_directly() -> None:
 
 
 def test_module_parameter_derivations_feed_authoring_and_planning() -> None:
-    module = authoring.module(
+    module = _module_fixture(
         id="test.derived_parameters",
         resources=[
             authoring.resource_port("source", authoring.requires("set_frequency")),
-        ],
-        variables=[
-            authoring.sweep(
-                "drive_frequency",
-                default_span=Quantity(value=200.0, unit="MHz"),
-                points=5,
-            )
         ],
         bindings=[
             authoring.bind(
@@ -976,7 +1053,8 @@ def test_module_parameter_derivations_feed_authoring_and_planning() -> None:
     )
 
     resolved = resolve_experiment(
-        authoring.compose(
+        _template_invocation(
+            _around_parameter_points(),
             module(subject="q0"),
             id="test.derived_parameters",
             experiment_id="derived-parameter-scan",
@@ -1007,16 +1085,15 @@ def test_module_parameter_derivations_feed_authoring_and_planning() -> None:
 
 
 def test_link_assembly_reports_duplicate_variables() -> None:
-    module = authoring.module(
+    module = _module_fixture(
         id="test.duplicate_variables",
         resources=[
             authoring.resource_port("source", authoring.requires("set_frequency")),
         ],
         variables=[
-            authoring.sweep(
+            authoring.variable(
                 "drive_frequency",
-                default_span=Quantity(value=200.0, unit="MHz"),
-                points=5,
+                authoring.param_ref("drive_frequency"),
             ),
             authoring.variable(
                 "drive_frequency",
@@ -1027,7 +1104,7 @@ def test_link_assembly_reports_duplicate_variables() -> None:
 
     with pytest.raises(ValidationFailed) as error:
         resolve_experiment(
-            authoring.compose(
+            _template_invocation(
                 module(subject="q0"),
                 id="test.duplicate_variables",
                 experiment_id="duplicate-variable-scan",
@@ -1041,17 +1118,10 @@ def test_link_assembly_reports_duplicate_variables() -> None:
 
 
 def test_module_uses_record_axes() -> None:
-    module = authoring.module(
+    module = _module_fixture(
         id="test.record_axes",
         resources=[
             authoring.resource_port("source", authoring.requires("set_frequency")),
-        ],
-        variables=[
-            authoring.sweep(
-                "drive_frequency",
-                default_span=Quantity(value=200.0, unit="MHz"),
-                points=5,
-            )
         ],
         bindings=[
             authoring.bind(
@@ -1073,7 +1143,8 @@ def test_module_uses_record_axes() -> None:
     )
 
     resolved = resolve_experiment(
-        authoring.compose(
+        _template_invocation(
+            _around_parameter_points(),
             module(subject="q0"),
             id="test.record_axes",
             experiment_id="record-axes-scan",
@@ -1091,13 +1162,13 @@ def test_module_uses_record_axes() -> None:
 
 
 def test_module_invocation_resolves_multiple_entity_inputs() -> None:
-    module = authoring.module(
+    module = _module_fixture(
         id="test.multi_entity",
         entity_inputs=("device", "drive_channel"),
     )
 
     resolved = resolve_experiment(
-        authoring.compose(
+        _template_invocation(
             module(device="q0", drive_channel="drive-q0"),
             id="test.multi_entity",
             experiment_id="authored-multi-entity",
@@ -1163,22 +1234,24 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     )
     config = seed_config.model_copy(update={"system": system})
     module = (
-        authoring.module_builder("test.entity_routed_resource")
+        authoring.module("test.entity_routed_resource")
         .entity("qubit")
         .resource(
             "drive",
             requires=authoring.requires("set_frequency", for_entities=("qubit",)),
         )
         .bind("drive.set_frequency.frequency", param("drive_frequency"))
-        .as_module()
+        .build()
     )
 
     resolved = resolve_experiment(
-        authoring.template(
-            id="test.entity_routed_resource",
-            experiment_id="entity-routed-resource",
-            kind="entity_routed_resource",
-            sources=(module,),
+        (
+            authoring.template(
+                "test.entity_routed_resource",
+                kind="entity_routed_resource",
+            )
+            .experiment_id("entity-routed-resource")
+            .use(module)
         )(qubit="q1"),
         workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
@@ -1245,21 +1318,20 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
         update={"system": system, "parameter_state": parameter_state}
     )
     background = (
-        authoring.module_builder("test.background_flux")
+        authoring.module("test.background_flux")
         .state_table(
             "flux_bias",
             field="set_offset.offset",
             value_column="offset",
         )
-        .as_module()
+        .build()
     )
 
     resolved = resolve_experiment(
-        authoring.template(
-            id="test.background_flux",
-            experiment_id="background-flux",
-            kind="background_flux",
-            sources=(background,),
+        (
+            authoring.template("test.background_flux", kind="background_flux")
+            .experiment_id("background-flux")
+            .use(background)
         )(),
         workspace=Path("/tmp/scopecat-test"),
         config_profile=config,

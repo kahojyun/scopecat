@@ -35,9 +35,17 @@ lab = sc.open(
     instrument_provider=provider,
 )
 
-experiment = lab.experiment("readout frequency", source=readout_frequency_spec)
-
-run = lab.run(experiment)
+plan = (
+    lab.prepare(readout_frequency_template)
+    .input("qubit", "q0")
+    .scan(
+        "readout_frequency",
+        span=sc.Quantity(value=100.0, unit="MHz"),
+        points=21,
+    )
+)
+preview = plan.preview()
+run = plan.run(name="readout frequency")
 raw = run.data().measurements()
 run.attach(
     key="notebook",
@@ -50,24 +58,34 @@ analysis = (
     .input("raw-measurements", expected_kind="measurement_dataset")
     .input("notebook", role="notes", expected_kind="attachment")
     .propose(
-        "drive_frequency",
-        sc.set_param("drive_frequency", sc.Quantity(5.5, "GHz")),
+        "readout_frequency",
+        sc.set_param("readout_frequency", sc.Quantity(value=5.5, unit="GHz")),
         reason="lowest S21 point in the readout sweep",
     )
 )
 analysis.save()
 
 candidate = analysis.candidate_config()
-next_run = lab.run(experiment, config=candidate)
+next_run = (
+    lab.prepare(readout_frequency_template, config=candidate)
+    .input("qubit", "q0")
+    .scan(
+        "readout_frequency",
+        span=sc.Quantity(value=100.0, unit="MHz"),
+        points=21,
+    )
+    .run(name="readout frequency candidate")
+)
 comparison = lab.compare(run, next_run)
 overview = lab.overview(run)
 ```
 
-`ExperimentSpec` and existing templates remain useful sources for experiments,
-but the first post-run user path is `Run.data()`, `Run.attach(...)`, and
-`Run.analysis(...)`. Attachments belong directly to the run. Analysis records
-use stable keys, declare their inputs, and can be produced manually or through
-an `AnalysisStep` without changing the saved record shape.
+Reusable experiments are usually authored as modules plus templates; scratch
+notebook work can use `Workspace.experiment(...)`. The first post-run user path
+is `Run.data()`, `Run.attach(...)`, and `Run.analysis(...)`. Attachments belong
+directly to the run. Analysis records use stable keys, declare their inputs,
+and can be produced manually or through an `AnalysisStep` without changing the
+saved record shape.
 
 Durable `ExperimentSpec` JSON is still useful for debugging, fixtures, and
 execution-boundary tests, but it is not the preferred authoring surface for new

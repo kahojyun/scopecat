@@ -105,7 +105,7 @@ CZ_CHEVRON_MODULE = (
         "render-cz-chevron-coupler-waveforms",
         kind="pulse_program",
     )
-    .as_module()
+    .build()
 )
 
 PARALLEL_GATE_SET_MODULE = (
@@ -210,7 +210,7 @@ PARALLEL_GATE_SET_MODULE = (
         "render-parallel-gate-coupler-waveforms",
         kind="pulse_program",
     )
-    .as_module()
+    .build()
 )
 
 __all__ = [

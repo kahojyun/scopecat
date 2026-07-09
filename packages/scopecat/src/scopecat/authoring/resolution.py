@@ -183,7 +183,7 @@ def compile_composed_source(source: object) -> ExperimentAssembly:
             )
         return ExperimentAssembly(entity_inputs=(), point_source=source)
     if isinstance(source, ModuleBuilder):
-        return source.as_module().assemble()
+        return source.build().assemble()
     if isinstance(source, ModuleInvocation):
         return source.assemble()
     if isinstance(source, ExperimentModule):

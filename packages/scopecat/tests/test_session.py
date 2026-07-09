@@ -9,34 +9,19 @@ from scopecat.authoring import (
     ExperimentTemplate,
 )
 from scopecat.models.parameter import Quantity
+from scopecat.relations import param
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import load_experiment
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
 
-SIMPLE_FREQUENCY_SCAN = authoring.module(
-    id="test.session.simple_frequency_scan",
-    resources=[
-        authoring.resource_port(
-            "source",
-            authoring.requires("set_frequency"),
-        )
-    ],
-    variables=[
-        authoring.sweep(
-            "drive_frequency",
-            default_span=Quantity(value=200.0, unit="MHz"),
-            points=3,
-        )
-    ],
-    bindings=[
-        authoring.bind(
-            "source.set_frequency.frequency",
-            authoring.var_ref("drive_frequency"),
-        )
-    ],
-    records=[authoring.observable("signal", resource="source", unit="ratio")],
+SIMPLE_FREQUENCY_SCAN = (
+    authoring.module("test.session.simple_frequency_scan")
+    .resource("source", requires=authoring.requires("set_frequency"))
+    .bind("source.set_frequency.frequency", authoring.var_ref("drive_frequency"))
+    .record("signal", resource="source", unit="ratio")
+    .build()
 )
 
 
@@ -45,11 +30,24 @@ def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
 
 
 def simple_frequency_scan_template() -> ExperimentTemplate:
-    return SIMPLE_FREQUENCY_SCAN.template(
-        experiment_id="session-test-frequency-scan",
-        kind="simple_frequency_scan",
-        label="Session test frequency scan",
-        metadata={"category": "session-test"},
+    return (
+        authoring.template(
+            "test.session.simple_frequency_scan",
+            kind="simple_frequency_scan",
+        )
+        .experiment_id("session-test-frequency-scan")
+        .points(
+            authoring.around_points(
+                "drive_frequency",
+                center=param("drive_frequency"),
+                default_span=Quantity(value=200.0, unit="MHz"),
+                points=3,
+            )
+        )
+        .use(SIMPLE_FREQUENCY_SCAN)
+        .label("Session test frequency scan")
+        .metadata(category="session-test")
+        .build()
     )
 
 

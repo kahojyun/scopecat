@@ -52,7 +52,7 @@ RABI_MODULE = (
     .bind("drive.play_pulse_program.length", sc.var("drive_length"))
     .bind("drive.play_pulse_program.amplitude", qubit_param("rabi_drive_amplitude"))
     .bind("drive.play_pulse_program.frequency", qubit_param("drive_frequency"))
-    .as_module()
+    .build()
 )
 
 SIMULTANEOUS_RABI_MODULE = (
@@ -96,7 +96,7 @@ SIMULTANEOUS_RABI_MODULE = (
     .bind("drive.play_pulse_program.length", sc.var("drive_length"))
     .bind("drive.play_pulse_program.amplitude", sc.input("drive_amplitude"))
     .bind("drive.play_pulse_program.frequency", sc.input("drive_frequency"))
-    .as_module()
+    .build()
 )
 
 __all__ = [

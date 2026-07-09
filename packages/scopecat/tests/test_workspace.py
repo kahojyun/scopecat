@@ -10,7 +10,7 @@ from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec, RunRequest
 from scopecat.models.config import build_config_parameters
 from scopecat.models.parameter import Quantity
-from tests.support.authoring import simple_template
+from tests.support.authoring import SIMPLE_MODULE, simple_template
 from tests.support.records import read_model
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 
@@ -288,6 +288,74 @@ def test_workspace_run_options_materialize_internal_run_request(
     assert persisted_request.operator == "alice"
 
 
+def test_prepared_template_builder_preview_and_run_terminals(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+        instrument_provider=TestSignalInstrumentProvider(),
+    )
+    template = (
+        sc.template("test.prepared_builder", kind="simple_scan")
+        .experiment_id("prepared-builder")
+        .input("subject", kind="entity")
+        .input("drive_frequency", kind="quantity")
+        .defaults(drive_frequency=None)
+        .points(
+            sc.around_points(
+                "drive_frequency",
+                center=sc.table_param("drive_frequency"),
+                default_span=Quantity(value=200.0, unit="MHz"),
+                points=5,
+                input_id="drive_frequency",
+            )
+        )
+        .use(SIMPLE_MODULE)
+    )
+
+    plan = (
+        lab.prepare(template)
+        .input("subject", "q0")
+        .scan(
+            "drive_frequency",
+            span=Quantity(value=100.0, unit="MHz"),
+            points=3,
+        )
+    )
+    preview = plan.preview()
+    run = plan.run(name="prepared builder scan")
+
+    assert preview.point_count == 3
+    assert run.manifest.status == "completed"
+    persisted_request = read_model(
+        tmp_path / "runs" / run.id / "run-request.json",
+        RunRequest,
+    )
+    assert persisted_request.template_id == "test.prepared_builder"
+    assert persisted_request.metadata["name"] == "prepared builder scan"
+
+
+def test_workspace_experiment_preview_and_run_terminals(tmp_path: Path) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+        instrument_provider=TestSignalInstrumentProvider(),
+    )
+    experiment = (
+        lab.experiment("terminal signal scan")
+        .entity("qubit", "q0")
+        .sweep("drive_frequency", around="active", span="200 MHz", points=3)
+        .measure("signal")
+    )
+
+    preview = experiment.preview()
+    run = experiment.run(name="terminal signal scan")
+
+    assert preview.point_count == 3
+    assert run.manifest.status == "completed"
+
+
 def test_workspace_extra_sweeps_can_zip_axes(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
@@ -380,7 +448,7 @@ def test_workspace_experiment_builder_defines_complete_experiment(
     )
 
 
-def test_workspace_module_builder_can_be_extracted_and_composed(
+def test_workspace_module_can_be_composed(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -394,7 +462,7 @@ def test_workspace_module_builder_can_be_extracted_and_composed(
         .resource("source", requires=("set_frequency",))
         .bind("source.set_frequency.frequency", sc.var("drive_frequency"))
         .product("signal", resource="source")
-        .as_module()
+        .build()
     )
 
     run = lab.run(
@@ -410,14 +478,12 @@ def test_workspace_module_builder_can_be_extracted_and_composed(
     )
 
 
-def test_reusable_module_builder_rejects_sweeps() -> None:
-    with pytest.raises(ValueError, match="reusable modules cannot declare sweeps"):
-        sc.module("workspace.bad_scan").sweep(
-            "drive_frequency",
-            around="active",
-            span="200 MHz",
-            points=3,
-        )
+def test_reusable_module_has_no_workspace_shape_methods() -> None:
+    builder = sc.module("workspace.bad_scan")
+
+    assert not hasattr(builder, "sweep")
+    assert not hasattr(builder, "points")
+    assert not hasattr(builder, "record_product")
 
 
 def test_run_analysis_collects_notebook_outputs_and_candidate_config(

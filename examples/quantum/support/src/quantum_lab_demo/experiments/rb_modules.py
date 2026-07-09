@@ -52,7 +52,7 @@ SQG_RB_MODULE = (
     )
     .bind("drive.play_gate_sequence.clifford_count", sc.var("clifford_count"))
     .bind("drive.play_gate_sequence.seed", sc.input("seed"))
-    .as_module()
+    .build()
 )
 
 CZ_RB_MODULE = (
@@ -104,7 +104,7 @@ CZ_RB_MODULE = (
         kind="pulse_program",
     )
     .bind("drive.play_gate_sequence.seed", sc.input("seed"))
-    .as_module()
+    .build()
 )
 
 __all__ = [

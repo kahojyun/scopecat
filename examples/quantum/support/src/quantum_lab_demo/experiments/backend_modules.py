@@ -32,7 +32,7 @@ BACKEND_BATCH_MODULE = (
         kind="backend_job",
     )
     .bind("readout.acquire_iq.repetitions", sc.input("logical_points"))
-    .as_module()
+    .build()
 )
 
 __all__ = [

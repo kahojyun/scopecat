@@ -24,7 +24,7 @@ READOUT_CAPTURE_MODULE = (
         requires=("acquire_iq",),
     )
     .bind("readout.acquire_iq.repetitions", sc.table_param("repetitions"))
-    .as_module()
+    .build()
 )
 
 READOUT_MODULE = (
@@ -52,7 +52,7 @@ READOUT_MODULE = (
     )
     .bind("readout.readout_pulse.frequency", sc.var("readout_frequency"))
     .bind("readout.readout_pulse.power", qubit_param("readout_power"))
-    .as_module()
+    .build()
 )
 
 MULTIPLEXED_READOUT_PULSE_MODULE = (
@@ -84,7 +84,7 @@ MULTIPLEXED_READOUT_PULSE_MODULE = (
     )
     .bind("readout.readout_pulse.frequency", sc.var("readout_frequency"))
     .bind("readout.readout_pulse.power", sc.input("readout_power"))
-    .as_module()
+    .build()
 )
 
 QND_REPEATED_MEASUREMENT_MODULE = (
@@ -118,7 +118,7 @@ QND_REPEATED_MEASUREMENT_MODULE = (
     .bind("readout.readout_pulse.frequency", qubit_param("readout_frequency"))
     .bind("readout.readout_pulse.power", qubit_param("readout_power"))
     .bind("readout.acquire_iq.repetitions", sc.input("shots"))
-    .as_module()
+    .build()
 )
 
 MULTIPLEXED_READOUT_MODULE = (
@@ -133,7 +133,7 @@ MULTIPLEXED_READOUT_MODULE = (
         for_entities=("qubits",),
     )
     .bind("readout.acquire_iq.repetitions", sc.table_param("repetitions"))
-    .as_module()
+    .build()
 )
 
 __all__ = [

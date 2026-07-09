@@ -15,6 +15,7 @@ from scopecat._workflows.comparison import compare_runs
 from scopecat._workflows.config import (
     ConfigProfileInput,
     RegisteredConfigActivation,
+    ResolvedConfig,
     register_and_activate_candidate_config,
     resolve_config_source,
 )
@@ -34,9 +35,15 @@ from scopecat.authoring import (
     ModuleBuilder,
     ModuleInvocation,
     RecordIntent,
+    TemplateBuilder,
 )
 from scopecat.authoring import (
     ModuleSweepIntent as SweepIntent,
+)
+from scopecat.authoring.assembly import (
+    WorkspaceExperimentBuilder,
+    workspace_experiment_builder,
+    workspace_experiment_module,
 )
 from scopecat.authoring.expressions import Expression
 from scopecat.candidate_configs import (
@@ -88,7 +95,7 @@ from scopecat.system_overview import SystemSummary, build_system_summary
 type ExperimentSource = (
     ExperimentInput | ExperimentModule | ModuleInvocation | ModuleBuilder
 )
-type PublicExperimentInput = ExperimentInput | ExperimentTemplate
+type PublicExperimentInput = ExperimentInput | ExperimentTemplate | TemplateBuilder
 
 
 @dataclass(frozen=True)
@@ -123,14 +130,192 @@ class _RunOptions:
 
 
 @dataclass(frozen=True)
+class PreparedExperiment:
+    """Workspace-bound invocation whose terminal methods perform side effects.
+
+    Inputs, scans, and run-time sweeps accumulate immutably until a terminal
+    method is called. Keeping `preview()`, `validate()`, `resolve()`, and
+    `run()` at the end makes the exploratory notebook path read like a plan
+    before anything is compiled or executed.
+    """
+
+    session: Workspace
+    experiment: PublicExperimentInput | Experiment
+    config: str | ConfigProfileSnapshot | CandidateConfig | None = None
+    config_profile: ConfigProfileInput | None = None
+    instrument_provider: InstrumentProvider | None = None
+    run_options: _RunOptions = field(default_factory=_RunOptions)
+
+    def input(self, id: str, value: object) -> PreparedExperiment:  # noqa: A002
+        inputs = dict(self.run_options.inputs)
+        inputs[id] = value
+        return replace(
+            self,
+            run_options=replace(self.run_options, inputs=inputs),
+        )
+
+    def inputs(self, **inputs: object) -> PreparedExperiment:
+        selected = dict(self.run_options.inputs)
+        selected.update(inputs)
+        return replace(
+            self,
+            run_options=replace(self.run_options, inputs=selected),
+        )
+
+    def scan(
+        self,
+        parameter_id: str,
+        *,
+        span: Expression | Quantity,
+        points: int,
+        input_id: str | None = None,
+    ) -> PreparedExperiment:
+        return replace(
+            self,
+            experiment=_scan_prepared_experiment(
+                self.experiment,
+                parameter_id,
+                span=span,
+                points=points,
+                input_id=input_id,
+            ),
+        )
+
+    def sweep(self, *sweeps: RunSweep) -> PreparedExperiment:
+        return replace(
+            self,
+            run_options=replace(
+                self.run_options,
+                sweeps=(*self.run_options.sweeps, *sweeps),
+            ),
+        )
+
+    def preview(
+        self,
+        *,
+        name: str | None = None,
+        tags: Sequence[str] = (),
+        description: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+        operator: str | None = None,
+    ) -> PreviewExperimentResult:
+        return self.session.preview(
+            self.experiment,
+            config=self.config,
+            config_profile=self.config_profile,
+            name=name,
+            tags=tags,
+            description=description,
+            inputs=self.run_options.inputs,
+            sweeps=self.run_options.sweeps,
+            overrides=self.run_options.overrides,
+            seeds=self.run_options.seeds,
+            extra_records=self.run_options.extra_records,
+            execution_flags=self.run_options.execution_flags,
+            metadata={**self.run_options.metadata, **dict(metadata or {})},
+            operator=operator or self.run_options.operator,
+        )
+
+    def validate(
+        self,
+        *,
+        name: str | None = None,
+        tags: Sequence[str] = (),
+        description: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+        operator: str | None = None,
+    ) -> ValidateExperimentResult:
+        return self.session.validate(
+            self.experiment,
+            config=self.config,
+            config_profile=self.config_profile,
+            name=name,
+            tags=tags,
+            description=description,
+            inputs=self.run_options.inputs,
+            sweeps=self.run_options.sweeps,
+            overrides=self.run_options.overrides,
+            seeds=self.run_options.seeds,
+            extra_records=self.run_options.extra_records,
+            execution_flags=self.run_options.execution_flags,
+            metadata={**self.run_options.metadata, **dict(metadata or {})},
+            operator=operator or self.run_options.operator,
+        )
+
+    def resolve(self) -> ExperimentSpec:
+        selected_config = self.session.config if self.config is None else self.config
+        if isinstance(selected_config, CandidateConfig):
+            selected_config = resolve_candidate_config(
+                selected_config,
+                workspace=self.session.workspace,
+            ).config
+        selected_profile = _effective_workspace_config_profile(
+            self.session,
+            config=selected_config,
+            config_profile=self.config_profile,
+        )
+        prepared = _prepare_public_experiment_input(
+            self.experiment,
+            run_options=self.run_options,
+        )
+        if isinstance(prepared, ExperimentSpec):
+            return prepared
+        config_result = _resolve_prepared_config(
+            workspace=self.session.workspace,
+            config=selected_config,
+            config_profile=selected_profile,
+        )
+        return authoring.resolve_experiment_with_config(
+            prepared,
+            config=config_result.config,
+            workspace=self.session.workspace,
+            config_source=config_result.config_source,
+        ).experiment
+
+    def run(
+        self,
+        *,
+        name: str | None = None,
+        tags: Sequence[str] = (),
+        description: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+        operator: str | None = None,
+        event_sink: RuntimeEventSink | None = None,
+        payload_observer: RuntimePayloadObserver | None = None,
+    ) -> RunHandle:
+        return self.session.run(
+            self.experiment,
+            config=self.config,
+            config_profile=self.config_profile,
+            instrument_provider=self.instrument_provider,
+            name=name,
+            tags=tags,
+            description=description,
+            inputs=self.run_options.inputs,
+            sweeps=self.run_options.sweeps,
+            overrides=self.run_options.overrides,
+            seeds=self.run_options.seeds,
+            extra_records=self.run_options.extra_records,
+            execution_flags=self.run_options.execution_flags,
+            metadata={**self.run_options.metadata, **dict(metadata or {})},
+            operator=operator or self.run_options.operator,
+            event_sink=event_sink,
+            payload_observer=payload_observer,
+        )
+
+
+@dataclass(frozen=True)
 class Experiment:
     """Notebook-first authoring adapter for scripts and exploratory notebooks."""
 
     name: str
     source: ExperimentSource | None = None
+    session: Workspace | None = field(default=None, compare=False, repr=False)
     entity_inputs: dict[str, object] = field(default_factory=dict)
     sources: tuple[ExperimentSource, ...] = ()
-    builder: ModuleBuilder = field(default_factory=authoring.module_builder)
+    builder: WorkspaceExperimentBuilder = field(
+        default_factory=workspace_experiment_builder
+    )
 
     @property
     def sweeps(self) -> tuple[SweepIntent, ...]:
@@ -152,6 +337,15 @@ class Experiment:
             entity_inputs=entity_inputs,
             builder=self.builder.entity(input_id),
         )
+
+    def input(self, input_id: str, value: object) -> Experiment:
+        return self.entity(input_id, value)
+
+    def inputs(self, **inputs: object) -> Experiment:
+        selected = self
+        for input_id, value in inputs.items():
+            selected = selected.input(input_id, value)
+        return selected
 
     def use(
         self,
@@ -193,6 +387,40 @@ class Experiment:
                 span=span,
                 points=points,
             ),
+        )
+
+    def scan_around(
+        self,
+        parameter_id: str,
+        *,
+        center: ScalarExpr,
+        span: object,
+        points: int,
+        input_id: str | None = None,
+    ) -> Experiment:
+        return replace(
+            self,
+            builder=self.builder.sweep(
+                parameter_id,
+                around=center,
+                span=span,
+                points=points,
+                input_id=input_id,
+            ),
+        )
+
+    def scan(
+        self,
+        parameter_id: str,
+        *,
+        span: object,
+        points: int,
+    ) -> Experiment:
+        return self.sweep(
+            parameter_id,
+            around="active",
+            span=span,
+            points=points,
         )
 
     def derive(self, variable_id: str, expression: Expression) -> Experiment:
@@ -252,6 +480,8 @@ class Experiment:
         field: str,
         value_column: str,
         resource_column: str = "resource_id",
+        resource_port: str | None = None,
+        route_entity_column: str | None = None,
     ) -> Experiment:
         return replace(
             self,
@@ -260,28 +490,9 @@ class Experiment:
                 field=field,
                 value_column=value_column,
                 resource_column=resource_column,
+                resource_port=resource_port,
+                route_entity_column=route_entity_column,
             ),
-        )
-
-    def as_module(self, id: str | None = None) -> ExperimentModule:  # noqa: A002
-        return self.builder.as_module(id or _safe_experiment_id(self.name))
-
-    def to_module(self, id: str | None = None) -> ExperimentModule:  # noqa: A002
-        return self.as_module(id)
-
-    def template(
-        self,
-        *,
-        kind: str | None = None,
-        id: str | None = None,  # noqa: A002
-        experiment_id: str | None = None,
-    ) -> authoring.ExperimentTemplate:
-        template_id = id or f"scopecat.workspace.{_safe_experiment_id(self.name)}"
-        return self.builder.template(
-            kind=kind or _safe_experiment_id(self.name),
-            id=template_id,
-            experiment_id=experiment_id or _safe_experiment_id(self.name),
-            metadata={"source": "workspace_experiment_builder", "name": self.name},
         )
 
     def record(
@@ -327,6 +538,46 @@ class Experiment:
     def measure(self, *observable_ids: str) -> Experiment:
         return self.record(*observable_ids)
 
+    def preview(self) -> PreviewExperimentResult:
+        return self._require_session().prepare(self).preview()
+
+    def validate(self) -> ValidateExperimentResult:
+        return self._require_session().prepare(self).validate()
+
+    def resolve(self) -> ExperimentSpec:
+        return self._require_session().prepare(self).resolve()
+
+    def run(
+        self,
+        *,
+        name: str | None = None,
+        tags: Sequence[str] = (),
+        description: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+        operator: str | None = None,
+        event_sink: RuntimeEventSink | None = None,
+        payload_observer: RuntimePayloadObserver | None = None,
+    ) -> RunHandle:
+        return (
+            self._require_session()
+            .prepare(self)
+            .run(
+                name=name,
+                tags=tags,
+                description=description,
+                metadata=metadata,
+                operator=operator,
+                event_sink=event_sink,
+                payload_observer=payload_observer,
+            )
+        )
+
+    def _require_session(self) -> Workspace:
+        if self.session is None:
+            msg = "workspace experiment terminal methods require lab.experiment(...)"
+            raise ValueError(msg)
+        return self.session
+
     def to_input(self) -> ExperimentInput:
         if isinstance(self.source, ExperimentSpec):
             if self.sources or self.builder.has_fragments or self.entity_inputs:
@@ -340,20 +591,23 @@ class Experiment:
         if not sources:
             msg = "workspace experiment requires a source, module, sweep, or record"
             raise ValueError(msg)
-        invocation = authoring.compose(
-            *sources,
-            id="scopecat.workspace.experiment",
-            experiment_id=_safe_experiment_id(self.name),
-            kind=_safe_experiment_id(self.name),
-            metadata={
-                "source": "workspace_experiment_builder",
-                "name": self.name,
+        invocation = (
+            authoring.template(
+                "scopecat.workspace.experiment",
+                kind=_safe_experiment_id(self.name),
+            )
+            .experiment_id(_safe_experiment_id(self.name))
+            .use(*sources)
+            .metadata(
+                source="workspace_experiment_builder",
+                name=self.name,
                 **(
                     {"entity_inputs": dict(self.entity_inputs)}
                     if self.entity_inputs
                     else {}
                 ),
-            },
+            )
+            .bind()
         )
         request_inputs = _workspace_request_inputs(self)
         return replace(
@@ -419,7 +673,23 @@ class Workspace:
         name: str,
         source: ExperimentSource | None = None,
     ) -> Experiment:
-        return Experiment(name=name, source=source)
+        return Experiment(name=name, source=source, session=self)
+
+    def prepare(
+        self,
+        experiment: PublicExperimentInput | Experiment,
+        *,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+        config_profile: ConfigProfileInput | None = None,
+        instrument_provider: InstrumentProvider | None = None,
+    ) -> PreparedExperiment:
+        return PreparedExperiment(
+            session=self,
+            experiment=experiment,
+            config=config,
+            config_profile=config_profile,
+            instrument_provider=instrument_provider,
+        )
 
     def run(
         self,
@@ -677,10 +947,10 @@ class Workspace:
         run_options: _RunOptions | None = None,
     ) -> ExperimentInput:
         del config, config_profile
-        selected_options = run_options or _RunOptions()
-        if isinstance(experiment, Experiment):
-            return _apply_run_options(experiment.to_input(), selected_options)
-        return _apply_run_options(experiment, selected_options)
+        return _prepare_public_experiment_input(
+            experiment,
+            run_options=run_options or _RunOptions(),
+        )
 
 
 def open(  # noqa: A001
@@ -714,6 +984,27 @@ def _request_value(value: object) -> object:
         sequence = cast("list[object] | tuple[object, ...]", value)
         return [_request_value(item) for item in sequence]
     return value
+
+
+def _effective_workspace_config_profile(
+    workspace: Workspace,
+    *,
+    config: str | ConfigProfileSnapshot | None,
+    config_profile: ConfigProfileInput | None,
+) -> ConfigProfileInput | None:
+    if config is None and config_profile is None:
+        return workspace.config_profile
+    return config_profile
+
+
+def _prepare_public_experiment_input(
+    experiment: PublicExperimentInput | Experiment,
+    *,
+    run_options: _RunOptions,
+) -> ExperimentInput:
+    if isinstance(experiment, Experiment):
+        return _apply_run_options(experiment.to_input(), run_options)
+    return _apply_run_options(experiment, run_options)
 
 
 def _run_options(
@@ -759,6 +1050,8 @@ def _apply_run_options(
     experiment: PublicExperimentInput,
     options: _RunOptions,
 ) -> ExperimentInput:
+    if isinstance(experiment, TemplateBuilder):
+        experiment = experiment.build()
     if isinstance(experiment, ExperimentTemplate):
         experiment = experiment.bind(**options.inputs)
         options = replace(options, inputs={})
@@ -828,6 +1121,63 @@ def _request_with_options(
     return request.model_copy(update=update)
 
 
+def _scan_prepared_experiment(
+    experiment: PublicExperimentInput | Experiment,
+    parameter_id: str,
+    *,
+    span: Expression | Quantity,
+    points: int,
+    input_id: str | None,
+) -> PublicExperimentInput | Experiment:
+    if isinstance(experiment, TemplateBuilder):
+        return experiment.bind().scan(
+            parameter_id,
+            span=span,
+            points=points,
+            input_id=input_id,
+        )
+    if isinstance(experiment, ExperimentTemplate):
+        return experiment.bind().scan(
+            parameter_id,
+            span=span,
+            points=points,
+            input_id=input_id,
+        )
+    if isinstance(experiment, ExperimentInvocation):
+        return experiment.scan(
+            parameter_id,
+            span=span,
+            points=points,
+            input_id=input_id,
+        )
+    if isinstance(experiment, Experiment):
+        if input_id is not None and input_id != parameter_id:
+            msg = "workspace experiment scan input_id must match parameter_id"
+            raise ValueError(msg)
+        return experiment.scan(parameter_id, span=span, points=points)
+    msg = "closed ExperimentSpec inputs cannot be changed with prepared scans"
+    raise ValueError(msg)
+
+
+def _resolve_prepared_config(
+    *,
+    workspace: str | Path,
+    config: str | ConfigProfileSnapshot,
+    config_profile: ConfigProfileInput | None,
+) -> ResolvedConfig:
+    if isinstance(config, ConfigProfileSnapshot):
+        if config_profile is not None:
+            msg = "provide either config or config_profile, not both"
+            raise ValueError(msg)
+        return ResolvedConfig(config=config)
+    config_entry = None if config_profile is not None and config == "active" else config
+    return resolve_config_source(
+        workspace=workspace,
+        config_profile=config_profile,
+        config_entry=config_entry,
+    )
+
+
 def _workspace_sources(
     experiment: Experiment,
 ) -> tuple[ExperimentInput | ExperimentModule | ModuleInvocation, ...]:
@@ -847,14 +1197,15 @@ def _workspace_compose_source(
     source: ExperimentSource,
 ) -> ExperimentInput | ExperimentModule | ModuleInvocation:
     if isinstance(source, ModuleBuilder):
-        return source.as_module()
+        return source.build()
     return source
 
 
 def _workspace_module(experiment: Experiment) -> ExperimentModule | None:
     if not experiment.builder.has_fragments:
         return None
-    return experiment.builder.as_module(
+    return workspace_experiment_module(
+        experiment.builder,
         f"scopecat.workspace.{_safe_experiment_id(experiment.name)}",
         metadata={"source": "workspace_experiment_builder"},
     )
@@ -922,7 +1273,7 @@ def _workspace_source_label(source: object) -> str:
     if isinstance(source, ExperimentModule):
         return source.id
     if isinstance(source, ModuleBuilder):
-        return source.id or "module_builder"
+        return source.id or "module"
     if isinstance(source, ModuleInvocation):
         return source.module.id
     if isinstance(source, ExperimentInvocation):
@@ -948,6 +1299,7 @@ __all__ = [
     "Data",
     "EarlyStopDecision",
     "Experiment",
+    "PreparedExperiment",
     "Quantity",
     "RecordIntent",
     "RunHandle",

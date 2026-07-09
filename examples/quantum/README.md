@@ -3,7 +3,7 @@
 Executable quantum-flavored examples for learning the Scopecat workflow:
 
 ```text
-Workspace -> Experiment -> Run -> Data -> Analysis -> CandidateConfig
+Module -> Template -> Prepared/Workspace Experiment -> Run -> Data -> Analysis
 ```
 
 The primary learning path is the cell-style Python notebooks in `notebooks/`.
@@ -56,8 +56,9 @@ and move repeated lab details into a local support package:
 
 | User change | Edit here | Keep notebooks using |
 |---|---|---|
-| Change qubit, sweep span, points, or experiment defaults | `support/src/quantum_lab_demo/experiments/templates.py` | template constants plus `Workspace.run(..., inputs=..., sweeps=..., name=..., tags=...)` |
-| Reuse or extract experiment modules | focused `support/src/quantum_lab_demo/experiments/*_modules.py` files | template constants or `Workspace.experiment(...).use(...)` |
+| Change reusable scan defaults, exposed inputs, or selected products | `support/src/quantum_lab_demo/experiments/templates.py` | template constants plus `Workspace.prepare(...).input(...).scan(...).preview()/run()` |
+| Reuse resource, state, compute, record, or product declarations | focused `support/src/quantum_lab_demo/experiments/*_modules.py` files | template constants or `Workspace.experiment(...).use(...)` |
+| Try a one-off sweep, point source, or product selection | notebook cells with `Workspace.experiment(...)` or `Workspace.prepare(...).scan(...)` | fluent terminal methods: `preview()`, `validate()`, `resolve()`, `run()` |
 | Change waveform or sequence generation | `support/src/quantum_lab_demo/experiments/compute.py` plus payload types in `support/src/quantum_lab_demo/experiments/payloads.py` | template constants; runtime payload summaries |
 | Edit qubit, coupler, channel, line, or shared-LO wiring | `support/src/quantum_lab_demo/virtual_lab/wiring.py` | `quantum_wiring()` compiled into config |
 | Change workspace roots, fixture paths, or profile selection | `support/src/quantum_lab_demo/lab.py` and `support/src/quantum_lab_demo/fixtures.py` | `sc.open(...)` |
@@ -69,11 +70,9 @@ and move repeated lab details into a local support package:
 The support package may contain domain calculations, virtual fixtures, and
 adapter wiring. User-facing notebooks should stay on Scopecat public objects
 and top-level notebook variables: `Workspace`, `Experiment`, `Run`, `Data`,
-`Analysis`, and `CandidateConfig`. Use `Workspace.experiment(...)` only for
-scratch exploration; move reference cases into reusable modules and templates.
-Keep notebooks importing template constants from `quantum_lab_demo.experiments`
-instead of importing module declarations, compute helpers, or payload classes
-directly.
+`Analysis`, and `CandidateConfig`. Keep notebooks importing template constants
+from `quantum_lab_demo.experiments`; move reference cases into focused module
+and template source when scratch exploration becomes reusable.
 
 The examples use domain names such as `qubit`, `control_qubit`, and
 `partner_qubit` as run-time `inputs` keys. Linked experiment specs lower

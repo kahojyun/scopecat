@@ -32,12 +32,7 @@ from scopecat.authoring.expressions import (
     var as var_expr,
 )
 from scopecat.authoring.templates import (
-    ExperimentTemplate,
-    InputDescription,
     materialize_request_inputs,
-)
-from scopecat.authoring.templates import (
-    template as authoring_template,
 )
 from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
@@ -449,25 +444,158 @@ class ModuleInputPort:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def _with_entity_input_ports(
+    input_ports: Sequence[ModuleInputPort],
+    input_ids: Sequence[str],
+) -> tuple[tuple[str, ...], tuple[ModuleInputPort, ...]]:
+    existing = {item.id for item in input_ports}
+    return (
+        tuple(input_ids),
+        (
+            *input_ports,
+            *(
+                ModuleInputPort(
+                    id=input_id,
+                    kind="entity",
+                    metadata={"role": "entity"},
+                )
+                for input_id in input_ids
+                if input_id not in existing
+            ),
+        ),
+    )
+
+
+def _resource_port_from_builder_input(
+    port_id: str,
+    *,
+    requires: ResourceSelector | Sequence[str],
+    for_entities: Sequence[str],
+) -> ResourcePort:
+    selector = (
+        requires
+        if isinstance(requires, ResourceSelector)
+        else ResourceSelector(
+            capabilities=tuple(requires),
+            entity_inputs=tuple(for_entities),
+        )
+    )
+    return resource_port(port_id, selector)
+
+
+def _state_table_from_builder_input(
+    table_id: str,
+    *,
+    field: str,
+    value_column: str,
+    resource_column: str,
+    resource_port: str | None,
+    route_entity_column: str | None,
+) -> StateTableIntent:
+    return StateTableIntent(
+        table_id=table_id,
+        field=field,
+        value_column=value_column,
+        resource_column=resource_column,
+        resource_port=resource_port,
+        route_entity_column=route_entity_column,
+    )
+
+
+def _compute_node_from_builder_input(
+    node_id: str,
+    *,
+    fn: ComputeNodeFunction,
+    inputs: Mapping[str, ComputeNodeInputValue] | None,
+    route_ports: Sequence[str],
+) -> ComputeNodeIntent:
+    return ComputeNodeIntent(
+        id=node_id,
+        fn=fn,
+        inputs=tuple((inputs or {}).items()),
+        route_ports=tuple(route_ports),
+    )
+
+
+def _record_intents_from_builder_input(
+    record_ids: Sequence[str],
+    *,
+    source: RecordSource,
+    resource: str | None,
+    capability: str | None,
+    product_key: str | None,
+    unit: str | None,
+    dtype: MeasurementDType,
+    axes: Sequence[RecordAxisIntent],
+    metadata: Mapping[str, Any] | None,
+) -> tuple[RecordIntent, ...]:
+    return tuple(
+        observable(
+            record_id,
+            source=source,
+            resource=resource,
+            capability=capability,
+            product_key=product_key,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+            metadata=metadata,
+        )
+        for record_id in record_ids
+    )
+
+
+def _product_ports_from_builder_input(
+    product_ids: Sequence[str],
+    *,
+    source: RecordSource,
+    resource: str | None,
+    capability: str | None,
+    product_key: str | None,
+    unit: str | None,
+    dtype: MeasurementDType,
+    axes: Sequence[RecordAxisIntent],
+    metadata: Mapping[str, Any] | None,
+) -> tuple[ModuleProductPort, ...]:
+    return tuple(
+        ModuleProductPort(
+            id=product_id,
+            kind="observable",
+            source=source,
+            resource=resource,
+            capability=capability,
+            product_key=product_key,
+            unit=unit,
+            dtype=dtype,
+            axes=tuple(axes),
+            metadata=dict(metadata or {}),
+        )
+        for product_id in product_ids
+    )
+
+
 @dataclass(frozen=True)
 class ModuleBuilder:
-    """Fluent source builder shared by reusable modules and workspace scripts."""
+    """Fluent source builder for reusable experiment modules.
+
+    Modules deliberately stop before point generation and record selection.
+    That keeps a module composable: it can declare what it needs and what it can
+    produce without also choosing how a notebook should sweep it or which
+    products a specific run should persist.
+    """
 
     id: str | None = None
     input_ports: tuple[ModuleInputPort, ...] = ()
     entity_inputs: tuple[str, ...] = ()
     resources: tuple[ResourcePort, ...] = ()
     variables: tuple[VariableIntent, ...] = ()
-    point_sources: tuple[RelationExpr | PointSourceIntent, ...] = ()
     bindings: tuple[ExperimentBindingIntent, ...] = ()
     state_intents: tuple[ExperimentStateIntent, ...] = ()
     compute_nodes: tuple[ComputeNodeIntent, ...] = ()
     records: tuple[RecordIntent, ...] = ()
     product_ports: tuple[ModuleProductPort, ...] = ()
-    record_selections: tuple[ProductSelectionIntent, ...] = ()
     parameter_derivations: ParameterDerivationSet | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    sweeps: tuple[ModuleSweepIntent, ...] = ()
 
     @property
     def observables(self) -> tuple[str, ...]:
@@ -480,31 +608,20 @@ class ModuleBuilder:
                 self.resources,
                 self.input_ports,
                 self.variables,
-                self.point_sources,
                 self.bindings,
                 self.state_intents,
                 self.compute_nodes,
                 self.records,
                 self.product_ports,
-                self.record_selections,
             )
         )
 
     def entity_inputs_from(self, *input_ids: str) -> ModuleBuilder:
-        existing = {item.id for item in self.input_ports}
-        input_ports = (
-            *self.input_ports,
-            *(
-                ModuleInputPort(
-                    id=input_id,
-                    kind="entity",
-                    metadata={"role": "entity"},
-                )
-                for input_id in input_ids
-                if input_id not in existing
-            ),
+        entity_inputs, input_ports = _with_entity_input_ports(
+            self.input_ports,
+            input_ids,
         )
-        return replace(self, entity_inputs=tuple(input_ids), input_ports=input_ports)
+        return replace(self, entity_inputs=entity_inputs, input_ports=input_ports)
 
     def entity(self, input_id: str) -> ModuleBuilder:
         return self.entity_inputs_from(input_id)
@@ -531,19 +648,238 @@ class ModuleBuilder:
         requires: ResourceSelector | Sequence[str] = (),
         for_entities: Sequence[str] = (),
     ) -> ModuleBuilder:
-        selector = (
-            requires
-            if isinstance(requires, ResourceSelector)
-            else ResourceSelector(
-                capabilities=tuple(requires),
-                entity_inputs=tuple(for_entities),
-            )
-        )
         return replace(
             self,
             resources=(
                 *self.resources,
-                resource_port(id, selector),
+                _resource_port_from_builder_input(
+                    id,
+                    requires=requires,
+                    for_entities=for_entities,
+                ),
+            ),
+        )
+
+    def derive(self, variable_id: str, expression: Expression) -> ModuleBuilder:
+        return replace(
+            self,
+            variables=(*self.variables, derive(variable_id, expression)),
+        )
+
+    def variable(
+        self,
+        variable_id: str,
+        value: VariableValue | VariableFactory,
+    ) -> ModuleBuilder:
+        return replace(
+            self,
+            variables=(*self.variables, variable(variable_id, value)),
+        )
+
+    def bind(
+        self,
+        port_path: str,
+        value: Expression | ScalarExpr | Quantity | float,
+    ) -> ModuleBuilder:
+        return replace(self, bindings=(*self.bindings, bind(port_path, value)))
+
+    def state_table(
+        self,
+        table_id: str,
+        *,
+        field: str,
+        value_column: str,
+        resource_column: str = "resource_id",
+        resource_port: str | None = None,
+        route_entity_column: str | None = None,
+    ) -> ModuleBuilder:
+        return replace(
+            self,
+            state_intents=(
+                *self.state_intents,
+                _state_table_from_builder_input(
+                    table_id=table_id,
+                    field=field,
+                    value_column=value_column,
+                    resource_column=resource_column,
+                    resource_port=resource_port,
+                    route_entity_column=route_entity_column,
+                ),
+            ),
+        )
+
+    def compute(
+        self,
+        id: str,  # noqa: A002
+        *,
+        fn: ComputeNodeFunction,
+        inputs: Mapping[str, ComputeNodeInputValue] | None = None,
+        route_ports: Sequence[str] = (),
+    ) -> ModuleBuilder:
+        return replace(
+            self,
+            compute_nodes=(
+                *self.compute_nodes,
+                _compute_node_from_builder_input(
+                    id,
+                    fn=fn,
+                    inputs=inputs,
+                    route_ports=route_ports,
+                ),
+            ),
+        )
+
+    def bind_compute(
+        self,
+        port_path: str,
+        node_id: str,
+        *,
+        kind: str,
+    ) -> ModuleBuilder:
+        return replace(
+            self,
+            bindings=(
+                *self.bindings,
+                bind(port_path, _compute_result_state_value(node_id, kind=kind)),
+            ),
+        )
+
+    def record(
+        self,
+        *record_ids: str,
+        source: RecordSource = "instrument",
+        resource: str | None = None,
+        capability: str | None = None,
+        product_key: str | None = None,
+        unit: str | None = "ratio",
+        dtype: MeasurementDType = "float64",
+        axes: Sequence[RecordAxisIntent] = (),
+        metadata: Mapping[str, Any] | None = None,
+    ) -> ModuleBuilder:
+        records = _record_intents_from_builder_input(
+            record_ids,
+            source=source,
+            resource=resource,
+            capability=capability,
+            product_key=product_key,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+            metadata=metadata,
+        )
+        return replace(self, records=(*self.records, *records))
+
+    def product(
+        self,
+        *product_ids: str,
+        source: RecordSource = "instrument",
+        resource: str | None = None,
+        capability: str | None = None,
+        product_key: str | None = None,
+        unit: str | None = "ratio",
+        dtype: MeasurementDType = "float64",
+        axes: Sequence[RecordAxisIntent] = (),
+        metadata: Mapping[str, Any] | None = None,
+    ) -> ModuleBuilder:
+        products = _product_ports_from_builder_input(
+            product_ids,
+            source=source,
+            resource=resource,
+            capability=capability,
+            product_key=product_key,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+            metadata=metadata,
+        )
+        return replace(self, product_ports=(*self.product_ports, *products))
+
+    def measure(self, *observable_ids: str) -> ModuleBuilder:
+        return self.record(*observable_ids)
+
+    def build(
+        self,
+        *,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> ExperimentModule:
+        return _build_module_from_builder(
+            self,
+            metadata=metadata,
+        )
+
+
+@dataclass(frozen=True)
+class WorkspaceExperimentBuilder:
+    """Scratch builder used by `Workspace.experiment(...)`.
+
+    Workspace experiments are allowed to make one-off choices such as sweeps,
+    point sources, and product selections because they represent a local
+    notebook workflow, not reusable source. When that shape becomes durable,
+    the intended extraction path is editing module/template source rather than
+    converting this builder through another API rule.
+    """
+
+    input_ports: tuple[ModuleInputPort, ...] = ()
+    entity_inputs: tuple[str, ...] = ()
+    resources: tuple[ResourcePort, ...] = ()
+    variables: tuple[VariableIntent, ...] = ()
+    point_sources: tuple[RelationExpr | PointSourceIntent, ...] = ()
+    bindings: tuple[ExperimentBindingIntent, ...] = ()
+    state_intents: tuple[ExperimentStateIntent, ...] = ()
+    compute_nodes: tuple[ComputeNodeIntent, ...] = ()
+    records: tuple[RecordIntent, ...] = ()
+    product_ports: tuple[ModuleProductPort, ...] = ()
+    record_selections: tuple[ProductSelectionIntent, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+    sweeps: tuple[ModuleSweepIntent, ...] = ()
+
+    @property
+    def observables(self) -> tuple[str, ...]:
+        return tuple(record.id for record in self.records)
+
+    @property
+    def has_fragments(self) -> bool:
+        return any(
+            (
+                self.resources,
+                self.input_ports,
+                self.variables,
+                self.point_sources,
+                self.bindings,
+                self.state_intents,
+                self.compute_nodes,
+                self.records,
+                self.product_ports,
+                self.record_selections,
+            )
+        )
+
+    def entity_inputs_from(self, *input_ids: str) -> WorkspaceExperimentBuilder:
+        entity_inputs, input_ports = _with_entity_input_ports(
+            self.input_ports,
+            input_ids,
+        )
+        return replace(self, entity_inputs=entity_inputs, input_ports=input_ports)
+
+    def entity(self, input_id: str) -> WorkspaceExperimentBuilder:
+        return self.entity_inputs_from(input_id)
+
+    def resource(
+        self,
+        id: str,  # noqa: A002
+        *,
+        requires: ResourceSelector | Sequence[str] = (),
+        for_entities: Sequence[str] = (),
+    ) -> WorkspaceExperimentBuilder:
+        return replace(
+            self,
+            resources=(
+                *self.resources,
+                _resource_port_from_builder_input(
+                    id,
+                    requires=requires,
+                    for_entities=for_entities,
+                ),
             ),
         )
 
@@ -558,13 +894,7 @@ class ModuleBuilder:
         points: int | None = None,
         variable_id: str | None = None,
         input_id: str | None = None,
-    ) -> ModuleBuilder:
-        if self.id is not None:
-            msg = (
-                "reusable modules cannot declare sweeps; declare module inputs "
-                "and define point sweeps in a template or workspace experiment"
-            )
-            raise ValueError(msg)
+    ) -> WorkspaceExperimentBuilder:
         selected_variable_id = variable_id or parameter_id
         sweep_intent = ModuleSweepIntent(
             parameter_id=parameter_id,
@@ -596,10 +926,7 @@ class ModuleBuilder:
             )
             return replace(
                 self,
-                point_sources=(
-                    *self.point_sources,
-                    point_source,
-                ),
+                point_sources=(*self.point_sources, point_source),
                 sweeps=(*self.sweeps, sweep_intent),
             )
         if around != "active" and not isinstance(around, ScalarExpr):
@@ -641,7 +968,9 @@ class ModuleBuilder:
             sweeps=(*self.sweeps, sweep_intent),
         )
 
-    def derive(self, variable_id: str, expression: Expression) -> ModuleBuilder:
+    def derive(
+        self, variable_id: str, expression: Expression
+    ) -> WorkspaceExperimentBuilder:
         return replace(
             self,
             variables=(*self.variables, derive(variable_id, expression)),
@@ -651,20 +980,20 @@ class ModuleBuilder:
         self,
         variable_id: str,
         value: VariableValue | VariableFactory,
-    ) -> ModuleBuilder:
+    ) -> WorkspaceExperimentBuilder:
         return replace(
             self,
             variables=(*self.variables, variable(variable_id, value)),
         )
 
-    def points(self, relation: RelationExpr) -> ModuleBuilder:
+    def points(self, relation: RelationExpr) -> WorkspaceExperimentBuilder:
         return replace(self, point_sources=(*self.point_sources, relation))
 
     def bind(
         self,
         port_path: str,
         value: Expression | ScalarExpr | Quantity | float,
-    ) -> ModuleBuilder:
+    ) -> WorkspaceExperimentBuilder:
         return replace(self, bindings=(*self.bindings, bind(port_path, value)))
 
     def state_table(
@@ -676,12 +1005,12 @@ class ModuleBuilder:
         resource_column: str = "resource_id",
         resource_port: str | None = None,
         route_entity_column: str | None = None,
-    ) -> ModuleBuilder:
+    ) -> WorkspaceExperimentBuilder:
         return replace(
             self,
             state_intents=(
                 *self.state_intents,
-                StateTableIntent(
+                _state_table_from_builder_input(
                     table_id=table_id,
                     field=field,
                     value_column=value_column,
@@ -699,16 +1028,16 @@ class ModuleBuilder:
         fn: ComputeNodeFunction,
         inputs: Mapping[str, ComputeNodeInputValue] | None = None,
         route_ports: Sequence[str] = (),
-    ) -> ModuleBuilder:
+    ) -> WorkspaceExperimentBuilder:
         return replace(
             self,
             compute_nodes=(
                 *self.compute_nodes,
-                ComputeNodeIntent(
-                    id=id,
+                _compute_node_from_builder_input(
+                    id,
                     fn=fn,
-                    inputs=tuple((inputs or {}).items()),
-                    route_ports=tuple(route_ports),
+                    inputs=inputs,
+                    route_ports=route_ports,
                 ),
             ),
         )
@@ -719,7 +1048,7 @@ class ModuleBuilder:
         node_id: str,
         *,
         kind: str,
-    ) -> ModuleBuilder:
+    ) -> WorkspaceExperimentBuilder:
         return replace(
             self,
             bindings=(
@@ -739,64 +1068,26 @@ class ModuleBuilder:
         dtype: MeasurementDType = "float64",
         axes: Sequence[RecordAxisIntent] = (),
         metadata: Mapping[str, Any] | None = None,
-    ) -> ModuleBuilder:
-        records = tuple(
-            observable(
-                record_id,
-                source=source,
-                resource=resource,
-                capability=capability,
-                product_key=product_key,
-                unit=unit,
-                dtype=dtype,
-                axes=axes,
-                metadata=metadata,
-            )
-            for record_id in record_ids
+    ) -> WorkspaceExperimentBuilder:
+        records = _record_intents_from_builder_input(
+            record_ids,
+            source=source,
+            resource=resource,
+            capability=capability,
+            product_key=product_key,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+            metadata=metadata,
         )
         return replace(self, records=(*self.records, *records))
-
-    def product(
-        self,
-        *product_ids: str,
-        source: RecordSource = "instrument",
-        resource: str | None = None,
-        capability: str | None = None,
-        product_key: str | None = None,
-        unit: str | None = "ratio",
-        dtype: MeasurementDType = "float64",
-        axes: Sequence[RecordAxisIntent] = (),
-        metadata: Mapping[str, Any] | None = None,
-    ) -> ModuleBuilder:
-        products = tuple(
-            ModuleProductPort(
-                id=product_id,
-                kind="observable",
-                source=source,
-                resource=resource,
-                capability=capability,
-                product_key=product_key,
-                unit=unit,
-                dtype=dtype,
-                axes=tuple(axes),
-                metadata=dict(metadata or {}),
-            )
-            for product_id in product_ids
-        )
-        return replace(self, product_ports=(*self.product_ports, *products))
 
     def record_product(
         self,
         *product_ids: str,
         record_id: str | None = None,
         metadata: Mapping[str, Any] | None = None,
-    ) -> ModuleBuilder:
-        if self.id is not None:
-            msg = (
-                "reusable modules cannot select product records; select products "
-                "in a template or workspace experiment"
-            )
-            raise ValueError(msg)
+    ) -> WorkspaceExperimentBuilder:
         if record_id is not None and len(product_ids) != 1:
             msg = "record_id can only be used with one product"
             raise ValueError(msg)
@@ -808,65 +1099,10 @@ class ModuleBuilder:
             )
             for product_id in product_ids
         )
-        return replace(
-            self,
-            record_selections=(*self.record_selections, *selections),
-        )
+        return replace(self, record_selections=(*self.record_selections, *selections))
 
-    def measure(self, *observable_ids: str) -> ModuleBuilder:
+    def measure(self, *observable_ids: str) -> WorkspaceExperimentBuilder:
         return self.record(*observable_ids)
-
-    def as_module(
-        self,
-        id: str | None = None,  # noqa: A002
-        *,
-        metadata: Mapping[str, Any] | None = None,
-    ) -> ExperimentModule:
-        module_id = id or self.id
-        if not module_id:
-            msg = "module builder requires an id before conversion to ExperimentModule"
-            raise ValueError(msg)
-        merged_metadata = dict(self.metadata)
-        merged_metadata.update(dict(metadata or {}))
-        return module(
-            id=module_id,
-            input_ports=self.input_ports,
-            entity_inputs=self.entity_inputs,
-            resources=self.resources,
-            variables=self.variables,
-            points=_combined_point_source_input(self.point_sources),
-            bindings=self.bindings,
-            state_intents=self.state_intents,
-            compute_nodes=self.compute_nodes,
-            records=self.records,
-            product_ports=self.product_ports,
-            record_selections=self.record_selections,
-            parameter_derivations=self.parameter_derivations,
-            metadata=merged_metadata,
-        )
-
-    def template(
-        self,
-        *,
-        kind: str,
-        id: str | None = None,  # noqa: A002
-        experiment_id: str | None = None,
-        inputs: tuple[InputDescription, ...] = (),
-        defaults: Mapping[str, object] | None = None,
-        label: str | None = None,
-        description: str | None = None,
-        metadata: Mapping[str, object] | None = None,
-    ) -> ExperimentTemplate:
-        return self.as_module(id).template(
-            kind=kind,
-            id=id,
-            experiment_id=experiment_id,
-            inputs=inputs,
-            defaults=defaults,
-            label=label,
-            description=description,
-            metadata=metadata,
-        )
 
 
 @dataclass(frozen=True)
@@ -1010,30 +1246,6 @@ class ExperimentModule:
     def __call__(self, **inputs: object) -> ModuleInvocation:
         return ModuleInvocation(module=self, inputs=dict(inputs))
 
-    def template(
-        self,
-        *,
-        kind: str,
-        id: str | None = None,  # noqa: A002
-        experiment_id: str | None = None,
-        inputs: tuple[InputDescription, ...] = (),
-        defaults: Mapping[str, object] | None = None,
-        label: str | None = None,
-        description: str | None = None,
-        metadata: Mapping[str, object] | None = None,
-    ) -> ExperimentTemplate:
-        return authoring_template(
-            id=id or self.id,
-            experiment_id=experiment_id or id or self.id,
-            kind=kind,
-            sources=(self,),
-            inputs=inputs,
-            defaults=defaults,
-            label=label,
-            description=description,
-            metadata=metadata,
-        )
-
     def assemble(
         self,
         **inputs: object,
@@ -1056,7 +1268,50 @@ class ExperimentModule:
         )
 
 
-def module(
+def _module_from_parts(
+    *,
+    id: str,  # noqa: A002
+    input_ports: Sequence[ModuleInputPort] = (),
+    entity_inputs: Sequence[str] = (),
+    resources: Sequence[ResourcePort] = (),
+    variables: Sequence[VariableIntent] = (),
+    bindings: Sequence[ExperimentBindingIntent] = (),
+    state_intents: Sequence[ExperimentStateIntent] = (),
+    compute_nodes: Sequence[ComputeNodeIntent] = (),
+    records: Sequence[RecordIntent] = (),
+    product_ports: Sequence[ModuleProductPort] = (),
+    parameter_derivations: ParameterDerivationInput = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> ExperimentModule:
+    sweep_variables = [
+        variable.variable_id
+        for variable in variables
+        if isinstance(variable, SweepAroundIntent)
+    ]
+    if sweep_variables:
+        msg = (
+            "reusable modules cannot declare sweeps; define point sources "
+            "in a template or workspace experiment: "
+            + ", ".join(sorted(sweep_variables))
+        )
+        raise ValueError(msg)
+    return _module(
+        id=id,
+        input_ports=input_ports,
+        entity_inputs=entity_inputs,
+        resources=resources,
+        variables=variables,
+        bindings=bindings,
+        state_intents=state_intents,
+        compute_nodes=compute_nodes,
+        records=records,
+        product_ports=product_ports,
+        parameter_derivations=parameter_derivations,
+        metadata=metadata,
+    )
+
+
+def _module(
     *,
     id: str,  # noqa: A002
     input_ports: Sequence[ModuleInputPort] = (),
@@ -1073,7 +1328,6 @@ def module(
     parameter_derivations: ParameterDerivationInput = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> ExperimentModule:
-    derivation_set = _module_parameter_derivations(id, parameter_derivations)
     return ExperimentModule(
         id=id,
         input_ports=tuple(input_ports),
@@ -1087,12 +1341,12 @@ def module(
         records=tuple(records),
         product_ports=tuple(product_ports),
         record_selections=tuple(record_selections),
-        parameter_derivations=derivation_set,
+        parameter_derivations=_module_parameter_derivations(id, parameter_derivations),
         metadata=dict(metadata or {}),
     )
 
 
-def module_builder(
+def module(
     id: str | None = None,  # noqa: A002
     *,
     entity_inputs: Sequence[str] = (),
@@ -1102,7 +1356,7 @@ def module_builder(
     derivation_set = (
         _module_parameter_derivations(id, parameter_derivations)
         if id is not None
-        else _module_parameter_derivations("module_builder", parameter_derivations)
+        else _module_parameter_derivations("module", parameter_derivations)
     )
     return ModuleBuilder(
         id=id,
@@ -1110,6 +1364,63 @@ def module_builder(
         entity_inputs=tuple(entity_inputs),
         parameter_derivations=derivation_set,
         metadata=dict(metadata or {}),
+    )
+
+
+def workspace_experiment_builder() -> WorkspaceExperimentBuilder:
+    return WorkspaceExperimentBuilder()
+
+
+def _build_module_from_builder(
+    builder: ModuleBuilder,
+    id: str | None = None,  # noqa: A002
+    *,
+    metadata: Mapping[str, Any] | None = None,
+) -> ExperimentModule:
+    module_id = id or builder.id
+    if not module_id:
+        msg = "module builder requires an id before conversion to ExperimentModule"
+        raise ValueError(msg)
+    merged_metadata = dict(builder.metadata)
+    merged_metadata.update(dict(metadata or {}))
+    return _module_from_parts(
+        id=module_id,
+        input_ports=builder.input_ports,
+        entity_inputs=builder.entity_inputs,
+        resources=builder.resources,
+        variables=builder.variables,
+        bindings=builder.bindings,
+        state_intents=builder.state_intents,
+        compute_nodes=builder.compute_nodes,
+        records=builder.records,
+        product_ports=builder.product_ports,
+        parameter_derivations=builder.parameter_derivations,
+        metadata=merged_metadata,
+    )
+
+
+def workspace_experiment_module(
+    builder: WorkspaceExperimentBuilder,
+    id: str,  # noqa: A002
+    *,
+    metadata: Mapping[str, Any] | None = None,
+) -> ExperimentModule:
+    merged_metadata = dict(builder.metadata)
+    merged_metadata.update(dict(metadata or {}))
+    return _module(
+        id=id,
+        input_ports=builder.input_ports,
+        entity_inputs=builder.entity_inputs,
+        resources=builder.resources,
+        variables=builder.variables,
+        points=_combined_point_source_input(builder.point_sources),
+        bindings=builder.bindings,
+        state_intents=builder.state_intents,
+        compute_nodes=builder.compute_nodes,
+        records=builder.records,
+        product_ports=builder.product_ports,
+        record_selections=builder.record_selections,
+        metadata=merged_metadata,
     )
 
 
@@ -2100,6 +2411,7 @@ __all__ = [
     "ModuleInputPort",
     "ModuleInvocation",
     "ModuleProductPort",
+    "ModuleSweepIntent",
     "PointSourceIntent",
     "ProductSelectionIntent",
     "RecordAxisIntent",
@@ -2119,7 +2431,6 @@ __all__ = [
     "entity_points",
     "input_ref",
     "module",
-    "module_builder",
     "observable",
     "param_ref",
     "point_source",

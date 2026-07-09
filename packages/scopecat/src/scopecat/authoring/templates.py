@@ -22,9 +22,12 @@ from scopecat.experiments import (
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.parameters import ParameterDerivationSet
+from scopecat.relations import ScalarExpr
 
 if TYPE_CHECKING:
-    from scopecat.authoring.assembly import ExperimentAssembly
+    from scopecat.authoring.assembly import (
+        ExperimentAssembly,
+    )
 
 type TemplateBuild = Callable[..., object]
 type ConfigProfileInput = str | Path | ConfigProfileSnapshot
@@ -170,30 +173,176 @@ class ExperimentInvocation:
         return replace(self, request=request)
 
 
+@dataclass(frozen=True)
+class TemplateBuilder:
+    """Fluent builder for reusable experiment shapes.
+
+    Templates sit above modules because sweeps and product selection are part
+    of an experiment shape, not a reusable component. Keeping those choices
+    here lets the same module participate in multiple calibrated workflows.
+    """
+
+    id: str
+    kind: str
+    _experiment_id: str | None = None
+    _sources: tuple[TemplateSource, ...] = ()
+    _inputs: tuple[InputDescription, ...] = ()
+    _defaults: dict[str, object] = field(default_factory=_object_dict)
+    _parameter_derivations: ParameterDerivationSet | None = None
+    _label: str | None = None
+    _description: str | None = None
+    _metadata: dict[str, object] = field(default_factory=_object_dict)
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "experiment template id must be non-empty"
+            raise ValueError(msg)
+        if not self.kind:
+            msg = "experiment template kind must be non-empty"
+            raise ValueError(msg)
+
+    def __call__(self, **inputs: object) -> ExperimentInvocation:
+        return self.bind(**inputs)
+
+    def bind(self, **inputs: object) -> ExperimentInvocation:
+        return self.build().bind(**inputs)
+
+    def build(self) -> ExperimentTemplate:
+        return ExperimentTemplate(
+            id=self.id,
+            experiment_id=self._experiment_id,
+            kind=self.kind,
+            sources=self._sources,
+            inputs=self._inputs,
+            defaults=self._defaults,
+            parameter_derivations=self._parameter_derivations,
+            label=self._label,
+            description=self._description,
+            metadata=self._metadata,
+        )
+
+    def experiment_id(self, experiment_id: str) -> TemplateBuilder:
+        return replace(self, _experiment_id=experiment_id)
+
+    def use(self, *sources: TemplateSource) -> TemplateBuilder:
+        return replace(self, _sources=(*self._sources, *sources))
+
+    def points(self, *sources: TemplateSource) -> TemplateBuilder:
+        return self.use(*sources)
+
+    def scan_around(
+        self,
+        axis_id: str,
+        *,
+        center: ScalarExpr,
+        span: Quantity,
+        points: int,
+        input_id: str | None = None,
+    ) -> TemplateBuilder:
+        from scopecat.authoring.assembly import around_points
+
+        return self.points(
+            around_points(
+                axis_id,
+                center=center,
+                default_span=span,
+                points=points,
+                input_id=input_id,
+            )
+        )
+
+    def input(
+        self,
+        id: str,  # noqa: A002
+        *,
+        kind: str | None = None,
+        default: object | None = None,
+        label: str | None = None,
+        description: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> TemplateBuilder:
+        inputs = (
+            *self._inputs,
+            InputDescription(
+                id=id,
+                kind=kind,
+                default=default,
+                label=label,
+                description=description,
+                metadata=dict(metadata or {}),
+            ),
+        )
+        defaults = dict(self._defaults)
+        if default is not None:
+            defaults[id] = default
+        return replace(self, _inputs=inputs, _defaults=defaults)
+
+    def inputs(self, *inputs: InputDescription) -> TemplateBuilder:
+        defaults = dict(self._defaults)
+        for selected in inputs:
+            if selected.default is not None:
+                defaults[selected.id] = selected.default
+        return replace(self, _inputs=(*self._inputs, *inputs), _defaults=defaults)
+
+    def defaults(self, **defaults: object) -> TemplateBuilder:
+        return replace(self, _defaults={**self._defaults, **defaults})
+
+    def record_product(
+        self,
+        *product_ids: str,
+        record_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> TemplateBuilder:
+        if record_id is not None and len(product_ids) != 1:
+            msg = "record_id can only be used with one product"
+            raise ValueError(msg)
+        from scopecat.authoring.assembly import record_product
+
+        return self.use(
+            *(
+                record_product(
+                    product_id,
+                    record_id=record_id,
+                    metadata=metadata,
+                )
+                for product_id in product_ids
+            )
+        )
+
+    def parameter_derivations(
+        self,
+        derivations: ParameterDerivationSet | None,
+    ) -> TemplateBuilder:
+        return replace(self, _parameter_derivations=derivations)
+
+    def label(self, label: str | None) -> TemplateBuilder:
+        return replace(self, _label=label)
+
+    def description(self, description: str | None) -> TemplateBuilder:
+        return replace(self, _description=description)
+
+    def metadata(self, **metadata: object) -> TemplateBuilder:
+        return replace(self, _metadata={**self._metadata, **metadata})
+
+
 def template(
-    *,
     id: str,  # noqa: A002
+    *,
+    kind: str,
     experiment_id: str | None = None,
-    kind: str | None = None,
-    sources: Sequence[TemplateSource] = (),
-    inputs: tuple[InputDescription, ...] = (),
-    defaults: Mapping[str, object] | None = None,
     parameter_derivations: ParameterDerivationSet | None = None,
     label: str | None = None,
     description: str | None = None,
     metadata: Mapping[str, object] | None = None,
-) -> ExperimentTemplate:
-    return ExperimentTemplate(
+) -> TemplateBuilder:
+    return TemplateBuilder(
         id=id,
-        experiment_id=experiment_id,
         kind=kind,
-        sources=tuple(sources),
-        inputs=inputs,
-        defaults=dict(defaults or {}),
-        parameter_derivations=parameter_derivations,
-        label=label,
-        description=description,
-        metadata=dict(metadata or {}),
+        _experiment_id=experiment_id,
+        _parameter_derivations=parameter_derivations,
+        _label=label,
+        _description=description,
+        _metadata=dict(metadata or {}),
     )
 
 
@@ -204,38 +353,6 @@ def around(
     points: int,
 ) -> AroundSweep:
     return AroundSweep(parameter_id=parameter_id, span=span, points=points)
-
-
-def compose(
-    *sources: object,
-    id: str,  # noqa: A002
-    kind: str,
-    experiment_id: str | None = None,
-    metadata: Mapping[str, object] | None = None,
-) -> ExperimentInvocation:
-    if not sources:
-        msg = "compose requires at least one experiment module invocation"
-        raise ValueError(msg)
-
-    def assemble(**_inputs: object) -> ExperimentAssembly:
-        from scopecat.authoring.assembly import ExperimentAssembly
-        from scopecat.authoring.resolution import compile_composed_source
-
-        assemblies = tuple(compile_composed_source(source) for source in sources)
-        return ExperimentAssembly.combine(
-            experiment_id=experiment_id or id,
-            kind=kind,
-            assemblies=assemblies,
-            metadata=metadata,
-        )
-
-    return ExperimentInvocation(
-        compile=assemble,
-        request=RunRequest(
-            id=f"{id}.request",
-            template_id=id,
-        ),
-    )
 
 
 def _source_template_compile(template: ExperimentTemplate) -> TemplateBuild:
@@ -296,8 +413,8 @@ __all__ = [
     "ExperimentInvocation",
     "ExperimentTemplate",
     "InputDescription",
+    "TemplateBuilder",
     "around",
-    "compose",
     "materialize_request_inputs",
     "template",
 ]

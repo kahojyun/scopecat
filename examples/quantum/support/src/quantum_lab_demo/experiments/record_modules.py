@@ -7,19 +7,19 @@ import scopecat as sc
 RAW_IQ_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.raw_iq")
     .product("raw_iq", resource="readout", unit="ratio", dtype="complex128")
-    .as_module()
+    .build()
 )
 
 PROBABILITY_1_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.probability_1")
     .product("probability_1", resource="readout", unit=None)
-    .as_module()
+    .build()
 )
 
 PROBABILITY_RECORDS_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.probability_01")
     .product("probability_0", "probability_1", resource="readout", unit=None)
-    .as_module()
+    .build()
 )
 
 READOUT_CLASSIFICATION_RECORDS_MODULE = (
@@ -28,7 +28,7 @@ READOUT_CLASSIFICATION_RECORDS_MODULE = (
     .product("state1_iq", resource="readout", unit="ratio", dtype="complex128")
     .product("state0_iq_stdev", resource="readout", unit=None)
     .product("state1_iq_stdev", resource="readout", unit=None)
-    .as_module()
+    .build()
 )
 
 MULTIPLEXED_IQ_RECORD_MODULE = (
@@ -41,7 +41,7 @@ MULTIPLEXED_IQ_RECORD_MODULE = (
         dtype="complex128",
         axes=(sc.entity_axis("qubit", sc.input("qubits")),),
     )
-    .as_module()
+    .build()
 )
 
 QND_IQ_RECORD_MODULE = (
@@ -58,7 +58,7 @@ QND_IQ_RECORD_MODULE = (
             sc.shot_axis(sc.input("shots")),
         ),
     )
-    .as_module()
+    .build()
 )
 
 STABILIZER_IQ_RECORD_MODULE = (
@@ -75,7 +75,7 @@ STABILIZER_IQ_RECORD_MODULE = (
             sc.entity_axis("qubit", sc.input("patch_qubits")),
         ),
     )
-    .as_module()
+    .build()
 )
 
 BACKEND_PROBABILITY_RECORD_MODULE = (
@@ -94,7 +94,7 @@ BACKEND_PROBABILITY_RECORD_MODULE = (
             ),
         ),
     )
-    .as_module()
+    .build()
 )
 
 __all__ = [

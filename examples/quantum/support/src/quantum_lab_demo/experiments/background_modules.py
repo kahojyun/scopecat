@@ -24,7 +24,7 @@ FLUX_BACKGROUND_MODULE = (
         for_entities=("coupler",),
     )
     .bind("coupler_bias.set_flux_bias.offset", sc.input("flux_bias"))
-    .as_module()
+    .build()
 )
 
 SPECTATOR_FLUX_BACKGROUND_MODULE = (
@@ -40,7 +40,7 @@ SPECTATOR_FLUX_BACKGROUND_MODULE = (
         for_entities=("background_couplers",),
     )
     .bind("spectator_bias.set_flux_bias.offset", sc.input("spectator_flux_bias"))
-    .as_module()
+    .build()
 )
 
 SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE = (
@@ -59,7 +59,7 @@ SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE = (
         resource_port="coupler_bias",
         route_entity_column="coupler",
     )
-    .as_module()
+    .build()
 )
 
 __all__ = [

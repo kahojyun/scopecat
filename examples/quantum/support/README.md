@@ -25,9 +25,9 @@ code used to validate Scopecat's notebook-first UX.
 
 | Goal | Start here |
 |---|---|
-| Change qubit, sweep, lengths, or seed inputs | `src/quantum_lab_demo/experiments/templates.py` |
-| Add one-off run-time point or parameter sweeps | `Workspace.run(..., sweeps=sc.cartesian(sc.sweep(...), sc.sweep_param(...)))` in `../notebooks/07_gate_calibration_family.py` |
-| Reuse resource/state/record declarations | focused `src/quantum_lab_demo/experiments/*_modules.py` files |
+| Change reusable template inputs, default points, selected products, or seed inputs | `src/quantum_lab_demo/experiments/templates.py` |
+| Add one-off point scans or run-time point/parameter sweeps | `Workspace.prepare(...).scan(...).preview()/run()` or `Workspace.run(..., sweeps=sc.cartesian(sc.sweep(...), sc.sweep_param(...)))` in notebooks |
+| Reuse resource, state, compute, record, or product declarations | focused `src/quantum_lab_demo/experiments/*_modules.py` files |
 | Generate point-local pulse programs | `src/quantum_lab_demo/experiments/compute.py`, with in-memory payload types in `src/quantum_lab_demo/experiments/payloads.py` |
 | Edit lab wiring with qubit/coupler/line vocabulary | `quantum_wiring()`, `default_quantum_wiring()`, and `quantum_wiring_config_profile()` in `src/quantum_lab_demo/virtual_lab/wiring.py` |
 | Inspect related readout cases | `../notebooks/08_readout_family.py` |
@@ -44,12 +44,16 @@ Those examples should stay thin: they open `Workspace` objects, keep reusable
 `ExperimentModule` declarations in focused domain files such as
 `rabi_modules.py`, `readout_modules.py`, `record_modules.py`, and
 `two_qubit_modules.py`; keep reusable `ExperimentTemplate` entrypoints in
-`templates.py`; pass template constants directly to notebooks; run them with
+`templates.py`; pass template constants directly to notebooks; prepare or run
+them with fluent terminal calls such as
+`Workspace.prepare(...).input(...).scan(...).preview()/run()` or
 `Workspace.run(..., inputs=..., sweeps=..., name=..., tags=...)`, inspect
 `Run.data()`, save `Analysis`, try candidate configs, and review candidate run
-comparisons. Keep reference examples in domain module files and `templates.py`;
-use scratch workspace builders only while exploring code that is not worth
-extracting yet.
+comparisons.
+
+Keep reusable declarations in module/template source. Scratch workspace
+experiments are only for notebook exploration; promote them by editing source
+when the shape becomes a reference case.
 
 The Rabi and CZ chevron modules intentionally return generated gate-sequence
 and waveform payloads as ordinary in-memory Python objects. The CZ chevron
