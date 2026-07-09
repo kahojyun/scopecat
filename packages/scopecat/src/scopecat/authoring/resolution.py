@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from scopecat._planning.parameter_patches import ParameterPatchSpec
+from scopecat.authoring._invocation_plan import (
+    InvocationRequestContext,
+    PreparedInvocation,
+    prepare_invocation,
+)
 from scopecat.authoring.context import ExperimentAuthoringContext
 from scopecat.authoring.context import (
     diagnostic as _diagnostic,
@@ -35,7 +40,7 @@ from scopecat.experiments import (
 from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
 from scopecat.models.parameter import ParameterViewSnapshot
 from scopecat.models.run import RunConfigSource
-from scopecat.parameters import ParameterDerivationSet
+from scopecat.parameters import ParameterDerivationSet, combine_parameter_derivations
 from scopecat.planning.validation import has_blocking_diagnostics
 from scopecat.relations import RelationExpr, ScalarExpr, as_scalar_expr, col
 
@@ -53,6 +58,14 @@ class ResolvedExperiment:
     parameter_derivations: ParameterDerivationSet | None = None
     config_source: RunConfigSource | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
+
+
+@dataclass(frozen=True)
+class _CompiledInvocation:
+    assembly: ExperimentAssembly
+    request: RunRequest
+    inputs: dict[str, object]
+    parameter_derivations: ParameterDerivationSet | None
 
 
 def resolve_experiment(
@@ -82,38 +95,44 @@ def resolve_experiment_with_config(
     workspace: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> ResolvedExperiment:
-    return _resolve_invocation(
-        experiment,
+    return resolve_prepared_invocation(
+        prepare_invocation(experiment),
         config=config,
         workspace=workspace,
         config_source=config_source,
     )
 
 
-def _resolve_invocation(
-    invocation: ExperimentInvocation,
+def resolve_prepared_invocation(
+    prepared: PreparedInvocation,
     *,
     config: ConfigProfileSnapshot,
     workspace: str | Path,
-    config_source: RunConfigSource | None,
+    config_source: RunConfigSource | None = None,
 ) -> ResolvedExperiment:
-    assembly = _compile_invocation(invocation)
+    compiled = compile_prepared_invocation(prepared)
     return _link_assembly(
-        assembly,
+        compiled.assembly,
+        request=compiled.request,
+        inputs=compiled.inputs,
+        parameter_derivations=compiled.parameter_derivations,
         config=config,
         workspace=workspace,
         config_source=config_source,
     )
 
 
-def _compile_invocation(invocation: ExperimentInvocation) -> ExperimentAssembly:
+def compile_prepared_invocation(
+    prepared: PreparedInvocation,
+) -> _CompiledInvocation:
+    invocation = prepared.invocation
+    request_context = prepared.request_context
     scans = _effective_scans(invocation)
     inputs = _merged_inputs(invocation, scans=scans)
-    request = _materialized_request(invocation, inputs=inputs, scans=scans)
-    from scopecat.authoring.assembly import ExperimentAssembly
+    request = _materialized_request(request_context, inputs=inputs, scans=scans)
 
     try:
-        compiled = invocation.compile(**inputs)
+        compiled = _compile_invocation_template(invocation, inputs)
     except ValidationFailed:
         raise
     except Exception as error:
@@ -128,34 +147,85 @@ def _compile_invocation(invocation: ExperimentInvocation) -> ExperimentAssembly:
                 )
             ]
         ) from error
-    if isinstance(compiled, ExperimentAssembly):
-        assembly = compiled.with_invocation(
-            request=request,
-            inputs=inputs,
-            parameter_derivations=invocation.parameter_derivations,
-        )
-        if scans:
-            return _apply_scans(
-                assembly,
-                scans,
-                inputs=inputs,
-            )
-        return assembly
-    raise ValidationFailed(
-        [
-            _diagnostic(
-                "error",
-                "experiment_authoring_compile_result_invalid",
-                "experiment authoring compile must produce an ExperimentAssembly",
-                "authoring",
-            )
-        ]
+    invocation_derivations = invocation.template.parameter_derivations
+    merged_inputs = {**compiled.inputs, **inputs}
+    parameter_derivations = _combined_parameter_derivations(
+        id=f"{_compiled_derivation_id(compiled, request)}.parameter_derivations",
+        derivations=(
+            compiled.parameter_derivations,
+            invocation_derivations,
+        ),
     )
+    assembly = replace(
+        compiled,
+        inputs=merged_inputs,
+        parameter_derivations=parameter_derivations,
+    )
+    if scans:
+        assembly = _apply_scans(
+            assembly,
+            scans,
+            inputs=inputs,
+        )
+    return _CompiledInvocation(
+        assembly=assembly,
+        request=request,
+        inputs=merged_inputs,
+        parameter_derivations=parameter_derivations,
+    )
+
+
+def _compile_invocation_template(
+    invocation: ExperimentInvocation,
+    inputs: Mapping[str, object],
+) -> ExperimentAssembly:
+    from scopecat.authoring.assembly import ExperimentAssembly
+
+    template = invocation.template
+    if template.module is None:
+        msg = "experiment template requires a module"
+        raise ValueError(msg)
+    assemblies = [template.module(**inputs).assemble()]
+    if template.record_selections:
+        assemblies.append(
+            ExperimentAssembly(
+                entity_inputs=(),
+                record_selections=template.record_selections,
+            )
+        )
+    return ExperimentAssembly.combine(
+        experiment_id=template.experiment_id or template.id,
+        kind=template.kind or template.id,
+        assemblies=assemblies,
+        metadata=template.metadata,
+    )
+
+
+def _compiled_derivation_id(assembly: ExperimentAssembly, request: RunRequest) -> str:
+    return assembly.experiment_id or request.template_id or request.id
+
+
+def _combined_parameter_derivations(
+    *,
+    id: str,  # noqa: A002
+    derivations: Sequence[ParameterDerivationSet | None],
+) -> ParameterDerivationSet | None:
+    selected: list[ParameterDerivationSet] = []
+    seen_ids: set[str] = set()
+    for derivation in derivations:
+        if derivation is None or derivation.id in seen_ids:
+            continue
+        selected.append(derivation)
+        seen_ids.add(derivation.id)
+    return combine_parameter_derivations(id=id, derivations=selected)
 
 
 def _link_assembly(
     assembly: ExperimentAssembly,
     *,
+    request: RunRequest,
+    inputs: Mapping[str, object],
+    parameter_derivations: ParameterDerivationSet | None,
     config: ConfigProfileSnapshot,
     workspace: str | Path,
     config_source: RunConfigSource | None,
@@ -164,7 +234,7 @@ def _link_assembly(
 
     parameter_view = build_config_parameters(
         config,
-        derivations=assembly.parameter_derivations,
+        derivations=parameter_derivations,
     )
     context = ExperimentAuthoringContext(
         config=config,
@@ -188,26 +258,15 @@ def _link_assembly(
                 )
             ]
         ) from error
-    if assembly.request is None:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "experiment_authoring_request_missing",
-                    "experiment assembly is missing its run request",
-                    "authoring.request",
-                )
-            ]
-        )
     return _resolved_spec(
         experiment,
         config=config,
         workspace=workspace,
         config_source=config_source,
-        request=assembly.request,
-        inputs=assembly.inputs,
+        request=request,
+        inputs=inputs,
         parameter_view=parameter_view,
-        parameter_derivations=assembly.parameter_derivations,
+        parameter_derivations=parameter_derivations,
         authoring_diagnostics=context.diagnostics,
     )
 
@@ -248,7 +307,7 @@ def _resolved_spec(
 
 
 def _effective_scans(invocation: ExperimentInvocation) -> tuple[ScanItem, ...]:
-    defaults = tuple(invocation.default_scans)
+    defaults = invocation.template.default_scans
     overrides = tuple(invocation.scans)
     if not defaults:
         _validate_group_override_shape((), overrides)
@@ -337,12 +396,16 @@ def _merged_inputs(
     *,
     scans: Sequence[ScanItem],
 ) -> dict[str, object]:
-    merged = dict(invocation.defaults)
-    merged.update(invocation.build_inputs)
+    merged = {
+        input_description.id: input_description.default
+        for input_description in invocation.template.inputs
+        if input_description.has_default
+    }
+    merged.update(invocation.inputs)
     scan_axes = {leaf.axis_id for scan in scans for leaf in iter_scan_leaves(scan)}
     missing = [
         option.id
-        for option in invocation.input_descriptions
+        for option in invocation.template.inputs
         if option.id not in merged and option.id not in scan_axes
     ]
     if missing:
@@ -360,22 +423,24 @@ def _merged_inputs(
 
 
 def _materialized_request(
-    invocation: ExperimentInvocation,
+    context: InvocationRequestContext,
     *,
     inputs: Mapping[str, object],
     scans: Sequence[ScanItem],
 ) -> RunRequest:
-    template_inputs = dict(invocation.request.template_inputs)
+    template_inputs = dict(context.template_inputs)
     template_inputs.update(materialize_request_inputs(inputs))
-    request_scans = list(invocation.request.scans)
+    request_scans = list(context.scans)
     for scan in scans:
         selected_scan = _bind_scan_inputs(scan, inputs)
         request_scans.append(selected_scan.request_record())
-    return invocation.request.model_copy(
-        update={
-            "template_inputs": template_inputs,
-            "scans": request_scans,
-        }
+    return RunRequest(
+        id=context.id,
+        template_id=context.template_id,
+        template_inputs=template_inputs,
+        scans=request_scans,
+        operator=context.operator,
+        metadata=dict(context.metadata),
     )
 
 

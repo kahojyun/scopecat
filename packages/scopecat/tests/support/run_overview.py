@@ -7,16 +7,15 @@ from scopecat._workflows.config import register_and_activate_candidate_config
 from scopecat.candidate_configs import resolve_candidate_config
 from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import resolve_config_registry_config_source
-from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.parameter_changes import review_parameter_changes
 from scopecat.run_comparison import execute_run_comparison
-from tests.support.records import read_model
 from tests.support.signal_testkit import (
     execute_best_signal_analysis,
     execute_signal_run,
     execute_summary_stats_analysis,
 )
+from tests.support.workflow_fixtures import load_invocation
 
 EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
@@ -25,14 +24,10 @@ def load_config() -> ConfigProfileSnapshot:
     return load_config_profile(EXAMPLE_DIR / "config-profile.json")
 
 
-def load_experiment() -> ExperimentSpec:
-    return read_model(EXAMPLE_DIR / "experiment.json", ExperimentSpec)
-
-
 def run_signal_experiment(tmp_path: Path) -> str:
     manifest, _snapshot = execute_signal_run(
         config=load_config(),
-        experiment=load_experiment(),
+        experiment=load_invocation(),
         workspace=tmp_path,
     )
     return manifest.run_id
@@ -91,7 +86,7 @@ def config_registry_sourced_signal_run(tmp_path: Path, *, selector: str) -> str:
     )
     manifest, _snapshot = execute_signal_run(
         config=config,
-        experiment=load_experiment(),
+        experiment=load_invocation(),
         workspace=tmp_path,
         config_source=source,
     )
@@ -115,7 +110,7 @@ def signal_run_with_active_candidate_comparison(tmp_path: Path) -> str:
     )
     candidate_manifest, _snapshot = execute_signal_run(
         config=config,
-        experiment=load_experiment(),
+        experiment=load_invocation(),
         workspace=tmp_path,
         config_source=source,
     )

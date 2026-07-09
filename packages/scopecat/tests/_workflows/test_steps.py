@@ -13,7 +13,7 @@ from tests.support.signal_testkit import (
     BestSignalAnalysisStep,
     SummaryStatsAnalysisStep,
 )
-from tests.support.workflow_fixtures import load_config, load_experiment
+from tests.support.workflow_fixtures import load_config, load_prepared_invocation
 
 
 def test_workflow_analysis_review_activate_and_rerun_active_config(
@@ -22,7 +22,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     run = start_run(
         instrument_provider=TestSignalInstrumentProvider(),
         config=load_config(),
-        experiment=load_experiment(),
+        experiment=load_prepared_invocation(),
         workspace=tmp_path,
     )
     lab = sc.open(tmp_path, config=load_config())
@@ -44,7 +44,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     next_run = start_run(
         instrument_provider=TestSignalInstrumentProvider(),
         config=active_config.config,
-        experiment=load_experiment(),
+        experiment=load_prepared_invocation(),
         workspace=tmp_path,
         config_source=active_config.config_source,
     )

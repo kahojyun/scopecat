@@ -27,7 +27,7 @@ from tests.support.workflow_fixtures import (
     attach_binary_artifact,
     attach_typed_data_artifacts,
     load_config,
-    load_experiment,
+    load_prepared_invocation,
 )
 
 
@@ -35,7 +35,7 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
     tmp_path: Path,
 ) -> None:
     config = load_config()
-    experiment = load_experiment()
+    experiment = load_prepared_invocation()
     baseline = start_run(
         instrument_provider=TestSignalInstrumentProvider(),
         config=config,
@@ -101,7 +101,7 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
     assert any(record.id == "execution-summary" for record in details.manifest.records)
     assert structured_details.manifest == details.manifest
     assert structured_details.config.workspace_id == "example-workspace"
-    assert structured_details.experiment.id == experiment.id
+    assert structured_details.experiment.id == "simple-scan"
     assert structured_details.experiment.records
     assert artifacts == ()
     assert {entry.id for entry in payload_entries} >= {
@@ -140,7 +140,7 @@ def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
     run = start_run(
         instrument_provider=TestSignalInstrumentProvider(),
         config=load_config(),
-        experiment=load_experiment(),
+        experiment=load_prepared_invocation(),
         workspace=tmp_path,
     )
     attach_binary_artifact(tmp_path, run.run_id)
@@ -178,7 +178,7 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
     run = start_run(
         instrument_provider=TestSignalInstrumentProvider(),
         config=load_config(),
-        experiment=load_experiment(),
+        experiment=load_prepared_invocation(),
         workspace=tmp_path,
     )
     attach_typed_data_artifacts(tmp_path, run.run_id)

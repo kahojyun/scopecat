@@ -50,9 +50,9 @@ them with fluent terminal calls such as
 `Run.data()`, save `Analysis`, try candidate configs, and review candidate run
 comparisons.
 
-Keep reusable declarations in module/template source. Scratch workspace
-experiments are only for notebook exploration; promote them by editing source
-when the shape becomes a reference case.
+Keep reusable declarations in module/template definitions. Scratch workspace
+experiments are only for notebook exploration; promote them by editing those
+definitions when the shape becomes a reference case.
 
 The Rabi and CZ chevron modules intentionally return generated gate-sequence
 and waveform payloads as ordinary in-memory Python objects. The CZ chevron

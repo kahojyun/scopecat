@@ -2,20 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import scopecat.authoring as authoring
 from scopecat._workflows.runs import preview_experiment, start_run
+from scopecat.authoring._invocation_plan import prepare_invocation
 from scopecat.models.parameter import Quantity
 from scopecat.relations import param
 from tests.support.authoring import SIMPLE_MODULE
 from tests.support.signal_instruments import TestSignalInstrumentProvider
-from tests.support.workflow_fixtures import load_config, load_experiment
+from tests.support.workflow_fixtures import load_config, load_prepared_invocation
 
 
 def test_preview_and_start_run_use_separate_paths(
     tmp_path: Path,
 ) -> None:
     config = load_config()
-    experiment = load_experiment()
+    experiment = load_prepared_invocation()
 
     preview = preview_experiment(
         config=config,
@@ -38,7 +38,7 @@ def test_preview_and_start_run_use_separate_paths(
 def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> None:
     config = load_config()
     experiment_template = (
-        authoring.template("test.workflow_request_scan", kind="simple_scan")
+        SIMPLE_MODULE.template("test.workflow_request_scan", kind="simple_scan")
         .experiment_id("authored-simple-scan")
         .scan(
             "drive_frequency",
@@ -46,10 +46,9 @@ def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> Non
             span=Quantity(value=200.0, unit="MHz"),
             points=5,
         )
-        .use(SIMPLE_MODULE)
         .build()
     )
-    invocation = experiment_template.bind(subject="q0")
+    invocation = prepare_invocation(experiment_template.bind(subject="q0"))
 
     preview = preview_experiment(
         config=config,

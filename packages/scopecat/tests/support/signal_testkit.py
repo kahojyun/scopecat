@@ -15,9 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import scopecat as sc
 from scopecat._workflows.runs import start_run
+from scopecat.authoring import ExperimentInvocation
+from scopecat.authoring._invocation_plan import prepare_invocation
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
 from scopecat.models.execution import ExecutionSummary
 from scopecat.models.parameter import Quantity
@@ -262,13 +263,13 @@ class TestSignalAnalysisStep:
 def execute_signal_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: ExperimentSpec,
+    experiment: ExperimentInvocation,
     workspace: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> tuple[RunManifest, ExecutionSummary]:
     manifest = start_run(
         config=config,
-        experiment=experiment,
+        experiment=prepare_invocation(experiment),
         workspace=workspace,
         instrument_provider=TestSignalInstrumentProvider(),
         config_source=config_source,

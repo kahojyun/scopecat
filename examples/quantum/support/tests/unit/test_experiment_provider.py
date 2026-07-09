@@ -8,11 +8,13 @@ from demo_lab_test_paths import (
     EXPERIMENT_FIXTURE_DIR,
     EXPERIMENT_VIRTUAL_LAB_PROFILE,
 )
+from scopecat._runtime.executor import execute_run
 from scopecat.authoring import ExperimentInvocation, resolve_experiment
 from scopecat.config_profiles import load_config_profile
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec
 from scopecat.instruments import RuntimeEvent
+from scopecat.instruments.sdk import InstrumentProviderContext
 from scopecat.models.config import ConfigProfileSnapshot
 
 from quantum_lab_demo.experiments import (
@@ -235,8 +237,20 @@ def test_rejects_invalid_payload_kind(
         }
     )
 
+    lab = _lab(tmp_path)
+    assert lab.instrument_provider is not None
+    provider = lab.instrument_provider.provide(
+        InstrumentProviderContext(config=resolved.config)
+    )
     with pytest.raises(ValidationFailed) as error:
-        _lab(tmp_path).prepare(experiment).run()
+        execute_run(
+            config=resolved.config,
+            experiment=experiment,
+            instruments=list(provider.drivers),
+            workspace=tmp_path,
+            parameter_view=resolved.parameter_view,
+            parameter_derivations=resolved.parameter_derivations,
+        )
 
     assert error.value.diagnostics[0].code == "instrument_driver_payload_kind_mismatch"
 

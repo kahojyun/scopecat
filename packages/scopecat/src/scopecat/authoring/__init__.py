@@ -48,7 +48,6 @@ from scopecat.authoring.templates import (
     ExperimentTemplate,
     InputDescription,
     TemplateBuilder,
-    template,
 )
 from scopecat.experiments import ComputeNodeContext as ComputeContext
 
@@ -95,7 +94,6 @@ __all__ = [
     "resource_port",
     "route",
     "shot_axis",
-    "template",
     "var_ref",
     "variable",
 ]

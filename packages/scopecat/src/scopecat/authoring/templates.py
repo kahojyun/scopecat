@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -14,7 +14,6 @@ from scopecat.authoring.expressions import (
 )
 from scopecat.experiments import (
     ParameterScanAxis,
-    RunRequest,
     ScanAxis,
     ScanGroup,
     ScanItem,
@@ -27,19 +26,16 @@ from scopecat.relations import ScalarExpr, param
 
 if TYPE_CHECKING:
     from scopecat.authoring.assembly import (
-        ExperimentAssembly,
         ExperimentModule,
-        ModuleBuilder,
         ProductSelectionIntent,
     )
 
-    type TemplateSource = ExperimentModule | ModuleBuilder
+    type TemplateModule = ExperimentModule
     type TemplateRecordSelection = ProductSelectionIntent
 else:
-    type TemplateSource = object
+    type TemplateModule = object
     type TemplateRecordSelection = object
 
-type TemplateBuild = Callable[..., object]
 type ConfigProfileInput = str | Path | ConfigProfileSnapshot
 
 
@@ -47,14 +43,25 @@ def _object_dict() -> dict[str, object]:
     return {}
 
 
+class _InputDefaultMissing:
+    __slots__ = ()
+
+
+_INPUT_DEFAULT_MISSING = _InputDefaultMissing()
+
+
 @dataclass(frozen=True)
 class InputDescription:
     id: str
     kind: str | None = None
-    default: object | None = None
+    default: object = _INPUT_DEFAULT_MISSING
     label: str | None = None
     description: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def has_default(self) -> bool:
+        return self.default is not _INPUT_DEFAULT_MISSING
 
 
 @dataclass(frozen=True)
@@ -62,10 +69,9 @@ class ExperimentTemplate:
     id: str
     experiment_id: str | None = None
     kind: str | None = None
-    sources: Sequence[TemplateSource] = ()
+    module: TemplateModule | None = None
     record_selections: tuple[TemplateRecordSelection, ...] = ()
     inputs: tuple[InputDescription, ...] = ()
-    defaults: dict[str, object] = field(default_factory=_object_dict)
     default_scans: tuple[ScanItem, ...] = ()
     parameter_derivations: ParameterDerivationSet | None = None
     label: str | None = None
@@ -76,53 +82,32 @@ class ExperimentTemplate:
         if not self.id:
             msg = "experiment template id must be non-empty"
             raise ValueError(msg)
-        if not self.sources:
-            msg = "experiment template requires sources"
+        if self.module is None:
+            msg = "experiment template requires a module"
             raise ValueError(msg)
         if not self.kind:
-            msg = "experiment template sources require kind"
+            msg = "experiment template requires kind"
             raise ValueError(msg)
 
     def bind(self, **inputs: object) -> ExperimentInvocation:
         return ExperimentInvocation(
-            compile=_source_template_compile(self),
-            build_inputs=dict(inputs),
-            request=RunRequest(
-                id=f"{self.id}.request",
-                template_id=self.id,
-                template_inputs=materialize_request_inputs(inputs),
-            ),
-            defaults=self.defaults,
-            input_descriptions=self.inputs,
-            default_scans=self.default_scans,
-            parameter_derivations=self.parameter_derivations,
             template=self,
+            inputs=dict(inputs),
         )
 
 
 @dataclass(frozen=True)
 class ExperimentInvocation:
-    compile: TemplateBuild
-    request: RunRequest
-    build_inputs: dict[str, object] = field(default_factory=_object_dict)
+    template: ExperimentTemplate
+    inputs: dict[str, object] = field(default_factory=_object_dict)
     scans: tuple[ScanItem, ...] = ()
-    default_scans: tuple[ScanItem, ...] = ()
-    defaults: dict[str, object] = field(default_factory=_object_dict)
-    input_descriptions: tuple[InputDescription, ...] = ()
-    parameter_derivations: ParameterDerivationSet | None = None
-    template: ExperimentTemplate | None = None
 
     def bind(self, **inputs: object) -> ExperimentInvocation:
-        build_inputs = dict(self.build_inputs)
-        build_inputs.update(inputs)
-        template_inputs = dict(self.request.template_inputs)
-        template_inputs.update(materialize_request_inputs(inputs))
+        selected = dict(self.inputs)
+        selected.update(inputs)
         return replace(
             self,
-            build_inputs=build_inputs,
-            request=self.request.model_copy(
-                update={"template_inputs": template_inputs}
-            ),
+            inputs=selected,
         )
 
     def scan(
@@ -147,9 +132,6 @@ class ExperimentInvocation:
         )
         return replace(self, scans=(*self.scans, selected))
 
-    def _replace_request(self, request: RunRequest) -> ExperimentInvocation:
-        return replace(self, request=request)
-
 
 @dataclass(frozen=True)
 class TemplateBuilder:
@@ -163,10 +145,9 @@ class TemplateBuilder:
     id: str
     kind: str
     _experiment_id: str | None = None
-    _sources: tuple[TemplateSource, ...] = ()
+    _module: TemplateModule | None = None
     _record_selections: tuple[TemplateRecordSelection, ...] = ()
     _inputs: tuple[InputDescription, ...] = ()
-    _defaults: dict[str, object] = field(default_factory=_object_dict)
     _default_scans: tuple[ScanItem, ...] = ()
     _parameter_derivations: ParameterDerivationSet | None = None
     _label: str | None = None
@@ -189,10 +170,9 @@ class TemplateBuilder:
             id=self.id,
             experiment_id=self._experiment_id,
             kind=self.kind,
-            sources=self._sources,
+            module=self._module,
             record_selections=self._record_selections,
             inputs=self._inputs,
-            defaults=self._defaults,
             default_scans=self._default_scans,
             parameter_derivations=self._parameter_derivations,
             label=self._label,
@@ -202,15 +182,6 @@ class TemplateBuilder:
 
     def experiment_id(self, experiment_id: str) -> TemplateBuilder:
         return replace(self, _experiment_id=experiment_id)
-
-    def use(self, *sources: TemplateSource) -> TemplateBuilder:
-        from scopecat.authoring.assembly import ExperimentModule, ModuleBuilder
-
-        for source in cast("tuple[object, ...]", sources):
-            if not isinstance(source, ExperimentModule | ModuleBuilder):
-                msg = "template use() accepts ExperimentModule or ModuleBuilder sources"
-                raise TypeError(msg)
-        return replace(self, _sources=(*self._sources, *sources))
 
     def scan(
         self,
@@ -244,7 +215,7 @@ class TemplateBuilder:
         id: str,  # noqa: A002
         *,
         kind: str | None = None,
-        default: object | None = None,
+        default: object = _INPUT_DEFAULT_MISSING,
         label: str | None = None,
         description: str | None = None,
         metadata: Mapping[str, Any] | None = None,
@@ -260,20 +231,10 @@ class TemplateBuilder:
                 metadata=dict(metadata or {}),
             ),
         )
-        defaults = dict(self._defaults)
-        if default is not None:
-            defaults[id] = default
-        return replace(self, _inputs=inputs, _defaults=defaults)
+        return replace(self, _inputs=inputs)
 
     def inputs(self, *inputs: InputDescription) -> TemplateBuilder:
-        defaults = dict(self._defaults)
-        for selected in inputs:
-            if selected.default is not None:
-                defaults[selected.id] = selected.default
-        return replace(self, _inputs=(*self._inputs, *inputs), _defaults=defaults)
-
-    def defaults(self, **defaults: object) -> TemplateBuilder:
-        return replace(self, _defaults={**self._defaults, **defaults})
+        return replace(self, _inputs=(*self._inputs, *inputs))
 
     def record_product(
         self,
@@ -317,7 +278,8 @@ class TemplateBuilder:
         return replace(self, _metadata={**self._metadata, **metadata})
 
 
-def template(
+def template_builder_from_module(
+    module: TemplateModule,
     id: str,  # noqa: A002
     *,
     kind: str,
@@ -330,42 +292,13 @@ def template(
     return TemplateBuilder(
         id=id,
         kind=kind,
+        _module=module,
         _experiment_id=experiment_id,
         _parameter_derivations=parameter_derivations,
         _label=label,
         _description=description,
         _metadata=dict(metadata or {}),
     )
-
-
-def _source_template_compile(template: ExperimentTemplate) -> TemplateBuild:
-    def assemble(**inputs: object) -> ExperimentAssembly:
-        from scopecat.authoring.assembly import (
-            ExperimentAssembly,
-            ExperimentModule,
-        )
-
-        assemblies: list[ExperimentAssembly] = []
-        for source in template.sources:
-            if isinstance(source, ExperimentModule):
-                assemblies.append(source(**inputs).assemble())
-            else:
-                assemblies.append(source.build()(**inputs).assemble())
-        if template.record_selections:
-            assemblies.append(
-                ExperimentAssembly(
-                    entity_inputs=(),
-                    record_selections=template.record_selections,
-                )
-            )
-        return ExperimentAssembly.combine(
-            experiment_id=template.experiment_id or template.id,
-            kind=template.kind or template.id,
-            assemblies=assemblies,
-            metadata=template.metadata,
-        )
-
-    return assemble
 
 
 def _scan_item(
@@ -448,5 +381,4 @@ __all__ = [
     "InputDescription",
     "TemplateBuilder",
     "materialize_request_inputs",
-    "template",
 ]

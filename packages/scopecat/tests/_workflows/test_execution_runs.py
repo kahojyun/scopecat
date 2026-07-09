@@ -9,9 +9,8 @@ from scopecat.errors import ValidationFailed
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import (
     config_with_instrument_id,
-    experiment_with_resource_id,
     load_config,
-    load_experiment,
+    load_prepared_invocation,
 )
 
 
@@ -20,7 +19,7 @@ def test_start_run_uses_provider_selected_config_instrument(
 ) -> None:
     manifest = start_run(
         config=config_with_instrument_id("source-a"),
-        experiment=experiment_with_resource_id("source-a"),
+        experiment=load_prepared_invocation(),
         workspace=tmp_path,
         instrument_provider=TestSignalInstrumentProvider(),
     )
@@ -41,7 +40,7 @@ def test_start_run_requires_explicit_instrument_provider(
     with pytest.raises(ValidationFailed) as error:
         start_run(
             config=load_config(),
-            experiment=load_experiment(),
+            experiment=load_prepared_invocation(),
             workspace=tmp_path,
         )
 

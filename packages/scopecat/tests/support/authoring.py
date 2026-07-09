@@ -21,11 +21,8 @@ def parameter_view():
 
 
 SIMPLE_MODULE = (
-    authoring.module(
-        "test.simple_scan",
-        entity_inputs=("subject",),
-        metadata={"assembled_by": "module"},
-    )
+    authoring.module("test.simple_scan", metadata={"assembled_by": "module"})
+    .entity("subject")
     .resource("source", requires=authoring.requires("set_frequency"))
     .bind("source.set_frequency.frequency", authoring.var_ref("drive_frequency"))
     .record("signal", resource="source", unit="ratio")
@@ -35,7 +32,7 @@ SIMPLE_MODULE = (
 
 def simple_template() -> ExperimentTemplate:
     return (
-        authoring.template("test.simple_scan", kind="simple_scan")
+        SIMPLE_MODULE.template("test.simple_scan", kind="simple_scan")
         .experiment_id("authored-simple-scan")
         .scan(
             "drive_frequency",
@@ -43,13 +40,11 @@ def simple_template() -> ExperimentTemplate:
             span=Quantity(value=200.0, unit="MHz"),
             points=5,
         )
-        .use(SIMPLE_MODULE)
         .label("Simple scan")
         .inputs(
             InputDescription(id="subject", kind="entity"),
-            InputDescription(id="drive_frequency", kind="quantity"),
+            InputDescription(id="drive_frequency", kind="quantity", default=None),
         )
-        .defaults(drive_frequency=None)
         .metadata(assembled_by="template")
         .build()
     )

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scopecat._workflows.runs import preview_experiment, validate_experiment
+from scopecat._workflows.preview import build_experiment_preview
 from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import (
     ExperimentSpec,
@@ -9,6 +9,7 @@ from scopecat.experiments import (
     set_param,
     set_state,
 )
+from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
 from scopecat.models.parameter import Quantity
 from scopecat.relations import col, grid, param, range_values, table
 from tests.support.records import read_model
@@ -16,15 +17,19 @@ from tests.support.records import read_model
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
 
-def test_preview_experiment_builds_expected_plan(tmp_path: Path) -> None:
+def _preview_spec(spec: ExperimentSpec, config: ConfigProfileSnapshot):
+    return build_experiment_preview(
+        spec,
+        build_config_parameters(config),
+        config=config,
+    )
+
+
+def test_preview_experiment_builds_expected_plan() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     spec = read_model(EXAMPLE_DIR / "experiment.json", ExperimentSpec)
 
-    preview = preview_experiment(
-        config=config,
-        experiment=spec,
-        workspace=tmp_path,
-    )
+    preview, diagnostics = _preview_spec(spec, config)
 
     assert preview.experiment_id == spec.id
     assert preview.experiment_kind == spec.kind
@@ -37,16 +42,10 @@ def test_preview_experiment_builds_expected_plan(tmp_path: Path) -> None:
     assert preview.state_fields[0].field_path == "frequency"
     assert preview.state_fields[0].value_kind == "quantity"
     assert preview.records[0].shape == (3,)
-    assert validate_experiment(
-        config=config,
-        experiment=spec,
-        workspace=tmp_path,
-    ).ok
+    assert diagnostics == ()
 
 
-def test_preview_experiment_includes_float_step_stop_point(
-    tmp_path: Path,
-) -> None:
+def test_preview_experiment_includes_float_step_stop_point() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     spec = experiment(
         id="float-range-scan",
@@ -71,14 +70,11 @@ def test_preview_experiment_includes_float_step_stop_point(
         records=[observable("signal", unit="ratio", resource="source-0")],
     )
 
-    preview = preview_experiment(
-        config=config,
-        experiment=spec,
-        workspace=tmp_path,
-    )
+    preview, diagnostics = _preview_spec(spec, config)
 
     values = [record.coordinates["drive_frequency"] for record in preview.points]
 
+    assert diagnostics == ()
     assert all(isinstance(value, Quantity) for value in values)
     assert [value.value for value in values if isinstance(value, Quantity)] == [
         5.9,
@@ -89,9 +85,7 @@ def test_preview_experiment_includes_float_step_stop_point(
     ]
 
 
-def test_validate_experiment_does_not_duplicate_preview_diagnostics(
-    tmp_path: Path,
-) -> None:
+def test_validate_experiment_does_not_duplicate_preview_diagnostics() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     spec = experiment(
         id="bad-preview-points",
@@ -99,14 +93,10 @@ def test_validate_experiment_does_not_duplicate_preview_diagnostics(
         points=table("missing_table"),
     )
 
-    validation = validate_experiment(
-        config=config,
-        experiment=spec,
-        workspace=tmp_path,
-    )
+    _preview, diagnostics = _preview_spec(spec, config)
 
     assert [
         diagnostic.code
-        for diagnostic in validation.diagnostics
+        for diagnostic in diagnostics
         if diagnostic.code == "experiment_points_evaluation_failed"
     ] == ["experiment_points_evaluation_failed"]

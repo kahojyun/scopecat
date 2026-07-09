@@ -10,12 +10,12 @@ from scopecat.run_comparison import (
 from tests.support.run_comparison import (
     active_config_registry_signal_run,
     candidate_data_records,
-    load_experiment,
     load_signal_config,
     run_signal_experiment,
     write_candidate_records,
 )
 from tests.support.signal_testkit import execute_signal_run
+from tests.support.workflow_fixtures import load_invocation
 
 
 def test_execute_run_comparison_returns_result_and_lists_baseline_comparison(
@@ -103,7 +103,7 @@ def test_execute_run_comparison_tracks_compared_runs(
     tmp_path: Path,
 ) -> None:
     config = load_signal_config()
-    experiment = load_experiment()
+    experiment = load_invocation()
     baseline_manifest, _baseline_snapshot = execute_signal_run(
         config=config,
         experiment=experiment,

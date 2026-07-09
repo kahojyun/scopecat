@@ -6,6 +6,7 @@ from pathlib import Path
 import scopecat as sc
 from scopecat._workflows.config import register_and_activate_candidate_config
 from scopecat._workflows.runs import preview_experiment, start_run
+from scopecat.authoring._invocation_plan import prepare_invocation
 from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import (
     activate_config_registry_entry,
@@ -13,16 +14,15 @@ from scopecat.config_registry import (
     resolve_config_registry_config_source,
     rollback_config_registry,
 )
-from scopecat.experiments import ExperimentSpec
 from scopecat.run_comparison import execute_run_comparison, review_run_comparison
 from scopecat.run_overview import build_run_overview
-from tests.support.records import read_model
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.signal_testkit import (
     BestSignalAnalysisStep,
     SummaryStatsAnalysisStep,
     execute_signal_run,
 )
+from tests.support.workflow_fixtures import load_invocation
 
 Exercise = Callable[[Path], None]
 
@@ -34,7 +34,7 @@ SIGNAL_FIXTURE_DIR = FIXTURE_ROOT / "core" / "simple_scan"
 def _load_fixture(fixture_dir: Path):
     return (
         load_config_profile(fixture_dir / "config-profile.json"),
-        read_model(fixture_dir / "experiment.json", ExperimentSpec),
+        load_invocation(),
     )
 
 
@@ -47,7 +47,7 @@ def _start_signal_run(workspace: Path):
     return start_run(
         instrument_provider=TestSignalInstrumentProvider(),
         config=config,
-        experiment=experiment,
+        experiment=prepare_invocation(experiment),
         workspace=workspace,
     )
 
@@ -72,10 +72,9 @@ def _candidate_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfig:
 
 def exercise_preview(workspace: Path) -> None:
     config = load_config_profile(SIGNAL_FIXTURE_DIR / "config-profile.json")
-    experiment = read_model(SIGNAL_FIXTURE_DIR / "experiment.json", ExperimentSpec)
     preview_experiment(
         config=config,
-        experiment=experiment,
+        experiment=prepare_invocation(load_invocation()),
         workspace=workspace,
     )
 
@@ -171,7 +170,7 @@ def exercise_instrument_provider_workflow(workspace: Path) -> None:
     config, experiment = _load_signal_fixture()
     start_run(
         config=config,
-        experiment=experiment,
+        experiment=prepare_invocation(experiment),
         workspace=workspace,
         instrument_provider=TestSignalInstrumentProvider(),
     )

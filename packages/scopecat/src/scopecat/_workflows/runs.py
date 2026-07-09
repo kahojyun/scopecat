@@ -13,11 +13,8 @@ from scopecat._workflows.config import (
     resolve_config_source,
 )
 from scopecat._workflows.preview import build_experiment_preview
-from scopecat.authoring import (
-    ExperimentInvocation,
-    ResolvedExperiment,
-    resolve_experiment_with_config,
-)
+from scopecat.authoring._invocation_plan import PreparedInvocation
+from scopecat.authoring.resolution import resolve_prepared_invocation
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec
 from scopecat.instruments import (
@@ -29,7 +26,7 @@ from scopecat.instruments.sdk import (
     InstrumentProviderContext,
 )
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
-from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunConfigSource, RunManifest
 from scopecat.planning.validation import has_blocking_diagnostics, validate_config
 from scopecat.preview import PreviewExperimentResult, ValidateExperimentResult
@@ -61,8 +58,6 @@ from scopecat.runs import (
     require_dataset,
     require_record,
 )
-
-type ExperimentInput = ExperimentSpec | ExperimentInvocation
 
 
 def list_runs(*, workspace: str | Path) -> list[RunManifest]:
@@ -296,14 +291,14 @@ def read_run_data_array(
 def start_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: ExperimentInput,
+    experiment: PreparedInvocation,
     workspace: str | Path,
     instrument_provider: InstrumentProvider | None = None,
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
-    experiment, resolved = _resolve_experiment_input(
+    resolved = resolve_prepared_invocation(
         experiment,
         config=config,
         workspace=workspace,
@@ -328,13 +323,11 @@ def start_run(
         raise ValidationFailed(diagnostics)
     manifest, _ = execute_run(
         config=config,
-        experiment=experiment,
+        experiment=resolved.experiment,
         instruments=list(provider_result.drivers),
         workspace=workspace,
-        parameter_view=resolved.parameter_view if resolved is not None else None,
-        parameter_derivations=(
-            resolved.parameter_derivations if resolved is not None else None
-        ),
+        parameter_view=resolved.parameter_view,
+        parameter_derivations=resolved.parameter_derivations,
         config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -343,7 +336,7 @@ def start_run(
 
 
 def run_experiment(
-    experiment: ExperimentInput,
+    experiment: PreparedInvocation,
     *,
     workspace: str | Path,
     config: str | ConfigProfileSnapshot = "active",
@@ -369,7 +362,7 @@ def run_experiment(
 
 
 def validate_experiment(
-    experiment: ExperimentInput,
+    experiment: PreparedInvocation,
     *,
     workspace: str | Path,
     config: str | ConfigProfileSnapshot = "active",
@@ -381,7 +374,7 @@ def validate_experiment(
         config_profile=config_profile,
     )
     config_snapshot = config_result.config
-    experiment, resolved = _resolve_experiment_input(
+    resolved = resolve_prepared_invocation(
         experiment,
         config=config_snapshot,
         workspace=workspace,
@@ -390,31 +383,24 @@ def validate_experiment(
     diagnostics = list(validate_config(config_snapshot))
     summary = None
     if not has_blocking_diagnostics(diagnostics):
-        parameter_view = (
-            resolved.parameter_view
-            if resolved is not None
-            else build_config_parameters(config_snapshot)
-        )
         summary, preview_diagnostics = build_experiment_preview(
-            experiment,
-            parameter_view,
+            resolved.experiment,
+            resolved.parameter_view,
             config=config_snapshot,
-            derivations=(
-                resolved.parameter_derivations if resolved is not None else None
-            ),
+            derivations=resolved.parameter_derivations,
         )
         diagnostics.extend(preview_diagnostics)
     return ValidateExperimentResult(
         diagnostics=tuple(diagnostics),
         summary=summary,
-        template_id=resolved.template_id if resolved is not None else None,
-        inputs=dict(resolved.inputs) if resolved is not None else {},
-        config_source=resolved.config_source if resolved is not None else None,
+        template_id=resolved.template_id,
+        inputs=dict(resolved.inputs),
+        config_source=resolved.config_source,
     )
 
 
 def preview_experiment(
-    experiment: ExperimentInput,
+    experiment: PreparedInvocation,
     *,
     workspace: str | Path,
     config: str | ConfigProfileSnapshot = "active",
@@ -463,24 +449,6 @@ def _resolve_config(
         config_profile=config_profile,
         config_entry=config_entry,
     )
-
-
-def _resolve_experiment_input(
-    experiment: ExperimentInput,
-    *,
-    config: ConfigProfileSnapshot,
-    workspace: str | Path,
-    config_source: RunConfigSource | None = None,
-) -> tuple[ExperimentSpec, ResolvedExperiment | None]:
-    if isinstance(experiment, ExperimentSpec):
-        return experiment, None
-    resolved = resolve_experiment_with_config(
-        experiment,
-        config=config,
-        workspace=workspace,
-        config_source=config_source,
-    )
-    return resolved.experiment, resolved
 
 
 def _artifact_supports_text(artifact: RunArtifactEntry) -> bool:

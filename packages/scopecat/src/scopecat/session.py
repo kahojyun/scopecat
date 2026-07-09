@@ -4,23 +4,19 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, field, is_dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, cast
-
-from pydantic import BaseModel
+from typing import Any
 
 import scopecat.authoring as authoring
 from scopecat._workflows.comparison import compare_runs
 from scopecat._workflows.config import (
     ConfigProfileInput,
     RegisteredConfigActivation,
-    ResolvedConfig,
     register_and_activate_candidate_config,
     resolve_config_source,
 )
 from scopecat._workflows.runs import (
-    ExperimentInput,
     list_runs,
     load_run,
     preview_experiment,
@@ -36,10 +32,10 @@ from scopecat.authoring import (
     RecordIntent,
     TemplateBuilder,
 )
-from scopecat.authoring.assembly import (
-    WorkspaceExperimentBuilder,
-    workspace_experiment_builder,
-    workspace_experiment_module,
+from scopecat.authoring._invocation_plan import (
+    PreparedInvocation,
+    default_request_context,
+    prepare_invocation,
 )
 from scopecat.authoring.expressions import Expression
 from scopecat.candidate_configs import (
@@ -49,14 +45,17 @@ from scopecat.candidate_configs import (
 )
 from scopecat.experiments import (
     ComputeNodeFunction,
-    ExperimentSpec,
-    RunRequest,
+    ParameterScanAxis,
+    ScanAxis,
+    ScanGroup,
     ScanItem,
-    ScanRecord,
     delete_param_rows,
     insert_param_rows,
     set_param,
     update_param_rows,
+)
+from scopecat.experiments import (
+    axis as scan_axis,
 )
 from scopecat.instruments import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.instruments.sdk import InstrumentProvider
@@ -68,7 +67,7 @@ from scopecat.parameter_changes import (
     review_parameter_changes,
 )
 from scopecat.preview import PreviewExperimentResult, ValidateExperimentResult
-from scopecat.relations import ScalarExpr
+from scopecat.relations import ScalarExpr, param
 from scopecat.results import MeasurementDType
 from scopecat.run_overview import RunOverview, build_run_overview
 from scopecat.run_selectors import RunSelector
@@ -88,10 +87,6 @@ from scopecat.session_run_handle import (
 )
 from scopecat.system_overview import SystemSummary, build_system_summary
 
-type ExperimentSource = ExperimentSpec | ExperimentModule | ModuleBuilder
-type ExperimentModuleSource = ExperimentModule | ModuleBuilder
-type PublicExperimentInput = ExperimentInput | ExperimentTemplate | TemplateBuilder
-
 
 @dataclass(frozen=True)
 class _RunOptions:
@@ -100,10 +95,6 @@ class _RunOptions:
     description: str | None = None
     inputs: dict[str, object] = field(default_factory=dict)
     scans: tuple[ScanItem, ...] = ()
-    overrides: dict[str, object] = field(default_factory=dict)
-    seeds: dict[str, int] = field(default_factory=dict)
-    extra_records: dict[str, object] = field(default_factory=dict)
-    execution_flags: dict[str, object] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
     operator: str | None = None
 
@@ -115,10 +106,6 @@ class _RunOptions:
             and self.description is None
             and not self.inputs
             and not self.scans
-            and not self.overrides
-            and not self.seeds
-            and not self.extra_records
-            and not self.execution_flags
             and not self.metadata
             and self.operator is None
         )
@@ -129,13 +116,13 @@ class PreparedExperiment:
     """Workspace-bound invocation whose terminal methods perform side effects.
 
     Inputs and scans accumulate immutably until a terminal
-    method is called. Keeping `preview()`, `validate()`, `resolve()`, and
-    `run()` at the end makes the exploratory notebook path read like a plan
-    before anything is compiled or executed.
+    method is called. Keeping `preview()`, `validate()`, and `run()` at the end
+    makes the exploratory notebook path read like a plan before anything is
+    compiled or executed.
     """
 
     session: Workspace
-    experiment: PublicExperimentInput | Experiment
+    prepared_invocation: PreparedInvocation
     config: str | ConfigProfileSnapshot | CandidateConfig | None = None
     config_profile: ConfigProfileInput | None = None
     instrument_provider: InstrumentProvider | None = None
@@ -169,14 +156,16 @@ class PreparedExperiment:
     ) -> PreparedExperiment:
         return replace(
             self,
-            experiment=_scan_prepared_experiment(
-                self.experiment,
-                target,
-                values,
-                unit=unit,
-                center=center,
-                span=span,
-                points=points,
+            prepared_invocation=replace(
+                self.prepared_invocation,
+                invocation=self.prepared_invocation.invocation.scan(
+                    target,
+                    values,
+                    unit=unit,
+                    center=center,
+                    span=span,
+                    points=points,
+                ),
             ),
         )
 
@@ -186,10 +175,6 @@ class PreparedExperiment:
         name: str | None = None,
         tags: Sequence[str] = (),
         description: str | None = None,
-        overrides: Mapping[str, object] | None = None,
-        seeds: Mapping[str, int] | None = None,
-        extra_records: Mapping[str, object] | None = None,
-        execution_flags: Mapping[str, object] | None = None,
         metadata: Mapping[str, object] | None = None,
         operator: str | None = None,
     ) -> PreviewExperimentResult:
@@ -198,22 +183,12 @@ class PreparedExperiment:
             name=name,
             tags=tuple(tags),
             description=description,
-            overrides={**self.run_options.overrides, **dict(overrides or {})},
-            seeds={**self.run_options.seeds, **dict(seeds or {})},
-            extra_records={
-                **self.run_options.extra_records,
-                **dict(extra_records or {}),
-            },
-            execution_flags={
-                **self.run_options.execution_flags,
-                **dict(execution_flags or {}),
-            },
             metadata={**self.run_options.metadata, **dict(metadata or {})},
             operator=operator or self.run_options.operator,
         )
         return _preview_prepared(
             self.session,
-            self.experiment,
+            self.prepared_invocation,
             config=self.config,
             config_profile=self.config_profile,
             run_options=run_options,
@@ -225,10 +200,6 @@ class PreparedExperiment:
         name: str | None = None,
         tags: Sequence[str] = (),
         description: str | None = None,
-        overrides: Mapping[str, object] | None = None,
-        seeds: Mapping[str, int] | None = None,
-        extra_records: Mapping[str, object] | None = None,
-        execution_flags: Mapping[str, object] | None = None,
         metadata: Mapping[str, object] | None = None,
         operator: str | None = None,
     ) -> ValidateExperimentResult:
@@ -237,34 +208,15 @@ class PreparedExperiment:
             name=name,
             tags=tuple(tags),
             description=description,
-            overrides={**self.run_options.overrides, **dict(overrides or {})},
-            seeds={**self.run_options.seeds, **dict(seeds or {})},
-            extra_records={
-                **self.run_options.extra_records,
-                **dict(extra_records or {}),
-            },
-            execution_flags={
-                **self.run_options.execution_flags,
-                **dict(execution_flags or {}),
-            },
             metadata={**self.run_options.metadata, **dict(metadata or {})},
             operator=operator or self.run_options.operator,
         )
         return _validate_prepared(
             self.session,
-            self.experiment,
+            self.prepared_invocation,
             config=self.config,
             config_profile=self.config_profile,
             run_options=run_options,
-        )
-
-    def resolve(self) -> ExperimentSpec:
-        return _resolve_prepared(
-            self.session,
-            self.experiment,
-            run_options=self.run_options,
-            config=self.config,
-            config_profile=self.config_profile,
         )
 
     def run(
@@ -273,10 +225,6 @@ class PreparedExperiment:
         name: str | None = None,
         tags: Sequence[str] = (),
         description: str | None = None,
-        overrides: Mapping[str, object] | None = None,
-        seeds: Mapping[str, int] | None = None,
-        extra_records: Mapping[str, object] | None = None,
-        execution_flags: Mapping[str, object] | None = None,
         metadata: Mapping[str, object] | None = None,
         operator: str | None = None,
         event_sink: RuntimeEventSink | None = None,
@@ -287,22 +235,12 @@ class PreparedExperiment:
             name=name,
             tags=tuple(tags),
             description=description,
-            overrides={**self.run_options.overrides, **dict(overrides or {})},
-            seeds={**self.run_options.seeds, **dict(seeds or {})},
-            extra_records={
-                **self.run_options.extra_records,
-                **dict(extra_records or {}),
-            },
-            execution_flags={
-                **self.run_options.execution_flags,
-                **dict(execution_flags or {}),
-            },
             metadata={**self.run_options.metadata, **dict(metadata or {})},
             operator=operator or self.run_options.operator,
         )
         return _run_prepared(
             self.session,
-            self.experiment,
+            self.prepared_invocation,
             config=self.config,
             config_profile=self.config_profile,
             instrument_provider=self.instrument_provider,
@@ -317,25 +255,19 @@ class Experiment:
     """Notebook-first authoring adapter for scripts and exploratory notebooks."""
 
     name: str
-    source: ExperimentSource | None = None
     session: Workspace | None = field(default=None, compare=False, repr=False)
     entity_inputs: dict[str, object] = field(default_factory=dict)
-    sources: tuple[ExperimentSource, ...] = ()
-    builder: WorkspaceExperimentBuilder = field(
-        default_factory=workspace_experiment_builder
-    )
-
-    @property
-    def scans(self) -> tuple[ScanItem, ...]:
-        return self.builder.scans
+    module: ModuleBuilder = field(default_factory=ModuleBuilder)
+    scans: tuple[ScanItem, ...] = ()
+    record_selections: tuple[authoring.ProductSelectionIntent, ...] = ()
 
     @property
     def records(self) -> tuple[RecordIntent, ...]:
-        return self.builder.records
+        return self.module.records
 
     @property
     def observables(self) -> tuple[str, ...]:
-        return self.builder.observables
+        return self.module.observables
 
     def entity(self, input_id: str, entity: object) -> Experiment:
         entity_inputs = dict(self.entity_inputs)
@@ -343,7 +275,7 @@ class Experiment:
         return replace(
             self,
             entity_inputs=entity_inputs,
-            builder=self.builder.entity(input_id),
+            module=self.module.entity(input_id),
         )
 
     def input(self, input_id: str, value: object) -> Experiment:
@@ -357,9 +289,9 @@ class Experiment:
 
     def use(
         self,
-        *sources: ExperimentModuleSource,
+        *modules: ExperimentModule | ModuleBuilder | authoring.ModuleInvocation,
     ) -> Experiment:
-        return replace(self, sources=(*self.sources, *sources))
+        return replace(self, module=self.module.use(*modules))
 
     def resource(
         self,
@@ -369,7 +301,7 @@ class Experiment:
     ) -> Experiment:
         return replace(
             self,
-            builder=self.builder.resource(
+            module=self.module.resource(
                 id,
                 requires=requires,
             ),
@@ -385,22 +317,23 @@ class Experiment:
         span: object | None = None,
         points: int | None = None,
     ) -> Experiment:
+        selected = _workspace_scan_item(
+            target,
+            values,
+            unit=unit,
+            center=center,
+            span=span,
+            points=points,
+        )
         return replace(
             self,
-            builder=self.builder.scan(
-                target,
-                values,
-                unit=unit,
-                center=center,
-                span=span,
-                points=points,
-            ),
+            scans=(*self.scans, selected),
         )
 
     def derive(self, variable_id: str, expression: Expression) -> Experiment:
         return replace(
             self,
-            builder=self.builder.derive(variable_id, expression),
+            module=self.module.derive(variable_id, expression),
         )
 
     def variable(
@@ -410,7 +343,7 @@ class Experiment:
     ) -> Experiment:
         return replace(
             self,
-            builder=self.builder.variable(variable_id, value),
+            module=self.module.variable(variable_id, value),
         )
 
     def bind(
@@ -418,7 +351,7 @@ class Experiment:
         port_path: str,
         value: Expression | ScalarExpr | Quantity | float,
     ) -> Experiment:
-        return replace(self, builder=self.builder.bind(port_path, value))
+        return replace(self, module=self.module.bind(port_path, value))
 
     def compute(
         self,
@@ -430,7 +363,7 @@ class Experiment:
     ) -> Experiment:
         return replace(
             self,
-            builder=self.builder.compute(
+            module=self.module.compute(
                 id,
                 fn=fn,
                 inputs=inputs,
@@ -441,7 +374,7 @@ class Experiment:
     def bind_compute(self, port_path: str, node_id: str, *, kind: str) -> Experiment:
         return replace(
             self,
-            builder=self.builder.bind_compute(port_path, node_id, kind=kind),
+            module=self.module.bind_compute(port_path, node_id, kind=kind),
         )
 
     def state_table(
@@ -456,7 +389,7 @@ class Experiment:
     ) -> Experiment:
         return replace(
             self,
-            builder=self.builder.state_table(
+            module=self.module.state_table(
                 table_id,
                 field=field,
                 value_column=value_column,
@@ -479,7 +412,7 @@ class Experiment:
     ) -> Experiment:
         return replace(
             self,
-            builder=self.builder.record(
+            module=self.module.record(
                 *record_ids,
                 resource=resource,
                 capability=capability,
@@ -497,13 +430,17 @@ class Experiment:
         record_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Experiment:
-        return replace(
-            self,
-            builder=self.builder.record_product(
-                *product_ids,
+        selections = tuple(
+            authoring.record_product(
+                product_id,
                 record_id=record_id,
                 metadata=metadata,
-            ),
+            )
+            for product_id in product_ids
+        )
+        return replace(
+            self,
+            record_selections=(*self.record_selections, *selections),
         )
 
     def measure(self, *observable_ids: str) -> Experiment:
@@ -514,9 +451,6 @@ class Experiment:
 
     def validate(self) -> ValidateExperimentResult:
         return self._require_session().prepare(self).validate()
-
-    def resolve(self) -> ExperimentSpec:
-        return self._require_session().prepare(self).resolve()
 
     def run(
         self,
@@ -549,54 +483,16 @@ class Experiment:
             raise ValueError(msg)
         return self.session
 
-    def to_input(self) -> ExperimentInput:
-        if isinstance(self.source, ExperimentSpec):
-            if self.sources or self.builder.has_fragments or self.entity_inputs:
-                msg = (
-                    "closed ExperimentSpec sources cannot be combined with workspace "
-                    "builder fragments"
-                )
-                raise ValueError(msg)
-            return self.source
-        sources = _workspace_sources(self)
-        if not sources:
+    def to_invocation(self) -> ExperimentInvocation:
+        if not _workspace_experiment_has_fragments(self):
             msg = "workspace experiment requires a source, module, scan, or record"
             raise ValueError(msg)
-        module_sources = tuple(
-            source for source in sources if isinstance(source, ExperimentModule)
+        experiment_id = _safe_experiment_id(self.name)
+        template = _workspace_template(
+            self,
+            experiment_id=experiment_id,
         )
-        if len(module_sources) != len(sources):
-            msg = "workspace experiment sources must be modules"
-            raise TypeError(msg)
-        invocation = (
-            authoring.template(
-                "scopecat.workspace.experiment",
-                kind=_safe_experiment_id(self.name),
-            )
-            .experiment_id(_safe_experiment_id(self.name))
-            .use(*module_sources)
-            .metadata(
-                source="workspace_experiment_builder",
-                name=self.name,
-                **(
-                    {"entity_inputs": dict(self.entity_inputs)}
-                    if self.entity_inputs
-                    else {}
-                ),
-            )
-            .bind()
-        )
-        request_inputs = _workspace_request_inputs(self)
-        return replace(
-            invocation,
-            request=RunRequest(
-                id=f"{_safe_experiment_id(self.name)}.request",
-                template_id="scopecat.workspace.experiment",
-                template_inputs=request_inputs,
-                scans=_workspace_scan_records(self.builder.scans),
-            ),
-            build_inputs=dict(self.entity_inputs),
-        )
+        return template.bind(**self.entity_inputs)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -645,24 +541,37 @@ class Workspace:
         )
         return build_system_summary(resolved.config)
 
-    def experiment(
-        self,
-        name: str,
-        source: ExperimentSource | None = None,
-    ) -> Experiment:
-        return Experiment(name=name, source=source, session=self)
+    def experiment(self, name: str) -> Experiment:
+        return Experiment(name=name, session=self)
 
     def prepare(
         self,
-        experiment: PublicExperimentInput | Experiment,
+        experiment: (
+            ExperimentInvocation | ExperimentTemplate | TemplateBuilder | Experiment
+        ),
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
         instrument_provider: InstrumentProvider | None = None,
     ) -> PreparedExperiment:
+        if isinstance(experiment, TemplateBuilder):
+            invocation = experiment.build().bind()
+            prepared_invocation = prepare_invocation(invocation)
+        elif isinstance(experiment, ExperimentTemplate):
+            invocation = experiment.bind()
+            prepared_invocation = prepare_invocation(invocation)
+        elif isinstance(experiment, Experiment):
+            invocation = experiment.to_invocation()
+            prepared_invocation = _workspace_prepared_invocation(
+                experiment,
+                invocation,
+            )
+        else:
+            invocation = experiment
+            prepared_invocation = prepare_invocation(invocation)
         return PreparedExperiment(
             session=self,
-            experiment=experiment,
+            prepared_invocation=prepared_invocation,
             config=config,
             config_profile=config_profile,
             instrument_provider=instrument_provider,
@@ -800,41 +709,9 @@ def _effective_config_profile(
     return config_profile
 
 
-def _resolve_prepared(
-    session: Workspace,
-    experiment: PublicExperimentInput | Experiment,
-    *,
-    config: str | ConfigProfileSnapshot | CandidateConfig | None,
-    config_profile: ConfigProfileInput | None,
-    run_options: _RunOptions,
-) -> ExperimentSpec:
-    selected_config, selected_config_profile = _prepared_config_selection(
-        session,
-        config=config,
-        config_profile=config_profile,
-    )
-    prepared = _prepare_public_experiment_input(
-        experiment,
-        run_options=run_options,
-    )
-    if isinstance(prepared, ExperimentSpec):
-        return prepared
-    config_result = _resolve_prepared_config(
-        workspace=session.workspace,
-        config=selected_config,
-        config_profile=selected_config_profile,
-    )
-    return authoring.resolve_experiment_with_config(
-        prepared,
-        config=config_result.config,
-        workspace=session.workspace,
-        config_source=config_result.config_source,
-    ).experiment
-
-
 def _preview_prepared(
     session: Workspace,
-    experiment: PublicExperimentInput | Experiment,
+    prepared_invocation: PreparedInvocation,
     *,
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
@@ -846,7 +723,10 @@ def _preview_prepared(
         config_profile=config_profile,
     )
     return preview_experiment(
-        _prepare_public_experiment_input(experiment, run_options=run_options),
+        _prepared_invocation_with_run_options(
+            prepared_invocation,
+            options=run_options,
+        ),
         workspace=session.workspace,
         config=selected_config,
         config_profile=selected_config_profile,
@@ -855,7 +735,7 @@ def _preview_prepared(
 
 def _validate_prepared(
     session: Workspace,
-    experiment: PublicExperimentInput | Experiment,
+    prepared_invocation: PreparedInvocation,
     *,
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
@@ -867,7 +747,10 @@ def _validate_prepared(
         config_profile=config_profile,
     )
     return validate_experiment(
-        _prepare_public_experiment_input(experiment, run_options=run_options),
+        _prepared_invocation_with_run_options(
+            prepared_invocation,
+            options=run_options,
+        ),
         workspace=session.workspace,
         config=selected_config,
         config_profile=selected_config_profile,
@@ -876,7 +759,7 @@ def _validate_prepared(
 
 def _run_prepared(
     session: Workspace,
-    experiment: PublicExperimentInput | Experiment,
+    prepared_invocation: PreparedInvocation,
     *,
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
@@ -898,7 +781,10 @@ def _run_prepared(
     return RunHandle(
         session=session,
         manifest=run_experiment(
-            _prepare_public_experiment_input(experiment, run_options=run_options),
+            _prepared_invocation_with_run_options(
+                prepared_invocation,
+                options=run_options,
+            ),
             workspace=session.workspace,
             config=selected_config,
             config_profile=selected_config_profile,
@@ -909,204 +795,96 @@ def _run_prepared(
     )
 
 
-def _request_value(value: object) -> object:
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
-    if is_dataclass(value) and not isinstance(value, type):
-        return _request_value(asdict(value))
-    if isinstance(value, dict):
-        mapping = cast("dict[Any, object]", value)
-        return {str(key): _request_value(item) for key, item in mapping.items()}
-    if isinstance(value, list | tuple):
-        sequence = cast("list[object] | tuple[object, ...]", value)
-        return [_request_value(item) for item in sequence]
-    return value
-
-
-def _prepare_public_experiment_input(
-    experiment: PublicExperimentInput | Experiment,
+def _prepared_invocation_with_run_options(
+    prepared: PreparedInvocation,
     *,
-    run_options: _RunOptions,
-) -> ExperimentInput:
-    if isinstance(experiment, Experiment):
-        return _apply_run_options(experiment.to_input(), run_options)
-    return _apply_run_options(experiment, run_options)
-
-
-def _apply_run_options(
-    experiment: PublicExperimentInput,
     options: _RunOptions,
-) -> ExperimentInput:
-    if isinstance(experiment, TemplateBuilder):
-        experiment = experiment.build()
-    if isinstance(experiment, ExperimentTemplate):
-        experiment = experiment.bind(**options.inputs)
-        options = replace(options, inputs={})
+) -> PreparedInvocation:
     if options.is_empty:
-        return experiment
-    if isinstance(experiment, ExperimentInvocation):
-        if options.inputs:
-            experiment = experiment.bind(**options.inputs)
-        return replace(
-            experiment,
-            scans=(
-                *experiment.scans,
-                *options.scans,
-            ),
-            request=_request_with_options(
-                experiment.request,
-                options,
-            ),
-        )
+        return prepared
+    invocation = prepared.invocation
     if options.inputs:
-        msg = "closed ExperimentSpec inputs cannot be changed with run-time inputs"
-        raise ValueError(msg)
-    if options.scans:
-        msg = "closed ExperimentSpec inputs cannot be changed with scans"
-        raise ValueError(msg)
-    request = experiment.request
-    if request is None:
-        request = RunRequest(id=f"{experiment.id}.request")
-    return experiment.model_copy(
-        update={
-            "request": _request_with_options(
-                request,
+        invocation = invocation.bind(**options.inputs)
+    return replace(
+        prepared,
+        invocation=replace(invocation, scans=(*invocation.scans, *options.scans)),
+        request_context=replace(
+            prepared.request_context,
+            metadata=_run_metadata_with_options(
+                prepared.request_context.metadata,
                 options,
-            )
-        }
+            ),
+            operator=options.operator or prepared.request_context.operator,
+        ),
     )
 
 
-def _request_with_options(
-    request: RunRequest,
+def _run_metadata_with_options(
+    metadata: Mapping[str, object],
     options: _RunOptions,
-) -> RunRequest:
-    metadata = dict(request.metadata)
-    metadata.update(options.metadata)
+) -> dict[str, object]:
+    selected = dict(metadata)
+    selected.update(options.metadata)
     if options.name is not None:
-        metadata["name"] = options.name
+        selected["name"] = options.name
     if options.tags:
-        metadata["tags"] = list(options.tags)
+        selected["tags"] = list(options.tags)
     if options.description is not None:
-        metadata["description"] = options.description
+        selected["description"] = options.description
+    return selected
 
-    template_inputs = dict(request.template_inputs)
 
-    update: dict[str, object] = {
-        "template_inputs": template_inputs,
-        "metadata": metadata,
-        "run_overrides": {**request.run_overrides, **options.overrides},
-        "seeds": {**request.seeds, **options.seeds},
-        "extra_records": {**request.extra_records, **options.extra_records},
-        "execution_flags": {
-            **request.execution_flags,
-            **options.execution_flags,
+def _workspace_template(
+    experiment: Experiment,
+    *,
+    experiment_id: str,
+) -> ExperimentTemplate:
+    module = _workspace_module(
+        experiment,
+        module_id=f"{experiment_id}.module",
+    )
+    builder = module.template(
+        "scopecat.workspace.experiment",
+        kind=experiment_id,
+        experiment_id=experiment_id,
+        metadata={
+            "source": "workspace_experiment",
+            "name": experiment.name,
+            **(
+                {"entity_inputs": dict(experiment.entity_inputs)}
+                if experiment.entity_inputs
+                else {}
+            ),
         },
-    }
-    if options.operator is not None:
-        update["operator"] = options.operator
-    return request.model_copy(update=update)
+    )
+    for scan in experiment.scans:
+        builder = builder.scan(scan)
+    for selection in experiment.record_selections:
+        builder = builder.record_product(
+            selection.product_id,
+            record_id=selection.record_id,
+            metadata=selection.metadata,
+        )
+    return builder.build()
 
 
-def _scan_prepared_experiment(
-    experiment: PublicExperimentInput | Experiment,
-    target: str | ScanItem,
-    values: Sequence[object],
+def _workspace_module(
+    experiment: Experiment,
     *,
-    unit: str | None,
-    center: ScalarExpr | None,
-    span: Expression | Quantity | str | None,
-    points: int | None,
-) -> PublicExperimentInput | Experiment:
-    if isinstance(experiment, TemplateBuilder):
-        return experiment.bind().scan(
-            target,
-            values,
-            unit=unit,
-            center=center,
-            span=span,
-            points=points,
-        )
-    if isinstance(experiment, ExperimentTemplate):
-        return experiment.bind().scan(
-            target,
-            values,
-            unit=unit,
-            center=center,
-            span=span,
-            points=points,
-        )
-    if isinstance(experiment, ExperimentInvocation):
-        return experiment.scan(
-            target,
-            values,
-            unit=unit,
-            center=center,
-            span=span,
-            points=points,
-        )
-    if isinstance(experiment, Experiment):
-        return experiment.scan(
-            target,
-            values,
-            unit=unit,
-            center=center,
-            span=span,
-            points=points,
-        )
-    msg = "closed ExperimentSpec inputs cannot be changed with prepared scans"
-    raise ValueError(msg)
-
-
-def _resolve_prepared_config(
-    *,
-    workspace: str | Path,
-    config: str | ConfigProfileSnapshot,
-    config_profile: ConfigProfileInput | None,
-) -> ResolvedConfig:
-    if isinstance(config, ConfigProfileSnapshot):
-        if config_profile is not None:
-            msg = "provide either config or config_profile, not both"
-            raise ValueError(msg)
-        return ResolvedConfig(config=config)
-    config_entry = None if config_profile is not None and config == "active" else config
-    return resolve_config_source(
-        workspace=workspace,
-        config_profile=config_profile,
-        config_entry=config_entry,
+    module_id: str,
+) -> ExperimentModule:
+    return replace(experiment.module, id=module_id).build(
+        metadata={
+            "source": "workspace_experiment",
+        },
     )
 
 
-def _workspace_sources(
-    experiment: Experiment,
-) -> tuple[ExperimentSpec | ExperimentModule, ...]:
-    sources: list[ExperimentSpec | ExperimentModule] = []
-    if experiment.source is not None:
-        if isinstance(experiment.source, ExperimentSpec):
-            return (experiment.source,)
-        sources.append(_workspace_compose_source(experiment.source))
-    sources.extend(_workspace_compose_source(source) for source in experiment.sources)
-    workspace_module = _workspace_module(experiment)
-    if workspace_module is not None:
-        sources.append(workspace_module)
-    return tuple(sources)
-
-
-def _workspace_compose_source(
-    source: ExperimentSource,
-) -> ExperimentSpec | ExperimentModule:
-    if isinstance(source, ModuleBuilder):
-        return source.build()
-    return source
-
-
-def _workspace_module(experiment: Experiment) -> ExperimentModule | None:
-    if not experiment.builder.has_fragments:
-        return None
-    return workspace_experiment_module(
-        experiment.builder,
-        f"scopecat.workspace.{_safe_experiment_id(experiment.name)}",
-        metadata={"source": "workspace_experiment_builder"},
+def _workspace_experiment_has_fragments(experiment: Experiment) -> bool:
+    return bool(
+        experiment.module.has_fragments
+        or experiment.scans
+        or experiment.record_selections
     )
 
 
@@ -1118,8 +896,7 @@ def _workspace_request_inputs(experiment: Experiment) -> dict[str, object]:
             if experiment.entity_inputs
             else {}
         ),
-        "sources": [_workspace_source_label(source) for source in experiment.sources],
-        "scans": _workspace_scan_records(experiment.builder.scans),
+        "scans": _workspace_scan_records(experiment.scans),
         "records": [
             {
                 "id": record.id,
@@ -1129,32 +906,85 @@ def _workspace_request_inputs(experiment: Experiment) -> dict[str, object]:
                 "unit": record.unit,
                 "dtype": record.dtype,
             }
-            for record in experiment.builder.records
+            for record in experiment.module.records
         ],
         "selected_products": [
             {
                 "product_id": selection.product_id,
                 "record_id": selection.record_id,
             }
-            for selection in experiment.builder.record_selections
+            for selection in experiment.record_selections
         ],
     }
 
 
-def _workspace_scan_records(scans: Sequence[ScanItem]) -> list[ScanRecord]:
+def _workspace_prepared_invocation(
+    experiment: Experiment,
+    invocation: ExperimentInvocation,
+) -> PreparedInvocation:
+    return prepare_invocation(
+        invocation,
+        request_context=replace(
+            default_request_context(invocation),
+            template_inputs=_workspace_request_inputs(experiment),
+        ),
+    )
+
+
+def _workspace_scan_records(scans: Sequence[ScanItem]) -> list[object]:
     return [scan.request_record() for scan in scans]
 
 
-def _workspace_source_label(source: object) -> str:
-    if isinstance(source, ExperimentModule):
-        return source.id
-    if isinstance(source, ModuleBuilder):
-        return source.id or "module"
-    if isinstance(source, ExperimentInvocation):
-        return source.request.template_id or source.request.id
-    if isinstance(source, ExperimentSpec):
-        return source.id
-    return type(source).__name__
+def _workspace_scan_item(
+    target: str | ScanItem,
+    values: Sequence[object] = (),
+    *,
+    unit: str | None = None,
+    center: ScalarExpr | None = None,
+    span: object | None = None,
+    points: int | None = None,
+) -> ScanItem:
+    if isinstance(target, ScanAxis | ParameterScanAxis | ScanGroup):
+        if (
+            values
+            or unit is not None
+            or center is not None
+            or span is not None
+            or points is not None
+        ):
+            msg = "scan item cannot be combined with scan construction arguments"
+            raise ValueError(msg)
+        return target
+    if values:
+        if center is not None or span is not None or points is not None:
+            msg = "scan values cannot be combined with center/span/points"
+            raise ValueError(msg)
+        return scan_axis(target, values=values, unit=unit)
+    if span is None or points is None:
+        msg = "scan requires values or span and points"
+        raise ValueError(msg)
+    return scan_axis(
+        target,
+        center=center or param(target),
+        span=_workspace_scan_span_value(span),
+        points=points,
+    )
+
+
+def _workspace_scan_span_value(value: object) -> Quantity:
+    if isinstance(value, Quantity):
+        return value
+    if isinstance(value, Expression):
+        if value.kind == "quantity" and value.quantity is not None:
+            return value.quantity
+        msg = "scan span expression must be a quantity"
+        raise TypeError(msg)
+    if isinstance(value, str):
+        match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*([^\s]+)", value.strip())
+        if match is not None:
+            return Quantity(value=float(match.group(1)), unit=match.group(2))
+    msg = f"expected quantity value like '100 MHz', got {value!r}"
+    raise TypeError(msg)
 
 
 def _safe_experiment_id(name: str) -> str:

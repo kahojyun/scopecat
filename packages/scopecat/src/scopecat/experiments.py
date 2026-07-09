@@ -133,11 +133,7 @@ class RunRequest(BaseModel):
     template_inputs: dict[str, Any] = Field(default_factory=dict)
     config_source: str | None = None
     operator: str | None = None
-    run_overrides: dict[str, Any] = Field(default_factory=dict)
     scans: list[ScanRecord] = Field(default_factory=list)
-    seeds: dict[str, int] = Field(default_factory=dict)
-    extra_records: dict[str, Any] = Field(default_factory=dict)
-    execution_flags: dict[str, Any] = Field(default_factory=dict)
     segment_lineage: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

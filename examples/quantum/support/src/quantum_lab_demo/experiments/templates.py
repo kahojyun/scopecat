@@ -58,8 +58,27 @@ from quantum_lab_demo.experiments.two_qubit_modules import (
     PARALLEL_GATE_SET_MODULE,
 )
 
+
+def _template(
+    id: str,  # noqa: A002
+    *,
+    kind: str,
+    modules: tuple[sc.ExperimentModule, ...],
+) -> sc.TemplateBuilder:
+    return sc.module(f"{id}.root").use(*modules).template(id, kind=kind)
+
+
 RABI_TEMPLATE = (
-    sc.template(RABI_TEMPLATE_ID, kind="rabi")
+    _template(
+        RABI_TEMPLATE_ID,
+        kind="rabi",
+        modules=(
+            RABI_MODULE,
+            READOUT_CAPTURE_MODULE,
+            PROBABILITY_1_RECORD_MODULE,
+            RAW_IQ_RECORD_MODULE,
+        ),
+    )
     .experiment_id("rabi")
     .scan(
         "drive_length",
@@ -68,25 +87,26 @@ RABI_TEMPLATE = (
         points=5,
         input_id="drive_length",
     )
-    .use(
-        RABI_MODULE,
-        READOUT_CAPTURE_MODULE,
-        PROBABILITY_1_RECORD_MODULE,
-        RAW_IQ_RECORD_MODULE,
-    )
     .record_product("probability_1", "raw_iq")
     .label("Rabi")
     .description("Build a experiment-system single-qubit Rabi length scan.")
     .inputs(
         sc.InputDescription(id="qubit", kind="entity"),
-        sc.InputDescription(id="drive_length", kind="quantity"),
+        sc.InputDescription(id="drive_length", kind="quantity", default=None),
     )
-    .defaults(drive_length=None)
     .metadata(category="rabi")
 )
 
 SIMULTANEOUS_RABI_TEMPLATE = (
-    sc.template(SIMULTANEOUS_RABI_TEMPLATE_ID, kind="simultaneous_rabi")
+    _template(
+        SIMULTANEOUS_RABI_TEMPLATE_ID,
+        kind="simultaneous_rabi",
+        modules=(
+            SIMULTANEOUS_RABI_MODULE,
+            MULTIPLEXED_READOUT_MODULE,
+            MULTIPLEXED_IQ_RECORD_MODULE,
+        ),
+    )
     .experiment_id("simultaneous-rabi")
     .scan(
         "drive_length",
@@ -95,11 +115,6 @@ SIMULTANEOUS_RABI_TEMPLATE = (
         points=5,
         input_id="drive_length",
     )
-    .use(
-        SIMULTANEOUS_RABI_MODULE,
-        MULTIPLEXED_READOUT_MODULE,
-        MULTIPLEXED_IQ_RECORD_MODULE,
-    )
     .record_product("multiplexed_iq")
     .label("simultaneous Rabi")
     .description("Build a simultaneous multi-qubit Rabi scan with array readout.")
@@ -107,9 +122,9 @@ SIMULTANEOUS_RABI_TEMPLATE = (
         sc.InputDescription(
             id="qubits",
             kind="entity_array",
-            default=("q0", "q1"),
+            default=sc.entity_array(("q0", "q1")),
         ),
-        sc.InputDescription(id="drive_length", kind="quantity"),
+        sc.InputDescription(id="drive_length", kind="quantity", default=None),
         sc.InputDescription(
             id="center_length",
             kind="quantity",
@@ -126,18 +141,21 @@ SIMULTANEOUS_RABI_TEMPLATE = (
             default=sc.Quantity(value=5.1, unit="GHz"),
         ),
     )
-    .defaults(
-        qubits=sc.entity_array(("q0", "q1")),
-        drive_length=None,
-        center_length=sc.Quantity(value=48.0, unit="ns"),
-        drive_amplitude=sc.Quantity(value=0.28, unit="arb"),
-        drive_frequency=sc.Quantity(value=5.1, unit="GHz"),
-    )
     .metadata(category="rabi")
 )
 
 FLUX_BACKGROUND_RABI_TEMPLATE = (
-    sc.template(FLUX_BACKGROUND_RABI_TEMPLATE_ID, kind="flux_background_rabi")
+    _template(
+        FLUX_BACKGROUND_RABI_TEMPLATE_ID,
+        kind="flux_background_rabi",
+        modules=(
+            FLUX_BACKGROUND_MODULE,
+            RABI_MODULE,
+            READOUT_CAPTURE_MODULE,
+            PROBABILITY_1_RECORD_MODULE,
+            RAW_IQ_RECORD_MODULE,
+        ),
+    )
     .experiment_id("flux-background-rabi")
     .scan(
         "drive_length",
@@ -145,13 +163,6 @@ FLUX_BACKGROUND_RABI_TEMPLATE = (
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
         input_id="drive_length",
-    )
-    .use(
-        FLUX_BACKGROUND_MODULE,
-        RABI_MODULE,
-        READOUT_CAPTURE_MODULE,
-        PROBABILITY_1_RECORD_MODULE,
-        RAW_IQ_RECORD_MODULE,
     )
     .record_product("probability_1", "raw_iq")
     .label("flux-background Rabi")
@@ -163,23 +174,28 @@ FLUX_BACKGROUND_RABI_TEMPLATE = (
             kind="entity",
             default="coupler-q0-q1",
         ),
-        sc.InputDescription(id="drive_length", kind="quantity"),
+        sc.InputDescription(id="drive_length", kind="quantity", default=None),
         sc.InputDescription(
             id="flux_bias",
             kind="quantity",
             default=sc.Quantity(value=0.06, unit="arb"),
         ),
     )
-    .defaults(
-        coupler="coupler-q0-q1",
-        drive_length=None,
-        flux_bias=sc.Quantity(value=0.06, unit="arb"),
-    )
     .metadata(category="rabi")
 )
 
 SYSTEM_BACKGROUND_RABI_TEMPLATE = (
-    sc.template(SYSTEM_BACKGROUND_RABI_TEMPLATE_ID, kind="system_background_rabi")
+    _template(
+        SYSTEM_BACKGROUND_RABI_TEMPLATE_ID,
+        kind="system_background_rabi",
+        modules=(
+            SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE,
+            RABI_MODULE,
+            READOUT_CAPTURE_MODULE,
+            PROBABILITY_1_RECORD_MODULE,
+            RAW_IQ_RECORD_MODULE,
+        ),
+    )
     .experiment_id("system-background-rabi")
     .scan(
         "drive_length",
@@ -187,13 +203,6 @@ SYSTEM_BACKGROUND_RABI_TEMPLATE = (
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
         input_id="drive_length",
-    )
-    .use(
-        SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE,
-        RABI_MODULE,
-        READOUT_CAPTURE_MODULE,
-        PROBABILITY_1_RECORD_MODULE,
-        RAW_IQ_RECORD_MODULE,
     )
     .record_product("probability_1", "raw_iq")
     .label("parameter-table background Rabi")
@@ -203,14 +212,22 @@ SYSTEM_BACKGROUND_RABI_TEMPLATE = (
     )
     .inputs(
         sc.InputDescription(id="qubit", kind="entity"),
-        sc.InputDescription(id="drive_length", kind="quantity"),
+        sc.InputDescription(id="drive_length", kind="quantity", default=None),
     )
-    .defaults(drive_length=None)
     .metadata(category="rabi")
 )
 
 READOUT_TEMPLATE = (
-    sc.template(READOUT_TEMPLATE_ID, kind="readout_frequency")
+    _template(
+        READOUT_TEMPLATE_ID,
+        kind="readout_frequency",
+        modules=(
+            READOUT_MODULE,
+            READOUT_CAPTURE_MODULE,
+            RAW_IQ_RECORD_MODULE,
+            READOUT_CLASSIFICATION_RECORDS_MODULE,
+        ),
+    )
     .experiment_id("readout-frequency")
     .scan(
         "readout_frequency",
@@ -219,31 +236,27 @@ READOUT_TEMPLATE = (
         points=5,
         input_id="readout_frequency",
     )
-    .use(
-        READOUT_MODULE,
-        READOUT_CAPTURE_MODULE,
-        RAW_IQ_RECORD_MODULE,
-        READOUT_CLASSIFICATION_RECORDS_MODULE,
-    )
     .record_product("raw_iq", "state0_iq", "state1_iq")
     .record_product("state0_iq_stdev", "state1_iq_stdev")
     .label("readout frequency")
     .description("Build a experiment-system readout frequency scan.")
     .inputs(
         sc.InputDescription(id="qubit", kind="entity"),
-        sc.InputDescription(id="readout_frequency", kind="quantity"),
+        sc.InputDescription(id="readout_frequency", kind="quantity", default=None),
     )
-    .defaults(readout_frequency=None)
     .metadata(category="readout")
 )
 
 MULTIPLEXED_READOUT_TEMPLATE = (
-    sc.template(MULTIPLEXED_READOUT_TEMPLATE_ID, kind="multiplexed_readout")
-    .experiment_id("multiplexed-readout")
-    .use(
-        MULTIPLEXED_READOUT_MODULE,
-        MULTIPLEXED_IQ_RECORD_MODULE,
+    _template(
+        MULTIPLEXED_READOUT_TEMPLATE_ID,
+        kind="multiplexed_readout",
+        modules=(
+            MULTIPLEXED_READOUT_MODULE,
+            MULTIPLEXED_IQ_RECORD_MODULE,
+        ),
     )
+    .experiment_id("multiplexed-readout")
     .record_product("multiplexed_iq")
     .label("multiplexed readout")
     .description("Build a simultaneous readout over an entity array.")
@@ -251,17 +264,21 @@ MULTIPLEXED_READOUT_TEMPLATE = (
         sc.InputDescription(
             id="qubits",
             kind="entity_array",
-            default=("q0", "q1"),
+            default=sc.entity_array(("q0", "q1")),
         ),
     )
-    .defaults(qubits=sc.entity_array(("q0", "q1")))
     .metadata(category="readout")
 )
 
 MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
-    sc.template(
+    _template(
         MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE_ID,
         kind="multiplexed_readout_calibration",
+        modules=(
+            MULTIPLEXED_READOUT_PULSE_MODULE,
+            MULTIPLEXED_READOUT_MODULE,
+            MULTIPLEXED_IQ_RECORD_MODULE,
+        ),
     )
     .experiment_id("multiplexed-readout-calibration")
     .scan(
@@ -271,11 +288,6 @@ MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
         points=5,
         input_id="readout_frequency",
     )
-    .use(
-        MULTIPLEXED_READOUT_PULSE_MODULE,
-        MULTIPLEXED_READOUT_MODULE,
-        MULTIPLEXED_IQ_RECORD_MODULE,
-    )
     .record_product("multiplexed_iq")
     .label("multiplexed readout calibration")
     .description("Build a shared readout-frequency scan returning an entity array.")
@@ -283,9 +295,9 @@ MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
         sc.InputDescription(
             id="qubits",
             kind="entity_array",
-            default=("q0", "q1"),
+            default=sc.entity_array(("q0", "q1")),
         ),
-        sc.InputDescription(id="readout_frequency", kind="quantity"),
+        sc.InputDescription(id="readout_frequency", kind="quantity", default=None),
         sc.InputDescription(
             id="center_frequency",
             kind="quantity",
@@ -297,47 +309,46 @@ MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
             default=sc.Quantity(value=-20.5, unit="dBm"),
         ),
     )
-    .defaults(
-        qubits=sc.entity_array(("q0", "q1")),
-        readout_frequency=None,
-        center_frequency=sc.Quantity(value=6.6, unit="GHz"),
-        readout_power=sc.Quantity(value=-20.5, unit="dBm"),
-    )
     .metadata(category="readout")
 )
 
 SQG_RB_TEMPLATE = (
-    sc.template(SQG_RB_TEMPLATE_ID, kind="sqg_rb")
+    _template(
+        SQG_RB_TEMPLATE_ID,
+        kind="sqg_rb",
+        modules=(
+            SQG_RB_MODULE,
+            READOUT_CAPTURE_MODULE,
+            PROBABILITY_RECORDS_MODULE,
+            RAW_IQ_RECORD_MODULE,
+        ),
+    )
     .experiment_id("sqg-rb")
     .scan("clifford_count", (4, 8, 16), unit="count", input_id="lengths")
-    .use(
-        SQG_RB_MODULE,
-        READOUT_CAPTURE_MODULE,
-        PROBABILITY_RECORDS_MODULE,
-        RAW_IQ_RECORD_MODULE,
-    )
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("SQG RB")
     .description("Build a experiment-system single-qubit randomized benchmarking scan.")
     .inputs(
         sc.InputDescription(id="qubit", kind="entity"),
-        sc.InputDescription(id="lengths", kind="point_values"),
+        sc.InputDescription(id="lengths", kind="point_values", default=None),
         sc.InputDescription(id="seed", kind="seed", default=0),
     )
-    .defaults(lengths=None, seed=0)
     .metadata(category="gate_based")
 )
 
 CZ_RB_TEMPLATE = (
-    sc.template(CZ_RB_TEMPLATE_ID, kind="cz_rb")
+    _template(
+        CZ_RB_TEMPLATE_ID,
+        kind="cz_rb",
+        modules=(
+            CZ_RB_MODULE,
+            READOUT_CAPTURE_MODULE,
+            PROBABILITY_RECORDS_MODULE,
+            RAW_IQ_RECORD_MODULE,
+        ),
+    )
     .experiment_id("cz-rb")
     .scan("clifford_count", (2, 4, 8), unit="count", input_id="lengths")
-    .use(
-        CZ_RB_MODULE,
-        READOUT_CAPTURE_MODULE,
-        PROBABILITY_RECORDS_MODULE,
-        RAW_IQ_RECORD_MODULE,
-    )
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("CZ RB")
     .description("Build a experiment-system two-qubit CZ randomized benchmarking scan.")
@@ -345,21 +356,24 @@ CZ_RB_TEMPLATE = (
         sc.InputDescription(id="control_qubit", kind="entity"),
         sc.InputDescription(id="partner_qubit", kind="entity"),
         sc.InputDescription(id="coupler", kind="entity", default="coupler-q0-q1"),
-        sc.InputDescription(id="lengths", kind="point_values"),
+        sc.InputDescription(id="lengths", kind="point_values", default=None),
         sc.InputDescription(id="seed", kind="seed", default=0),
         sc.InputDescription(id="interleaved_gate", kind="gate_label", default="CZ"),
-    )
-    .defaults(
-        coupler="coupler-q0-q1",
-        lengths=None,
-        seed=0,
-        interleaved_gate="CZ",
     )
     .metadata(category="gate_based")
 )
 
 CZ_CHEVRON_TEMPLATE = (
-    sc.template(CZ_CHEVRON_TEMPLATE_ID, kind="cz_chevron")
+    _template(
+        CZ_CHEVRON_TEMPLATE_ID,
+        kind="cz_chevron",
+        modules=(
+            CZ_CHEVRON_MODULE,
+            READOUT_CAPTURE_MODULE,
+            PROBABILITY_RECORDS_MODULE,
+            RAW_IQ_RECORD_MODULE,
+        ),
+    )
     .experiment_id("cz-chevron")
     .scan("coupler_duration", (24, 36, 48), unit="ns", input_id="durations")
     .scan(
@@ -368,12 +382,6 @@ CZ_CHEVRON_TEMPLATE = (
         unit="arb",
         input_id="amplitudes",
     )
-    .use(
-        CZ_CHEVRON_MODULE,
-        READOUT_CAPTURE_MODULE,
-        PROBABILITY_RECORDS_MODULE,
-        RAW_IQ_RECORD_MODULE,
-    )
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("CZ chevron")
     .description("Build a two-dimensional CZ amplitude-duration calibration scan.")
@@ -381,25 +389,27 @@ CZ_CHEVRON_TEMPLATE = (
         sc.InputDescription(id="control_qubit", kind="entity"),
         sc.InputDescription(id="partner_qubit", kind="entity"),
         sc.InputDescription(id="coupler", kind="entity", default="coupler-q0-q1"),
-        sc.InputDescription(id="durations", kind="point_values"),
-        sc.InputDescription(id="amplitudes", kind="point_values"),
+        sc.InputDescription(id="durations", kind="point_values", default=None),
+        sc.InputDescription(id="amplitudes", kind="point_values", default=None),
     )
-    .defaults(coupler="coupler-q0-q1", durations=None, amplitudes=None)
     .metadata(category="gate_based")
 )
 
 SPECTATOR_CZ_TEMPLATE = (
-    sc.template(SPECTATOR_CZ_TEMPLATE_ID, kind="spectator_cz_calibration")
+    _template(
+        SPECTATOR_CZ_TEMPLATE_ID,
+        kind="spectator_cz_calibration",
+        modules=(
+            SPECTATOR_FLUX_BACKGROUND_MODULE,
+            CZ_CHEVRON_MODULE,
+            READOUT_CAPTURE_MODULE,
+            PROBABILITY_RECORDS_MODULE,
+            RAW_IQ_RECORD_MODULE,
+        ),
+    )
     .experiment_id("spectator-cz-calibration")
     .scan("coupler_duration", (24, 36), unit="ns", input_id="durations")
     .scan("coupler_amplitude", (0.18, 0.24), unit="arb", input_id="amplitudes")
-    .use(
-        SPECTATOR_FLUX_BACKGROUND_MODULE,
-        CZ_CHEVRON_MODULE,
-        READOUT_CAPTURE_MODULE,
-        PROBABILITY_RECORDS_MODULE,
-        RAW_IQ_RECORD_MODULE,
-    )
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("spectator-aware CZ calibration")
     .description(
@@ -413,35 +423,31 @@ SPECTATOR_CZ_TEMPLATE = (
         sc.InputDescription(
             id="background_couplers",
             kind="entity_array",
-            default=("coupler-q2-q3",),
+            default=sc.entity_array(("coupler-q2-q3",)),
         ),
-        sc.InputDescription(id="durations", kind="point_values"),
-        sc.InputDescription(id="amplitudes", kind="point_values"),
+        sc.InputDescription(id="durations", kind="point_values", default=None),
+        sc.InputDescription(id="amplitudes", kind="point_values", default=None),
         sc.InputDescription(
             id="spectator_flux_bias",
             kind="quantity",
             default=sc.Quantity(value=0.025, unit="arb"),
         ),
     )
-    .defaults(
-        coupler="coupler-q0-q1",
-        background_couplers=sc.entity_array(("coupler-q2-q3",)),
-        durations=None,
-        amplitudes=None,
-        spectator_flux_bias=sc.Quantity(value=0.025, unit="arb"),
-    )
     .metadata(category="gate_based")
 )
 
 PARALLEL_GATE_SET_TEMPLATE = (
-    sc.template(PARALLEL_GATE_SET_TEMPLATE_ID, kind="parallel_gate_set")
+    _template(
+        PARALLEL_GATE_SET_TEMPLATE_ID,
+        kind="parallel_gate_set",
+        modules=(
+            PARALLEL_GATE_SET_MODULE,
+            MULTIPLEXED_READOUT_MODULE,
+            MULTIPLEXED_IQ_RECORD_MODULE,
+        ),
+    )
     .experiment_id("parallel-gate-set")
     .scan("gate_duration", (28, 36), unit="ns", input_id="durations")
-    .use(
-        PARALLEL_GATE_SET_MODULE,
-        MULTIPLEXED_READOUT_MODULE,
-        MULTIPLEXED_IQ_RECORD_MODULE,
-    )
     .record_product("multiplexed_iq")
     .label("parallel gate set")
     .description(
@@ -466,30 +472,23 @@ PARALLEL_GATE_SET_TEMPLATE = (
         sc.InputDescription(
             id="qubits",
             kind="entity_array",
-            default=("q0", "q1", "q2", "q3"),
+            default=sc.entity_array(("q0", "q1", "q2", "q3")),
         ),
-        sc.InputDescription(id="durations", kind="point_values"),
-    )
-    .defaults(
-        control_qubit_a="q0",
-        partner_qubit_a="q1",
-        coupler_a="coupler-q0-q1",
-        control_qubit_b="q2",
-        partner_qubit_b="q3",
-        coupler_b="coupler-q2-q3",
-        qubits=sc.entity_array(("q0", "q1", "q2", "q3")),
-        durations=None,
+        sc.InputDescription(id="durations", kind="point_values", default=None),
     )
     .metadata(category="gate_based")
 )
 
 TOY_SURFACE_CODE_ROUND_TEMPLATE = (
-    sc.template(TOY_SURFACE_CODE_ROUND_TEMPLATE_ID, kind="toy_surface_code_round")
-    .experiment_id("toy-surface-code-round")
-    .use(
-        TOY_SURFACE_CODE_ROUND_MODULE,
-        STABILIZER_IQ_RECORD_MODULE,
+    _template(
+        TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
+        kind="toy_surface_code_round",
+        modules=(
+            TOY_SURFACE_CODE_ROUND_MODULE,
+            STABILIZER_IQ_RECORD_MODULE,
+        ),
     )
+    .experiment_id("toy-surface-code-round")
     .record_product("stabilizer_iq")
     .label("toy surface-code round")
     .description(
@@ -500,22 +499,22 @@ TOY_SURFACE_CODE_ROUND_TEMPLATE = (
         sc.InputDescription(
             id="patch_qubits",
             kind="entity_array",
-            default=("q0", "q1", "q2", "q3"),
+            default=sc.entity_array(("q0", "q1", "q2", "q3")),
         ),
         sc.InputDescription(
             id="data_qubits",
             kind="entity_array",
-            default=("q0", "q1"),
+            default=sc.entity_array(("q0", "q1")),
         ),
         sc.InputDescription(
             id="ancilla_qubits",
             kind="entity_array",
-            default=("q2", "q3"),
+            default=sc.entity_array(("q2", "q3")),
         ),
         sc.InputDescription(
             id="couplers",
             kind="entity_array",
-            default=("coupler-q0-q1", "coupler-q2-q3"),
+            default=sc.entity_array(("coupler-q0-q1", "coupler-q2-q3")),
         ),
         sc.InputDescription(
             id="rounds",
@@ -528,24 +527,19 @@ TOY_SURFACE_CODE_ROUND_TEMPLATE = (
             default=sc.Quantity(value=32.0, unit="ns"),
         ),
     )
-    .defaults(
-        patch_qubits=sc.entity_array(("q0", "q1", "q2", "q3")),
-        data_qubits=sc.entity_array(("q0", "q1")),
-        ancilla_qubits=sc.entity_array(("q2", "q3")),
-        couplers=sc.entity_array(("coupler-q0-q1", "coupler-q2-q3")),
-        rounds=sc.Quantity(value=3.0, unit="count"),
-        cycle_time=sc.Quantity(value=32.0, unit="ns"),
-    )
     .metadata(category="surface_code")
 )
 
 QND_REPEATED_MEASUREMENT_TEMPLATE = (
-    sc.template(QND_REPEATED_MEASUREMENT_TEMPLATE_ID, kind="qnd_repeated_measurement")
-    .experiment_id("qnd-repeated-measurement")
-    .use(
-        QND_REPEATED_MEASUREMENT_MODULE,
-        QND_IQ_RECORD_MODULE,
+    _template(
+        QND_REPEATED_MEASUREMENT_TEMPLATE_ID,
+        kind="qnd_repeated_measurement",
+        modules=(
+            QND_REPEATED_MEASUREMENT_MODULE,
+            QND_IQ_RECORD_MODULE,
+        ),
     )
+    .experiment_id("qnd-repeated-measurement")
     .record_product("qnd_iq")
     .label("QND repeated measurement")
     .description("Build a repeated readout returning one dense round-by-shot array.")
@@ -562,20 +556,19 @@ QND_REPEATED_MEASUREMENT_TEMPLATE = (
             default=sc.Quantity(value=16.0, unit="count"),
         ),
     )
-    .defaults(
-        rounds=sc.Quantity(value=4.0, unit="count"),
-        shots=sc.Quantity(value=16.0, unit="count"),
-    )
     .metadata(category="readout")
 )
 
 BACKEND_BATCH_TEMPLATE = (
-    sc.template(BACKEND_BATCH_TEMPLATE_ID, kind="backend_batch_out_of_order")
-    .experiment_id("backend-batch-out-of-order")
-    .use(
-        BACKEND_BATCH_MODULE,
-        BACKEND_PROBABILITY_RECORD_MODULE,
+    _template(
+        BACKEND_BATCH_TEMPLATE_ID,
+        kind="backend_batch_out_of_order",
+        modules=(
+            BACKEND_BATCH_MODULE,
+            BACKEND_PROBABILITY_RECORD_MODULE,
+        ),
     )
+    .experiment_id("backend-batch-out-of-order")
     .record_product("backend_probabilities")
     .label("backend batch out-of-order")
     .description(
@@ -589,10 +582,6 @@ BACKEND_BATCH_TEMPLATE = (
             default=sc.Quantity(value=5.0, unit="count"),
         ),
         sc.InputDescription(id="seed", kind="seed", default=7),
-    )
-    .defaults(
-        logical_points=sc.Quantity(value=5.0, unit="count"),
-        seed=7,
     )
     .metadata(category="backend")
 )

@@ -6,9 +6,8 @@ from pydantic import BaseModel, ConfigDict
 
 from scopecat._steps import ArtifactInputDiagnostics, StepArtifactDiagnostics
 from scopecat.config_profiles import load_config_profile
-from scopecat.experiments import ExperimentSpec
-from tests.support.records import read_model
 from tests.support.signal_testkit import execute_signal_run
+from tests.support.workflow_fixtures import load_invocation
 
 EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
@@ -43,10 +42,9 @@ def input_diagnostics() -> ArtifactInputDiagnostics:
 
 def make_signal_run(tmp_path: Path) -> str:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
-    experiment = read_model(EXAMPLE_DIR / "experiment.json", ExperimentSpec)
     manifest, _snapshot = execute_signal_run(
         config=config,
-        experiment=experiment,
+        experiment=load_invocation(),
         workspace=tmp_path,
     )
     return manifest.run_id

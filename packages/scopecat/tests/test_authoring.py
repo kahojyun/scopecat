@@ -11,8 +11,12 @@ from scopecat._workflows.config import register_and_activate_config_profile
 from scopecat.authoring import (
     resolve_experiment,
 )
+from scopecat.authoring._invocation_plan import prepare_invocation
 from scopecat.authoring.assembly import ComputeNodeIntent, ExperimentAssembly
-from scopecat.authoring.resolution import _link_assembly
+from scopecat.authoring.resolution import (
+    _link_assembly,
+    compile_prepared_invocation,
+)
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import (
     ExperimentSpec,
@@ -27,7 +31,7 @@ from scopecat.models.parameter import (
     Quantity,
 )
 from scopecat.parameters import ParameterDerivationSet, ScalarParameterDerivation
-from scopecat.relations import RelationExpr, param
+from scopecat.relations import RelationExpr, ScalarExpr, param
 from tests.support.authoring import (
     SIMPLE_MODULE,
     load_config,
@@ -67,7 +71,14 @@ def _module_fixture(
 ) -> authoring.ExperimentModule:
     return authoring.ExperimentModule(
         id=id,
-        entity_inputs=tuple(entity_inputs),
+        input_ports=tuple(
+            authoring.ModuleInputPort(
+                id=input_id,
+                kind="entity",
+                metadata={"role": "entity"},
+            )
+            for input_id in entity_inputs
+        ),
         resource_ports=tuple(resources),
         variables=tuple(variables),
         bindings=tuple(bindings),
@@ -80,14 +91,15 @@ def _module_fixture(
 
 
 def _template_invocation(
-    *sources: authoring.ExperimentModule,
+    *modules: authoring.ExperimentModule,
     id: str,  # noqa: A002
     kind: str,
     experiment_id: str | None = None,
     inputs: Mapping[str, object] | None = None,
     metadata: Mapping[str, object] | None = None,
 ) -> authoring.ExperimentInvocation:
-    template = authoring.template(id, kind=kind).use(*sources)
+    root_module = authoring.module(f"{id}.root").use(*modules).build()
+    template = root_module.template(id, kind=kind)
     if experiment_id is not None:
         template = template.experiment_id(experiment_id)
     if metadata is not None:
@@ -131,17 +143,15 @@ def test_template_selects_module_products_as_records() -> None:
         .build()
     )
     without_selection = (
-        authoring.template("test.product_unselected", kind="product_test")
+        module.template("test.product_unselected", kind="product_test")
         .experiment_id("product-unselected")
         .scan("drive_frequency", [4.9, 5.0, 5.1], unit="GHz")
-        .use(module)
         .build()
     )
     with_selection = (
-        authoring.template("test.product_selected", kind="product_test")
+        module.template("test.product_selected", kind="product_test")
         .experiment_id("product-selected")
         .scan("drive_frequency", [4.9, 5.0, 5.1], unit="GHz")
-        .use(module)
         .record_product("signal")
         .build()
     )
@@ -188,10 +198,13 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         .build()
     )
     template = (
-        authoring.template("test.compute_provenance", kind="compute_provenance")
+        module.template("test.compute_provenance", kind="compute_provenance")
         .experiment_id("compute-provenance")
-        .use(module)
-        .defaults(pulse_length=Quantity(value=20.0, unit="ns"))
+        .input(
+            "pulse_length",
+            kind="quantity",
+            default=Quantity(value=20.0, unit="ns"),
+        )
         .build()
     )
 
@@ -215,10 +228,9 @@ def test_template_can_scan_entity_input_without_subject_special_case() -> None:
         .build()
     )
     template = (
-        authoring.template("test.entity_scan", kind="entity_scan")
+        module.template("test.entity_scan", kind="entity_scan")
         .experiment_id("entity-scan")
         .scan("qubit", [EntityRef(id="q0", kind="logical_device")])
-        .use(module)
         .record_product("signal")
         .build()
     )
@@ -305,7 +317,7 @@ def test_entity_scan_routes_resources_per_point() -> None:
         .build()
     )
     template = (
-        authoring.template("test.entity_scan_routing", kind="entity_scan_routing")
+        module.template("test.entity_scan_routing", kind="entity_scan_routing")
         .experiment_id("entity-scan-routing")
         .scan(
             "qubit",
@@ -314,7 +326,6 @@ def test_entity_scan_routes_resources_per_point() -> None:
                 EntityRef(id="q1", kind="logical_device"),
             ],
         )
-        .use(module)
         .record_product("signal")
         .build()
     )
@@ -454,9 +465,8 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
         .build()
     )
     template = (
-        authoring.template("test.runtime_entity_scan", kind="runtime_entity_scan")
+        module.template("test.runtime_entity_scan", kind="runtime_entity_scan")
         .experiment_id("runtime-entity-scan")
-        .use(module)
         .record_product("signal")
         .build()
     )
@@ -556,7 +566,7 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
         .build()
     )
     template = (
-        authoring.template(
+        module.template(
             "test.runtime_entity_dependent_points",
             kind="runtime_entity_dependent_points",
         )
@@ -571,7 +581,6 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
             span=Quantity(value=20.0, unit="ns"),
             points=3,
         )
-        .use(module)
         .record_product("signal")
         .build()
     )
@@ -613,9 +622,8 @@ def test_entity_array_input_can_define_record_axis() -> None:
         .build()
     )
     template = (
-        authoring.template("test.entity_array_axis", kind="entity_array_axis")
+        module.template("test.entity_array_axis", kind="entity_array_axis")
         .experiment_id("entity-array-axis")
-        .use(module)
         .record_product("iq")
         .build()
     )
@@ -683,9 +691,8 @@ def test_entity_array_routes_as_single_point_with_ordered_product_axis() -> None
         .build()
     )
     template = (
-        authoring.template("test.entity_array_routing", kind="entity_array_routing")
+        module.template("test.entity_array_routing", kind="entity_array_routing")
         .experiment_id("entity-array-routing")
-        .use(module)
         .record_product("iq")
         .build()
     )
@@ -711,7 +718,7 @@ def test_entity_array_routes_as_single_point_with_ordered_product_axis() -> None
     assert preview.records[0].shape == (1, 2)
 
 
-def test_module_invocation_compiles_to_assembly_without_config_or_request() -> None:
+def test_module_invocation_compiles_to_assembly_without_config() -> None:
     invocation = SIMPLE_MODULE(subject="q0")
     assembly = invocation.assemble()
 
@@ -719,7 +726,6 @@ def test_module_invocation_compiles_to_assembly_without_config_or_request() -> N
     assert isinstance(assembly, ExperimentAssembly)
     assert assembly.experiment_id is None
     assert assembly.kind is None
-    assert assembly.request is None
     assert assembly.inputs == {"subject": "q0"}
     assert assembly.resource_ports[0].id == "source"
 
@@ -731,18 +737,18 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
         experiment_id="authored-simple-scan",
         kind="simple_scan",
         assemblies=(points, source),
-    ).with_invocation(
-        request=RunRequest(
-            id="simple.request",
-            template_id="test.simple_scan",
-            template_inputs={"subject": "q0"},
-        ),
-        inputs={"subject": "q0"},
-        parameter_derivations=None,
+    )
+    request = RunRequest(
+        id="simple.request",
+        template_id="test.simple_scan",
+        template_inputs={"subject": "q0"},
     )
 
     resolved = _link_assembly(
         assembly,
+        request=request,
+        inputs={"subject": "q0"},
+        parameter_derivations=None,
         config=load_config(),
         workspace=Path("/tmp/scopecat-test"),
         config_source=None,
@@ -821,16 +827,20 @@ def test_template_composition_merges_shared_resource_port_capabilities() -> None
         records=[authoring.observable("signal", resource="source", unit="ratio")],
     )
 
-    compiled = _template_invocation(
-        pulse,
-        records,
-        id="test.shared_resource",
-        kind="simple_scan",
-        inputs={"subject": "q0"},
-    ).compile()
+    compiled = compile_prepared_invocation(
+        prepare_invocation(
+            _template_invocation(
+                pulse,
+                records,
+                id="test.shared_resource",
+                kind="simple_scan",
+                inputs={"subject": "q0"},
+            )
+        )
+    )
 
-    assert isinstance(compiled, ExperimentAssembly)
-    assembly = compiled
+    assert isinstance(compiled.assembly, ExperimentAssembly)
+    assembly = compiled.assembly
     assert len(assembly.resource_ports) == 1
     assert assembly.resource_ports[0].id == "source"
     assert assembly.resource_ports[0].selector.capabilities == (
@@ -867,6 +877,141 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
         )
 
     assert error.value.diagnostics[0].code == "module_record_duplicate"
+
+
+def test_module_composition_invocation_literals_bind_local_inputs() -> None:
+    child = (
+        authoring.module("test.invocation_defaults.child")
+        .input("drive_frequency", kind="quantity")
+        .resource("source", requires=("set_frequency",))
+        .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
+        .build()
+    )
+    parent = (
+        authoring.module("test.invocation_defaults.parent")
+        .use(child(drive_frequency=Quantity(value=5.0, unit="GHz")))
+        .build()
+    )
+
+    assembly = parent.assemble()
+
+    assert "drive_frequency" not in assembly.inputs
+    assert all(port.id != "drive_frequency" for port in assembly.input_ports)
+    assert isinstance(assembly.bindings[0].value, ScalarExpr)
+    assert assembly.bindings[0].value.value == Quantity(value=5.0, unit="GHz")
+
+
+def test_module_composition_invocation_expressions_bind_local_inputs() -> None:
+    child = (
+        authoring.module("test.invocation_override.child")
+        .input("drive_frequency", kind="quantity")
+        .resource("source", requires=("set_frequency",))
+        .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
+        .build()
+    )
+    parent = (
+        authoring.module("test.invocation_expression.parent")
+        .use(child(drive_frequency=authoring.param_ref("drive_frequency")))
+        .build()
+    )
+
+    assembly = parent.assemble()
+
+    assert "drive_frequency" not in assembly.inputs
+    assert assembly.bindings[0].value == param("drive_frequency")
+
+
+def test_module_composition_invocation_input_refs_bind_to_parent_inputs() -> None:
+    child = (
+        authoring.module("test.invocation_parent_input.child")
+        .input("drive_frequency", kind="quantity")
+        .resource("source", requires=("set_frequency",))
+        .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
+        .build()
+    )
+    parent = (
+        authoring.module("test.invocation_parent_input.parent")
+        .use(child(drive_frequency=authoring.input_ref("outer_frequency")))
+        .build()
+    )
+
+    assembly = parent.assemble(outer_frequency=Quantity(value=5.2, unit="GHz"))
+
+    assert "drive_frequency" not in assembly.inputs
+    assert isinstance(assembly.bindings[0].value, ScalarExpr)
+    assert assembly.bindings[0].value.value == Quantity(value=5.2, unit="GHz")
+
+
+def test_module_composition_does_not_merge_sibling_invocation_inputs() -> None:
+    first = (
+        authoring.module("test.invocation_sibling.first")
+        .input("drive_frequency", kind="quantity")
+        .resource("source", requires=("set_frequency",))
+        .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
+        .build()
+    )
+    second = (
+        authoring.module("test.invocation_sibling.second")
+        .input("drive_frequency", kind="quantity")
+        .resource("detector", requires=("set_frequency",))
+        .bind(
+            "detector.set_frequency.frequency",
+            authoring.input_ref("drive_frequency"),
+        )
+        .build()
+    )
+
+    module = (
+        authoring.module("test.invocation_sibling.parent")
+        .use(
+            first(drive_frequency=Quantity(value=5.0, unit="GHz")),
+            second(drive_frequency=Quantity(value=5.1, unit="GHz")),
+        )
+        .build()
+    )
+
+    assembly = module.assemble()
+
+    assert "drive_frequency" not in assembly.inputs
+    assert isinstance(assembly.bindings[0].value, ScalarExpr)
+    assert isinstance(assembly.bindings[1].value, ScalarExpr)
+    assert assembly.bindings[0].value.value == Quantity(value=5.0, unit="GHz")
+    assert assembly.bindings[1].value.value == Quantity(value=5.1, unit="GHz")
+
+
+def test_module_composition_localizes_invocation_entity_inputs() -> None:
+    child = (
+        authoring.module("test.invocation_entity.child")
+        .entity("qubit")
+        .input("drive_frequency", kind="quantity")
+        .resource(
+            "drive",
+            requires=authoring.requires("set_frequency", for_entities=("qubit",)),
+        )
+        .bind("drive.set_frequency.frequency", authoring.input_ref("drive_frequency"))
+        .build()
+    )
+    parent = (
+        authoring.module("test.invocation_entity.parent")
+        .use(
+            child(
+                qubit="q0",
+                drive_frequency=Quantity(value=5.0, unit="GHz"),
+            )
+        )
+        .build()
+    )
+
+    assembly = parent.assemble()
+
+    assert "qubit" not in assembly.inputs
+    assert "qubit" not in assembly.entity_inputs
+    assert all(port.id != "qubit" for port in assembly.input_ports)
+    assert (
+        assembly.resource_ports[0]
+        .selector.entity_inputs[0]
+        .startswith("__local_entity_")
+    )
 
 
 def test_combined_module_parameter_derivations_chain_in_order() -> None:
@@ -916,18 +1061,18 @@ def test_combined_module_parameter_derivations_chain_in_order() -> None:
             ExperimentAssembly(point_source=_around_parameter_points("drive_final")),
             main,
         ),
-    ).with_invocation(
-        request=RunRequest(
-            id="combined.request",
-            template_id="test.combined",
-            template_inputs={"subject": "q0"},
-        ),
-        inputs={"subject": "q0"},
-        parameter_derivations=None,
+    )
+    request = RunRequest(
+        id="combined.request",
+        template_id="test.combined",
+        template_inputs={"subject": "q0"},
     )
 
     resolved = _link_assembly(
         assembly,
+        request=request,
+        inputs={"subject": "q0"},
+        parameter_derivations=assembly.parameter_derivations,
         config=load_config(),
         workspace=Path("/tmp/scopecat-test"),
         config_source=None,
@@ -949,7 +1094,7 @@ def test_combined_module_parameter_derivations_chain_in_order() -> None:
     )
 
 
-def test_template_invocation_runs_module_sources_directly() -> None:
+def test_template_invocation_runs_composed_modules_directly() -> None:
     derived = ExperimentAssembly(
         entity_inputs=(),
         parameter_derivations=ParameterDerivationSet(
@@ -964,7 +1109,7 @@ def test_template_invocation_runs_module_sources_directly() -> None:
         ),
     )
     scan = _module_fixture(
-        id="test.scripted_source_scan",
+        id="test.scripted_module_scan",
         resources=[
             authoring.resource_port("source", authoring.requires("set_frequency")),
         ],
@@ -980,7 +1125,7 @@ def test_template_invocation_runs_module_sources_directly() -> None:
     resolved = resolve_experiment(
         _template_invocation(
             _module_fixture(
-                id="test.scripted_source_derived",
+                id="test.scripted_module_derived",
                 parameter_derivations=derived.parameter_derivations,
             ),
             scan,
@@ -1242,12 +1387,10 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
 
     resolved = resolve_experiment(
         (
-            authoring.template(
+            module.template(
                 "test.entity_routed_resource",
                 kind="entity_routed_resource",
-            )
-            .experiment_id("entity-routed-resource")
-            .use(module)
+            ).experiment_id("entity-routed-resource")
         ).bind(qubit="q1"),
         workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
@@ -1325,9 +1468,9 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
 
     resolved = resolve_experiment(
         (
-            authoring.template("test.background_flux", kind="background_flux")
-            .experiment_id("background-flux")
-            .use(background)
+            background.template(
+                "test.background_flux", kind="background_flux"
+            ).experiment_id("background-flux")
         ).bind(),
         workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
@@ -1387,7 +1530,7 @@ def test_module_assembler_reports_ambiguous_resource_port() -> None:
     assert diagnostics[0].code == "module_resource_port_ambiguous"
 
 
-def test_resolve_experiment_uses_active_config_and_template_defaults(
+def test_resolve_experiment_uses_active_config_and_input_defaults(
     tmp_path: Path,
 ) -> None:
     register_and_activate_config_profile(

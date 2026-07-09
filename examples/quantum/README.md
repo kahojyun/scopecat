@@ -72,7 +72,7 @@ adapter wiring. User-facing notebooks should stay on Scopecat public objects
 and top-level notebook variables: `Workspace`, `Experiment`, `Run`, `Data`,
 `Analysis`, and `CandidateConfig`. Keep notebooks importing template constants
 from `quantum_lab_demo.experiments`; move reference cases into focused module
-and template source when scratch exploration becomes reusable.
+and template definitions when scratch exploration becomes reusable.
 
 The examples use domain names such as `qubit`, `control_qubit`, and
 `partner_qubit` as run-time `inputs` keys. Linked experiment specs lower

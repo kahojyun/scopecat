@@ -22,6 +22,7 @@ from scopecat.relations import lit
 from tests.support.authoring import SIMPLE_MODULE, simple_template
 from tests.support.records import read_model
 from tests.support.signal_instruments import TestSignalInstrumentProvider
+from tests.support.workflow_fixtures import load_invocation
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
@@ -32,10 +33,6 @@ class AnalysisArtifactPayload(BaseModel):
     value: int
 
 
-def load_experiment() -> ExperimentSpec:
-    return read_model(EXAMPLE_DIR / "experiment.json", ExperimentSpec)
-
-
 def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
@@ -43,7 +40,7 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
         instrument_provider=TestSignalInstrumentProvider(),
     )
 
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
     data = run.data()
     raw = data.measurements()
     measurement_datasets = data.list(kind="measurement_dataset")
@@ -111,7 +108,7 @@ def test_data_selectors_report_notebook_friendly_diagnostics(tmp_path: Path) -> 
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
     data = run.data()
 
     assert data.list(metadata={"source_step": "unknown"}) == ()
@@ -131,7 +128,7 @@ def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
 
     attachment = run.attach(
         key="notebook",
@@ -162,13 +159,25 @@ def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
     ]
 
 
-def test_workspace_experiment_wraps_existing_source(tmp_path: Path) -> None:
+def test_workspace_experiment_wraps_existing_module_source(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    experiment = lab.experiment("readout scan", load_experiment())
+    experiment = (
+        lab.experiment("readout scan")
+        .use(SIMPLE_MODULE)
+        .entity("subject", "q0")
+        .scan(
+            "drive_frequency",
+            [
+                Quantity(value=4.9, unit="GHz"),
+                Quantity(value=5.0, unit="GHz"),
+                Quantity(value=5.1, unit="GHz"),
+            ],
+        )
+    )
 
     run = experiment.run()
 
@@ -176,18 +185,35 @@ def test_workspace_experiment_wraps_existing_source(tmp_path: Path) -> None:
     assert run.manifest.status == "completed"
 
 
-def test_workspace_experiment_rejects_closed_source_fragments(tmp_path: Path) -> None:
+def test_workspace_experiment_composes_module_source_with_fragments(
+    tmp_path: Path,
+) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
+        instrument_provider=TestSignalInstrumentProvider(),
     )
-    experiment = lab.experiment("readout scan", load_experiment()).measure("signal")
+    experiment = (
+        lab.experiment("readout scan")
+        .use(SIMPLE_MODULE)
+        .entity("subject", "q0")
+        .scan(
+            "drive_frequency",
+            [
+                Quantity(value=4.9, unit="GHz"),
+                Quantity(value=5.0, unit="GHz"),
+                Quantity(value=5.1, unit="GHz"),
+            ],
+        )
+        .record("manual_signal", resource="source", unit="ratio")
+    )
 
-    with pytest.raises(ValueError, match="closed ExperimentSpec"):
-        experiment.preview()
+    preview = experiment.preview()
+
+    assert preview.primary_observables == ("signal", "manual_signal")
 
 
-def test_workspace_experiment_builder_lowers_to_runnable_spec(
+def test_workspace_experiment_lowers_to_runnable_spec(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -260,10 +286,6 @@ def test_workspace_run_options_materialize_internal_run_request(
             name="narrow readout scan",
             tags=("notebook", "calibration"),
             description="previewed in the notebook before running",
-            overrides={"analysis_mode": "debug"},
-            seeds={"fit": 7},
-            extra_records={"readback": True},
-            execution_flags={"dry_run": False},
             metadata={"notebook": "02_define_experiment"},
             operator="alice",
         )
@@ -291,10 +313,6 @@ def test_workspace_run_options_materialize_internal_run_request(
         "tags": ["notebook", "calibration"],
         "description": "previewed in the notebook before running",
     }
-    assert persisted_request.run_overrides == {"analysis_mode": "debug"}
-    assert persisted_request.seeds == {"fit": 7}
-    assert persisted_request.extra_records == {"readback": True}
-    assert persisted_request.execution_flags == {"dry_run": False}
     assert persisted_request.operator == "alice"
 
 
@@ -307,18 +325,16 @@ def test_prepared_template_builder_preview_and_run_terminals(
         instrument_provider=TestSignalInstrumentProvider(),
     )
     template = (
-        sc.template("test.prepared_builder", kind="simple_scan")
+        SIMPLE_MODULE.template("test.prepared_builder", kind="simple_scan")
         .experiment_id("prepared-builder")
         .input("subject", kind="entity")
-        .input("drive_frequency", kind="quantity")
-        .defaults(drive_frequency=None)
+        .input("drive_frequency", kind="quantity", default=None)
         .scan(
             "drive_frequency",
             center=lit(Quantity(value=5.0, unit="GHz")),
             span=Quantity(value=200.0, unit="MHz"),
             points=5,
         )
-        .use(SIMPLE_MODULE)
     )
 
     plan = (
@@ -421,7 +437,7 @@ def test_invocation_scan_overrides_axis_inside_default_zip_group(
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
     template = (
-        sc.template("test.default_zip_override", kind="default_zip_override")
+        SIMPLE_MODULE.template("test.default_zip_override", kind="default_zip_override")
         .experiment_id("default-zip-override")
         .input("subject", kind="entity")
         .scan(
@@ -430,7 +446,6 @@ def test_invocation_scan_overrides_axis_inside_default_zip_group(
                 sc.axis("phase_offset", [0.0, 0.5], unit="rad"),
             )
         )
-        .use(SIMPLE_MODULE)
     )
 
     preview = (
@@ -463,11 +478,10 @@ def test_invocation_scan_group_rejects_mixed_default_override(
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
     template = (
-        sc.template("test.mixed_scan_override", kind="mixed_scan_override")
+        SIMPLE_MODULE.template("test.mixed_scan_override", kind="mixed_scan_override")
         .experiment_id("mixed-scan-override")
         .input("subject", kind="entity")
         .scan("drive_frequency", [4.9, 5.0], unit="GHz")
-        .use(SIMPLE_MODULE)
     )
 
     with pytest.raises(ValidationFailed) as error:
@@ -486,7 +500,7 @@ def test_invocation_scan_group_rejects_mixed_default_override(
     assert error.value.diagnostics[0].code == "scan_group_mixed_override"
 
 
-def test_workspace_experiment_builder_supports_active_center_scan(
+def test_workspace_experiment_supports_active_center_scan(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -511,7 +525,7 @@ def test_workspace_experiment_builder_supports_active_center_scan(
     ]
 
 
-def test_workspace_experiment_builder_defines_complete_experiment(
+def test_workspace_experiment_defines_complete_experiment(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -577,7 +591,7 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
     raw = run.data().measurements()
 
     analysis = (
@@ -627,7 +641,7 @@ def test_run_analysis_persists_output_artifacts(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
     source_report = tmp_path / "fit-report.html"
     source_report.write_text("<h1>fit</h1>\n")
 
@@ -694,7 +708,7 @@ def test_run_analysis_persists_owned_artifacts(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
     source = tmp_path / "source-report.html"
     source.write_text("<h1>source</h1>\n")
 
@@ -758,7 +772,7 @@ def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
 
     with pytest.raises(ValidationFailed) as duplicate_id:
         (
@@ -810,7 +824,7 @@ def test_analysis_artifacts_dedupe_sources_and_feed_overview(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
 
     saved = (
         run.analysis("manual source review")
@@ -845,7 +859,7 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    experiment = load_experiment()
+    experiment = load_invocation()
     baseline = lab.prepare(experiment).run()
     analysis = (
         baseline.analysis("gui review")
@@ -916,7 +930,7 @@ def test_analysis_rejects_invalid_notebook_payloads(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
 
     with pytest.raises(ValidationFailed) as error:
         action(run.analysis("manual review"))
@@ -952,7 +966,7 @@ def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
     step: sc.AnalysisStep = ReadoutFit()
 
     analysis = run.analyze(step)

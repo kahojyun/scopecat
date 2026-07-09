@@ -10,19 +10,15 @@ from scopecat._workflows.config import register_and_activate_candidate_config
 from scopecat.candidate_configs import CandidateConfig
 from scopecat.config_registry import list_config_registry_entries
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.parameter_changes import load_parameter_change
 from scopecat.relations import col
 from tests.support.config_registry import signal_run_with_parameter_change
 from tests.support.records import read_model
 from tests.support.signal_instruments import TestSignalInstrumentProvider
+from tests.support.workflow_fixtures import load_invocation
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
-
-
-def load_experiment() -> ExperimentSpec:
-    return read_model(EXAMPLE_DIR / "experiment.json", ExperimentSpec)
 
 
 def test_candidate_config_resolves_parameter_change_and_runs_follow_up(
@@ -33,7 +29,7 @@ def test_candidate_config_resolves_parameter_change_and_runs_follow_up(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
     candidate = (
         run.analysis("manual readout review")
         .propose(
@@ -44,7 +40,7 @@ def test_candidate_config_resolves_parameter_change_and_runs_follow_up(
         .candidate_config()
     )
 
-    follow_up = lab.prepare(load_experiment(), config=candidate).run()
+    follow_up = lab.prepare(load_invocation(), config=candidate).run()
     decision = lab.review_parameter_changes(
         run,
         "drive_frequency",
@@ -66,7 +62,7 @@ def test_candidate_config_selects_independent_parameter_changes(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
     analysis = (
         run.analysis("multi fit")
         .propose(
@@ -88,7 +84,7 @@ def test_candidate_config_selects_independent_parameter_changes(
     )
 
     follow_up = lab.prepare(
-        load_experiment(),
+        load_invocation(),
         config=analysis.candidate_config("q0"),
     ).run()
     updated = follow_up.config.parameter_state.scalar_value_set().get("drive_frequency")
@@ -96,7 +92,7 @@ def test_candidate_config_selects_independent_parameter_changes(
     assert updated.quantity.value == 5.5
 
     with pytest.raises(ValidationFailed) as invalid_change:
-        lab.prepare(load_experiment(), config=analysis.candidate_config("q1")).run()
+        lab.prepare(load_invocation(), config=analysis.candidate_config("q1")).run()
     assert invalid_change.value.diagnostics[0].code == (
         "parameter_change_candidate_patch_invalid"
     )
@@ -110,7 +106,7 @@ def test_analysis_rejects_point_local_parameter_change_patch(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    run = lab.prepare(load_experiment()).run()
+    run = lab.prepare(load_invocation()).run()
 
     with pytest.raises(ValidationFailed) as error:
         run.analysis("bad patch").propose(

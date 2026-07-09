@@ -6,6 +6,7 @@ import pytest
 
 from scopecat._workflows.runs import preview_experiment
 from scopecat.authoring import resolve_experiment
+from scopecat.authoring._invocation_plan import prepare_invocation
 from scopecat.errors import ValidationFailed
 from tests.support.authoring import (
     EXAMPLE_DIR,
@@ -35,7 +36,7 @@ def test_preview_experiment_resolves_template_invocation_with_config_profile(
     tmp_path: Path,
 ) -> None:
     result = preview_experiment(
-        simple_template().bind(subject="q0"),
+        prepare_invocation(simple_template().bind(subject="q0")),
         workspace=tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
@@ -48,7 +49,7 @@ def test_preview_experiment_resolves_template_invocation_with_config_snapshot(
     tmp_path: Path,
 ) -> None:
     result = preview_experiment(
-        simple_template().bind(subject="q0"),
+        prepare_invocation(simple_template().bind(subject="q0")),
         workspace=tmp_path,
         config_profile=load_config(),
     )

@@ -7,14 +7,14 @@ from typing import Any
 from scopecat._storage.refs import dataset_content_ref
 from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import resolve_config_registry_config_source
-from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot
 from tests.support.config_registry import (
     activate_best_signal,
     seed_best_signal_parameter_change,
 )
-from tests.support.records import read_measurement_records, read_model
+from tests.support.records import read_measurement_records
 from tests.support.signal_testkit import execute_signal_run
+from tests.support.workflow_fixtures import load_invocation
 
 ROOT = Path(__file__).parents[4]
 SIGNAL_EXAMPLE_DIR = ROOT / "fixtures" / "core" / "simple_scan"
@@ -24,14 +24,10 @@ def load_signal_config() -> ConfigProfileSnapshot:
     return load_config_profile(SIGNAL_EXAMPLE_DIR / "config-profile.json")
 
 
-def load_experiment() -> ExperimentSpec:
-    return read_model(SIGNAL_EXAMPLE_DIR / "experiment.json", ExperimentSpec)
-
-
 def run_signal_experiment(tmp_path: Path) -> str:
     manifest, _snapshot = execute_signal_run(
         config=load_signal_config(),
-        experiment=load_experiment(),
+        experiment=load_invocation(),
         workspace=tmp_path,
     )
     return manifest.run_id
@@ -54,7 +50,7 @@ def active_config_registry_signal_run(
     )
     manifest, _snapshot = execute_signal_run(
         config=config,
-        experiment=load_experiment(),
+        experiment=load_invocation(),
         workspace=tmp_path,
         config_source=source,
     )

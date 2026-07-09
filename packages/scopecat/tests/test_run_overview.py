@@ -8,7 +8,6 @@ from scopecat.runs import open_run_store
 from tests.support.run_overview import (
     config_registry_sourced_signal_run,
     load_config,
-    load_experiment,
     run_signal_experiment,
     run_signal_experiment_with_active_candidate,
     run_signal_experiment_with_review,
@@ -17,6 +16,7 @@ from tests.support.signal_testkit import (
     execute_signal_run,
     execute_summary_stats_analysis,
 )
+from tests.support.workflow_fixtures import load_invocation
 
 
 def test_build_run_overview_for_signal_run_does_not_update_manifest(
@@ -123,7 +123,7 @@ def test_build_run_overview_includes_manual_analysis_records(
 ) -> None:
     manifest, _snapshot = execute_signal_run(
         config=load_config(),
-        experiment=load_experiment(),
+        experiment=load_invocation(),
         workspace=tmp_path,
     )
     lab = sc.open(tmp_path, config=load_config())

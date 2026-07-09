@@ -11,7 +11,7 @@ from scopecat.authoring import (
 from scopecat.models.parameter import Quantity
 from scopecat.relations import param
 from tests.support.signal_instruments import TestSignalInstrumentProvider
-from tests.support.workflow_fixtures import load_experiment
+from tests.support.workflow_fixtures import load_invocation
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
@@ -31,7 +31,7 @@ def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
 
 def simple_frequency_scan_template() -> ExperimentTemplate:
     return (
-        authoring.template(
+        SIMPLE_FREQUENCY_SCAN.template(
             "test.session.simple_frequency_scan",
             kind="simple_frequency_scan",
         )
@@ -42,7 +42,6 @@ def simple_frequency_scan_template() -> ExperimentTemplate:
             span=Quantity(value=200.0, unit="MHz"),
             points=3,
         )
-        .use(SIMPLE_FREQUENCY_SCAN)
         .label("Session test frequency scan")
         .metadata(category="session-test")
         .build()
@@ -55,7 +54,7 @@ def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
 
-    preview = lab.prepare(load_experiment()).preview()
+    preview = lab.prepare(load_invocation()).preview()
 
     assert preview.point_count == 3
     assert preview.primary_observables == ("signal",)
@@ -69,7 +68,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    experiment = load_experiment()
+    experiment = load_invocation()
 
     baseline = lab.prepare(experiment).run()
     raw = baseline.measurements()
@@ -113,7 +112,7 @@ def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> N
     )
     event_kinds: list[str] = []
 
-    run = lab.prepare(load_experiment()).run(
+    run = lab.prepare(load_invocation()).run(
         event_sink=lambda event: event_kinds.append(event.kind),
     )
 
@@ -131,7 +130,7 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    experiment = load_experiment()
+    experiment = load_invocation()
 
     baseline = lab.prepare(experiment).run()
     raw = baseline.measurements()

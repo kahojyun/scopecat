@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scopecat.authoring import ExperimentInvocation
+from scopecat.authoring._invocation_plan import (
+    PreparedInvocation,
+    prepare_invocation,
+)
 from scopecat.config_profiles import load_config_profile
-from scopecat.experiments import ExperimentSpec, set_state
+from scopecat.experiments import ExperimentSpec
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.data_artifact import (
@@ -15,8 +20,10 @@ from scopecat.models.data_artifact import (
     DataTableArtifact,
     DataTableSchema,
 )
+from scopecat.models.parameter import Quantity
 from scopecat.relations import param
 from scopecat.runs import artifact_storage_ref, dataset_storage_ref, open_run_store
+from tests.support.authoring import SIMPLE_MODULE
 from tests.support.records import read_model
 
 WORKFLOW_FIXTURE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
@@ -28,6 +35,25 @@ def load_config() -> ConfigProfileSnapshot:
 
 def load_experiment() -> ExperimentSpec:
     return read_model(WORKFLOW_FIXTURE_DIR / "experiment.json", ExperimentSpec)
+
+
+def load_invocation() -> ExperimentInvocation:
+    return (
+        SIMPLE_MODULE.template("test.workflow_scan", kind="simple_scan")
+        .experiment_id("simple-scan")
+        .scan(
+            "drive_frequency",
+            center=param("drive_frequency"),
+            span=Quantity(value=200.0, unit="MHz"),
+            points=3,
+        )
+        .build()
+        .bind(subject="q0")
+    )
+
+
+def load_prepared_invocation() -> PreparedInvocation:
+    return prepare_invocation(load_invocation())
 
 
 def config_with_instrument_id(instrument_id: str) -> ConfigProfileSnapshot:
@@ -64,26 +90,6 @@ def config_with_instrument_id(instrument_id: str) -> ConfigProfileSnapshot:
         }
     )
     return config.model_copy(update={"system": system, "environment": environment})
-
-
-def experiment_with_resource_id(resource_id: str) -> ExperimentSpec:
-    experiment = load_experiment()
-    records = [
-        record.model_copy(update={"resource": resource_id})
-        for record in experiment.records
-    ]
-    return experiment.model_copy(
-        update={
-            "state": [
-                set_state(
-                    resource_id,
-                    "set_frequency.frequency",
-                    param("drive_frequency"),
-                )
-            ],
-            "records": records,
-        }
-    )
 
 
 def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:

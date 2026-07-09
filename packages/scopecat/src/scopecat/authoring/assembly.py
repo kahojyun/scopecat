@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from scopecat._planning.parameter_patches import ParameterPatchSpec
 from scopecat.authoring._bindings import (
@@ -31,29 +30,18 @@ from scopecat.authoring.expressions import (
 from scopecat.authoring.expressions import (
     var as var_expr,
 )
-from scopecat.authoring.templates import (
-    materialize_request_inputs,
-)
 from scopecat.experiments import (
     ComputeNodeFunction,
     ComputeNodeInput,
     ComputeNodeSpec,
     ExperimentSpec,
-    ParameterScanAxis,
     RecordAxisSpec,
     RecordKind,
     RecordSource,
     RecordSpec,
-    RunRequest,
-    ScanAxis,
-    ScanGroup,
-    ScanItem,
     StateSpec,
     bind_each,
     set_state,
-)
-from scopecat.experiments import (
-    axis as scan_axis,
 )
 from scopecat.experiments import (
     record_axis as experiment_record_axis,
@@ -85,6 +73,9 @@ from scopecat.relations import (
 )
 from scopecat.results import MeasurementDType
 
+if TYPE_CHECKING:
+    from scopecat.authoring.templates import TemplateBuilder
+
 type VariableValue = ExperimentVariable | Expression
 type VariableFactory = Callable[
     [ExperimentAuthoringContext, Mapping[str, object]], VariableValue
@@ -97,10 +88,6 @@ type AxisSizeInput = (
 )
 type ComputeNodeInputValue = (
     Expression | ScalarExpr | Quantity | float | ComputeResultRef | RouteBindingRef
-)
-
-QUANTITY_RE = re.compile(
-    r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s+([A-Za-z][A-Za-z0-9_]*)\s*$"
 )
 
 
@@ -304,134 +291,8 @@ class ModuleInputPort:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-def _with_entity_input_ports(
-    input_ports: Sequence[ModuleInputPort],
-    input_ids: Sequence[str],
-) -> tuple[tuple[str, ...], tuple[ModuleInputPort, ...]]:
-    existing = {item.id for item in input_ports}
-    return (
-        tuple(input_ids),
-        (
-            *input_ports,
-            *(
-                ModuleInputPort(
-                    id=input_id,
-                    kind="entity",
-                    metadata={"role": "entity"},
-                )
-                for input_id in input_ids
-                if input_id not in existing
-            ),
-        ),
-    )
-
-
-def _resource_port_from_builder_input(
-    port_id: str,
-    *,
-    requires: ResourceSelector | Sequence[str],
-    for_entities: Sequence[str],
-) -> ResourcePort:
-    selector = (
-        requires
-        if isinstance(requires, ResourceSelector)
-        else ResourceSelector(
-            capabilities=tuple(requires),
-            entity_inputs=tuple(for_entities),
-        )
-    )
-    return resource_port(port_id, selector)
-
-
-def _state_table_from_builder_input(
-    table_id: str,
-    *,
-    field: str,
-    value_column: str,
-    resource_column: str,
-    resource_port: str | None,
-    route_entity_column: str | None,
-) -> StateTableIntent:
-    return StateTableIntent(
-        table_id=table_id,
-        field=field,
-        value_column=value_column,
-        resource_column=resource_column,
-        resource_port=resource_port,
-        route_entity_column=route_entity_column,
-    )
-
-
-def _compute_node_from_builder_input(
-    node_id: str,
-    *,
-    fn: ComputeNodeFunction,
-    inputs: Mapping[str, ComputeNodeInputValue] | None,
-    route_ports: Sequence[str],
-) -> ComputeNodeIntent:
-    return ComputeNodeIntent(
-        id=node_id,
-        fn=fn,
-        inputs=tuple((inputs or {}).items()),
-        route_ports=tuple(route_ports),
-    )
-
-
-def _record_intents_from_builder_input(
-    record_ids: Sequence[str],
-    *,
-    source: RecordSource,
-    resource: str | None,
-    capability: str | None,
-    product_key: str | None,
-    unit: str | None,
-    dtype: MeasurementDType,
-    axes: Sequence[RecordAxisIntent],
-    metadata: Mapping[str, Any] | None,
-) -> tuple[RecordIntent, ...]:
-    return tuple(
-        observable(
-            record_id,
-            source=source,
-            resource=resource,
-            capability=capability,
-            product_key=product_key,
-            unit=unit,
-            dtype=dtype,
-            axes=axes,
-            metadata=metadata,
-        )
-        for record_id in record_ids
-    )
-
-
-def _product_ports_from_builder_input(
-    product_ids: Sequence[str],
-    *,
-    source: RecordSource,
-    resource: str | None,
-    capability: str | None,
-    product_key: str | None,
-    unit: str | None,
-    dtype: MeasurementDType,
-    axes: Sequence[RecordAxisIntent],
-    metadata: Mapping[str, Any] | None,
-) -> tuple[ModuleProductPort, ...]:
-    return tuple(
-        ModuleProductPort(
-            id=product_id,
-            kind="observable",
-            source=source,
-            resource=resource,
-            capability=capability,
-            product_key=product_key,
-            unit=unit,
-            dtype=dtype,
-            axes=tuple(axes),
-            metadata=dict(metadata or {}),
-        )
-        for product_id in product_ids
-    )
+def _entity_input_ids(input_ports: Sequence[ModuleInputPort]) -> tuple[str, ...]:
+    return tuple(port.id for port in input_ports if port.kind == "entity")
 
 
 @dataclass(frozen=True)
@@ -445,8 +306,8 @@ class ModuleBuilder:
     """
 
     id: str | None = None
+    invocations: tuple[ModuleInvocation, ...] = ()
     input_ports: tuple[ModuleInputPort, ...] = ()
-    entity_inputs: tuple[str, ...] = ()
     resources: tuple[ResourcePort, ...] = ()
     variables: tuple[VariableIntent, ...] = ()
     bindings: tuple[ExperimentBindingIntent, ...] = ()
@@ -466,6 +327,7 @@ class ModuleBuilder:
         return any(
             (
                 self.resources,
+                self.invocations,
                 self.input_ports,
                 self.variables,
                 self.bindings,
@@ -477,11 +339,29 @@ class ModuleBuilder:
         )
 
     def entity_inputs_from(self, *input_ids: str) -> ModuleBuilder:
-        entity_inputs, input_ports = _with_entity_input_ports(
-            self.input_ports,
-            input_ids,
+        existing = {item.id for item in self.input_ports}
+        return replace(
+            self,
+            input_ports=(
+                *self.input_ports,
+                *(
+                    ModuleInputPort(
+                        id=input_id,
+                        kind="entity",
+                        metadata={"role": "entity"},
+                    )
+                    for input_id in input_ids
+                    if input_id not in existing
+                ),
+            ),
         )
-        return replace(self, entity_inputs=entity_inputs, input_ports=input_ports)
+
+    def use(
+        self,
+        *modules: ExperimentModule | ModuleBuilder | ModuleInvocation,
+    ) -> ModuleBuilder:
+        invocations = tuple(_module_use_invocation(module) for module in modules)
+        return replace(self, invocations=(*self.invocations, *invocations))
 
     def entity(self, input_id: str) -> ModuleBuilder:
         return self.entity_inputs_from(input_id)
@@ -508,15 +388,19 @@ class ModuleBuilder:
         requires: ResourceSelector | Sequence[str] = (),
         for_entities: Sequence[str] = (),
     ) -> ModuleBuilder:
+        selector = (
+            requires
+            if isinstance(requires, ResourceSelector)
+            else ResourceSelector(
+                capabilities=tuple(requires),
+                entity_inputs=tuple(for_entities),
+            )
+        )
         return replace(
             self,
             resources=(
                 *self.resources,
-                _resource_port_from_builder_input(
-                    id,
-                    requires=requires,
-                    for_entities=for_entities,
-                ),
+                resource_port(id, selector),
             ),
         )
 
@@ -557,7 +441,7 @@ class ModuleBuilder:
             self,
             state_intents=(
                 *self.state_intents,
-                _state_table_from_builder_input(
+                StateTableIntent(
                     table_id=table_id,
                     field=field,
                     value_column=value_column,
@@ -580,11 +464,11 @@ class ModuleBuilder:
             self,
             compute_nodes=(
                 *self.compute_nodes,
-                _compute_node_from_builder_input(
-                    id,
+                ComputeNodeIntent(
+                    id=id,
                     fn=fn,
-                    inputs=inputs,
-                    route_ports=route_ports,
+                    inputs=tuple((inputs or {}).items()),
+                    route_ports=tuple(route_ports),
                 ),
             ),
         )
@@ -616,18 +500,26 @@ class ModuleBuilder:
         axes: Sequence[RecordAxisIntent] = (),
         metadata: Mapping[str, Any] | None = None,
     ) -> ModuleBuilder:
-        records = _record_intents_from_builder_input(
-            record_ids,
-            source=source,
-            resource=resource,
-            capability=capability,
-            product_key=product_key,
-            unit=unit,
-            dtype=dtype,
-            axes=axes,
-            metadata=metadata,
+        return replace(
+            self,
+            records=(
+                *self.records,
+                *(
+                    observable(
+                        record_id,
+                        source=source,
+                        resource=resource,
+                        capability=capability,
+                        product_key=product_key,
+                        unit=unit,
+                        dtype=dtype,
+                        axes=axes,
+                        metadata=metadata,
+                    )
+                    for record_id in record_ids
+                ),
+            ),
         )
-        return replace(self, records=(*self.records, *records))
 
     def product(
         self,
@@ -641,18 +533,27 @@ class ModuleBuilder:
         axes: Sequence[RecordAxisIntent] = (),
         metadata: Mapping[str, Any] | None = None,
     ) -> ModuleBuilder:
-        products = _product_ports_from_builder_input(
-            product_ids,
-            source=source,
-            resource=resource,
-            capability=capability,
-            product_key=product_key,
-            unit=unit,
-            dtype=dtype,
-            axes=axes,
-            metadata=metadata,
+        return replace(
+            self,
+            product_ports=(
+                *self.product_ports,
+                *(
+                    ModuleProductPort(
+                        id=product_id,
+                        kind="observable",
+                        source=source,
+                        resource=resource,
+                        capability=capability,
+                        product_key=product_key,
+                        unit=unit,
+                        dtype=dtype,
+                        axes=tuple(axes),
+                        metadata=dict(metadata or {}),
+                    )
+                    for product_id in product_ids
+                ),
+            ),
         )
-        return replace(self, product_ports=(*self.product_ports, *products))
 
     def measure(self, *observable_ids: str) -> ModuleBuilder:
         return self.record(*observable_ids)
@@ -667,239 +568,26 @@ class ModuleBuilder:
             metadata=metadata,
         )
 
-
-@dataclass(frozen=True)
-class WorkspaceExperimentBuilder:
-    """Scratch builder used by `Workspace.experiment(...)`.
-
-    Workspace experiments are allowed to make one-off choices such as scans,
-    variables, bindings, and product selections because they represent a local
-    notebook workflow, not reusable source. When that shape becomes durable,
-    the intended extraction path is editing module/template source rather than
-    converting this builder through another API rule.
-    """
-
-    input_ports: tuple[ModuleInputPort, ...] = ()
-    entity_inputs: tuple[str, ...] = ()
-    resources: tuple[ResourcePort, ...] = ()
-    variables: tuple[VariableIntent, ...] = ()
-    point_sources: tuple[RelationExpr, ...] = ()
-    bindings: tuple[ExperimentBindingIntent, ...] = ()
-    state_intents: tuple[ExperimentStateIntent, ...] = ()
-    compute_nodes: tuple[ComputeNodeIntent, ...] = ()
-    records: tuple[RecordIntent, ...] = ()
-    product_ports: tuple[ModuleProductPort, ...] = ()
-    record_selections: tuple[ProductSelectionIntent, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
-    scans: tuple[ScanItem, ...] = ()
-
-    @property
-    def observables(self) -> tuple[str, ...]:
-        return tuple(record.id for record in self.records)
-
-    @property
-    def has_fragments(self) -> bool:
-        return any(
-            (
-                self.resources,
-                self.input_ports,
-                self.variables,
-                self.point_sources,
-                self.bindings,
-                self.state_intents,
-                self.compute_nodes,
-                self.records,
-                self.product_ports,
-                self.record_selections,
-                self.scans,
-            )
-        )
-
-    def entity_inputs_from(self, *input_ids: str) -> WorkspaceExperimentBuilder:
-        entity_inputs, input_ports = _with_entity_input_ports(
-            self.input_ports,
-            input_ids,
-        )
-        return replace(self, entity_inputs=entity_inputs, input_ports=input_ports)
-
-    def entity(self, input_id: str) -> WorkspaceExperimentBuilder:
-        return self.entity_inputs_from(input_id)
-
-    def resource(
+    def template(
         self,
         id: str,  # noqa: A002
-        *,
-        requires: ResourceSelector | Sequence[str] = (),
-        for_entities: Sequence[str] = (),
-    ) -> WorkspaceExperimentBuilder:
-        return replace(
-            self,
-            resources=(
-                *self.resources,
-                _resource_port_from_builder_input(
-                    id,
-                    requires=requires,
-                    for_entities=for_entities,
-                ),
-            ),
-        )
-
-    def scan(
-        self,
-        target: str | ScanItem,
-        values: Sequence[object] = (),
-        *,
-        unit: str | None = None,
-        center: ScalarExpr | None = None,
-        span: object | None = None,
-        points: int | None = None,
-    ) -> WorkspaceExperimentBuilder:
-        selected = _workspace_scan_item(
-            target,
-            values,
-            unit=unit,
-            center=center,
-            span=span,
-            points=points,
-        )
-        return replace(
-            self,
-            point_sources=(*self.point_sources, selected.points),
-            scans=(*self.scans, selected),
-        )
-
-    def derive(
-        self, variable_id: str, expression: Expression
-    ) -> WorkspaceExperimentBuilder:
-        return replace(
-            self,
-            variables=(*self.variables, derive(variable_id, expression)),
-        )
-
-    def variable(
-        self,
-        variable_id: str,
-        value: VariableValue | VariableFactory,
-    ) -> WorkspaceExperimentBuilder:
-        return replace(
-            self,
-            variables=(*self.variables, variable(variable_id, value)),
-        )
-
-    def bind(
-        self,
-        port_path: str,
-        value: Expression | ScalarExpr | Quantity | float,
-    ) -> WorkspaceExperimentBuilder:
-        return replace(self, bindings=(*self.bindings, bind(port_path, value)))
-
-    def state_table(
-        self,
-        table_id: str,
-        *,
-        field: str,
-        value_column: str,
-        resource_column: str = "resource_id",
-        resource_port: str | None = None,
-        route_entity_column: str | None = None,
-    ) -> WorkspaceExperimentBuilder:
-        return replace(
-            self,
-            state_intents=(
-                *self.state_intents,
-                _state_table_from_builder_input(
-                    table_id=table_id,
-                    field=field,
-                    value_column=value_column,
-                    resource_column=resource_column,
-                    resource_port=resource_port,
-                    route_entity_column=route_entity_column,
-                ),
-            ),
-        )
-
-    def compute(
-        self,
-        id: str,  # noqa: A002
-        *,
-        fn: ComputeNodeFunction,
-        inputs: Mapping[str, ComputeNodeInputValue] | None = None,
-        route_ports: Sequence[str] = (),
-    ) -> WorkspaceExperimentBuilder:
-        return replace(
-            self,
-            compute_nodes=(
-                *self.compute_nodes,
-                _compute_node_from_builder_input(
-                    id,
-                    fn=fn,
-                    inputs=inputs,
-                    route_ports=route_ports,
-                ),
-            ),
-        )
-
-    def bind_compute(
-        self,
-        port_path: str,
-        node_id: str,
         *,
         kind: str,
-    ) -> WorkspaceExperimentBuilder:
-        return replace(
-            self,
-            bindings=(
-                *self.bindings,
-                bind(port_path, _compute_result_state_value(node_id, kind=kind)),
-            ),
-        )
-
-    def record(
-        self,
-        *record_ids: str,
-        source: RecordSource = "instrument",
-        resource: str | None = None,
-        capability: str | None = None,
-        product_key: str | None = None,
-        unit: str | None = "ratio",
-        dtype: MeasurementDType = "float64",
-        axes: Sequence[RecordAxisIntent] = (),
-        metadata: Mapping[str, Any] | None = None,
-    ) -> WorkspaceExperimentBuilder:
-        records = _record_intents_from_builder_input(
-            record_ids,
-            source=source,
-            resource=resource,
-            capability=capability,
-            product_key=product_key,
-            unit=unit,
-            dtype=dtype,
-            axes=axes,
+        experiment_id: str | None = None,
+        parameter_derivations: ParameterDerivationInput = None,
+        label: str | None = None,
+        description: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> TemplateBuilder:
+        return self.build().template(
+            id,
+            kind=kind,
+            experiment_id=experiment_id,
+            parameter_derivations=parameter_derivations,
+            label=label,
+            description=description,
             metadata=metadata,
         )
-        return replace(self, records=(*self.records, *records))
-
-    def record_product(
-        self,
-        *product_ids: str,
-        record_id: str | None = None,
-        metadata: Mapping[str, Any] | None = None,
-    ) -> WorkspaceExperimentBuilder:
-        if record_id is not None and len(product_ids) != 1:
-            msg = "record_id can only be used with one product"
-            raise ValueError(msg)
-        selections = tuple(
-            ProductSelectionIntent(
-                product_id=product_id,
-                record_id=record_id,
-                metadata=dict(metadata or {}),
-            )
-            for product_id in product_ids
-        )
-        return replace(self, record_selections=(*self.record_selections, *selections))
-
-    def measure(self, *observable_ids: str) -> WorkspaceExperimentBuilder:
-        return self.record(*observable_ids)
 
 
 @dataclass(frozen=True)
@@ -909,7 +597,6 @@ class ExperimentAssembly:
     experiment_id: str | None = None
     kind: str | None = None
     inputs: dict[str, object] = field(default_factory=dict)
-    request: RunRequest | None = None
     input_ports: tuple[ModuleInputPort, ...] = ()
     entity_inputs: tuple[str, ...] = ()
     resource_ports: tuple[ResourcePort, ...] = ()
@@ -924,30 +611,6 @@ class ExperimentAssembly:
     record_selections: tuple[ProductSelectionIntent, ...] = ()
     parameter_derivations: ParameterDerivationSet | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    def with_invocation(
-        self,
-        *,
-        request: RunRequest,
-        inputs: Mapping[str, object],
-        parameter_derivations: ParameterDerivationSet | None,
-    ) -> ExperimentAssembly:
-        merged_inputs = dict(self.inputs)
-        merged_inputs.update(inputs)
-        template_inputs = dict(request.template_inputs)
-        template_inputs.update(materialize_request_inputs(merged_inputs))
-        return replace(
-            self,
-            request=request.model_copy(update={"template_inputs": template_inputs}),
-            inputs=merged_inputs,
-            parameter_derivations=_combined_parameter_derivations(
-                id=f"{_assembly_derivation_id(self, request)}.parameter_derivations",
-                derivations=(
-                    self.parameter_derivations,
-                    parameter_derivations,
-                ),
-            ),
-        )
 
     @classmethod
     def combine(
@@ -1026,50 +689,89 @@ class ModuleInvocation:
 @dataclass(frozen=True)
 class ExperimentModule:
     id: str
+    invocations: tuple[ModuleInvocation, ...] = ()
     input_ports: tuple[ModuleInputPort, ...] = ()
-    entity_inputs: tuple[str, ...] = ()
     resource_ports: tuple[ResourcePort, ...] = ()
     variables: tuple[VariableIntent, ...] = ()
-    point_source: PointSourceInput = None
     bindings: tuple[ExperimentBindingIntent, ...] = ()
     state_intents: tuple[ExperimentStateIntent, ...] = ()
     compute_nodes: tuple[ComputeNodeIntent, ...] = ()
     records: tuple[RecordIntent, ...] = ()
     product_ports: tuple[ModuleProductPort, ...] = ()
-    record_selections: tuple[ProductSelectionIntent, ...] = ()
     parameter_derivations: ParameterDerivationSet | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __call__(self, **inputs: object) -> ModuleInvocation:
         return ModuleInvocation(module=self, inputs=dict(inputs))
 
+    def template(
+        self,
+        id: str,  # noqa: A002
+        *,
+        kind: str,
+        experiment_id: str | None = None,
+        parameter_derivations: ParameterDerivationInput = None,
+        label: str | None = None,
+        description: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> TemplateBuilder:
+        from scopecat.authoring.templates import template_builder_from_module
+
+        return template_builder_from_module(
+            self,
+            id,
+            kind=kind,
+            experiment_id=experiment_id,
+            parameter_derivations=_module_parameter_derivations(
+                id,
+                parameter_derivations,
+            ),
+            label=label,
+            description=description,
+            metadata=metadata,
+        )
+
     def assemble(
         self,
         **inputs: object,
     ) -> ExperimentAssembly:
-        return ExperimentAssembly(
+        own = ExperimentAssembly(
             inputs=dict(inputs),
             input_ports=self.input_ports,
-            entity_inputs=self.entity_inputs,
+            entity_inputs=_entity_input_ids(self.input_ports),
             resource_ports=_merge_resource_ports(self.resource_ports),
             variables=self.variables,
-            point_source=_build_point_source(self.point_source, inputs),
             bindings=self.bindings,
             state_intents=self.state_intents,
             compute_nodes=self.compute_nodes,
             records=self.records,
             product_ports=self.product_ports,
-            record_selections=self.record_selections,
             parameter_derivations=self.parameter_derivations,
             metadata=dict(self.metadata),
         )
+        if not self.invocations:
+            return own
+        source_assemblies = tuple(
+            _localize_module_invocation_assembly(
+                source,
+                inputs,
+                source_index=source_index,
+            )
+            for source_index, source in enumerate(self.invocations)
+        )
+        combined = ExperimentAssembly.combine(
+            experiment_id=self.id,
+            kind=self.id,
+            assemblies=(*source_assemblies, own),
+        )
+        return replace(combined, experiment_id=None, kind=None)
 
 
 def _module_from_parts(
     *,
     id: str,  # noqa: A002
+    invocations: Sequence[ModuleInvocation] = (),
     input_ports: Sequence[ModuleInputPort] = (),
-    entity_inputs: Sequence[str] = (),
     resources: Sequence[ResourcePort] = (),
     variables: Sequence[VariableIntent] = (),
     bindings: Sequence[ExperimentBindingIntent] = (),
@@ -1082,8 +784,8 @@ def _module_from_parts(
 ) -> ExperimentModule:
     return _module(
         id=id,
+        invocations=invocations,
         input_ports=input_ports,
-        entity_inputs=entity_inputs,
         resources=resources,
         variables=variables,
         bindings=bindings,
@@ -1099,33 +801,29 @@ def _module_from_parts(
 def _module(
     *,
     id: str,  # noqa: A002
+    invocations: Sequence[ModuleInvocation] = (),
     input_ports: Sequence[ModuleInputPort] = (),
-    entity_inputs: Sequence[str] = (),
     resources: Sequence[ResourcePort] = (),
     variables: Sequence[VariableIntent] = (),
-    points: PointSourceInput = None,
     bindings: Sequence[ExperimentBindingIntent] = (),
     state_intents: Sequence[ExperimentStateIntent] = (),
     compute_nodes: Sequence[ComputeNodeIntent] = (),
     records: Sequence[RecordIntent] = (),
     product_ports: Sequence[ModuleProductPort] = (),
-    record_selections: Sequence[ProductSelectionIntent] = (),
     parameter_derivations: ParameterDerivationInput = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> ExperimentModule:
     return ExperimentModule(
         id=id,
+        invocations=tuple(invocations),
         input_ports=tuple(input_ports),
-        entity_inputs=tuple(entity_inputs),
         resource_ports=tuple(resources),
         variables=tuple(variables),
-        point_source=points,
         bindings=tuple(bindings),
         state_intents=tuple(state_intents),
         compute_nodes=tuple(compute_nodes),
         records=tuple(records),
         product_ports=tuple(product_ports),
-        record_selections=tuple(record_selections),
         parameter_derivations=_module_parameter_derivations(id, parameter_derivations),
         metadata=dict(metadata or {}),
     )
@@ -1134,7 +832,6 @@ def _module(
 def module(
     id: str | None = None,  # noqa: A002
     *,
-    entity_inputs: Sequence[str] = (),
     parameter_derivations: ParameterDerivationInput = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> ModuleBuilder:
@@ -1145,15 +842,11 @@ def module(
     )
     return ModuleBuilder(
         id=id,
+        invocations=(),
         input_ports=(),
-        entity_inputs=tuple(entity_inputs),
         parameter_derivations=derivation_set,
         metadata=dict(metadata or {}),
     )
-
-
-def workspace_experiment_builder() -> WorkspaceExperimentBuilder:
-    return WorkspaceExperimentBuilder()
 
 
 def _build_module_from_builder(
@@ -1168,10 +861,10 @@ def _build_module_from_builder(
         raise ValueError(msg)
     merged_metadata = dict(builder.metadata)
     merged_metadata.update(dict(metadata or {}))
-    return _module_from_parts(
+    own_module = _module_from_parts(
         id=module_id,
+        invocations=builder.invocations,
         input_ports=builder.input_ports,
-        entity_inputs=builder.entity_inputs,
         resources=builder.resources,
         variables=builder.variables,
         bindings=builder.bindings,
@@ -1182,67 +875,263 @@ def _build_module_from_builder(
         parameter_derivations=builder.parameter_derivations,
         metadata=merged_metadata,
     )
+    return own_module
 
 
-def workspace_experiment_module(
-    builder: WorkspaceExperimentBuilder,
-    id: str,  # noqa: A002
+def _module_use_invocation(
+    module: ExperimentModule | ModuleBuilder | ModuleInvocation,
+) -> ModuleInvocation:
+    if isinstance(module, ModuleInvocation):
+        return module
+    if isinstance(module, ExperimentModule):
+        return module()
+    return module.build()()
+
+
+def _module_invocation_inputs(
+    invocation: ModuleInvocation,
+    parent_inputs: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        input_id: _module_invocation_input_expr(value, parent_inputs)
+        for input_id, value in invocation.inputs.items()
+    }
+
+
+def _localize_module_invocation_assembly(
+    invocation: ModuleInvocation,
+    parent_inputs: Mapping[str, object],
     *,
-    metadata: Mapping[str, Any] | None = None,
-) -> ExperimentModule:
-    merged_metadata = dict(builder.metadata)
-    merged_metadata.update(dict(metadata or {}))
-    return _module(
-        id=id,
-        input_ports=builder.input_ports,
-        entity_inputs=builder.entity_inputs,
-        resources=builder.resources,
-        variables=builder.variables,
-        points=_combined_point_source_input(builder.point_sources),
-        bindings=builder.bindings,
-        state_intents=builder.state_intents,
-        compute_nodes=builder.compute_nodes,
-        records=builder.records,
-        product_ports=builder.product_ports,
-        record_selections=builder.record_selections,
-        metadata=merged_metadata,
+    source_index: int,
+) -> ExperimentAssembly:
+    local_inputs = _module_invocation_inputs(invocation, parent_inputs)
+    assembly = invocation.module.assemble(**local_inputs)
+    if not local_inputs:
+        return assembly
+    resource_ports, hidden_inputs = _localize_resource_port_input_refs(
+        assembly.resource_ports,
+        local_inputs,
+        source_index=source_index,
+    )
+    return replace(
+        assembly,
+        inputs={
+            **hidden_inputs,
+            **{
+                key: value
+                for key, value in assembly.inputs.items()
+                if key not in local_inputs
+            },
+        },
+        input_ports=tuple(
+            port for port in assembly.input_ports if port.id not in local_inputs
+        ),
+        entity_inputs=tuple(
+            input_id
+            for input_id in assembly.entity_inputs
+            if input_id not in local_inputs
+        ),
+        resource_ports=resource_ports,
+        bindings=tuple(
+            _localize_binding_input_refs(binding, local_inputs)
+            for binding in assembly.bindings
+        ),
+        compute_nodes=tuple(
+            _localize_compute_input_refs(node, local_inputs)
+            for node in assembly.compute_nodes
+        ),
+        records=tuple(
+            _localize_record_input_refs(record, local_inputs)
+            for record in assembly.records
+        ),
+        product_ports=tuple(
+            _localize_product_input_refs(product, local_inputs)
+            for product in assembly.product_ports
+        ),
     )
 
 
-def _workspace_scan_item(
-    target: str | ScanItem,
-    values: Sequence[object] = (),
+def _localize_resource_port_input_refs(
+    ports: Sequence[ResourcePort],
+    inputs: Mapping[str, object],
     *,
-    unit: str | None = None,
-    center: ScalarExpr | None = None,
-    span: object | None = None,
-    points: int | None = None,
-) -> ScanItem:
-    if isinstance(target, ScanAxis | ParameterScanAxis | ScanGroup):
-        if (
-            values
-            or unit is not None
-            or center is not None
-            or span is not None
-            or points is not None
-        ):
-            msg = "scan item cannot be combined with scan construction arguments"
+    source_index: int,
+) -> tuple[tuple[ResourcePort, ...], dict[str, object]]:
+    hidden_inputs: dict[str, object] = {}
+    localized_ports: list[ResourcePort] = []
+    for port in ports:
+        entity_inputs: list[str] = []
+        for input_id in port.selector.entity_inputs:
+            value = inputs.get(input_id)
+            if not isinstance(value, ScalarExpr):
+                entity_inputs.append(input_id)
+                continue
+            if value.kind == "column":
+                entity_inputs.append(_required_name(value.name, "column.name"))
+                continue
+            if value.kind == "literal":
+                hidden_id = f"__local_entity_{source_index}_{input_id}"
+                entity_inputs.append(hidden_id)
+                hidden_inputs[hidden_id] = value.value
+                continue
+            msg = (
+                f"module invocation entity input {input_id!r} must bind to a "
+                "literal entity or parent input"
+            )
             raise ValueError(msg)
-        return target
-    if values:
-        if center is not None or span is not None or points is not None:
-            msg = "scan values cannot be combined with center/span/points"
-            raise ValueError(msg)
-        return scan_axis(target, values=values, unit=unit)
-    if span is None or points is None:
-        msg = "scan requires values or span and points"
-        raise ValueError(msg)
-    return scan_axis(
-        target,
-        center=center or param(target),
-        span=_quantity_from_builder_value(span),
-        points=points,
+        localized_ports.append(
+            replace(
+                port,
+                selector=ResourceSelector(
+                    capabilities=port.selector.capabilities,
+                    entity_inputs=tuple(entity_inputs),
+                ),
+            )
+        )
+    return tuple(localized_ports), hidden_inputs
+
+
+def _module_invocation_input_expr(
+    value: object,
+    parent_inputs: Mapping[str, object],
+) -> ScalarExpr:
+    if isinstance(value, ScalarExpr):
+        return _bind_input_refs(value, parent_inputs)
+    if isinstance(value, Expression):
+        return _bind_input_refs(_expr_to_scalar(value), parent_inputs)
+    return _literal(_input_cell(value))
+
+
+def _localize_binding_input_refs(
+    binding: ExperimentBindingIntent,
+    inputs: Mapping[str, object],
+) -> ExperimentBindingIntent:
+    expression = (
+        binding.value
+        if isinstance(binding.value, Expression | ScalarExpr)
+        else Expression.from_value(binding.value)
     )
+    return replace(
+        binding,
+        value=_substitute_input_refs(_expr_to_scalar(expression), inputs),
+    )
+
+
+def _localize_compute_input_refs(
+    node: ComputeNodeIntent,
+    inputs: Mapping[str, object],
+) -> ComputeNodeIntent:
+    return replace(
+        node,
+        inputs=tuple(
+            (
+                name,
+                _localize_compute_input_value(value, inputs),
+            )
+            for name, value in node.inputs
+        ),
+    )
+
+
+def _localize_compute_input_value(
+    value: ComputeNodeInputValue,
+    inputs: Mapping[str, object],
+) -> ComputeNodeInputValue:
+    if isinstance(value, ComputeResultRef | RouteBindingRef):
+        return value
+    if isinstance(value, Expression | ScalarExpr):
+        return _substitute_input_refs(_expr_to_scalar(value), inputs)
+    return value
+
+
+def _localize_record_input_refs(
+    record: RecordIntent,
+    inputs: Mapping[str, object],
+) -> RecordIntent:
+    return replace(
+        record,
+        axes=tuple(
+            _localize_record_axis_input_refs(axis, inputs) for axis in record.axes
+        ),
+    )
+
+
+def _localize_product_input_refs(
+    product: ModuleProductPort,
+    inputs: Mapping[str, object],
+) -> ModuleProductPort:
+    return replace(
+        product,
+        axes=tuple(
+            _localize_record_axis_input_refs(axis, inputs) for axis in product.axes
+        ),
+    )
+
+
+def _localize_record_axis_input_refs(
+    axis: RecordAxisIntent,
+    inputs: Mapping[str, object],
+) -> RecordAxisIntent:
+    if not isinstance(axis.size, Expression | ScalarExpr):
+        return axis
+    return replace(
+        axis,
+        size=_substitute_input_refs(_expr_to_scalar(axis.size), inputs),
+    )
+
+
+def _substitute_input_refs(
+    expression: ScalarExpr,
+    inputs: Mapping[str, object],
+) -> ScalarExpr:
+    if expression.kind == "input":
+        input_name = _required_name(expression.name, "input.name")
+        value = inputs.get(input_name)
+        return value if isinstance(value, ScalarExpr) else expression
+    if expression.kind == "param_lookup":
+        return expression.model_copy(
+            update={
+                "key": {
+                    name: _substitute_input_refs(value, inputs)
+                    for name, value in (expression.key or {}).items()
+                }
+            }
+        )
+    if expression.kind == "binary":
+        return expression.model_copy(
+            update={
+                "left": _substitute_input_refs(
+                    _required_scalar(expression.left, "expression.left"),
+                    inputs,
+                ),
+                "right": _substitute_input_refs(
+                    _required_scalar(expression.right, "expression.right"),
+                    inputs,
+                ),
+            }
+        )
+    if expression.kind == "case":
+        return expression.model_copy(
+            update={
+                "cases": [
+                    branch.model_copy(
+                        update={
+                            "condition": _substitute_input_refs(
+                                branch.condition,
+                                inputs,
+                            ),
+                            "value": _substitute_input_refs(branch.value, inputs),
+                        }
+                    )
+                    for branch in (expression.cases or [])
+                ],
+                "fallback": _substitute_input_refs(
+                    _required_scalar(expression.fallback, "expression.fallback"),
+                    inputs,
+                ),
+            }
+        )
+    return expression
 
 
 def derive(variable_id: str, expression: Expression) -> DerivedVariableIntent:
@@ -1711,7 +1600,12 @@ def _bind_input_refs(
         input_name = _required_name(expression.name, "input.name")
         if input_name not in inputs:
             return col(input_name)
-        return _literal(_input_cell(inputs[input_name]))
+        value = inputs[input_name]
+        if isinstance(value, ScalarExpr):
+            return value
+        if isinstance(value, Expression):
+            return _expr_to_scalar(value)
+        return _literal(_input_cell(value))
     if expression.kind == "param_lookup":
         return expression.model_copy(
             update={
@@ -1770,7 +1664,12 @@ def _bind_input_refs_with_provenance(
         input_name = _required_name(expression.name, "input.name")
         if input_name not in inputs:
             return col(input_name), (input_name,)
-        return _literal(_input_cell(inputs[input_name])), (input_name,)
+        value = inputs[input_name]
+        if isinstance(value, ScalarExpr):
+            return value, (input_name,)
+        if isinstance(value, Expression):
+            return _expr_to_scalar(value), (input_name,)
+        return _literal(_input_cell(value)), (input_name,)
     if expression.kind == "param_lookup":
         bound_keys: dict[str, ScalarExpr] = {}
         param_source_inputs: list[str] = []
@@ -2019,13 +1918,6 @@ def _input_cell(value: object) -> CellValue:
     raise TypeError(msg)
 
 
-def _assembly_derivation_id(
-    assembly: ExperimentAssembly,
-    request: RunRequest,
-) -> str:
-    return assembly.experiment_id or request.template_id or request.id
-
-
 def _module_parameter_derivations(
     module_id: str,
     derivations: ParameterDerivationInput,
@@ -2051,28 +1943,6 @@ def _combined_parameter_derivations(
         selected.append(derivation)
         seen_ids.add(derivation.id)
     return combine_parameter_derivations(id=id, derivations=selected)
-
-
-def _quantity_from_value(value: Quantity | Expression) -> Quantity:
-    if isinstance(value, Quantity):
-        return value
-    if value.kind == "quantity" and value.quantity is not None:
-        return value.quantity
-    msg = "module quantity value must be a Quantity or quantity expression"
-    raise TypeError(msg)
-
-
-def _quantity_from_builder_value(value: object) -> Quantity:
-    if isinstance(value, Quantity):
-        return value
-    if isinstance(value, Expression):
-        return _quantity_from_value(value)
-    if isinstance(value, str):
-        match = QUANTITY_RE.fullmatch(value)
-        if match is not None:
-            return Quantity(value=float(match.group(1)), unit=match.group(2))
-    msg = f"expected quantity value like '100 MHz', got {value!r}"
-    raise TypeError(msg)
 
 
 def _literal(value: CellValue) -> ScalarExpr:

@@ -20,7 +20,6 @@ from scopecat.authoring import (
     record_product,
     route,
     shot_axis,
-    template,
 )
 from scopecat.authoring import (
     param_ref as param,
@@ -171,7 +170,6 @@ __all__ = [
     "set_param",
     "shot_axis",
     "table_param",
-    "template",
     "update_param_rows",
     "var",
     "zip",
