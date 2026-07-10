@@ -9,7 +9,7 @@ Current scope:
 - ConfigRegistry records: entry, index, registration job, config snapshots,
   activation records, active state, and provenance persistence.
 - Importer boundary records: typed `ParameterImportResult` output, source
-  provenance, diagnostics, imported parameter state, and linked artifacts.
+  provenance, diagnostics, imported parameter drafts/snapshots, and linked artifacts.
 - Execution boundary records: execution boundary manifests, including
   plan hashes, result refs, diagnostics, and persisted run artifacts. These
   assertions live with the execution workflow tests because the durable record

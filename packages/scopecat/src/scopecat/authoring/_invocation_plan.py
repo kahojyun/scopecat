@@ -2,20 +2,34 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from scopecat._frozen import freeze_json_mapping
+from scopecat.authoring._frozen_values import (
+    empty_frozen_mapping,
+    freeze_runtime_inputs,
+)
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.experiments import ScanRecord
+from scopecat.models.run_request import ScanRecord
 
 
 @dataclass(frozen=True)
 class InvocationRequestContext:
     id: str
     template_id: str | None
-    template_inputs: dict[str, object] = field(default_factory=dict)
+    template_inputs: Mapping[str, object] = field(default_factory=empty_frozen_mapping)
     scans: tuple[ScanRecord, ...] = ()
-    metadata: dict[str, object] = field(default_factory=dict)
+    metadata: Mapping[str, object] = field(default_factory=empty_frozen_mapping)
     operator: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "template_inputs",
+            freeze_runtime_inputs(self.template_inputs),
+        )
+        object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
 
 
 @dataclass(frozen=True)

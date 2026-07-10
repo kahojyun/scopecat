@@ -4,34 +4,37 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from inspect import Parameter, signature
 from typing import Any, Protocol, cast
 
+from scopecat._compiler.program import ComputeNodeInput, ComputeNodeSpec
+from scopecat._compute_result import ComputeResultRef
 from scopecat._planning.diagnostics import planning_diagnostic
 from scopecat._planning.planner import PlannerPoint, PlannerSnapshot
 from scopecat._planning.records import RecordPlan
 from scopecat._planning.state import StateRecord
-from scopecat.experiments import (
+from scopecat._relations import EvalContext, ParameterRelationData
+from scopecat._runtime.models import (
     CollectInstructionPlan,
-    ComputeNodeContext,
-    ComputeNodeFunction,
-    ComputeNodeSpec,
     PointRouteBinding,
     ProductBinding,
     ProgramResourceState,
     ProgramStateField,
+)
+from scopecat._value_expressions import (
     ScalarValueExpr,
     SeriesValueExpr,
     ValueExpr,
 )
+from scopecat.compute_values import ResolvedRoute
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.config import ConfigProfileSnapshot, RoutingChannelBinding
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
 from scopecat.models.state import PayloadRef, StateValue
-from scopecat.models.value import ComputeResultRef, PayloadValue
-from scopecat.relations import EvalContext, ParameterRelationData
+from scopecat.models.value import PayloadValue
 from scopecat.routing import RoutingError, RoutingView
+from scopecat.value_types import Route
+from scopecat.value_validation import validate_literal
 
 
 def compile_compute_node_payloads(
@@ -97,30 +100,27 @@ def evaluate_compute_nodes_for_point(
                 compute_results=compute_results,
                 route_bindings=point_routes,
             )
+            for input_name, input_value in node_inputs.items():
+                _validate_compute_node_input(
+                    node.inputs[input_name],
+                    input_value,
+                    path=f"compute_nodes.{node.id}.inputs.{input_name}",
+                )
             if node.fn is None:
                 msg = (
                     f"compute node {node.id} has no in-memory function; "
                     "rebuild it from module/template source before execution"
                 )
                 raise ValueError(msg)
-            context = ComputeNodeContext(
-                node_id=node.id,
-                point_index=point.point_index,
-                point_uid=point.point_uid,
-                row=point.row,
-                params=params,
-                inputs=node_inputs,
-                routes=tuple(
-                    route
-                    for route in point_routes
-                    if not node.route_ports or route.port_id in node.route_ports
-                ),
-                payloads=payloads,
-            )
-            result = _call_compute_node_fn(node.fn, context, node_inputs)
+            result = node.fn(**node_inputs)
             if result is None:
                 msg = f"compute node {node.id} returned None"
                 raise ValueError(msg)
+            validate_literal(
+                node.output_type,
+                result,
+                path=f"compute_nodes.{node.id}.output",
+            )
             result_key = (point.point_index, node.id)
             compute_results[result_key] = result
             point_results[result_key] = result
@@ -183,42 +183,19 @@ def _compute_node_inputs(
             ]
             continue
         if input_spec.kind == "route":
-            values[name] = _required_route_binding(
-                route_bindings,
-                _required_name(
-                    input_spec.port_id,
-                    f"compute_nodes.{node.id}.inputs.{name}.port_id",
-                ),
+            values[name] = _public_route(
+                _required_route_binding(
+                    route_bindings,
+                    _required_name(
+                        input_spec.port_id,
+                        f"compute_nodes.{node.id}.inputs.{name}.port_id",
+                    ),
+                )
             )
             continue
         msg = f"unsupported compute node input kind: {input_spec.kind}"
         raise ValueError(msg)
     return values
-
-
-def _call_compute_node_fn(
-    fn: ComputeNodeFunction,
-    context: ComputeNodeContext,
-    inputs: dict[str, object],
-) -> object:
-    if _compute_node_uses_context(fn):
-        return fn(context)
-    return fn(**inputs)
-
-
-def _compute_node_uses_context(fn: ComputeNodeFunction) -> bool:
-    try:
-        parameters = list(signature(fn).parameters.values())
-    except (TypeError, ValueError):
-        return False
-    if len(parameters) != 1:
-        return False
-    parameter = parameters[0]
-    return parameter.name in {"ctx", "context"} and parameter.kind in {
-        Parameter.POSITIONAL_ONLY,
-        Parameter.POSITIONAL_OR_KEYWORD,
-        Parameter.KEYWORD_ONLY,
-    }
 
 
 def _required_route_binding(
@@ -230,6 +207,35 @@ def _required_route_binding(
             return binding
     msg = f"compute node route input references unknown port {port_id!r}"
     raise ValueError(msg)
+
+
+def _public_route(binding: PointRouteBinding) -> ResolvedRoute:
+    return ResolvedRoute(
+        port_id=binding.port_id,
+        resource_id=binding.resource_id,
+        capabilities=tuple(binding.capabilities),
+        entity_ids=tuple(binding.entity_ids),
+        product_axis_order=tuple(binding.product_axis_order),
+    )
+
+
+def _validate_compute_node_input(
+    input_spec: ComputeNodeInput,
+    value: object,
+    *,
+    path: str,
+) -> None:
+    value_type = input_spec.value_type
+    if isinstance(value_type, Route):
+        if not isinstance(value, ResolvedRoute):
+            msg = f"{path} expected a route binding, got {value!r}"
+            raise TypeError(msg)
+        missing = set(value_type.capabilities) - set(value.capabilities)
+        if missing:
+            msg = f"{path} route is missing capabilities: {', '.join(sorted(missing))}"
+            raise TypeError(msg)
+        return
+    validate_literal(value_type, value, path=path)
 
 
 def runtime_product_binding(record: RecordPlan) -> ProductBinding:

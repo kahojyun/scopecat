@@ -8,7 +8,7 @@ from scopecat.candidate_configs import resolve_candidate_config
 from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import resolve_config_registry_config_source
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.parameter_changes import review_parameter_changes
+from scopecat.parameter_changes import review_parameter_change_proposal
 from scopecat.run_comparison import execute_run_comparison
 from tests.support.signal_testkit import (
     execute_best_signal_analysis,
@@ -47,9 +47,9 @@ def run_signal_experiment_with_review(tmp_path: Path) -> str:
     execute_summary_stats_analysis(run_id=run_id, workspace=tmp_path)
     candidate = _candidate_best_signal_analysis(tmp_path, run_id)
     resolved = resolve_candidate_config(candidate, workspace=tmp_path)
-    review_parameter_changes(
+    review_parameter_change_proposal(
         run_id=run_id,
-        selector=resolved.candidate.change_set_ids[0],
+        selector=resolved.candidate.proposal_ids[0],
         workspace=tmp_path,
         state="approved",
         reviewer="operator",
@@ -61,6 +61,13 @@ def run_signal_experiment_with_review(tmp_path: Path) -> str:
 def run_signal_experiment_with_active_candidate(tmp_path: Path) -> str:
     run_id = run_signal_experiment(tmp_path)
     candidate = _candidate_best_signal_analysis(tmp_path, run_id)
+    review_parameter_change_proposal(
+        run_id=run_id,
+        selector=candidate.proposal_ids[0],
+        workspace=tmp_path,
+        state="approved",
+        reviewer="operator",
+    )
     register_and_activate_candidate_config(
         candidate=candidate,
         workspace=tmp_path,
@@ -96,6 +103,13 @@ def config_registry_sourced_signal_run(tmp_path: Path, *, selector: str) -> str:
 def signal_run_with_active_candidate_comparison(tmp_path: Path) -> str:
     baseline_run_id = run_signal_experiment(tmp_path)
     candidate = _candidate_best_signal_analysis(tmp_path, baseline_run_id)
+    review_parameter_change_proposal(
+        run_id=baseline_run_id,
+        selector=candidate.proposal_ids[0],
+        workspace=tmp_path,
+        state="approved",
+        reviewer="operator",
+    )
     register_and_activate_candidate_config(
         candidate=candidate,
         workspace=tmp_path,

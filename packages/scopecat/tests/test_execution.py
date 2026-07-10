@@ -3,19 +3,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scopecat._runtime.evidence import instrument_state_evidence_ref
-from scopecat._runtime.executor import execute_run
-from scopecat.experiments import (
-    ComputeNodeContext,
+from scopecat._compiler.program import (
     ComputeNodeInput,
     ComputeNodeSpec,
-    ExperimentSpec,
-    as_value_expr,
     compute_result,
-    experiment,
+    linked_program,
     observable,
     set_state,
 )
+from scopecat._relations import col, literal_rows
+from scopecat._runtime.evidence import instrument_state_evidence_ref
+from scopecat._runtime.executor import execute_run
+from scopecat._value_expressions import as_value_expr
 from scopecat.instruments import (
     RuntimeEvent,
     RuntimePayloadObservation,
@@ -34,8 +33,8 @@ from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.execution import InstrumentStateEvidence
 from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunManifest
+from scopecat.models.run_plan import RunPlanDeferredValue, RunPlanRecord
 from scopecat.models.state import StateValue
-from scopecat.relations import col, grid
 from scopecat.runs import dataset_storage_ref
 from scopecat.value_types import Payload, Scalar
 from scopecat.value_types import Quantity as QuantityType
@@ -151,13 +150,15 @@ def test_execute_run_persists_measurements_and_run_files(
         run_dir / "config-profile.snapshot.json",
         ConfigProfileSnapshot,
     )
-    persisted_experiment = read_model(run_dir / "experiment-spec.json", ExperimentSpec)
+    persisted_plan = read_model(run_dir / "run-plan.json", RunPlanRecord)
     state_evidence_path = run_dir / instrument_state_evidence_ref()
     state_evidence = read_model(state_evidence_path, InstrumentStateEvidence)
     assert persisted_manifest == manifest
     assert persisted_config == config
-    assert persisted_experiment.id == summary.experiment_id
-    assert persisted_experiment.schema_version == "scopecat.experiment_spec.v7"
+    assert persisted_plan.experiment_id == summary.experiment_id
+    assert persisted_plan.schema_version == "scopecat.run_plan_record.v2"
+    assert persisted_plan.point_count == summary.point_count
+    assert not (run_dir / "experiment-spec.json").exists()
     assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v2"
     assert {
         snapshot.schema_version
@@ -226,18 +227,32 @@ def test_execute_run_emits_transient_runtime_events(tmp_path: Path) -> None:
 
 
 def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
-    calls: list[int] = []
+    calls: list[Quantity] = []
 
-    def build_program(ctx: ComputeNodeContext) -> dict[str, object]:
-        value = ctx.inputs["value"]
-        assert isinstance(value, int)
+    def build_program(*, value: object) -> dict[str, object]:
+        assert isinstance(value, Quantity)
         calls.append(value)
         return {"value": value}
 
-    spec = experiment(
+    spec = linked_program(
         id="cached-compute-run",
         kind="diagnostic",
-        points=grid(value=[1, 1, 2]),
+        points=literal_rows(
+            [
+                {
+                    "sequence_index": 0,
+                    "value": Quantity(value=4.9, unit="GHz"),
+                },
+                {
+                    "sequence_index": 1,
+                    "value": Quantity(value=4.9, unit="GHz"),
+                },
+                {
+                    "sequence_index": 2,
+                    "value": Quantity(value=5.1, unit="GHz"),
+                },
+            ]
+        ),
         state=[
             set_state(
                 "source-0",
@@ -256,6 +271,7 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
                         "value": ComputeNodeInput(
                             kind="value",
                             value=as_value_expr(col("value")),
+                            value_type=Scalar(QuantityType()),
                         )
                     },
                     fn=build_program,
@@ -266,8 +282,9 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
     events: list[RuntimeEvent] = []
     payload_observations: list[RuntimePayloadObservation] = []
 
+    config = load_config()
     manifest, summary = execute_run(
-        config=load_config(),
+        config=config,
         experiment=spec,
         instruments=[SignalInstrumentDriver()],
         workspace=tmp_path,
@@ -279,7 +296,10 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
     state_events = [event for event in events if event.kind == "state_applied"]
 
     assert manifest.status == "completed"
-    assert calls == [1, 2]
+    assert calls == [
+        Quantity(value=4.9, unit="GHz"),
+        Quantity(value=5.1, unit="GHz"),
+    ]
     assert [event.summary["compute_status"] for event in compute_events] == [
         "evaluated",
         "reused",
@@ -299,9 +319,9 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
         ("build-program.payload.point-2", "evaluated"),
     ]
     assert [observation.payload.payload for observation in payload_observations] == [
-        {"value": 1},
-        {"value": 1},
-        {"value": 2},
+        {"value": Quantity(value=4.9, unit="GHz")},
+        {"value": Quantity(value=4.9, unit="GHz")},
+        {"value": Quantity(value=5.1, unit="GHz")},
     ]
     assert payload_observations[0].summary["payload_id"] == (
         "build-program.payload.point-0"
@@ -321,6 +341,21 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
     assert events[-1].summary["compute_evaluated_node_count"] == 2
     assert events[-1].summary["compute_reused_node_count"] == 1
     assert events[-1].summary["compute_payload_count"] == 3
+    persisted_plan = read_model(
+        tmp_path / "runs" / manifest.run_id / "run-plan.json",
+        RunPlanRecord,
+    )
+    assert persisted_plan.state_changes[0].after == RunPlanDeferredValue()
+    persisted_plan_wire = json.loads(
+        (tmp_path / "runs" / manifest.run_id / "run-plan.json").read_text()
+    )
+    assert {
+        "runtime",
+        "compute_steps",
+        "payloads",
+        "state_fields",
+    }.isdisjoint(persisted_plan_wire)
+    assert "build-program" not in json.dumps(persisted_plan_wire)
 
 
 def test_execute_run_skips_unchanged_state_fields(tmp_path: Path) -> None:

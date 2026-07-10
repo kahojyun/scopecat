@@ -1,0 +1,119 @@
+"""Link one composed authoring assembly into a transient compiler program."""
+
+from __future__ import annotations
+
+from scopecat._compiler.program import LinkedProgram
+from scopecat.authoring._assembly_lowering import (
+    coerce_assembly_inputs,
+    input_row,
+    lower_compute_node_intent,
+    lower_parameter_overlay_intent,
+    lower_state_intent,
+    points_relation,
+    state_specs,
+    validate_assembly_conflicts,
+    validate_consumed_inputs,
+    validate_entity_inputs,
+)
+from scopecat.authoring._binding_lowering import (
+    build_route_intents,
+    lower_binding_intent,
+    ports_by_id,
+)
+from scopecat.authoring._context import ExperimentAuthoringContext
+from scopecat.authoring._module_composition import ExperimentAssemblyInternal
+from scopecat.authoring._parameter_contract_validation import (
+    validate_parameter_contracts,
+)
+from scopecat.authoring._record_lowering import (
+    lower_product_selections,
+    lower_records,
+)
+from scopecat.authoring._value_binding import (
+    bind_relation_input_refs,
+    bind_series_input_refs,
+)
+
+
+def link_experiment_assembly_internal(
+    assembly: ExperimentAssemblyInternal,
+    ctx: ExperimentAuthoringContext,
+) -> LinkedProgram:
+    if not assembly.experiment_id:
+        ctx.raise_diagnostic(
+            "experiment_assembly_entrypoint_missing_id",
+            "experiment assembly must be linked with an experiment id",
+            "experiment_id",
+        )
+    if not assembly.kind:
+        ctx.raise_diagnostic(
+            "experiment_assembly_entrypoint_missing_kind",
+            "experiment assembly must be linked with an experiment kind",
+            "kind",
+        )
+    validate_parameter_contracts(ctx, assembly.parameter_contracts)
+    validate_assembly_conflicts(ctx, assembly)
+    inputs = coerce_assembly_inputs(ctx, assembly.input_ports, assembly.inputs)
+    validate_consumed_inputs(ctx, assembly, inputs)
+    validate_entity_inputs(ctx, assembly.entity_inputs, inputs)
+    resource_ports = ports_by_id(ctx, assembly.resource_ports)
+    route_intents = build_route_intents(
+        ctx,
+        assembly.resource_ports,
+        inputs=inputs,
+    )
+    bindings = [
+        lower_binding_intent(binding, ctx, resource_ports)
+        for binding in assembly.bindings
+    ]
+    points = points_relation(
+        ctx,
+        assembly.point_source,
+        inputs=inputs,
+        input_ports=assembly.input_ports,
+        entity_input_ids=assembly.entity_inputs,
+    )
+    records = [
+        *lower_records(
+            ctx,
+            assembly.records,
+            inputs,
+            bind_series_input_refs=bind_series_input_refs,
+            bind_relation_input_refs=bind_relation_input_refs,
+            input_row=input_row,
+        ),
+        *lower_product_selections(
+            ctx,
+            assembly.record_selections,
+            assembly.product_ports,
+            inputs,
+            bind_series_input_refs=bind_series_input_refs,
+            bind_relation_input_refs=bind_relation_input_refs,
+            input_row=input_row,
+        ),
+    ]
+    return LinkedProgram(
+        id=assembly.experiment_id,
+        kind=assembly.kind,
+        points=points,
+        route_intents=route_intents,
+        compute_nodes=[
+            lower_compute_node_intent(node, inputs) for node in assembly.compute_nodes
+        ],
+        parameter_overlays=[
+            lower_parameter_overlay_intent(ctx, intent, inputs)
+            for intent in assembly.parameter_overlays
+        ],
+        state=[
+            *state_specs(bindings, inputs=inputs),
+            *(
+                lower_state_intent(ctx, intent, resource_ports, inputs)
+                for intent in assembly.state_intents
+            ),
+        ],
+        records=records,
+        metadata=dict(assembly.metadata),
+    )
+
+
+__all__ = ["link_experiment_assembly_internal"]

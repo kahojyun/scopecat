@@ -2,13 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat.authoring import ExperimentInvocation
+from scopecat._compiler.program import LinkedProgram
+from scopecat.authoring import (
+    ExperimentInvocation,
+    QuantityType,
+    ScalarType,
+    parameter,
+)
 from scopecat.authoring._invocation_plan import (
     PreparedInvocation,
     prepare_invocation,
 )
+from scopecat.authoring._resolution import resolve_experiment_with_config
 from scopecat.config_profiles import load_config_profile
-from scopecat.experiments import ExperimentSpec
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.data_artifact import (
@@ -21,10 +27,8 @@ from scopecat.models.data_artifact import (
     DataTableSchema,
 )
 from scopecat.models.parameter import Quantity
-from scopecat.relations import param
 from scopecat.runs import artifact_storage_ref, dataset_storage_ref, open_run_store
-from tests.support.authoring import SIMPLE_MODULE
-from tests.support.records import read_model
+from tests.support.authoring import DRIVE_FREQUENCY_POINT, SIMPLE_MODULE
 
 WORKFLOW_FIXTURE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
@@ -33,8 +37,14 @@ def load_config() -> ConfigProfileSnapshot:
     return load_config_profile(WORKFLOW_FIXTURE_DIR / "config-profile.json")
 
 
-def load_experiment() -> ExperimentSpec:
-    return read_model(WORKFLOW_FIXTURE_DIR / "experiment.json", ExperimentSpec)
+def load_experiment() -> LinkedProgram:
+    """Compile the simple-scan DSL fixture into a transient linked program."""
+
+    return resolve_experiment_with_config(
+        load_invocation(),
+        config=load_config(),
+        workspace=WORKFLOW_FIXTURE_DIR,
+    ).experiment
 
 
 def load_invocation() -> ExperimentInvocation:
@@ -42,8 +52,11 @@ def load_invocation() -> ExperimentInvocation:
         SIMPLE_MODULE.template("test.workflow_scan", kind="simple_scan")
         .experiment_id("simple-scan")
         .scan(
-            "drive_frequency",
-            center=param("drive_frequency"),
+            DRIVE_FREQUENCY_POINT,
+            center=parameter(
+                "drive_frequency",
+                ScalarType(QuantityType()),
+            ),
             span=Quantity(value=200.0, unit="MHz"),
             points=3,
         )

@@ -9,6 +9,7 @@ from pydantic import BeforeValidator, PlainSerializer, TypeAdapter
 
 from scopecat.value_types import (
     Bool,
+    Entity,
     Float,
     Int,
     Payload,
@@ -23,6 +24,7 @@ type ScalarWireAtomName = Literal[
     "float",
     "string",
     "quantity",
+    "entity",
     "payload",
 ]
 
@@ -32,6 +34,7 @@ _SCALAR_WIRE_FIELDS: dict[ScalarWireAtomName, frozenset[str]] = {
     "float": frozenset({"minimum", "maximum", "finite"}),
     "string": frozenset({"min_length", "max_length", "pattern", "choices"}),
     "quantity": frozenset({"dimension", "unit", "minimum", "maximum", "finite"}),
+    "entity": frozenset({"entity_kind"}),
     "payload": frozenset({"schema_id"}),
 }
 
@@ -99,6 +102,11 @@ def scalar_type_wire_schema(
                 "maximum": ("unit",),
             },
         ),
+        "entity": _scalar_wire_variant(
+            "entity",
+            {"entity_kind": {"type": "string", "minLength": 1}},
+            nullable_schema=nullable_schema,
+        ),
         "payload": _scalar_wire_variant(
             "payload",
             {"schema_id": {"type": "string", "minLength": 1}},
@@ -155,6 +163,8 @@ def scalar_type_from_wire(value: object) -> Scalar:
             atom = TypeAdapter(String).validate_python(data)
         elif atom_name == "quantity":
             atom = TypeAdapter(Quantity).validate_python(data)
+        elif atom_name == "entity":
+            atom = TypeAdapter(Entity).validate_python(data)
         elif atom_name == "payload":
             atom = TypeAdapter(Payload).validate_python(data)
         else:  # Covered by the allowed-fields lookup above.
@@ -209,6 +219,10 @@ def scalar_type_to_wire(value: Scalar) -> dict[str, object]:
             data["maximum"] = atom.maximum
         if not atom.finite:
             data["finite"] = False
+    elif isinstance(atom, Entity):
+        data = {"type": "entity"}
+        if atom.entity_kind is not None:
+            data["entity_kind"] = atom.entity_kind
     elif isinstance(atom, Payload):
         if atom.python_type is not None:
             msg = (
@@ -249,6 +263,8 @@ def _validate_wire_field_types(
     elif atom_name == "quantity":
         number_fields = ("minimum", "maximum")
         string_fields = ("dimension", "unit")
+    elif atom_name == "entity":
+        string_fields = ("entity_kind",)
     elif atom_name == "payload":
         string_fields = ("schema_id",)
 
@@ -299,6 +315,8 @@ def _validate_scalar_type_declaration(value: Scalar) -> None:
         _require_optional_number(atom.minimum, label="Quantity minimum")
         _require_optional_number(atom.maximum, label="Quantity maximum")
         _require_bool(atom.finite, label="Quantity finite")
+    elif isinstance(atom, Entity):
+        _require_optional_string(atom.entity_kind, label="Entity entity_kind")
     elif isinstance(atom, Payload):
         _require_string(atom.schema_id, label="Payload schema_id")
     else:

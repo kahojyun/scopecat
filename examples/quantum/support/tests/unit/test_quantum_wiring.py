@@ -7,7 +7,8 @@ import pytest
 import scopecat as sc
 from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 from scopecat._runtime.executor import execute_run
-from scopecat.authoring import resolve_experiment
+from scopecat.authoring._module_composition import assemble_invocation_internal
+from scopecat.authoring._resolution import resolve_experiment
 from scopecat.config_profiles import load_config_profile
 from scopecat.instruments import (
     CollectCommand,
@@ -212,21 +213,19 @@ def test_workspace_system_summary_describes_default_quantum_wiring(tmp_path) -> 
 
 def test_modules_leave_resource_selection_to_routing() -> None:
     modules = [
-        RABI_MODULE(qubit="q0", drive_length=20),
-        READOUT_MODULE(qubit="q0", readout_frequency=6.6),
+        RABI_MODULE(qubit="q0"),
+        READOUT_MODULE(qubit="q0"),
         FLUX_BACKGROUND_MODULE(coupler="coupler-q0-q1", flux_bias=0.02),
         CZ_CHEVRON_MODULE(
             control_qubit="q0",
             partner_qubit="q1",
             coupler="coupler-q0-q1",
-            coupler_duration=24,
-            coupler_amplitude=0.18,
         ),
         MULTIPLEXED_READOUT_MODULE(qubits=["q0", "q1"]),
     ]
 
     for module in modules:
-        assembly = module.assemble()
+        assembly = assemble_invocation_internal(module)
 
         assert assembly.resource_ports
         assert all(not hasattr(port, "resource_id") for port in assembly.resource_ports)
@@ -280,8 +279,7 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
     manifest, _snapshot = execute_run(
         config=config,
         experiment=resolved.experiment,
-        parameter_view=resolved.parameter_view,
-        parameter_derivations=resolved.parameter_derivations,
+        parameters=resolved.parameters,
         instruments=cast("list[InstrumentDriver]", drivers),
         workspace=tmp_path,
     )

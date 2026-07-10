@@ -22,7 +22,7 @@ completed_run = (
         tags=("notebook", "calibration"),
     )
 )
-analysis = completed_run.analyze(ReadoutFrequencyAnalysisStep())
+analysis = completed_run.analyze(ReadoutFrequencyAnalysisStep(qubit="q0"))
 saved_analysis = analysis.save()
 
 # %%
@@ -30,11 +30,11 @@ candidate = analysis.candidate_config()
 overview = completed_run.overview()
 
 # %%
-patch = candidate.parameter_changes[0].patches[0]
+delta = candidate.parameter_proposals[0].deltas[0]
 summary = {
     "run": completed_run.id,
     "analysis": saved_analysis.record.id,
     "run_artifacts": len(completed_run.artifacts),
-    "candidate_parameter_change": patch.parameter_id,
+    "candidate_parameter_change": delta.parameter_id,
 }
 print(summary)

@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat._workflows.runs import preview_experiment, start_run
+from scopecat.authoring import QuantityType, ScalarType, parameter
 from scopecat.authoring._invocation_plan import prepare_invocation
 from scopecat.models.parameter import Quantity
-from scopecat.relations import param
-from tests.support.authoring import SIMPLE_MODULE
+from tests.support.authoring import DRIVE_FREQUENCY_POINT, SIMPLE_MODULE
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import load_config, load_prepared_invocation
 
@@ -41,8 +41,11 @@ def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> Non
         SIMPLE_MODULE.template("test.workflow_request_scan", kind="simple_scan")
         .experiment_id("authored-simple-scan")
         .scan(
-            "drive_frequency",
-            center=param("drive_frequency"),
+            DRIVE_FREQUENCY_POINT,
+            center=parameter(
+                "drive_frequency",
+                ScalarType(QuantityType()),
+            ),
             span=Quantity(value=200.0, unit="MHz"),
             points=5,
         )

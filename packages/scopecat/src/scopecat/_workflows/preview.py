@@ -5,22 +5,32 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from scopecat._compiler.program import LinkedProgram
+from scopecat._compute_result import ComputeResultRef
 from scopecat._planning.compute_dependencies import (
     ComputeDependencySummary,
     summarize_compute_dependencies,
 )
 from scopecat._planning.compute_payloads import resolve_compute_payload_schemas
 from scopecat._planning.planner import PlannerSnapshot, build_planner_snapshot
-from scopecat._runtime.graph import RuntimeGraph, build_runtime_graph_for_experiment
-from scopecat._runtime.lowering import (
-    compute_result_payload_id,
-)
+from scopecat._relations import ParameterRelationData
+from scopecat._runtime.graph import RuntimeGraph, build_runtime_graph
+from scopecat._runtime.lowering import compute_result_payload_id
+from scopecat._runtime.models import PointRouteBinding
 from scopecat.diagnostics import Diagnostic
-from scopecat.experiments import ExperimentSpec, PointRouteBinding
 from scopecat.models.config import ConfigProfileSnapshot, RoutingChannelBinding
-from scopecat.models.parameter import ParameterViewSnapshot
-from scopecat.models.value import ComputeResultRef
-from scopecat.parameters import ParameterDerivationSet
+from scopecat.models.run_plan import (
+    RunPlanChannelBinding,
+    RunPlanDeferredValue,
+    RunPlanOutput,
+    RunPlanPayloadValue,
+    RunPlanPoint,
+    RunPlanRecord,
+    RunPlanResolvedRoute,
+    RunPlanRoute,
+    RunPlanStateChange,
+)
+from scopecat.models.value import PayloadValue
 from scopecat.preview import (
     ExperimentPreview,
     ExperimentPreviewChannelBinding,
@@ -96,31 +106,20 @@ class _PreviewSnapshot:
 
 
 def build_experiment_preview(
-    experiment: ExperimentSpec,
-    parameter_view: ParameterViewSnapshot,
+    experiment: LinkedProgram,
+    parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
-    derivations: ParameterDerivationSet | None = None,
 ) -> tuple[ExperimentPreview, tuple[Diagnostic, ...]]:
     plan = build_planner_snapshot(
         experiment,
-        parameter_view,
-        derivations=derivations,
+        parameters,
     )
     payload_resolution = resolve_compute_payload_schemas(
         plan.desired_state,
         plan.compute_nodes,
     )
-    graph = (
-        build_runtime_graph_for_experiment(
-            experiment,
-            parameter_view,
-            config=config,
-            derivations=derivations,
-        )
-        if config is not None
-        else None
-    )
+    graph = build_runtime_graph(plan, config=config) if config is not None else None
     if graph is None:
         diagnostics = (*plan.diagnostics, *payload_resolution.diagnostics)
     else:
@@ -132,6 +131,25 @@ def build_experiment_preview(
             payload_schemas=payload_resolution.schema_ids,
         )
     ), tuple(Diagnostic.model_validate(diagnostic) for diagnostic in diagnostics)
+
+
+def build_run_plan_record(
+    plan: PlannerSnapshot,
+    *,
+    graph: RuntimeGraph,
+) -> RunPlanRecord:
+    """Project one accepted transient plan into its durable user-visible record."""
+
+    payload_resolution = resolve_compute_payload_schemas(
+        plan.desired_state,
+        plan.compute_nodes,
+    )
+    snapshot = _snapshot_from_lowering(
+        plan,
+        graph=graph,
+        payload_schemas=payload_resolution.schema_ids,
+    )
+    return _run_plan_record_from_snapshot(snapshot)
 
 
 def _snapshot_from_lowering(
@@ -189,8 +207,8 @@ def _snapshot_from_lowering(
                 point_index=change.point_index,
                 resource=change.resource,
                 field=change.field,
-                before=change.before,
-                after=change.after,
+                before=_project_run_plan_value(change.before),
+                after=_project_run_plan_value(change.after),
             )
             for change in plan.state_patches
         ),
@@ -300,6 +318,107 @@ def _preview_from_snapshot(
         ),
         dataset_dimensions=snapshot.dataset_dimensions,
         primary_observables=snapshot.primary_observables,
+    )
+
+
+def _run_plan_record_from_snapshot(snapshot: _PreviewSnapshot) -> RunPlanRecord:
+    """Project an internal lowering summary directly into durable plan evidence."""
+
+    return RunPlanRecord(
+        experiment_id=snapshot.experiment_id,
+        experiment_kind=snapshot.experiment_kind,
+        point_count=len(snapshot.points),
+        expected_dataset_schema=snapshot.schema,
+        coordinate_ids=list(snapshot.coordinate_ids),
+        points=[
+            RunPlanPoint.model_validate(
+                {
+                    "point_index": point.point_index,
+                    "point_uid": point.point_uid,
+                    "coordinates": {
+                        coordinate_id: point.row[coordinate_id]
+                        for coordinate_id in snapshot.coordinate_ids
+                        if coordinate_id in point.row
+                    },
+                }
+            )
+            for point in snapshot.points
+        ],
+        records=[
+            RunPlanOutput(
+                id=record.id,
+                kind=record.kind,
+                source=record.source,
+                resource=record.resource,
+                capability=record.capability,
+                unit=record.unit,
+                dtype=record.dtype,
+                dims=list(record.dims),
+                shape=list(record.shape),
+            )
+            for record in snapshot.records
+        ],
+        state_changes=[
+            RunPlanStateChange.model_validate(
+                {
+                    "point_index": change.point_index,
+                    "resource": change.resource,
+                    "field": change.field,
+                    "before": change.before,
+                    "after": change.after,
+                }
+            )
+            for change in snapshot.state_changes
+        ],
+        routes=[
+            RunPlanRoute(
+                port_id=route.port_id,
+                capabilities=list(route.capabilities),
+                entity_expr_count=route.entity_expr_count,
+                fixed_resource=route.fixed_resource,
+                resolved=[
+                    RunPlanResolvedRoute(
+                        point_index=resolved.point_index,
+                        port_id=resolved.port_id,
+                        resource_id=resolved.resource_id,
+                        entity_ids=list(resolved.entity_ids),
+                        product_axis_order=list(resolved.product_axis_order),
+                        channel_bindings=[
+                            _run_plan_channel_binding(binding)
+                            for binding in resolved.channel_bindings
+                        ],
+                    )
+                    for resolved in snapshot.resolved_routes_by_port.get(
+                        route.port_id, ()
+                    )
+                ],
+            )
+            for route in snapshot.route_intents
+        ],
+        dataset_dimensions=dict(snapshot.dataset_dimensions),
+        primary_observables=list(snapshot.primary_observables),
+    )
+
+
+def _project_run_plan_value(value: object) -> object:
+    """Project transient runtime values into durable plan descriptors."""
+
+    if isinstance(value, ComputeResultRef):
+        return RunPlanDeferredValue()
+    if isinstance(value, PayloadValue):
+        return RunPlanPayloadValue(schema_id=value.schema_id)
+    return value
+
+
+def _run_plan_channel_binding(
+    binding: ExperimentPreviewChannelBinding,
+) -> RunPlanChannelBinding:
+    return RunPlanChannelBinding(
+        entity_id=binding.entity_id,
+        channel_id=binding.channel_id,
+        line_id=binding.line_id,
+        capability=binding.capability,
+        group_ids=list(binding.group_ids),
     )
 
 
@@ -505,4 +624,7 @@ def _preview_dependency_map(
     return {key: tuple(value) for key, value in summary.as_dict().items()}
 
 
-__all__ = ["build_experiment_preview"]
+__all__ = [
+    "build_experiment_preview",
+    "build_run_plan_record",
+]

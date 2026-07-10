@@ -16,9 +16,12 @@ from scopecat.config_registry import (
     ConfigRegistryActiveState,
     ConfigRegistryEntry,
     activate_config_registry_entry,
-    register_candidate_config,
+    current_config_registry_generation,
     resolve_config_registry_config_source,
     rollback_config_registry,
+)
+from scopecat.config_registry import (
+    register_and_activate_candidate_config as registry_register_and_activate_candidate,
 )
 from scopecat.config_registry import (
     register_and_activate_config_profile as registry_register_and_activate_config,
@@ -151,6 +154,7 @@ def register_and_activate_config_profile(
     operator: str,
     note: str = "",
     activation_note: str | None = None,
+    expected_generation: int | None = None,
 ) -> RegisteredConfigActivation:
     entry, active_state, activation = registry_register_and_activate_config(
         config=config,
@@ -160,6 +164,7 @@ def register_and_activate_config_profile(
         operator=operator,
         note=note,
         activation_note=activation_note,
+        expected_generation=expected_generation,
     )
     return RegisteredConfigActivation(
         entry=entry,
@@ -177,27 +182,31 @@ def register_and_activate_candidate_config(
     operator: str,
     note: str = "",
     activation_note: str | None = None,
+    expected_generation: int | None = None,
 ) -> RegisteredConfigActivation:
+    selected_generation = (
+        current_config_registry_generation(workspace=workspace)
+        if expected_generation is None
+        else expected_generation
+    )
     candidate_config = resolve_candidate_config(candidate, workspace=workspace)
     selected_entry_id = entry_id or (
         f"{candidate_config.candidate_config_record_id}-"
         f"{candidate_config.candidate.source_run_id}"
     )
-    entry = register_candidate_config(
+    entry, active_state, activation = registry_register_and_activate_candidate(
         config=candidate_config.config,
         workspace=workspace,
         entry_id=selected_entry_id,
         registered_by=registered_by,
         run_id=candidate_config.candidate.source_run_id,
-        change_set_ids=candidate_config.candidate.change_set_ids,
+        proposal_ids=candidate_config.candidate.proposal_ids,
         candidate_record_id=candidate_config.candidate_config_record_id,
-        note=note,
-    )
-    active_state, activation = activate_config_registry_entry(
-        entry_id=entry.id,
-        workspace=workspace,
+        base_config_content_hash=candidate_config.candidate.base_config_content_hash,
         operator=operator,
-        note=note if activation_note is None else activation_note,
+        expected_generation=selected_generation,
+        note=note,
+        activation_note=activation_note,
     )
     return RegisteredConfigActivation(
         entry=entry,
@@ -212,12 +221,19 @@ def activate_config_entry(
     workspace: str | Path,
     operator: str,
     note: str = "",
+    expected_generation: int | None = None,
 ) -> ConfigActivation:
+    selected_generation = (
+        current_config_registry_generation(workspace=workspace)
+        if expected_generation is None
+        else expected_generation
+    )
     active_state, activation = activate_config_registry_entry(
         entry_id=entry_id,
         workspace=workspace,
         operator=operator,
         note=note,
+        expected_generation=selected_generation,
     )
     return ConfigActivation(
         active_state=active_state,
@@ -230,11 +246,18 @@ def rollback_config(
     workspace: str | Path,
     operator: str,
     note: str = "",
+    expected_generation: int | None = None,
 ) -> ConfigActivation:
+    selected_generation = (
+        current_config_registry_generation(workspace=workspace)
+        if expected_generation is None
+        else expected_generation
+    )
     active_state, activation = rollback_config_registry(
         workspace=workspace,
         operator=operator,
         note=note,
+        expected_generation=selected_generation,
     )
     return ConfigActivation(
         active_state=active_state,

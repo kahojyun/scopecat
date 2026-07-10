@@ -26,6 +26,7 @@ def test_build_run_overview_for_signal_run_does_not_update_manifest(
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
+    assert overview.schema_version == "scopecat.run_overview.v3"
     assert overview.config_source is None
     assert overview.execution is not None
     assert overview.execution.status == "completed"
@@ -50,7 +51,7 @@ def test_build_run_overview_for_signal_run_does_not_update_manifest(
         ("drive_frequency", "coordinate"),
         ("signal", "observable"),
     ]
-    assert overview.parameter_changes == []
+    assert overview.parameter_change_proposals == []
     assert overview.run_comparisons == []
     assert open_run_store(tmp_path).read_manifest(run_id).status == "completed"
 
@@ -67,13 +68,13 @@ def test_build_run_overview_for_full_local_workflow(
         (
             analysis.id,
             analysis.output_kinds,
-            analysis.parameter_change_count,
+            analysis.parameter_change_proposal_count,
         )
         for analysis in overview.analysis_records
     ] == [
         (
             "analysis-best-signal-analysis",
-            ["artifact", "artifact", "parameter_change"],
+            ["artifact", "artifact", "parameter_change_proposal"],
             1,
         ),
         ("analysis-summary-stats", ["artifact", "artifact"], 0),
@@ -108,13 +109,13 @@ def test_build_run_overview_for_full_local_workflow(
             "summary",
         ),
     ]
-    assert len(overview.parameter_changes) == 1
-    change = overview.parameter_changes[0]
-    assert change.patches[0].kind == "set_scalar"
-    assert change.patches[0].parameter_id == "drive_frequency"
-    assert change.decision_info.status == "reviewed"
-    assert change.decision_info.decision == "approved"
-    assert change.decision_info.actor == "operator"
+    assert len(overview.parameter_change_proposals) == 1
+    proposal = overview.parameter_change_proposals[0]
+    assert proposal.deltas[0].parameter_id == "drive_frequency"
+    assert proposal.decision_info.status == "reviewed"
+    assert proposal.decision_info.decision == "approved"
+    assert proposal.decision_info.actor == "operator"
+    assert [event.decision for event in proposal.decision_info.history] == ["approved"]
     assert overview.run_comparisons == []
 
 
@@ -137,7 +138,10 @@ def test_build_run_overview_includes_manual_analysis_records(
         .input("raw-measurements", expected_kind="measurement_dataset")
         .propose(
             "drive_frequency",
-            sc.set_param("drive_frequency", sc.Quantity(5.0, "GHz")),
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.1, "GHz"),
+            ),
         )
         .save()
     )
@@ -147,7 +151,7 @@ def test_build_run_overview_includes_manual_analysis_records(
         (
             analysis.id,
             analysis.output_kinds,
-            analysis.parameter_change_count,
+            analysis.parameter_change_proposal_count,
             analysis.input_ids,
             analysis.output_ids,
         )
@@ -155,12 +159,17 @@ def test_build_run_overview_includes_manual_analysis_records(
     ] == [
         (
             "analysis-report-review",
-            ["note", "parameter_change"],
+            ["note", "parameter_change_proposal"],
             1,
             ["dataset:raw-measurements"],
             [],
         )
     ]
+    assert len(overview.parameter_change_proposals) == 1
+    proposal = overview.parameter_change_proposals[0]
+    assert proposal.id == "drive_frequency"
+    assert proposal.decision_info.status == "not_reviewed"
+    assert proposal.decision_info.history == []
 
 
 def test_build_run_overview_includes_activation_generated_candidate_config_record(
@@ -189,7 +198,7 @@ def test_build_run_overview_marks_missing_optional_sections(
 
     assert overview.config_source is None
     assert len(overview.analysis_records) == 1
-    assert overview.parameter_changes == []
+    assert overview.parameter_change_proposals == []
 
 
 def test_build_run_overview_includes_literal_config_registry_config_source(

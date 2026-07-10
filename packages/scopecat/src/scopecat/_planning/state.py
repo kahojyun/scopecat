@@ -5,17 +5,9 @@ from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from scopecat._compute_result import ComputeResultRef
 from scopecat._planning.diagnostics import planning_diagnostic
-from scopecat._value_expressions import (
-    ScalarOrSeriesValueExpr,
-    ScalarValueExpr,
-    SeriesValueExpr,
-    TableValueExpr,
-    as_scalar_or_series_value_expr,
-)
-from scopecat.models.entity import EntityRef
-from scopecat.models.value import ComputeResultRef
-from scopecat.relations import (
+from scopecat._relations import (
     CellValue,
     EvalContext,
     RelationExpr,
@@ -24,6 +16,14 @@ from scopecat.relations import (
     as_scalar_expr,
     values,
 )
+from scopecat._value_expressions import (
+    ScalarOrSeriesValueExpr,
+    ScalarValueExpr,
+    SeriesValueExpr,
+    TableValueExpr,
+    as_scalar_or_series_value_expr,
+)
+from scopecat.models.entity import EntityRef
 
 type StateSpecKind = Literal["set", "for_each"]
 type RouteEntityValue = str | EntityRef
@@ -37,7 +37,7 @@ type EvaluatedStateValue = Annotated[
 
 
 class StateSpec(BaseModel):
-    """Desired-state binding evaluated after point-local parameter patches."""
+    """Desired-state binding evaluated after point-local parameter overlays."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
@@ -68,9 +68,6 @@ class StateSpec(BaseModel):
         if self.kind == "set":
             if self.resource is None or self.field is None or self.value is None:
                 msg = "set state requires resource, field, and value"
-                raise ValueError(msg)
-            if _is_legacy_compute_payload_literal(self.value):
-                msg = "compute state values must use a typed ComputeResultRef"
                 raise ValueError(msg)
             self._reject("relation", "state")
         elif self.kind == "for_each":
@@ -257,13 +254,6 @@ def _is_present(value: object) -> bool:
     return not (isinstance(value, list) and not value)
 
 
-def _is_legacy_compute_payload_literal(value: StateValueExpr) -> bool:
-    if not isinstance(value, ScalarExpr) or value.kind != "literal":
-        return False
-    literal = value.value
-    return isinstance(literal, dict) and literal.get("kind") == "compute_result"
-
-
 def _route_entity_key(values: list[RouteEntityValue]) -> tuple[str, ...]:
     return tuple(
         value.id if isinstance(value, EntityRef) else value for value in values
@@ -273,7 +263,6 @@ def _route_entity_key(values: list[RouteEntityValue]) -> tuple[str, ...]:
 StateSpec.model_rebuild()
 
 __all__ = [
-    "ComputeResultRef",
     "EvaluatedStateValue",
     "StatePatchRecord",
     "StateRecord",

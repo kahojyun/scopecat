@@ -5,12 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat.models.parameter import ParameterPatch, Quantity
+from scopecat.models.config import ConfigContentHash
+from scopecat.models.parameter import Quantity
+from scopecat.models.parameter_change import ParameterValueDelta
 from scopecat.models.run import RunConfigSource, utc_now
 
 ReviewStatus = Literal["reviewed", "not_reviewed"]
+ParameterChangeDecision = Literal["approved", "rejected", "invalidated"]
 
 
 class RunHeader(BaseModel):
@@ -83,29 +86,75 @@ class AnalysisRecordEntry(BaseModel):
     id: str
     title: str
     output_kinds: list[str]
-    parameter_change_count: int
+    parameter_change_proposal_count: int
     input_ids: list[str] = Field(default_factory=list)
     output_ids: list[str] = Field(default_factory=list)
+
+
+class ParameterChangeDecisionEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    decision: ParameterChangeDecision
+    actor: str
+    note: str = ""
+    related_refs: list[str] = Field(default_factory=list)
+    decided_at: datetime
 
 
 class ParameterChangeDecisionInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: ReviewStatus
-    decision: str | None = None
+    decision: ParameterChangeDecision | None = None
     actor: str | None = None
     note: str | None = None
     decided_at: datetime | None = None
+    history: list[ParameterChangeDecisionEvent] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_latest_event(self) -> ParameterChangeDecisionInfo:
+        if not self.history:
+            if self.status != "not_reviewed" or any(
+                value is not None
+                for value in (
+                    self.decision,
+                    self.actor,
+                    self.note,
+                    self.decided_at,
+                )
+            ):
+                msg = "unreviewed parameter proposal must not expose a decision"
+                raise ValueError(msg)
+            return self
+        latest = self.history[-1]
+        if self.status != "reviewed" or (
+            self.decision,
+            self.actor,
+            self.note,
+            self.decided_at,
+        ) != (
+            latest.decision,
+            latest.actor,
+            latest.note,
+            latest.decided_at,
+        ):
+            msg = "parameter proposal decision summary must match its latest event"
+            raise ValueError(msg)
+        return self
 
 
-class ParameterChangeEntry(BaseModel):
+class ParameterChangeProposalEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
     source_run_id: str
+    base_config_id: str
+    base_config_content_hash: ConfigContentHash
     reason: str
     confidence: float | None = None
-    patches: list[ParameterPatch]
+    candidate_snapshot_id: str
+    deltas: list[ParameterValueDelta]
     decision_info: ParameterChangeDecisionInfo
 
 
@@ -138,7 +187,7 @@ class RunComparisonEntry(BaseModel):
 class RunOverview(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.run_overview.v2"
+    schema_version: Literal["scopecat.run_overview.v3"] = "scopecat.run_overview.v3"
     run_id: str
     generated_at: datetime = Field(default_factory=utc_now)
     run: RunHeader
@@ -146,5 +195,7 @@ class RunOverview(BaseModel):
     execution: ExecutionOverviewEntry | None = None
     datasets: list[DatasetOverviewEntry] = Field(default_factory=list)
     analysis_records: list[AnalysisRecordEntry] = Field(default_factory=list)
-    parameter_changes: list[ParameterChangeEntry] = Field(default_factory=list)
+    parameter_change_proposals: list[ParameterChangeProposalEntry] = Field(
+        default_factory=list
+    )
     run_comparisons: list[RunComparisonEntry] = Field(default_factory=list)

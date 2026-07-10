@@ -11,41 +11,51 @@ from quantum_lab_demo.experiments.ids import (
     TWO_QUBIT_GATE_PARAMETER_TABLE,
 )
 
+_COUPLER = sc.ScalarType(sc.EntityType(entity_kind="logical_coupler"))
+_COUPLER_SERIES = sc.SeriesType(_COUPLER)
+_QUANTITY = sc.ScalarType(sc.QuantityType())
+_SYSTEM_COUPLER_PARAMETERS = sc.parameter(
+    TWO_QUBIT_GATE_PARAMETER_TABLE,
+    sc.TableType(
+        columns=(
+            sc.TableColumn("coupler", _COUPLER),
+            sc.TableColumn("coupler_parking_flux", _QUANTITY),
+        ),
+        allow_extra_columns=True,
+    ),
+)
+
+_FLUX_COUPLER = sc.input("coupler", _COUPLER)
+_FLUX_BIAS = sc.input("flux_bias", _QUANTITY)
 FLUX_BACKGROUND_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.background.flux",
         metadata={"template_id": FLUX_BACKGROUND_RABI_TEMPLATE_ID},
     )
-    .input("coupler", value_type=sc.ScalarType(sc.EntityType()))
-    .input("flux_bias", value_type=sc.ScalarType(sc.QuantityType()))
+    .inputs(_FLUX_COUPLER, _FLUX_BIAS)
     .resource(
         "coupler_bias",
         requires=("set_flux_bias",),
-        for_entities=("coupler",),
+        for_entities=(_FLUX_COUPLER,),
     )
-    .bind("coupler_bias.set_flux_bias.offset", sc.input("flux_bias"))
+    .bind("coupler_bias.set_flux_bias.offset", _FLUX_BIAS)
     .build()
 )
 
+_BACKGROUND_COUPLERS = sc.input("background_couplers", _COUPLER_SERIES)
+_SPECTATOR_FLUX_BIAS = sc.input("spectator_flux_bias", _QUANTITY)
 SPECTATOR_FLUX_BACKGROUND_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.background.spectator_flux",
         metadata={"template_id": SPECTATOR_CZ_TEMPLATE_ID},
     )
-    .input(
-        "background_couplers",
-        value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())),
-    )
-    .input(
-        "spectator_flux_bias",
-        value_type=sc.ScalarType(sc.QuantityType()),
-    )
+    .inputs(_BACKGROUND_COUPLERS, _SPECTATOR_FLUX_BIAS)
     .resource(
         "spectator_bias",
         requires=("set_flux_bias",),
-        for_entities=("background_couplers",),
+        for_entities=(_BACKGROUND_COUPLERS,),
     )
-    .bind("spectator_bias.set_flux_bias.offset", sc.input("spectator_flux_bias"))
+    .bind("spectator_bias.set_flux_bias.offset", _SPECTATOR_FLUX_BIAS)
     .build()
 )
 
@@ -59,11 +69,11 @@ SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE = (
         requires=("set_flux_bias",),
     )
     .state_each(
-        sc.parameter_table(TWO_QUBIT_GATE_PARAMETER_TABLE),
+        _SYSTEM_COUPLER_PARAMETERS,
         resource_port="coupler_bias",
         field="set_flux_bias.offset",
-        value=sc.col("coupler_parking_flux"),
-        route_entities=(sc.col("coupler"),),
+        value=lambda row: row["coupler_parking_flux"],
+        route_entities=(lambda row: row["coupler"],),
     )
     .build()
 )

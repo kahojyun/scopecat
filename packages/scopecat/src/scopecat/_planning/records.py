@@ -6,9 +6,9 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat._planning.diagnostics import planning_diagnostic
+from scopecat._relations import CellValue, Row
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
-from scopecat.relations import CellValue, Row
 from scopecat.results import (
     MeasurementDatasetSchema,
     MeasurementDimension,

@@ -9,37 +9,49 @@ from quantum_lab_demo.experiments.ids import (
     TWO_QUBIT_GATE_PARAMETER_TABLE,
 )
 
+_QUANTITY = sc.ScalarType(sc.QuantityType())
 
-def qubit_param(column: str, *, input_id: str = "qubit"):
-    return sc.table_param(
+
+def qubit_param(column: str, qubit: sc.ValueRef) -> sc.ValueRef:
+    return sc.parameter_lookup(
         QUBIT_PARAMETER_TABLE,
-        key={"qubit": sc.input(input_id)},
+        key={"qubit": qubit},
         column=column,
+        value_type=_QUANTITY,
     )
 
 
-def two_qubit_gate_param(column: str):
+def two_qubit_gate_param(
+    column: str,
+    *,
+    control_qubit: sc.ValueRef,
+    partner_qubit: sc.ValueRef,
+    value_type: sc.ScalarType = _QUANTITY,
+) -> sc.ValueRef:
     return two_qubit_gate_param_for(
         column,
-        control_input_id="control_qubit",
-        partner_input_id="partner_qubit",
+        control_qubit=control_qubit,
+        partner_qubit=partner_qubit,
+        value_type=value_type,
     )
 
 
 def two_qubit_gate_param_for(
     column: str,
     *,
-    control_input_id: str,
-    partner_input_id: str,
-):
-    return sc.table_param(
+    control_qubit: sc.ValueRef,
+    partner_qubit: sc.ValueRef,
+    value_type: sc.ScalarType = _QUANTITY,
+) -> sc.ValueRef:
+    return sc.parameter_lookup(
         TWO_QUBIT_GATE_PARAMETER_TABLE,
         key={
-            "control_qubit": sc.input(control_input_id),
-            "partner_qubit": sc.input(partner_input_id),
+            "control_qubit": control_qubit,
+            "partner_qubit": partner_qubit,
             "gate": "cz",
         },
         column=column,
+        value_type=value_type,
     )
 
 

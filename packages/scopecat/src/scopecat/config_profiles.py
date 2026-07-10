@@ -13,7 +13,7 @@ from scopecat.models.config import (
     SystemSpec,
     snapshot_config_profile,
 )
-from scopecat.models.parameter import ParameterState
+from scopecat.models.parameter import ParameterSnapshot
 
 
 class ConfigProfileFile(BaseModel):
@@ -21,11 +21,11 @@ class ConfigProfileFile(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.config_profile.v0"] = "scopecat.config_profile.v0"
+    schema_version: Literal["scopecat.config_profile.v1"] = "scopecat.config_profile.v1"
     id: str
     system_ref: str
     environment_ref: str
-    parameter_state_ref: str
+    parameter_snapshot_ref: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -37,17 +37,19 @@ def load_config_profile(path: str | Path) -> ConfigProfileSnapshot:
     base_dir = profile_path.parent
     system_path = _resolve_profile_ref(base_dir, profile.system_ref)
     environment_path = _resolve_profile_ref(base_dir, profile.environment_ref)
-    parameter_state_path = _resolve_profile_ref(base_dir, profile.parameter_state_ref)
+    parameter_snapshot_path = _resolve_profile_ref(
+        base_dir, profile.parameter_snapshot_ref
+    )
     system = SystemSpec.model_validate_json(system_path.read_text())
     environment = EnvironmentSpec.model_validate_json(environment_path.read_text())
-    parameter_state = ParameterState.model_validate_json(
-        parameter_state_path.read_text()
+    parameter_snapshot = ParameterSnapshot.model_validate_json(
+        parameter_snapshot_path.read_text()
     )
     return snapshot_config_profile(
         profile_id=profile.id,
         system=system,
         environment=environment,
-        parameter_state=parameter_state,
+        parameter_snapshot=parameter_snapshot,
         metadata=profile.metadata,
     )
 

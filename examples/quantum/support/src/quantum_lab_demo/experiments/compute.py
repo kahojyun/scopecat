@@ -17,7 +17,6 @@ from quantum_lab_demo.experiments.payloads import (
     CzChevronProgram,
     CzCouplerPulse,
     CzDrivePulse,
-    DriveRouteBinding,
     ParallelCzGate,
     ParallelGateSetProgram,
     RabiGate,
@@ -102,7 +101,7 @@ def build_sqg_rb_sequence(
 def render_sqg_rb_pulse_program(
     *,
     sequence: RandomizedBenchmarkingSequence,
-    drive_route: DriveRouteBinding,
+    drive_route: sc.ResolvedRoute,
 ) -> RandomizedBenchmarkingPulseBundle:
     if not isinstance(sequence, RandomizedBenchmarkingSequence):
         msg = "render_sqg_rb_pulse_program expected a RandomizedBenchmarkingSequence"
@@ -141,7 +140,7 @@ def build_cz_rb_sequence(
 def render_cz_rb_coupler_pulse(
     *,
     sequence: RandomizedBenchmarkingSequence,
-    coupler_route: DriveRouteBinding,
+    coupler_route: sc.ResolvedRoute,
 ) -> RandomizedBenchmarkingPulseBundle:
     if not isinstance(sequence, RandomizedBenchmarkingSequence):
         msg = "render_cz_rb_coupler_pulse expected a RandomizedBenchmarkingSequence"
@@ -184,7 +183,7 @@ def build_simultaneous_rabi_gate_sequence(
 def render_rabi_waveforms(
     *,
     program: RabiGateSequence,
-    drive_route: DriveRouteBinding,
+    drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     sequence = program
     if not isinstance(sequence, RabiGateSequence):
@@ -205,7 +204,7 @@ def render_rabi_waveforms(
 def render_simultaneous_rabi_waveforms(
     *,
     program: RabiGateSequence,
-    drive_route: DriveRouteBinding,
+    drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     if not isinstance(program, RabiGateSequence):
         msg = "render_simultaneous_rabi_waveforms expected a RabiGateSequence payload"
@@ -229,68 +228,72 @@ def render_simultaneous_rabi_waveforms(
     )
 
 
-def build_cz_chevron_program(ctx: sc.ComputeContext) -> CzChevronProgram:
-    control_qubit = _required_str(ctx.inputs["control_qubit"], "control_qubit")
-    partner_qubit = _required_str(ctx.inputs["partner_qubit"], "partner_qubit")
-    coupler = _required_str(ctx.inputs["coupler"], "coupler")
-    duration = _required_quantity(ctx.inputs["duration"], "duration")
-    amplitude = _required_quantity(ctx.inputs["amplitude"], "amplitude")
+def build_cz_chevron_program(
+    *,
+    control_qubit: object,
+    partner_qubit: object,
+    coupler: object,
+    duration: object,
+    amplitude: object,
+    control_echo_amplitude: object,
+    partner_echo_amplitude: object,
+    coupler_parking_flux: object,
+    sample_rate_hz: object,
+    control_drive_frequency: object,
+    partner_drive_frequency: object,
+) -> CzChevronProgram:
+    resolved_control_qubit = _required_str(control_qubit, "control_qubit")
+    resolved_partner_qubit = _required_str(partner_qubit, "partner_qubit")
+    resolved_coupler = _required_str(coupler, "coupler")
+    resolved_duration = _required_quantity(duration, "duration")
+    resolved_amplitude = _required_quantity(amplitude, "amplitude")
     return CzChevronProgram(
-        control_qubit=control_qubit,
-        partner_qubit=partner_qubit,
-        coupler=coupler,
+        control_qubit=resolved_control_qubit,
+        partner_qubit=resolved_partner_qubit,
+        coupler=resolved_coupler,
         drive_pulses=(
             CzDrivePulse(
-                qubit=control_qubit,
-                amplitude=_row_quantity(
-                    ctx.inputs,
+                qubit=resolved_control_qubit,
+                amplitude=_required_quantity(
+                    control_echo_amplitude,
                     "control_echo_amplitude",
-                    "compute inputs",
                 ),
-                frequency=_row_quantity(
-                    ctx.inputs,
+                frequency=_required_quantity(
+                    control_drive_frequency,
                     "control_drive_frequency",
-                    "compute inputs",
                 ),
             ),
             CzDrivePulse(
-                qubit=partner_qubit,
-                amplitude=_row_quantity(
-                    ctx.inputs,
+                qubit=resolved_partner_qubit,
+                amplitude=_required_quantity(
+                    partner_echo_amplitude,
                     "partner_echo_amplitude",
-                    "compute inputs",
                 ),
-                frequency=_row_quantity(
-                    ctx.inputs,
+                frequency=_required_quantity(
+                    partner_drive_frequency,
                     "partner_drive_frequency",
-                    "compute inputs",
                 ),
             ),
         ),
         coupler_pulse=CzCouplerPulse(
-            coupler=coupler,
-            duration=duration,
-            amplitude=amplitude,
-            parking_flux=_row_quantity(
-                ctx.inputs,
+            coupler=resolved_coupler,
+            duration=resolved_duration,
+            amplitude=resolved_amplitude,
+            parking_flux=_required_quantity(
+                coupler_parking_flux,
                 "coupler_parking_flux",
-                "compute inputs",
             ),
         ),
-        sample_rate_hz=_row_float(
-            ctx.inputs,
-            "sample_rate_hz",
-            "compute inputs",
-        ),
+        sample_rate_hz=_required_float(sample_rate_hz, "sample_rate_hz"),
         compiler_id="quantum_lab_demo.experiments.cz_chevron.v1",
-        parameter_tables=(QUBIT_PARAMETER_TABLE, TWO_QUBIT_GATE_PARAMETER_TABLE),
+        parameters=(QUBIT_PARAMETER_TABLE, TWO_QUBIT_GATE_PARAMETER_TABLE),
     )
 
 
 def render_cz_drive_waveforms(
     *,
     program: CzChevronProgram,
-    drive_route: DriveRouteBinding,
+    drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     if not isinstance(program, CzChevronProgram):
         msg = "render_cz_drive_waveforms expected a CzChevronProgram payload"
@@ -317,7 +320,7 @@ def render_cz_drive_waveforms(
 def render_cz_coupler_waveforms(
     *,
     program: CzChevronProgram,
-    coupler_route: DriveRouteBinding,
+    coupler_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     if not isinstance(program, CzChevronProgram):
         msg = "render_cz_coupler_waveforms expected a CzChevronProgram payload"
@@ -388,14 +391,14 @@ def build_parallel_gate_set_program(
     return ParallelGateSetProgram(
         gates=tuple(selected),
         compiler_id="quantum_lab_demo.experiments.parallel_gate_set.v1",
-        parameter_tables=(QUBIT_PARAMETER_TABLE, TWO_QUBIT_GATE_PARAMETER_TABLE),
+        parameters=(QUBIT_PARAMETER_TABLE, TWO_QUBIT_GATE_PARAMETER_TABLE),
     )
 
 
 def render_parallel_gate_drive_waveforms(
     *,
     program: ParallelGateSetProgram,
-    drive_route: DriveRouteBinding,
+    drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     if not isinstance(program, ParallelGateSetProgram):
         msg = "render_parallel_gate_drive_waveforms expected a ParallelGateSetProgram"
@@ -423,7 +426,7 @@ def render_parallel_gate_drive_waveforms(
 def render_parallel_gate_coupler_waveforms(
     *,
     program: ParallelGateSetProgram,
-    coupler_route: DriveRouteBinding,
+    coupler_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     if not isinstance(program, ParallelGateSetProgram):
         msg = "render_parallel_gate_coupler_waveforms expected a ParallelGateSetProgram"
@@ -480,7 +483,7 @@ def build_surface_code_round_program(
 def render_surface_code_drive_waveforms(
     *,
     program: SurfaceCodeRoundProgram,
-    drive_route: DriveRouteBinding,
+    drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     if not isinstance(program, SurfaceCodeRoundProgram):
         msg = "render_surface_code_drive_waveforms expected a SurfaceCodeRoundProgram"
@@ -507,7 +510,7 @@ def render_surface_code_drive_waveforms(
 def render_surface_code_coupler_waveforms(
     *,
     program: SurfaceCodeRoundProgram,
-    coupler_route: DriveRouteBinding,
+    coupler_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     if not isinstance(program, SurfaceCodeRoundProgram):
         msg = "render_surface_code_coupler_waveforms expected a SurfaceCodeRoundProgram"
@@ -587,6 +590,13 @@ def _required_int(value: object, name: str) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     msg = f"{name} must resolve to an integer, got {value!r}"
+    raise TypeError(msg)
+
+
+def _required_float(value: object, name: str) -> float:
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    msg = f"{name} must resolve to a number, got {value!r}"
     raise TypeError(msg)
 
 

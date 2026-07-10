@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scopecat._compiler.program import LinkedProgram
+from scopecat._relations import ParameterRelationData
 from scopecat._runtime.cursor import ExecutionCursor
 from scopecat._runtime.invocation import (
     RuntimeExecutionInvocation,
@@ -16,7 +18,6 @@ from scopecat._runtime.outcome import (
 )
 from scopecat._runtime.setup import prepare_runtime_execution
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import ExperimentSpec
 from scopecat.ids import new_run_id
 from scopecat.instruments.events import (
     RuntimeEventSink,
@@ -25,20 +26,19 @@ from scopecat.instruments.events import (
 from scopecat.instruments.sdk import InstrumentDriver
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.execution import ExecutionSummary
-from scopecat.models.parameter import ParameterViewSnapshot
 from scopecat.models.run import RunConfigSource, RunManifest
-from scopecat.parameters import ParameterDerivationSet
+from scopecat.models.run_request import RunRequest
 from scopecat.planning.validation import has_blocking_diagnostics
 
 
 def execute_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: ExperimentSpec,
+    experiment: LinkedProgram,
+    request: RunRequest | None = None,
     instruments: list[InstrumentDriver],
     workspace: str | Path,
-    parameter_view: ParameterViewSnapshot | None = None,
-    parameter_derivations: ParameterDerivationSet | None = None,
+    parameters: ParameterRelationData | None = None,
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
@@ -46,9 +46,9 @@ def execute_run(
     invocation = build_runtime_execution_invocation(
         config=config,
         experiment=experiment,
+        request=request,
         instruments=instruments,
-        parameter_view=parameter_view,
-        parameter_derivations=parameter_derivations,
+        parameters=parameters,
         config_source=config_source,
     )
     return _execute_invocation(
@@ -106,7 +106,8 @@ def _execute_invocation(
     )
     persist_runtime_execution_outcome(
         workspace=workspace,
-        experiment=invocation.experiment,
+        request=invocation.request,
+        plan=invocation.plan,
         config=invocation.config,
         outcome=outcome,
     )

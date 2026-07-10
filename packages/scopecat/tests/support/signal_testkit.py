@@ -19,9 +19,9 @@ from scopecat.authoring import ExperimentInvocation
 from scopecat.authoring._invocation_plan import prepare_invocation
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.execution import ExecutionSummary
-from scopecat.models.parameter import Quantity
+from scopecat.models.parameter import Quantity, ScalarParameterValue
 from scopecat.models.run import RunConfigSource, RunManifest
 from scopecat.results import MeasurementArray, MeasurementRecord, MeasurementValue
 from scopecat.runs import dataset_storage_ref, open_run_store, record_storage_ref
@@ -168,7 +168,11 @@ class BestSignalAnalysisStep:
         parameter_id = _scan_parameter_id(context.data.schema())
         old_value = _old_parameter_value(context.config, parameter_id)
         best_measurement = _best_signal_measurement(raw.dataset.records)
-        proposed_value = _proposed_value(best_measurement, parameter_id)
+        proposed_value = _proposed_value(
+            best_measurement,
+            parameter_id,
+            old_value=old_value,
+        )
         best_signal = _signal_quantity(
             measurement=best_measurement,
             diagnostic_path=BEST_SIGNAL_INPUT_REF,
@@ -209,7 +213,7 @@ class BestSignalAnalysisStep:
             )
             .propose(
                 parameter_id,
-                sc.set_param(parameter_id, proposed_value),
+                sc.replace_scalar_parameter(parameter_id, proposed_value),
                 reason=reason,
                 confidence=best_signal.value,
             )
@@ -235,7 +239,11 @@ class TestSignalAnalysisStep:
         )
         parameter_id = _scan_parameter_id(context.data.schema())
         best_measurement = _best_signal_measurement(raw.dataset.records)
-        proposed_value = _proposed_value(best_measurement, parameter_id)
+        proposed_value = _proposed_value(
+            best_measurement,
+            parameter_id,
+            old_value=_old_parameter_value(context.config, parameter_id),
+        )
         return (
             context.result("best signal analysis")
             .input(
@@ -254,7 +262,7 @@ class TestSignalAnalysisStep:
             )
             .propose(
                 parameter_id,
-                sc.set_param(parameter_id, proposed_value),
+                sc.replace_scalar_parameter(parameter_id, proposed_value),
                 reason=f"Best signal observed at point {best_measurement.point_index}.",
             )
         )
@@ -518,19 +526,30 @@ def _scan_parameter_id(schema: sc.MeasurementDatasetSchema) -> str:
 
 
 def _old_parameter_value(config: ConfigProfileSnapshot, parameter_id: str) -> Quantity:
-    parameter = build_config_parameters(config).get(parameter_id)
-    if parameter is None:
+    parameter = config.parameter_snapshot.get(parameter_id)
+    if not isinstance(parameter, ScalarParameterValue):
         raise ValidationFailed(
             [
                 _diagnostic(
                     "error",
                     "missing_parameter_value",
-                    f"config snapshot has no parameter for {parameter_id}",
+                    f"config snapshot has no scalar parameter for {parameter_id}",
                     "config-profile.snapshot.json",
                 )
             ]
         )
-    return parameter.quantity
+    if not isinstance(parameter.value, Quantity):
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "parameter_value_type_mismatch",
+                    f"config parameter {parameter_id} is not a quantity",
+                    "config-profile.snapshot.json",
+                )
+            ]
+        )
+    return parameter.value
 
 
 def _best_signal_measurement(
@@ -584,7 +603,12 @@ def _signal_quantity(
     )
 
 
-def _proposed_value(measurement: MeasurementRecord, parameter_id: str) -> Quantity:
+def _proposed_value(
+    measurement: MeasurementRecord,
+    parameter_id: str,
+    *,
+    old_value: Quantity,
+) -> Quantity:
     quantity = measurement.coordinates.get(parameter_id)
     if not isinstance(quantity, Quantity):
         raise ValidationFailed(
@@ -597,7 +621,11 @@ def _proposed_value(measurement: MeasurementRecord, parameter_id: str) -> Quanti
                 )
             ]
         )
-    return quantity
+    if quantity != old_value:
+        return quantity
+    # The symmetric fake signal peaks at the current center. Keep the analysis
+    # fixture useful as a proposal workflow by producing a small next-fit update.
+    return Quantity(value=old_value.value + 0.01, unit=old_value.unit)
 
 
 def _diagnostic(

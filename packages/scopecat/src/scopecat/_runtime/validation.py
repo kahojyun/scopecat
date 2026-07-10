@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from scopecat._runtime.graph import RuntimeGraph
+from scopecat._runtime.models import ProductBinding
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.experiments import ProductBinding
 from scopecat.instruments.sdk import (
     InstrumentDescription,
     InstrumentDriver,

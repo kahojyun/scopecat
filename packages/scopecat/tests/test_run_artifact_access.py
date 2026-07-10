@@ -98,14 +98,14 @@ def test_upsert_datasets_and_records_replace_by_id() -> None:
     )
     records = upsert_records(
         [RunRecordEntry(id="analysis", kind="analysis")],
-        [RunRecordEntry(id="analysis", kind="parameter_change_set")],
+        [RunRecordEntry(id="analysis", kind="parameter_change_proposal")],
     )
 
     assert [(dataset.id, dataset.kind) for dataset in datasets] == [
         ("raw", "data_table")
     ]
     assert [(record.id, record.kind) for record in records] == [
-        ("analysis", "parameter_change_set")
+        ("analysis", "parameter_change_proposal")
     ]
 
 

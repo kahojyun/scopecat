@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable
+from contextlib import contextmanager
+from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -26,20 +28,25 @@ from scopecat._storage.local.io import (
     write_model_atomic as _write_model_atomic,
 )
 from scopecat._storage.local.io import (
+    write_model_if_absent as _write_model_if_absent,
+)
+from scopecat._storage.local.io import (
     write_text as _write_text,
 )
 from scopecat._storage.local.layout import LocalRunLayout
 from scopecat._storage.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
-    EXPERIMENT_SPEC_REF,
+    CONFIG_REGISTRY_LOCK_REF,
     MANIFEST_REF,
+    RUN_PLAN_REF,
     RUN_REQUEST_REF,
 )
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
+from scopecat.models.run_plan import RunPlanRecord
+from scopecat.models.run_request import RunRequest
 
 
 class LocalRunStore:
@@ -78,6 +85,37 @@ class LocalRunStore:
     def write_manifest(self, manifest: RunManifest) -> None:
         _write_model_atomic(self.ref_path(manifest.run_id, MANIFEST_REF), manifest)
 
+    @contextmanager
+    def run_lock(self, run_id: str) -> Generator[None]:
+        """Serialize mutations of one run's content and manifest.
+
+        Callers that also hold the config-registry lock must acquire that lock
+        first. This lock is intentionally not re-entrant; locked helpers avoid
+        acquiring it a second time.
+        """
+
+        lock_path = self.layout.run_dir(run_id) / ".run.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as lock_file:
+            flock(lock_file.fileno(), LOCK_EX)
+            try:
+                yield
+            finally:
+                flock(lock_file.fileno(), LOCK_UN)
+
+    @contextmanager
+    def config_registry_lock(self) -> Generator[None]:
+        """Join the registry-to-run lock order used by promotion decisions."""
+
+        lock_path = self.layout.workspace / CONFIG_REGISTRY_LOCK_REF
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as lock_file:
+            flock(lock_file.fileno(), LOCK_EX)
+            try:
+                yield
+            finally:
+                flock(lock_file.fileno(), LOCK_UN)
+
     def list_runs(self) -> list[RunManifest]:
         if not self.layout.runs_root.is_dir():
             return []
@@ -90,13 +128,14 @@ class LocalRunStore:
         self,
         *,
         manifest: RunManifest,
-        experiment: ExperimentSpec,
+        request: RunRequest | None,
+        plan: RunPlanRecord,
         config: ConfigProfileSnapshot,
     ) -> None:
         self.write_model(manifest.run_id, MANIFEST_REF, manifest)
-        if experiment.request is not None:
-            self.write_model(manifest.run_id, RUN_REQUEST_REF, experiment.request)
-        self.write_model(manifest.run_id, EXPERIMENT_SPEC_REF, experiment)
+        if request is not None:
+            self.write_model(manifest.run_id, RUN_REQUEST_REF, request)
+        self.write_model(manifest.run_id, RUN_PLAN_REF, plan)
         self.write_model(manifest.run_id, CONFIG_PROFILE_SNAPSHOT_REF, config)
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
@@ -111,6 +150,14 @@ class LocalRunStore:
 
     def write_model(self, run_id: str, ref: str, model: BaseModel) -> None:
         _write_model(self.ref_path(run_id, ref), model)
+
+    def write_model_if_absent(
+        self,
+        run_id: str,
+        ref: str,
+        model: BaseModel,
+    ) -> bool:
+        return _write_model_if_absent(self.ref_path(run_id, ref), model)
 
     def read_jsonl[TModel: BaseModel](
         self, run_id: str, ref: str, model_type: type[TModel]

@@ -1,18 +1,18 @@
-from scopecat.experiments import (
-    experiment,
+from scopecat._compiler.program import (
+    linked_program as experiment,
+)
+from scopecat._compiler.program import (
     observable,
+    overlay_parameter_cell,
     record_axis,
     set_state,
-    update_param_rows,
 )
+from scopecat._relations import col, grid, table
 from scopecat.models.parameter import Quantity
-from scopecat.parameters import ParameterDerivationSet, ScalarParameterDerivation
-from scopecat.relations import col, grid, param, table
+from scopecat.value_types import Quantity as QuantityType
+from scopecat.value_types import Scalar, String
 from tests.support.experiment_preview import preview_result
-from tests.support.parameter_fixtures import (
-    derived_parameter_view,
-    parameter_view,
-)
+from tests.support.parameter_fixtures import parameters
 
 
 def test_preview_reports_record_output_shape_diagnostics() -> None:
@@ -33,7 +33,7 @@ def test_preview_reports_record_output_shape_diagnostics() -> None:
         ],
     )
 
-    preview, diagnostics = preview_result(spec, parameter_view())
+    preview, diagnostics = preview_result(spec, parameters())
 
     assert [diagnostic.code for diagnostic in diagnostics] == [
         "experiment_record_duplicate",
@@ -54,7 +54,7 @@ def test_preview_rejects_duplicate_instrument_product_keys() -> None:
         ],
     )
 
-    preview, diagnostics = preview_result(spec, parameter_view())
+    preview, diagnostics = preview_result(spec, parameters())
 
     assert [diagnostic.code for diagnostic in diagnostics] == [
         "experiment_record_product_duplicate"
@@ -70,7 +70,7 @@ def test_preview_reports_points_evaluation_diagnostics() -> None:
         points=table("missing_table"),
     )
 
-    preview, diagnostics = preview_result(spec, parameter_view())
+    preview, diagnostics = preview_result(spec, parameters())
 
     assert preview.points == ()
     assert [diagnostic.code for diagnostic in diagnostics] == [
@@ -78,21 +78,27 @@ def test_preview_reports_points_evaluation_diagnostics() -> None:
     ]
 
 
-def test_preview_reports_parameter_patch_diagnostics() -> None:
+def test_preview_reports_parameter_overlay_diagnostics() -> None:
     spec = experiment(
-        id="bad-patch",
+        id="bad-overlay",
         kind="diagnostic",
         points=grid(device_id=["r0"]),
-        params=[
-            update_param_rows(
+        parameter_overlays=[
+            overlay_parameter_cell(
                 "readout_devices",
                 key={"device_id": col("device_id")},
-                values={"frequency": Quantity(value=5.9, unit="GHz")},
+                key_types={"device_id": Scalar(String())},
+                column_id="frequency",
+                value=Quantity(value=5.9, unit="GHz"),
+                value_type=Scalar(QuantityType(unit="GHz")),
             ),
-            update_param_rows(
+            overlay_parameter_cell(
                 "readout_devices",
                 key={"device_id": "missing"},
-                values={"frequency": Quantity(value=5.9, unit="GHz")},
+                key_types={"device_id": Scalar(String())},
+                column_id="frequency",
+                value=Quantity(value=5.9, unit="GHz"),
+                value_type=Scalar(QuantityType(unit="GHz")),
             ),
         ],
         state=[
@@ -104,32 +110,35 @@ def test_preview_reports_parameter_patch_diagnostics() -> None:
         ],
     )
 
-    preview, diagnostics = preview_result(spec, parameter_view())
+    preview, diagnostics = preview_result(spec, parameters())
 
     assert [diagnostic.code for diagnostic in diagnostics] == [
-        "experiment_parameter_patch_row_not_found"
+        "experiment_parameter_overlay_row_not_found"
     ]
     assert preview.state_changes == ()
 
 
 def test_preview_reports_unknown_parameter_table_diagnostics() -> None:
     spec = experiment(
-        id="missing-patch-table",
+        id="missing-overlay-table",
         kind="diagnostic",
         points=grid(device_id=["r0"]),
-        params=[
-            update_param_rows(
+        parameter_overlays=[
+            overlay_parameter_cell(
                 "missing_table",
                 key={"device_id": col("device_id")},
-                values={"frequency": Quantity(value=5.9, unit="GHz")},
+                key_types={"device_id": Scalar(String())},
+                column_id="frequency",
+                value=Quantity(value=5.9, unit="GHz"),
+                value_type=Scalar(QuantityType(unit="GHz")),
             )
         ],
     )
 
-    preview, diagnostics = preview_result(spec, parameter_view())
+    preview, diagnostics = preview_result(spec, parameters())
 
     assert [diagnostic.code for diagnostic in diagnostics] == [
-        "experiment_parameter_patch_table_missing"
+        "experiment_parameter_overlay_table_missing"
     ]
     assert preview.state_changes == ()
 
@@ -151,8 +160,8 @@ def test_preview_reports_state_evaluation_and_conflict_diagnostics() -> None:
         ],
     )
 
-    failed_preview, failed_diagnostics = preview_result(state_failure, parameter_view())
-    conflict_preview, conflict_diagnostics = preview_result(conflict, parameter_view())
+    failed_preview, failed_diagnostics = preview_result(state_failure, parameters())
+    conflict_preview, conflict_diagnostics = preview_result(conflict, parameters())
 
     assert [diagnostic.code for diagnostic in failed_diagnostics] == [
         "experiment_state_evaluation_failed"
@@ -165,32 +174,3 @@ def test_preview_reports_state_evaluation_and_conflict_diagnostics() -> None:
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
     ]
-
-
-def test_preview_reports_parameter_derivation_diagnostics() -> None:
-    spec = experiment(
-        id="failed-derivation",
-        kind="diagnostic",
-        points=grid(index=[0]),
-        state=[set_state("drive-a", "carrier_frequency", param("derived.bad"))],
-    )
-    derivations = ParameterDerivationSet(
-        id="bad-derivations",
-        scalars=[
-            ScalarParameterDerivation(
-                id="derived.bad",
-                expression=param("missing.scalar"),
-            )
-        ],
-    )
-
-    preview, diagnostics = preview_result(
-        spec,
-        derived_parameter_view(),
-        derivations=derivations,
-    )
-
-    assert [diagnostic.code for diagnostic in diagnostics] == [
-        "experiment_parameter_derivation_failed"
-    ]
-    assert preview.state_changes == ()

@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat._runtime.executor import execute_run
-from scopecat._storage.refs import CONFIG_PROFILE_SNAPSHOT_REF, EXPERIMENT_SPEC_REF
+from scopecat._storage.refs import (
+    CONFIG_PROFILE_SNAPSHOT_REF,
+    RUN_PLAN_REF,
+    RUN_REQUEST_REF,
+)
 from scopecat._workflows._diagnostics import diagnostic as _diagnostic
 from scopecat._workflows.config import (
     ConfigProfileInput,
@@ -14,9 +18,8 @@ from scopecat._workflows.config import (
 )
 from scopecat._workflows.preview import build_experiment_preview
 from scopecat.authoring._invocation_plan import PreparedInvocation
-from scopecat.authoring.resolution import resolve_prepared_invocation
+from scopecat.authoring._resolution import resolve_prepared_invocation
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import ExperimentSpec
 from scopecat.instruments import (
     RuntimeEventSink,
     RuntimePayloadObserver,
@@ -28,6 +31,8 @@ from scopecat.instruments.sdk import (
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunConfigSource, RunManifest
+from scopecat.models.run_plan import RunPlanRecord
+from scopecat.models.run_request import RunRequest
 from scopecat.planning.validation import has_blocking_diagnostics, validate_config
 from scopecat.preview import PreviewExperimentResult, ValidateExperimentResult
 from scopecat.results import MeasurementDatasetInputDiagnostics
@@ -40,9 +45,9 @@ from scopecat.run_data import (
     RunDetails,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
-    StructuredRunDetails,
 )
 from scopecat.runs import (
+    RunStore,
     dataset_storage_ref,
     list_artifacts,
     list_payload_entries,
@@ -70,30 +75,64 @@ def load_run(*, run_id: str, workspace: str | Path) -> RunDetails:
     return RunDetails(manifest=storage.read_manifest(run_id))
 
 
-def load_structured_run(*, run_id: str, workspace: str | Path) -> StructuredRunDetails:
+def load_run_config(*, run_id: str, workspace: str | Path) -> ConfigProfileSnapshot:
+    """Load only the accepted configuration snapshot for a run."""
+
     storage = open_run_store(workspace)
-    manifest = storage.read_manifest(run_id)
-    missing_refs = [
-        ref
-        for ref in (CONFIG_PROFILE_SNAPSHOT_REF, EXPERIMENT_SPEC_REF)
-        if not storage.exists(run_id, ref)
-    ]
-    if missing_refs:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "structured_run_inputs_missing",
-                    "run is missing structured execution inputs: "
-                    + ", ".join(missing_refs),
-                    "run",
-                )
-            ]
-        )
-    return StructuredRunDetails(
-        manifest=manifest,
-        config=storage.read_config_profile_snapshot(run_id),
-        experiment=storage.read_model(run_id, EXPERIMENT_SPEC_REF, ExperimentSpec),
+    _require_run_ref(
+        storage=storage,
+        run_id=run_id,
+        ref=CONFIG_PROFILE_SNAPSHOT_REF,
+        code="run_config_missing",
+        label="accepted configuration snapshot",
+    )
+    return storage.read_config_profile_snapshot(run_id)
+
+
+def load_run_request(*, run_id: str, workspace: str | Path) -> RunRequest | None:
+    """Load operator intent when the run originated from structured authoring."""
+
+    storage = open_run_store(workspace)
+    storage.read_manifest(run_id)
+    if not storage.exists(run_id, RUN_REQUEST_REF):
+        return None
+    return storage.read_model(run_id, RUN_REQUEST_REF, RunRequest)
+
+
+def load_run_plan(*, run_id: str, workspace: str | Path) -> RunPlanRecord:
+    """Load only the accepted plan evidence for a run."""
+
+    storage = open_run_store(workspace)
+    _require_run_ref(
+        storage=storage,
+        run_id=run_id,
+        ref=RUN_PLAN_REF,
+        code="run_plan_missing",
+        label="accepted plan record",
+    )
+    return storage.read_model(run_id, RUN_PLAN_REF, RunPlanRecord)
+
+
+def _require_run_ref(
+    *,
+    storage: RunStore,
+    run_id: str,
+    ref: str,
+    code: str,
+    label: str,
+) -> None:
+    storage.read_manifest(run_id)
+    if storage.exists(run_id, ref):
+        return
+    raise ValidationFailed(
+        [
+            _diagnostic(
+                "error",
+                code,
+                f"run is missing {label}: {ref}",
+                "run",
+            )
+        ]
     )
 
 
@@ -324,10 +363,10 @@ def start_run(
     manifest, _ = execute_run(
         config=config,
         experiment=resolved.experiment,
+        request=resolved.request,
         instruments=list(provider_result.drivers),
         workspace=workspace,
-        parameter_view=resolved.parameter_view,
-        parameter_derivations=resolved.parameter_derivations,
+        parameters=resolved.parameters,
         config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -385,9 +424,8 @@ def validate_experiment(
     if not has_blocking_diagnostics(diagnostics):
         summary, preview_diagnostics = build_experiment_preview(
             resolved.experiment,
-            resolved.parameter_view,
+            resolved.parameters,
             config=config_snapshot,
-            derivations=resolved.parameter_derivations,
         )
         diagnostics.extend(preview_diagnostics)
     return ValidateExperimentResult(

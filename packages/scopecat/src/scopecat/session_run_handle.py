@@ -10,11 +10,12 @@ from typing import TYPE_CHECKING, NoReturn, Protocol
 from scopecat._manifest_updates import write_manifest_artifacts
 from scopecat._storage.refs import artifact_content_ref
 from scopecat._workflows.comparison import list_run_comparisons
-from scopecat._workflows.preview import build_experiment_preview
 from scopecat._workflows.runs import (
     list_run_artifacts,
     load_run,
-    load_structured_run,
+    load_run_config,
+    load_run_plan,
+    load_run_request,
     read_run_artifact_json,
     read_run_artifact_text,
     read_run_measurement_dataset,
@@ -23,9 +24,10 @@ from scopecat._workflows.runs import (
 from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
 from scopecat.models.artifact import RunArtifactEntry
-from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
-from scopecat.preview import ExperimentPreview
+from scopecat.models.run_plan import RunPlanRecord
+from scopecat.models.run_request import RunRequest
 from scopecat.run_comparison import RunComparisonView
 from scopecat.run_data import (
     RunArtifactJsonResult,
@@ -68,23 +70,28 @@ class RunHandle:
 
     @property
     def config(self) -> ConfigProfileSnapshot:
-        return load_structured_run(
+        return load_run_config(
             run_id=self.id,
             workspace=self.session.workspace,
-        ).config
+        )
 
     @property
-    def preview(self) -> ExperimentPreview:
-        details = load_structured_run(
+    def request(self) -> RunRequest | None:
+        """Load the independently persisted operator request, when present."""
+
+        return load_run_request(
             run_id=self.id,
             workspace=self.session.workspace,
         )
-        preview, _ = build_experiment_preview(
-            details.experiment,
-            build_config_parameters(details.config),
-            config=details.config,
+
+    @property
+    def plan(self) -> RunPlanRecord:
+        """Load the independently persisted accepted-plan evidence."""
+
+        return load_run_plan(
+            run_id=self.id,
+            workspace=self.session.workspace,
         )
-        return preview
 
     @property
     def artifacts(self) -> tuple[str, ...]:

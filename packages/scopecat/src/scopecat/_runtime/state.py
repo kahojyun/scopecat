@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from scopecat._runtime.models import PointRouteBinding, ProgramResourceState
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.experiments import PointRouteBinding, ProgramResourceState
 from scopecat.instruments.sdk import (
     CommandChannelBinding,
     InstrumentDescription,

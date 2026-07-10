@@ -7,12 +7,17 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
+from scopecat._compiler.program import (
+    ComputeNodeSpec,
+    LinkedProgram,
+    ResourceRouteIntent,
+)
 from scopecat._planning.diagnostics import (
     PlanningDiagnosticError,
     planning_diagnostic,
 )
 from scopecat._planning.hashes import payload_hash
-from scopecat._planning.parameter_patches import ParameterPatchPlanRecord
+from scopecat._planning.parameter_overlays import apply_point_parameter_overlay
 from scopecat._planning.records import (
     RecordPlan,
     expected_dataset_schema,
@@ -26,10 +31,7 @@ from scopecat._planning.state import (
     state_patches,
     validate_state_records,
 )
-from scopecat.experiments import ComputeNodeSpec, ExperimentSpec, ResourceRouteIntent
-from scopecat.models.parameter import ParameterViewSnapshot
-from scopecat.parameters import ParameterDerivationSet
-from scopecat.relations import EvalContext, ParameterRelationData, Row
+from scopecat._relations import EvalContext, ParameterRelationData, Row
 from scopecat.results import MeasurementDatasetSchema
 
 
@@ -47,7 +49,6 @@ class PlannerSnapshot:
     experiment_id: str
     experiment_kind: str
     points: list[PlannerPoint]
-    parameter_patches: list[ParameterPatchPlanRecord]
     desired_state: list[StateRecord]
     state_patches: list[StatePatchRecord]
     point_coordinate_ids: list[str] = field(default_factory=list)
@@ -60,22 +61,12 @@ class PlannerSnapshot:
 
 
 def build_planner_snapshot(
-    spec: ExperimentSpec,
-    params: ParameterRelationData | ParameterViewSnapshot,
-    *,
-    derivations: ParameterDerivationSet | None = None,
-    allow_table_row_changes: bool = False,
+    spec: LinkedProgram,
+    params: ParameterRelationData,
 ) -> PlannerSnapshot:
     diagnostics: list[dict[str, Any]] = []
-    if isinstance(params, ParameterViewSnapshot):
-        diagnostics.extend(params.diagnostics)
-    relation_params = (
-        params
-        if isinstance(params, ParameterRelationData)
-        else ParameterRelationData.from_parameter_view(params)
-    )
     try:
-        point_rows = spec.points.evaluate(relation_params)
+        point_rows = spec.points.evaluate(params)
     except Exception as error:
         point_rows = []
         diagnostics.append(
@@ -89,68 +80,49 @@ def build_planner_snapshot(
     points = [
         PlannerPoint(
             point_index=point_index,
-            point_uid=_point_uid(row),
+            point_uid=_point_uid(point_index, row),
             row=row,
         )
         for point_index, row in enumerate(point_rows)
     ]
-    patch_records: list[ParameterPatchPlanRecord] = []
     state_records: list[StateRecord] = []
     point_parameters: dict[int, ParameterRelationData] = {}
 
     for point in points:
-        point_params = relation_params.model_copy(deep=True)
+        point_params = params.model_copy(deep=True)
         point_ctx = EvalContext(params=point_params, row=point.row)
-        patch_failed = False
-        for patch_index, patch in enumerate(spec.params):
+        overlay_failed = False
+        for overlay_index, overlay in enumerate(spec.parameter_overlays):
             try:
-                patch_records.append(
-                    patch.apply(
-                        point_index=point.point_index,
-                        ctx=point_ctx,
-                        params=point_params,
-                        allow_table_row_changes=allow_table_row_changes,
-                    )
+                apply_point_parameter_overlay(
+                    overlay,
+                    ctx=point_ctx,
+                    params=point_params,
                 )
             except PlanningDiagnosticError as error:
-                patch_failed = True
+                overlay_failed = True
                 diagnostics.append(
                     planning_diagnostic(
                         "error",
                         error.code,
                         str(error),
-                        f"params.{patch_index}",
+                        f"parameter_overlays.{overlay_index}",
                     )
                 )
             except Exception as error:
-                patch_failed = True
+                overlay_failed = True
                 diagnostics.append(
                     planning_diagnostic(
                         "error",
-                        "experiment_parameter_patch_failed",
+                        "experiment_parameter_overlay_failed",
                         (
-                            f"experiment parameter patch failed for point "
+                            f"experiment parameter overlay failed for point "
                             f"{point.point_index}: {error}"
                         ),
-                        f"params.{patch_index}",
+                        f"parameter_overlays.{overlay_index}",
                     )
                 )
-        if patch_failed:
-            continue
-        try:
-            _refresh_parameter_derivations(point_params, derivations)
-        except Exception as error:
-            diagnostics.append(
-                planning_diagnostic(
-                    "error",
-                    "experiment_parameter_derivation_failed",
-                    (
-                        f"experiment parameter derivation failed for point "
-                        f"{point.point_index}: {error}"
-                    ),
-                    "parameter_derivations",
-                )
-            )
+        if overlay_failed:
             continue
         point_parameters[point.point_index] = point_params.model_copy(deep=True)
         patched_ctx = EvalContext(params=point_params, row=point.row)
@@ -193,7 +165,6 @@ def build_planner_snapshot(
         point_coordinate_ids=plan_point_coordinate_ids,
         points=points,
         route_intents=list(spec.route_intents),
-        parameter_patches=patch_records,
         compute_nodes=list(spec.compute_nodes),
         desired_state=state_records,
         state_patches=state_patch_records,
@@ -204,8 +175,10 @@ def build_planner_snapshot(
     )
 
 
-def _point_uid(row: Row) -> str:
-    return payload_hash({"row": _json_safe(row)})
+def _point_uid(point_index: int, row: Row) -> str:
+    """Identify one point occurrence, including duplicate coordinate rows."""
+
+    return payload_hash({"point_index": point_index, "row": _json_safe(row)})
 
 
 def _json_safe(value: Any) -> Any:
@@ -220,19 +193,6 @@ def _json_safe(value: Any) -> Any:
         sequence = cast("list[Any] | tuple[Any, ...]", value)
         return [_json_safe(item) for item in sequence]
     return value
-
-
-def _refresh_parameter_derivations(
-    params: ParameterRelationData,
-    derivations: ParameterDerivationSet | None,
-) -> None:
-    if derivations is None:
-        return
-    scalars, tables = derivations.evaluate(params)
-    for scalar in scalars:
-        params.scalars[scalar.id] = scalar.quantity
-    for table in tables:
-        params.tables[table.id] = [dict(row) for row in table.rows]
 
 
 __all__ = ["PlannerPoint", "PlannerSnapshot", "build_planner_snapshot"]

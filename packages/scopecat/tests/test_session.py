@@ -9,7 +9,7 @@ from scopecat.authoring import (
     ExperimentTemplate,
 )
 from scopecat.models.parameter import Quantity
-from scopecat.relations import param
+from tests.support.authoring import DRIVE_FREQUENCY_POINT
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import load_invocation
 
@@ -18,8 +18,11 @@ EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
 SIMPLE_FREQUENCY_SCAN = (
     authoring.module("test.session.simple_frequency_scan")
-    .resource("source", requires=authoring.requires("set_frequency"))
-    .bind("source.set_frequency.frequency", authoring.var_ref("drive_frequency"))
+    .resource("source", requires=("set_frequency",))
+    .bind(
+        "source.set_frequency.frequency",
+        DRIVE_FREQUENCY_POINT,
+    )
     .record("signal", resource="source", unit="ratio")
     .build()
 )
@@ -37,8 +40,11 @@ def simple_frequency_scan_template() -> ExperimentTemplate:
         )
         .experiment_id("session-test-frequency-scan")
         .scan(
-            "drive_frequency",
-            center=param("drive_frequency"),
+            DRIVE_FREQUENCY_POINT,
+            center=authoring.parameter(
+                "drive_frequency",
+                authoring.ScalarType(authoring.QuantityType()),
+            ),
             span=Quantity(value=200.0, unit="MHz"),
             points=3,
         )
@@ -77,9 +83,9 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
         .input("raw-measurements", expected_kind="measurement_dataset")
         .propose(
             "drive_frequency",
-            sc.set_param(
+            sc.replace_scalar_parameter(
                 "drive_frequency",
-                raw.dataset.records[1].coordinates["drive_frequency"],
+                raw.dataset.records[2].coordinates["drive_frequency"],
             ),
             reason="manual notebook pick",
         )
@@ -136,9 +142,9 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
     raw = baseline.measurements()
     analysis = baseline.analysis("manual center point").propose(
         "drive_frequency",
-        sc.set_param(
+        sc.replace_scalar_parameter(
             "drive_frequency",
-            raw.dataset.records[1].coordinates["drive_frequency"],
+            raw.dataset.records[2].coordinates["drive_frequency"],
         ),
         reason="manual center point",
     )
@@ -149,10 +155,10 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
     overview = baseline.overview()
 
     assert baseline.manifest.status == "completed"
-    assert baseline.preview.point_count == 3
+    assert len(raw.dataset.records) == 3
     assert raw.dataset_entry.id == "raw-measurements"
     assert (
-        candidate_config.parameter_changes[0].patches[0].parameter_id
+        candidate_config.parameter_proposals[0].deltas[0].parameter_id
         == "drive_frequency"
     )
     assert candidate.manifest.status == "completed"

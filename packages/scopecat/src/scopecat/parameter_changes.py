@@ -1,141 +1,191 @@
-"""Parameter change set inspection and optional decision helpers."""
+"""Parameter change proposal inspection and append-only decisions."""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Any, Literal, Self
+from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from scopecat._manifest_updates import write_manifest_records
-from scopecat._planning.parameter_patches import ParameterPatchSpec
+from scopecat._manifest_updates import write_manifest_records_locked
+from scopecat._parameter_resolution import validate_parameter_snapshot
+from scopecat._parameter_updates import ParameterUpdate, materialize_parameter_updates
 from scopecat._storage.refs import record_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.ids import artifact_slug
 from scopecat.models.artifact import RunRecordEntry
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import (
-    ParameterChangeSet,
-    ParameterPatch,
-    ParameterPatchValue,
+from scopecat.models.config import (
+    ConfigContentHash,
+    ConfigProfileSnapshot,
+    config_content_hash,
 )
+from scopecat.models.parameter_change import ParameterChangeProposal
 from scopecat.models.run import RunManifest, utc_now
-from scopecat.models.value import PayloadValue
-from scopecat.relations import ScalarExpr
 from scopecat.runs import RunStore, list_records, open_run_store
 
 ParameterChangeReviewState = Literal["approved", "rejected"]
 ParameterChangeDecision = Literal["approved", "rejected", "invalidated"]
 SAFE_PARAMETER_CHANGE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
-type AnalysisParameterPatch = ParameterPatch | ParameterPatchSpec
 
-
-class ParameterChangeSetView(BaseModel):
+class ParameterChangeProposalView(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
     source_run_id: str
+    base_config_id: str
+    base_config_content_hash: ConfigContentHash
     reason: str
     confidence: float | None = None
-    patch_count: int
-    patches: list[ParameterPatch] = Field(default_factory=list)
+    affected_parameter_ids: list[str] = Field(default_factory=list)
     record_id: str
 
 
 class ParameterChangeDecisionRecord(BaseModel):
-    """Durable optional decision record for a parameter change set."""
+    """One immutable event in a parameter proposal's review history."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: str = "scopecat.parameter_change_decision_record.v2"
+    schema_version: Literal["scopecat.parameter_change_decision_record.v3"] = (
+        "scopecat.parameter_change_decision_record.v3"
+    )
+    event_id: str
     run_id: str
-    change_set_id: str
+    proposal_id: str
     decision: ParameterChangeDecision
     actor: str
     note: str = ""
-    related_refs: list[str] = Field(default_factory=list)
+    related_refs: tuple[str, ...] = Field(default_factory=tuple)
     decided_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("event_id", "run_id", "proposal_id", "actor")
+    @classmethod
+    def validate_non_empty_identity(cls, value: str) -> str:
+        if not value.strip():
+            msg = "parameter change decision identity fields must be non-empty"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("related_refs")
+    @classmethod
+    def validate_related_refs(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for ref in value:
+            if not ref:
+                msg = "parameter change decision refs must be non-empty"
+                raise ValueError(msg)
+            path = PurePosixPath(ref)
+            if path.is_absolute() or ".." in path.parts:
+                msg = f"parameter change decision ref escapes run directory: {ref}"
+                raise ValueError(msg)
+        return value
+
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Copy through validation so durable decision invariants cannot drift."""
+
+        _ = deep
+        data = self.model_dump(mode="python")
+        if update is not None:
+            data.update(update)
+        return type(self).model_validate(data)
 
 
 def is_safe_parameter_change_id(value: str) -> bool:
     return SAFE_PARAMETER_CHANGE_ID_RE.fullmatch(value) is not None
 
 
-def parameter_change_set_from_analysis_patches(
+def parameter_change_proposal_from_updates(
     *,
     source_run_id: str,
+    source_config: ConfigProfileSnapshot,
     analysis_title: str,
-    change_id: str,
-    patches: Sequence[AnalysisParameterPatch],
+    proposal_id: str,
+    updates: Sequence[ParameterUpdate],
     reason: str,
     confidence: float | None,
-) -> ParameterChangeSet:
-    selected_id = artifact_slug(change_id, fallback="analysis")
+) -> ParameterChangeProposal:
+    selected_id = artifact_slug(proposal_id, fallback="analysis")
     if not is_safe_parameter_change_id(selected_id):
-        msg = f"parameter change id is not safe: {selected_id}"
+        msg = f"parameter change proposal id is not safe: {selected_id}"
         raise ValueError(msg)
     selected_reason = reason or (
         f"Parameter change {selected_id!r} from analysis {analysis_title!r}."
     )
-    concrete_patches = [_concrete_patch(patch) for patch in patches]
-    return ParameterChangeSet(
+    candidate, deltas = materialize_parameter_updates(
+        catalog=source_config.parameter_catalog,
+        base=source_config.parameter_snapshot,
+        updates=updates,
+        candidate_id=f"{source_config.parameter_snapshot.id}.candidate.{selected_id}",
+    )
+    diagnostics = validate_parameter_snapshot(
+        source_config.parameter_catalog,
+        candidate,
+    )
+    if diagnostics:
+        raise ValidationFailed(list(diagnostics))
+    return ParameterChangeProposal(
         id=selected_id,
         source_run_id=source_run_id,
+        base_config_id=source_config.id,
+        base_config_content_hash=config_content_hash(source_config),
         reason=selected_reason,
-        patches=concrete_patches,
         confidence=confidence,
+        candidate_snapshot=candidate,
+        deltas=deltas,
     )
 
 
-def list_parameter_changes(
+def list_parameter_change_proposals(
     *, run_id: str, workspace: str | Path
-) -> list[ParameterChangeSetView]:
+) -> list[ParameterChangeProposalView]:
     storage = open_run_store(workspace)
     manifest = storage.read_manifest(run_id)
-    changes: list[ParameterChangeSetView] = []
-    for change_record in _change_set_records(manifest):
-        change_set = _load_record(
+    proposals: list[ParameterChangeProposalView] = []
+    for proposal_record in _proposal_records(manifest):
+        proposal = _load_proposal_record(
             storage=storage,
             run_id=run_id,
-            change_record=change_record,
+            proposal_record=proposal_record,
         )
-        changes.append(
-            ParameterChangeSetView(
-                id=change_set.id,
-                source_run_id=change_set.source_run_id,
-                reason=change_set.reason,
-                confidence=change_set.confidence,
-                patch_count=len(change_set.patches),
-                patches=list(change_set.patches),
-                record_id=change_record.id,
+        proposals.append(
+            ParameterChangeProposalView(
+                id=proposal.id,
+                source_run_id=proposal.source_run_id,
+                base_config_id=proposal.base_config_id,
+                base_config_content_hash=proposal.base_config_content_hash,
+                reason=proposal.reason,
+                confidence=proposal.confidence,
+                affected_parameter_ids=[
+                    delta.parameter_id for delta in proposal.deltas
+                ],
+                record_id=proposal_record.id,
             )
         )
-    return changes
+    return proposals
 
 
-def load_parameter_change(
+def load_parameter_change_proposal(
     *, run_id: str, selector: str, workspace: str | Path
-) -> ParameterChangeSet:
+) -> ParameterChangeProposal:
     storage = open_run_store(workspace)
-    _change_set, change_record = _resolve_change_set_ref(
+    proposal, _record = _resolve_proposal_ref(
         storage=storage,
         run_id=run_id,
         selector=selector,
     )
-    change_set = _load_record(
-        storage=storage,
-        run_id=run_id,
-        change_record=change_record,
-    )
-    return change_set
+    return proposal
 
 
-def review_parameter_changes(
+def review_parameter_change_proposal(
     *,
     run_id: str,
     selector: str,
@@ -154,7 +204,7 @@ def review_parameter_changes(
     )
 
 
-def invalidate_parameter_change(
+def invalidate_parameter_change_proposal(
     *,
     run_id: str,
     selector: str,
@@ -188,232 +238,303 @@ def record_parameter_change_decision(
     related_refs: list[str] | None = None,
 ) -> ParameterChangeDecisionRecord:
     storage = open_run_store(workspace)
-    change_set, _change_record = _resolve_change_set_ref(
+    with storage.config_registry_lock(), storage.run_lock(run_id):
+        proposal, _proposal_record = _resolve_proposal_ref(
+            storage=storage,
+            run_id=run_id,
+            selector=selector,
+        )
+        if not actor.strip():
+            msg = "parameter change decision actor must be non-empty"
+            raise ValueError(msg)
+        for ref in related_refs or ():
+            _validate_selector_path(ref)
+        event_id = uuid4().hex
+        decision_entry = parameter_change_decision_record_entry(
+            proposal_id=proposal.id,
+            event_id=event_id,
+        )
+        record = ParameterChangeDecisionRecord(
+            event_id=event_id,
+            run_id=run_id,
+            proposal_id=proposal.id,
+            decision=decision,
+            actor=actor,
+            note=note,
+            related_refs=tuple(related_refs or ()),
+        )
+        decision_ref = record_content_ref(
+            record_id=decision_entry.id,
+            kind=decision_entry.kind,
+        )
+        if not storage.write_model_if_absent(run_id, decision_ref, record):
+            msg = f"parameter change decision event already exists: {event_id}"
+            raise RuntimeError(msg)
+        write_manifest_records_locked(
+            storage=storage,
+            run_id=run_id,
+            records=[decision_entry],
+        )
+        return record
+
+
+def list_parameter_change_decisions(
+    *,
+    run_id: str,
+    selector: str,
+    workspace: str | Path,
+) -> list[ParameterChangeDecisionRecord]:
+    storage = open_run_store(workspace)
+    proposal, _record = _resolve_proposal_ref(
         storage=storage,
         run_id=run_id,
         selector=selector,
     )
-    decision_record = RunRecordEntry(
-        id=f"{change_set.id}-decision",
+    selected: list[ParameterChangeDecisionRecord] = []
+    for entry in list_records(
+        storage.read_manifest(run_id),
         kind="parameter_change_decision_record",
-        media_type="application/json",
-    )
-    record_ref = record_content_ref(
-        record_id=decision_record.id,
-        kind=decision_record.kind,
-    )
-    record_path = storage.ref_path(run_id, record_ref)
-    if record_path.exists():
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "parameter_change_decision_exists",
-                    f"parameter change decision already exists: {change_set.id}",
-                    "parameter_change",
-                )
-            ]
-        )
-    record = ParameterChangeDecisionRecord(
-        run_id=run_id,
-        change_set_id=change_set.id,
-        decision=decision,
-        actor=actor,
-        note=note,
-        related_refs=list(related_refs or []),
-    )
-    storage.write_model(run_id, record_ref, record)
+    ):
+        try:
+            decision = storage.read_model(
+                run_id,
+                record_content_ref(record_id=entry.id, kind=entry.kind),
+                ParameterChangeDecisionRecord,
+            )
+        except (FileNotFoundError, ValidationError) as error:
+            raise ValidationFailed(
+                [
+                    _diagnostic(
+                        "error",
+                        "invalid_parameter_change_decision",
+                        f"invalid parameter change decision record: {entry.id}",
+                        "parameter_change_decision",
+                    )
+                ]
+            ) from error
+        expected_entry_id = f"{decision.proposal_id}-decision-{decision.event_id}"
+        if decision.run_id != run_id or entry.id != expected_entry_id:
+            raise ValidationFailed(
+                [
+                    _diagnostic(
+                        "error",
+                        "invalid_parameter_change_decision_identity",
+                        (
+                            "parameter change decision identity does not match its "
+                            f"run record: {entry.id}"
+                        ),
+                        "parameter_change_decision",
+                    )
+                ]
+            )
+        if decision.proposal_id == proposal.id:
+            selected.append(decision)
+    return selected
 
-    manifest = storage.read_manifest(run_id)
-    write_manifest_records(
-        storage=storage,
-        manifest=manifest,
-        records=[decision_record],
-    )
-    return record
 
-
-def parameter_change_decision_ref(change_set_id: str) -> str:
+def parameter_change_proposal_record_ref(proposal_id: str) -> str:
     return record_content_ref(
-        record_id=f"{change_set_id}-decision",
-        kind="parameter_change_decision_record",
+        record_id=proposal_id,
+        kind="parameter_change_proposal",
     )
 
 
-def parameter_change_record_ref(change_set_id: str) -> str:
-    return record_content_ref(
-        record_id=change_set_id,
-        kind="parameter_change_set",
-    )
-
-
-def parameter_change_set_record(
-    *,
-    change: ParameterChangeSet,
+def parameter_change_proposal_record(
+    *, proposal: ParameterChangeProposal
 ) -> RunRecordEntry:
     return RunRecordEntry(
-        id=change.id,
-        kind="parameter_change_set",
+        id=proposal.id,
+        kind="parameter_change_proposal",
         media_type="application/json",
     )
 
 
-def _concrete_patch(patch: AnalysisParameterPatch) -> ParameterPatch:
-    if isinstance(patch, ParameterPatch):
-        return patch
-    if patch.kind == "set_scalar":
-        return ParameterPatch(
-            kind=patch.kind,
-            parameter_id=_required(patch.parameter_id),
-            value=_literal_expr_value(_required(patch.value)),
-        )
-    if patch.kind == "update_rows":
-        return ParameterPatch(
-            kind=patch.kind,
-            table_id=_required(patch.table_id),
-            key={
-                name: _literal_expr_value(expr)
-                for name, expr in _required(patch.key).items()
-            },
-            values={
-                name: _literal_expr_value(expr)
-                for name, expr in _required(patch.values).items()
-            },
-        )
-    if patch.kind == "insert_rows":
-        return ParameterPatch(
-            kind=patch.kind,
-            table_id=_required(patch.table_id),
-            rows=[
-                {name: _literal_expr_value(expr) for name, expr in row.items()}
-                for row in _required(patch.rows)
-            ],
-        )
-    if patch.kind == "delete_rows":
-        return ParameterPatch(
-            kind=patch.kind,
-            table_id=_required(patch.table_id),
-            key={
-                name: _literal_expr_value(expr)
-                for name, expr in _required(patch.key).items()
-            },
-        )
-    msg = f"unsupported parameter patch kind: {patch.kind}"
-    raise ValueError(msg)
+def parameter_change_decision_record_entry(
+    *, proposal_id: str, event_id: str
+) -> RunRecordEntry:
+    return RunRecordEntry(
+        id=f"{proposal_id}-decision-{event_id}",
+        kind="parameter_change_decision_record",
+        media_type="application/json",
+    )
 
 
-def _literal_expr_value(expr: ScalarExpr) -> ParameterPatchValue:
-    if expr.kind != "literal":
-        msg = (
-            "analysis parameter changes only accept literal patch values; "
-            f"got {expr.kind!r}"
-        )
-        raise ValueError(msg)
-    value = expr.value
-    if isinstance(value, EntityRef | PayloadValue):
-        msg = "analysis parameter changes cannot patch entity or payload values"
-        raise ValueError(msg)
-    return value
-
-
-def _resolve_change_set_ref(
-    *, storage: RunStore, run_id: str, selector: str
-) -> tuple[ParameterChangeSet, RunRecordEntry]:
-    manifest = storage.read_manifest(run_id)
-    _validate_selector_path(selector)
-    for change_record in _change_set_records(manifest):
-        change_set = _load_record(
+def write_parameter_change_proposals(
+    *,
+    storage: RunStore,
+    run_id: str,
+    proposals: Sequence[ParameterChangeProposal],
+) -> tuple[RunRecordEntry, ...]:
+    with storage.run_lock(run_id):
+        entries = write_parameter_change_proposal_contents_locked(
             storage=storage,
             run_id=run_id,
-            change_record=change_record,
+            proposals=proposals,
         )
-        if change_set.id == selector or change_record.id == selector:
-            return change_set, change_record
-    for change_record in _change_set_records(manifest):
-        record_ref = record_content_ref(
-            record_id=change_record.id,
-            kind=change_record.kind,
-        )
-        if record_ref == selector:
-            change_set = _load_record(
+        if entries:
+            write_manifest_records_locked(
                 storage=storage,
                 run_id=run_id,
-                change_record=change_record,
+                records=entries,
             )
-            return change_set, change_record
+        return entries
+
+
+def write_parameter_change_proposal_contents_locked(
+    *,
+    storage: RunStore,
+    run_id: str,
+    proposals: Sequence[ParameterChangeProposal],
+) -> tuple[RunRecordEntry, ...]:
+    """Publish immutable proposal content while the caller holds the run lock."""
+
+    entries = tuple(
+        parameter_change_proposal_record(proposal=proposal) for proposal in proposals
+    )
+    for proposal, entry in zip(proposals, entries, strict=True):
+        if proposal.source_run_id != run_id:
+            raise ValidationFailed(
+                [
+                    _diagnostic(
+                        "error",
+                        "parameter_change_proposal_source_run_mismatch",
+                        (
+                            f"parameter change proposal {proposal.id} belongs to "
+                            f"run {proposal.source_run_id}, not {run_id}"
+                        ),
+                        "parameter_change_proposal.source_run_id",
+                    )
+                ]
+            )
+        proposal_ref = record_content_ref(record_id=entry.id, kind=entry.kind)
+        if storage.exists(run_id, proposal_ref):
+            existing = _load_proposal_record(
+                storage=storage,
+                run_id=run_id,
+                proposal_record=entry,
+            )
+            if existing != proposal:
+                raise ValidationFailed(
+                    [
+                        _diagnostic(
+                            "error",
+                            "parameter_change_proposal_conflict",
+                            (
+                                "parameter change proposal record is immutable and "
+                                f"already contains different content: {proposal.id}"
+                            ),
+                            "parameter_change_proposal",
+                        )
+                    ]
+                )
+            continue
+        if not storage.write_model_if_absent(run_id, proposal_ref, proposal):
+            existing = _load_proposal_record(
+                storage=storage,
+                run_id=run_id,
+                proposal_record=entry,
+            )
+            if existing != proposal:
+                raise ValidationFailed(
+                    [
+                        _diagnostic(
+                            "error",
+                            "parameter_change_proposal_conflict",
+                            (
+                                "parameter change proposal record is immutable and "
+                                f"already contains different content: {proposal.id}"
+                            ),
+                            "parameter_change_proposal",
+                        )
+                    ]
+                )
+    return entries
+
+
+def _resolve_proposal_ref(
+    *, storage: RunStore, run_id: str, selector: str
+) -> tuple[ParameterChangeProposal, RunRecordEntry]:
+    manifest = storage.read_manifest(run_id)
+    _validate_selector_path(selector)
+    for proposal_record in _proposal_records(manifest):
+        proposal = _load_proposal_record(
+            storage=storage,
+            run_id=run_id,
+            proposal_record=proposal_record,
+        )
+        record_ref = record_content_ref(
+            record_id=proposal_record.id,
+            kind=proposal_record.kind,
+        )
+        if (
+            proposal.id == selector
+            or proposal_record.id == selector
+            or record_ref == selector
+        ):
+            return proposal, proposal_record
     raise ValidationFailed(
         [
             _diagnostic(
                 "error",
-                "parameter_change_not_found",
-                f"parameter change not found: {selector}",
-                "parameter_change",
+                "parameter_change_proposal_not_found",
+                f"parameter change proposal not found: {selector}",
+                "parameter_change_proposal",
             )
         ]
     )
 
 
-def _load_record(
-    *, storage: RunStore, run_id: str, change_record: RunRecordEntry
-) -> ParameterChangeSet:
-    change_set_record_ref = record_content_ref(
-        record_id=change_record.id,
-        kind=change_record.kind,
+def _load_proposal_record(
+    *, storage: RunStore, run_id: str, proposal_record: RunRecordEntry
+) -> ParameterChangeProposal:
+    proposal_ref = record_content_ref(
+        record_id=proposal_record.id,
+        kind=proposal_record.kind,
     )
-    path = _change_set_path(
-        storage=storage,
-        run_id=run_id,
-        change_set_record_ref=change_set_record_ref,
-    )
-    if not path.exists():
+    path = storage.ref_path(run_id, proposal_ref)
+    if not path.exists() or path.is_dir():
         raise ValidationFailed(
             [
                 _diagnostic(
                     "error",
-                    "parameter_change_not_found",
-                    f"parameter change not found: {change_set_record_ref}",
-                    "parameter_change",
-                )
-            ]
-        )
-    if path.is_dir():
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "parameter_change_is_directory",
-                    f"parameter change is a directory: {change_set_record_ref}",
-                    "parameter_change",
+                    "parameter_change_proposal_not_found",
+                    f"parameter change proposal not found: {proposal_ref}",
+                    "parameter_change_proposal",
                 )
             ]
         )
     try:
-        return ParameterChangeSet.model_validate_json(path.read_text())
+        proposal = ParameterChangeProposal.model_validate_json(path.read_text())
     except ValidationError as error:
         raise ValidationFailed(
             [
                 _diagnostic(
                     "error",
-                    "invalid_parameter_change",
-                    (
-                        "parameter change is not a valid parameter change set: "
-                        f"{change_set_record_ref}"
-                    ),
-                    "parameter_change",
+                    "invalid_parameter_change_proposal",
+                    f"invalid parameter change proposal: {proposal_ref}",
+                    "parameter_change_proposal",
                 )
             ]
         ) from error
+    if proposal.id != proposal_record.id or proposal.source_run_id != run_id:
+        raise ValidationFailed(
+            [
+                _diagnostic(
+                    "error",
+                    "invalid_parameter_change_proposal_identity",
+                    (
+                        "parameter change proposal identity does not match its run "
+                        f"record: {proposal_record.id}"
+                    ),
+                    "parameter_change_proposal",
+                )
+            ]
+        )
+    return proposal
 
 
-def _change_set_records(manifest: RunManifest) -> tuple[RunRecordEntry, ...]:
-    return list_records(manifest, kind="parameter_change_set")
-
-
-def _change_set_path(
-    *, storage: RunStore, run_id: str, change_set_record_ref: str
-) -> Path:
-    _validate_selector_path(change_set_record_ref)
-    return storage.ref_path(run_id, change_set_record_ref)
+def _proposal_records(manifest: RunManifest) -> tuple[RunRecordEntry, ...]:
+    return list_records(manifest, kind="parameter_change_proposal")
 
 
 def _validate_selector_path(value: str) -> None:
@@ -425,7 +546,7 @@ def _validate_selector_path(value: str) -> None:
                     "error",
                     "parameter_change_path_escape",
                     f"parameter change path escapes run directory: {value}",
-                    "parameter_change",
+                    "parameter_change_proposal",
                 )
             ]
         )
@@ -437,26 +558,21 @@ def _diagnostic(
     return Diagnostic(severity=severity, code=code, message=message, path=path)
 
 
-def _required[T](value: T | None) -> T:
-    if value is None:
-        raise AssertionError("validated field is unexpectedly missing")
-    return value
-
-
 __all__ = [
-    "AnalysisParameterPatch",
     "ParameterChangeDecision",
     "ParameterChangeDecisionRecord",
+    "ParameterChangeProposalView",
     "ParameterChangeReviewState",
-    "ParameterChangeSetView",
-    "invalidate_parameter_change",
+    "invalidate_parameter_change_proposal",
     "is_safe_parameter_change_id",
-    "list_parameter_changes",
-    "load_parameter_change",
-    "parameter_change_decision_ref",
-    "parameter_change_record_ref",
-    "parameter_change_set_from_analysis_patches",
-    "parameter_change_set_record",
+    "list_parameter_change_decisions",
+    "list_parameter_change_proposals",
+    "load_parameter_change_proposal",
+    "parameter_change_decision_record_entry",
+    "parameter_change_proposal_from_updates",
+    "parameter_change_proposal_record",
+    "parameter_change_proposal_record_ref",
     "record_parameter_change_decision",
-    "review_parameter_changes",
+    "review_parameter_change_proposal",
+    "write_parameter_change_proposals",
 ]

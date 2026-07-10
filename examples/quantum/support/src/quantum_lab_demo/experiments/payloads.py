@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
 import numpy as np
 import scopecat as sc
@@ -76,7 +75,7 @@ class CzChevronProgram:
     coupler_pulse: CzCouplerPulse
     sample_rate_hz: float
     compiler_id: str
-    parameter_tables: tuple[str, ...]
+    parameters: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -104,7 +103,7 @@ class ParallelCzGate:
 class ParallelGateSetProgram:
     gates: tuple[ParallelCzGate, ...]
     compiler_id: str
-    parameter_tables: tuple[str, ...]
+    parameters: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -137,18 +136,11 @@ class BackendBatchJob:
     compiler_id: str
 
 
-class DriveRouteBinding(Protocol):
-    resource_id: str
-    entity_ids: list[str]
-    product_axis_order: list[str]
-
-
 __all__ = [
     "BackendBatchJob",
     "CzChevronProgram",
     "CzCouplerPulse",
     "CzDrivePulse",
-    "DriveRouteBinding",
     "ParallelCzGate",
     "ParallelGateSetProgram",
     "RabiGate",

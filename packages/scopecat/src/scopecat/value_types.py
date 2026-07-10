@@ -168,6 +168,16 @@ class Payload:
             raise ValueError(msg)
 
 
+@dataclass(frozen=True, slots=True)
+class Route:
+    """Point-local resource route supplied explicitly to a compute function."""
+
+    capabilities: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _validate_unique_ids(self.capabilities, label="route capabilities")
+
+
 type AtomType = Bool | Int | Float | String | Quantity | Entity | Record | Payload
 
 
@@ -255,6 +265,14 @@ class Table:
                     "quantity, or entity atom"
                 )
                 raise ValueError(msg)
+            if isinstance(column.value_type.atom, Float | Quantity) and not (
+                column.value_type.atom.finite
+            ):
+                msg = (
+                    f"Table primary key column {column_id!r} must guarantee "
+                    "finite numeric values"
+                )
+                raise ValueError(msg)
 
 
 type ValueType = Scalar | Series | Table
@@ -320,6 +338,7 @@ __all__ = [
     "Quantity",
     "Record",
     "RecordField",
+    "Route",
     "Scalar",
     "Series",
     "String",

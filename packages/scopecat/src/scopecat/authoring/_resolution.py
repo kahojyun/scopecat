@@ -1,71 +1,92 @@
-"""Compile and link authoring invocations into closed experiment specs."""
+"""Compile and link authoring invocations into transient linked programs."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import cast
 
-from scopecat._planning.parameter_patches import ParameterPatchSpec
+from scopecat._compiler.program import LinkedProgram
+from scopecat._parameter_resolution import resolve_config_parameters
+from scopecat._relations import ParameterRelationData
+from scopecat.authoring._assembly_linking import link_experiment_assembly_internal
+from scopecat.authoring._context import ExperimentAuthoringContext
+from scopecat.authoring._context import (
+    diagnostic as _diagnostic,
+)
+from scopecat.authoring._intents import ParameterScanOverlayIntent
 from scopecat.authoring._invocation_plan import (
     InvocationRequestContext,
     PreparedInvocation,
     prepare_invocation,
 )
-from scopecat.authoring.context import ExperimentAuthoringContext
-from scopecat.authoring.context import (
-    diagnostic as _diagnostic,
+from scopecat.authoring._module_composition import (
+    ExperimentAssemblyInternal,
+    assemble_invocation_internal,
+)
+from scopecat.authoring._module_handles import module_exposed_input_types_internal
+from scopecat.authoring._parameter_contracts import merge_parameter_contracts
+from scopecat.authoring._request_values import (
+    project_run_request_inputs,
+)
+from scopecat.authoring._scan_intents import (
+    ParameterScanIntent,
+    PointScanIntent,
+    ScanGroupIntent,
+    ScanLeafIntent,
+    inherit_default_scan_fields,
+    iter_scan_leaves,
+    replace_scan_group,
+    scan_parameter_contracts,
+    scan_point_id,
+)
+from scopecat.authoring._scan_lowering import (
+    lower_scan_points,
+    project_scan_record,
+)
+from scopecat.authoring._value_refs import (
+    ValueRef,
+    describe_value_type,
+    is_assignable,
+    require_assignable,
+)
+from scopecat.authoring.scans import (
+    Scan,
+    cartesian,
 )
 from scopecat.authoring.templates import (
     ConfigProfileInput,
     ExperimentInvocation,
-    materialize_request_inputs,
 )
+from scopecat.authoring.values import ModuleInput, module_input_is_valid
 from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import resolve_config_registry_config_source
 from scopecat.diagnostics import Diagnostic
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import (
-    ExperimentSpec,
-    ParameterScanAxis,
-    RunRequest,
-    ScanAxis,
-    ScanGroup,
-    ScanItem,
-    ScanLeaf,
-    cartesian,
-    iter_scan_leaves,
-)
-from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
-from scopecat.models.parameter import ParameterViewSnapshot
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunConfigSource
-from scopecat.parameters import ParameterDerivationSet, combine_parameter_derivations
+from scopecat.models.run_request import RunRequest
 from scopecat.planning.validation import has_blocking_diagnostics
-from scopecat.relations import RelationExpr, ScalarExpr, as_scalar_expr, col
-
-if TYPE_CHECKING:
-    from scopecat.authoring.assembly import ExperimentAssembly
 
 
 @dataclass(frozen=True)
 class ResolvedExperiment:
-    experiment: ExperimentSpec
+    experiment: LinkedProgram
+    request: RunRequest
     template_id: str | None
     inputs: dict[str, object]
     config: ConfigProfileSnapshot
-    parameter_view: ParameterViewSnapshot
-    parameter_derivations: ParameterDerivationSet | None = None
+    parameters: ParameterRelationData
     config_source: RunConfigSource | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
 
 
 @dataclass(frozen=True)
 class _CompiledInvocation:
-    assembly: ExperimentAssembly
+    assembly: ExperimentAssemblyInternal
     request: RunRequest
     inputs: dict[str, object]
-    parameter_derivations: ParameterDerivationSet | None
 
 
 def resolve_experiment(
@@ -115,7 +136,6 @@ def resolve_prepared_invocation(
         compiled.assembly,
         request=compiled.request,
         inputs=compiled.inputs,
-        parameter_derivations=compiled.parameter_derivations,
         config=config,
         workspace=workspace,
         config_source=config_source,
@@ -153,20 +173,12 @@ def compile_prepared_invocation(
             ]
         ) from error
     request = _materialized_request(request_context, inputs=inputs, scans=scans)
-    invocation_derivations = invocation.template.parameter_derivations
     merged_inputs = {**compiled.inputs, **inputs}
-    parameter_derivations = _combined_parameter_derivations(
-        id=f"{_compiled_derivation_id(compiled, request)}.parameter_derivations",
-        derivations=(
-            compiled.parameter_derivations,
-            invocation_derivations,
-        ),
-    )
     assembly = replace(
         compiled,
         inputs=merged_inputs,
-        parameter_derivations=parameter_derivations,
     )
+    _validate_point_dependencies(assembly, scans)
     if scans:
         assembly = _apply_scans(
             assembly,
@@ -177,29 +189,35 @@ def compile_prepared_invocation(
         assembly=assembly,
         request=request,
         inputs=merged_inputs,
-        parameter_derivations=parameter_derivations,
     )
 
 
 def _compile_invocation_template(
     invocation: ExperimentInvocation,
     inputs: Mapping[str, object],
-) -> ExperimentAssembly:
-    from scopecat.authoring.assembly import ExperimentAssembly
-
+) -> ExperimentAssemblyInternal:
     template = invocation.template
     if template.module is None:
         msg = "experiment template requires a module"
         raise ValueError(msg)
-    assemblies = [template.module(**inputs).assemble()]
+    exposed_inputs = module_exposed_input_types_internal(template.module)
+    module_inputs: dict[str, ModuleInput] = {}
+    for input_id, value in inputs.items():
+        if input_id not in exposed_inputs:
+            continue
+        if not module_input_is_valid(value):
+            msg = f"module input {input_id!r} is not typed or closed literal data"
+            raise TypeError(msg)
+        module_inputs[input_id] = cast("ModuleInput", value)
+    assemblies = [assemble_invocation_internal(template.module(**module_inputs))]
     if template.record_selections:
         assemblies.append(
-            ExperimentAssembly(
+            ExperimentAssemblyInternal(
                 entity_inputs=(),
                 record_selections=template.record_selections,
             )
         )
-    return ExperimentAssembly.combine(
+    return ExperimentAssemblyInternal.combine(
         experiment_id=template.experiment_id or template.id,
         kind=template.kind or template.id,
         assemblies=assemblies,
@@ -209,16 +227,18 @@ def _compile_invocation_template(
 
 def _validate_invocation_inputs(
     invocation: ExperimentInvocation,
-    assembly: ExperimentAssembly,
+    assembly: ExperimentAssemblyInternal,
     inputs: Mapping[str, object],
     *,
-    scans: Sequence[ScanItem],
+    scans: Sequence[Scan],
 ) -> None:
     allowed = {description.id for description in invocation.template.inputs} | {
         port.id for port in assembly.input_ports
     }
     unknown = sorted(set(inputs) - allowed)
-    scan_inputs = {leaf.axis_id for scan in scans for leaf in iter_scan_leaves(scan)}
+    scan_inputs = {
+        scan_point_id(leaf) for scan in scans for leaf in iter_scan_leaves(scan)
+    }
     missing = [
         description.id
         for description in invocation.template.inputs
@@ -247,49 +267,26 @@ def _validate_invocation_inputs(
         raise ValidationFailed(diagnostics)
 
 
-def _compiled_derivation_id(assembly: ExperimentAssembly, request: RunRequest) -> str:
-    return assembly.experiment_id or request.template_id or request.id
-
-
-def _combined_parameter_derivations(
-    *,
-    id: str,  # noqa: A002
-    derivations: Sequence[ParameterDerivationSet | None],
-) -> ParameterDerivationSet | None:
-    selected: list[ParameterDerivationSet] = []
-    seen_ids: set[str] = set()
-    for derivation in derivations:
-        if derivation is None or derivation.id in seen_ids:
-            continue
-        selected.append(derivation)
-        seen_ids.add(derivation.id)
-    return combine_parameter_derivations(id=id, derivations=selected)
-
-
 def _link_assembly(
-    assembly: ExperimentAssembly,
+    assembly: ExperimentAssemblyInternal,
     *,
     request: RunRequest,
     inputs: Mapping[str, object],
-    parameter_derivations: ParameterDerivationSet | None,
     config: ConfigProfileSnapshot,
     workspace: str | Path,
     config_source: RunConfigSource | None,
 ) -> ResolvedExperiment:
-    from scopecat.authoring.assembly import link_experiment_assembly
-
-    parameter_view = build_config_parameters(
-        config,
-        derivations=parameter_derivations,
-    )
+    resolved_parameters = resolve_config_parameters(config)
+    if has_blocking_diagnostics(resolved_parameters.diagnostics):
+        raise ValidationFailed(list(resolved_parameters.diagnostics))
     context = ExperimentAuthoringContext(
         config=config,
-        parameter_view=parameter_view,
+        parameters=resolved_parameters.data,
         workspace=Path(workspace),
         config_source=config_source,
     )
     try:
-        experiment = link_experiment_assembly(assembly, context)
+        experiment = link_experiment_assembly_internal(assembly, context)
     except ValidationFailed:
         raise
     except Exception as error:
@@ -304,121 +301,110 @@ def _link_assembly(
                 )
             ]
         ) from error
-    return _resolved_spec(
+    return _resolved_invocation(
         experiment,
         config=config,
         workspace=workspace,
         config_source=config_source,
         request=request,
         inputs=inputs,
-        parameter_view=parameter_view,
-        parameter_derivations=parameter_derivations,
-        authoring_diagnostics=context.diagnostics,
+        parameters=resolved_parameters.data,
+        authoring_diagnostics=[
+            *resolved_parameters.diagnostics,
+            *context.diagnostics,
+        ],
     )
 
 
-def _resolved_spec(
-    experiment: ExperimentSpec,
+def _resolved_invocation(
+    experiment: LinkedProgram,
     *,
     config: ConfigProfileSnapshot,
     workspace: str | Path,
     config_source: RunConfigSource | None,
     request: RunRequest,
     inputs: Mapping[str, object],
-    parameter_view: ParameterViewSnapshot,
-    parameter_derivations: ParameterDerivationSet | None,
+    parameters: ParameterRelationData,
     authoring_diagnostics: list[Diagnostic] | None = None,
 ) -> ResolvedExperiment:
     del workspace
     diagnostics = list(authoring_diagnostics or [])
     if has_blocking_diagnostics(diagnostics):
         raise ValidationFailed(diagnostics)
-    selected_request = experiment.request or request
-    experiment = experiment.model_copy(
+    resolved_request = request.model_copy(
         update={
-            "request": selected_request,
-            "config_snapshot_id": config.id,
+            "config_source": (
+                config_source.selector
+                if config_source is not None
+                else request.config_source
+            )
         }
     )
     return ResolvedExperiment(
         experiment=experiment,
-        template_id=selected_request.template_id,
+        request=resolved_request,
+        template_id=resolved_request.template_id,
         inputs=dict(inputs),
         config=config,
-        parameter_view=parameter_view,
-        parameter_derivations=parameter_derivations,
+        parameters=parameters,
         config_source=config_source,
         diagnostics=tuple(diagnostics),
     )
 
 
-def _effective_scans(invocation: ExperimentInvocation) -> tuple[ScanItem, ...]:
+def _effective_scans(invocation: ExperimentInvocation) -> tuple[Scan, ...]:
     defaults = invocation.template.default_scans
     overrides = tuple(invocation.scans)
     if not defaults:
         _validate_group_override_shape((), overrides)
         return overrides
     default_axis_ids = {
-        leaf.axis_id for scan in defaults for leaf in iter_scan_leaves(scan)
+        scan_point_id(leaf) for scan in defaults for leaf in iter_scan_leaves(scan)
     }
     _validate_group_override_shape(default_axis_ids, overrides)
     override_leaves = {
-        leaf.axis_id: leaf
+        scan_point_id(leaf): leaf
         for scan in overrides
         for leaf in iter_scan_leaves(scan)
-        if leaf.axis_id in default_axis_ids
+        if scan_point_id(leaf) in default_axis_ids
     }
     replaced = tuple(_replace_scan_leaves(scan, override_leaves) for scan in defaults)
     covered = set(override_leaves)
     additions = tuple(
         scan
         for scan in overrides
-        if not any(leaf.axis_id in covered for leaf in iter_scan_leaves(scan))
+        if not any(scan_point_id(leaf) in covered for leaf in iter_scan_leaves(scan))
     )
     return (*replaced, *additions)
 
 
 def _replace_scan_leaves(
-    scan: ScanItem,
-    replacements: Mapping[str, ScanLeaf],
-) -> ScanItem:
-    if isinstance(scan, ScanGroup):
-        return scan.__class__(
-            kind=scan.kind,
-            scans=tuple(
-                _replace_scan_leaves(child, replacements) for child in scan.scans
-            ),
+    scan: Scan,
+    replacements: Mapping[str, ScanLeafIntent],
+) -> Scan:
+    if isinstance(scan, ScanGroupIntent):
+        return replace_scan_group(
+            scan,
+            tuple(_replace_scan_leaves(child, replacements) for child in scan.scans),
         )
-    replacement = replacements.get(scan.axis_id)
+    if not isinstance(scan, PointScanIntent | ParameterScanIntent):
+        msg = "invalid scan handle"
+        raise TypeError(msg)
+    replacement = replacements.get(scan_point_id(scan))
     if replacement is None:
         return scan
-    return _inherit_default_scan_fields(scan, replacement)
-
-
-def _inherit_default_scan_fields(
-    default: ScanLeaf,
-    replacement: ScanLeaf,
-) -> ScanLeaf:
-    if not isinstance(default, ScanAxis) or not isinstance(replacement, ScanAxis):
-        return replacement
-    if replacement.point_values or not replacement.implicit_center:
-        return replacement
-    return replace(
-        replacement,
-        target_id=default.target_id,
-        center=default.center,
-    )
+    return inherit_default_scan_fields(scan, replacement)
 
 
 def _validate_group_override_shape(
     default_axis_ids: set[str] | tuple[()],
-    overrides: Sequence[ScanItem],
+    overrides: Sequence[Scan],
 ) -> None:
     known = set(default_axis_ids)
     for scan in overrides:
-        if not isinstance(scan, ScanGroup):
+        if not isinstance(scan, ScanGroupIntent):
             continue
-        axis_ids = {leaf.axis_id for leaf in iter_scan_leaves(scan)}
+        axis_ids = {scan_point_id(leaf) for leaf in iter_scan_leaves(scan)}
         existing = axis_ids & known
         if existing and existing != axis_ids:
             raise ValidationFailed(
@@ -439,7 +425,7 @@ def _validate_group_override_shape(
 def _merged_inputs(
     invocation: ExperimentInvocation,
 ) -> dict[str, object]:
-    merged = {
+    merged: dict[str, object] = {
         input_description.id: input_description.default
         for input_description in invocation.template.inputs
         if input_description.has_default
@@ -452,31 +438,33 @@ def _materialized_request(
     context: InvocationRequestContext,
     *,
     inputs: Mapping[str, object],
-    scans: Sequence[ScanItem],
+    scans: Sequence[Scan],
 ) -> RunRequest:
-    template_inputs = dict(context.template_inputs)
-    template_inputs.update(materialize_request_inputs(inputs))
+    template_inputs = project_run_request_inputs(context.template_inputs)
+    template_inputs.update(project_run_request_inputs(inputs))
     request_scans = list(context.scans)
     for scan in scans:
-        selected_scan = _bind_scan_inputs(scan, inputs)
-        request_scans.append(selected_scan.request_record())
-    return RunRequest(
-        id=context.id,
-        template_id=context.template_id,
-        template_inputs=template_inputs,
-        scans=request_scans,
-        operator=context.operator,
-        metadata=dict(context.metadata),
+        request_scans.append(project_scan_record(scan, inputs=inputs))
+    return RunRequest.model_validate(
+        {
+            "id": context.id,
+            "template_id": context.template_id,
+            "template_inputs": template_inputs,
+            "scans": request_scans,
+            "operator": context.operator,
+            "metadata": dict(context.metadata),
+        }
     )
 
 
 def _apply_scans(
-    assembly: ExperimentAssembly,
-    scans: Sequence[ScanItem],
+    assembly: ExperimentAssemblyInternal,
+    scans: Sequence[Scan],
     *,
     inputs: Mapping[str, object],
-) -> ExperimentAssembly:
+) -> ExperimentAssemblyInternal:
     _validate_scans(scans)
+    _validate_scan_target_types(assembly, scans)
     input_scans, extra_scans = _split_scans(assembly, scans)
     input_scans = tuple(sorted(input_scans, key=_scan_depends_on_point_row))
     point_source = _combine_ordered_point_sources(
@@ -497,60 +485,68 @@ def _apply_scans(
     return replace(
         assembly,
         point_source=point_source,
-        params=(
-            *assembly.params,
+        parameter_contracts=merge_parameter_contracts(
+            assembly.parameter_contracts,
+            *(scan_parameter_contracts(scan) for scan in scans),
+        ),
+        parameter_overlays=(
+            *assembly.parameter_overlays,
             *tuple(
-                _runtime_parameter_patch(scan, inputs)
+                _runtime_parameter_overlay_intent(scan)
                 for root in scans
                 for scan in iter_scan_leaves(root)
-                if isinstance(scan, ParameterScanAxis)
+                if isinstance(scan, ParameterScanIntent)
             ),
         ),
     )
 
 
 def _split_scans(
-    assembly: ExperimentAssembly,
-    scans: Sequence[ScanItem],
-) -> tuple[tuple[ScanItem, ...], tuple[ScanItem, ...]]:
+    assembly: ExperimentAssemblyInternal,
+    scans: Sequence[Scan],
+) -> tuple[tuple[Scan, ...], tuple[Scan, ...]]:
     input_axis_ids = {port.id for port in assembly.input_ports} | set(
         assembly.entity_inputs
     )
-    input_scans: list[ScanItem] = []
-    extra_scans: list[ScanItem] = []
+    input_scans: list[Scan] = []
+    extra_scans: list[Scan] = []
     for scan in scans:
         target = (
             input_scans
-            if any(leaf.axis_id in input_axis_ids for leaf in iter_scan_leaves(scan))
+            if any(
+                scan_point_id(leaf) in input_axis_ids for leaf in iter_scan_leaves(scan)
+            )
             else extra_scans
         )
         target.append(scan)
     return tuple(input_scans), tuple(extra_scans)
 
 
-def _scan_depends_on_point_row(scan: ScanItem) -> bool:
+def _scan_depends_on_point_row(scan: Scan) -> bool:
     return any(
-        isinstance(leaf, ScanAxis) and leaf.center is not None
+        isinstance(leaf, PointScanIntent) and leaf.center is not None
         for leaf in iter_scan_leaves(scan)
     )
 
 
 def _combine_ordered_point_sources(
-    sources: Sequence[RelationExpr],
-) -> RelationExpr | None:
+    sources: Sequence[ValueRef],
+) -> ValueRef | None:
     selected = tuple(sources)
     if not selected:
         return None
     if len(selected) == 1:
         return selected[0]
-    relation = selected[0]
-    for next_relation in selected[1:]:
-        relation = relation.cross(next_relation)
-    return relation
+    point_source = selected[0]
+    for next_source in selected[1:]:
+        point_source = point_source.cross(next_source)
+    return point_source
 
 
-def _validate_scans(scans: Sequence[ScanItem]) -> None:
-    axis_ids = [leaf.axis_id for scan in scans for leaf in iter_scan_leaves(scan)]
+def _validate_scans(scans: Sequence[Scan]) -> None:
+    axis_ids = [
+        scan_point_id(leaf) for scan in scans for leaf in iter_scan_leaves(scan)
+    ]
     duplicates = sorted(
         {axis_id for axis_id in axis_ids if axis_ids.count(axis_id) > 1}
     )
@@ -567,132 +563,87 @@ def _validate_scans(scans: Sequence[ScanItem]) -> None:
         )
 
 
-def _combined_scan_points(
-    scans: Sequence[ScanItem],
-    *,
-    inputs: Mapping[str, object],
-) -> RelationExpr:
-    selected = tuple(_bind_scan_inputs(scan, inputs) for scan in scans)
-    if len(selected) > 1:
-        selected = (cartesian(*selected),)
-    point_sources = tuple(scan.points for scan in selected)
-    if len(point_sources) == 1:
-        return point_sources[0]
-    relation = point_sources[0]
-    for next_relation in point_sources[1:]:
-        relation = relation.cross(next_relation)
-    return relation
-
-
-def _bind_scan_inputs(scan: ScanItem, inputs: Mapping[str, object]) -> ScanItem:
-    from scopecat.authoring.assembly import bind_input_refs
-
-    if isinstance(scan, ScanAxis):
-        if scan.center is not None:
-            return replace(scan, center=bind_input_refs(scan.center, inputs))
-        return scan
-    if isinstance(scan, ScanGroup):
-        return replace(
-            scan,
-            scans=tuple(_bind_scan_inputs(child, inputs) for child in scan.scans),
-        )
-    return scan
-
-
-def _runtime_parameter_patch(
-    scan: ParameterScanAxis,
-    inputs: Mapping[str, object],
-) -> ParameterPatchSpec:
-    return ParameterPatchSpec(
-        kind="update_rows",
-        table_id=scan.table_id,
-        key={
-            name: _bind_runtime_input_refs(as_scalar_expr(value), inputs)
-            for name, value in scan.key.items()
-        },
-        values={scan.column: col(scan.axis_id)},
-    )
-
-
-def _bind_runtime_input_refs(
-    expression: ScalarExpr,
-    inputs: Mapping[str, object],
-) -> ScalarExpr:
-    if expression.kind == "input":
-        input_name = expression.name
-        if not input_name:
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "runtime_scan_input_missing",
-                        "run-time scan key references an unnamed input",
-                        "run.scans",
-                    )
-                ]
+def _validate_scan_target_types(
+    assembly: ExperimentAssemblyInternal,
+    scans: Sequence[Scan],
+) -> None:
+    input_types = {port.id: port.value_type for port in assembly.input_ports}
+    for root in scans:
+        for scan in iter_scan_leaves(root):
+            expected = input_types.get(scan_point_id(scan))
+            if expected is None:
+                continue
+            require_assignable(
+                scan.target.value_type,
+                expected,
+                path=f"scans.{scan_point_id(scan)}",
             )
-        if input_name not in inputs:
-            return col(input_name)
-        return as_scalar_expr(inputs[input_name])
-    if expression.kind == "param_lookup":
-        return expression.model_copy(
-            update={
-                "key": {
-                    name: _bind_runtime_input_refs(value, inputs)
-                    for name, value in (expression.key or {}).items()
-                }
-            }
-        )
-    if expression.kind == "binary":
-        return expression.model_copy(
-            update={
-                "left": _bind_runtime_input_refs(
-                    _required_scalar(expression.left, "expression.left"),
-                    inputs,
-                ),
-                "right": _bind_runtime_input_refs(
-                    _required_scalar(expression.right, "expression.right"),
-                    inputs,
-                ),
-            }
-        )
-    if expression.kind == "case":
-        return expression.model_copy(
-            update={
-                "cases": [
-                    branch.model_copy(
-                        update={
-                            "condition": _bind_runtime_input_refs(
-                                branch.condition,
-                                inputs,
-                            ),
-                            "value": _bind_runtime_input_refs(branch.value, inputs),
-                        }
-                    )
-                    for branch in (expression.cases or [])
-                ],
-                "fallback": _bind_runtime_input_refs(
-                    _required_scalar(expression.fallback, "expression.fallback"),
-                    inputs,
-                ),
-            }
-        )
-    return expression
 
 
-def _required_scalar(value: ScalarExpr | None, path: str) -> ScalarExpr:
-    if value is None:
-        raise ValidationFailed(
-            [
+def _validate_point_dependencies(
+    assembly: ExperimentAssemblyInternal,
+    scans: Sequence[Scan],
+) -> None:
+    scan_types = {
+        scan_point_id(scan): scan.target.value_type
+        for root in scans
+        for scan in iter_scan_leaves(root)
+    }
+    diagnostics: list[Diagnostic] = []
+    for dependency in assembly.point_dependencies:
+        actual = scan_types.get(dependency.id)
+        if actual is None:
+            diagnostics.append(
                 _diagnostic(
                     "error",
-                    "runtime_scan_expression_invalid",
-                    f"run-time scan expression missing {path}",
-                    "run.scans",
+                    "experiment_point_dependency_missing",
+                    f"module requires point {dependency.id!r}, but no scan provides it",
+                    f"scans.{dependency.id}",
                 )
-            ]
+            )
+            continue
+        if is_assignable(actual, dependency.value_type):
+            continue
+        diagnostics.append(
+            _diagnostic(
+                "error",
+                "experiment_point_dependency_type_mismatch",
+                f"scan for point {dependency.id!r} provides "
+                f"{describe_value_type(actual)}, but the module requires "
+                f"{describe_value_type(dependency.value_type)}",
+                f"scans.{dependency.id}",
+            )
         )
-    return value
+    if diagnostics:
+        raise ValidationFailed(diagnostics)
+
+
+def _combined_scan_points(
+    scans: Sequence[Scan],
+    *,
+    inputs: Mapping[str, object],
+) -> ValueRef:
+    selected = tuple(scans)
+    if len(selected) > 1:
+        selected = (cartesian(*selected),)
+    point_sources = tuple(lower_scan_points(scan, inputs=inputs) for scan in selected)
+    if len(point_sources) == 1:
+        return point_sources[0]
+    point_source = point_sources[0]
+    for next_source in point_sources[1:]:
+        point_source = point_source.cross(next_source)
+    return point_source
+
+
+def _runtime_parameter_overlay_intent(
+    scan: ParameterScanIntent,
+) -> ParameterScanOverlayIntent:
+    return ParameterScanOverlayIntent(
+        table_id=scan.table_id,
+        key=scan.key,
+        column_id=scan.column,
+        point_id=scan.point_id,
+    )
 
 
 def _resolve_config_source(

@@ -1,5 +1,5 @@
 {
-  "schema_version": "scopecat.system_spec.v0",
+  "schema_version": "scopecat.system_spec.v1",
   "id": "example-workspace-system",
   "workspace_id": "example-workspace",
   "primary_entity_id": "q0",
@@ -54,24 +54,23 @@
   },
   "metadata": {},
   "parameter_catalog": {
-    "schema_version": "scopecat.parameter_catalog.v2",
+    "schema_version": "scopecat.parameter_catalog.v4",
     "id": "example-parameter-definitions-catalog",
-    "scalar_definitions": [
+    "definitions": [
       {
         "id": "drive_frequency",
-        "unit": "GHz",
-        "safety_min": {
-          "value": 4.0,
-          "unit": "GHz"
-        },
-        "safety_max": {
-          "value": 6.0,
-          "unit": "GHz"
+        "value_type": {
+          "shape": "scalar",
+          "atom": {
+            "type": "quantity",
+            "unit": "GHz",
+            "minimum": 4.0,
+            "maximum": 6.0
+          }
         },
         "description": "Example drive frequency."
       }
     ],
-    "table_definitions": [],
     "metadata": {}
   },
   "routing": {

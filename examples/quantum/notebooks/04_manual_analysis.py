@@ -37,7 +37,11 @@ analysis = (
     .input("raw-measurements", expected_kind="measurement_dataset")
     .propose(
         "readout_frequency",
-        sc.set_param("readout_frequency", sc.Quantity(5.953, "GHz")),
+        sc.update_parameter_rows(
+            "qubits",
+            key={"qubit": "q0"},
+            values={"readout_frequency": sc.Quantity(5.953, "GHz")},
+        ),
         reason="lowest S21 point in the readout scan",
         confidence=0.8,
     )
@@ -56,14 +60,14 @@ follow_up = (
 )
 
 # %%
-change = analysis.parameter_changes[0]
-patch = change.patches[0]
+proposal = analysis.parameter_proposals[0]
+delta = proposal.deltas[0]
 summary = {
     "baseline": baseline.id,
     "follow_up": follow_up.id,
     "measurements": len(raw.dataset.records),
     "saved_analysis": saved_analysis.record.id,
     "candidate": candidate.analysis_key,
-    "parameter_change": f"{patch.parameter_id} = {patch.value}",
+    "parameter_change": f"{delta.parameter_id} = {delta.after}",
 }
 print(summary)

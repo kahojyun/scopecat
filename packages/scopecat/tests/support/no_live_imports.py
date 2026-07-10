@@ -10,6 +10,7 @@ from scopecat.authoring._invocation_plan import prepare_invocation
 from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import (
     activate_config_registry_entry,
+    current_config_registry_generation,
     load_config_registry_config,
     resolve_config_registry_config_source,
     rollback_config_registry,
@@ -67,7 +68,9 @@ def _candidate_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfig:
     run = lab.get_run(run_id)
     analysis = run.analyze(BestSignalAnalysisStep())
     analysis.save()
-    return analysis.candidate_config()
+    candidate = analysis.candidate_config()
+    lab.review_parameter_proposal(run, candidate.proposal_ids[0])
+    return candidate
 
 
 def exercise_preview(workspace: Path) -> None:
@@ -114,10 +117,15 @@ def exercise_config_registry(workspace: Path) -> None:
         registered_by="operator",
         operator="operator",
     )
+    active_config, active_source = resolve_config_registry_config_source(
+        selector="active",
+        workspace=workspace,
+    )
     candidate_seed, _snapshot = execute_signal_run(
-        config=config,
+        config=active_config,
         experiment=experiment,
         workspace=workspace,
+        config_source=active_source,
     )
     seed_candidate = _candidate_best_signal(workspace, candidate_seed.run_id)
     register_and_activate_candidate_config(
@@ -128,17 +136,22 @@ def exercise_config_registry(workspace: Path) -> None:
         operator="operator",
     )
     load_config_registry_config(entry_id="candidate-a", workspace=workspace)
-    activate_config_registry_entry(
-        entry_id="candidate-a",
+    rollback_config_registry(
         workspace=workspace,
         operator="operator",
+        expected_generation=current_config_registry_generation(workspace=workspace),
     )
     activate_config_registry_entry(
         entry_id="candidate-b",
         workspace=workspace,
         operator="operator",
+        expected_generation=current_config_registry_generation(workspace=workspace),
     )
-    rollback_config_registry(workspace=workspace, operator="operator")
+    rollback_config_registry(
+        workspace=workspace,
+        operator="operator",
+        expected_generation=current_config_registry_generation(workspace=workspace),
+    )
     config_source_config, config_source = resolve_config_registry_config_source(
         selector="active",
         workspace=workspace,

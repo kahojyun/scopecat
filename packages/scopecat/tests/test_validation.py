@@ -566,9 +566,7 @@ def test_routing_binding_groups_must_match_channel_topology() -> None:
 
 def test_unsupported_unit_fails_model_validation() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["parameter_state"]["scalar_values"]["values"][0]["quantity"]["unit"] = (
-        "furlong"
-    )
+    config_data["parameter_snapshot"]["values"][0]["value"]["unit"] = "furlong"
 
     with pytest.raises(ValidationError):
         ConfigProfileSnapshot.model_validate(config_data)
@@ -576,19 +574,19 @@ def test_unsupported_unit_fails_model_validation() -> None:
 
 def test_parameter_value_without_definition_is_error() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["parameter_catalog"]["scalar_definitions"] = []
+    config_data["system"]["parameter_catalog"]["definitions"] = []
     config = ConfigProfileSnapshot.model_validate(config_data)
 
     diagnostics = validate_config(config)
 
     assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "unknown_parameter_value_definition"
+    assert diagnostics[0].code == "unknown_parameter_definition"
 
 
 def test_duplicate_parameter_id_fails_model_validation() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["parameter_state"]["scalar_values"]["values"].append(
-        config_data["parameter_state"]["scalar_values"]["values"][0]
+    config_data["parameter_snapshot"]["values"].append(
+        config_data["parameter_snapshot"]["values"][0]
     )
 
     with pytest.raises(ValidationError):
@@ -597,48 +595,48 @@ def test_duplicate_parameter_id_fails_model_validation() -> None:
 
 def test_incompatible_parameter_value_unit_is_error() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["parameter_state"]["scalar_values"]["values"][0]["quantity"]["unit"] = (
-        "dBm"
-    )
+    config_data["parameter_snapshot"]["values"][0]["value"]["unit"] = "dBm"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
     diagnostics = validate_config(config)
 
     assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "incompatible_parameter_value_unit"
+    assert diagnostics[0].code == "incompatible_parameter_quantity_unit"
 
 
-def test_parameter_value_outside_safety_limits_is_error() -> None:
+def test_parameter_value_outside_declared_bounds_is_error() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["parameter_state"]["scalar_values"]["values"][0]["quantity"][
-        "value"
-    ] = 7.0
+    config_data["parameter_snapshot"]["values"][0]["value"]["value"] = 7.0
     config = ConfigProfileSnapshot.model_validate(config_data)
 
     diagnostics = validate_config(config)
 
     assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "parameter_value_outside_safety_limits"
+    assert diagnostics[0].code == "invalid_parameter_quantity"
 
 
 def test_parameter_table_rows_are_validated_against_catalog() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["parameter_catalog"]["table_definitions"] = [
+    config_data["system"]["parameter_catalog"]["definitions"].append(
         {
             "id": "readout_steps",
-            "primary_key": ["step_id"],
-            "columns": [
-                {"id": "step_id", "value_type": {"type": "string"}},
-                {
-                    "id": "frequency",
-                    "value_type": {"type": "quantity", "unit": "GHz"},
-                },
-            ],
+            "value_type": {
+                "shape": "table",
+                "primary_key": ["step_id"],
+                "columns": [
+                    {"id": "step_id", "value_type": {"type": "string"}},
+                    {
+                        "id": "frequency",
+                        "value_type": {"type": "quantity", "unit": "GHz"},
+                    },
+                ],
+            },
         }
-    ]
-    config_data["parameter_state"]["tables"] = [
+    )
+    config_data["parameter_snapshot"]["values"].append(
         {
             "id": "readout_steps",
+            "shape": "table",
             "rows": [
                 {
                     "step_id": "prepare",
@@ -646,38 +644,45 @@ def test_parameter_table_rows_are_validated_against_catalog() -> None:
                 }
             ],
         }
-    ]
+    )
     config = ConfigProfileSnapshot.model_validate(config_data)
 
     diagnostics = validate_config(config)
 
     assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "incompatible_parameter_table_quantity_unit"
+    assert diagnostics[0].code == "incompatible_parameter_quantity_unit"
 
 
 def test_quantity_primary_keys_are_normalized_before_duplicate_detection() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["parameter_catalog"]["table_definitions"] = [
+    config_data["system"]["parameter_catalog"]["definitions"].append(
         {
             "id": "frequencies",
-            "primary_key": ["frequency"],
-            "columns": [
-                {
-                    "id": "frequency",
-                    "value_type": {"type": "quantity", "dimension": "frequency"},
-                }
-            ],
+            "value_type": {
+                "shape": "table",
+                "primary_key": ["frequency"],
+                "columns": [
+                    {
+                        "id": "frequency",
+                        "value_type": {
+                            "type": "quantity",
+                            "dimension": "frequency",
+                        },
+                    }
+                ],
+            },
         }
-    ]
-    config_data["parameter_state"]["tables"] = [
+    )
+    config_data["parameter_snapshot"]["values"].append(
         {
             "id": "frequencies",
+            "shape": "table",
             "rows": [
                 {"frequency": {"value": 5.0, "unit": "GHz"}},
                 {"frequency": {"value": 5000.0, "unit": "MHz"}},
             ],
         }
-    ]
+    )
     config = ConfigProfileSnapshot.model_validate(config_data)
 
     diagnostics = validate_config(config)

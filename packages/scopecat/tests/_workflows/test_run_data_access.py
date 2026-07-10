@@ -4,13 +4,17 @@ from pathlib import Path
 
 import pytest
 
+import scopecat as sc
 from scopecat._storage.local import LocalRunStore
+from scopecat._storage.refs import CONFIG_PROFILE_SNAPSHOT_REF
 from scopecat._workflows.runs import (
     list_run_artifacts,
     list_run_payload_entries,
     list_runs,
     load_run,
-    load_structured_run,
+    load_run_config,
+    load_run_plan,
+    load_run_request,
     read_run_artifact_bytes,
     read_run_artifact_text,
     read_run_data_array,
@@ -52,9 +56,9 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
 
     runs = list_runs(workspace=tmp_path)
     details = load_run(run_id=candidate.run_id, workspace=tmp_path)
-    structured_details = load_structured_run(
-        run_id=candidate.run_id, workspace=tmp_path
-    )
+    run_config = load_run_config(run_id=candidate.run_id, workspace=tmp_path)
+    run_request = load_run_request(run_id=candidate.run_id, workspace=tmp_path)
+    run_plan = load_run_plan(run_id=candidate.run_id, workspace=tmp_path)
     artifacts = list_run_artifacts(
         run_id=candidate.run_id,
         workspace=tmp_path,
@@ -99,10 +103,11 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         "readout-matrix",
     }
     assert any(record.id == "execution-summary" for record in details.manifest.records)
-    assert structured_details.manifest == details.manifest
-    assert structured_details.config.workspace_id == "example-workspace"
-    assert structured_details.experiment.id == "simple-scan"
-    assert structured_details.experiment.records
+    assert run_config.workspace_id == "example-workspace"
+    assert run_request is not None
+    assert run_request.id == "test.workflow_scan.request"
+    assert run_plan.experiment_id == "simple-scan"
+    assert run_plan.records
     assert artifacts == ()
     assert {entry.id for entry in payload_entries} >= {
         "raw-measurements",
@@ -122,18 +127,35 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
     ]
 
 
-def test_load_run_is_evidence_first_for_capture_runs(tmp_path: Path) -> None:
+def test_run_inputs_are_loaded_independently_for_capture_runs(tmp_path: Path) -> None:
     manifest = RunManifest(run_id="run_capture", status="completed")
-    LocalRunStore(tmp_path).write_manifest(manifest)
+    config = load_config()
+    storage = LocalRunStore(tmp_path)
+    storage.write_manifest(manifest)
+    storage.write_model(
+        manifest.run_id,
+        CONFIG_PROFILE_SNAPSHOT_REF,
+        config,
+    )
 
     details = load_run(run_id=manifest.run_id, workspace=tmp_path)
-    with pytest.raises(ValidationFailed) as structured_error:
-        load_structured_run(run_id=manifest.run_id, workspace=tmp_path)
+    loaded_config = load_run_config(run_id=manifest.run_id, workspace=tmp_path)
+    loaded_request = load_run_request(run_id=manifest.run_id, workspace=tmp_path)
+    with pytest.raises(ValidationFailed) as plan_error:
+        load_run_plan(run_id=manifest.run_id, workspace=tmp_path)
 
     assert details.manifest == manifest
-    assert structured_error.value.diagnostics[0].code == (
-        "structured_run_inputs_missing"
-    )
+    assert loaded_config == config
+    assert loaded_request is None
+    assert plan_error.value.diagnostics[0].code == "run_plan_missing"
+
+    workspace = sc.open(tmp_path, config_profile=config)
+    handle = workspace.get_run(manifest.run_id)
+    assert handle.config == config
+    assert handle.request is None
+    with pytest.raises(ValidationFailed) as handle_plan_error:
+        _ = handle.plan
+    assert handle_plan_error.value.diagnostics[0].code == "run_plan_missing"
 
 
 def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:

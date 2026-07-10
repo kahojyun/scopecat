@@ -10,9 +10,10 @@ from pydantic import BaseModel
 from scopecat._planning.planner import PlannerPoint
 from scopecat._runtime.graph import RuntimeComputeStep, RuntimeGraph, RuntimePoint
 from scopecat._runtime.lowering import evaluate_compute_nodes_for_point
+from scopecat._runtime.models import PointRouteBinding
 from scopecat.diagnostics import Diagnostic
-from scopecat.experiments import PointRouteBinding
 from scopecat.models.artifact import CommandPayload
+from scopecat.models.entity import EntityRef, entity_identity
 
 
 @dataclass(frozen=True)
@@ -171,20 +172,13 @@ def _compute_signature(
             ),
         ),
         (
-            "scalar_params",
+            "parameters",
             tuple(
                 (
                     parameter_id,
-                    _versioned_value(point.params.scalars.get(parameter_id)),
+                    _versioned_value(_parameter_value(point, parameter_id)),
                 )
-                for parameter_id in dependencies.scalar_params
-            ),
-        ),
-        (
-            "parameter_tables",
-            tuple(
-                (table_id, _versioned_value(point.params.tables.get(table_id)))
-                for table_id in dependencies.parameter_tables
+                for parameter_id in dependencies.parameters
             ),
         ),
         (
@@ -204,6 +198,13 @@ def _compute_signature(
     )
 
 
+def _parameter_value(point: RuntimePoint, parameter_id: str) -> object:
+    try:
+        return point.params.value(parameter_id)
+    except KeyError:
+        return None
+
+
 def _route_for_port(point: RuntimePoint, port_id: str) -> PointRouteBinding | None:
     for route in point.route_bindings:
         if route.port_id == port_id:
@@ -214,6 +215,8 @@ def _route_for_port(point: RuntimePoint, port_id: str) -> PointRouteBinding | No
 def _versioned_value(value: object) -> object:
     if value is None or isinstance(value, str | int | float | bool):
         return value
+    if isinstance(value, EntityRef):
+        return ("entity", *entity_identity(value))
     if isinstance(value, BaseModel):
         return (
             type(value).__module__,

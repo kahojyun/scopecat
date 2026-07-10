@@ -6,8 +6,13 @@ import math
 from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict
-from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
-from scopecat.models.parameter import Quantity
+from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.models.entity import EntityRef
+from scopecat.models.parameter import (
+    Quantity,
+    ScalarParameterValue,
+    TableParameterValue,
+)
 from scopecat.results import ComplexQuantity
 
 
@@ -34,34 +39,66 @@ class ReadoutResponseModel(BaseModel):
     phase_slope: float = 0.55
 
 
-def _settings_from_config(config: ConfigProfileSnapshot) -> ReadoutSettings:
+def _settings_from_config(
+    config: ConfigProfileSnapshot,
+    *,
+    qubit: str,
+) -> ReadoutSettings:
     return ReadoutSettings(
         readout_frequency_ghz=_frequency_to_ghz(
-            _quantity(config, "readout_frequency", 5.95, "GHz")
+            _qubit_quantity(config, qubit=qubit, column="readout_frequency")
         ),
         readout_power_dbm=_power_to_dbm(
-            _quantity(config, "readout_power", -27.0, "dBm")
+            _qubit_quantity(config, qubit=qubit, column="readout_power")
         ),
-        demod_frequency_mhz=_frequency_to_mhz(
-            _quantity(config, "demod_frequency", 100.0, "MHz")
-        ),
-        start_delay_ns=_time_to_ns(_quantity(config, "start_delay", 240.0, "ns")),
-        phase_offset_rad=_phase_to_rad(_quantity(config, "readout_phase", 0.0, "rad")),
-        reps=int(_quantity(config, "repetitions", 600.0, "count").value),
-        z_offset=_quantity(config, "readout_z_offset", 0.0, "arb").value,
+        demod_frequency_mhz=100.0,
+        start_delay_ns=240.0,
+        phase_offset_rad=0.0,
+        reps=int(_scalar_quantity(config, "repetitions").value),
+        z_offset=0.0,
     )
 
 
-def _quantity(
+def _scalar_quantity(
     config: ConfigProfileSnapshot,
     parameter_value_id: str,
-    default_value: float,
-    default_unit: str,
 ) -> Quantity:
-    parameter_value = build_config_parameters(config).get(parameter_value_id)
-    if parameter_value is None:
-        return Quantity(value=default_value, unit=default_unit)
-    return parameter_value.quantity
+    stored = config.parameter_snapshot.get(parameter_value_id)
+    if not isinstance(stored, ScalarParameterValue) or not isinstance(
+        stored.value, Quantity
+    ):
+        msg = f"parameter {parameter_value_id!r} must be a quantity"
+        raise TypeError(msg)
+    return stored.value
+
+
+def _qubit_quantity(
+    config: ConfigProfileSnapshot,
+    *,
+    qubit: str,
+    column: str,
+) -> Quantity:
+    stored = config.parameter_snapshot.get("qubits")
+    if not isinstance(stored, TableParameterValue):
+        msg = "parameter 'qubits' must be a table"
+        raise TypeError(msg)
+    matching_rows = [
+        row for row in stored.rows if _entity_id(row.get("qubit")) == qubit
+    ]
+    if len(matching_rows) != 1:
+        msg = f"parameter 'qubits' must contain exactly one row for {qubit!r}"
+        raise ValueError(msg)
+    value = matching_rows[0].get(column)
+    if not isinstance(value, Quantity):
+        msg = f"parameter 'qubits'.{column} must be a quantity"
+        raise TypeError(msg)
+    return value
+
+
+def _entity_id(value: object) -> str | None:
+    if isinstance(value, EntityRef):
+        return value.id
+    return value if isinstance(value, str) else None
 
 
 def _record_raw_measurement(
@@ -130,49 +167,11 @@ def _frequency_to_ghz(quantity: Quantity) -> float:
     raise ValueError(f"unsupported frequency unit: {unit}")
 
 
-def _frequency_to_mhz(quantity: Quantity) -> float:
-    value = quantity.value
-    unit = quantity.unit
-    if unit == "GHz":
-        return value * 1000
-    if unit == "MHz":
-        return value
-    if unit == "kHz":
-        return value / 1000
-    if unit == "Hz":
-        return value / 1_000_000
-    raise ValueError(f"unsupported frequency unit: {unit}")
-
-
-def _time_to_ns(quantity: Quantity) -> float:
-    value = quantity.value
-    unit = quantity.unit
-    if unit == "s":
-        return value * 1_000_000_000
-    if unit == "ms":
-        return value * 1_000_000
-    if unit == "us":
-        return value * 1000
-    if unit == "ns":
-        return value
-    raise ValueError(f"unsupported time unit: {unit}")
-
-
 def _power_to_dbm(quantity: Quantity) -> float:
     unit = quantity.unit
     if unit != "dBm":
         raise ValueError(f"unsupported power unit: {unit}")
     return quantity.value
-
-
-def _phase_to_rad(quantity: Quantity) -> float:
-    value = quantity.value
-    unit = quantity.unit
-    if unit == "rad":
-        return value
-    if unit == "deg":
-        return value * math.pi / 180
-    raise ValueError(f"unsupported phase unit: {unit}")
 
 
 __all__ = [

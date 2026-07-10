@@ -34,8 +34,9 @@ def analyze_readout_frequency_measurements(
     measurements: list[MeasurementRecord],
     input_ref: str,
     config: ConfigProfileSnapshot,
+    qubit: str,
 ) -> ReadoutFrequencyAnalysisSummary:
-    settings = _settings_from_config(config)
+    settings = _settings_from_config(config, qubit=qubit)
     processed_measurements = [
         _process_measurement(
             measurement=measurement,

@@ -3,10 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from demo_lab_experiment_testkit import load_experiment_config
-from scopecat.authoring import ExperimentInvocation, resolve_experiment
-from scopecat.experiments import (
-    ExperimentSpec,
-)
+from scopecat.authoring import ExperimentInvocation
 from scopecat.instruments import PayloadRef, RuntimePayloadObservation
 from scopecat.models.artifact import CommandPayload
 
@@ -15,6 +12,7 @@ from quantum_lab_demo.experiments.payloads import (
     RandomizedBenchmarkingPulseBundle,
     RandomizedBenchmarkingSequence,
 )
+from quantum_lab_demo.experiments.points import CLIFFORD_COUNT
 from quantum_lab_demo.lab import quantum_lab
 
 
@@ -22,15 +20,9 @@ def test_sequence_compilation_stays_memory_payload_boundary(
     tmp_path: Path,
 ) -> None:
     invocation = SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan(
-        "clifford_count",
+        CLIFFORD_COUNT,
         [4, 8],
     )
-    resolved = resolve_experiment(
-        invocation,
-        workspace=tmp_path,
-        config_profile=load_experiment_config(),
-    )
-    assert isinstance(resolved.experiment, ExperimentSpec)
     preview = (
         quantum_lab(
             workspace=tmp_path,

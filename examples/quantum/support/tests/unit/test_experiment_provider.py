@@ -12,11 +12,10 @@ from scopecat.authoring import (
     ExperimentInvocation,
     PayloadType,
     ScalarType,
-    resolve_experiment,
 )
+from scopecat.authoring._resolution import resolve_experiment
 from scopecat.config_profiles import load_config_profile
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import ExperimentSpec
 from scopecat.instruments import RuntimeEvent
 from scopecat.instruments.sdk import InstrumentProviderContext
 from scopecat.models.config import ConfigProfileSnapshot
@@ -31,11 +30,27 @@ from quantum_lab_demo.experiments import (
     SQG_RB_TEMPLATE,
     TOY_SURFACE_CODE_ROUND_TEMPLATE,
 )
+from quantum_lab_demo.experiments.points import (
+    CLIFFORD_COUNT,
+    COUPLER_AMPLITUDE,
+    COUPLER_DURATION,
+)
+from quantum_lab_demo.experiments.readout_responses import _settings_from_config
 from quantum_lab_demo.lab import quantum_lab
 
 
 def load_config() -> ConfigProfileSnapshot:
     return load_config_profile(EXPERIMENT_FIXTURE_DIR / "config-profile.json")
+
+
+def test_readout_settings_come_from_the_typed_qubit_table() -> None:
+    q0 = _settings_from_config(load_config(), qubit="q0")
+    q1 = _settings_from_config(load_config(), qubit="q1")
+
+    assert q0.readout_frequency_ghz == 6.5
+    assert q0.readout_power_dbm == -20.0
+    assert q1.readout_frequency_ghz == 6.7
+    assert q1.readout_power_dbm == -21.0
 
 
 @pytest.mark.parametrize(
@@ -53,7 +68,7 @@ def load_config() -> ConfigProfileSnapshot:
         ),
         (
             SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan(
-                "clifford_count",
+                CLIFFORD_COUNT,
                 [4, 8],
             ),
             "clifford_count",
@@ -64,7 +79,7 @@ def load_config() -> ConfigProfileSnapshot:
                 control_qubit="q0",
                 partner_qubit="q1",
                 seed=17,
-            ).scan("clifford_count", [2, 4]),
+            ).scan(CLIFFORD_COUNT, [2, 4]),
             "clifford_count",
             2,
         ),
@@ -96,8 +111,8 @@ def test_cz_chevron_emits_waveform_compute_summaries(tmp_path: Path) -> None:
                 control_qubit="q0",
                 partner_qubit="q1",
             )
-            .scan("coupler_duration", [24], unit="ns")
-            .scan("coupler_amplitude", [0.18], unit="arb")
+            .scan(COUPLER_DURATION, [24], unit="ns")
+            .scan(COUPLER_AMPLITUDE, [0.18], unit="arb")
         )
         .run(
             event_sink=events.append,
@@ -127,17 +142,15 @@ def test_cz_chevron_emits_waveform_compute_summaries(tmp_path: Path) -> None:
         "coupler_pulse",
         "sample_rate_hz",
         "compiler_id",
-        "parameter_tables",
+        "parameters",
     ]
     assert program_summary["dependencies"] == {
-        "input_refs": ["control_qubit", "coupler", "partner_qubit"],
-        "parameter_tables": ["qubits", "two_qubit_gates"],
+        "parameters": ["qubits", "two_qubit_gates"],
         "point_columns": ["coupler_amplitude", "coupler_duration"],
     }
     assert drive_summary["sample_shape"] == [2, 24]
     assert drive_summary["dependencies"] == {
-        "input_refs": ["control_qubit", "coupler", "partner_qubit"],
-        "parameter_tables": ["qubits", "two_qubit_gates"],
+        "parameters": ["qubits", "two_qubit_gates"],
         "point_columns": ["coupler_amplitude", "coupler_duration"],
         "routes": ["drive"],
         "upstream_compute": ["build-cz-chevron-program"],
@@ -213,11 +226,10 @@ def test_rejects_invalid_payload_schema(
     tmp_path: Path,
 ) -> None:
     resolved = resolve_experiment(
-        SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan("clifford_count", [4]),
+        SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan(CLIFFORD_COUNT, [4]),
         workspace=tmp_path,
         config_profile=load_config(),
     )
-    assert isinstance(resolved.experiment, ExperimentSpec)
     sequence_node_id = "build-sqg-rb-sequence"
     experiment = resolved.experiment.model_copy(
         update={
@@ -243,8 +255,7 @@ def test_rejects_invalid_payload_schema(
             experiment=experiment,
             instruments=list(provider.drivers),
             workspace=tmp_path,
-            parameter_view=resolved.parameter_view,
-            parameter_derivations=resolved.parameter_derivations,
+            parameters=resolved.parameters,
         )
 
     assert error.value.diagnostics[0].code == "instrument_driver_field_value_mismatch"

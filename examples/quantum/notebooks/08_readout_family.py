@@ -11,6 +11,7 @@ from quantum_lab_demo.experiments import (
     QND_REPEATED_MEASUREMENT_TEMPLATE,
     READOUT_TEMPLATE,
 )
+from quantum_lab_demo.experiments.points import READOUT_FREQUENCY
 
 # %%
 workspace = notebook_workspace("08-readout-family")
@@ -20,7 +21,11 @@ lab = quantum_lab(workspace=workspace)
 single_readout_preview = (
     lab.prepare(READOUT_TEMPLATE)
     .input("qubit", "q0")
-    .scan("readout_frequency", span=sc.Quantity(value=80.0, unit="MHz"), points=5)
+    .scan(
+        READOUT_FREQUENCY,
+        span=sc.Quantity(value=80.0, unit="MHz"),
+        points=5,
+    )
     .preview(
         name="readout family single-qubit frequency scan",
         tags=("readout", "frequency"),
@@ -38,7 +43,11 @@ multiplexed_preview = lab.prepare(MULTIPLEXED_READOUT_TEMPLATE).preview(
 # %%
 multiplexed_calibration_preview = (
     lab.prepare(MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE)
-    .scan("readout_frequency", span=sc.Quantity(value=80.0, unit="MHz"), points=5)
+    .scan(
+        READOUT_FREQUENCY,
+        span=sc.Quantity(value=80.0, unit="MHz"),
+        points=5,
+    )
     .preview(
         name="readout family multiplexed calibration",
         tags=("readout", "multiplexed", "calibration"),

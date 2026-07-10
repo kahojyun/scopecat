@@ -7,96 +7,151 @@ import pytest
 
 import scopecat as sc
 import scopecat.authoring as authoring
+from scopecat._compute_result import ComputeResultRef
+from scopecat._relations import (
+    EvalContext,
+    input_ref,
+    param,
+)
 from scopecat._workflows.config import register_and_activate_config_profile
-from scopecat.authoring import (
-    resolve_experiment,
+from scopecat.authoring._binding_intents import (
+    ExperimentBindingIntent,
+    ResourcePort,
+    bind,
+    requires,
+    resource_port,
+)
+from scopecat.authoring._intents import (  # pyright: ignore[reportPrivateUsage]
+    ComputeNodeIntent,
+    ExperimentStateIntent,
+    ModuleInputPort,
 )
 from scopecat.authoring._invocation_plan import prepare_invocation
-from scopecat.authoring.assembly import ComputeNodeIntent, ExperimentAssembly
-from scopecat.authoring.resolution import (
+from scopecat.authoring._module_composition import (
+    ExperimentAssemblyInternal,
+    assemble_invocation_internal,
+    assemble_module_internal,
+)
+from scopecat.authoring._module_construction import module_from_parts_internal
+from scopecat.authoring._record_intents import (  # pyright: ignore[reportPrivateUsage]
+    ModuleProductPort,
+    RecordIntent,
+    observable,
+)
+from scopecat.authoring._request_values import (  # pyright: ignore[reportPrivateUsage]
+    project_run_request_inputs,
+)
+from scopecat.authoring._resolution import (
     _link_assembly,
     compile_prepared_invocation,
+    resolve_experiment,
+)
+from scopecat.authoring._scan_lowering import (  # pyright: ignore[reportPrivateUsage]
+    lower_scan_points,
+    project_scan_record,
+)
+from scopecat.authoring._value_refs import (
+    ValueRef,
+    internal_bind_value_ref_inputs,
+    internal_lower_scalar_value_ref,
+    internal_lower_value_ref,
+    internal_value_ref_parameter_contracts,
+    internal_value_ref_point_dependencies,
+)
+from scopecat.authoring.assembly import (
+    ExperimentModule,
+    ModuleInvocation,
 )
 from scopecat.errors import ValidationFailed
-from scopecat.experiments import (
-    ExperimentSpec,
-    RunRequest,
-)
 from scopecat.models.config import RoutingGraph, RoutingResource
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import (
-    ParameterTable,
-    ParameterTableColumn,
-    ParameterTableDefinition,
+    ParameterDefinition,
     Quantity,
+    TableParameterValue,
 )
-from scopecat.parameters import ParameterDerivationSet, ScalarParameterDerivation
-from scopecat.relations import RelationExpr, ScalarExpr, param, values
+from scopecat.models.run_request import RunRequest
 from tests.support.authoring import (
+    DRIVE_FREQUENCY_POINT,
     SIMPLE_MODULE,
     load_config,
     simple_template,
 )
 from tests.support.authoring import (
-    parameter_view as _parameter_view,
+    parameters as _parameters,
 )
 from tests.support.experiment_preview import preview_contract, preview_result
+
+
+def _table_definition(
+    *,
+    id: str,  # noqa: A002
+    primary_key: list[str],
+    columns: list[sc.TableColumn],
+) -> ParameterDefinition:
+    return ParameterDefinition(
+        id=id,
+        value_type=sc.TableType(
+            columns=tuple(columns),
+            primary_key=tuple(primary_key),
+        ),
+    )
+
+
+_QUANTITY_VALUE = authoring.ScalarType(authoring.QuantityType())
 
 
 def _around_parameter_points(
     parameter_id: str = "drive_frequency",
     *,
     points: int = 5,
-) -> RelationExpr:
-    return sc.axis(
-        parameter_id,
-        center=param(parameter_id),
-        span=Quantity(value=200.0, unit="MHz"),
-        points=points,
-    ).points
+) -> ValueRef:
+    return lower_scan_points(
+        sc.axis(
+            sc.point(parameter_id, _QUANTITY_VALUE),
+            center=sc.parameter(parameter_id, _QUANTITY_VALUE),
+            span=Quantity(value=200.0, unit="MHz"),
+            points=points,
+        )
+    )
 
 
 def _module_fixture(
     *,
     id: str,  # noqa: A002
     entity_inputs: Sequence[str] = (),
-    resources: Sequence[authoring.ResourcePort] = (),
-    variables: Sequence[authoring.VariableIntent] = (),
-    bindings: Sequence[authoring.ExperimentBindingIntent] = (),
-    state_intents: Sequence[authoring.ExperimentStateIntent] = (),
+    resources: Sequence[ResourcePort] = (),
+    bindings: Sequence[ExperimentBindingIntent] = (),
+    state_intents: Sequence[ExperimentStateIntent] = (),
     compute_nodes: Sequence[ComputeNodeIntent] = (),
-    records: Sequence[authoring.RecordIntent] = (),
-    product_ports: Sequence[authoring.ModuleProductPort] = (),
-    parameter_derivations: ParameterDerivationSet | None = None,
-) -> authoring.ExperimentModule:
-    return authoring.ExperimentModule(
+    records: Sequence[RecordIntent] = (),
+    product_ports: Sequence[ModuleProductPort] = (),
+) -> ExperimentModule:
+    return module_from_parts_internal(
         id=id,
         input_ports=tuple(
-            authoring.ModuleInputPort(
+            ModuleInputPort(
                 id=input_id,
                 value_type=authoring.ScalarType(authoring.EntityType()),
-                metadata={"role": "entity"},
             )
             for input_id in entity_inputs
         ),
-        resource_ports=tuple(resources),
-        variables=tuple(variables),
+        resources=tuple(resources),
         bindings=tuple(bindings),
         state_intents=tuple(state_intents),
         compute_nodes=tuple(compute_nodes),
         records=tuple(records),
         product_ports=tuple(product_ports),
-        parameter_derivations=parameter_derivations,
     )
 
 
 def _template_invocation(
-    *modules: authoring.ExperimentModule,
+    *modules: ExperimentModule,
     id: str,  # noqa: A002
     kind: str,
     experiment_id: str | None = None,
-    inputs: Mapping[str, object] | None = None,
-    metadata: Mapping[str, object] | None = None,
+    inputs: Mapping[str, authoring.RuntimeInput] | None = None,
+    metadata: Mapping[str, authoring.MetadataValue] | None = None,
 ) -> authoring.ExperimentInvocation:
     root_module = authoring.module(f"{id}.root").use(*modules).build()
     template = root_module.template(id, kind=kind)
@@ -116,11 +171,10 @@ def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
 
     assert resolved.template_id == "test.simple_scan"
     experiment = resolved.experiment
-    assert isinstance(experiment, ExperimentSpec)
     assert experiment.id == "authored-simple-scan"
     assert experiment.kind == "simple_scan"
     assert experiment.metadata == {"assembled_by": "template"}
-    preview = preview_contract(experiment, _parameter_view(), config=load_config())
+    preview = preview_contract(experiment, resolved.parameters, config=load_config())
 
     assert preview.coordinate_ids == ("drive_frequency",)
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
@@ -135,9 +189,13 @@ def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
 
 
 def test_template_selects_module_products_as_records() -> None:
+    subject = authoring.input(
+        "subject",
+        authoring.ScalarType(authoring.EntityType()),
+    )
     module = (
         authoring.module("test.product_module")
-        .entity("subject")
+        .inputs(subject)
         .resource("source", requires=("set_frequency",))
         .product("signal", resource="source", unit="ratio")
         .build()
@@ -145,13 +203,13 @@ def test_template_selects_module_products_as_records() -> None:
     without_selection = (
         module.template("test.product_unselected", kind="product_test")
         .experiment_id("product-unselected")
-        .scan("drive_frequency", [4.9, 5.0, 5.1], unit="GHz")
+        .scan(DRIVE_FREQUENCY_POINT, [4.9, 5.0, 5.1], unit="GHz")
         .build()
     )
     with_selection = (
         module.template("test.product_selected", kind="product_test")
         .experiment_id("product-selected")
-        .scan("drive_frequency", [4.9, 5.0, 5.1], unit="GHz")
+        .scan(DRIVE_FREQUENCY_POINT, [4.9, 5.0, 5.1], unit="GHz")
         .record_product("signal")
         .build()
     )
@@ -173,37 +231,49 @@ def test_template_selects_module_products_as_records() -> None:
 
 
 def test_compute_inputs_keep_template_input_provenance() -> None:
-    def build_program(**inputs: object) -> dict[str, object]:
-        return dict(inputs)
+    def build_program(
+        *,
+        qubit: object,
+        length: object,
+        frequency: object,
+    ) -> dict[str, object]:
+        return {
+            "qubit": qubit,
+            "length": length,
+            "frequency": frequency,
+        }
 
+    qubit = sc.input(
+        "qubit",
+        authoring.ScalarType(authoring.EntityType()),
+    )
+    pulse_length = sc.input(
+        "pulse_length",
+        authoring.ScalarType(authoring.QuantityType()),
+    )
+    build = sc.compute(
+        "build-program",
+        fn=build_program,
+        output_type=authoring.ScalarType(authoring.PayloadType("pulse")),
+        inputs={
+            "qubit": qubit,
+            "length": pulse_length,
+            "frequency": sc.parameter_lookup(
+                "sample_qubits",
+                key={"qubit": qubit},
+                column="drive_frequency",
+                value_type=authoring.ScalarType(authoring.QuantityType()),
+            ),
+        },
+    )
     module = (
         authoring.module("test.compute_provenance")
-        .input(
-            "qubit",
-            value_type=authoring.ScalarType(authoring.EntityType()),
-        )
-        .input(
-            "pulse_length",
-            value_type=authoring.ScalarType(authoring.QuantityType()),
-        )
+        .inputs(qubit, pulse_length)
         .resource("drive", requires=("play_pulse_program",))
-        .compute(
-            "build-program",
-            fn=build_program,
-            output_type=authoring.ScalarType(authoring.PayloadType("pulse")),
-            inputs={
-                "qubit": authoring.input_ref("qubit"),
-                "length": authoring.input_ref("pulse_length"),
-                "frequency": param(
-                    "sample_qubits",
-                    key={"qubit": authoring.input_ref("qubit")},
-                    column="drive_frequency",
-                ),
-            },
-        )
+        .computes(build)
         .bind(
             "drive.play_pulse_program.program",
-            authoring.compute_result("build-program"),
+            build.output,
         )
         .build()
     )
@@ -216,11 +286,59 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         )
         .build()
     )
+    seed_config = load_config()
+    catalog = seed_config.parameter_catalog.model_copy(
+        update={
+            "definitions": [
+                *seed_config.parameter_catalog.definitions,
+                _table_definition(
+                    id="sample_qubits",
+                    primary_key=["qubit"],
+                    columns=[
+                        sc.TableColumn(
+                            id="qubit",
+                            value_type=authoring.ScalarType(authoring.EntityType()),
+                        ),
+                        sc.TableColumn(
+                            id="drive_frequency",
+                            value_type=authoring.ScalarType(
+                                authoring.QuantityType(unit="GHz")
+                            ),
+                        ),
+                    ],
+                ),
+            ]
+        }
+    )
+    parameter_snapshot = seed_config.parameter_snapshot.model_copy(
+        update={
+            "values": [
+                *seed_config.parameter_snapshot.values,
+                TableParameterValue(
+                    id="sample_qubits",
+                    rows=[
+                        {
+                            "qubit": EntityRef(id="q0"),
+                            "drive_frequency": Quantity(value=5.0, unit="GHz"),
+                        }
+                    ],
+                ),
+            ]
+        }
+    )
+    config = seed_config.model_copy(
+        update={
+            "system": seed_config.system.model_copy(
+                update={"parameter_catalog": catalog}
+            ),
+            "parameter_snapshot": parameter_snapshot,
+        }
+    )
 
     resolved = resolve_experiment(
         template.bind(qubit="q0"),
         workspace=Path("/tmp/scopecat-test"),
-        config_profile=load_config(),
+        config_profile=config,
     )
     node = resolved.experiment.compute_nodes[0]
 
@@ -228,25 +346,58 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
     assert node.inputs["length"].source_inputs == ["pulse_length"]
     assert node.inputs["frequency"].source_inputs == ["qubit"]
     assert node.output_type == authoring.ScalarType(authoring.PayloadType("pulse"))
-    assert resolved.experiment.state[0].value == authoring.ComputeResultRef(
+    assert resolved.experiment.state[0].value == ComputeResultRef(
         node_id="build-program"
     )
 
 
+def test_compute_rejects_raw_inputs_without_an_inferable_type() -> None:
+    with pytest.raises(TypeError, match="inputs must be typed values"):
+        sc.compute(
+            "build-program",
+            fn=lambda *, frequency: frequency,
+            inputs={"frequency": param("drive_frequency")},  # type: ignore[dict-item]
+            output_type=authoring.ScalarType(authoring.QuantityType()),
+        )
+
+
+def test_compute_function_signature_must_match_explicit_inputs() -> None:
+    output_type = authoring.ScalarType(authoring.StringType())
+
+    with pytest.raises(TypeError, match="does not match declared inputs"):
+        sc.compute(
+            "missing-input",
+            fn=lambda *, value: value,
+            output_type=output_type,
+        )
+
+    with pytest.raises(TypeError, match="must use explicit named parameters"):
+        sc.compute(
+            "variadic-inputs",
+            fn=lambda **values: values,
+            inputs={"value": "declared"},
+            output_type=output_type,
+        )
+
+
 def test_template_can_scan_entity_input_without_subject_special_case() -> None:
+    qubit = authoring.input(
+        "qubit",
+        authoring.ScalarType(authoring.EntityType()),
+    )
     module = (
         authoring.module("test.entity_scan_module")
-        .input(
-            "qubit",
-            value_type=authoring.ScalarType(authoring.EntityType()),
-        )
+        .inputs(qubit)
         .product("signal", resource="source", unit="ratio")
         .build()
     )
     template = (
         module.template("test.entity_scan", kind="entity_scan")
         .experiment_id("entity-scan")
-        .scan("qubit", [EntityRef(id="q0", kind="logical_device")])
+        .scan(
+            sc.point("qubit", authoring.ScalarType(authoring.EntityType())),
+            [EntityRef(id="q0", kind="logical_device")],
+        )
         .record_product("signal")
         .build()
     )
@@ -256,7 +407,7 @@ def test_template_can_scan_entity_input_without_subject_special_case() -> None:
         workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
-    preview = preview_contract(resolved.experiment, resolved.parameter_view)
+    preview = preview_contract(resolved.experiment, resolved.parameters)
 
     assert preview.points[0].coordinates["qubit"] == EntityRef(
         id="q0", kind="logical_device"
@@ -267,6 +418,30 @@ def test_template_can_scan_entity_input_without_subject_special_case() -> None:
     )
     assert coordinate.dtype == "string"
     assert coordinate.metadata == {"entity_kind": "logical_device"}
+
+
+def test_entity_scan_captures_an_immutable_durable_snapshot() -> None:
+    subject = sc.point(
+        "subject",
+        sc.ScalarType(sc.EntityType()),
+    )
+    labels = ["data"]
+    entity = EntityRef(id="q0", metadata={"labels": labels})
+
+    scan = sc.axis(subject, [entity])
+    labels.append("changed")
+    with pytest.raises(TypeError, match="immutable"):
+        entity.metadata["late"] = True  # type: ignore[index]
+    request = project_scan_record(scan)
+
+    assert request.model_dump(mode="json")["values"] == [
+        {
+            "kind": "entity",
+            "entity_id": "q0",
+            "entity_kind": None,
+            "metadata": {"labels": ["data"]},
+        }
+    ]
 
 
 def test_entity_scan_routes_resources_per_point() -> None:
@@ -321,12 +496,17 @@ def test_entity_scan_routes_resources_per_point() -> None:
         }
     )
     config = seed_config.model_copy(update={"system": system})
+    qubit = authoring.input(
+        "qubit",
+        authoring.ScalarType(authoring.EntityType()),
+    )
     module = (
         authoring.module("test.entity_scan_routing")
-        .entity("qubit")
+        .inputs(qubit)
         .resource(
             "drive",
-            requires=authoring.requires("set_frequency", for_entities=("qubit",)),
+            requires=("set_frequency",),
+            for_entities=(qubit,),
         )
         .bind("drive.set_frequency.frequency", Quantity(value=5.0, unit="GHz"))
         .product("signal", resource="drive", unit="ratio")
@@ -336,7 +516,7 @@ def test_entity_scan_routes_resources_per_point() -> None:
         module.template("test.entity_scan_routing", kind="entity_scan_routing")
         .experiment_id("entity-scan-routing")
         .scan(
-            "qubit",
+            sc.point("qubit", authoring.ScalarType(authoring.EntityType())),
             [
                 EntityRef(id="q0", kind="logical_device"),
                 EntityRef(id="q1", kind="logical_device"),
@@ -353,7 +533,7 @@ def test_entity_scan_routes_resources_per_point() -> None:
     )
     preview = preview_contract(
         resolved.experiment,
-        resolved.parameter_view,
+        resolved.parameters,
         config=config,
     )
 
@@ -392,17 +572,19 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
     )
     catalog = seed_config.parameter_catalog.model_copy(
         update={
-            "table_definitions": [
-                *seed_config.parameter_catalog.table_definitions,
-                ParameterTableDefinition(
+            "definitions": [
+                *seed_config.parameter_catalog.definitions,
+                _table_definition(
                     id="sample_qubits",
                     primary_key=["qubit"],
                     columns=[
-                        ParameterTableColumn(
+                        sc.TableColumn(
                             id="qubit",
-                            value_type=sc.ScalarType(sc.StringType()),
+                            value_type=sc.ScalarType(
+                                sc.EntityType(entity_kind="logical_device")
+                            ),
                         ),
-                        ParameterTableColumn(
+                        sc.TableColumn(
                             id="drive_frequency",
                             value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
                         ),
@@ -411,11 +593,11 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
             ]
         }
     )
-    parameter_state = seed_config.parameter_state.model_copy(
+    parameter_snapshot = seed_config.parameter_snapshot.model_copy(
         update={
-            "tables": [
-                *seed_config.parameter_state.tables,
-                ParameterTable(
+            "values": [
+                *seed_config.parameter_snapshot.values,
+                TableParameterValue(
                     id="sample_qubits",
                     rows=[
                         {
@@ -462,21 +644,27 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
         }
     )
     config = seed_config.model_copy(
-        update={"system": system, "parameter_state": parameter_state}
+        update={"system": system, "parameter_snapshot": parameter_snapshot}
+    )
+    qubit = authoring.input(
+        "qubit",
+        authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
         authoring.module("test.runtime_entity_scan")
-        .entity("qubit")
+        .inputs(qubit)
         .resource(
             "drive",
-            requires=authoring.requires("set_frequency", for_entities=("qubit",)),
+            requires=("set_frequency",),
+            for_entities=(qubit,),
         )
         .bind(
             "drive.set_frequency.frequency",
-            param(
+            authoring.parameter_lookup(
                 "sample_qubits",
-                key={"qubit": authoring.input_ref("qubit")},
+                key={"qubit": qubit},
                 column="drive_frequency",
+                value_type=authoring.ScalarType(authoring.QuantityType(unit="GHz")),
             ),
         )
         .product("signal", resource="drive", unit="ratio")
@@ -490,13 +678,21 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
     )
 
     resolved = resolve_experiment(
-        template.bind().scan("qubit", ["q0", "q1"]),
+        template.bind().scan(
+            sc.point(
+                "qubit",
+                authoring.ScalarType(
+                    authoring.EntityType(entity_kind="logical_device")
+                ),
+            ),
+            ["q0", "q1"],
+        ),
         workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
     preview = preview_contract(
         resolved.experiment,
-        resolved.parameter_view,
+        resolved.parameters,
         config=config,
     )
 
@@ -534,17 +730,19 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
     )
     catalog = seed_config.parameter_catalog.model_copy(
         update={
-            "table_definitions": [
-                *seed_config.parameter_catalog.table_definitions,
-                ParameterTableDefinition(
+            "definitions": [
+                *seed_config.parameter_catalog.definitions,
+                _table_definition(
                     id="sample_qubits",
                     primary_key=["qubit"],
                     columns=[
-                        ParameterTableColumn(
+                        sc.TableColumn(
                             id="qubit",
-                            value_type=sc.ScalarType(sc.StringType()),
+                            value_type=sc.ScalarType(
+                                sc.EntityType(entity_kind="logical_device")
+                            ),
                         ),
-                        ParameterTableColumn(
+                        sc.TableColumn(
                             id="rabi_length",
                             value_type=sc.ScalarType(sc.QuantityType(unit="ns")),
                         ),
@@ -553,11 +751,11 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
             ]
         }
     )
-    parameter_state = seed_config.parameter_state.model_copy(
+    parameter_snapshot = seed_config.parameter_snapshot.model_copy(
         update={
-            "tables": [
-                *seed_config.parameter_state.tables,
-                ParameterTable(
+            "values": [
+                *seed_config.parameter_snapshot.values,
+                TableParameterValue(
                     id="sample_qubits",
                     rows=[
                         {
@@ -577,11 +775,15 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
         update={"topology": topology, "parameter_catalog": catalog},
     )
     config = seed_config.model_copy(
-        update={"system": system, "parameter_state": parameter_state}
+        update={"system": system, "parameter_snapshot": parameter_snapshot}
+    )
+    qubit = authoring.input(
+        "qubit",
+        authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
         authoring.module("test.runtime_entity_dependent_points")
-        .entity("qubit")
+        .inputs(qubit)
         .product("signal", unit="ratio")
         .build()
     )
@@ -592,11 +794,12 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
         )
         .experiment_id("runtime-entity-dependent-points")
         .scan(
-            "drive_length",
-            center=param(
+            sc.point("drive_length", _QUANTITY_VALUE),
+            center=sc.parameter_lookup(
                 "sample_qubits",
-                key={"qubit": authoring.input_ref("qubit")},
+                key={"qubit": qubit},
                 column="rabi_length",
+                value_type=_QUANTITY_VALUE,
             ),
             span=Quantity(value=20.0, unit="ns"),
             points=3,
@@ -606,13 +809,21 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
     )
 
     resolved = resolve_experiment(
-        template.bind().scan("qubit", ["q0", "q1"]),
+        template.bind().scan(
+            sc.point(
+                "qubit",
+                authoring.ScalarType(
+                    authoring.EntityType(entity_kind="logical_device")
+                ),
+            ),
+            ["q0", "q1"],
+        ),
         workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
     preview = preview_contract(
         resolved.experiment,
-        resolved.parameter_view,
+        resolved.parameters,
         config=config,
     )
 
@@ -630,19 +841,18 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
 
 
 def test_entity_series_input_can_define_record_axis() -> None:
+    qubits = sc.input(
+        "qubits",
+        authoring.SeriesType(authoring.ScalarType(authoring.EntityType())),
+    )
     module = (
         authoring.module("test.entity_series_axis_module")
-        .input(
-            "qubits",
-            value_type=authoring.SeriesType(
-                authoring.ScalarType(authoring.EntityType())
-            ),
-        )
+        .inputs(qubits)
         .product(
             "iq",
             resource="source",
             dtype="complex128",
-            axes=(authoring.entity_axis("qubit", authoring.input_series("qubits")),),
+            axes=(authoring.entity_axis("qubit", qubits),),
         )
         .build()
     )
@@ -703,7 +913,7 @@ def test_non_entity_string_series_defines_categorical_record_axis() -> None:
             axes=(
                 authoring.record_axis(
                     "component",
-                    size=values(["I", "Q"]),
+                    size=("I", "Q"),
                     kind="component",
                 ),
                 authoring.record_axis(
@@ -767,23 +977,23 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
         }
     )
     config = seed_config.model_copy(update={"system": system})
+    qubits = sc.input(
+        "qubits",
+        authoring.SeriesType(authoring.ScalarType(authoring.EntityType())),
+    )
     module = (
         authoring.module("test.entity_series_routing")
-        .input(
-            "qubits",
-            value_type=authoring.SeriesType(
-                authoring.ScalarType(authoring.EntityType())
-            ),
-        )
+        .inputs(qubits)
         .resource(
             "readout",
-            requires=authoring.requires("set_frequency", for_entities=("qubits",)),
+            requires=("set_frequency",),
+            for_entities=(qubits,),
         )
         .product(
             "iq",
             resource="readout",
             dtype="complex128",
-            axes=(authoring.entity_axis("qubit", authoring.input_series("qubits")),),
+            axes=(authoring.entity_axis("qubit", qubits),),
         )
         .build()
     )
@@ -801,7 +1011,7 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
     )
     preview = preview_contract(
         resolved.experiment,
-        resolved.parameter_view,
+        resolved.parameters,
         config=config,
     )
 
@@ -817,20 +1027,66 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
 
 def test_module_invocation_compiles_to_assembly_without_config() -> None:
     invocation = SIMPLE_MODULE(subject="q0")
-    assembly = invocation.assemble()
+    assembly = assemble_invocation_internal(invocation)
 
-    assert isinstance(invocation, authoring.ModuleInvocation)
-    assert isinstance(assembly, ExperimentAssembly)
+    assert isinstance(invocation, ModuleInvocation)
+    assert isinstance(assembly, ExperimentAssemblyInternal)
     assert assembly.experiment_id is None
     assert assembly.kind is None
     assert assembly.inputs == {"subject": "q0"}
     assert assembly.resource_ports[0].id == "source"
 
 
+def test_request_projection_explicitly_handles_authoring_semantic_values() -> None:
+    projected = project_run_request_inputs(
+        {
+            "subjects": (
+                EntityRef(id="q0", kind="qubit"),
+                EntityRef(id="q1", kind="qubit"),
+            )
+        }
+    )
+
+    assert projected == {
+        "subjects": [
+            {
+                "kind": "entity",
+                "entity_id": "q0",
+                "entity_kind": "qubit",
+                "metadata": {},
+            },
+            {
+                "kind": "entity",
+                "entity_id": "q1",
+                "entity_kind": "qubit",
+                "metadata": {},
+            },
+        ]
+    }
+
+
+def test_request_projection_rejects_transient_typed_and_compiler_values() -> None:
+    typed_value = sc.input(
+        "subject",
+        sc.ScalarType(sc.EntityType()),
+    )
+    transient_values = (
+        typed_value,
+        input_ref("subject"),
+        ComputeResultRef(node_id="build-program"),
+    )
+
+    for value in transient_values:
+        with pytest.raises(ValueError, match="unsupported authoring run request value"):
+            project_run_request_inputs({"value": value})
+        with pytest.raises(ValueError, match="unsupported authoring run request value"):
+            project_run_request_inputs({"nested": {"value": value}})
+
+
 def test_link_assembly_resolves_config_dependent_fragments() -> None:
-    source = SIMPLE_MODULE(subject="q0").assemble()
-    points = ExperimentAssembly(point_source=_around_parameter_points())
-    assembly = ExperimentAssembly.combine(
+    source = assemble_invocation_internal(SIMPLE_MODULE(subject="q0"))
+    points = ExperimentAssemblyInternal(point_source=_around_parameter_points())
+    assembly = ExperimentAssemblyInternal.combine(
         experiment_id="authored-simple-scan",
         kind="simple_scan",
         assemblies=(points, source),
@@ -845,72 +1101,27 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
         assembly,
         request=request,
         inputs={"subject": "q0"},
-        parameter_derivations=None,
         config=load_config(),
         workspace=Path("/tmp/scopecat-test"),
         config_source=None,
     )
 
     assert resolved.experiment.id == "authored-simple-scan"
-    assert resolved.experiment.config_snapshot_id == load_config().id
-    preview = preview_contract(resolved.experiment, resolved.parameter_view)
+    assert resolved.config.id == load_config().id
+    preview = preview_contract(resolved.experiment, resolved.parameters)
     assert preview.state_changes[0].resource == "source"
-
-
-def test_short_authoring_helpers_lower_to_plan() -> None:
-    module = _module_fixture(
-        id="test.short_helpers",
-        resources=[
-            authoring.resource_port("source", authoring.requires("set_frequency")),
-        ],
-        variables=[
-            authoring.derive(
-                "drive_detuning",
-                authoring.var_ref("drive_frequency")
-                - authoring.param_ref("drive_frequency"),
-            ),
-        ],
-        bindings=[
-            authoring.bind(
-                "source.set_frequency.frequency",
-                authoring.var_ref("drive_frequency"),
-            ),
-        ],
-        records=[authoring.observable("signal", resource="source", unit="ratio")],
-    )
-
-    resolved = resolve_experiment(
-        _template_invocation(
-            module,
-            id="test.short_helpers",
-            experiment_id="short-helper-scan",
-            kind="simple_scan",
-        ).scan(
-            "drive_frequency",
-            center=param("drive_frequency"),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=5,
-        ),
-        workspace=Path("/tmp/scopecat-test"),
-        config_profile=load_config(),
-    )
-    preview = preview_contract(resolved.experiment, _parameter_view())
-
-    assert resolved.experiment.id == "short-helper-scan"
-    assert preview.coordinate_ids == ("drive_frequency", "drive_detuning")
-    assert preview.state_changes[0].field == "set_frequency.frequency"
 
 
 def test_template_composition_merges_shared_resource_port_capabilities() -> None:
     pulse = _module_fixture(
         id="test.shared_resource.pulse",
         resources=[
-            authoring.resource_port("source", authoring.requires("set_frequency")),
+            resource_port("source", requires("set_frequency")),
         ],
         bindings=[
-            authoring.bind(
+            bind(
                 "source.set_frequency.frequency",
-                authoring.param_ref("drive_frequency"),
+                authoring.parameter("drive_frequency", _QUANTITY_VALUE),
             )
         ],
     )
@@ -918,9 +1129,9 @@ def test_template_composition_merges_shared_resource_port_capabilities() -> None
         id="test.shared_resource.records",
         entity_inputs=(),
         resources=[
-            authoring.resource_port("source", authoring.requires("acquire_signal")),
+            resource_port("source", requires("acquire_signal")),
         ],
-        records=[authoring.observable("signal", resource="source", unit="ratio")],
+        records=[observable("signal", resource="source", unit="ratio")],
     )
 
     compiled = compile_prepared_invocation(
@@ -934,7 +1145,7 @@ def test_template_composition_merges_shared_resource_port_capabilities() -> None
         )
     )
 
-    assert isinstance(compiled.assembly, ExperimentAssembly)
+    assert isinstance(compiled.assembly, ExperimentAssemblyInternal)
     assembly = compiled.assembly
     assert len(assembly.resource_ports) == 1
     assert assembly.resource_ports[0].id == "source"
@@ -944,18 +1155,38 @@ def test_template_composition_merges_shared_resource_port_capabilities() -> None
     )
 
 
+def test_resource_port_merge_deduplicates_only_the_same_value_handle() -> None:
+    entity_type = authoring.ScalarType(authoring.EntityType())
+    first = authoring.parameter("first_subject", entity_type)
+    second = authoring.parameter("second_subject", entity_type)
+    module = (
+        authoring.module("test.shared_resource.entities")
+        .resource("source", for_entities=(first,))
+        .resource("source", for_entities=(second,))
+        .resource("source", for_entities=(first,))
+        .build()
+    )
+
+    assembly = assemble_module_internal(module)
+    sources = assembly.resource_ports[0].selector.entity_inputs
+
+    assert len(sources) == 2
+    assert sources[0] is first
+    assert sources[1] is second
+
+
 def test_template_composition_rejects_duplicate_record_ids() -> None:
     first = _module_fixture(
         id="test.duplicate_record.first",
         resources=[
-            authoring.resource_port("source", authoring.requires("set_frequency")),
+            resource_port("source", requires("set_frequency")),
         ],
-        records=[authoring.observable("signal", resource="source", unit="ratio")],
+        records=[observable("signal", resource="source", unit="ratio")],
     )
     second = _module_fixture(
         id="test.duplicate_record.second",
         entity_inputs=(),
-        records=[authoring.observable("signal", resource="source", unit="ratio")],
+        records=[observable("signal", resource="source", unit="ratio")],
     )
 
     with pytest.raises(ValidationFailed) as error:
@@ -974,14 +1205,15 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
 
 
 def test_module_composition_invocation_literals_bind_local_inputs() -> None:
+    drive_frequency = authoring.input(
+        "drive_frequency",
+        authoring.ScalarType(authoring.QuantityType()),
+    )
     child = (
         authoring.module("test.invocation_defaults.child")
-        .input(
-            "drive_frequency",
-            value_type=authoring.ScalarType(authoring.QuantityType()),
-        )
+        .inputs(drive_frequency)
         .resource("source", requires=("set_frequency",))
-        .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
+        .bind("source.set_frequency.frequency", drive_frequency)
         .build()
     )
     parent = (
@@ -990,82 +1222,232 @@ def test_module_composition_invocation_literals_bind_local_inputs() -> None:
         .build()
     )
 
-    assembly = parent.assemble()
+    assembly = assemble_module_internal(
+        parent,
+    )
 
     assert "drive_frequency" not in assembly.inputs
     assert all(port.id != "drive_frequency" for port in assembly.input_ports)
-    assert isinstance(assembly.bindings[0].value, ScalarExpr)
-    assert assembly.bindings[0].value.value == Quantity(value=5.0, unit="GHz")
+    assert isinstance(assembly.bindings[0].value, ValueRef)
+    first_value = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    assert first_value.value == Quantity(value=5.0, unit="GHz")
+
+
+def test_module_invocation_rejects_undeclared_inputs() -> None:
+    child = authoring.module("test.invocation_unknown_input.child").build()
+
+    with pytest.raises(ValueError, match="received undeclared inputs: 'frequency'"):
+        child(frequency=Quantity(value=5.0, unit="GHz"))
+
+
+def test_module_invocation_rejects_raw_relation_inputs() -> None:
+    frequency = authoring.input(
+        "frequency",
+        authoring.ScalarType(authoring.QuantityType()),
+    )
+    child = authoring.module("test.invocation_raw_input").inputs(frequency).build()
+
+    with pytest.raises(TypeError, match="typed values or closed literal data"):
+        child(frequency=input_ref("frequency"))  # type: ignore[arg-type]
 
 
 def test_module_composition_invocation_expressions_bind_local_inputs() -> None:
+    drive_frequency = authoring.input(
+        "drive_frequency",
+        authoring.ScalarType(authoring.QuantityType()),
+    )
     child = (
         authoring.module("test.invocation_override.child")
-        .input(
-            "drive_frequency",
-            value_type=authoring.ScalarType(authoring.QuantityType()),
-        )
+        .inputs(drive_frequency)
         .resource("source", requires=("set_frequency",))
-        .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
+        .bind("source.set_frequency.frequency", drive_frequency)
         .build()
     )
     parent = (
         authoring.module("test.invocation_expression.parent")
-        .use(child(drive_frequency=authoring.param_ref("drive_frequency")))
+        .use(
+            child(
+                drive_frequency=authoring.parameter(
+                    "drive_frequency",
+                    authoring.ScalarType(authoring.QuantityType()),
+                )
+            )
+        )
         .build()
     )
 
-    assembly = parent.assemble()
+    assembly = assemble_module_internal(
+        parent,
+    )
 
     assert "drive_frequency" not in assembly.inputs
-    assert assembly.bindings[0].value == param("drive_frequency")
+    assert isinstance(assembly.bindings[0].value, ValueRef)
+    assert internal_lower_value_ref(assembly.bindings[0].value) == param(
+        "drive_frequency"
+    )
+
+
+def test_module_composition_defers_nested_expression_and_literal_bindings() -> None:
+    value_type = authoring.ScalarType(authoring.FloatType())
+    child_value = authoring.input(
+        "child_value",
+        value_type,
+    )
+    unused_parameter = authoring.input("unused_parameter", value_type)
+    unused_point = authoring.input("unused_point", value_type)
+    child = (
+        authoring.module("test.invocation_deferred.child")
+        .inputs(child_value, unused_parameter, unused_point)
+        .resource("source", requires=("set_offset",))
+        .bind("source.set_offset.offset", child_value)
+        .build()
+    )
+    parent_value = authoring.input(
+        "parent_value",
+        value_type,
+    )
+    parent = (
+        authoring.module("test.invocation_deferred.parent")
+        .inputs(parent_value)
+        .use(
+            child(
+                child_value=parent_value + 0.25,
+                unused_parameter=authoring.parameter(
+                    "unused_parameter",
+                    value_type,
+                ),
+                unused_point=authoring.point("unused_point", value_type),
+            )
+        )
+        .build()
+    )
+    root = (
+        authoring.module("test.invocation_deferred.root")
+        .use(parent(parent_value=1.5))
+        .build()
+    )
+
+    assembly = assemble_module_internal(root)
+
+    assert isinstance(assembly.bindings[0].value, ValueRef)
+    expression = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    assert expression.eval(EvalContext()) == 1.75
+    assert internal_value_ref_parameter_contracts(assembly.bindings[0].value) == ()
+    assert internal_value_ref_point_dependencies(assembly.bindings[0].value) == ()
+    assert assembly.parameter_contracts == ()
+    assert assembly.point_dependencies == ()
+
+
+def test_module_provenance_follows_only_reachable_input_bindings() -> None:
+    value_type = authoring.ScalarType(authoring.FloatType())
+    used_parameter_input = authoring.input("used_parameter", value_type)
+    unused_parameter_input = authoring.input("unused_parameter", value_type)
+    used_point_input = authoring.input("used_point", value_type)
+    unused_point_input = authoring.input("unused_point", value_type)
+    module = (
+        authoring.module("test.reachable-input-provenance")
+        .inputs(
+            used_parameter_input,
+            unused_parameter_input,
+            used_point_input,
+            unused_point_input,
+        )
+        .resource("source", requires=("set_offset", "set_gain"))
+        .bind("source.set_offset.offset", used_parameter_input)
+        .bind("source.set_gain.gain", used_point_input)
+        .build()
+    )
+    used_parameter = authoring.parameter("reachable_parameter", value_type)
+    unused_parameter = authoring.parameter("phantom_parameter", value_type)
+    used_point = authoring.point("reachable_point", value_type)
+    unused_point = authoring.point("phantom_point", value_type)
+
+    assembly = assemble_module_internal(
+        module,
+        used_parameter=used_parameter,
+        unused_parameter=unused_parameter,
+        used_point=used_point,
+        unused_point=unused_point,
+    )
+
+    assert assembly.parameter_contracts == internal_value_ref_parameter_contracts(
+        used_parameter
+    )
+    assert assembly.point_dependencies == internal_value_ref_point_dependencies(
+        used_point
+    )
+
+
+def test_deferred_input_binding_detects_cycles_within_a_scope() -> None:
+    value_type = authoring.ScalarType(authoring.FloatType())
+    first = authoring.input("first", value_type)
+    second = authoring.input("second", value_type)
+    expression = internal_bind_value_ref_inputs(
+        first + 1.0,
+        {"first": second, "second": first},
+    )
+
+    with pytest.raises(ValueError, match="cyclic module input reference: first"):
+        internal_lower_scalar_value_ref(expression)
 
 
 def test_module_composition_invocation_input_refs_bind_to_parent_inputs() -> None:
+    drive_frequency = authoring.input(
+        "drive_frequency",
+        authoring.ScalarType(authoring.QuantityType()),
+    )
+    outer_frequency = authoring.input(
+        "outer_frequency",
+        authoring.ScalarType(authoring.QuantityType()),
+    )
     child = (
         authoring.module("test.invocation_parent_input.child")
-        .input(
-            "drive_frequency",
-            value_type=authoring.ScalarType(authoring.QuantityType()),
-        )
+        .inputs(drive_frequency)
         .resource("source", requires=("set_frequency",))
-        .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
+        .bind("source.set_frequency.frequency", drive_frequency)
         .build()
     )
     parent = (
         authoring.module("test.invocation_parent_input.parent")
-        .use(child(drive_frequency=authoring.input_ref("outer_frequency")))
+        .inputs(outer_frequency)
+        .use(child(drive_frequency=outer_frequency))
         .build()
     )
 
-    assembly = parent.assemble(outer_frequency=Quantity(value=5.2, unit="GHz"))
+    assembly = assemble_module_internal(
+        parent, outer_frequency=Quantity(value=5.2, unit="GHz")
+    )
 
     assert "drive_frequency" not in assembly.inputs
-    assert isinstance(assembly.bindings[0].value, ScalarExpr)
-    assert assembly.bindings[0].value.value == Quantity(value=5.2, unit="GHz")
+    assert isinstance(assembly.bindings[0].value, ValueRef)
+    localized = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    assert localized.kind == "input"
+    assert localized.name == "outer_frequency"
 
 
 def test_module_composition_does_not_merge_sibling_invocation_inputs() -> None:
+    first_frequency = authoring.input(
+        "drive_frequency",
+        authoring.ScalarType(authoring.QuantityType()),
+    )
     first = (
         authoring.module("test.invocation_sibling.first")
-        .input(
-            "drive_frequency",
-            value_type=authoring.ScalarType(authoring.QuantityType()),
-        )
+        .inputs(first_frequency)
         .resource("source", requires=("set_frequency",))
-        .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
+        .bind("source.set_frequency.frequency", first_frequency)
         .build()
+    )
+    second_frequency = authoring.input(
+        "drive_frequency",
+        authoring.ScalarType(authoring.QuantityType()),
     )
     second = (
         authoring.module("test.invocation_sibling.second")
-        .input(
-            "drive_frequency",
-            value_type=authoring.ScalarType(authoring.QuantityType()),
-        )
+        .inputs(second_frequency)
         .resource("detector", requires=("set_frequency",))
         .bind(
             "detector.set_frequency.frequency",
-            authoring.input_ref("drive_frequency"),
+            second_frequency,
         )
         .build()
     )
@@ -1079,28 +1461,37 @@ def test_module_composition_does_not_merge_sibling_invocation_inputs() -> None:
         .build()
     )
 
-    assembly = module.assemble()
+    assembly = assemble_module_internal(
+        module,
+    )
 
     assert "drive_frequency" not in assembly.inputs
-    assert isinstance(assembly.bindings[0].value, ScalarExpr)
-    assert isinstance(assembly.bindings[1].value, ScalarExpr)
-    assert assembly.bindings[0].value.value == Quantity(value=5.0, unit="GHz")
-    assert assembly.bindings[1].value.value == Quantity(value=5.1, unit="GHz")
+    assert isinstance(assembly.bindings[0].value, ValueRef)
+    assert isinstance(assembly.bindings[1].value, ValueRef)
+    first_value = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    second_value = internal_lower_scalar_value_ref(assembly.bindings[1].value)
+    assert first_value.value == Quantity(value=5.0, unit="GHz")
+    assert second_value.value == Quantity(value=5.1, unit="GHz")
 
 
 def test_module_composition_localizes_invocation_entity_inputs() -> None:
+    qubit = authoring.input(
+        "qubit",
+        authoring.ScalarType(authoring.EntityType()),
+    )
+    drive_frequency = authoring.input(
+        "drive_frequency",
+        authoring.ScalarType(authoring.QuantityType()),
+    )
     child = (
         authoring.module("test.invocation_entity.child")
-        .entity("qubit")
-        .input(
-            "drive_frequency",
-            value_type=authoring.ScalarType(authoring.QuantityType()),
-        )
+        .inputs(qubit, drive_frequency)
         .resource(
             "drive",
-            requires=authoring.requires("set_frequency", for_entities=("qubit",)),
+            requires=("set_frequency",),
+            for_entities=(qubit,),
         )
-        .bind("drive.set_frequency.frequency", authoring.input_ref("drive_frequency"))
+        .bind("drive.set_frequency.frequency", drive_frequency)
         .build()
     )
     parent = (
@@ -1114,136 +1505,46 @@ def test_module_composition_localizes_invocation_entity_inputs() -> None:
         .build()
     )
 
-    assembly = parent.assemble()
+    assembly = assemble_module_internal(
+        parent,
+    )
 
     assert "qubit" not in assembly.inputs
     assert "qubit" not in assembly.entity_inputs
     assert all(port.id != "qubit" for port in assembly.input_ports)
-    hidden_input = assembly.resource_ports[0].selector.entity_inputs[0]
-    assert isinstance(hidden_input, str)
-    assert hidden_input.startswith("__local_entity_")
-
-
-def test_combined_module_parameter_derivations_chain_in_order() -> None:
-    first = ExperimentAssembly(
-        entity_inputs=(),
-        parameter_derivations=ParameterDerivationSet(
-            id="derive-drive-base",
-            scalars=[
-                ScalarParameterDerivation(
-                    id="drive_base",
-                    expression=param("drive_frequency")
-                    + Quantity(value=0.1, unit="GHz"),
-                )
-            ],
-        ),
-    )
-    second = ExperimentAssembly(
-        entity_inputs=(),
-        parameter_derivations=ParameterDerivationSet(
-            id="derive-drive-final",
-            scalars=[
-                ScalarParameterDerivation(
-                    id="drive_final",
-                    expression=param("drive_base") + Quantity(value=0.1, unit="GHz"),
-                )
-            ],
-        ),
-    )
-    main = _module_fixture(
-        id="test.combined",
-        resources=[
-            authoring.resource_port("source", authoring.requires("set_frequency")),
-        ],
-        bindings=[
-            authoring.bind(
-                "source.set_frequency.frequency",
-                authoring.var_ref("drive_final"),
-            )
-        ],
-    )(subject="q0").assemble()
-    assembly = ExperimentAssembly.combine(
-        experiment_id="combined-scan",
-        kind="simple_scan",
-        assemblies=(
-            first,
-            second,
-            ExperimentAssembly(point_source=_around_parameter_points("drive_final")),
-            main,
-        ),
-    )
-    request = RunRequest(
-        id="combined.request",
-        template_id="test.combined",
-        template_inputs={"subject": "q0"},
-    )
-
-    resolved = _link_assembly(
-        assembly,
-        request=request,
-        inputs={"subject": "q0"},
-        parameter_derivations=assembly.parameter_derivations,
-        config=load_config(),
-        workspace=Path("/tmp/scopecat-test"),
-        config_source=None,
-    )
-    preview, _ = preview_result(
-        resolved.experiment,
-        resolved.parameter_view,
-        derivations=resolved.parameter_derivations,
-    )
-
-    final_parameter = resolved.parameter_view.get("drive_final")
-    assert final_parameter is not None
-    assert final_parameter.quantity == Quantity(value=5.2, unit="GHz")
-    assert preview.points[0].coordinates["drive_final"] == Quantity(
-        value=5.1, unit="GHz"
-    )
-    assert preview.points[-1].coordinates["drive_final"] == Quantity(
-        value=5.3, unit="GHz"
-    )
+    localized_entity = assembly.resource_ports[0].selector.entity_inputs[0]
+    assert isinstance(localized_entity, ValueRef)
+    assert localized_entity.value_type == authoring.ScalarType(authoring.EntityType())
+    lowered_entity = internal_lower_scalar_value_ref(localized_entity)
+    assert lowered_entity.kind == "literal"
+    assert lowered_entity.value == EntityRef(id="q0")
 
 
 def test_template_invocation_runs_composed_modules_directly() -> None:
-    derived = ExperimentAssembly(
-        entity_inputs=(),
-        parameter_derivations=ParameterDerivationSet(
-            id="derive-drive-final",
-            scalars=[
-                ScalarParameterDerivation(
-                    id="drive_final",
-                    expression=param("drive_frequency")
-                    + Quantity(value=0.1, unit="GHz"),
-                )
-            ],
-        ),
-    )
+    prelude = _module_fixture(id="test.scripted_module_prelude")
     scan = _module_fixture(
         id="test.scripted_module_scan",
         resources=[
-            authoring.resource_port("source", authoring.requires("set_frequency")),
+            resource_port("source", requires("set_frequency")),
         ],
         bindings=[
-            authoring.bind(
+            bind(
                 "source.set_frequency.frequency",
-                authoring.var_ref("drive_frequency"),
+                DRIVE_FREQUENCY_POINT,
             )
         ],
-        records=[authoring.observable("signal", resource="source", unit="ratio")],
+        records=[observable("signal", resource="source", unit="ratio")],
     )
 
     resolved = resolve_experiment(
         _template_invocation(
-            _module_fixture(
-                id="test.scripted_module_derived",
-                parameter_derivations=derived.parameter_derivations,
-            ),
+            prelude,
             scan,
             id="test.scripted_scan",
             kind="simple_scan",
         ).scan(
-            "drive_frequency",
-            center=param("drive_final"),
+            DRIVE_FREQUENCY_POINT,
+            center=sc.parameter("drive_frequency", _QUANTITY_VALUE),
             span=Quantity(value=200.0, unit="MHz"),
             points=5,
         ),
@@ -1252,127 +1553,33 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
     )
     preview, _ = preview_result(
         resolved.experiment,
-        resolved.parameter_view,
-        derivations=resolved.parameter_derivations,
+        resolved.parameters,
     )
 
     assert resolved.template_id == "test.scripted_scan"
     assert resolved.inputs == {}
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
-        value=5.0, unit="GHz"
+        value=4.9, unit="GHz"
     )
     assert preview.points[-1].coordinates["drive_frequency"] == Quantity(
-        value=5.2, unit="GHz"
+        value=5.1, unit="GHz"
     )
-
-
-def test_module_parameter_derivations_feed_authoring_and_planning() -> None:
-    module = _module_fixture(
-        id="test.derived_parameters",
-        resources=[
-            authoring.resource_port("source", authoring.requires("set_frequency")),
-        ],
-        bindings=[
-            authoring.bind(
-                "source.set_frequency.frequency",
-                authoring.var_ref("drive_frequency"),
-            )
-        ],
-        parameter_derivations=ParameterDerivationSet(
-            id="module-parameter-graph",
-            scalars=[
-                ScalarParameterDerivation(
-                    id="drive_frequency",
-                    expression=param("drive_frequency")
-                    + Quantity(value=0.1, unit="GHz"),
-                )
-            ],
-        ),
-    )
-
-    resolved = resolve_experiment(
-        _template_invocation(
-            module,
-            id="test.derived_parameters",
-            experiment_id="derived-parameter-scan",
-            kind="simple_scan",
-        ).scan(
-            "drive_frequency",
-            center=param("drive_frequency"),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=5,
-        ),
-        workspace=Path("/tmp/scopecat-test"),
-        config_profile=load_config(),
-    )
-    preview, _ = preview_result(
-        resolved.experiment,
-        resolved.parameter_view,
-        derivations=resolved.parameter_derivations,
-    )
-
-    derived_drive = resolved.parameter_view.get("drive_frequency")
-    assert resolved.parameter_derivations is not None
-    assert derived_drive is not None
-    assert derived_drive.quantity == Quantity(
-        value=5.1,
-        unit="GHz",
-    )
-    assert preview.points[0].coordinates["drive_frequency"] == Quantity(
-        value=5.0, unit="GHz"
-    )
-    assert preview.points[-1].coordinates["drive_frequency"] == Quantity(
-        value=5.2, unit="GHz"
-    )
-
-
-def test_link_assembly_reports_duplicate_variables() -> None:
-    module = _module_fixture(
-        id="test.duplicate_variables",
-        resources=[
-            authoring.resource_port("source", authoring.requires("set_frequency")),
-        ],
-        variables=[
-            authoring.variable(
-                "drive_frequency",
-                authoring.param_ref("drive_frequency"),
-            ),
-            authoring.variable(
-                "drive_frequency",
-                authoring.param_ref("drive_frequency"),
-            ),
-        ],
-    )
-
-    with pytest.raises(ValidationFailed) as error:
-        resolve_experiment(
-            _template_invocation(
-                module,
-                id="test.duplicate_variables",
-                experiment_id="duplicate-variable-scan",
-                kind="simple_scan",
-            ),
-            workspace=Path("/tmp/scopecat-test"),
-            config_profile=load_config(),
-        )
-
-    assert error.value.diagnostics[0].code == "module_variable_duplicate"
 
 
 def test_module_uses_record_axes() -> None:
     module = _module_fixture(
         id="test.record_axes",
         resources=[
-            authoring.resource_port("source", authoring.requires("set_frequency")),
+            resource_port("source", requires("set_frequency")),
         ],
         bindings=[
-            authoring.bind(
+            bind(
                 "source.set_frequency.frequency",
-                authoring.var_ref("drive_frequency"),
+                DRIVE_FREQUENCY_POINT,
             ),
         ],
         records=[
-            authoring.observable(
+            observable(
                 "signal",
                 resource="source",
                 unit="ratio",
@@ -1391,8 +1598,8 @@ def test_module_uses_record_axes() -> None:
             experiment_id="record-axes-scan",
             kind="simple_scan",
         ).scan(
-            "drive_frequency",
-            center=param("drive_frequency"),
+            DRIVE_FREQUENCY_POINT,
+            center=sc.parameter("drive_frequency", _QUANTITY_VALUE),
             span=Quantity(value=200.0, unit="MHz"),
             points=5,
         ),
@@ -1480,14 +1687,25 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         }
     )
     config = seed_config.model_copy(update={"system": system})
+    qubit = authoring.input(
+        "qubit",
+        authoring.ScalarType(authoring.EntityType()),
+    )
     module = (
         authoring.module("test.entity_routed_resource")
-        .entity("qubit")
+        .inputs(qubit)
         .resource(
             "drive",
-            requires=authoring.requires("set_frequency", for_entities=("qubit",)),
+            requires=("set_frequency",),
+            for_entities=(qubit,),
         )
-        .bind("drive.set_frequency.frequency", param("drive_frequency"))
+        .bind(
+            "drive.set_frequency.frequency",
+            authoring.parameter(
+                "drive_frequency",
+                authoring.ScalarType(authoring.QuantityType(unit="GHz")),
+            ),
+        )
         .build()
     )
 
@@ -1504,7 +1722,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
 
     preview = preview_contract(
         resolved.experiment,
-        resolved.parameter_view,
+        resolved.parameters,
         config=config,
     )
     resource = resolved.experiment.state[0].resource
@@ -1519,17 +1737,17 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
     seed_config = load_config()
     catalog = seed_config.parameter_catalog.model_copy(
         update={
-            "table_definitions": [
-                *seed_config.parameter_catalog.table_definitions,
-                ParameterTableDefinition(
+            "definitions": [
+                *seed_config.parameter_catalog.definitions,
+                _table_definition(
                     id="flux_bias",
                     primary_key=["resource_id"],
                     columns=[
-                        ParameterTableColumn(
+                        sc.TableColumn(
                             id="resource_id",
                             value_type=sc.ScalarType(sc.StringType()),
                         ),
-                        ParameterTableColumn(
+                        sc.TableColumn(
                             id="offset",
                             value_type=sc.ScalarType(sc.QuantityType(unit="arb")),
                         ),
@@ -1541,11 +1759,11 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
     system = seed_config.system.model_copy(
         update={"parameter_catalog": catalog},
     )
-    parameter_state = seed_config.parameter_state.model_copy(
+    parameter_snapshot = seed_config.parameter_snapshot.model_copy(
         update={
-            "tables": [
-                *seed_config.parameter_state.tables,
-                ParameterTable(
+            "values": [
+                *seed_config.parameter_snapshot.values,
+                TableParameterValue(
                     id="flux_bias",
                     rows=[
                         {
@@ -1562,15 +1780,30 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
         }
     )
     config = seed_config.model_copy(
-        update={"system": system, "parameter_state": parameter_state}
+        update={"system": system, "parameter_snapshot": parameter_snapshot}
+    )
+    flux_bias = sc.parameter(
+        "flux_bias",
+        sc.TableType(
+            columns=(
+                sc.TableColumn(
+                    "resource_id",
+                    sc.ScalarType(sc.StringType()),
+                ),
+                sc.TableColumn(
+                    "offset",
+                    sc.ScalarType(sc.QuantityType(unit="arb")),
+                ),
+            )
+        ),
     )
     background = (
         authoring.module("test.background_flux")
         .state_each(
-            sc.parameter_table("flux_bias"),
-            resource=sc.col("resource_id"),
+            flux_bias,
+            resource=lambda row: row["resource_id"],
             field="set_offset.offset",
-            value=sc.col("offset"),
+            value=lambda row: row["offset"],
         )
         .build()
     )
@@ -1584,7 +1817,7 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
         workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
-    preview = preview_contract(resolved.experiment, resolved.parameter_view)
+    preview = preview_contract(resolved.experiment, resolved.parameters)
 
     assert [
         (change.resource, change.field, change.after)
@@ -1632,7 +1865,7 @@ def test_module_assembler_reports_ambiguous_resource_port() -> None:
     )
     _preview, diagnostics = preview_result(
         resolved.experiment,
-        resolved.parameter_view,
+        resolved.parameters,
         config=config,
     )
 
@@ -1654,11 +1887,10 @@ def test_resolve_experiment_uses_active_config_and_input_defaults(
     resolved = resolve_experiment(invocation, workspace=tmp_path)
 
     assert resolved.template_id == "test.simple_scan"
-    assert resolved.config_source is not None
-    assert resolved.config_source.entry_id == "seed"
+    assert resolved.config.id == load_config().id
+    assert resolved.request.config_source == "active"
     experiment = resolved.experiment
-    assert isinstance(experiment, ExperimentSpec)
-    preview = preview_contract(experiment, _parameter_view())
+    preview = preview_contract(experiment, _parameters())
 
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"

@@ -1,13 +1,6 @@
 import pytest
 
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import (
-    ParameterTable,
-    ParameterValue,
-    ParameterViewSnapshot,
-    Quantity,
-)
-from scopecat.relations import (
+from scopecat._relations import (
     ParameterRelationData,
     ScalarExpr,
     col,
@@ -22,6 +15,8 @@ from scopecat.relations import (
     table,
     values,
 )
+from scopecat.models.entity import EntityRef
+from scopecat.models.parameter import Quantity
 from tests.support.records import assert_model_round_trip
 
 
@@ -76,41 +71,27 @@ def test_relation_grid_filter_select_and_round_trip() -> None:
     ]
 
 
-def test_parameter_view_snapshot_drives_variable_key_lookup_and_joins() -> None:
-    params = ParameterViewSnapshot(
-        id="readout-build",
-        catalog_id="catalog",
-        catalog_hash=_hash("catalog"),
-        source_state_id="state",
-        source_state_hash=_hash("state"),
-        content_hash=_hash("build"),
-        view_implementation_id="test",
-        view_implementation_version="v1",
-        scalar_values=[
-            ParameterValue(
-                id="readout.demod_frequency",
-                quantity=Quantity(value=100, unit="MHz"),
-            )
-        ],
-        tables=[
-            ParameterTable(
-                id="readout_devices",
-                rows=[
-                    {
-                        "device_id": "r0",
-                        "enabled": True,
-                        "resource_id": "adc0",
-                        "frequency": Quantity(value=5.95, unit="GHz"),
-                    },
-                    {
-                        "device_id": "r1",
-                        "enabled": False,
-                        "resource_id": "adc1",
-                        "frequency": Quantity(value=6.10, unit="GHz"),
-                    },
-                ],
-            )
-        ],
+def test_parameter_data_drives_variable_key_lookup_and_joins() -> None:
+    params = ParameterRelationData(
+        scalars={
+            "readout.demod_frequency": Quantity(value=100, unit="MHz"),
+        },
+        tables={
+            "readout_devices": [
+                {
+                    "device_id": "r0",
+                    "enabled": True,
+                    "resource_id": "adc0",
+                    "frequency": Quantity(value=5.95, unit="GHz"),
+                },
+                {
+                    "device_id": "r1",
+                    "enabled": False,
+                    "resource_id": "adc1",
+                    "frequency": Quantity(value=6.10, unit="GHz"),
+                },
+            ],
+        },
     )
 
     relation = (
@@ -135,6 +116,55 @@ def test_parameter_view_snapshot_drives_variable_key_lookup_and_joins() -> None:
             "carrier": Quantity(value=5.95, unit="GHz"),
         }
     ]
+
+
+def test_parameter_lookup_matches_entity_refs_by_stable_identity() -> None:
+    params = ParameterRelationData(
+        tables={
+            "qubits": [
+                {
+                    "qubit": EntityRef(id="q0", kind="qubit"),
+                    "frequency": Quantity(value=5.0, unit="GHz"),
+                }
+            ]
+        }
+    )
+
+    row = params.lookup_row(
+        "qubits",
+        {
+            "qubit": EntityRef(
+                id="q0",
+                kind="qubit",
+                metadata={"source": "lookup"},
+            )
+        },
+    )
+
+    assert row["frequency"] == Quantity(value=5.0, unit="GHz")
+    with pytest.raises(ValueError, match="matched 0 rows"):
+        params.lookup_row("qubits", {"qubit": EntityRef(id="q0")})
+
+
+def test_parameter_lookup_matches_compatible_quantity_units() -> None:
+    params = ParameterRelationData(
+        tables={
+            "frequencies": [
+                {
+                    "frequency": Quantity(value=5000.0, unit="MHz"),
+                    "label": "q0",
+                }
+            ]
+        }
+    )
+
+    assert (
+        params.lookup_row(
+            "frequencies",
+            {"frequency": Quantity(value=5.0, unit="GHz")},
+        )["label"]
+        == "q0"
+    )
 
 
 def test_parameter_table_root_is_durable_table_relation() -> None:
@@ -352,8 +382,3 @@ def test_outer_scope_supports_repeated_state_style_bindings() -> None:
 def test_values_rejects_non_numeric_unit_items() -> None:
     with pytest.raises(ValueError):
         grid(axis=values(["bad"], unit="GHz"))
-
-
-def _hash(value: str) -> str:
-    repeated = (value * 64)[:64]
-    return f"sha256:{repeated}"

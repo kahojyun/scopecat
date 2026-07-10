@@ -17,6 +17,15 @@ from quantum_lab_demo.experiments import (
     SPECTATOR_CZ_TEMPLATE,
     SYSTEM_BACKGROUND_RABI_TEMPLATE,
 )
+from quantum_lab_demo.experiments.points import (
+    CLIFFORD_COUNT,
+    COUPLER_AMPLITUDE,
+    COUPLER_DURATION,
+    COUPLER_PARKING_FLUX,
+    DRIVE_LENGTH,
+    GATE_DURATION,
+    QUBIT,
+)
 
 # %%
 workspace = notebook_workspace("07-gate-calibration-family")
@@ -26,7 +35,7 @@ lab = quantum_lab(workspace=workspace)
 rabi_preview = (
     lab.prepare(RABI_TEMPLATE)
     .input("qubit", "q0")
-    .scan("drive_length", span=sc.Quantity(value=60.0, unit="ns"), points=7)
+    .scan(DRIVE_LENGTH, span=sc.Quantity(value=60.0, unit="ns"), points=7)
     .preview(
         name="gate family rabi length scan",
         tags=("gate", "rabi"),
@@ -37,7 +46,7 @@ rabi_preview = (
 # %%
 rabi_qubit_scan_preview = (
     lab.prepare(RABI_TEMPLATE)
-    .scan("qubit", ["q0", "q1"])
+    .scan(QUBIT, ["q0", "q1"])
     .preview(
         name="gate family rabi qubit scan",
         tags=("gate", "rabi", "runtime-scan"),
@@ -48,7 +57,7 @@ rabi_qubit_scan_preview = (
 # %%
 simultaneous_rabi_preview = (
     lab.prepare(SIMULTANEOUS_RABI_TEMPLATE)
-    .scan("drive_length", span=sc.Quantity(value=40.0, unit="ns"), points=5)
+    .scan(DRIVE_LENGTH, span=sc.Quantity(value=40.0, unit="ns"), points=5)
     .preview(
         name="gate family simultaneous rabi",
         tags=("gate", "rabi", "simultaneous"),
@@ -91,7 +100,7 @@ cz_rb_preview = (
         coupler="coupler-q0-q1",
         seed=23,
     )
-    .scan("clifford_count", [2, 4, 8])
+    .scan(CLIFFORD_COUNT, [2, 4, 8])
     .preview(
         name="gate family CZ RB",
         tags=("gate", "benchmarking"),
@@ -105,8 +114,8 @@ cz_rb_preview = (
 cz_chevron_preview = (
     lab.prepare(CZ_CHEVRON_TEMPLATE)
     .inputs(control_qubit="q0", partner_qubit="q1", coupler="coupler-q0-q1")
-    .scan("coupler_duration", [24, 36], unit="ns")
-    .scan("coupler_amplitude", [0.18, 0.24], unit="arb")
+    .scan(COUPLER_DURATION, [24, 36], unit="ns")
+    .scan(COUPLER_AMPLITUDE, [0.18, 0.24], unit="arb")
     .preview(
         name="gate family CZ chevron",
         tags=("gate", "chevron"),
@@ -118,19 +127,25 @@ cz_chevron_preview = (
 runtime_parameter_scan_preview = (
     lab.prepare(CZ_CHEVRON_TEMPLATE)
     .inputs(control_qubit="q0", partner_qubit="q1", coupler="coupler-q0-q1")
-    .scan("coupler_duration", [24], unit="ns")
-    .scan("coupler_amplitude", [0.18], unit="arb")
+    .scan(COUPLER_DURATION, [24], unit="ns")
+    .scan(COUPLER_AMPLITUDE, [0.18], unit="arb")
     .scan(
         sc.param_axis(
+            COUPLER_PARKING_FLUX,
             sc.param_row(
                 "two_qubit_gates",
-                control_qubit=sc.input("control_qubit"),
-                partner_qubit=sc.input("partner_qubit"),
+                control_qubit=sc.input(
+                    "control_qubit",
+                    sc.ScalarType(sc.EntityType(entity_kind="logical_qubit")),
+                ),
+                partner_qubit=sc.input(
+                    "partner_qubit",
+                    sc.ScalarType(sc.EntityType(entity_kind="logical_qubit")),
+                ),
                 gate="cz",
             ),
             "coupler_parking_flux",
             [0.02, 0.04],
-            axis_id="parking_flux",
             unit="arb",
         )
     )
@@ -152,8 +167,8 @@ spectator_cz_preview = (
         coupler="coupler-q0-q1",
         background_couplers=("coupler-q2-q3",),
     )
-    .scan("coupler_duration", [24], unit="ns")
-    .scan("coupler_amplitude", [0.18], unit="arb")
+    .scan(COUPLER_DURATION, [24], unit="ns")
+    .scan(COUPLER_AMPLITUDE, [0.18], unit="arb")
     .preview(
         name="gate family spectator-aware CZ",
         tags=("gate", "spectator"),
@@ -166,7 +181,7 @@ spectator_cz_preview = (
 # %%
 parallel_gate_preview = (
     lab.prepare(PARALLEL_GATE_SET_TEMPLATE)
-    .scan("gate_duration", [28], unit="ns")
+    .scan(GATE_DURATION, [28], unit="ns")
     .preview(
         name="gate family parallel gate set",
         tags=("gate", "parallel"),
@@ -180,8 +195,8 @@ parallel_gate_preview = (
 waveform_plan = (
     lab.prepare(CZ_CHEVRON_TEMPLATE)
     .inputs(control_qubit="q0", partner_qubit="q1", coupler="coupler-q0-q1")
-    .scan("coupler_duration", [24], unit="ns")
-    .scan("coupler_amplitude", [0.18], unit="arb")
+    .scan(COUPLER_DURATION, [24], unit="ns")
+    .scan(COUPLER_AMPLITUDE, [0.18], unit="arb")
 )
 waveform_preview = waveform_plan.preview(
     name="gate family waveform compute",

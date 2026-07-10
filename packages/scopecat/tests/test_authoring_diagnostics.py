@@ -4,9 +4,10 @@ from pathlib import Path
 
 import pytest
 
+import scopecat as sc
 from scopecat._workflows.runs import preview_experiment
-from scopecat.authoring import resolve_experiment
 from scopecat.authoring._invocation_plan import prepare_invocation
+from scopecat.authoring._resolution import resolve_experiment
 from scopecat.errors import ValidationFailed
 from tests.support.authoring import (
     EXAMPLE_DIR,
@@ -72,3 +73,65 @@ def test_preview_experiment_resolves_template_invocation_with_config_snapshot(
 
     assert result.template_id == "test.simple_scan"
     assert result.experiment_id == "authored-simple-scan"
+
+
+def _module_consuming_input() -> tuple[sc.ExperimentModule, sc.ValueRef]:
+    value = sc.input("value", sc.ScalarType(sc.FloatType()))
+    consume = sc.compute(
+        "consume-value",
+        fn=lambda value: value,
+        inputs={"value": value},
+        output_type=value.value_type,
+    )
+    module = sc.module("test.consumed-input").inputs(value).computes(consume).build()
+    return module, value
+
+
+def test_consumed_module_input_requires_binding_or_point_value(tmp_path: Path) -> None:
+    module, _value = _module_consuming_input()
+    invocation = module.template("test.consumed-input", kind="input").build().bind()
+
+    with pytest.raises(ValidationFailed) as error:
+        resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())
+
+    diagnostic = error.value.diagnostics[0]
+    assert diagnostic.code == "module_input_binding_missing"
+    assert diagnostic.path == "inputs"
+
+
+def test_unconsumed_module_input_does_not_require_binding(tmp_path: Path) -> None:
+    value = sc.input("unused", sc.ScalarType(sc.FloatType()))
+    module = sc.module("test.unused-input").inputs(value).build()
+    invocation = module.template("test.unused-input", kind="input").build().bind()
+
+    resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())
+
+
+def test_unused_child_binding_does_not_consume_outer_input(tmp_path: Path) -> None:
+    child_value = sc.input("child_value", sc.ScalarType(sc.FloatType()))
+    outer_value = sc.input("outer_value", sc.ScalarType(sc.FloatType()))
+    child = sc.module("test.unused-child").inputs(child_value).build()
+    outer = (
+        sc.module("test.unused-child-root")
+        .inputs(outer_value)
+        .use(child(child_value=outer_value))
+        .build()
+    )
+    invocation = outer.template("test.unused-child", kind="input").build().bind()
+
+    resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())
+
+
+def test_scan_point_satisfies_consumed_module_input(tmp_path: Path) -> None:
+    module, _value = _module_consuming_input()
+    invocation = (
+        module.template("test.point-input", kind="input")
+        .scan(
+            sc.point("value", sc.ScalarType(sc.FloatType())),
+            (1.0,),
+        )
+        .build()
+        .bind()
+    )
+
+    resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())

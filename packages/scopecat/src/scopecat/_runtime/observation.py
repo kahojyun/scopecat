@@ -6,12 +6,12 @@ from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 from typing import Any
 
+from scopecat._compiler.program import ComputeNodeSpec
 from scopecat._planning.compute_dependencies import (
     ComputeDependencySummary,
     summarize_compute_node_dependencies,
 )
 from scopecat._runtime.graph import RuntimeGraph
-from scopecat.experiments import ComputeNodeSpec
 from scopecat.instruments.events import (
     RuntimeEvent,
     RuntimeEventSink,

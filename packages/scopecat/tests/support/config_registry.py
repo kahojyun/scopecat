@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat._manifest_updates import write_manifest_records
 from scopecat._workflows.config import register_and_activate_candidate_config
 from scopecat.candidate_configs import CandidateConfig
 from scopecat.config_profiles import load_config_profile
-from scopecat.models.artifact import RunRecordEntry
-from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
-from scopecat.models.parameter import ParameterChangeSet, ParameterPatch, Quantity
-from scopecat.runs import open_run_store, record_storage_ref
+from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.models.parameter import Quantity
+from scopecat.parameter_changes import (
+    load_parameter_change_proposal,
+    parameter_change_proposal_from_updates,
+    review_parameter_change_proposal,
+    write_parameter_change_proposals,
+)
+from scopecat.parameters import replace_scalar_parameter
+from scopecat.runs import open_run_store
 from tests.support.signal_testkit import execute_signal_run
 from tests.support.workflow_fixtures import load_invocation
 
@@ -33,36 +38,24 @@ def signal_run_with_parameter_change(tmp_path: Path) -> str:
 def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
     storage = open_run_store(tmp_path)
     config = storage.read_config_profile_snapshot(run_id)
-    parameter = build_config_parameters(config).get("drive_frequency")
-    old_value = (
-        parameter.quantity if parameter is not None else Quantity(value=5.0, unit="GHz")
-    )
-    change_set = ParameterChangeSet(
-        id="best-signal",
+    proposal = parameter_change_proposal_from_updates(
         source_run_id=run_id,
+        source_config=config,
+        analysis_title="best signal fixture",
+        proposal_id="best-signal",
+        updates=(
+            replace_scalar_parameter(
+                "drive_frequency",
+                Quantity(value=5.1, unit="GHz"),
+            ),
+        ),
         reason="Best signal fixture parameter change.",
-        patches=[
-            ParameterPatch(
-                kind="set_scalar",
-                parameter_id="drive_frequency",
-                expected_value=old_value,
-                value=old_value,
-            )
-        ],
         confidence=1.0,
     )
-    record = RunRecordEntry(
-        id=change_set.id,
-        kind="parameter_change_set",
-        media_type="application/json",
-    )
-    ref = record_storage_ref(record)
-    storage.write_model(run_id, ref, change_set)
-    manifest = storage.read_manifest(run_id)
-    write_manifest_records(
+    write_parameter_change_proposals(
         storage=storage,
-        manifest=manifest,
-        records=[record],
+        run_id=run_id,
+        proposals=(proposal,),
     )
 
 
@@ -72,15 +65,22 @@ def activate_best_signal(
     *,
     entry_id: str = "best-signal-entry",
 ) -> str:
-    change_set = open_run_store(tmp_path).read_model(
-        run_id,
-        "records/parameter_change_set/best-signal.json",
-        ParameterChangeSet,
+    proposal = load_parameter_change_proposal(
+        run_id=run_id,
+        selector="best-signal",
+        workspace=tmp_path,
     )
     candidate = CandidateConfig(
         analysis_title="best signal fixture",
         analysis_key="best-signal",
-        changes=(change_set,),
+        parameter_proposals=(proposal,),
+    )
+    review_parameter_change_proposal(
+        run_id=run_id,
+        selector=proposal.id,
+        workspace=tmp_path,
+        state="approved",
+        reviewer="operator",
     )
     activation = register_and_activate_candidate_config(
         candidate=candidate,

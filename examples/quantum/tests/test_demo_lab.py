@@ -82,13 +82,11 @@ def test_notebook_style_examples_execute_user_workflows(
             ),
         ],
         "waveform_build_dependencies": {
-            "input_refs": ("control_qubit", "coupler", "partner_qubit"),
-            "parameter_tables": ("qubits", "two_qubit_gates"),
+            "parameters": ("qubits", "two_qubit_gates"),
             "point_columns": ("coupler_amplitude", "coupler_duration"),
         },
         "waveform_drive_runtime_dependencies": {
-            "input_refs": ["control_qubit", "coupler", "partner_qubit"],
-            "parameter_tables": ["qubits", "two_qubit_gates"],
+            "parameters": ["qubits", "two_qubit_gates"],
             "point_columns": ["coupler_amplitude", "coupler_duration"],
             "routes": ["drive"],
             "upstream_compute": ["build-cz-chevron-program"],

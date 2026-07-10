@@ -1,9 +1,8 @@
 """Transient runtime graph for structured experiment execution.
 
 The graph is an internal execution surface. It deliberately has no schema
-version, hash, or persistence contract; persisted runs keep the linked
-experiment spec, accepted config, data evidence, diagnostics, and compact
-execution snapshots instead.
+version, hash, or persistence contract; persisted runs keep operator intent,
+the accepted config and plan projection, and execution evidence instead.
 """
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
+from scopecat._compiler.program import ComputeNodeSpec, LinkedProgram
 from scopecat._planning.compute_dependencies import (
     ComputeDependencySummary,
     summarize_compute_dependencies,
@@ -22,6 +22,7 @@ from scopecat._planning.planner import (
     build_planner_snapshot,
 )
 from scopecat._planning.records import RecordPlan
+from scopecat._relations import ParameterRelationData, Row
 from scopecat._runtime.lowering import (
     compile_collect_instructions,
     compile_desired_state_points,
@@ -32,19 +33,14 @@ from scopecat._runtime.lowering import (
     route_constraint_diagnostics,
     runtime_product_binding,
 )
-from scopecat.experiments import (
+from scopecat._runtime.models import (
     CollectInstructionPlan,
-    ComputeNodeSpec,
-    ExperimentSpec,
     PointRouteBinding,
     ProductBinding,
     ProgramResourceState,
 )
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.parameter import ParameterViewSnapshot
-from scopecat.parameters import ParameterDerivationSet
-from scopecat.relations import ParameterRelationData, Row
 from scopecat.results import CoordinateValue, MeasurementDatasetSchema
 
 
@@ -220,22 +216,15 @@ def build_runtime_graph(
 
 
 def build_runtime_graph_for_experiment(
-    experiment: ExperimentSpec,
-    params: ParameterRelationData | ParameterViewSnapshot,
+    experiment: LinkedProgram,
+    params: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
-    derivations: ParameterDerivationSet | None = None,
-    allow_table_row_changes: bool = False,
 ) -> RuntimeGraph:
     """Build the transient runtime graph without exposing planner IR upstream."""
 
     return build_runtime_graph(
-        build_planner_snapshot(
-            experiment,
-            params,
-            derivations=derivations,
-            allow_table_row_changes=allow_table_row_changes,
-        ),
+        build_planner_snapshot(experiment, params),
         config=config,
     )
 

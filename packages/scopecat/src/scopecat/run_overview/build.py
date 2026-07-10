@@ -1,8 +1,8 @@
 """Stable local run overview assembly.
 
 Run overviews are assembled from the persisted run manifest plus the optional
-workflow records registered on that run: analysis records, parameter
-changes and decisions, run comparisons and reviews, and config source
+workflow records registered on that run: analysis records, parameter change
+proposals and decisions, run comparisons and reviews, and config source
 coordinates. Missing optional records are omitted from the overview instead of
 being treated as part of the required run contract.
 """
@@ -20,11 +20,11 @@ from scopecat.models.analysis import AnalysisRecord
 from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
 from scopecat.models.execution import ExecutionSummary
 from scopecat.models.measurement import MeasurementDatasetSchema
-from scopecat.models.parameter import ParameterChangeSet
+from scopecat.models.parameter_change import ParameterChangeProposal
 from scopecat.models.run import RunManifest
 from scopecat.parameter_changes import (
     ParameterChangeDecisionRecord,
-    parameter_change_decision_ref,
+    list_parameter_change_decisions,
 )
 from scopecat.run_comparison import (
     RunComparisonResult,
@@ -35,8 +35,9 @@ from scopecat.run_overview.models import (
     DatasetOverviewEntry,
     DatasetVariableEntry,
     ExecutionOverviewEntry,
+    ParameterChangeDecisionEvent,
     ParameterChangeDecisionInfo,
-    ParameterChangeEntry,
+    ParameterChangeProposalEntry,
     RunComparisonEntry,
     RunHeader,
     RunOverview,
@@ -64,7 +65,7 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
         manifest=manifest,
     )
     datasets = _dataset_overviews(manifest)
-    parameter_changes = _read_parameter_changes(
+    parameter_change_proposals = _read_parameter_change_proposals(
         storage=storage, run_id=run_id, manifest=manifest
     )
     run_comparisons = _read_run_comparisons(
@@ -81,7 +82,7 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
         execution=execution,
         datasets=datasets,
         analysis_records=analysis_records,
-        parameter_changes=parameter_changes,
+        parameter_change_proposals=parameter_change_proposals,
         run_comparisons=run_comparisons,
     )
 
@@ -210,7 +211,10 @@ def _read_analysis_records(
                 id=record.id,
                 title=payload.title,
                 output_kinds=[output.kind for output in payload.outputs],
-                parameter_change_count=len(payload.parameter_changes),
+                parameter_change_proposal_count=sum(
+                    output.kind == "parameter_change_proposal"
+                    for output in payload.outputs
+                ),
                 input_ids=_input_ids(payload),
                 output_ids=_output_ids(payload),
             )
@@ -218,49 +222,73 @@ def _read_analysis_records(
     return records
 
 
-def _read_parameter_changes(
+def _read_parameter_change_proposals(
     *, storage: RunStore, run_id: str, manifest: RunManifest
-) -> list[ParameterChangeEntry]:
-    changes: list[ParameterChangeEntry] = []
-    for change_record in list_records(manifest, kind="parameter_change_set"):
-        change_record_ref = record_storage_ref(change_record)
-        change_path = storage.ref_path(run_id, change_record_ref)
-        change_set = _read_model(
-            change_path,
-            ParameterChangeSet,
-            change_record_ref,
+) -> list[ParameterChangeProposalEntry]:
+    proposals: list[ParameterChangeProposalEntry] = []
+    for proposal_record in list_records(
+        manifest,
+        kind="parameter_change_proposal",
+    ):
+        proposal_record_ref = record_storage_ref(proposal_record)
+        proposal_path = storage.ref_path(run_id, proposal_record_ref)
+        proposal = _read_model(
+            proposal_path,
+            ParameterChangeProposal,
+            proposal_record_ref,
         )
         decision_info = _read_parameter_change_decision(
             storage=storage,
             run_id=run_id,
-            change_set=change_set,
+            proposal=proposal,
         )
-        changes.append(
-            ParameterChangeEntry(
-                id=change_set.id,
-                source_run_id=change_set.source_run_id,
-                reason=change_set.reason,
-                confidence=change_set.confidence,
-                patches=list(change_set.patches),
+        proposals.append(
+            ParameterChangeProposalEntry(
+                id=proposal.id,
+                source_run_id=proposal.source_run_id,
+                base_config_id=proposal.base_config_id,
+                base_config_content_hash=proposal.base_config_content_hash,
+                reason=proposal.reason,
+                confidence=proposal.confidence,
+                candidate_snapshot_id=proposal.candidate_snapshot.id,
+                deltas=list(proposal.deltas),
                 decision_info=decision_info,
             )
         )
-    return changes
+    return proposals
 
 
 def _read_parameter_change_decision(
-    *, storage: RunStore, run_id: str, change_set: ParameterChangeSet
+    *, storage: RunStore, run_id: str, proposal: ParameterChangeProposal
 ) -> ParameterChangeDecisionInfo:
-    decision_ref = parameter_change_decision_ref(change_set.id)
-    decision_path = storage.ref_path(run_id, decision_ref)
-    if not decision_path.exists():
+    decisions = list_parameter_change_decisions(
+        run_id=run_id,
+        selector=proposal.id,
+        workspace=storage.layout.workspace,
+    )
+    history = [_parameter_change_decision_event(decision) for decision in decisions]
+    if not decisions:
         return ParameterChangeDecisionInfo(status="not_reviewed")
-    decision = _read_model(decision_path, ParameterChangeDecisionRecord, decision_ref)
+    decision = decisions[-1]
     return ParameterChangeDecisionInfo(
         status="reviewed",
         decision=decision.decision,
         actor=decision.actor,
         note=decision.note,
+        decided_at=decision.decided_at,
+        history=history,
+    )
+
+
+def _parameter_change_decision_event(
+    decision: ParameterChangeDecisionRecord,
+) -> ParameterChangeDecisionEvent:
+    return ParameterChangeDecisionEvent(
+        event_id=decision.event_id,
+        decision=decision.decision,
+        actor=decision.actor,
+        note=decision.note,
+        related_refs=list(decision.related_refs),
         decided_at=decision.decided_at,
     )
 

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from scopecat.experiments import (
+from scopecat._compiler.program import (
     bind_each,
-    experiment,
+    overlay_parameter_cell,
     set_state,
-    update_param_rows,
 )
-from scopecat.models.parameter import Quantity
-from scopecat.relations import (
+from scopecat._compiler.program import (
+    linked_program as experiment,
+)
+from scopecat._relations import (
     col,
     grid,
     linspace,
@@ -16,8 +17,11 @@ from scopecat.relations import (
     param,
     table,
 )
+from scopecat.models.parameter import Quantity
+from scopecat.value_types import Quantity as QuantityType
+from scopecat.value_types import Scalar, String
 from tests.support.experiment_preview import preview_contract
-from tests.support.parameter_fixtures import parameter_view as _parameter_view
+from tests.support.parameter_fixtures import parameters as _parameters
 
 
 def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
@@ -46,8 +50,8 @@ def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
         ],
     )
 
-    unchanged_preview = preview_contract(unchanged, _parameter_view())
-    swept_preview = preview_contract(swept, _parameter_view())
+    unchanged_preview = preview_contract(unchanged, _parameters())
+    swept_preview = preview_contract(swept, _parameters())
     unchanged_patches = [
         (change.point_index, change.resource, change.field, change.before, change.after)
         for change in unchanged_preview.state_changes
@@ -90,7 +94,7 @@ def test_preview_repeated_state_uses_outer_point_row() -> None:
         ],
     )
 
-    preview = preview_contract(spec, _parameter_view())
+    preview = preview_contract(spec, _parameters())
 
     assert [point.coordinates["lo_frequency"] for point in preview.points] == [
         Quantity(value=4.9, unit="GHz"),
@@ -119,11 +123,14 @@ def test_preview_selected_target_table_plans_simultaneous_resources() -> None:
             )
             .sort("device_id")
         ),
-        params=[
-            update_param_rows(
+        parameter_overlays=[
+            overlay_parameter_cell(
                 "readout_devices",
                 key={"device_id": col("device_id")},
-                values={"frequency": col("frequency") + Quantity(value=50, unit="MHz")},
+                key_types={"device_id": Scalar(String())},
+                column_id="frequency",
+                value=col("frequency") + Quantity(value=50, unit="MHz"),
+                value_type=Scalar(QuantityType(unit="GHz")),
             )
         ],
         state=[
@@ -147,7 +154,7 @@ def test_preview_selected_target_table_plans_simultaneous_resources() -> None:
         ],
     )
 
-    preview = preview_contract(spec, _parameter_view())
+    preview = preview_contract(spec, _parameters())
 
     assert [point.coordinates["device_id"] for point in preview.points] == ["r0", "r1"]
     assert [

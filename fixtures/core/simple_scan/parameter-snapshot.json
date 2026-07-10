@@ -1,0 +1,15 @@
+{
+  "schema_version": "scopecat.parameter_snapshot.v1",
+  "id": "example-workspace-parameter-snapshot",
+  "values": [
+    {
+      "id": "drive_frequency",
+      "value": {
+        "value": 5.0,
+        "unit": "GHz"
+      },
+      "shape": "scalar"
+    }
+  ],
+  "metadata": {}
+}

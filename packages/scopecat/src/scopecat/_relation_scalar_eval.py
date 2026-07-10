@@ -1,31 +1,30 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal, TypeGuard, cast
+from typing import Any, TypeGuard, cast
 
+from scopecat._scalar_operators import (
+    ScalarOperator,
+    compare_ordered_values,
+    require_finite_arithmetic_result,
+    require_runtime_operator,
+    runtime_values_equal,
+)
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
 from scopecat.models.value import PayloadValue
 
 type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | PayloadValue
 type CellValue = ScalarValue | dict[str, Any]
-type ScalarOperator = Literal[
-    "+",
-    "-",
-    "*",
-    "/",
-    "==",
-    "!=",
-    "<",
-    "<=",
-    ">",
-    ">=",
-    "and",
-    "or",
-]
 
 
 def read_path(row: Mapping[str, object], path: str) -> CellValue:
+    if path in row:
+        selected = row[path]
+        if not is_cell_value(selected):
+            msg = f"path {path!r} resolved to unsupported value {selected!r}"
+            raise TypeError(msg)
+        return selected
     current: object = row
     for part in path.split("."):
         if not _is_string_key_mapping(current) or part not in current:
@@ -39,18 +38,27 @@ def read_path(row: Mapping[str, object], path: str) -> CellValue:
 
 
 def eval_binary(op: ScalarOperator, left: CellValue, right: CellValue) -> CellValue:
+    require_runtime_operator(op, left, right)
     if op == "+":
-        return _add(left, right)
+        result = _add(left, right)
+        require_finite_arithmetic_result(op, result)
+        return result
     if op == "-":
-        return _sub(left, right)
+        result = _sub(left, right)
+        require_finite_arithmetic_result(op, result)
+        return result
     if op == "*":
-        return _mul(left, right)
+        result = _mul(left, right)
+        require_finite_arithmetic_result(op, result)
+        return result
     if op == "/":
-        return _div(left, right)
+        result = _div(left, right)
+        require_finite_arithmetic_result(op, result)
+        return result
     if op == "==":
-        return left == right
+        return runtime_values_equal(left, right)
     if op == "!=":
-        return left != right
+        return not runtime_values_equal(left, right)
     if op in {"<", "<=", ">", ">="}:
         return _compare(op, left, right)
     if op == "and":
@@ -70,6 +78,8 @@ def is_cell_value(value: object) -> TypeGuard[CellValue]:
 
 def _add(left: CellValue, right: CellValue) -> CellValue:
     if isinstance(left, Quantity) and isinstance(right, Quantity):
+        if left.unit == right.unit:
+            return Quantity(value=left.value + right.value, unit=left.unit)
         return left + right
     if _is_number(left) and _is_number(right):
         return left + right
@@ -79,6 +89,8 @@ def _add(left: CellValue, right: CellValue) -> CellValue:
 
 def _sub(left: CellValue, right: CellValue) -> CellValue:
     if isinstance(left, Quantity) and isinstance(right, Quantity):
+        if left.unit == right.unit:
+            return Quantity(value=left.value - right.value, unit=left.unit)
         return left - right
     if _is_number(left) and _is_number(right):
         return left - right
@@ -107,39 +119,15 @@ def _div(left: CellValue, right: CellValue) -> CellValue:
 
 
 def _compare(op: ScalarOperator, left: CellValue, right: CellValue) -> bool:
-    if isinstance(left, Quantity) and isinstance(right, Quantity):
-        right = right.to(left.unit)
-        return _compare_number_values(op, left.value, right.value)
-    if _is_number(left) and _is_number(right):
-        return _compare_number_values(op, float(left), float(right))
-    if isinstance(left, str) and isinstance(right, str):
-        return _compare_string_values(op, left, right)
-    msg = f"cannot compare {left!r} and {right!r}"
-    raise TypeError(msg)
-
-
-def _compare_number_values(op: ScalarOperator, left: float, right: float) -> bool:
+    ordering = compare_ordered_values(left, right)
     if op == "<":
-        return left < right
+        return ordering < 0
     if op == "<=":
-        return left <= right
+        return ordering <= 0
     if op == ">":
-        return left > right
+        return ordering > 0
     if op == ">=":
-        return left >= right
-    msg = f"unsupported comparison operator: {op}"
-    raise ValueError(msg)
-
-
-def _compare_string_values(op: ScalarOperator, left: str, right: str) -> bool:
-    if op == "<":
-        return left < right
-    if op == "<=":
-        return left <= right
-    if op == ">":
-        return left > right
-    if op == ">=":
-        return left >= right
+        return ordering >= 0
     msg = f"unsupported comparison operator: {op}"
     raise ValueError(msg)
 

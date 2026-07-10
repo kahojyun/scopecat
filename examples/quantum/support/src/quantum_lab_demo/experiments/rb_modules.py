@@ -11,114 +11,123 @@ from quantum_lab_demo.experiments.compute import (
     render_sqg_rb_pulse_program,
 )
 from quantum_lab_demo.experiments.ids import CZ_RB_TEMPLATE_ID, SQG_RB_TEMPLATE_ID
+from quantum_lab_demo.experiments.points import CLIFFORD_COUNT
+
+_QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
+_COUPLER = sc.ScalarType(sc.EntityType(entity_kind="logical_coupler"))
+_NON_NEGATIVE_INT = sc.ScalarType(sc.IntType(minimum=0))
+
+_SQG_QUBIT = sc.input("qubit", _QUBIT)
+_SQG_SEED = sc.input("seed", _NON_NEGATIVE_INT)
+_BUILD_SQG_RB_SEQUENCE = sc.compute(
+    "build-sqg-rb-sequence",
+    fn=build_sqg_rb_sequence,
+    output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
+    inputs={
+        "qubit": _SQG_QUBIT,
+        "clifford_count": CLIFFORD_COUNT,
+        "seed": _SQG_SEED,
+    },
+)
+_RENDER_SQG_RB_PULSE_PROGRAM = sc.compute(
+    "render-sqg-rb-pulse-program",
+    fn=render_sqg_rb_pulse_program,
+    output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+    inputs={
+        "sequence": _BUILD_SQG_RB_SEQUENCE.output,
+        "drive_route": sc.route("drive"),
+    },
+)
 
 SQG_RB_MODULE = (
     sc.module(SQG_RB_TEMPLATE_ID, metadata={"template_id": SQG_RB_TEMPLATE_ID})
-    .entity("qubit")
-    .input(
-        "clifford_count",
-        value_type=sc.ScalarType(sc.IntType(minimum=1)),
-    )
-    .input("seed", value_type=sc.ScalarType(sc.IntType(minimum=0)))
+    .inputs(_SQG_QUBIT, _SQG_SEED)
     .resource(
         "drive",
         requires=("play_gate_sequence", "play_pulse_program"),
-        for_entities=("qubit",),
+        for_entities=(_SQG_QUBIT,),
     )
-    .compute(
-        "build-sqg-rb-sequence",
-        fn=build_sqg_rb_sequence,
-        output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
-        inputs={
-            "qubit": sc.input("qubit"),
-            "clifford_count": sc.var("clifford_count"),
-            "seed": sc.input("seed"),
-        },
-    )
-    .compute(
-        "render-sqg-rb-pulse-program",
-        fn=render_sqg_rb_pulse_program,
-        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-        inputs={
-            "sequence": sc.compute_result("build-sqg-rb-sequence"),
-            "drive_route": sc.route("drive"),
-        },
-        route_ports=("drive",),
-    )
+    .computes(_BUILD_SQG_RB_SEQUENCE, _RENDER_SQG_RB_PULSE_PROGRAM)
     .bind(
         "drive.play_gate_sequence.sequence",
-        sc.compute_result("build-sqg-rb-sequence"),
+        _BUILD_SQG_RB_SEQUENCE.output,
     )
     .bind(
         "drive.play_pulse_program.program",
-        sc.compute_result("render-sqg-rb-pulse-program"),
+        _RENDER_SQG_RB_PULSE_PROGRAM.output,
     )
     .bind(
         "drive.play_gate_sequence.clifford_count",
-        sc.var("clifford_count") * sc.Quantity(value=1.0, unit="count"),
+        CLIFFORD_COUNT * sc.Quantity(value=1.0, unit="count"),
     )
-    .bind("drive.play_gate_sequence.seed", sc.input("seed"))
+    .bind("drive.play_gate_sequence.seed", _SQG_SEED)
     .build()
+)
+
+_CZ_CONTROL_QUBIT = sc.input("control_qubit", _QUBIT)
+_CZ_PARTNER_QUBIT = sc.input("partner_qubit", _QUBIT)
+_CZ_COUPLER = sc.input("coupler", _COUPLER)
+_CZ_SEED = sc.input("seed", _NON_NEGATIVE_INT)
+_CZ_INTERLEAVED_GATE = sc.input(
+    "interleaved_gate",
+    sc.ScalarType(sc.StringType(min_length=1)),
+)
+_BUILD_CZ_RB_SEQUENCE = sc.compute(
+    "build-cz-rb-sequence",
+    fn=build_cz_rb_sequence,
+    output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
+    inputs={
+        "control_qubit": _CZ_CONTROL_QUBIT,
+        "partner_qubit": _CZ_PARTNER_QUBIT,
+        "coupler": _CZ_COUPLER,
+        "clifford_count": CLIFFORD_COUNT,
+        "seed": _CZ_SEED,
+        "interleaved_gate": _CZ_INTERLEAVED_GATE,
+    },
+)
+_RENDER_CZ_RB_COUPLER_PULSE = sc.compute(
+    "render-cz-rb-coupler-pulse",
+    fn=render_cz_rb_coupler_pulse,
+    output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+    inputs={
+        "sequence": _BUILD_CZ_RB_SEQUENCE.output,
+        "coupler_route": sc.route("coupler"),
+    },
 )
 
 CZ_RB_MODULE = (
     sc.module(CZ_RB_TEMPLATE_ID, metadata={"template_id": CZ_RB_TEMPLATE_ID})
-    .entity_inputs_from("control_qubit", "partner_qubit", "coupler")
-    .input(
-        "clifford_count",
-        value_type=sc.ScalarType(sc.IntType(minimum=1)),
+    .inputs(
+        _CZ_CONTROL_QUBIT,
+        _CZ_PARTNER_QUBIT,
+        _CZ_COUPLER,
+        _CZ_SEED,
+        _CZ_INTERLEAVED_GATE,
     )
-    .input("seed", value_type=sc.ScalarType(sc.IntType(minimum=0)))
     .resource(
         "drive",
         requires=("play_gate_sequence", "play_pulse_program"),
-        for_entities=("control_qubit", "partner_qubit"),
+        for_entities=(_CZ_CONTROL_QUBIT, _CZ_PARTNER_QUBIT),
     )
     .resource(
         "coupler",
         requires=("play_coupler_pulse",),
-        for_entities=("coupler",),
+        for_entities=(_CZ_COUPLER,),
     )
-    .input(
-        "interleaved_gate",
-        value_type=sc.ScalarType(sc.StringType(min_length=1)),
-    )
-    .compute(
-        "build-cz-rb-sequence",
-        fn=build_cz_rb_sequence,
-        output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
-        inputs={
-            "control_qubit": sc.input("control_qubit"),
-            "partner_qubit": sc.input("partner_qubit"),
-            "coupler": sc.input("coupler"),
-            "clifford_count": sc.var("clifford_count"),
-            "seed": sc.input("seed"),
-            "interleaved_gate": sc.input("interleaved_gate"),
-        },
-    )
-    .compute(
-        "render-cz-rb-coupler-pulse",
-        fn=render_cz_rb_coupler_pulse,
-        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-        inputs={
-            "sequence": sc.compute_result("build-cz-rb-sequence"),
-            "coupler_route": sc.route("coupler"),
-        },
-        route_ports=("coupler",),
-    )
+    .computes(_BUILD_CZ_RB_SEQUENCE, _RENDER_CZ_RB_COUPLER_PULSE)
     .bind(
         "drive.play_gate_sequence.sequence",
-        sc.compute_result("build-cz-rb-sequence"),
+        _BUILD_CZ_RB_SEQUENCE.output,
     )
     .bind(
         "drive.play_gate_sequence.clifford_count",
-        sc.var("clifford_count") * sc.Quantity(value=1.0, unit="count"),
+        CLIFFORD_COUNT * sc.Quantity(value=1.0, unit="count"),
     )
     .bind(
         "coupler.play_coupler_pulse.program",
-        sc.compute_result("render-cz-rb-coupler-pulse"),
+        _RENDER_CZ_RB_COUPLER_PULSE.output,
     )
-    .bind("drive.play_gate_sequence.seed", sc.input("seed"))
+    .bind("drive.play_gate_sequence.seed", _CZ_SEED)
     .build()
 )
 

@@ -23,10 +23,11 @@ from scopecat._runtime.evidence import (
 from scopecat._runtime.graph import RuntimeGraph
 from scopecat._storage.local import LocalRunStore
 from scopecat.diagnostics import Diagnostic
-from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.execution import ExecutionSummary, InstrumentStateEvidence
 from scopecat.models.run import RunConfigSource, RunManifest, RunStatus
+from scopecat.models.run_plan import RunPlanRecord
+from scopecat.models.run_request import RunRequest
 from scopecat.planning.validation import has_blocking_diagnostics
 from scopecat.results import MeasurementDatasetSchema, MeasurementRecord
 
@@ -111,14 +112,16 @@ def build_runtime_execution_outcome(
 def persist_runtime_execution_outcome(
     *,
     workspace: str | Path,
-    experiment: ExperimentSpec,
+    request: RunRequest | None,
+    plan: RunPlanRecord,
     config: ConfigProfileSnapshot,
     outcome: RuntimeExecutionOutcome,
 ) -> None:
     storage = LocalRunStore(Path(workspace))
     storage.write_structured_run_inputs(
         manifest=outcome.manifest,
-        experiment=experiment,
+        request=request,
+        plan=plan,
         config=config,
     )
     storage.write_model(

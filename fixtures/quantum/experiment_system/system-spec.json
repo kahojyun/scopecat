@@ -1,5 +1,5 @@
 {
-  "schema_version": "scopecat.system_spec.v0",
+  "schema_version": "scopecat.system_spec.v1",
   "id": "templates-system",
   "workspace_id": "templates",
   "primary_entity_id": "q0",
@@ -211,278 +211,142 @@
   },
   "metadata": {},
   "parameter_catalog": {
-    "schema_version": "scopecat.parameter_catalog.v2",
+    "schema_version": "scopecat.parameter_catalog.v4",
     "id": "templates-parameter-definitions-catalog",
-    "scalar_definitions": [
-      {
-        "id": "rabi_pulse_length_q0",
-        "unit": "ns",
-        "safety_min": {
-          "value": 0.0,
-          "unit": "ns"
-        },
-        "safety_max": {
-          "value": 200.0,
-          "unit": "ns"
-        },
-        "description": "Current Rabi pulse-length center for q0."
-      },
-      {
-        "id": "rabi_drive_amplitude_q0",
-        "unit": "arb",
-        "safety_min": {
-          "value": 0.0,
-          "unit": "arb"
-        },
-        "safety_max": {
-          "value": 1.0,
-          "unit": "arb"
-        },
-        "description": "Current Rabi drive amplitude for q0."
-      },
-      {
-        "id": "drive_frequency_q0",
-        "unit": "GHz",
-        "safety_min": {
-          "value": 4.0,
-          "unit": "GHz"
-        },
-        "safety_max": {
-          "value": 7.0,
-          "unit": "GHz"
-        },
-        "description": "Current drive frequency for q0."
-      },
-      {
-        "id": "readout_frequency_q0",
-        "unit": "GHz",
-        "safety_min": {
-          "value": 5.0,
-          "unit": "GHz"
-        },
-        "safety_max": {
-          "value": 8.0,
-          "unit": "GHz"
-        },
-        "description": "Current readout frequency for q0."
-      },
-      {
-        "id": "readout_power_q0",
-        "unit": "dBm",
-        "safety_min": {
-          "value": -60.0,
-          "unit": "dBm"
-        },
-        "safety_max": {
-          "value": 0.0,
-          "unit": "dBm"
-        },
-        "description": "Current readout power for q0."
-      },
-      {
-        "id": "rabi_pulse_length_q1",
-        "unit": "ns",
-        "safety_min": {
-          "value": 0.0,
-          "unit": "ns"
-        },
-        "safety_max": {
-          "value": 200.0,
-          "unit": "ns"
-        },
-        "description": "Current Rabi pulse-length center for q1."
-      },
-      {
-        "id": "rabi_drive_amplitude_q1",
-        "unit": "arb",
-        "safety_min": {
-          "value": 0.0,
-          "unit": "arb"
-        },
-        "safety_max": {
-          "value": 1.0,
-          "unit": "arb"
-        },
-        "description": "Current Rabi drive amplitude for q1."
-      },
-      {
-        "id": "drive_frequency_q1",
-        "unit": "GHz",
-        "safety_min": {
-          "value": 4.0,
-          "unit": "GHz"
-        },
-        "safety_max": {
-          "value": 7.0,
-          "unit": "GHz"
-        },
-        "description": "Current drive frequency for q1."
-      },
-      {
-        "id": "readout_frequency_q1",
-        "unit": "GHz",
-        "safety_min": {
-          "value": 5.0,
-          "unit": "GHz"
-        },
-        "safety_max": {
-          "value": 8.0,
-          "unit": "GHz"
-        },
-        "description": "Current readout frequency for q1."
-      },
-      {
-        "id": "readout_power_q1",
-        "unit": "dBm",
-        "safety_min": {
-          "value": -60.0,
-          "unit": "dBm"
-        },
-        "safety_max": {
-          "value": 0.0,
-          "unit": "dBm"
-        },
-        "description": "Current readout power for q1."
-      },
+    "definitions": [
       {
         "id": "repetitions",
-        "unit": "count",
-        "safety_min": {
-          "value": 1.0,
-          "unit": "count"
-        },
-        "safety_max": {
-          "value": 10000.0,
-          "unit": "count"
+        "value_type": {
+          "shape": "scalar",
+          "atom": {
+            "type": "quantity",
+            "unit": "count",
+            "minimum": 1.0,
+            "maximum": 10000.0
+          }
         },
         "description": "Default acquisition repetitions."
-      }
-    ],
-    "table_definitions": [
+      },
       {
         "id": "qubits",
-        "primary_key": [
-          "qubit"
-        ],
-        "columns": [
-          {
-            "id": "qubit",
-            "value_type": {
-              "type": "string"
+        "value_type": {
+          "shape": "table",
+          "columns": [
+            {
+              "id": "qubit",
+              "value_type": {
+                "type": "entity",
+                "entity_kind": "logical_qubit"
+              }
             },
-            "description": "Logical qubit id."
-          },
-          {
-            "id": "rabi_pulse_length",
-            "value_type": {
-              "type": "quantity",
-              "unit": "ns"
+            {
+              "id": "rabi_pulse_length",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
             },
-            "description": "Current Rabi pulse-length center."
-          },
-          {
-            "id": "rabi_drive_amplitude",
-            "value_type": {
-              "type": "quantity",
-              "unit": "arb"
+            {
+              "id": "rabi_drive_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
             },
-            "description": "Current Rabi drive amplitude."
-          },
-          {
-            "id": "drive_frequency",
-            "value_type": {
-              "type": "quantity",
-              "unit": "GHz"
+            {
+              "id": "drive_frequency",
+              "value_type": {
+                "type": "quantity",
+                "unit": "GHz"
+              }
             },
-            "description": "Current drive frequency."
-          },
-          {
-            "id": "readout_frequency",
-            "value_type": {
-              "type": "quantity",
-              "unit": "GHz"
+            {
+              "id": "readout_frequency",
+              "value_type": {
+                "type": "quantity",
+                "unit": "GHz"
+              }
             },
-            "description": "Current readout frequency."
-          },
-          {
-            "id": "readout_power",
-            "value_type": {
-              "type": "quantity",
-              "unit": "dBm"
-            },
-            "description": "Current readout power."
-          }
-        ],
+            {
+              "id": "readout_power",
+              "value_type": {
+                "type": "quantity",
+                "unit": "dBm"
+              }
+            }
+          ],
+          "primary_key": [
+            "qubit"
+          ]
+        },
         "description": "Qubit-keyed calibration values."
       },
       {
         "id": "two_qubit_gates",
-        "primary_key": [
-          "control_qubit",
-          "partner_qubit",
-          "gate"
-        ],
-        "columns": [
-          {
-            "id": "control_qubit",
-            "value_type": {
-              "type": "string"
+        "value_type": {
+          "shape": "table",
+          "columns": [
+            {
+              "id": "control_qubit",
+              "value_type": {
+                "type": "entity",
+                "entity_kind": "logical_qubit"
+              }
             },
-            "description": "Control qubit id."
-          },
-          {
-            "id": "partner_qubit",
-            "value_type": {
-              "type": "string"
+            {
+              "id": "partner_qubit",
+              "value_type": {
+                "type": "entity",
+                "entity_kind": "logical_qubit"
+              }
             },
-            "description": "Partner qubit id."
-          },
-          {
-            "id": "gate",
-            "value_type": {
-              "type": "string"
+            {
+              "id": "gate",
+              "value_type": {
+                "type": "string"
+              }
             },
-            "description": "Logical two-qubit gate id."
-          },
-          {
-            "id": "coupler",
-            "value_type": {
-              "type": "string"
+            {
+              "id": "coupler",
+              "value_type": {
+                "type": "entity",
+                "entity_kind": "logical_coupler"
+              }
             },
-            "description": "Logical coupler id used for this two-qubit gate."
-          },
-          {
-            "id": "control_echo_amplitude",
-            "value_type": {
-              "type": "quantity",
-              "unit": "arb"
+            {
+              "id": "control_echo_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
             },
-            "description": "Echo drive amplitude for the control qubit."
-          },
-          {
-            "id": "partner_echo_amplitude",
-            "value_type": {
-              "type": "quantity",
-              "unit": "arb"
+            {
+              "id": "partner_echo_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
             },
-            "description": "Echo drive amplitude for the partner qubit."
-          },
-          {
-            "id": "coupler_parking_flux",
-            "value_type": {
-              "type": "quantity",
-              "unit": "arb"
+            {
+              "id": "coupler_parking_flux",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
             },
-            "description": "Flux parking offset used while rendering CZ pulses."
-          },
-          {
-            "id": "sample_rate_hz",
-            "value_type": {
-              "type": "float"
-            },
-            "description": "Waveform rate used by the renderer."
-          }
-        ],
+            {
+              "id": "sample_rate_hz",
+              "value_type": {
+                "type": "float"
+              }
+            }
+          ],
+          "primary_key": [
+            "control_qubit",
+            "partner_qubit",
+            "gate"
+          ]
+        },
         "description": "Two-qubit gate calibration values used by waveform compute."
       }
     ],

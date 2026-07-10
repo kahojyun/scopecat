@@ -3,14 +3,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from scopecat._compiler.program import LinkedProgram, ResourceRouteIntent, set_state
 from scopecat._planning.planner import build_planner_snapshot
+from scopecat._relations import input_series, lit, literal_rows, values
 from scopecat._runtime.lowering import compile_point_routes
-from scopecat.experiments import (
-    ExperimentSpec,
-    ResourceRouteIntent,
-    as_value_expr,
-    set_state,
-)
+from scopecat._value_expressions import as_value_expr
 from scopecat.models.config import (
     Channel,
     Device,
@@ -23,9 +20,8 @@ from scopecat.models.config import (
 )
 from scopecat.models.entity import EntityRef
 from scopecat.planning.validation import validate_config
-from scopecat.relations import input_series, lit, literal_rows, values
 from scopecat.routing import RoutingError, RoutingView
-from tests.support.authoring import load_config, parameter_view
+from tests.support.authoring import load_config, parameters
 from tests.support.experiment_preview import preview_result
 
 
@@ -363,7 +359,7 @@ def test_runtime_graph_reports_shared_group_resource_conflict() -> None:
 
     _preview, diagnostics = preview_result(
         _two_route_experiment(),
-        parameter_view(),
+        parameters(),
         config=config,
     )
 
@@ -418,7 +414,7 @@ def test_runtime_graph_allows_configured_shared_group_resource_fanout() -> None:
 
     _preview, diagnostics = preview_result(
         _two_route_experiment(),
-        parameter_view(),
+        parameters(),
         config=config,
     )
 
@@ -460,7 +456,7 @@ def test_runtime_graph_reports_channel_shared_by_multiple_ports() -> None:
 
     _preview, diagnostics = preview_result(
         _two_route_experiment(),
-        parameter_view(),
+        parameters(),
         config=config,
     )
 
@@ -511,7 +507,7 @@ def test_runtime_graph_allows_configured_channel_route_port_fanout() -> None:
 
     _preview, diagnostics = preview_result(
         _two_route_experiment(),
-        parameter_view(),
+        parameters(),
         config=config,
     )
 
@@ -521,7 +517,7 @@ def test_runtime_graph_allows_configured_channel_route_port_fanout() -> None:
 
 
 def test_runtime_graph_reports_conflicting_state_field_values() -> None:
-    experiment = ExperimentSpec(
+    experiment = LinkedProgram(
         id="conflicting-state",
         kind="routing_test",
         points=literal_rows([{}]),
@@ -533,7 +529,7 @@ def test_runtime_graph_reports_conflicting_state_field_values() -> None:
 
     _preview, diagnostics = preview_result(
         experiment,
-        parameter_view(),
+        parameters(),
         config=load_config(),
     )
 
@@ -553,7 +549,7 @@ def test_route_entity_expressions_reject_table_shape() -> None:
 
 
 def test_runtime_graph_reports_invalid_route_entity_member() -> None:
-    experiment = ExperimentSpec(
+    experiment = LinkedProgram(
         id="invalid-route-entity",
         kind="routing_test",
         points=literal_rows([{}]),
@@ -573,7 +569,7 @@ def test_runtime_graph_reports_invalid_route_entity_member() -> None:
 
     _preview, diagnostics = preview_result(
         experiment,
-        parameter_view(),
+        parameters(),
         config=load_config(),
     )
 
@@ -583,7 +579,7 @@ def test_runtime_graph_reports_invalid_route_entity_member() -> None:
 
 
 def test_route_entity_evaluation_failure_does_not_create_wildcard_binding() -> None:
-    experiment = ExperimentSpec(
+    experiment = LinkedProgram(
         id="failed-route-entity-expression",
         kind="routing_test",
         points=literal_rows([{}]),
@@ -595,7 +591,7 @@ def test_route_entity_evaluation_failure_does_not_create_wildcard_binding() -> N
             )
         ],
     )
-    plan = build_planner_snapshot(experiment, parameter_view())
+    plan = build_planner_snapshot(experiment, parameters())
 
     bindings, diagnostics = compile_point_routes(plan, config=load_config())
 
@@ -605,8 +601,8 @@ def test_route_entity_evaluation_failure_does_not_create_wildcard_binding() -> N
     }
 
 
-def _two_route_experiment() -> ExperimentSpec:
-    return ExperimentSpec(
+def _two_route_experiment() -> LinkedProgram:
+    return LinkedProgram(
         id="two-route-conflict",
         kind="routing_test",
         points=literal_rows([{}]),

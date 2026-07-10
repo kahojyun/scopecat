@@ -2,31 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+from scopecat._parameter_resolution import resolve_config_parameters
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.models.config import ConfigProfileSnapshot, build_config_parameters
-from scopecat.models.parameter import (
-    ParameterTable,
-    ParameterTableColumn,
-    ParameterTableDefinition,
-    ParameterViewSnapshot,
-    Quantity,
-)
-from scopecat.parameter_validation import (
-    ParameterTableCellValidationError,
-    coerce_parameter_table_cell,
-    parameter_table_key_part,
-    validate_parameter_table_cell,
-)
-from scopecat.units import compatible_units, to_base_value
+from scopecat.models.config import ConfigProfileSnapshot
 
 BLOCKING_SEVERITIES = {"error", "blocker"}
 
 
-def has_blocking_diagnostics(diagnostics: list[Diagnostic]) -> bool:
+def has_blocking_diagnostics(diagnostics: Sequence[Diagnostic]) -> bool:
     return any(diagnostic.severity in BLOCKING_SEVERITIES for diagnostic in diagnostics)
 
 
-def format_diagnostics(diagnostics: list[Diagnostic]) -> str:
+def format_diagnostics(diagnostics: Sequence[Diagnostic]) -> str:
     if not diagnostics:
         return "no diagnostics"
     return "\n".join(
@@ -491,220 +480,10 @@ def validate_config_profile(config: ConfigProfileSnapshot) -> list[Diagnostic]:
                 )
             )
 
-    parameter_view = _parameter_view(config)
-    for item in parameter_view.diagnostics:
-        diagnostics.append(
-            _diagnostic(
-                item.get("severity", "warning"),
-                item.get("code", "parameter_view_diagnostic"),
-                item.get("message", item.get("code", "parameter view diagnostic")),
-                "parameter_view.diagnostics",
-            )
-        )
-
-    definitions = {
-        definition.id: definition
-        for definition in config.parameter_catalog.scalar_definitions
-    }
-    for value in parameter_view.scalar_values:
-        definition = definitions.get(value.id)
-        if definition is None:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "unknown_parameter_value_definition",
-                    f"parameter value {value.id} has no definition",
-                    "parameter_view.scalar_values",
-                )
-            )
-            continue
-        if not compatible_units(definition.unit, value.quantity.unit):
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "incompatible_parameter_value_unit",
-                    f"parameter value {value.id} uses unit {value.quantity.unit}, "
-                    f"but definition uses {definition.unit}",
-                    "parameter_view.scalar_values",
-                )
-            )
-        if _outside_safety(
-            value.quantity, definition.safety_min, definition.safety_max
-        ):
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "parameter_value_outside_safety_limits",
-                    f"parameter value {value.id} is outside safety limits",
-                    "parameter_view.scalar_values",
-                )
-            )
-
-    diagnostics.extend(
-        _validate_parameter_tables(
-            definitions=config.parameter_catalog.table_definitions,
-            tables=config.parameter_tables,
-        )
-    )
+    diagnostics.extend(resolve_config_parameters(config).diagnostics)
 
     return diagnostics
 
 
 def validate_config(config: ConfigProfileSnapshot) -> list[Diagnostic]:
     return validate_config_profile(config)
-
-
-def _parameter_view(config: ConfigProfileSnapshot) -> ParameterViewSnapshot:
-    return build_config_parameters(config)
-
-
-def _outside_safety(
-    point: Quantity, safety_min: Quantity | None, safety_max: Quantity | None
-) -> bool:
-    point_base = to_base_value(point.value, point.unit)
-    if point_base is None:
-        return False
-    if safety_min is not None:
-        min_base = to_base_value(safety_min.value, safety_min.unit)
-        if min_base is not None and point_base < min_base:
-            return True
-    if safety_max is not None:
-        max_base = to_base_value(safety_max.value, safety_max.unit)
-        if max_base is not None and point_base > max_base:
-            return True
-    return False
-
-
-def _validate_parameter_tables(
-    *,
-    definitions: list[ParameterTableDefinition],
-    tables: list[ParameterTable],
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
-    definitions_by_id = {definition.id: definition for definition in definitions}
-    for table in tables:
-        definition = definitions_by_id.get(table.id)
-        if definition is None:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "unknown_parameter_table_definition",
-                    f"parameter table {table.id} has no definition",
-                    "parameter_view.tables",
-                )
-            )
-            continue
-        diagnostics.extend(_validate_parameter_table(definition, table))
-    return diagnostics
-
-
-def _validate_parameter_table(
-    definition: ParameterTableDefinition,
-    table: ParameterTable,
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
-    columns = {column.id: column for column in definition.columns}
-    required_columns = {column.id for column in definition.columns if column.required}
-    seen_keys: set[tuple[object, ...]] = set()
-    for row_index, row in enumerate(table.rows):
-        path = f"parameter_view.tables.{table.id}.rows.{row_index}"
-        missing = sorted(required_columns - row.keys())
-        if missing:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "missing_parameter_table_columns",
-                    f"parameter table {table.id} row is missing columns: "
-                    + ", ".join(missing),
-                    path,
-                )
-            )
-        extra = sorted(row.keys() - columns.keys())
-        if extra:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "unknown_parameter_table_columns",
-                    f"parameter table {table.id} row contains unknown columns: "
-                    + ", ".join(extra),
-                    path,
-                )
-            )
-        key_values = [row.get(column_id) for column_id in definition.primary_key]
-        if any(value is None for value in key_values):
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "missing_parameter_table_primary_key",
-                    f"parameter table {table.id} row is missing primary key values",
-                    path,
-                )
-            )
-        else:
-            try:
-                key = tuple(
-                    parameter_table_key_part(
-                        coerce_parameter_table_cell(
-                            table_id=table.id,
-                            column=columns[column_id],
-                            value=row[column_id],
-                            path=f"{path}.{column_id}",
-                        )
-                    )
-                    for column_id in definition.primary_key
-                )
-            except ParameterTableCellValidationError:
-                key = None
-            if key is not None:
-                if key in seen_keys:
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
-                            "duplicate_parameter_table_primary_key",
-                            f"parameter table {table.id} has duplicate primary key "
-                            f"{key}",
-                            path,
-                        )
-                    )
-                else:
-                    seen_keys.add(key)
-
-        for column_id, raw_value in row.items():
-            column = columns.get(column_id)
-            if column is None:
-                continue
-            diagnostics.extend(
-                _validate_parameter_table_cell(
-                    table_id=table.id,
-                    column=column,
-                    raw_value=raw_value,
-                    path=f"{path}.{column_id}",
-                )
-            )
-    return diagnostics
-
-
-def _validate_parameter_table_cell(
-    *,
-    table_id: str,
-    column: ParameterTableColumn,
-    raw_value: object,
-    path: str,
-) -> list[Diagnostic]:
-    try:
-        validate_parameter_table_cell(
-            table_id=table_id,
-            column=column,
-            value=raw_value,
-            path=path,
-        )
-    except ParameterTableCellValidationError as error:
-        return [
-            _diagnostic(
-                "error",
-                error.code,
-                str(error),
-                path,
-            )
-        ]
-    return []

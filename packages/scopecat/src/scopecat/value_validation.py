@@ -9,7 +9,8 @@ from typing import cast
 
 from pydantic import ValidationError
 
-from scopecat.models.entity import EntityRef
+from scopecat._value_identity import ScalarIdentity, scalar_identity
+from scopecat.models.entity import EntityRef, normalize_entity_metadata
 from scopecat.models.parameter import Quantity as QuantityValue
 from scopecat.models.value import PayloadValue
 from scopecat.units import compatible_units, unit_kind
@@ -201,7 +202,13 @@ def _coerce_quantity(atom: Quantity, value: object, *, path: str) -> QuantityVal
 
 def _coerce_entity(atom: Entity, value: object, *, path: str) -> EntityRef:
     if isinstance(value, EntityRef):
-        selected = value
+        try:
+            selected = value.model_copy(
+                update={"metadata": normalize_entity_metadata(value.metadata)},
+                deep=True,
+            )
+        except ValueError as error:
+            raise ValueValidationError(path, f"invalid entity: {error}") from error
     elif isinstance(value, str):
         selected = EntityRef(id=value, kind=atom.entity_kind)
     elif isinstance(value, Mapping):
@@ -315,7 +322,7 @@ def _coerce_table(
     )
     columns = {column.id: column for column in value_type.columns}
     result: list[dict[str, object]] = []
-    primary_keys: list[tuple[object, ...]] = []
+    primary_keys: dict[tuple[ScalarIdentity, ...], int] = {}
     for index, raw_row in enumerate(rows):
         row_path = f"{path}[{index}]"
         row = _string_mapping(raw_row, path=row_path, label="table row")
@@ -348,13 +355,14 @@ def _coerce_table(
             selected.update({column_id: row[column_id] for column_id in extra})
         if value_type.primary_key:
             key = tuple(selected[column_id] for column_id in value_type.primary_key)
-            duplicate_index = _equal_key_index(primary_keys, key)
+            identity = tuple(scalar_identity(value) for value in key)
+            duplicate_index = primary_keys.get(identity)
             if duplicate_index is not None:
                 raise ValueValidationError(
                     row_path,
                     f"table primary key {key!r} duplicates row {duplicate_index}",
                 )
-            primary_keys.append(key)
+            primary_keys[identity] = index
         result.append(selected)
     return tuple(result)
 
@@ -416,16 +424,6 @@ def _field_path(path: str, field_id: str) -> str:
     if field_id.isidentifier():
         return f"{path}.{field_id}"
     return f"{path}[{field_id!r}]"
-
-
-def _equal_key_index(
-    keys: Sequence[tuple[object, ...]],
-    selected: tuple[object, ...],
-) -> int | None:
-    for index, key in enumerate(keys):
-        if key == selected:
-            return index
-    return None
 
 
 def _python_type_name(

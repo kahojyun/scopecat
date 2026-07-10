@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import scopecat as sc
 
+_QUBIT_SERIES = sc.SeriesType(sc.ScalarType(sc.EntityType(entity_kind="logical_qubit")))
+_POSITIVE_INT = sc.ScalarType(sc.IntType(minimum=1))
+
 RAW_IQ_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.raw_iq")
     .product("raw_iq", resource="readout", unit="ratio", dtype="complex128")
@@ -31,71 +34,60 @@ READOUT_CLASSIFICATION_RECORDS_MODULE = (
     .build()
 )
 
+_MULTIPLEXED_QUBITS = sc.input("qubits", _QUBIT_SERIES)
 MULTIPLEXED_IQ_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.multiplexed_iq")
-    .input("qubits", value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())))
+    .inputs(_MULTIPLEXED_QUBITS)
     .product(
         "multiplexed_iq",
         resource="readout",
         unit="ratio",
         dtype="complex128",
-        axes=(sc.entity_axis("qubit", sc.input_series("qubits")),),
+        axes=(sc.entity_axis("qubit", _MULTIPLEXED_QUBITS),),
     )
     .build()
 )
 
+_QND_ROUNDS = sc.input("rounds", _POSITIVE_INT)
+_QND_SHOTS = sc.input("shots", _POSITIVE_INT)
 QND_IQ_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.qnd_iq")
-    .input(
-        "rounds",
-        value_type=sc.ScalarType(sc.IntType(minimum=1)),
-    )
-    .input(
-        "shots",
-        value_type=sc.ScalarType(sc.IntType(minimum=1)),
-    )
+    .inputs(_QND_ROUNDS, _QND_SHOTS)
     .product(
         "qnd_iq",
         resource="readout",
         unit="ratio",
         dtype="complex128",
         axes=(
-            sc.record_axis("round", size=sc.input("rounds"), kind="repeat"),
-            sc.shot_axis(sc.input("shots")),
+            sc.record_axis("round", size=_QND_ROUNDS, kind="repeat"),
+            sc.shot_axis(_QND_SHOTS),
         ),
     )
     .build()
 )
 
+_STABILIZER_PATCH_QUBITS = sc.input("patch_qubits", _QUBIT_SERIES)
+_STABILIZER_ROUNDS = sc.input("rounds", _POSITIVE_INT)
 STABILIZER_IQ_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.stabilizer_iq")
-    .input(
-        "patch_qubits",
-        value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())),
-    )
-    .input(
-        "rounds",
-        value_type=sc.ScalarType(sc.IntType(minimum=1)),
-    )
+    .inputs(_STABILIZER_PATCH_QUBITS, _STABILIZER_ROUNDS)
     .product(
         "stabilizer_iq",
         resource="readout",
         unit="ratio",
         dtype="complex128",
         axes=(
-            sc.record_axis("round", size=sc.input("rounds"), kind="repeat"),
-            sc.entity_axis("qubit", sc.input_series("patch_qubits")),
+            sc.record_axis("round", size=_STABILIZER_ROUNDS, kind="repeat"),
+            sc.entity_axis("qubit", _STABILIZER_PATCH_QUBITS),
         ),
     )
     .build()
 )
 
+_BACKEND_LOGICAL_POINTS = sc.input("logical_points", _POSITIVE_INT)
 BACKEND_PROBABILITY_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.backend_probabilities")
-    .input(
-        "logical_points",
-        value_type=sc.ScalarType(sc.IntType(minimum=1)),
-    )
+    .inputs(_BACKEND_LOGICAL_POINTS)
     .product(
         "backend_probabilities",
         resource="readout",
@@ -103,7 +95,7 @@ BACKEND_PROBABILITY_RECORD_MODULE = (
         axes=(
             sc.record_axis(
                 "backend_point",
-                size=sc.input("logical_points"),
+                size=_BACKEND_LOGICAL_POINTS,
                 kind="backend_point",
                 unit="count",
             ),

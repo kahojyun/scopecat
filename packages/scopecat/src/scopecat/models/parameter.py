@@ -2,21 +2,28 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+import math
+from collections.abc import Mapping, Sequence
+from typing import Annotated, Any, Literal, Self, cast
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
+    PlainSerializer,
     WithJsonSchema,
+    field_serializer,
     field_validator,
-    model_validator,
 )
 
+from scopecat._frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
 from scopecat._value_type_wire import (
-    ScalarWire,
+    scalar_type_from_wire,
+    scalar_type_to_wire,
     scalar_type_wire_schema,
 )
+from scopecat.models.entity import EntityRef, normalize_entity_metadata
 from scopecat.units import (
     compatible_units,
     from_base_value,
@@ -25,6 +32,9 @@ from scopecat.units import (
 )
 from scopecat.value_types import (
     Bool as BoolType,
+)
+from scopecat.value_types import (
+    Entity as EntityType,
 )
 from scopecat.value_types import (
     Float as FloatType,
@@ -37,6 +47,10 @@ from scopecat.value_types import (
 )
 from scopecat.value_types import (
     Scalar,
+    Series,
+    Table,
+    TableColumn,
+    ValueType,
 )
 from scopecat.value_types import (
     String as StringType,
@@ -100,6 +114,20 @@ class Quantity(BaseModel):
             raise ValueError(msg)
         return value
 
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Copy through validation so durable quantity invariants cannot drift."""
+
+        _ = deep
+        data = self.model_dump(mode="python")
+        if update is not None:
+            data.update(update)
+        return type(self).model_validate(data)
+
     def to(self, unit: str) -> Quantity:
         """Return this quantity converted to another compatible linear unit."""
 
@@ -145,386 +173,579 @@ class Quantity(BaseModel):
         return Quantity(value=round(self.value / float(other), 12), unit=self.unit)
 
 
-class ParameterDefinition(BaseModel):
-    """Stable physical or workflow parameter definition."""
+_PERSISTABLE_SCALAR_WIRE_SCHEMA = scalar_type_wire_schema(
+    ("bool", "int", "float", "string", "quantity", "entity"),
+    finite_only=True,
+)
 
-    model_config = ConfigDict(extra="forbid")
 
-    id: str
-    unit: str
-    safety_min: Quantity | None = None
-    safety_max: Quantity | None = None
-    description: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+def _persistable_value_type_schema() -> dict[str, object]:
+    scalar = _PERSISTABLE_SCALAR_WIRE_SCHEMA
+    scalar_shape = {
+        "type": "object",
+        "properties": {
+            "shape": {"const": "scalar"},
+            "atom": scalar,
+        },
+        "required": ["shape", "atom"],
+        "additionalProperties": False,
+    }
+    series_shape = {
+        "type": "object",
+        "properties": {
+            "shape": {"const": "series"},
+            "item_type": scalar,
+            "min_length": {"type": "integer", "minimum": 0},
+            "max_length": {"type": ["integer", "null"], "minimum": 0},
+        },
+        "required": ["shape", "item_type"],
+        "additionalProperties": False,
+    }
+    table_column = {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "minLength": 1},
+            "value_type": scalar,
+            "required": {"type": "boolean"},
+        },
+        "required": ["id", "value_type"],
+        "additionalProperties": False,
+    }
+    table_shape = {
+        "type": "object",
+        "properties": {
+            "shape": {"const": "table"},
+            "columns": {"type": "array", "items": table_column},
+            "primary_key": {"type": "array", "items": {"type": "string"}},
+            "min_rows": {"type": "integer", "minimum": 0},
+            "max_rows": {"type": ["integer", "null"], "minimum": 0},
+        },
+        "required": ["shape", "columns"],
+        "additionalProperties": False,
+    }
+    return {"oneOf": [scalar_shape, series_shape, table_shape]}
 
-    @field_validator("unit")
-    @classmethod
-    def validate_unit(cls, value: str) -> str:
-        if not is_supported_unit(value):
-            msg = f"unsupported unit: {value}"
-            raise ValueError(msg)
+
+_PERSISTABLE_VALUE_TYPE_SCHEMA = _persistable_value_type_schema()
+
+
+def _require_persistable_scalar_type(value: Scalar, *, path: str) -> Scalar:
+    try:
+        scalar_type_to_wire(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(str(error)) from error
+    if not isinstance(
+        value.atom,
+        BoolType | IntType | FloatType | StringType | QuantityType | EntityType,
+    ):
+        msg = (
+            f"{path} supports only bool, int, float, string, quantity, and entity atoms"
+        )
+        raise ValueError(msg)
+    if isinstance(value.atom, FloatType | QuantityType) and not value.atom.finite:
+        msg = f"{path} numeric atoms must require finite values"
+        raise ValueError(msg)
+    return value
+
+
+def _validate_persistable_value_type(value: ValueType) -> ValueType:
+    if isinstance(value, Scalar):
+        return _require_persistable_scalar_type(value, path="persisted parameter")
+    if isinstance(value, Series):
+        _require_persistable_scalar_type(
+            value.item_type,
+            path="persisted parameter series item",
+        )
         return value
+    if value.allow_extra_columns:
+        msg = "persisted parameter tables cannot allow untyped extra columns"
+        raise ValueError(msg)
+    for column in value.columns:
+        _require_persistable_scalar_type(
+            column.value_type,
+            path=f"persisted parameter table column {column.id!r}",
+        )
+    return value
 
-    @model_validator(mode="after")
-    def validate_safety_units(self) -> ParameterDefinition:
-        for bound in (self.safety_min, self.safety_max):
-            if bound is not None and not compatible_units(self.unit, bound.unit):
-                msg = (
-                    f"parameter definition {self.id} safety bound unit does not "
-                    "match expected unit"
-                )
+
+def _persistable_value_type_from_wire(value: object) -> ValueType:
+    if isinstance(value, Scalar | Series | Table):
+        return _validate_persistable_value_type(value)
+    if not isinstance(value, Mapping):
+        msg = "persisted parameter value_type must be an object"
+        raise ValueError(msg)
+    raw_data = dict(cast("Mapping[object, object]", value))
+    if not all(isinstance(name, str) for name in raw_data):
+        msg = "persisted parameter value_type field names must be strings"
+        raise ValueError(msg)
+    data = cast("dict[str, object]", raw_data)
+    shape = data.pop("shape", None)
+    try:
+        if shape == "scalar":
+            _require_exact_fields(data, required={"atom"}, optional=set())
+            selected: ValueType = scalar_type_from_wire(data["atom"])
+        elif shape == "series":
+            _require_exact_fields(
+                data,
+                required={"item_type"},
+                optional={"min_length", "max_length"},
+            )
+            selected = Series(
+                item_type=scalar_type_from_wire(data["item_type"]),
+                min_length=_wire_int(data.get("min_length", 0), "min_length"),
+                max_length=_wire_optional_int(data.get("max_length"), "max_length"),
+            )
+        elif shape == "table":
+            _require_exact_fields(
+                data,
+                required={"columns"},
+                optional={"primary_key", "min_rows", "max_rows"},
+            )
+            raw_columns = data["columns"]
+            if not isinstance(raw_columns, list):
+                msg = "persisted parameter table columns must be a list"
                 raise ValueError(msg)
-        if (
-            self.safety_min is not None
-            and self.safety_max is not None
-            and self.safety_min.value > self.safety_max.value
-        ):
-            msg = f"parameter {self.id} safety_min is greater than safety_max"
+            selected_columns = cast("list[object]", raw_columns)
+            columns = tuple(
+                _table_column_from_wire(column, index=index)
+                for index, column in enumerate(selected_columns)
+            )
+            raw_primary_key = data.get("primary_key", [])
+            if not isinstance(raw_primary_key, list) or not all(
+                isinstance(column_id, str)
+                for column_id in cast("list[object]", raw_primary_key)
+            ):
+                msg = "persisted parameter table primary_key must be a string list"
+                raise ValueError(msg)
+            selected = Table(
+                columns=columns,
+                primary_key=tuple(cast("list[str]", raw_primary_key)),
+                min_rows=_wire_int(data.get("min_rows", 0), "min_rows"),
+                max_rows=_wire_optional_int(data.get("max_rows"), "max_rows"),
+            )
+        else:
+            msg = f"unsupported persisted parameter shape: {shape!r}"
             raise ValueError(msg)
-        return self
+    except (TypeError, ValueError) as error:
+        msg = f"invalid persisted parameter value_type: {error}"
+        raise ValueError(msg) from error
+    return _validate_persistable_value_type(selected)
 
 
-class ParameterValue(BaseModel):
-    """Mutable value for a parameter definition."""
+def _table_column_from_wire(value: object, *, index: int) -> TableColumn:
+    if not isinstance(value, Mapping):
+        msg = f"persisted parameter table column {index} must be an object"
+        raise ValueError(msg)
+    data = dict(cast("Mapping[object, object]", value))
+    if not all(isinstance(name, str) for name in data):
+        msg = f"persisted parameter table column {index} fields must be strings"
+        raise ValueError(msg)
+    _require_exact_fields(
+        cast("dict[str, object]", data),
+        required={"id", "value_type"},
+        optional={"required"},
+    )
+    column_id = data["id"]
+    required = data.get("required", True)
+    if not isinstance(column_id, str) or not column_id:
+        msg = f"persisted parameter table column {index} id must be non-empty"
+        raise ValueError(msg)
+    if not isinstance(required, bool):
+        msg = f"persisted parameter table column {column_id!r} required must be bool"
+        raise ValueError(msg)
+    return TableColumn(
+        id=column_id,
+        value_type=scalar_type_from_wire(data["value_type"]),
+        required=required,
+    )
 
-    model_config = ConfigDict(extra="forbid")
+
+def _require_exact_fields(
+    data: Mapping[str, object],
+    *,
+    required: set[str],
+    optional: set[str],
+) -> None:
+    missing = sorted(required - data.keys())
+    if missing:
+        msg = "missing fields: " + ", ".join(missing)
+        raise ValueError(msg)
+    extra = sorted(data.keys() - required - optional)
+    if extra:
+        msg = "unknown fields: " + ", ".join(extra)
+        raise ValueError(msg)
+
+
+def _wire_int(value: object, field_name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        msg = f"{field_name} must be an integer"
+        raise ValueError(msg)
+    return value
+
+
+def _wire_optional_int(value: object, field_name: str) -> int | None:
+    if value is None:
+        return None
+    return _wire_int(value, field_name)
+
+
+def _persistable_value_type_to_wire(value: ValueType) -> dict[str, object]:
+    selected = _validate_persistable_value_type(value)
+    if isinstance(selected, Scalar):
+        return {"shape": "scalar", "atom": scalar_type_to_wire(selected)}
+    if isinstance(selected, Series):
+        data: dict[str, object] = {
+            "shape": "series",
+            "item_type": scalar_type_to_wire(selected.item_type),
+        }
+        if selected.min_length:
+            data["min_length"] = selected.min_length
+        if selected.max_length is not None:
+            data["max_length"] = selected.max_length
+        return data
+    data = {
+        "shape": "table",
+        "columns": [
+            {
+                "id": column.id,
+                "value_type": scalar_type_to_wire(column.value_type),
+                **({} if column.required else {"required": False}),
+            }
+            for column in selected.columns
+        ],
+    }
+    if selected.primary_key:
+        data["primary_key"] = list(selected.primary_key)
+    if selected.min_rows:
+        data["min_rows"] = selected.min_rows
+    if selected.max_rows is not None:
+        data["max_rows"] = selected.max_rows
+    return data
+
+
+type PersistableValueType = Annotated[
+    ValueType,
+    BeforeValidator(_persistable_value_type_from_wire),
+    PlainSerializer(_persistable_value_type_to_wire, return_type=dict[str, object]),
+    WithJsonSchema(_PERSISTABLE_VALUE_TYPE_SCHEMA, mode="validation"),
+    WithJsonSchema(_PERSISTABLE_VALUE_TYPE_SCHEMA, mode="serialization"),
+]
+
+
+def _require_closed_parameter_atom_input(value: object) -> object:
+    """Reject coercions from values outside the durable scalar domain."""
+
+    if value is None or isinstance(
+        value,
+        Quantity | EntityRef | str | bool | int | float,
+    ):
+        return value
+    if isinstance(value, Mapping):
+        # Raw JSON objects are retained for Pydantic to validate as Quantity or
+        # EntityRef. Freeze first so nested values cannot use Python-only
+        # coercions (for example bytes -> string).
+        return freeze_json_mapping(
+            cast("Mapping[str, object]", value),
+            path="persisted parameter scalar",
+        )
+    msg = (
+        "persisted parameter scalar values must be quantity, entity, bool, int, "
+        "float, string, or null"
+    )
+    raise ValueError(msg)
+
+
+type ParameterAtomValue = Annotated[
+    Quantity | EntityRef | bool | int | float | str | None,
+    BeforeValidator(_require_closed_parameter_atom_input),
+]
+
+
+def _validate_finite_parameter_scalar(
+    value: ParameterAtomValue,
+) -> ParameterAtomValue:
+    if isinstance(value, EntityRef):
+        return value.model_copy(
+            update={"metadata": normalize_entity_metadata(value.metadata)},
+            deep=True,
+        )
+    number = value.value if isinstance(value, Quantity) else value
+    if isinstance(number, float) and not math.isfinite(number):
+        msg = "persisted parameter scalar values must be finite"
+        raise ValueError(msg)
+    return value
+
+
+def _serialize_parameter_scalar(value: ParameterAtomValue) -> object:
+    if isinstance(value, Quantity | EntityRef):
+        return value.model_dump(mode="json")
+    return value
+
+
+class ParameterDefinition(BaseModel):
+    """Stable type definition for one accepted parameter value."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        revalidate_instances="always",
+    )
 
     id: str
-    quantity: Quantity
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    value_type: PersistableValueType
+    description: str | None = None
+    metadata: Mapping[str, object] = Field(
+        default_factory=lambda: FrozenMapping[str, object]()
+    )
+
+    @field_validator("value_type")
+    @classmethod
+    def validate_value_type(cls, value: ValueType) -> ValueType:
+        return _validate_persistable_value_type(value)
+
+    @field_validator("metadata", mode="after")
+    @classmethod
+    def validate_metadata(cls, value: Mapping[str, object]) -> Mapping[str, object]:
+        return freeze_json_mapping(value, path="parameter definition metadata")
+
+    @field_serializer("metadata")
+    def serialize_metadata(self, value: Mapping[str, object]) -> object:
+        return thaw_json_value(value)
+
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Copy through validation so the durable definition stays well-typed."""
+
+        _ = deep
+        data = self.model_dump(mode="python")
+        if update is not None:
+            data.update(update)
+        return type(self).model_validate(data)
 
 
-class ParameterValueSet(BaseModel):
-    """Accepted scalar parameter values."""
+class ParameterCatalog(BaseModel):
+    """Authored parameter schema in one shape-independent namespace."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        revalidate_instances="always",
+    )
+
+    schema_version: Literal["scopecat.parameter_catalog.v4"] = (
+        "scopecat.parameter_catalog.v4"
+    )
+    id: str
+    definitions: Sequence[ParameterDefinition] = Field(default_factory=tuple)
+    metadata: Mapping[str, object] = Field(
+        default_factory=lambda: FrozenMapping[str, object]()
+    )
+
+    @field_validator("definitions")
+    @classmethod
+    def validate_definitions(
+        cls, value: Sequence[ParameterDefinition]
+    ) -> Sequence[ParameterDefinition]:
+        return tuple(_ensure_unique_ids(list(value), "parameter definition"))
+
+    @field_validator("metadata", mode="after")
+    @classmethod
+    def validate_metadata(cls, value: Mapping[str, object]) -> Mapping[str, object]:
+        return freeze_json_mapping(value, path="parameter catalog metadata")
+
+    @field_serializer("metadata")
+    def serialize_metadata(self, value: Mapping[str, object]) -> object:
+        return thaw_json_value(value)
+
+    def get(self, definition_id: str) -> ParameterDefinition | None:
+        for definition in self.definitions:
+            if definition.id == definition_id:
+                return definition
+        return None
+
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Copy through validation so namespace and metadata remain immutable."""
+
+        _ = deep
+        data = self.model_dump(mode="python")
+        if update is not None:
+            data.update(update)
+        return type(self).model_validate(data)
+
+
+class _StoredParameterValue(BaseModel):
+    """Shared recursively immutable state for one stored parameter value."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        allow_inf_nan=False,
+        frozen=True,
+        revalidate_instances="always",
+    )
 
     id: str
-    values: list[ParameterValue]
+    metadata: Mapping[str, object] = Field(
+        default_factory=lambda: FrozenMapping[str, object]()
+    )
+
+    @field_validator("metadata", mode="after")
+    @classmethod
+    def validate_metadata(
+        cls,
+        value: Mapping[str, object],
+    ) -> Mapping[str, object]:
+        return freeze_json_mapping(value, path="stored parameter metadata")
+
+    @field_serializer("metadata")
+    def serialize_metadata(self, value: Mapping[str, object]) -> object:
+        return thaw_json_value(value)
+
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Copy through validation so durable nested values cannot drift."""
+
+        _ = deep
+        data = self.model_dump(mode="python")
+        if update is not None:
+            data.update(update)
+        return type(self).model_validate(data)
+
+
+class ScalarParameterValue(_StoredParameterValue):
+    """One stored scalar parameter value."""
+
+    shape: Literal["scalar"] = "scalar"
+    value: ParameterAtomValue
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, value: ParameterAtomValue) -> ParameterAtomValue:
+        return _validate_finite_parameter_scalar(value)
+
+
+class SeriesParameterValue(_StoredParameterValue):
+    """One stored ordered parameter series."""
+
+    shape: Literal["series"] = "series"
+    items: Sequence[ParameterAtomValue] = Field(default_factory=tuple)
+
+    @field_validator("items")
+    @classmethod
+    def validate_items(
+        cls,
+        value: Sequence[ParameterAtomValue],
+    ) -> Sequence[ParameterAtomValue]:
+        return tuple(_validate_finite_parameter_scalar(item) for item in value)
+
+    @field_serializer("items")
+    def serialize_items(self, value: Sequence[ParameterAtomValue]) -> list[object]:
+        return [_serialize_parameter_scalar(item) for item in value]
+
+
+class TableParameterValue(_StoredParameterValue):
+    """One stored typed table parameter."""
+
+    shape: Literal["table"] = "table"
+    rows: Sequence[Mapping[str, ParameterAtomValue]] = Field(default_factory=tuple)
+
+    @field_validator("rows")
+    @classmethod
+    def validate_rows(
+        cls,
+        value: Sequence[Mapping[str, ParameterAtomValue]],
+    ) -> Sequence[Mapping[str, ParameterAtomValue]]:
+        return tuple(
+            FrozenMapping(
+                (column_id, _validate_finite_parameter_scalar(cell))
+                for column_id, cell in row.items()
+            )
+            for row in value
+        )
+
+    @field_serializer("rows")
+    def serialize_rows(
+        self,
+        value: Sequence[Mapping[str, ParameterAtomValue]],
+    ) -> list[dict[str, object]]:
+        return [
+            {
+                column_id: _serialize_parameter_scalar(cell)
+                for column_id, cell in row.items()
+            }
+            for row in value
+        ]
+
+
+type StoredParameterValue = Annotated[
+    ScalarParameterValue | SeriesParameterValue | TableParameterValue,
+    Field(discriminator="shape"),
+]
+
+
+class ParameterSnapshot(BaseModel):
+    """Recursively immutable accepted parameters for future runs."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        revalidate_instances="always",
+    )
+
+    schema_version: Literal["scopecat.parameter_snapshot.v1"] = (
+        "scopecat.parameter_snapshot.v1"
+    )
+    id: str
+    values: Sequence[StoredParameterValue] = Field(default_factory=tuple)
+    metadata: Mapping[str, object] = Field(
+        default_factory=lambda: FrozenMapping[str, object]()
+    )
 
     @field_validator("values")
     @classmethod
-    def validate_values(cls, value: list[ParameterValue]) -> list[ParameterValue]:
-        return _ensure_unique_ids(value, "parameter value")
+    def validate_values(
+        cls,
+        value: Sequence[StoredParameterValue],
+    ) -> Sequence[StoredParameterValue]:
+        return tuple(_ensure_unique_ids(list(value), "stored parameter value"))
 
-    def get(self, value_id: str) -> ParameterValue | None:
+    @field_validator("metadata", mode="after")
+    @classmethod
+    def validate_metadata(cls, value: Mapping[str, object]) -> Mapping[str, object]:
+        return freeze_json_mapping(value, path="parameter snapshot metadata")
+
+    @field_serializer("metadata")
+    def serialize_metadata(self, value: Mapping[str, object]) -> object:
+        return thaw_json_value(value)
+
+    def get(self, value_id: str) -> StoredParameterValue | None:
         for value in self.values:
             if value.id == value_id:
                 return value
         return None
 
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> ParameterSnapshot:
+        """Copy through validation so the snapshot remains immutable."""
 
-_PARAMETER_TABLE_SCALAR_WIRE_SCHEMA = scalar_type_wire_schema(
-    ("bool", "int", "float", "string", "quantity"),
-    finite_only=True,
-)
-
-type ParameterTableScalar = Annotated[
-    ScalarWire,
-    WithJsonSchema(_PARAMETER_TABLE_SCALAR_WIRE_SCHEMA, mode="validation"),
-    WithJsonSchema(_PARAMETER_TABLE_SCALAR_WIRE_SCHEMA, mode="serialization"),
-]
-
-
-class ParameterTableColumn(BaseModel):
-    """Column schema for a table-shaped parameter source."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    value_type: ParameterTableScalar
-    required: bool = True
-    description: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("value_type")
-    @classmethod
-    def validate_value_type(cls, value: Scalar) -> Scalar:
-        if not isinstance(
-            value.atom,
-            BoolType | IntType | FloatType | StringType | QuantityType,
-        ):
-            msg = (
-                "parameter table columns support bool, int, float, string, "
-                "and quantity scalar types"
-            )
-            raise ValueError(msg)
-        if isinstance(value.atom, FloatType | QuantityType) and not value.atom.finite:
-            msg = "persisted parameter table numeric types must require finite values"
-            raise ValueError(msg)
-        return value
-
-
-class ParameterTableDefinition(BaseModel):
-    """Schema for repeated table-shaped parameters."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    primary_key: list[str] = Field(min_length=1)
-    columns: list[ParameterTableColumn]
-    description: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("columns")
-    @classmethod
-    def validate_columns(
-        cls, value: list[ParameterTableColumn]
-    ) -> list[ParameterTableColumn]:
-        return _ensure_unique_ids(value, "parameter table column")
-
-    @model_validator(mode="after")
-    def validate_primary_key(self) -> ParameterTableDefinition:
-        columns = {column.id: column for column in self.columns}
-        missing = [
-            column_id for column_id in self.primary_key if column_id not in columns
-        ]
-        if missing:
-            msg = (
-                f"parameter table {self.id} primary key references missing columns: "
-                + ", ".join(missing)
-            )
-            raise ValueError(msg)
-        if len(set(self.primary_key)) != len(self.primary_key):
-            msg = f"parameter table {self.id} primary key contains duplicates"
-            raise ValueError(msg)
-        for column_id in self.primary_key:
-            column = columns[column_id]
-            if not column.required or column.value_type.nullable:
-                msg = (
-                    f"parameter table {self.id} primary key column {column_id!r} "
-                    "must be required and non-null"
-                )
-                raise ValueError(msg)
-        return self
-
-
-class ParameterCatalog(BaseModel):
-    """Authored parameter schema for scalar and table-shaped inputs."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal["scopecat.parameter_catalog.v2"] = (
-        "scopecat.parameter_catalog.v2"
-    )
-    id: str
-    scalar_definitions: list[ParameterDefinition] = Field(default_factory=list)
-    table_definitions: list[ParameterTableDefinition] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("scalar_definitions")
-    @classmethod
-    def validate_scalar_definitions(
-        cls, value: list[ParameterDefinition]
-    ) -> list[ParameterDefinition]:
-        return _ensure_unique_ids(value, "scalar parameter definition")
-
-    @field_validator("table_definitions")
-    @classmethod
-    def validate_table_definitions(
-        cls, value: list[ParameterTableDefinition]
-    ) -> list[ParameterTableDefinition]:
-        return _ensure_unique_ids(value, "parameter table definition")
-
-    @model_validator(mode="after")
-    def validate_namespace(self) -> ParameterCatalog:
-        scalar_ids = {definition.id for definition in self.scalar_definitions}
-        table_ids = {definition.id for definition in self.table_definitions}
-        collisions = sorted(scalar_ids & table_ids)
-        if collisions:
-            msg = "parameter catalog has scalar/table id collisions: " + ", ".join(
-                collisions
-            )
-            raise ValueError(msg)
-        return self
-
-    def scalar(self, definition_id: str) -> ParameterDefinition | None:
-        for definition in self.scalar_definitions:
-            if definition.id == definition_id:
-                return definition
-        return None
-
-    def table(self, definition_id: str) -> ParameterTableDefinition | None:
-        for definition in self.table_definitions:
-            if definition.id == definition_id:
-                return definition
-        return None
-
-
-class ParameterTable(BaseModel):
-    """Accepted or computed values for a table-shaped parameter."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    rows: list[dict[str, Any]] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class ParameterState(BaseModel):
-    """Accepted source parameter state for future runs."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal["scopecat.parameter_state.v1"] = (
-        "scopecat.parameter_state.v1"
-    )
-    id: str
-    scalar_values: ParameterValueSet
-    tables: list[ParameterTable] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("tables")
-    @classmethod
-    def validate_tables(cls, value: list[ParameterTable]) -> list[ParameterTable]:
-        return _ensure_unique_ids(value, "parameter table")
-
-    def scalar_value_set(self) -> ParameterValueSet:
-        return self.scalar_values
-
-
-class ParameterViewSnapshot(BaseModel):
-    """Resolved parameter values consumed by planning and execution."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal["scopecat.parameter_view_snapshot.v1"] = (
-        "scopecat.parameter_view_snapshot.v1"
-    )
-    id: str
-    catalog_id: str
-    catalog_hash: str
-    source_state_id: str
-    source_state_hash: str
-    derivation_set_id: str | None = None
-    derivation_set_hash: str | None = None
-    content_hash: str
-    view_implementation_id: str
-    view_implementation_version: str
-    scalar_values: list[ParameterValue] = Field(default_factory=list)
-    tables: list[ParameterTable] = Field(default_factory=list)
-    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("scalar_values")
-    @classmethod
-    def validate_scalar_values(
-        cls, value: list[ParameterValue]
-    ) -> list[ParameterValue]:
-        return _ensure_unique_ids(value, "parameter view scalar value")
-
-    @field_validator("tables")
-    @classmethod
-    def validate_tables(cls, value: list[ParameterTable]) -> list[ParameterTable]:
-        return _ensure_unique_ids(value, "parameter view table")
-
-    def get(self, value_id: str) -> ParameterValue | None:
-        for value in self.scalar_values:
-            if value.id == value_id:
-                return value
-        return None
-
-    def table(self, table_id: str) -> ParameterTable | None:
-        for table in self.tables:
-            if table.id == table_id:
-                return table
-        return None
-
-
-ParameterPatchKind = Literal["set_scalar", "update_rows", "insert_rows", "delete_rows"]
-ParameterPatchValue = Quantity | dict[str, Any] | str | float | int | bool | None
-
-
-class ParameterPatch(BaseModel):
-    """Concrete accepted-state patch used by experiments and config candidates."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: ParameterPatchKind
-    parameter_id: str | None = None
-    table_id: str | None = None
-    key: dict[str, ParameterPatchValue] | None = None
-    values: dict[str, ParameterPatchValue] | None = None
-    value: ParameterPatchValue = None
-    expected_value: ParameterPatchValue = None
-    expected_values: dict[str, ParameterPatchValue] | None = None
-    rows: list[dict[str, ParameterPatchValue]] | None = None
-
-    @model_validator(mode="after")
-    def validate_shape(self) -> ParameterPatch:
-        if self.kind == "set_scalar":
-            if self.parameter_id is None:
-                msg = "set_scalar requires parameter_id and value"
-                raise ValueError(msg)
-            if not isinstance(self.value, Quantity):
-                msg = "set_scalar value must be a quantity"
-                raise ValueError(msg)
-            if self.expected_value is not None and not isinstance(
-                self.expected_value, Quantity
-            ):
-                msg = "set_scalar expected_value must be a quantity when provided"
-                raise ValueError(msg)
-            if (
-                self.table_id is not None
-                or self.key is not None
-                or self.values is not None
-                or self.expected_values is not None
-                or self.rows is not None
-            ):
-                msg = "set_scalar cannot reference a table row"
-                raise ValueError(msg)
-        elif self.kind == "update_rows":
-            if self.table_id is None or self.key is None or self.values is None:
-                msg = "update_rows requires table_id, key, and values"
-                raise ValueError(msg)
-            if (
-                self.parameter_id is not None
-                or self.value is not None
-                or self.expected_value is not None
-                or self.rows is not None
-            ):
-                msg = "update_rows cannot reference scalar or insert row fields"
-                raise ValueError(msg)
-        elif self.kind == "insert_rows":
-            if self.table_id is None or not self.rows:
-                msg = "insert_rows requires table_id and rows"
-                raise ValueError(msg)
-            if (
-                self.parameter_id is not None
-                or self.key is not None
-                or self.values is not None
-                or self.value is not None
-                or self.expected_value is not None
-                or self.expected_values is not None
-            ):
-                msg = "insert_rows cannot reference scalar or update/delete fields"
-                raise ValueError(msg)
-        elif self.kind == "delete_rows":
-            if self.table_id is None or self.key is None:
-                msg = "delete_rows requires table_id and key"
-                raise ValueError(msg)
-            if (
-                self.parameter_id is not None
-                or self.values is not None
-                or self.value is not None
-                or self.expected_value is not None
-                or self.rows is not None
-            ):
-                msg = "delete_rows cannot reference scalar or value fields"
-                raise ValueError(msg)
-        return self
-
-
-class ParameterChangeSet(BaseModel):
-    """Named accepted-state parameter patch set produced by analysis or adapters."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal["scopecat.parameter_change_set.v1"] = (
-        "scopecat.parameter_change_set.v1"
-    )
-    id: str
-    source_run_id: str
-    reason: str
-    patches: list[ParameterPatch] = Field(min_length=1)
-    confidence: float | None = None
+        _ = deep
+        data = self.model_dump(mode="python")
+        if update is not None:
+            data.update(update)
+        return type(self).model_validate(data)

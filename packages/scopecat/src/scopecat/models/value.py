@@ -1,22 +1,10 @@
-"""Payload references and runtime values shared across experiment layers."""
+"""Opaque runtime payload values shared across experiment layers."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class ComputeResultRef(BaseModel):
-    """Durable reference to one point-local compute result."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        revalidate_instances="always",
-    )
-
-    node_id: str = Field(min_length=1)
 
 
 class PayloadValue(BaseModel):
@@ -33,4 +21,4 @@ class PayloadValue(BaseModel):
     payload: Any = Field(default=None, exclude=True)
 
 
-__all__ = ["ComputeResultRef", "PayloadValue"]
+__all__ = ["PayloadValue"]

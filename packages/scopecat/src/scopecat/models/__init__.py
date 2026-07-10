@@ -1,37 +1,33 @@
 """Scopecat parameter model facade."""
 
 from scopecat.models.parameter import (
+    ParameterAtomValue,
     ParameterCatalog,
-    ParameterChangeSet,
-    ParameterPatch,
-    ParameterState,
-    ParameterTable,
-    ParameterTableColumn,
-    ParameterTableDefinition,
-    ParameterValue,
-    ParameterValueSet,
-    ParameterViewSnapshot,
+    ParameterDefinition,
+    ParameterSnapshot,
+    PersistableValueType,
     Quantity,
+    ScalarParameterValue,
+    SeriesParameterValue,
+    StoredParameterValue,
+    TableParameterValue,
 )
-from scopecat.parameters import (
-    ParameterDerivationSet,
-    ScalarParameterDerivation,
-    TableParameterDerivation,
+from scopecat.models.parameter_change import (
+    ParameterChangeProposal,
+    ParameterValueDelta,
 )
 
 __all__ = [
+    "ParameterAtomValue",
     "ParameterCatalog",
-    "ParameterChangeSet",
-    "ParameterDerivationSet",
-    "ParameterPatch",
-    "ParameterState",
-    "ParameterTable",
-    "ParameterTableColumn",
-    "ParameterTableDefinition",
-    "ParameterValue",
-    "ParameterValueSet",
-    "ParameterViewSnapshot",
+    "ParameterChangeProposal",
+    "ParameterDefinition",
+    "ParameterSnapshot",
+    "ParameterValueDelta",
+    "PersistableValueType",
     "Quantity",
-    "ScalarParameterDerivation",
-    "TableParameterDerivation",
+    "ScalarParameterValue",
+    "SeriesParameterValue",
+    "StoredParameterValue",
+    "TableParameterValue",
 ]

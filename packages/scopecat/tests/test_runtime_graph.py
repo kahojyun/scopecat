@@ -1,37 +1,22 @@
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
+from scopecat._compiler.program import (
+    ComputeNodeInput,
+    ComputeNodeSpec,
+    compute_result,
+    observable,
+    set_state,
+)
+from scopecat._compiler.program import (
+    linked_program as experiment,
+)
 from scopecat._planning.compute_dependencies import (
     summarize_compute_node_dependencies,
 )
 from scopecat._planning.planner import PlannerPoint, build_planner_snapshot
-from scopecat._runtime.graph import build_runtime_graph
-from scopecat._runtime.lowering import (
-    compile_desired_state_points,
-    evaluate_compute_nodes_for_point,
-)
-from scopecat.experiments import (
-    ComputeNodeContext,
-    ComputeNodeInput,
-    ComputeNodeOutputType,
-    ComputeNodeSpec,
-    ExperimentSpec,
-    PointRouteBinding,
-    ScalarValueExpr,
-    StateRecord,
-    StateSpec,
-    as_value_expr,
-    compute_result,
-    experiment,
-    observable,
-    set_state,
-)
-from scopecat.models.config import RoutingChannelBinding
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import Quantity
-from scopecat.models.state import PayloadRef
-from scopecat.models.value import ComputeResultRef, PayloadValue
-from scopecat.relations import (
+from scopecat._planning.state import StateRecord, StateSpec
+from scopecat._relations import (
     EvalContext,
     ParameterRelationData,
     ScalarExpr,
@@ -44,9 +29,40 @@ from scopecat.relations import (
     table,
     values,
 )
-from scopecat.value_types import Float, Payload, Scalar
+from scopecat._runtime.graph import build_runtime_graph
+from scopecat._runtime.lowering import (
+    compile_desired_state_points,
+    evaluate_compute_nodes_for_point,
+)
+from scopecat._runtime.models import PointRouteBinding
+from scopecat._value_expressions import (
+    ScalarValueExpr,
+    as_value_expr,
+)
+from scopecat.authoring.values import ResolvedRoute
+from scopecat.models.config import RoutingChannelBinding
+from scopecat.models.entity import EntityRef
+from scopecat.models.parameter import Quantity
+from scopecat.models.state import PayloadRef
+from scopecat.models.value import PayloadValue
+from scopecat.value_types import (
+    Bool,
+    Float,
+    Int,
+    Payload,
+    Route,
+    Scalar,
+    Series,
+    String,
+)
+from scopecat.value_types import (
+    Quantity as QuantityType,
+)
+from scopecat.value_types import (
+    Table as TableType,
+)
 from tests.support.parameter_fixtures import (
-    parameter_view as _parameter_view,
+    parameters as _parameters,
 )
 
 
@@ -66,7 +82,7 @@ def test_runtime_graph_compiles_product_bindings() -> None:
         ],
     )
 
-    graph = build_runtime_graph(build_planner_snapshot(spec, _parameter_view()))
+    graph = build_runtime_graph(build_planner_snapshot(spec, _parameters()))
 
     assert "schema_version" not in graph.__dict__
     assert "plan_hash" not in graph.__dict__
@@ -168,10 +184,10 @@ def test_state_route_entities_reject_table_shape_and_invalid_series_members() ->
         5.0,
         route_entities=({"id": "q0", "kind": "input"},),
     )
-    restored = StateSpec.model_validate_json(entity_kind_state.model_dump_json())
-    assert restored.evaluate(point_index=0, ctx=EvalContext())[0].route_entities == [
-        EntityRef(id="q0", kind="input")
-    ]
+    assert entity_kind_state.evaluate(
+        point_index=0,
+        ctx=EvalContext(),
+    )[0].route_entities == [EntityRef(id="q0", kind="input")]
     with pytest.raises(ValidationError):
         StateSpec.model_validate(
             {
@@ -199,18 +215,14 @@ def test_state_route_entities_reject_table_shape_and_invalid_series_members() ->
         empty_state.evaluate(point_index=0, ctx=EvalContext())
 
 
-def test_compute_result_state_refs_and_producer_output_types_round_trip() -> None:
+def test_compute_result_state_refs_keep_producer_output_types() -> None:
     ref = compute_result("build-waveform")
     state = set_state("drive-a", "play_waveforms.program", ref)
 
-    assert state.model_dump(mode="json")["value"] == {"node_id": "build-waveform"}
-
-    restored_state = StateSpec.model_validate_json(state.model_dump_json())
-    assert isinstance(restored_state.value, ComputeResultRef)
-    assert restored_state.value == ref
+    assert state.value == ref
 
     spec = experiment(
-        id="compute-payload-round-trip",
+        id="typed-compute-payload",
         kind="diagnostic",
         points=grid(index=[0]),
         state=[state],
@@ -225,111 +237,23 @@ def test_compute_result_state_refs_and_producer_output_types_round_trip() -> Non
             ]
         }
     )
-    assert spec.model_dump(mode="json")["compute_nodes"][0]["output_type"] == {
-        "type": "payload",
-        "schema_id": "pulse_program",
-    }
-    restored_spec = ExperimentSpec.model_validate_json(spec.model_dump_json())
-
-    assert restored_spec.schema_version == "scopecat.experiment_spec.v7"
-    assert restored_spec.state[0].value == ref
-    assert restored_spec.compute_nodes[0].output_type == Scalar(
-        Payload("pulse_program")
-    )
+    assert spec.state[0].value == ref
+    assert spec.compute_nodes[0].output_type == Scalar(Payload("pulse_program"))
 
 
-def test_compute_node_output_type_json_schema_is_payload_only() -> None:
-    output_schema = TypeAdapter(ComputeNodeOutputType).json_schema(mode="validation")
-
-    assert output_schema == {
-        "oneOf": [
+def test_compute_input_requires_a_declared_value_type() -> None:
+    with pytest.raises(ValidationError, match="value_type"):
+        ComputeNodeInput.model_validate(
             {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "type": {"type": "string", "const": "payload"},
-                    "schema_id": {"type": "string", "minLength": 1},
-                    "nullable": {"type": "boolean", "const": False},
-                },
-                "required": ["type", "schema_id"],
+                "kind": "value",
+                "value": as_value_expr(lit("untyped")),
             }
-        ]
-    }
-
-
-@pytest.mark.parametrize(
-    "output_type",
-    [
-        Scalar(Float()),
-        Scalar(Payload("pulse_program"), nullable=True),
-        Scalar(Payload("pulse_program", python_type=dict)),
-        {"type": "payload", "schema_id": ""},
-    ],
-)
-def test_compute_node_rejects_invalid_output_types(output_type: object) -> None:
-    with pytest.raises(ValidationError):
-        ComputeNodeSpec.model_validate(
-            {"id": "build-waveform", "output_type": output_type}
         )
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        {},
-        {"node_id": ""},
-        {"node_id": "build-waveform", "schema_id": "pulse_program"},
-        {"node_id": "build-waveform", "kind": "compute_result"},
-    ],
-)
-def test_state_spec_rejects_invalid_compute_result_refs(
-    value: dict[str, object],
-) -> None:
-    state = set_state(
-        "drive-a",
-        "play_waveforms.program",
-        compute_result("build-waveform"),
-    )
-    wire = state.model_dump(mode="json")
-    wire["value"] = value
-
-    with pytest.raises(ValidationError):
-        StateSpec.model_validate(wire)
-
-
-def test_state_and_experiment_specs_reject_legacy_compute_result_markers() -> None:
-    state = set_state(
-        "drive-a",
-        "play_waveforms.program",
-        compute_result("build-waveform"),
-    )
-    legacy_value = ScalarExpr(
-        kind="literal",
-        value={
-            "kind": "compute_result",
-            "node_id": "build-waveform",
-            "payload_kind": "pulse_program",
-        },
-    )
-    legacy_state_wire = state.model_dump(mode="json")
-    legacy_state_wire["value"] = legacy_value.model_dump(mode="json")
-
-    with pytest.raises(ValidationError, match="ComputeResultRef"):
-        StateSpec.model_validate(legacy_state_wire)
-
-    spec = experiment(
-        id="legacy-compute-result-marker",
-        kind="diagnostic",
-        points=grid(index=[0]),
-        state=[state],
-        records=[],
-    )
-    legacy_spec_wire = spec.model_dump(mode="json")
-    legacy_spec_wire["state"] = [legacy_state_wire]
-    assert legacy_spec_wire["schema_version"] == "scopecat.experiment_spec.v7"
-
-    with pytest.raises(ValidationError, match="ComputeResultRef"):
-        ExperimentSpec.model_validate(legacy_spec_wire)
+def test_compute_node_requires_a_declared_output_type() -> None:
+    with pytest.raises(ValidationError, match="output_type"):
+        ComputeNodeSpec.model_validate({"id": "untyped"})
 
 
 def test_nested_compute_result_shaped_dicts_are_not_payload_references() -> None:
@@ -351,9 +275,18 @@ def test_nested_compute_result_shaped_dicts_are_not_payload_references() -> None
             )
         ],
         records=[],
-    ).model_copy(update={"compute_nodes": [ComputeNodeSpec(id="build-waveform")]})
+    ).model_copy(
+        update={
+            "compute_nodes": [
+                ComputeNodeSpec(
+                    id="build-waveform",
+                    output_type=Scalar(Payload("unused-waveform")),
+                )
+            ]
+        }
+    )
 
-    graph = build_runtime_graph(build_planner_snapshot(spec, _parameter_view()))
+    graph = build_runtime_graph(build_planner_snapshot(spec, _parameters()))
 
     assert graph.payloads == ()
     assert graph.points[0].compute_steps[0].payload is None
@@ -377,31 +310,9 @@ def test_runtime_graph_reports_unknown_compute_result_nodes() -> None:
         records=[],
     )
 
-    graph = build_runtime_graph(build_planner_snapshot(spec, _parameter_view()))
+    graph = build_runtime_graph(build_planner_snapshot(spec, _parameters()))
 
     assert "compute_payload_unknown_node" in {
-        diagnostic["code"] for diagnostic in graph.diagnostics
-    }
-
-
-def test_runtime_graph_reports_compute_result_without_output_type() -> None:
-    spec = experiment(
-        id="missing-compute-output-type",
-        kind="diagnostic",
-        points=grid(index=[0]),
-        state=[
-            set_state(
-                "drive-a",
-                "play_waveforms.program",
-                compute_result("build-waveform"),
-            ),
-        ],
-        records=[],
-    ).model_copy(update={"compute_nodes": [ComputeNodeSpec(id="build-waveform")]})
-
-    graph = build_runtime_graph(build_planner_snapshot(spec, _parameter_view()))
-
-    assert "compute_payload_output_type_required" in {
         diagnostic["code"] for diagnostic in graph.diagnostics
     }
 
@@ -435,7 +346,7 @@ def test_runtime_graph_deduplicates_payload_for_shared_compute_result() -> None:
         }
     )
 
-    graph = build_runtime_graph(build_planner_snapshot(spec, _parameter_view()))
+    graph = build_runtime_graph(build_planner_snapshot(spec, _parameters()))
 
     assert graph.diagnostics == ()
     assert [payload.id for payload in graph.payloads] == [
@@ -461,7 +372,7 @@ def test_typed_compute_output_is_only_materialized_when_state_references_it() ->
         }
     )
 
-    graph = build_runtime_graph(build_planner_snapshot(spec, _parameter_view()))
+    graph = build_runtime_graph(build_planner_snapshot(spec, _parameters()))
 
     assert graph.diagnostics == ()
     assert graph.payloads == ()
@@ -575,7 +486,7 @@ def test_runtime_graph_is_transient_execution_surface() -> None:
         points=grid(index=[0]),
         records=[observable("signal", unit="ratio", resource="source-0")],
     )
-    plan = build_planner_snapshot(spec, _parameter_view())
+    plan = build_planner_snapshot(spec, _parameters())
 
     graph = build_runtime_graph(plan)
 
@@ -589,15 +500,13 @@ def test_runtime_graph_is_transient_execution_surface() -> None:
 
 
 def test_runtime_graph_evaluates_generated_payload_nodes() -> None:
-    def build_program(ctx: ComputeNodeContext) -> dict[str, object]:
-        length = ctx.inputs["length"]
+    def build_program(*, length: object) -> dict[str, object]:
         assert length == Quantity(value=20.0, unit="ns")
-        return {"length": length, "point_index": ctx.point_index}
+        return {"length": length}
 
-    def render_waveforms(ctx: ComputeNodeContext) -> dict[str, object]:
-        program = ctx.inputs["program"]
+    def render_waveforms(*, program: object) -> dict[str, object]:
         assert isinstance(program, dict)
-        return {"source_program": program["point_index"], "samples": [0.0, 0.5, 0.0]}
+        return {"source_program": program["length"], "samples": [0.0, 0.5, 0.0]}
 
     spec = experiment(
         id="generated-waveform-plan",
@@ -616,10 +525,12 @@ def test_runtime_graph_evaluates_generated_payload_nodes() -> None:
             "compute_nodes": [
                 ComputeNodeSpec(
                     id="build-program",
+                    output_type=Scalar(Payload("program")),
                     inputs={
                         "length": ComputeNodeInput(
                             kind="value",
                             value=as_value_expr(col("length")),
+                            value_type=Scalar(QuantityType()),
                         )
                     },
                     fn=build_program,
@@ -631,6 +542,7 @@ def test_runtime_graph_evaluates_generated_payload_nodes() -> None:
                         "program": ComputeNodeInput(
                             kind="compute_result",
                             node_id="build-program",
+                            value_type=Scalar(Payload("program")),
                         )
                     },
                     fn=render_waveforms,
@@ -639,9 +551,8 @@ def test_runtime_graph_evaluates_generated_payload_nodes() -> None:
         }
     )
 
-    graph = build_runtime_graph(build_planner_snapshot(spec, _parameter_view()))
+    graph = build_runtime_graph(build_planner_snapshot(spec, _parameters()))
 
-    assert "fn" not in spec.model_dump(mode="json")["compute_nodes"][0]
     assert [payload.id for payload in graph.payloads] == [
         "render-waveforms.payload.point-0",
     ]
@@ -674,10 +585,17 @@ def test_runtime_graph_evaluates_generated_payload_nodes() -> None:
 def test_compute_value_inputs_support_series_and_tables_with_dependencies() -> None:
     received: dict[str, object] = {}
 
-    def consume_collections(ctx: ComputeNodeContext) -> dict[str, int]:
-        received.update(ctx.inputs)
-        frequencies = ctx.inputs["frequencies"]
-        rows = ctx.inputs["rows"]
+    def consume_collections(
+        *,
+        frequencies: object,
+        rows: object,
+        literal_series: object,
+    ) -> dict[str, int]:
+        received.update(
+            frequencies=frequencies,
+            rows=rows,
+            literal_series=literal_series,
+        )
         assert isinstance(frequencies, list)
         assert isinstance(rows, list)
         return {
@@ -687,10 +605,12 @@ def test_compute_value_inputs_support_series_and_tables_with_dependencies() -> N
 
     node = ComputeNodeSpec(
         id="consume-collections",
+        output_type=Scalar(Payload("collection-counts")),
         inputs={
             "frequencies": ComputeNodeInput(
                 kind="value",
                 value=as_value_expr(table("gate_rows").column("frequency")),
+                value_type=Series(Scalar(QuantityType())),
             ),
             "rows": ComputeNodeInput(
                 kind="value",
@@ -699,10 +619,12 @@ def test_compute_value_inputs_support_series_and_tables_with_dependencies() -> N
                     .filter(col("enabled").eq(True))
                     .with_columns(offset=param("global_offset"))
                 ),
+                value_type=TableType(columns=(), allow_extra_columns=True),
             ),
             "literal_series": ComputeNodeInput(
                 kind="value",
                 value=as_value_expr(values([1, 2, 3])),
+                value_type=Series(Scalar(Int())),
             ),
         },
         fn=consume_collections,
@@ -733,7 +655,6 @@ def test_compute_value_inputs_support_series_and_tables_with_dependencies() -> N
         compute_payload_schema_ids={},
     )
     dependencies = summarize_compute_node_dependencies(node)
-    restored = ComputeNodeSpec.model_validate_json(node.model_dump_json())
 
     assert diagnostics == []
     assert results[(0, "consume-collections")] == {"frequencies": 2, "rows": 1}
@@ -750,31 +671,35 @@ def test_compute_value_inputs_support_series_and_tables_with_dependencies() -> N
         }
     ]
     assert received["literal_series"] == [1, 2, 3]
-    assert dependencies.parameter_tables == ("gate_rows",)
-    assert dependencies.scalar_params == ("global_offset",)
-    assert restored.inputs["frequencies"].value is not None
-    assert restored.inputs["frequencies"].value.shape == "series"
-    assert restored.inputs["rows"].value is not None
-    assert restored.inputs["rows"].value.shape == "table"
+    assert dependencies.parameters == ("gate_rows", "global_offset")
+    assert node.inputs["frequencies"].value is not None
+    assert node.inputs["frequencies"].value.shape == "series"
+    assert node.inputs["rows"].value is not None
+    assert node.inputs["rows"].value.shape == "table"
 
 
 def test_compute_value_input_unwraps_transient_payload() -> None:
-    payload = object()
+    expected_payload = object()
 
-    def consume_payload(ctx: ComputeNodeContext) -> bool:
-        return ctx.inputs["payload"] is payload
+    def consume_payload(*, payload: object) -> bool:
+        return payload is expected_payload
 
     node = ComputeNodeSpec(
         id="consume-payload",
+        output_type=Scalar(Bool()),
         inputs={
             "payload": ComputeNodeInput(
                 kind="value",
                 value=as_value_expr(
                     ScalarExpr(
                         kind="literal",
-                        value=PayloadValue(schema_id="model", payload=payload),
+                        value=PayloadValue(
+                            schema_id="model",
+                            payload=expected_payload,
+                        ),
                     )
                 ),
+                value_type=Scalar(Payload("model")),
             )
         },
         fn=consume_payload,
@@ -790,24 +715,124 @@ def test_compute_value_input_unwraps_transient_payload() -> None:
 
     assert diagnostics == []
     assert results[(0, "consume-payload")] is True
-    restored = ComputeNodeSpec.model_validate_json(node.model_dump_json())
-    restored_value = restored.inputs["payload"].value
-    assert restored_value is not None
-    assert isinstance(restored_value, ScalarValueExpr)
-    assert restored_value.expr.value == PayloadValue(schema_id="model")
+    value = node.inputs["payload"].value
+    assert value is not None
+    assert isinstance(value, ScalarValueExpr)
+    assert value.expr.value == PayloadValue(
+        schema_id="model",
+        payload=expected_payload,
+    )
+
+
+def test_compute_named_context_receives_only_its_declared_input() -> None:
+    node = ComputeNodeSpec(
+        id="ordinary-context-input",
+        output_type=Scalar(String()),
+        inputs={
+            "context": ComputeNodeInput(
+                kind="value",
+                value=as_value_expr(lit("declared")),
+                value_type=Scalar(String()),
+            )
+        },
+        fn=lambda *, context: context,
+    )
+
+    results, _payloads, diagnostics = evaluate_compute_nodes_for_point(
+        point=PlannerPoint(point_index=0, point_uid="point-0", row={}),
+        params=ParameterRelationData(),
+        compute_nodes=[node],
+        route_bindings=(),
+        compute_payload_schema_ids={},
+    )
+
+    assert diagnostics == []
+    assert results[(0, "ordinary-context-input")] == "declared"
+
+
+def test_compute_route_is_an_explicit_input_and_dependency() -> None:
+    received: list[ResolvedRoute] = []
+
+    def consume_route(*, drive_route: ResolvedRoute) -> str:
+        received.append(drive_route)
+        return drive_route.resource_id
+
+    node = ComputeNodeSpec(
+        id="route-consumer",
+        output_type=Scalar(String()),
+        inputs={
+            "drive_route": ComputeNodeInput(
+                kind="route",
+                port_id="drive",
+                value_type=Route(capabilities=("play",)),
+            )
+        },
+        fn=consume_route,
+    )
+    route = PointRouteBinding(
+        port_id="drive",
+        resource_id="drive-a",
+        capabilities=["play"],
+        entity_ids=["q0"],
+        product_axis_order=["q0"],
+    )
+
+    results, _payloads, diagnostics = evaluate_compute_nodes_for_point(
+        point=PlannerPoint(point_index=0, point_uid="point-0", row={}),
+        params=ParameterRelationData(),
+        compute_nodes=[node],
+        route_bindings=(route,),
+        compute_payload_schema_ids={},
+    )
+
+    assert diagnostics == []
+    assert results[(0, "route-consumer")] == "drive-a"
+    assert received == [
+        ResolvedRoute(
+            port_id="drive",
+            resource_id="drive-a",
+            capabilities=("play",),
+            entity_ids=("q0",),
+            product_axis_order=("q0",),
+        )
+    ]
+    assert summarize_compute_node_dependencies(node).routes == ("drive",)
+
+
+def test_compute_result_must_satisfy_its_declared_value_type() -> None:
+    node = ComputeNodeSpec(
+        id="invalid-series",
+        output_type=Series(Scalar(Float())),
+        fn=lambda: ["not-a-float"],
+    )
+
+    results, _payloads, diagnostics = evaluate_compute_nodes_for_point(
+        point=PlannerPoint(point_index=0, point_uid="point-0", row={}),
+        params=ParameterRelationData(),
+        compute_nodes=[node],
+        route_bindings=(),
+        compute_payload_schema_ids={},
+    )
+
+    assert results == {}
+    assert diagnostics[0]["code"] == "compute_node_evaluation_failed"
+    assert "expected float" in diagnostics[0]["message"]
 
 
 def test_collection_input_references_are_tracked_as_compute_dependencies() -> None:
     node = ComputeNodeSpec(
         id="external-collections",
+        output_type=Scalar(Payload("unused-collections")),
         inputs={
             "offsets": ComputeNodeInput(
                 kind="value",
                 value=as_value_expr(input_series("offsets")),
+                value_type=Series(Scalar(Float())),
             ),
             "rows": ComputeNodeInput(
                 kind="value",
                 value=as_value_expr(input_table("rows")),
+                value_type=TableType(columns=(), allow_extra_columns=True),
             ),
         },
     )
@@ -820,7 +845,7 @@ def test_runtime_graph_keeps_generated_payloads_deferred() -> None:
         def __init__(self, samples: list[float]) -> None:
             self.samples = samples
 
-    def build_waveform(ctx: ComputeNodeContext) -> WaveformPayload:
+    def build_waveform() -> WaveformPayload:
         return WaveformPayload(samples=[0.0, 0.5, 0.0])
 
     spec = experiment(
@@ -847,7 +872,7 @@ def test_runtime_graph_keeps_generated_payloads_deferred() -> None:
         }
     )
 
-    graph = build_runtime_graph(build_planner_snapshot(spec, _parameter_view()))
+    graph = build_runtime_graph(build_planner_snapshot(spec, _parameters()))
 
     assert graph.payloads[0].uri is None
     assert graph.payloads[0].content_hash is None
@@ -867,7 +892,7 @@ def test_runtime_graph_deduplicates_repeated_state_fields() -> None:
         records=[],
     )
 
-    graph = build_runtime_graph(build_planner_snapshot(spec, _parameter_view()))
+    graph = build_runtime_graph(build_planner_snapshot(spec, _parameters()))
 
     assert [diagnostic["code"] for diagnostic in graph.diagnostics] == []
     assert len(graph.points[0].desired_state) == 1
@@ -887,64 +912,10 @@ def test_runtime_graph_reports_conflicting_normalized_state_fields() -> None:
         records=[],
     )
 
-    graph = build_runtime_graph(build_planner_snapshot(spec, _parameter_view()))
+    graph = build_runtime_graph(build_planner_snapshot(spec, _parameters()))
 
     assert "runtime_state_field_conflict" in {
         diagnostic["code"] for diagnostic in graph.diagnostics
     }
     assert len(graph.points[0].desired_state) == 1
     assert len(graph.points[0].desired_state[0].fields) == 1
-
-
-def test_compute_node_specs_round_trip_without_source_callable() -> None:
-    def build_waveform(ctx: ComputeNodeContext) -> dict[str, int]:
-        return {"point": ctx.point_index}
-
-    spec = experiment(
-        id="persisted-program-node-plan",
-        kind="diagnostic",
-        points=grid(index=[0]),
-        state=[
-            set_state(
-                "drive-a",
-                "play_waveforms.program",
-                compute_result("build-waveform"),
-            )
-        ],
-        records=[],
-    ).model_copy(
-        update={
-            "compute_nodes": [
-                ComputeNodeSpec(
-                    id="build-waveform",
-                    output_type=Scalar(Payload("pulse_program")),
-                    fn=build_waveform,
-                )
-            ]
-        }
-    )
-
-    restored = ExperimentSpec.model_validate_json(spec.model_dump_json())
-    plan = build_planner_snapshot(restored, _parameter_view())
-    graph = build_runtime_graph(plan)
-    _results, _payloads, diagnostics = evaluate_compute_nodes_for_point(
-        point=PlannerPoint(
-            point_index=graph.points[0].point_index,
-            point_uid=graph.points[0].point_uid,
-            row=graph.points[0].row,
-        ),
-        params=graph.points[0].params,
-        compute_nodes=list(graph.compute_nodes_by_id.values()),
-        route_bindings=graph.points[0].route_bindings,
-        compute_payload_schema_ids={
-            step.node_id: step.payload.schema_id
-            for step in graph.points[0].compute_steps
-            if step.payload is not None
-        },
-    )
-
-    assert restored.compute_nodes[0].fn is None
-    assert restored.state[0].value == ComputeResultRef(node_id="build-waveform")
-    assert plan.points[0].point_index == 0
-    assert diagnostics[0]["code"] == "compute_node_evaluation_failed"
-    assert "no in-memory function" in diagnostics[0]["message"]

@@ -190,6 +190,51 @@ def test_table_type_coerces_rows_and_enforces_primary_key() -> None:
         )
 
 
+def test_table_primary_keys_use_entity_and_quantity_semantic_identity() -> None:
+    entity_table = Table(
+        columns=(TableColumn("entity", Scalar(Entity())),),
+        primary_key=("entity",),
+    )
+    with pytest.raises(ValueValidationError, match="duplicates row 0"):
+        coerce_literal(
+            entity_table,
+            [
+                {
+                    "entity": EntityRef(
+                        id="q0",
+                        kind="qubit",
+                        metadata={"source": "first"},
+                    )
+                },
+                {
+                    "entity": EntityRef(
+                        id="q0",
+                        kind="qubit",
+                        metadata={"source": "second"},
+                    )
+                },
+            ],
+        )
+
+    quantity_table = Table(
+        columns=(
+            TableColumn(
+                "frequency",
+                Scalar(Quantity(dimension="frequency")),
+            ),
+        ),
+        primary_key=("frequency",),
+    )
+    with pytest.raises(ValueValidationError, match="duplicates row 0"):
+        coerce_literal(
+            quantity_table,
+            [
+                {"frequency": QuantityValue(1e-13, "GHz")},
+                {"frequency": QuantityValue(1e-4, "Hz")},
+            ],
+        )
+
+
 @dataclass(frozen=True)
 class _PulseProgram:
     samples: tuple[float, ...]
@@ -225,5 +270,10 @@ def test_invalid_type_definitions_fail_at_construction() -> None:
     with pytest.raises(ValueError, match="required and non-null"):
         Table(
             columns=(TableColumn("id", Scalar(String(), nullable=True)),),
+            primary_key=("id",),
+        )
+    with pytest.raises(ValueError, match="guarantee finite"):
+        Table(
+            columns=(TableColumn("id", Scalar(Float(finite=False))),),
             primary_key=("id",),
         )

@@ -1,34 +1,36 @@
-from scopecat.experiments import (
-    ComputeNodeContext,
+from scopecat._compiler.program import (
     ComputeNodeSpec,
-    ExperimentSpec,
     compute_result,
-    experiment,
+    linked_program,
     observable,
+    overlay_parameter_cell,
     record_axis,
     set_state,
-    update_param_rows,
 )
+from scopecat._relations import col, grid, linspace, param, table
 from scopecat.models.parameter import Quantity
-from scopecat.relations import col, grid, linspace, param, table
-from scopecat.value_types import Payload, Scalar
+from scopecat.value_types import Payload, Scalar, String
+from scopecat.value_types import Quantity as QuantityType
 from tests.support.experiment_preview import preview_contract, preview_result
-from tests.support.parameter_fixtures import parameter_view as _parameter_view
+from tests.support.parameter_fixtures import parameters as _parameters
 
 
 def test_preview_contract_summarizes_points_state_and_records() -> None:
-    spec = experiment(
+    spec = linked_program(
         id="readout-frequency-calibration",
         kind="readout.frequency_scan",
         points=grid(
             readout=table("readout_devices").filter(col("enabled").eq(True)),
             readout_frequency=linspace(5.9, 6.0, 2, unit="GHz"),
         ),
-        params=[
-            update_param_rows(
+        parameter_overlays=[
+            overlay_parameter_cell(
                 "readout_devices",
                 key={"device_id": col("readout.device_id")},
-                values={"frequency": col("readout_frequency")},
+                key_types={"device_id": Scalar(String())},
+                column_id="frequency",
+                value=col("readout_frequency"),
+                value_type=Scalar(QuantityType(unit="GHz")),
             )
         ],
         state=[
@@ -45,9 +47,8 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
         records=[observable("signal", unit="ratio")],
     )
 
-    preview = preview_contract(spec, _parameter_view())
+    preview = preview_contract(spec, _parameters())
 
-    assert spec.schema_version == "scopecat.experiment_spec.v7"
     assert preview.point_count == 2
     assert preview.coordinate_ids == ("readout_frequency",)
     assert [point.coordinates["readout_frequency"] for point in preview.points] == [
@@ -109,7 +110,7 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
 
 
 def test_preview_contract_summarizes_record_axes() -> None:
-    spec = experiment(
+    spec = linked_program(
         id="readout-iq",
         kind="readout.iq",
         points=grid(index=[0]),
@@ -122,7 +123,7 @@ def test_preview_contract_summarizes_record_axes() -> None:
         ],
     )
 
-    preview = preview_contract(spec, _parameter_view())
+    preview = preview_contract(spec, _parameters())
 
     assert preview.records[0].dims == ("point", "shot")
     assert preview.records[0].shape == (1, 3)
@@ -130,39 +131,11 @@ def test_preview_contract_summarizes_record_axes() -> None:
     assert preview.primary_observables == ("i0",)
 
 
-def test_preview_contract_carries_parameter_view_diagnostics() -> None:
-    params = _parameter_view().model_copy(
-        update={
-            "diagnostics": [
-                {
-                    "severity": "info",
-                    "code": "derived_table_replaces_source",
-                    "message": "derived table replaces a source table",
-                    "path": "parameter_view.tables.readout_devices",
-                }
-            ]
-        },
-        deep=True,
-    )
-    spec = experiment(
-        id="diagnostic-plan",
-        kind="diagnostic",
-        points=grid(frequency=linspace(5.9, 6.0, 1, unit="GHz")),
-        records=[],
-    )
-
-    _preview, diagnostics = preview_result(spec, params)
-
-    assert [diagnostic.code for diagnostic in diagnostics] == [
-        "derived_table_replaces_source"
-    ]
-
-
 def test_preview_contract_summarizes_compute_payload_boundary() -> None:
-    def build_waveform(ctx: ComputeNodeContext) -> dict[str, object]:
-        return {"point_index": ctx.point_index}
+    def build_waveform() -> dict[str, object]:
+        return {"kind": "waveform"}
 
-    spec = experiment(
+    spec = linked_program(
         id="preview-waveform-boundary",
         kind="diagnostic",
         points=grid(index=[0]),
@@ -187,8 +160,7 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
         }
     )
 
-    restored = ExperimentSpec.model_validate_json(spec.model_dump_json())
-    preview = preview_contract(restored, _parameter_view())
+    preview = preview_contract(spec, _parameters())
 
     assert preview.runtime.compute_node_count == 1
     assert preview.runtime.compute_step_count == 1
@@ -218,7 +190,7 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
 
 
 def test_preview_groups_shared_typed_compute_result() -> None:
-    spec = experiment(
+    spec = linked_program(
         id="preview-shared-payload",
         kind="diagnostic",
         points=grid(index=[0]),
@@ -246,7 +218,7 @@ def test_preview_groups_shared_typed_compute_result() -> None:
         }
     )
 
-    preview, diagnostics = preview_result(spec, _parameter_view())
+    preview, diagnostics = preview_result(spec, _parameters())
 
     assert diagnostics == ()
     assert preview.compute_steps[0].payload_id == "build-waveform.payload.point-0"
@@ -259,33 +231,8 @@ def test_preview_groups_shared_typed_compute_result() -> None:
     )
 
 
-def test_preview_contract_reports_compute_result_without_output_type() -> None:
-    spec = experiment(
-        id="preview-missing-compute-output-type",
-        kind="diagnostic",
-        points=grid(index=[0]),
-        state=[
-            set_state(
-                "drive-a",
-                "play_waveforms.program",
-                compute_result("build-waveform"),
-            )
-        ],
-        records=[],
-    ).model_copy(update={"compute_nodes": [ComputeNodeSpec(id="build-waveform")]})
-
-    preview, diagnostics = preview_result(spec, _parameter_view())
-
-    assert [diagnostic.code for diagnostic in diagnostics] == [
-        "compute_payload_output_type_required"
-    ]
-    assert preview.compute_steps[0].payload_id is None
-    assert preview.compute_steps[0].schema_id is None
-    assert preview.payloads == ()
-
-
 def test_preview_contract_reports_unknown_compute_payload_nodes() -> None:
-    spec = experiment(
+    spec = linked_program(
         id="preview-unknown-payload-node",
         kind="diagnostic",
         points=grid(index=[0]),
@@ -299,7 +246,7 @@ def test_preview_contract_reports_unknown_compute_payload_nodes() -> None:
         records=[],
     )
 
-    preview, diagnostics = preview_result(spec, _parameter_view())
+    preview, diagnostics = preview_result(spec, _parameters())
 
     assert [diagnostic.code for diagnostic in diagnostics] == [
         "compute_payload_unknown_node"
@@ -308,7 +255,7 @@ def test_preview_contract_reports_unknown_compute_payload_nodes() -> None:
 
 
 def test_preview_contract_records_are_durable() -> None:
-    spec = experiment(
+    spec = linked_program(
         id="record-plan",
         kind="diagnostic",
         points=grid(index=[0]),
@@ -328,8 +275,8 @@ def test_preview_contract_records_are_durable() -> None:
         deep=True,
     )
 
-    preview = preview_contract(spec, _parameter_view())
-    changed_preview = preview_contract(changed, _parameter_view())
+    preview = preview_contract(spec, _parameters())
+    changed_preview = preview_contract(changed, _parameters())
 
     assert [
         (

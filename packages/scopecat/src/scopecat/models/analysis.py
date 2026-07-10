@@ -6,9 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from scopecat.models.parameter import ParameterChangeSet
-
-ANALYSIS_RECORD_SCHEMA_VERSION = "scopecat.analysis.v2"
+ANALYSIS_RECORD_SCHEMA_VERSION = "scopecat.analysis.v3"
 
 AnalysisRecordOutputKind = Literal[
     "note",
@@ -16,7 +14,7 @@ AnalysisRecordOutputKind = Literal[
     "array",
     "figure",
     "artifact",
-    "parameter_change",
+    "parameter_change_proposal",
 ]
 
 
@@ -42,14 +40,13 @@ class AnalysisRecordOutput(BaseModel):
 class AnalysisRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.analysis.v2"] = ANALYSIS_RECORD_SCHEMA_VERSION
+    schema_version: Literal["scopecat.analysis.v3"] = ANALYSIS_RECORD_SCHEMA_VERSION
     run_id: str
     title: str
     key: str | None = None
     step_id: str | None = None
     inputs: list[AnalysisRecordInput] = Field(default_factory=list)
     outputs: list[AnalysisRecordOutput]
-    parameter_changes: list[ParameterChangeSet] = Field(default_factory=list)
 
 
 __all__ = [

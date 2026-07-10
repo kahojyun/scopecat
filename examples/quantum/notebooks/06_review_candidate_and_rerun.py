@@ -22,7 +22,7 @@ baseline = (
         tags=("notebook", "calibration", "baseline"),
     )
 )
-analysis = baseline.analyze(ReadoutFrequencyAnalysisStep())
+analysis = baseline.analyze(ReadoutFrequencyAnalysisStep(qubit="q0"))
 saved_analysis = analysis.save()
 
 # %%
@@ -41,10 +41,10 @@ comparison = lab.compare(baseline, follow_up, observable="raw_iq")
 comparison_review = comparison.review(state="accepted")
 
 # %%
-change = analysis.parameter_changes[0]
+proposal = analysis.parameter_proposals[0]
 summary = {
     "baseline": baseline.id,
-    "parameter_change": change.id,
+    "parameter_change": proposal.id,
     "saved_analysis": saved_analysis.record.id,
     "candidate": candidate.analysis_key,
     "follow_up": follow_up.id,

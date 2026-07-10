@@ -5,9 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from scopecat.experiments import ExperimentSpec
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
-from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.models.run import RunManifest
 from scopecat.results import MeasurementDataset
@@ -16,13 +14,6 @@ from scopecat.results import MeasurementDataset
 @dataclass(frozen=True)
 class RunDetails:
     manifest: RunManifest
-
-
-@dataclass(frozen=True)
-class StructuredRunDetails:
-    manifest: RunManifest
-    config: ConfigProfileSnapshot
-    experiment: ExperimentSpec
 
 
 @dataclass(frozen=True)
@@ -76,5 +67,4 @@ __all__ = [
     "RunDetails",
     "RunMeasurementDatasetResult",
     "RunRecordJsonResult",
-    "StructuredRunDetails",
 ]

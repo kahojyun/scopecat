@@ -15,6 +15,7 @@ from quantum_lab_demo.experiments.readout_analysis_calculations import (
 
 @dataclass
 class ReadoutFrequencyAnalysisStep:
+    qubit: str
     id: str = "readout.frequency.analysis"
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
@@ -24,8 +25,12 @@ class ReadoutFrequencyAnalysisStep:
             measurements=raw.dataset.records,
             input_ref=input_ref,
             config=context.config,
+            qubit=self.qubit,
         )
-        parameter_patch = _readout_frequency_patch(context, summary.center)
+        parameter_update = _readout_frequency_update(
+            summary.center,
+            qubit=self.qubit,
+        )
 
         return (
             context.result("readout frequency analysis")
@@ -59,7 +64,7 @@ class ReadoutFrequencyAnalysisStep:
             )
             .propose(
                 READOUT_PARAMETER_ID,
-                parameter_patch,
+                parameter_update,
                 reason=summary.reason,
                 confidence=1.0,
             )
@@ -71,24 +76,13 @@ __all__ = [
 ]
 
 
-def _readout_frequency_patch(
-    context: sc.AnalysisContext,
+def _readout_frequency_update(
     value: sc.Quantity,
+    *,
+    qubit: str,
 ):
-    if context.config.parameter_catalog.scalar(READOUT_PARAMETER_ID) is not None:
-        return sc.set_param(READOUT_PARAMETER_ID, value)
-    return sc.update_param_rows(
+    return sc.update_parameter_rows(
         "qubits",
-        key={"qubit": _run_qubit(context)},
+        key={"qubit": qubit},
         values={READOUT_PARAMETER_ID: value},
     )
-
-
-def _run_qubit(context: sc.AnalysisContext) -> str:
-    for route in context.run.preview.routes:
-        if route.port_id != "readout":
-            continue
-        for resolved in route.resolved:
-            if resolved.entity_ids:
-                return resolved.entity_ids[0]
-    return "q0"

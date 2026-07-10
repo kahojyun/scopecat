@@ -7,18 +7,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
 
+from scopecat._relations import ParameterRelationData
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.entity import EntityRef, entity_ref
-from scopecat.models.parameter import ParameterViewSnapshot, Quantity
 from scopecat.models.run import RunConfigSource
 
 
 @dataclass
 class ExperimentAuthoringContext:
     config: ConfigProfileSnapshot
-    parameter_view: ParameterViewSnapshot
+    parameters: ParameterRelationData
     workspace: Path
     config_source: RunConfigSource | None = None
     diagnostics: list[Diagnostic] = field(default_factory=list)
@@ -53,16 +53,6 @@ class ExperimentAuthoringContext:
         entities: Sequence[EntityRef | str],
     ) -> tuple[EntityRef, ...]:
         return tuple(self.require_entity(entity) for entity in entities)
-
-    def require_parameter(self, parameter_id: str) -> Quantity:
-        parameter = self.parameter_view.get(parameter_id)
-        if parameter is None:
-            self.raise_diagnostic(
-                "unknown_authoring_parameter",
-                f"experiment authoring references unknown parameter {parameter_id}",
-                "parameter",
-            )
-        return parameter.quantity
 
     def diagnostic(
         self,

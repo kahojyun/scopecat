@@ -17,8 +17,10 @@ def write_manifest_artifacts(
     artifacts: Iterable[RunArtifactEntry],
 ) -> None:
     """Upsert artifact entries into a manifest and persist the manifest."""
-    manifest.artifacts = upsert_artifacts(manifest.artifacts, list(artifacts))
-    storage.write_manifest(manifest)
+    with storage.run_lock(manifest.run_id):
+        current = storage.read_manifest(manifest.run_id)
+        current.artifacts = upsert_artifacts(current.artifacts, list(artifacts))
+        storage.write_manifest(current)
 
 
 def write_manifest_datasets(
@@ -28,8 +30,10 @@ def write_manifest_datasets(
     datasets: Iterable[RunDatasetEntry],
 ) -> None:
     """Upsert dataset entries into a manifest and persist the manifest."""
-    manifest.datasets = upsert_datasets(manifest.datasets, list(datasets))
-    storage.write_manifest(manifest)
+    with storage.run_lock(manifest.run_id):
+        current = storage.read_manifest(manifest.run_id)
+        current.datasets = upsert_datasets(current.datasets, list(datasets))
+        storage.write_manifest(current)
 
 
 def write_manifest_records(
@@ -39,5 +43,22 @@ def write_manifest_records(
     records: Iterable[RunRecordEntry],
 ) -> None:
     """Upsert workflow record entries into a manifest and persist the manifest."""
+    with storage.run_lock(manifest.run_id):
+        write_manifest_records_locked(
+            storage=storage,
+            run_id=manifest.run_id,
+            records=records,
+        )
+
+
+def write_manifest_records_locked(
+    *,
+    storage: LocalRunStore,
+    run_id: str,
+    records: Iterable[RunRecordEntry],
+) -> None:
+    """Merge records while the caller holds ``storage.run_lock(run_id)``."""
+
+    manifest = storage.read_manifest(run_id)
     manifest.records = upsert_records(manifest.records, list(records))
     storage.write_manifest(manifest)

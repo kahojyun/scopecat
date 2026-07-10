@@ -1,4 +1,4 @@
-"""Durable shape envelopes for scalar, series, and table expressions."""
+"""Transient compiler envelopes for scalar, series, and table expressions."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ from typing import Annotated, Literal, overload
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from scopecat.relations import RelationExpr, ScalarExpr, SeriesExpr
+from scopecat._relations import RelationExpr, ScalarExpr, SeriesExpr
 
 
 class ScalarValueExpr(BaseModel):
-    """Serializable scalar-shaped expression."""
+    """Scalar-shaped expression retained until runtime lowering."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
@@ -19,7 +19,7 @@ class ScalarValueExpr(BaseModel):
 
 
 class SeriesValueExpr(BaseModel):
-    """Serializable series-shaped expression."""
+    """Series-shaped expression retained until runtime lowering."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
@@ -28,7 +28,7 @@ class SeriesValueExpr(BaseModel):
 
 
 class TableValueExpr(BaseModel):
-    """Serializable table-shaped expression."""
+    """Table-shaped expression retained until runtime lowering."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 

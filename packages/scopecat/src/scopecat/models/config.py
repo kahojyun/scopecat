@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol
+import hashlib
+import json
+from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import (
     ParameterCatalog,
-    ParameterState,
-    ParameterTable,
-    ParameterViewSnapshot,
+    ParameterSnapshot,
 )
-from scopecat.parameters import ParameterDerivationSet, build_parameter_view
+
+type ConfigContentHash = Annotated[
+    str,
+    Field(pattern=r"^sha256:[0-9a-f]{64}$"),
+]
 
 
 class _HasId(Protocol):
@@ -230,7 +234,7 @@ class SystemSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.system_spec.v0"] = "scopecat.system_spec.v0"
+    schema_version: Literal["scopecat.system_spec.v1"] = "scopecat.system_spec.v1"
     id: str
     workspace_id: str
     primary_entity_id: str
@@ -260,13 +264,13 @@ class ConfigProfileSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.config_profile_snapshot.v0"] = (
-        "scopecat.config_profile_snapshot.v0"
+    schema_version: Literal["scopecat.config_profile_snapshot.v1"] = (
+        "scopecat.config_profile_snapshot.v1"
     )
     id: str
     system: SystemSpec
     environment: EnvironmentSpec
-    parameter_state: ParameterState
+    parameter_snapshot: ParameterSnapshot
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @property
@@ -297,17 +301,13 @@ class ConfigProfileSnapshot(BaseModel):
     def connection_profile(self) -> ConnectionProfile:
         return self.environment.connection_profile
 
-    @property
-    def parameter_tables(self) -> list[ParameterTable]:
-        return self.parameter_state.tables
-
 
 def snapshot_config_profile(
     *,
     profile_id: str,
     system: SystemSpec,
     environment: EnvironmentSpec,
-    parameter_state: ParameterState,
+    parameter_snapshot: ParameterSnapshot,
     metadata: dict[str, Any] | None = None,
 ) -> ConfigProfileSnapshot:
     """Freeze split config content as an immutable runtime snapshot."""
@@ -316,22 +316,8 @@ def snapshot_config_profile(
         id=profile_id,
         system=system,
         environment=environment,
-        parameter_state=parameter_state,
+        parameter_snapshot=parameter_snapshot,
         metadata=dict(metadata or {}),
-    )
-
-
-def build_config_parameters(
-    config: ConfigProfileSnapshot,
-    *,
-    derivations: ParameterDerivationSet | None = None,
-) -> ParameterViewSnapshot:
-    """Build the in-memory parameter view for planning and authoring."""
-
-    return build_parameter_view(
-        catalog=config.parameter_catalog,
-        parameter_state=config.parameter_state,
-        derivations=derivations,
     )
 
 
@@ -342,6 +328,17 @@ def config_content_equal(
     """Compare config content while ignoring lifecycle schema fields."""
 
     return _config_content(left) == _config_content(right)
+
+
+def config_content_hash(config: ConfigProfileSnapshot) -> ConfigContentHash:
+    """Return a stable content address for a complete config snapshot."""
+
+    content = json.dumps(
+        config.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 def _config_content(config: ConfigProfileSnapshot) -> dict[str, Any]:

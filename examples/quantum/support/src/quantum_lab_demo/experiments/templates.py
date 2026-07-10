@@ -28,6 +28,14 @@ from quantum_lab_demo.experiments.ids import (
     TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
 )
 from quantum_lab_demo.experiments.parameter_refs import qubit_param
+from quantum_lab_demo.experiments.points import (
+    CLIFFORD_COUNT,
+    COUPLER_AMPLITUDE,
+    COUPLER_DURATION,
+    DRIVE_LENGTH,
+    GATE_DURATION,
+    READOUT_FREQUENCY,
+)
 from quantum_lab_demo.experiments.rabi_modules import (
     RABI_MODULE,
     SIMULTANEOUS_RABI_MODULE,
@@ -59,6 +67,19 @@ from quantum_lab_demo.experiments.two_qubit_modules import (
     PARALLEL_GATE_SET_MODULE,
 )
 
+_TEMPLATE_QUBIT = sc.input(
+    "qubit",
+    sc.ScalarType(sc.EntityType(entity_kind="logical_qubit")),
+)
+_CENTER_LENGTH = sc.input(
+    "center_length",
+    sc.ScalarType(sc.QuantityType()),
+)
+_CENTER_FREQUENCY = sc.input(
+    "center_frequency",
+    sc.ScalarType(sc.QuantityType()),
+)
+
 
 def _template(
     id: str,  # noqa: A002
@@ -82,8 +103,8 @@ RABI_TEMPLATE = (
     )
     .experiment_id("rabi")
     .scan(
-        "drive_length",
-        center=qubit_param("rabi_pulse_length"),
+        DRIVE_LENGTH,
+        center=qubit_param("rabi_pulse_length", _TEMPLATE_QUBIT),
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
     )
@@ -108,8 +129,8 @@ SIMULTANEOUS_RABI_TEMPLATE = (
     )
     .experiment_id("simultaneous-rabi")
     .scan(
-        "drive_length",
-        center=sc.input("center_length"),
+        DRIVE_LENGTH,
+        center=_CENTER_LENGTH,
         span=sc.Quantity(value=60.0, unit="ns"),
         points=5,
     )
@@ -151,8 +172,8 @@ FLUX_BACKGROUND_RABI_TEMPLATE = (
     )
     .experiment_id("flux-background-rabi")
     .scan(
-        "drive_length",
-        center=qubit_param("rabi_pulse_length"),
+        DRIVE_LENGTH,
+        center=qubit_param("rabi_pulse_length", _TEMPLATE_QUBIT),
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
     )
@@ -187,8 +208,8 @@ SYSTEM_BACKGROUND_RABI_TEMPLATE = (
     )
     .experiment_id("system-background-rabi")
     .scan(
-        "drive_length",
-        center=qubit_param("rabi_pulse_length"),
+        DRIVE_LENGTH,
+        center=qubit_param("rabi_pulse_length", _TEMPLATE_QUBIT),
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
     )
@@ -217,8 +238,8 @@ READOUT_TEMPLATE = (
     )
     .experiment_id("readout-frequency")
     .scan(
-        "readout_frequency",
-        center=qubit_param("readout_frequency"),
+        READOUT_FREQUENCY,
+        center=qubit_param("readout_frequency", _TEMPLATE_QUBIT),
         span=sc.Quantity(value=100.0, unit="MHz"),
         points=5,
     )
@@ -266,8 +287,8 @@ MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
     )
     .experiment_id("multiplexed-readout-calibration")
     .scan(
-        "readout_frequency",
-        center=sc.input("center_frequency"),
+        READOUT_FREQUENCY,
+        center=_CENTER_FREQUENCY,
         span=sc.Quantity(value=120.0, unit="MHz"),
         points=5,
     )
@@ -303,7 +324,7 @@ SQG_RB_TEMPLATE = (
         ),
     )
     .experiment_id("sqg-rb")
-    .scan("clifford_count", (4, 8, 16))
+    .scan(CLIFFORD_COUNT, (4, 8, 16))
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("SQG RB")
     .description("Build a experiment-system single-qubit randomized benchmarking scan.")
@@ -326,7 +347,7 @@ CZ_RB_TEMPLATE = (
         ),
     )
     .experiment_id("cz-rb")
-    .scan("clifford_count", (2, 4, 8))
+    .scan(CLIFFORD_COUNT, (2, 4, 8))
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("CZ RB")
     .description("Build a experiment-system two-qubit CZ randomized benchmarking scan.")
@@ -352,9 +373,9 @@ CZ_CHEVRON_TEMPLATE = (
         ),
     )
     .experiment_id("cz-chevron")
-    .scan("coupler_duration", (24, 36, 48), unit="ns")
+    .scan(COUPLER_DURATION, (24, 36, 48), unit="ns")
     .scan(
-        "coupler_amplitude",
+        COUPLER_AMPLITUDE,
         (0.18, 0.24, 0.30),
         unit="arb",
     )
@@ -382,8 +403,8 @@ SPECTATOR_CZ_TEMPLATE = (
         ),
     )
     .experiment_id("spectator-cz-calibration")
-    .scan("coupler_duration", (24, 36), unit="ns")
-    .scan("coupler_amplitude", (0.18, 0.24), unit="arb")
+    .scan(COUPLER_DURATION, (24, 36), unit="ns")
+    .scan(COUPLER_AMPLITUDE, (0.18, 0.24), unit="arb")
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("spectator-aware CZ calibration")
     .description(
@@ -417,7 +438,7 @@ PARALLEL_GATE_SET_TEMPLATE = (
         ),
     )
     .experiment_id("parallel-gate-set")
-    .scan("gate_duration", (28, 36), unit="ns")
+    .scan(GATE_DURATION, (28, 36), unit="ns")
     .record_product("multiplexed_iq")
     .label("parallel gate set")
     .description(

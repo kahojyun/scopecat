@@ -6,17 +6,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from scopecat._compute_result import ComputeResultRef
 from scopecat._planning.diagnostics import planning_diagnostic
 from scopecat._planning.state import StateRecord
-from scopecat.models.value import ComputeResultRef
-from scopecat.value_types import Payload, Scalar
+from scopecat.value_types import Payload, Scalar, ValueType
 
 
 class ComputePayloadProducer(Protocol):
     """Structural producer contract needed for payload resolution."""
 
     id: str
-    output_type: Scalar | None
+    output_type: ValueType
 
 
 @dataclass(frozen=True)
@@ -59,15 +59,17 @@ def resolve_compute_payload_schemas(
             continue
 
         output_type = producer.output_type
-        if output_type is None or not isinstance(output_type.atom, Payload):
+        if not isinstance(output_type, Scalar) or not isinstance(
+            output_type.atom, Payload
+        ):
             unavailable_node_ids.add(node_id)
             diagnostics.append(
                 planning_diagnostic(
                     "error",
-                    "compute_payload_output_type_required",
+                    "compute_payload_output_type_invalid",
                     (
-                        f"compute node {node_id!r} must declare a payload "
-                        "output_type before its result can be bound to state"
+                        f"compute node {node_id!r} must use a scalar payload "
+                        "output type before its result can be bound to state"
                     ),
                     f"compute_nodes.{node_id}.output_type",
                 )

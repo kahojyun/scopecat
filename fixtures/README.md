@@ -1,13 +1,14 @@
 # Fixtures
 
-Repository fixtures are durable input records used by tests and runnable
-examples. They are not hidden architecture definitions.
+Repository fixtures are durable operator/configuration inputs used by tests and
+runnable examples. Compiler programs and runtime graphs are built transiently
+from the user DSL and are intentionally not stored here.
 
 ## Owners
 
-- `core/simple_scan`: public core model and workflow used by preview,
-  storage, config-registry, analysis, reporting, validation, authoring, and
-  contract tests.
+- `core/simple_scan`: public configuration inputs for the domain-neutral scan
+  workflow used by preview, storage, config-registry, analysis, reporting,
+  validation, authoring, and contract tests.
 - `quantum/experiment_system`: demo quantum experiment-system fixture and
   runnable example input.
 

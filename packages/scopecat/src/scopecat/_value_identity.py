@@ -1,0 +1,67 @@
+"""Shared identity and comparison primitives for closed scalar values.
+
+This module deliberately sits below parameter validation, literal validation,
+and relation evaluation.  Those layers must agree on entity identity and
+quantity unit normalization without importing one another.
+"""
+
+from __future__ import annotations
+
+from scopecat.models.entity import EntityRef, entity_identity
+from scopecat.models.parameter import Quantity
+from scopecat.units import compatible_units, to_base_value, unit_kind
+
+type ScalarIdentity = tuple[object, ...]
+
+
+def scalar_identity(value: object) -> ScalarIdentity:
+    """Return the semantic identity of a primary-key-compatible scalar."""
+
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, int | float):
+        normalized = 0.0 if value == 0 else value
+        return ("number", normalized)
+    if isinstance(value, str):
+        return ("string", value)
+    if isinstance(value, Quantity):
+        base_value = to_base_value(value.value, value.unit)
+        if base_value is not None:
+            normalized = 0.0 if base_value == 0.0 else base_value
+            return ("quantity", unit_kind(value.unit), normalized)
+        normalized = 0.0 if value.value == 0.0 else value.value
+        return ("quantity", unit_kind(value.unit), value.unit, normalized)
+    if isinstance(value, EntityRef):
+        return ("entity", *entity_identity(value))
+    if value is None:
+        return ("null",)
+    msg = f"value {value!r} cannot be used as a scalar identity"
+    raise TypeError(msg)
+
+
+def quantity_comparison_values(
+    left: Quantity,
+    right: Quantity,
+) -> tuple[float, float]:
+    """Normalize compatible quantities symmetrically for equality and order.
+
+    Linear units are compared in their common dimension base unit.  A
+    non-linear unit can only be compared with the exact same unit.  In
+    particular, this avoids the precision loss and direction dependence of
+    converting the right operand into the left operand's display unit.
+    """
+
+    if not compatible_units(left.unit, right.unit):
+        msg = f"cannot compare quantity units {left.unit!r} and {right.unit!r}"
+        raise ValueError(msg)
+    left_base = to_base_value(left.value, left.unit)
+    right_base = to_base_value(right.value, right.unit)
+    if left_base is not None and right_base is not None:
+        return left_base, right_base
+    if left.unit == right.unit:
+        return left.value, right.value
+    msg = f"cannot compare quantity units {left.unit!r} and {right.unit!r}"
+    raise ValueError(msg)
+
+
+__all__ = ["ScalarIdentity", "quantity_comparison_values", "scalar_identity"]
