@@ -9,8 +9,9 @@ from scopecat.instruments import (
     DriverDiagnostic,
     InstrumentStateCommand,
     InstrumentStateCommandField,
+    PayloadRef,
+    StateValue,
 )
-from scopecat.instruments.state import StateValue
 from scopecat.models.parameter import Quantity
 
 from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile
@@ -60,22 +61,29 @@ class VirtualDevice:
 
     def quantity(self, capability_id: str, field_path: str) -> Quantity | None:
         value = self._state.get((capability_id, field_path))
-        return value.quantity if value is not None else None
+        if value is None or not isinstance(value.root, Quantity):
+            return None
+        return value.root
 
     def number(self, capability_id: str, field_path: str) -> float | None:
         value = self._state.get((capability_id, field_path))
-        return value.value if value is not None else None
+        if value is None or not isinstance(value.root, float):
+            return None
+        return value.root
 
     def payload_id(self, capability_id: str, field_path: str) -> str | None:
         value = self._state.get((capability_id, field_path))
-        return value.payload_id if value is not None else None
+        if value is None or not isinstance(value.root, PayloadRef):
+            return None
+        return value.root.payload_id
 
     def measurement_metadata(self) -> dict[str, Any]:
-        payloads = {
-            _encode_state_key(capability_id, field_path): value.payload_id
-            for (capability_id, field_path), value in self._state.items()
-            if value.kind == "payload"
-        }
+        payloads: dict[str, str] = {}
+        for (capability_id, field_path), value in self._state.items():
+            if isinstance(value.root, PayloadRef):
+                payloads[_encode_state_key(capability_id, field_path)] = (
+                    value.root.payload_id
+                )
         return {
             "virtual_device": self.id,
             "virtual_device_kind": self.kind,

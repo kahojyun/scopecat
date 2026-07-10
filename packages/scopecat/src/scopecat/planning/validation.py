@@ -11,6 +11,12 @@ from scopecat.models.parameter import (
     ParameterViewSnapshot,
     Quantity,
 )
+from scopecat.parameter_validation import (
+    ParameterTableCellValidationError,
+    coerce_parameter_table_cell,
+    parameter_table_key_part,
+    validate_parameter_table_cell,
+)
 from scopecat.units import compatible_units, to_base_value
 
 BLOCKING_SEVERITIES = {"error", "blocker"}
@@ -624,8 +630,8 @@ def _validate_parameter_table(
                     path,
                 )
             )
-        key = tuple(row.get(column_id) for column_id in definition.primary_key)
-        if any(value is None for value in key):
+        key_values = [row.get(column_id) for column_id in definition.primary_key]
+        if any(value is None for value in key_values):
             diagnostics.append(
                 _diagnostic(
                     "error",
@@ -634,17 +640,34 @@ def _validate_parameter_table(
                     path,
                 )
             )
-        elif key in seen_keys:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "duplicate_parameter_table_primary_key",
-                    f"parameter table {table.id} has duplicate primary key {key}",
-                    path,
-                )
-            )
         else:
-            seen_keys.add(key)
+            try:
+                key = tuple(
+                    parameter_table_key_part(
+                        coerce_parameter_table_cell(
+                            table_id=table.id,
+                            column=columns[column_id],
+                            value=row[column_id],
+                            path=f"{path}.{column_id}",
+                        )
+                    )
+                    for column_id in definition.primary_key
+                )
+            except ParameterTableCellValidationError:
+                key = None
+            if key is not None:
+                if key in seen_keys:
+                    diagnostics.append(
+                        _diagnostic(
+                            "error",
+                            "duplicate_parameter_table_primary_key",
+                            f"parameter table {table.id} has duplicate primary key "
+                            f"{key}",
+                            path,
+                        )
+                    )
+                else:
+                    seen_keys.add(key)
 
         for column_id, raw_value in row.items():
             column = columns.get(column_id)
@@ -668,72 +691,20 @@ def _validate_parameter_table_cell(
     raw_value: object,
     path: str,
 ) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
-    if raw_value is None:
-        if column.required:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "missing_required_parameter_table_cell",
-                    f"parameter table {table_id} column {column.id} is required",
-                    path,
-                )
-            )
-        return diagnostics
-    if column.kind == "quantity":
-        try:
-            quantity = Quantity.model_validate(raw_value)
-        except ValueError as error:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "invalid_parameter_table_quantity",
-                    f"parameter table {table_id} column {column.id} is not a "
-                    f"valid quantity: {error}",
-                    path,
-                )
-            )
-            return diagnostics
-        if column.unit is not None and not compatible_units(column.unit, quantity.unit):
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "incompatible_parameter_table_quantity_unit",
-                    f"parameter table {table_id} column {column.id} uses unit "
-                    f"{quantity.unit}, but definition uses {column.unit}",
-                    path,
-                )
-            )
-        return diagnostics
-    if column.kind == "number":
-        if not isinstance(raw_value, int | float) or isinstance(raw_value, bool):
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "invalid_parameter_table_number",
-                    f"parameter table {table_id} column {column.id} must be numeric",
-                    path,
-                )
-            )
-        return diagnostics
-    if column.kind == "string":
-        if not isinstance(raw_value, str):
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    "invalid_parameter_table_string",
-                    f"parameter table {table_id} column {column.id} must be a string",
-                    path,
-                )
-            )
-        return diagnostics
-    if column.kind == "bool" and not isinstance(raw_value, bool):
-        diagnostics.append(
+    try:
+        validate_parameter_table_cell(
+            table_id=table_id,
+            column=column,
+            value=raw_value,
+            path=path,
+        )
+    except ParameterTableCellValidationError as error:
+        return [
             _diagnostic(
                 "error",
-                "invalid_parameter_table_bool",
-                f"parameter table {table_id} column {column.id} must be a bool",
+                error.code,
+                str(error),
                 path,
             )
-        )
-    return diagnostics
+        ]
+    return []

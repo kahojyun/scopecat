@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from scopecat._runtime.graph import RuntimeGraph
-from scopecat._runtime.state import driver_state_value
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.experiments import ProductBinding
 from scopecat.instruments.sdk import (
@@ -84,7 +83,7 @@ def validate_runtime_graph_instruments(
                                 resource_id=resource.resource_id,
                                 capability_id=resource.capability_id,
                                 field_path=field.field_path,
-                                value=driver_state_value(field.value),
+                                value=field.value,
                             )
                             for field in resource.fields
                         ],

@@ -30,7 +30,7 @@ READOUT_CAPTURE_MODULE = (
 READOUT_MODULE = (
     sc.module(READOUT_TEMPLATE_ID, metadata={"template_id": READOUT_TEMPLATE_ID})
     .entity("qubit")
-    .input("readout_frequency", kind="quantity")
+    .input("readout_frequency", value_type=sc.ScalarType(sc.QuantityType()))
     .resource(
         "readout",
         requires=("readout_pulse",),
@@ -39,16 +39,16 @@ READOUT_MODULE = (
     .compute(
         "build-readout-frequency-program",
         fn=build_readout_program,
+        output_type=sc.ScalarType(sc.PayloadType("readout_program")),
         inputs={
             "qubit": sc.input("qubit"),
             "frequency": sc.var("readout_frequency"),
             "power": qubit_param("readout_power"),
         },
     )
-    .bind_compute(
+    .bind(
         "readout.readout_pulse.program",
-        "build-readout-frequency-program",
-        kind="readout_program",
+        sc.compute_result("build-readout-frequency-program"),
     )
     .bind("readout.readout_pulse.frequency", sc.var("readout_frequency"))
     .bind("readout.readout_pulse.power", qubit_param("readout_power"))
@@ -60,9 +60,9 @@ MULTIPLEXED_READOUT_PULSE_MODULE = (
         "quantum_lab_demo.experiments.readout.multiplexed_pulse",
         metadata={"template_id": MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE_ID},
     )
-    .input("qubits", kind="entity_array")
-    .input("readout_frequency", kind="quantity")
-    .input("readout_power", kind="quantity")
+    .input("qubits", value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())))
+    .input("readout_frequency", value_type=sc.ScalarType(sc.QuantityType()))
+    .input("readout_power", value_type=sc.ScalarType(sc.QuantityType()))
     .resource(
         "readout",
         requires=("readout_pulse",),
@@ -71,16 +71,16 @@ MULTIPLEXED_READOUT_PULSE_MODULE = (
     .compute(
         "build-multiplexed-readout-program",
         fn=build_multiplexed_readout_program,
+        output_type=sc.ScalarType(sc.PayloadType("readout_program")),
         inputs={
-            "qubits": sc.input("qubits"),
+            "qubits": sc.input_series("qubits"),
             "frequency": sc.var("readout_frequency"),
             "power": sc.input("readout_power"),
         },
     )
-    .bind_compute(
+    .bind(
         "readout.readout_pulse.program",
-        "build-multiplexed-readout-program",
-        kind="readout_program",
+        sc.compute_result("build-multiplexed-readout-program"),
     )
     .bind("readout.readout_pulse.frequency", sc.var("readout_frequency"))
     .bind("readout.readout_pulse.power", sc.input("readout_power"))
@@ -93,8 +93,14 @@ QND_REPEATED_MEASUREMENT_MODULE = (
         metadata={"template_id": QND_REPEATED_MEASUREMENT_TEMPLATE_ID},
     )
     .entity("qubit")
-    .input("rounds", kind="count")
-    .input("shots", kind="count")
+    .input(
+        "rounds",
+        value_type=sc.ScalarType(sc.IntType(minimum=1)),
+    )
+    .input(
+        "shots",
+        value_type=sc.ScalarType(sc.IntType(minimum=1)),
+    )
     .resource(
         "readout",
         requires=("readout_pulse", "acquire_iq"),
@@ -103,6 +109,7 @@ QND_REPEATED_MEASUREMENT_MODULE = (
     .compute(
         "build-repeated-measurement-program",
         fn=build_repeated_measurement_program,
+        output_type=sc.ScalarType(sc.PayloadType("readout_program")),
         inputs={
             "qubit": sc.input("qubit"),
             "rounds": sc.input("rounds"),
@@ -110,14 +117,16 @@ QND_REPEATED_MEASUREMENT_MODULE = (
             "readout_frequency": qubit_param("readout_frequency"),
         },
     )
-    .bind_compute(
+    .bind(
         "readout.readout_pulse.program",
-        "build-repeated-measurement-program",
-        kind="readout_program",
+        sc.compute_result("build-repeated-measurement-program"),
     )
     .bind("readout.readout_pulse.frequency", qubit_param("readout_frequency"))
     .bind("readout.readout_pulse.power", qubit_param("readout_power"))
-    .bind("readout.acquire_iq.repetitions", sc.input("shots"))
+    .bind(
+        "readout.acquire_iq.repetitions",
+        sc.input("shots") * sc.Quantity(value=1.0, unit="count"),
+    )
     .build()
 )
 
@@ -126,7 +135,7 @@ MULTIPLEXED_READOUT_MODULE = (
         MULTIPLEXED_READOUT_TEMPLATE_ID,
         metadata={"template_id": MULTIPLEXED_READOUT_TEMPLATE_ID},
     )
-    .input("qubits", kind="entity_array")
+    .input("qubits", value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())))
     .resource(
         "readout",
         requires=("acquire_iq",),

@@ -32,6 +32,22 @@ def test_template_missing_input_and_unknown_subject_report_stable_diagnostics(
     assert subject_error.value.diagnostics[0].code == "unknown_authoring_entity"
 
 
+def test_template_unknown_inputs_are_reported_together_in_stable_order(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValidationFailed) as error:
+        resolve_experiment(
+            simple_template().bind(subject="q0", zeta=1, alpha=2),
+            workspace=tmp_path,
+            config_profile=load_config(),
+        )
+
+    diagnostic = error.value.diagnostics[0]
+    assert diagnostic.code == "experiment_template_unknown_input"
+    assert diagnostic.path == "template.inputs"
+    assert diagnostic.message.endswith("alpha, zeta")
+
+
 def test_preview_experiment_resolves_template_invocation_with_config_profile(
     tmp_path: Path,
 ) -> None:

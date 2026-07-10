@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from scopecat._value_expressions import as_scalar_or_series_value_expr
 from scopecat.authoring.context import ExperimentAuthoringContext
 from scopecat.authoring.expressions import (
     BindingSpec,
@@ -13,15 +14,18 @@ from scopecat.authoring.expressions import (
     bind as spec_bind,
 )
 from scopecat.experiments import ResourceRouteIntent
-from scopecat.models.entity import EntityArray, EntityRef, entity_array
+from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
-from scopecat.relations import ScalarExpr, col
+from scopecat.models.value import ComputeResultRef
+from scopecat.relations import RelationExpr, ScalarExpr, SeriesExpr, col, values
+
+type EntitySource = str | ScalarExpr | SeriesExpr
 
 
 @dataclass(frozen=True)
 class ResourceSelector:
     capabilities: tuple[str, ...] = ()
-    entity_inputs: tuple[str, ...] = ()
+    entity_inputs: tuple[EntitySource, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -33,7 +37,7 @@ class ResourcePort:
 @dataclass(frozen=True)
 class BindingIntent:
     port_path: str
-    value: Expression | ScalarExpr | Quantity | float
+    value: Expression | ScalarExpr | ComputeResultRef | Quantity | float
 
     def build(
         self,
@@ -48,7 +52,7 @@ class BindingIntent:
                 f"binding references unknown resource port {port_id}",
                 "bindings",
             )
-        _require_port_capability(ctx, resource_port, capability_id)
+        require_port_capability(ctx, resource_port, capability_id)
         return spec_bind(
             port_id,
             capability_id,
@@ -62,7 +66,7 @@ ExperimentBindingIntent = BindingIntent
 
 def requires(
     *capabilities: str,
-    for_entities: Sequence[str] = (),
+    for_entities: Sequence[EntitySource] = (),
 ) -> ResourceSelector:
     return ResourceSelector(
         capabilities=tuple(capabilities),
@@ -79,7 +83,7 @@ def resource_port(
 
 def bind(
     port_path: str,
-    value: Expression | ScalarExpr | Quantity | float,
+    value: Expression | ScalarExpr | ComputeResultRef | Quantity | float,
 ) -> BindingIntent:
     return BindingIntent(port_path=port_path, value=value)
 
@@ -97,7 +101,9 @@ def build_route_intents(
                 port_id=port.id,
                 capabilities=list(port.selector.capabilities),
                 entity_exprs=[
-                    _route_entity_expr(ctx, input_id, inputs)
+                    as_scalar_or_series_value_expr(
+                        _route_entity_expr(ctx, input_id, inputs)
+                    )
                     for input_id in port.selector.entity_inputs
                 ],
                 resource_id=None,
@@ -124,32 +130,65 @@ def ports_by_id(
 
 def _route_entity_expr(
     ctx: ExperimentAuthoringContext,
-    input_id: str,
+    source: object,
     inputs: Mapping[str, object],
-) -> ScalarExpr:
+) -> ScalarExpr | SeriesExpr:
+    if isinstance(source, ScalarExpr | SeriesExpr):
+        from scopecat.authoring.assembly import bind_value_input_refs
+
+        bound = bind_value_input_refs(source, inputs)
+        if isinstance(bound, RelationExpr):
+            ctx.raise_diagnostic(
+                "module_resource_entity_input_invalid",
+                "resource entity source must be scalar or series-shaped",
+                "resources",
+            )
+        return bound
+    if not isinstance(source, str):
+        ctx.raise_diagnostic(
+            "module_resource_entity_input_invalid",
+            "resource entity source must be scalar or series-shaped",
+            "resources",
+        )
+    input_id = source
     if input_id not in inputs:
         return col(input_id)
     value = inputs[input_id]
+    if isinstance(value, ScalarExpr | SeriesExpr):
+        from scopecat.authoring.assembly import bind_value_input_refs
+
+        bound = bind_value_input_refs(value, inputs)
+        if isinstance(bound, RelationExpr):
+            ctx.raise_diagnostic(
+                "module_resource_entity_input_invalid",
+                f"resource entity input {input_id} must be scalar or series-shaped",
+                f"inputs.{input_id}",
+            )
+        return bound
     if isinstance(value, str) and value:
         return ScalarExpr(kind="literal", value=ctx.require_entity(value))
     if isinstance(value, EntityRef):
         return ScalarExpr(kind="literal", value=ctx.require_entity(value))
-    if isinstance(value, EntityArray):
-        return ScalarExpr(kind="literal", value=ctx.require_entity_array(value))
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        selected = entity_array(cast("Sequence[EntityRef | str]", value))
-        return ScalarExpr(
-            kind="literal",
-            value=ctx.require_entity_array(selected),
-        )
+        selected = cast("Sequence[object]", value)
+        if not selected or not all(
+            isinstance(entity, EntityRef | str) and bool(entity) for entity in selected
+        ):
+            ctx.raise_diagnostic(
+                "module_resource_entity_input_invalid",
+                f"resource entity input {input_id} must contain entity references",
+                f"inputs.{input_id}",
+            )
+        entities = ctx.require_entities(cast("Sequence[EntityRef | str]", selected))
+        return values(entities)
     ctx.raise_diagnostic(
         "module_resource_entity_input_invalid",
-        f"resource entity input {input_id} must be an entity or entity array",
+        f"resource entity input {input_id} must be an entity or entity series",
         f"inputs.{input_id}",
     )
 
 
-def _require_port_capability(
+def require_port_capability(
     ctx: ExperimentAuthoringContext,
     port: ResourcePort,
     capability_id: str,

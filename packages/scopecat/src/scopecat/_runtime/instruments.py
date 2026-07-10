@@ -98,7 +98,7 @@ def readback_all(
     states: list[InstrumentStateSnapshot] = []
     for instrument in instruments:
         try:
-            states.append(instrument.read_state())
+            states.append(instrument.read_state().model_copy(deep=True))
         except Exception as error:
             diagnostics.append(
                 diagnostic_from_exception(

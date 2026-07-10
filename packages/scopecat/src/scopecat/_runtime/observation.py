@@ -135,7 +135,7 @@ def emit_compute_payload_events(
                 point_index=point_index if isinstance(point_index, int) else None,
                 node_id=node_id if isinstance(node_id, str) else None,
                 payload_id=payload.id,
-                payload_kind=payload.kind,
+                schema_id=payload.schema_id,
                 compute_status=(
                     payload.metadata.get("compute_status")
                     if isinstance(payload.metadata.get("compute_status"), str)
@@ -167,7 +167,7 @@ def command_payload_summary(
 ) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "payload_id": payload.id,
-        "payload_kind": payload.kind,
+        "schema_id": payload.schema_id,
     }
     node_id = payload.metadata.get("compute_node_id")
     if isinstance(node_id, str):

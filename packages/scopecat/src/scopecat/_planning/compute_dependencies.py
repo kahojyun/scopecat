@@ -6,8 +6,14 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import cast
 
-from scopecat.experiments import ComputeNodeInput, ComputeNodeSpec
-from scopecat.relations import ScalarExpr
+from scopecat.experiments import (
+    ComputeNodeInput,
+    ComputeNodeSpec,
+    ScalarValueExpr,
+    SeriesValueExpr,
+    ValueExpr,
+)
+from scopecat.relations import GridColumn, RelationExpr, ScalarExpr, SeriesExpr
 
 
 @dataclass(frozen=True)
@@ -92,11 +98,19 @@ def _input_dependencies(input_spec: ComputeNodeInput) -> ComputeDependencySummar
         )
     if input_spec.value is None:
         return source_dependencies
-    return source_dependencies.merged(_expr_dependencies(input_spec.value))
+    return source_dependencies.merged(_value_expr_dependencies(input_spec.value))
 
 
-def _expr_dependencies(expr: ScalarExpr) -> ComputeDependencySummary:
-    if expr.kind == "column":
+def _value_expr_dependencies(expr: ValueExpr) -> ComputeDependencySummary:
+    if isinstance(expr, ScalarValueExpr):
+        return _scalar_expr_dependencies(expr.expr)
+    if isinstance(expr, SeriesValueExpr):
+        return _series_expr_dependencies(expr.expr)
+    return _relation_expr_dependencies(expr.expr)
+
+
+def _scalar_expr_dependencies(expr: ScalarExpr) -> ComputeDependencySummary:
+    if expr.kind in {"column", "outer_column"}:
         return ComputeDependencySummary(point_columns=(expr.name,) if expr.name else ())
     if expr.kind == "input":
         return ComputeDependencySummary(input_refs=(expr.name,) if expr.name else ())
@@ -107,23 +121,92 @@ def _expr_dependencies(expr: ScalarExpr) -> ComputeDependencySummary:
             parameter_tables=(expr.table_id,) if expr.table_id else ()
         )
         for key_expr in (expr.key or {}).values():
-            summary = summary.merged(_expr_dependencies(key_expr))
+            summary = summary.merged(_scalar_expr_dependencies(key_expr))
         return summary
     if expr.kind == "binary":
         summary = ComputeDependencySummary()
         if expr.left is not None:
-            summary = summary.merged(_expr_dependencies(expr.left))
+            summary = summary.merged(_scalar_expr_dependencies(expr.left))
         if expr.right is not None:
-            summary = summary.merged(_expr_dependencies(expr.right))
+            summary = summary.merged(_scalar_expr_dependencies(expr.right))
         return summary
     if expr.kind == "case":
         summary = ComputeDependencySummary()
         for branch in expr.cases or ():
-            summary = summary.merged(_expr_dependencies(branch.condition))
-            summary = summary.merged(_expr_dependencies(branch.value))
+            summary = summary.merged(_scalar_expr_dependencies(branch.condition))
+            summary = summary.merged(_scalar_expr_dependencies(branch.value))
         if expr.fallback is not None:
-            summary = summary.merged(_expr_dependencies(expr.fallback))
+            summary = summary.merged(_scalar_expr_dependencies(expr.fallback))
         return summary
+    return ComputeDependencySummary()
+
+
+def _series_expr_dependencies(expr: SeriesExpr) -> ComputeDependencySummary:
+    if expr.kind == "input":
+        return ComputeDependencySummary(input_refs=(expr.name,) if expr.name else ())
+    if expr.kind in {"linspace", "range"}:
+        summary = ComputeDependencySummary()
+        for bound in (expr.start, expr.stop, expr.step):
+            if bound is not None:
+                summary = summary.merged(_scalar_expr_dependencies(bound))
+        return summary
+    if expr.kind in {"relation_column", "relation_entities"} and expr.source:
+        return _relation_expr_dependencies(expr.source)
+    return ComputeDependencySummary()
+
+
+def _relation_expr_dependencies(expr: RelationExpr) -> ComputeDependencySummary:
+    if expr.kind == "table":
+        return ComputeDependencySummary(
+            parameter_tables=(expr.table_id,) if expr.table_id else ()
+        )
+    if expr.kind == "input":
+        return ComputeDependencySummary(input_refs=(expr.name,) if expr.name else ())
+    if expr.kind == "grid":
+        summary = ComputeDependencySummary()
+        for column in (expr.columns or {}).values():
+            summary = summary.merged(_grid_column_dependencies(column))
+        return summary
+    if expr.kind in {"select", "sort", "limit"}:
+        return (
+            _relation_expr_dependencies(expr.source)
+            if expr.source is not None
+            else ComputeDependencySummary()
+        )
+    if expr.kind == "filter":
+        summary = (
+            _relation_expr_dependencies(expr.source)
+            if expr.source is not None
+            else ComputeDependencySummary()
+        )
+        if expr.condition is not None:
+            summary = summary.merged(_scalar_expr_dependencies(expr.condition))
+        return summary
+    if expr.kind in {"join", "cross"}:
+        summary = ComputeDependencySummary()
+        for source in (expr.left, expr.right):
+            if source is not None:
+                summary = summary.merged(_relation_expr_dependencies(source))
+        return summary
+    if expr.kind == "with_columns":
+        summary = (
+            _relation_expr_dependencies(expr.source)
+            if expr.source is not None
+            else ComputeDependencySummary()
+        )
+        for column in (expr.new_columns or {}).values():
+            summary = summary.merged(_scalar_expr_dependencies(column))
+        return summary
+    return ComputeDependencySummary()
+
+
+def _grid_column_dependencies(column: GridColumn) -> ComputeDependencySummary:
+    if column.kind == "scalar" and column.scalar is not None:
+        return _scalar_expr_dependencies(column.scalar)
+    if column.kind == "series" and column.series is not None:
+        return _series_expr_dependencies(column.series)
+    if column.kind == "relation" and column.relation is not None:
+        return _relation_expr_dependencies(column.relation)
     return ComputeDependencySummary()
 
 

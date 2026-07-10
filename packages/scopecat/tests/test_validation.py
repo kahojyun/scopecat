@@ -628,8 +628,11 @@ def test_parameter_table_rows_are_validated_against_catalog() -> None:
             "id": "readout_steps",
             "primary_key": ["step_id"],
             "columns": [
-                {"id": "step_id", "kind": "string"},
-                {"id": "frequency", "kind": "quantity", "unit": "GHz"},
+                {"id": "step_id", "value_type": {"type": "string"}},
+                {
+                    "id": "frequency",
+                    "value_type": {"type": "quantity", "unit": "GHz"},
+                },
             ],
         }
     ]
@@ -650,3 +653,35 @@ def test_parameter_table_rows_are_validated_against_catalog() -> None:
 
     assert has_blocking_diagnostics(diagnostics)
     assert diagnostics[0].code == "incompatible_parameter_table_quantity_unit"
+
+
+def test_quantity_primary_keys_are_normalized_before_duplicate_detection() -> None:
+    config_data = load_config().model_dump(mode="json")
+    config_data["system"]["parameter_catalog"]["table_definitions"] = [
+        {
+            "id": "frequencies",
+            "primary_key": ["frequency"],
+            "columns": [
+                {
+                    "id": "frequency",
+                    "value_type": {"type": "quantity", "dimension": "frequency"},
+                }
+            ],
+        }
+    ]
+    config_data["parameter_state"]["tables"] = [
+        {
+            "id": "frequencies",
+            "rows": [
+                {"frequency": {"value": 5.0, "unit": "GHz"}},
+                {"frequency": {"value": 5000.0, "unit": "MHz"}},
+            ],
+        }
+    ]
+    config = ConfigProfileSnapshot.model_validate(config_data)
+
+    diagnostics = validate_config(config)
+
+    assert "duplicate_parameter_table_primary_key" in {
+        diagnostic.code for diagnostic in diagnostics
+    }

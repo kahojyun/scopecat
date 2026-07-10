@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from scopecat.models.config import (
     InstrumentRegistry,
     SystemSpec,
@@ -25,10 +28,18 @@ def test_parameter_derivation_set_round_trips_separately_from_state() -> None:
     derivations = _parameter_derivations()
     restored = assert_model_round_trip(
         derivations,
-        schema_version="scopecat.parameter_derivation_set.v1",
+        schema_version="scopecat.parameter_derivation_set.v2",
     )
 
     assert restored.scalars[0].id == "drive.center_frequency"
+
+    with pytest.raises(ValidationError):
+        ParameterDerivationSet.model_validate(
+            {
+                **restored.model_dump(mode="python"),
+                "schema_version": "scopecat.parameter_derivation_set.v1",
+            }
+        )
 
 
 def test_build_parameter_view_evaluates_relation_derivations() -> None:
@@ -70,7 +81,7 @@ def test_build_parameter_view_evaluates_relation_derivations() -> None:
     assert build.derivation_set_id == "drive-derivations"
     assert build.derivation_set_hash is not None
     assert build.view_implementation_id == "scopecat.parameter_view.local"
-    assert build.view_implementation_version == "v1"
+    assert build.view_implementation_version == "v2"
     assert _is_sha256(build.catalog_hash)
     assert _is_sha256(build.source_state_hash)
     assert _is_sha256(build.derivation_set_hash)

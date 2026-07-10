@@ -5,11 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.experiments import (
-    PointRouteBinding,
-    ProgramResourceState,
-    ProgramStateValue,
-)
+from scopecat.experiments import PointRouteBinding, ProgramResourceState
 from scopecat.instruments.sdk import (
     CommandChannelBinding,
     InstrumentDescription,
@@ -20,9 +16,9 @@ from scopecat.instruments.sdk import (
     apply_state_command_to_snapshot,
     validate_state_command,
 )
-from scopecat.instruments.state import StateValue
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.config import RoutingChannelBinding
+from scopecat.models.state import PayloadRef
 from scopecat.planning.validation import has_blocking_diagnostics
 
 
@@ -148,7 +144,7 @@ def state_command_for_resource(
     skipped_field_count = 0
     for field in desired.fields:
         key = (desired.capability_id, field.field_path)
-        field_value = driver_state_value(field.value)
+        field_value = field.value.model_copy(deep=True)
         if not field.channel_bindings and current_by_key.get(key) == field_value:
             skipped_field_count += 1
             continue
@@ -179,10 +175,6 @@ def state_command_for_resource(
         ),
         skipped_field_count=skipped_field_count,
     )
-
-
-def driver_state_value(value: ProgramStateValue) -> StateValue:
-    return StateValue.model_validate(value.model_dump(mode="python"))
 
 
 def command_channel_bindings(
@@ -225,9 +217,10 @@ def _referenced_command_payloads(
 ) -> dict[str, CommandPayload]:
     referenced: dict[str, CommandPayload] = {}
     for field in fields:
-        if field.value.kind != "payload" or field.value.payload_id is None:
+        value = field.value.root
+        if not isinstance(value, PayloadRef):
             continue
-        payload = payloads.get(field.value.payload_id)
+        payload = payloads.get(value.payload_id)
         if payload is not None:
             referenced[payload.id] = payload
     return referenced
@@ -259,6 +252,5 @@ __all__ = [
     "apply_desired_state",
     "command_channel_binding",
     "command_channel_bindings",
-    "driver_state_value",
     "state_command_for_resource",
 ]

@@ -4,23 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, cast
 
 from scopecat._planning.compute_dependencies import (
     ComputeDependencySummary,
     summarize_compute_dependencies,
 )
+from scopecat._planning.compute_payloads import resolve_compute_payload_schemas
 from scopecat._planning.planner import PlannerSnapshot, build_planner_snapshot
 from scopecat._runtime.graph import RuntimeGraph, build_runtime_graph_for_experiment
-from scopecat._runtime.lowering import compute_result_payload_id
-from scopecat.diagnostics import Diagnostic
-from scopecat.experiments import (
-    ExperimentSpec,
-    PointRouteBinding,
-    ProgramStateValue,
+from scopecat._runtime.lowering import (
+    compute_result_payload_id,
 )
+from scopecat.diagnostics import Diagnostic
+from scopecat.experiments import ExperimentSpec, PointRouteBinding
 from scopecat.models.config import ConfigProfileSnapshot, RoutingChannelBinding
 from scopecat.models.parameter import ParameterViewSnapshot
+from scopecat.models.value import ComputeResultRef
 from scopecat.parameters import ParameterDerivationSet
 from scopecat.preview import (
     ExperimentPreview,
@@ -108,6 +107,10 @@ def build_experiment_preview(
         parameter_view,
         derivations=derivations,
     )
+    payload_resolution = resolve_compute_payload_schemas(
+        plan.desired_state,
+        plan.compute_nodes,
+    )
     graph = (
         build_runtime_graph_for_experiment(
             experiment,
@@ -118,18 +121,24 @@ def build_experiment_preview(
         if config is not None
         else None
     )
-    diagnostics: tuple[dict[str, Any], ...] = (
-        graph.diagnostics if graph is not None else tuple(plan.diagnostics)
-    )
-    return _preview_from_snapshot(_snapshot_from_lowering(plan, graph=graph)), tuple(
-        Diagnostic.model_validate(diagnostic) for diagnostic in diagnostics
-    )
+    if graph is None:
+        diagnostics = (*plan.diagnostics, *payload_resolution.diagnostics)
+    else:
+        diagnostics = graph.diagnostics
+    return _preview_from_snapshot(
+        _snapshot_from_lowering(
+            plan,
+            graph=graph,
+            payload_schemas=payload_resolution.schema_ids,
+        )
+    ), tuple(Diagnostic.model_validate(diagnostic) for diagnostic in diagnostics)
 
 
 def _snapshot_from_lowering(
     plan: PlannerSnapshot,
     *,
     graph: RuntimeGraph | None = None,
+    payload_schemas: dict[str, str] | None = None,
 ) -> _PreviewSnapshot:
     dataset_schema = plan.expected_dataset_schema
     coordinate_ids = tuple(
@@ -138,8 +147,16 @@ def _snapshot_from_lowering(
         else plan.point_coordinate_ids
     )
     state_fields = _preview_state_fields(graph)
-    payloads = _preview_payloads(plan, graph=graph)
-    compute_steps = _preview_compute_steps(plan, graph=graph)
+    payloads = _preview_payloads(
+        plan,
+        graph=graph,
+        payload_schemas=payload_schemas or {},
+    )
+    compute_steps = _preview_compute_steps(
+        plan,
+        graph=graph,
+        payload_schemas=payload_schemas,
+    )
     return _PreviewSnapshot(
         experiment_id=plan.experiment_id,
         experiment_kind=plan.experiment_kind,
@@ -335,9 +352,7 @@ def _preview_state_fields(
                         resource_id=state.resource_id,
                         capability_id=state.capability_id,
                         field_path=field.field_path,
-                        value_kind=field.value.kind,
-                        value=_preview_state_value(field.value),
-                        payload_id=field.value.payload_id,
+                        value=field.value.root,
                         channel_bindings=(
                             _preview_channel_bindings(field.channel_bindings)
                             or _state_channel_bindings(
@@ -349,14 +364,6 @@ def _preview_state_fields(
                     )
                 )
     return tuple(fields)
-
-
-def _preview_state_value(value: ProgramStateValue) -> object | None:
-    if value.quantity is not None:
-        return value.quantity
-    if value.value is not None:
-        return value.value
-    return None
 
 
 def _preview_channel_bindings(
@@ -424,6 +431,7 @@ def _preview_payloads(
     plan: PlannerSnapshot,
     *,
     graph: RuntimeGraph | None,
+    payload_schemas: dict[str, str],
 ) -> tuple[ExperimentPreviewPayload, ...]:
     fields_by_node: dict[tuple[str, str], set[str]] = {}
     dependencies_by_node = (
@@ -432,16 +440,21 @@ def _preview_payloads(
         else summarize_compute_dependencies(plan.compute_nodes)
     )
     for state in plan.desired_state:
-        for node_id, payload_kind in _compute_result_references(state.value):
-            fields_by_node.setdefault((node_id, payload_kind), set()).add(state.field)
+        if (
+            isinstance(state.value, ComputeResultRef)
+            and state.value.node_id in payload_schemas
+        ):
+            fields_by_node.setdefault(
+                (state.value.node_id, payload_schemas[state.value.node_id]), set()
+            ).add(state.field)
     return tuple(
         ExperimentPreviewPayload(
             node_id=node_id,
-            kind=payload_kind,
+            schema_id=schema_id,
             state_fields=tuple(sorted(fields)),
             dependencies=_preview_dependency_map(dependencies_by_node.get(node_id)),
         )
-        for (node_id, payload_kind), fields in sorted(fields_by_node.items())
+        for (node_id, schema_id), fields in sorted(fields_by_node.items())
     )
 
 
@@ -449,44 +462,39 @@ def _preview_compute_steps(
     plan: PlannerSnapshot,
     *,
     graph: RuntimeGraph | None,
+    payload_schemas: dict[str, str] | None,
 ) -> tuple[ExperimentPreviewComputeStep, ...]:
     if graph is not None:
         return tuple(
             ExperimentPreviewComputeStep(
                 point_index=point.point_index,
                 node_id=step.node_id,
-                payload_id=step.payload_id,
-                payload_kind=step.payload_kind,
+                payload_id=step.payload.id if step.payload is not None else None,
+                schema_id=(
+                    step.payload.schema_id if step.payload is not None else None
+                ),
                 dependencies=_preview_dependency_map(step.dependencies),
             )
             for point in graph.points
             for step in point.compute_steps
         )
     dependencies_by_node = summarize_compute_dependencies(plan.compute_nodes)
-    payload_kinds = _payload_kinds_from_state(plan)
+    selected_payload_schemas = payload_schemas or {}
     return tuple(
         ExperimentPreviewComputeStep(
             point_index=point.point_index,
             node_id=node.id,
             payload_id=(
                 compute_result_payload_id(node.id, point.point_index)
-                if node.id in payload_kinds
+                if node.id in selected_payload_schemas
                 else None
             ),
-            payload_kind=payload_kinds.get(node.id),
+            schema_id=selected_payload_schemas.get(node.id),
             dependencies=_preview_dependency_map(dependencies_by_node.get(node.id)),
         )
         for point in plan.points
         for node in plan.compute_nodes
     )
-
-
-def _payload_kinds_from_state(plan: PlannerSnapshot) -> dict[str, str]:
-    payload_kinds: dict[str, str] = {}
-    for state in plan.desired_state:
-        for node_id, payload_kind in _compute_result_references(state.value):
-            payload_kinds.setdefault(node_id, payload_kind)
-    return payload_kinds
 
 
 def _preview_dependency_map(
@@ -495,24 +503,6 @@ def _preview_dependency_map(
     if summary is None:
         return {}
     return {key: tuple(value) for key, value in summary.as_dict().items()}
-
-
-def _compute_result_references(value: object) -> list[tuple[str, str]]:
-    refs: list[tuple[str, str]] = []
-    if isinstance(value, dict):
-        mapping = cast("dict[object, object]", value)
-        if mapping.get("kind") == "compute_result":
-            node_id = mapping.get("node_id")
-            payload_kind = mapping.get("payload_kind")
-            if isinstance(node_id, str) and isinstance(payload_kind, str):
-                refs.append((node_id, payload_kind))
-        for child in mapping.values():
-            refs.extend(_compute_result_references(child))
-    elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        values = cast("Sequence[object]", value)
-        for child in values:
-            refs.extend(_compute_result_references(child))
-    return refs
 
 
 __all__ = ["build_experiment_preview"]

@@ -2,19 +2,63 @@ from __future__ import annotations
 
 import pytest
 from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
-from scopecat.instruments import DriverDiagnostic, InstrumentStateCommand
+from pydantic import ValidationError
+from scopecat.instruments import (
+    DriverDiagnostic,
+    InstrumentStateCommand,
+    PayloadRef,
+    StateValue,
+)
+from scopecat.models.parameter import Quantity
 
 from quantum_lab_demo.virtual_lab import load_virtual_lab_profile
 from quantum_lab_demo.virtual_lab.devices import VirtualDevice
-from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile
+from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile, VirtualLabProfile
 
 
 def test_virtual_lab_profile_loads_configured_devices_and_responses() -> None:
     profile = load_virtual_lab_profile(EXPERIMENT_VIRTUAL_LAB_PROFILE)
 
     assert profile.id == "quantum_lab_demo.experiments_templates.virtual_lab"
+    assert profile.schema_version == "quantum_lab_demo.virtual_lab_profile.v1"
     assert profile.device_profile("readout-stack").response_model_id is None
     assert profile.response_models == []
+
+
+def test_virtual_lab_profile_round_trips_structural_initial_state() -> None:
+    profile = VirtualLabProfile(
+        id="test.virtual-lab",
+        devices=[
+            VirtualDeviceProfile(
+                id="drive-stack",
+                kind="drive",
+                initial_state={
+                    "set_gain.gain": StateValue(0.5),
+                    "set_frequency.frequency": StateValue(
+                        Quantity(value=5.0, unit="GHz")
+                    ),
+                    "play_program.program": StateValue(
+                        PayloadRef(payload_id="program-a")
+                    ),
+                },
+            )
+        ],
+    )
+
+    restored = VirtualLabProfile.model_validate_json(profile.model_dump_json())
+    initial_state_wire = profile.model_dump(mode="json")["devices"][0]["initial_state"]
+
+    assert restored == profile
+    assert initial_state_wire == {
+        "set_gain.gain": 0.5,
+        "set_frequency.frequency": {"value": 5.0, "unit": "GHz"},
+        "play_program.program": {"payload_id": "program-a"},
+    }
+
+    legacy = profile.model_dump(mode="json")
+    legacy["schema_version"] = "quantum_lab_demo.virtual_lab_profile.v0"
+    with pytest.raises(ValidationError):
+        VirtualLabProfile.model_validate(legacy)
 
 
 def test_virtual_device_rejects_patch_for_other_instrument() -> None:

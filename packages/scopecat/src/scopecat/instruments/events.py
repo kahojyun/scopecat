@@ -58,7 +58,7 @@ class RuntimePayloadObservation:
     point_index: int | None
     node_id: str | None
     payload_id: str
-    payload_kind: str
+    schema_id: str
     compute_status: str | None
     payload: CommandPayload
     summary: dict[str, Any]

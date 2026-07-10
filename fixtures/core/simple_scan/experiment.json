@@ -1,5 +1,5 @@
 {
-  "schema_version": "scopecat.experiment_spec.v3",
+  "schema_version": "scopecat.experiment_spec.v7",
   "id": "simple-frequency-scan",
   "kind": "simple_scan",
   "points": {

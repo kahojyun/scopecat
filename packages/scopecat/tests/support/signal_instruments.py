@@ -20,9 +20,9 @@ from scopecat.instruments import (
     product,
     quantity_field,
 )
-from scopecat.instruments.state import StateValue
 from scopecat.models.parameter import Quantity
 from scopecat.models.provider import ProviderOptionDescription
+from scopecat.models.state import StateValue
 
 
 @dataclass(frozen=True)

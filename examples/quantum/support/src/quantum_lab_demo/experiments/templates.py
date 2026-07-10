@@ -55,6 +55,7 @@ from quantum_lab_demo.experiments.surface_code_modules import (
 )
 from quantum_lab_demo.experiments.two_qubit_modules import (
     CZ_CHEVRON_MODULE,
+    PARALLEL_GATE_QUBITS,
     PARALLEL_GATE_SET_MODULE,
 )
 
@@ -63,7 +64,7 @@ def _template(
     id: str,  # noqa: A002
     *,
     kind: str,
-    modules: tuple[sc.ExperimentModule, ...],
+    modules: tuple[sc.ExperimentModule | sc.ModuleInvocation, ...],
 ) -> sc.TemplateBuilder:
     return sc.module(f"{id}.root").use(*modules).template(id, kind=kind)
 
@@ -85,14 +86,12 @@ RABI_TEMPLATE = (
         center=qubit_param("rabi_pulse_length"),
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
-        input_id="drive_length",
     )
     .record_product("probability_1", "raw_iq")
     .label("Rabi")
     .description("Build a experiment-system single-qubit Rabi length scan.")
     .inputs(
-        sc.InputDescription(id="qubit", kind="entity"),
-        sc.InputDescription(id="drive_length", kind="quantity", default=None),
+        sc.InputDescription(id="qubit"),
     )
     .metadata(category="rabi")
 )
@@ -113,7 +112,6 @@ SIMULTANEOUS_RABI_TEMPLATE = (
         center=sc.input("center_length"),
         span=sc.Quantity(value=60.0, unit="ns"),
         points=5,
-        input_id="drive_length",
     )
     .record_product("multiplexed_iq")
     .label("simultaneous Rabi")
@@ -121,23 +119,18 @@ SIMULTANEOUS_RABI_TEMPLATE = (
     .inputs(
         sc.InputDescription(
             id="qubits",
-            kind="entity_array",
-            default=sc.entity_array(("q0", "q1")),
+            default=("q0", "q1"),
         ),
-        sc.InputDescription(id="drive_length", kind="quantity", default=None),
         sc.InputDescription(
             id="center_length",
-            kind="quantity",
             default=sc.Quantity(value=48.0, unit="ns"),
         ),
         sc.InputDescription(
             id="drive_amplitude",
-            kind="quantity",
             default=sc.Quantity(value=0.28, unit="arb"),
         ),
         sc.InputDescription(
             id="drive_frequency",
-            kind="quantity",
             default=sc.Quantity(value=5.1, unit="GHz"),
         ),
     )
@@ -162,22 +155,18 @@ FLUX_BACKGROUND_RABI_TEMPLATE = (
         center=qubit_param("rabi_pulse_length"),
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
-        input_id="drive_length",
     )
     .record_product("probability_1", "raw_iq")
     .label("flux-background Rabi")
     .description("Build a Rabi scan while holding a coupler flux-bias background.")
     .inputs(
-        sc.InputDescription(id="qubit", kind="entity"),
+        sc.InputDescription(id="qubit"),
         sc.InputDescription(
             id="coupler",
-            kind="entity",
             default="coupler-q0-q1",
         ),
-        sc.InputDescription(id="drive_length", kind="quantity", default=None),
         sc.InputDescription(
             id="flux_bias",
-            kind="quantity",
             default=sc.Quantity(value=0.06, unit="arb"),
         ),
     )
@@ -202,7 +191,6 @@ SYSTEM_BACKGROUND_RABI_TEMPLATE = (
         center=qubit_param("rabi_pulse_length"),
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
-        input_id="drive_length",
     )
     .record_product("probability_1", "raw_iq")
     .label("parameter-table background Rabi")
@@ -211,8 +199,7 @@ SYSTEM_BACKGROUND_RABI_TEMPLATE = (
         "background outputs from the accepted two-qubit gate parameter table."
     )
     .inputs(
-        sc.InputDescription(id="qubit", kind="entity"),
-        sc.InputDescription(id="drive_length", kind="quantity", default=None),
+        sc.InputDescription(id="qubit"),
     )
     .metadata(category="rabi")
 )
@@ -234,15 +221,13 @@ READOUT_TEMPLATE = (
         center=qubit_param("readout_frequency"),
         span=sc.Quantity(value=100.0, unit="MHz"),
         points=5,
-        input_id="readout_frequency",
     )
     .record_product("raw_iq", "state0_iq", "state1_iq")
     .record_product("state0_iq_stdev", "state1_iq_stdev")
     .label("readout frequency")
     .description("Build a experiment-system readout frequency scan.")
     .inputs(
-        sc.InputDescription(id="qubit", kind="entity"),
-        sc.InputDescription(id="readout_frequency", kind="quantity", default=None),
+        sc.InputDescription(id="qubit"),
     )
     .metadata(category="readout")
 )
@@ -259,12 +244,11 @@ MULTIPLEXED_READOUT_TEMPLATE = (
     .experiment_id("multiplexed-readout")
     .record_product("multiplexed_iq")
     .label("multiplexed readout")
-    .description("Build a simultaneous readout over an entity array.")
+    .description("Build a simultaneous readout over an entity series.")
     .inputs(
         sc.InputDescription(
             id="qubits",
-            kind="entity_array",
-            default=sc.entity_array(("q0", "q1")),
+            default=("q0", "q1"),
         ),
     )
     .metadata(category="readout")
@@ -286,26 +270,21 @@ MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
         center=sc.input("center_frequency"),
         span=sc.Quantity(value=120.0, unit="MHz"),
         points=5,
-        input_id="readout_frequency",
     )
     .record_product("multiplexed_iq")
     .label("multiplexed readout calibration")
-    .description("Build a shared readout-frequency scan returning an entity array.")
+    .description("Build a shared readout-frequency scan returning an entity series.")
     .inputs(
         sc.InputDescription(
             id="qubits",
-            kind="entity_array",
-            default=sc.entity_array(("q0", "q1")),
+            default=("q0", "q1"),
         ),
-        sc.InputDescription(id="readout_frequency", kind="quantity", default=None),
         sc.InputDescription(
             id="center_frequency",
-            kind="quantity",
             default=sc.Quantity(value=6.6, unit="GHz"),
         ),
         sc.InputDescription(
             id="readout_power",
-            kind="quantity",
             default=sc.Quantity(value=-20.5, unit="dBm"),
         ),
     )
@@ -324,14 +303,13 @@ SQG_RB_TEMPLATE = (
         ),
     )
     .experiment_id("sqg-rb")
-    .scan("clifford_count", (4, 8, 16), unit="count", input_id="lengths")
+    .scan("clifford_count", (4, 8, 16))
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("SQG RB")
     .description("Build a experiment-system single-qubit randomized benchmarking scan.")
     .inputs(
-        sc.InputDescription(id="qubit", kind="entity"),
-        sc.InputDescription(id="lengths", kind="point_values", default=None),
-        sc.InputDescription(id="seed", kind="seed", default=0),
+        sc.InputDescription(id="qubit"),
+        sc.InputDescription(id="seed", default=0),
     )
     .metadata(category="gate_based")
 )
@@ -348,17 +326,16 @@ CZ_RB_TEMPLATE = (
         ),
     )
     .experiment_id("cz-rb")
-    .scan("clifford_count", (2, 4, 8), unit="count", input_id="lengths")
+    .scan("clifford_count", (2, 4, 8))
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("CZ RB")
     .description("Build a experiment-system two-qubit CZ randomized benchmarking scan.")
     .inputs(
-        sc.InputDescription(id="control_qubit", kind="entity"),
-        sc.InputDescription(id="partner_qubit", kind="entity"),
-        sc.InputDescription(id="coupler", kind="entity", default="coupler-q0-q1"),
-        sc.InputDescription(id="lengths", kind="point_values", default=None),
-        sc.InputDescription(id="seed", kind="seed", default=0),
-        sc.InputDescription(id="interleaved_gate", kind="gate_label", default="CZ"),
+        sc.InputDescription(id="control_qubit"),
+        sc.InputDescription(id="partner_qubit"),
+        sc.InputDescription(id="coupler", default="coupler-q0-q1"),
+        sc.InputDescription(id="seed", default=0),
+        sc.InputDescription(id="interleaved_gate", default="CZ"),
     )
     .metadata(category="gate_based")
 )
@@ -375,22 +352,19 @@ CZ_CHEVRON_TEMPLATE = (
         ),
     )
     .experiment_id("cz-chevron")
-    .scan("coupler_duration", (24, 36, 48), unit="ns", input_id="durations")
+    .scan("coupler_duration", (24, 36, 48), unit="ns")
     .scan(
         "coupler_amplitude",
         (0.18, 0.24, 0.30),
         unit="arb",
-        input_id="amplitudes",
     )
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("CZ chevron")
     .description("Build a two-dimensional CZ amplitude-duration calibration scan.")
     .inputs(
-        sc.InputDescription(id="control_qubit", kind="entity"),
-        sc.InputDescription(id="partner_qubit", kind="entity"),
-        sc.InputDescription(id="coupler", kind="entity", default="coupler-q0-q1"),
-        sc.InputDescription(id="durations", kind="point_values", default=None),
-        sc.InputDescription(id="amplitudes", kind="point_values", default=None),
+        sc.InputDescription(id="control_qubit"),
+        sc.InputDescription(id="partner_qubit"),
+        sc.InputDescription(id="coupler", default="coupler-q0-q1"),
     )
     .metadata(category="gate_based")
 )
@@ -408,8 +382,8 @@ SPECTATOR_CZ_TEMPLATE = (
         ),
     )
     .experiment_id("spectator-cz-calibration")
-    .scan("coupler_duration", (24, 36), unit="ns", input_id="durations")
-    .scan("coupler_amplitude", (0.18, 0.24), unit="arb", input_id="amplitudes")
+    .scan("coupler_duration", (24, 36), unit="ns")
+    .scan("coupler_amplitude", (0.18, 0.24), unit="arb")
     .record_product("probability_0", "probability_1", "raw_iq")
     .label("spectator-aware CZ calibration")
     .description(
@@ -417,19 +391,15 @@ SPECTATOR_CZ_TEMPLATE = (
         "background flux state."
     )
     .inputs(
-        sc.InputDescription(id="control_qubit", kind="entity"),
-        sc.InputDescription(id="partner_qubit", kind="entity"),
-        sc.InputDescription(id="coupler", kind="entity", default="coupler-q0-q1"),
+        sc.InputDescription(id="control_qubit"),
+        sc.InputDescription(id="partner_qubit"),
+        sc.InputDescription(id="coupler", default="coupler-q0-q1"),
         sc.InputDescription(
             id="background_couplers",
-            kind="entity_array",
-            default=sc.entity_array(("coupler-q2-q3",)),
+            default=("coupler-q2-q3",),
         ),
-        sc.InputDescription(id="durations", kind="point_values", default=None),
-        sc.InputDescription(id="amplitudes", kind="point_values", default=None),
         sc.InputDescription(
             id="spectator_flux_bias",
-            kind="quantity",
             default=sc.Quantity(value=0.025, unit="arb"),
         ),
     )
@@ -442,39 +412,35 @@ PARALLEL_GATE_SET_TEMPLATE = (
         kind="parallel_gate_set",
         modules=(
             PARALLEL_GATE_SET_MODULE,
-            MULTIPLEXED_READOUT_MODULE,
-            MULTIPLEXED_IQ_RECORD_MODULE,
+            MULTIPLEXED_READOUT_MODULE(qubits=PARALLEL_GATE_QUBITS),
+            MULTIPLEXED_IQ_RECORD_MODULE(qubits=PARALLEL_GATE_QUBITS),
         ),
     )
     .experiment_id("parallel-gate-set")
-    .scan("gate_duration", (28, 36), unit="ns", input_id="durations")
+    .scan("gate_duration", (28, 36), unit="ns")
     .record_product("multiplexed_iq")
     .label("parallel gate set")
     .description(
-        "Build two disjoint CZ calibrations in one logical point stream to "
+        "Build a table-defined set of disjoint CZ calibrations in one logical "
+        "point stream to "
         "exercise route fan-out and entity-axis records."
     )
     .inputs(
-        sc.InputDescription(id="control_qubit_a", kind="entity", default="q0"),
-        sc.InputDescription(id="partner_qubit_a", kind="entity", default="q1"),
         sc.InputDescription(
-            id="coupler_a",
-            kind="entity",
-            default="coupler-q0-q1",
+            id="gates",
+            default=(
+                {
+                    "control_qubit": "q0",
+                    "partner_qubit": "q1",
+                    "gate": "cz",
+                },
+                {
+                    "control_qubit": "q2",
+                    "partner_qubit": "q3",
+                    "gate": "cz",
+                },
+            ),
         ),
-        sc.InputDescription(id="control_qubit_b", kind="entity", default="q2"),
-        sc.InputDescription(id="partner_qubit_b", kind="entity", default="q3"),
-        sc.InputDescription(
-            id="coupler_b",
-            kind="entity",
-            default="coupler-q2-q3",
-        ),
-        sc.InputDescription(
-            id="qubits",
-            kind="entity_array",
-            default=sc.entity_array(("q0", "q1", "q2", "q3")),
-        ),
-        sc.InputDescription(id="durations", kind="point_values", default=None),
     )
     .metadata(category="gate_based")
 )
@@ -498,32 +464,26 @@ TOY_SURFACE_CODE_ROUND_TEMPLATE = (
     .inputs(
         sc.InputDescription(
             id="patch_qubits",
-            kind="entity_array",
-            default=sc.entity_array(("q0", "q1", "q2", "q3")),
+            default=("q0", "q1", "q2", "q3"),
         ),
         sc.InputDescription(
             id="data_qubits",
-            kind="entity_array",
-            default=sc.entity_array(("q0", "q1")),
+            default=("q0", "q1"),
         ),
         sc.InputDescription(
             id="ancilla_qubits",
-            kind="entity_array",
-            default=sc.entity_array(("q2", "q3")),
+            default=("q2", "q3"),
         ),
         sc.InputDescription(
             id="couplers",
-            kind="entity_array",
-            default=sc.entity_array(("coupler-q0-q1", "coupler-q2-q3")),
+            default=("coupler-q0-q1", "coupler-q2-q3"),
         ),
         sc.InputDescription(
             id="rounds",
-            kind="quantity",
-            default=sc.Quantity(value=3.0, unit="count"),
+            default=3,
         ),
         sc.InputDescription(
             id="cycle_time",
-            kind="quantity",
             default=sc.Quantity(value=32.0, unit="ns"),
         ),
     )
@@ -544,16 +504,14 @@ QND_REPEATED_MEASUREMENT_TEMPLATE = (
     .label("QND repeated measurement")
     .description("Build a repeated readout returning one dense round-by-shot array.")
     .inputs(
-        sc.InputDescription(id="qubit", kind="entity"),
+        sc.InputDescription(id="qubit"),
         sc.InputDescription(
             id="rounds",
-            kind="quantity",
-            default=sc.Quantity(value=4.0, unit="count"),
+            default=4,
         ),
         sc.InputDescription(
             id="shots",
-            kind="quantity",
-            default=sc.Quantity(value=16.0, unit="count"),
+            default=16,
         ),
     )
     .metadata(category="readout")
@@ -578,10 +536,9 @@ BACKEND_BATCH_TEMPLATE = (
     .inputs(
         sc.InputDescription(
             id="logical_points",
-            kind="quantity",
-            default=sc.Quantity(value=5.0, unit="count"),
+            default=5,
         ),
-        sc.InputDescription(id="seed", kind="seed", default=7),
+        sc.InputDescription(id="seed", default=7),
     )
     .metadata(category="backend")
 )

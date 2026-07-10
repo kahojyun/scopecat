@@ -1,6 +1,8 @@
 from scopecat.experiments import (
     ComputeNodeContext,
     ComputeNodeSpec,
+    ExperimentSpec,
+    compute_result,
     experiment,
     observable,
     record_axis,
@@ -9,6 +11,7 @@ from scopecat.experiments import (
 )
 from scopecat.models.parameter import Quantity
 from scopecat.relations import col, grid, linspace, param, table
+from scopecat.value_types import Payload, Scalar
 from tests.support.experiment_preview import preview_contract, preview_result
 from tests.support.parameter_fixtures import parameter_view as _parameter_view
 
@@ -44,7 +47,7 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
 
     preview = preview_contract(spec, _parameter_view())
 
-    assert spec.schema_version == "scopecat.experiment_spec.v3"
+    assert spec.schema_version == "scopecat.experiment_spec.v7"
     assert preview.point_count == 2
     assert preview.coordinate_ids == ("readout_frequency",)
     assert [point.coordinates["readout_frequency"] for point in preview.points] == [
@@ -167,11 +170,7 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
             set_state(
                 "drive-a",
                 "play_waveforms.program",
-                {
-                    "kind": "compute_result",
-                    "node_id": "build-waveform",
-                    "payload_kind": "waveform_bundle",
-                },
+                compute_result("build-waveform"),
             )
         ],
         records=[],
@@ -180,6 +179,7 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
             "compute_nodes": [
                 ComputeNodeSpec(
                     id="build-waveform",
+                    output_type=Scalar(Payload("waveform_bundle")),
                     inputs={},
                     fn=build_waveform,
                 )
@@ -187,7 +187,8 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
         }
     )
 
-    preview = preview_contract(spec, _parameter_view())
+    restored = ExperimentSpec.model_validate_json(spec.model_dump_json())
+    preview = preview_contract(restored, _parameter_view())
 
     assert preview.runtime.compute_node_count == 1
     assert preview.runtime.compute_step_count == 1
@@ -197,7 +198,7 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
             step.point_index,
             step.node_id,
             step.payload_id,
-            step.payload_kind,
+            step.schema_id,
             step.dependencies,
         )
         for step in preview.compute_steps
@@ -211,9 +212,99 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
         )
     ]
     assert preview.payloads[0].node_id == "build-waveform"
-    assert preview.payloads[0].kind == "waveform_bundle"
+    assert preview.payloads[0].schema_id == "waveform_bundle"
     assert preview.payloads[0].state_fields == ("play_waveforms.program",)
     assert preview.payloads[0].dependencies == {}
+
+
+def test_preview_groups_shared_typed_compute_result() -> None:
+    spec = experiment(
+        id="preview-shared-payload",
+        kind="diagnostic",
+        points=grid(index=[0]),
+        state=[
+            set_state(
+                "drive-a",
+                "play_waveforms.program",
+                compute_result("build-waveform"),
+            ),
+            set_state(
+                "drive-a",
+                "play_waveforms.preview",
+                compute_result("build-waveform"),
+            ),
+        ],
+        records=[],
+    ).model_copy(
+        update={
+            "compute_nodes": [
+                ComputeNodeSpec(
+                    id="build-waveform",
+                    output_type=Scalar(Payload("waveform_bundle")),
+                )
+            ]
+        }
+    )
+
+    preview, diagnostics = preview_result(spec, _parameter_view())
+
+    assert diagnostics == ()
+    assert preview.compute_steps[0].payload_id == "build-waveform.payload.point-0"
+    assert preview.compute_steps[0].schema_id == "waveform_bundle"
+    assert len(preview.payloads) == 1
+    assert preview.payloads[0].schema_id == "waveform_bundle"
+    assert preview.payloads[0].state_fields == (
+        "play_waveforms.preview",
+        "play_waveforms.program",
+    )
+
+
+def test_preview_contract_reports_compute_result_without_output_type() -> None:
+    spec = experiment(
+        id="preview-missing-compute-output-type",
+        kind="diagnostic",
+        points=grid(index=[0]),
+        state=[
+            set_state(
+                "drive-a",
+                "play_waveforms.program",
+                compute_result("build-waveform"),
+            )
+        ],
+        records=[],
+    ).model_copy(update={"compute_nodes": [ComputeNodeSpec(id="build-waveform")]})
+
+    preview, diagnostics = preview_result(spec, _parameter_view())
+
+    assert [diagnostic.code for diagnostic in diagnostics] == [
+        "compute_payload_output_type_required"
+    ]
+    assert preview.compute_steps[0].payload_id is None
+    assert preview.compute_steps[0].schema_id is None
+    assert preview.payloads == ()
+
+
+def test_preview_contract_reports_unknown_compute_payload_nodes() -> None:
+    spec = experiment(
+        id="preview-unknown-payload-node",
+        kind="diagnostic",
+        points=grid(index=[0]),
+        state=[
+            set_state(
+                "drive-a",
+                "play_waveforms.program",
+                compute_result("missing-node"),
+            )
+        ],
+        records=[],
+    )
+
+    preview, diagnostics = preview_result(spec, _parameter_view())
+
+    assert [diagnostic.code for diagnostic in diagnostics] == [
+        "compute_payload_unknown_node"
+    ]
+    assert preview.compute_steps == ()
 
 
 def test_preview_contract_records_are_durable() -> None:

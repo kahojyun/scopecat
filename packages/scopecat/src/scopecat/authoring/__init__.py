@@ -18,13 +18,15 @@ from scopecat.authoring.assembly import (
     ResourcePort,
     ResourceSelector,
     RouteBindingRef,
-    StateTableIntent,
+    StateEachIntent,
     VariableIntent,
     bind,
     compute_result,
     derive,
     entity_axis,
     input_ref,
+    input_series,
+    input_table,
     module,
     observable,
     param_ref,
@@ -49,13 +51,56 @@ from scopecat.authoring.templates import (
     InputDescription,
     TemplateBuilder,
 )
-from scopecat.experiments import ComputeNodeContext as ComputeContext
+from scopecat.authoring.value_types import (
+    Bool as BoolType,
+)
+from scopecat.authoring.value_types import (
+    Entity as EntityType,
+)
+from scopecat.authoring.value_types import (
+    Float as FloatType,
+)
+from scopecat.authoring.value_types import (
+    Int as IntType,
+)
+from scopecat.authoring.value_types import (
+    Payload as PayloadType,
+)
+from scopecat.authoring.value_types import (
+    Quantity as QuantityType,
+)
+from scopecat.authoring.value_types import (
+    Record as RecordType,
+)
+from scopecat.authoring.value_types import (
+    RecordField,
+    TableColumn,
+    ValueType,
+    ValueValidationError,
+)
+from scopecat.authoring.value_types import (
+    Scalar as ScalarType,
+)
+from scopecat.authoring.value_types import (
+    Series as SeriesType,
+)
+from scopecat.authoring.value_types import (
+    String as StringType,
+)
+from scopecat.authoring.value_types import (
+    Table as TableType,
+)
+from scopecat.experiments import (
+    ComputeNodeContext as ComputeContext,
+)
 
 __all__ = [
     "BindingIntent",
+    "BoolType",
     "ComputeContext",
     "ComputeResultRef",
     "DerivedVariableIntent",
+    "EntityType",
     "ExperimentAuthoringContext",
     "ExperimentBindingIntent",
     "ExperimentInvocation",
@@ -63,26 +108,41 @@ __all__ = [
     "ExperimentStateIntent",
     "ExperimentTemplate",
     "ExplicitVariableIntent",
+    "FloatType",
     "InputDescription",
+    "IntType",
     "ModuleBuilder",
     "ModuleInputPort",
     "ModuleInvocation",
     "ModuleProductPort",
+    "PayloadType",
     "ProductSelectionIntent",
+    "QuantityType",
     "RecordAxisIntent",
+    "RecordField",
     "RecordIntent",
+    "RecordType",
     "ResolvedExperiment",
     "ResourcePort",
     "ResourceSelector",
     "RouteBindingRef",
-    "StateTableIntent",
+    "ScalarType",
+    "SeriesType",
+    "StateEachIntent",
+    "StringType",
+    "TableColumn",
+    "TableType",
     "TemplateBuilder",
+    "ValueType",
+    "ValueValidationError",
     "VariableIntent",
     "bind",
     "compute_result",
     "derive",
     "entity_axis",
     "input_ref",
+    "input_series",
+    "input_table",
     "module",
     "observable",
     "param_ref",

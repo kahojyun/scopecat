@@ -1,5 +1,6 @@
 import pytest
 
+from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import (
     ParameterTable,
     ParameterValue,
@@ -8,8 +9,11 @@ from scopecat.models.parameter import (
 )
 from scopecat.relations import (
     ParameterRelationData,
+    ScalarExpr,
     col,
     grid,
+    input_series,
+    input_table,
     linspace,
     literal_rows,
     outer,
@@ -138,6 +142,97 @@ def test_parameter_table_root_is_durable_table_relation() -> None:
     restored = assert_model_round_trip(relation)
 
     assert restored == table("readout_devices")
+
+
+def test_series_and_table_inputs_are_durable_typed_expressions() -> None:
+    rows = [
+        {"qubit": "q0", "frequency": Quantity(value=5.0, unit="GHz")},
+        {"qubit": "q1", "frequency": Quantity(value=5.1, unit="GHz")},
+    ]
+    relation = assert_model_round_trip(
+        input_table("gate_rows").filter(col("qubit").eq("q1"))
+    )
+    series = assert_model_round_trip(input_series("offsets"))
+
+    assert relation.evaluate(inputs={"gate_rows": rows}) == [rows[1]]
+    assert series.evaluate(
+        ParameterRelationData().to_context(
+            inputs={
+                "offsets": [
+                    Quantity(value=-10.0, unit="MHz"),
+                    Quantity(value=10.0, unit="MHz"),
+                ]
+            }
+        )
+    ) == [
+        Quantity(value=-10.0, unit="MHz"),
+        Quantity(value=10.0, unit="MHz"),
+    ]
+
+
+def test_relation_column_and_entities_series_have_explicit_ordering_rules() -> None:
+    relation = literal_rows(
+        [
+            {"control": "q0", "partner": "q1"},
+            {"control": "q1", "partner": "q2"},
+        ]
+    )
+
+    column = assert_model_round_trip(relation.column("control"))
+    entities = assert_model_round_trip(relation.entities("control", "partner"))
+    ctx = ParameterRelationData().to_context()
+
+    assert column.evaluate(ctx) == ["q0", "q1"]
+    assert entities.evaluate(ctx) == ["q0", "q1", "q2"]
+
+
+def test_record_with_entities_field_round_trips_without_collection_coercion() -> None:
+    expression = ScalarExpr(
+        kind="literal",
+        value={
+            "entities": [{"id": "q0"}, {"id": "q1"}],
+            "kind": "batch",
+        },
+    )
+
+    restored = assert_model_round_trip(expression)
+
+    assert type(restored.value) is dict
+    assert restored.value == {
+        "entities": [{"id": "q0"}, {"id": "q1"}],
+        "kind": "batch",
+    }
+
+    table_rows = input_table("rows").evaluate(
+        inputs={
+            "rows": [
+                {
+                    "payload": {
+                        "entities": [{"id": "q0"}, {"id": "q1"}],
+                        "kind": "batch",
+                    }
+                }
+            ]
+        }
+    )
+    assert type(table_rows[0]["payload"]) is dict
+    assert table_rows[0]["payload"] == restored.value
+
+
+def test_entity_series_round_trips_as_series_shape() -> None:
+    series = values(
+        [
+            EntityRef(id="q0", kind="logical_device"),
+            EntityRef(id="q1", kind="logical_device"),
+        ]
+    )
+
+    restored = assert_model_round_trip(series)
+
+    assert restored.evaluate(ParameterRelationData().to_context()) == [
+        EntityRef(id="q0", kind="logical_device"),
+        EntityRef(id="q1", kind="logical_device"),
+    ]
 
 
 def test_cross_evaluates_right_relation_with_left_row_context() -> None:

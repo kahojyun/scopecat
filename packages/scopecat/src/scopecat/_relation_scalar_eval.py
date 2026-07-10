@@ -3,10 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal, TypeGuard, cast
 
-from scopecat.models.entity import EntityArray, EntityRef
+from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
+from scopecat.models.value import PayloadValue
 
-type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | EntityArray
+type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | PayloadValue
 type CellValue = ScalarValue | dict[str, Any]
 type ScalarOperator = Literal[
     "+",
@@ -63,7 +64,7 @@ def eval_binary(op: ScalarOperator, left: CellValue, right: CellValue) -> CellVa
 def is_cell_value(value: object) -> TypeGuard[CellValue]:
     return value is None or isinstance(
         value,
-        str | int | float | bool | Quantity | EntityRef | EntityArray | dict,
+        str | int | float | bool | Quantity | EntityRef | PayloadValue | dict,
     )
 
 

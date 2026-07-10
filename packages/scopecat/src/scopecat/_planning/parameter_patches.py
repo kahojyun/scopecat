@@ -5,12 +5,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat._planning.diagnostics import PlanningDiagnosticError
-from scopecat.models.entity import EntityArray, EntityRef
+from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import (
     ParameterPatch,
     ParameterPatchValue,
     Quantity,
 )
+from scopecat.models.value import PayloadValue
 from scopecat.relations import (
     CellValue,
     EvalContext,
@@ -239,8 +240,8 @@ def _patch_values(values: dict[str, CellValue]) -> dict[str, ParameterPatchValue
 
 
 def _patch_value(value: CellValue) -> ParameterPatchValue:
-    if isinstance(value, EntityArray | EntityRef):
-        msg = "entity values are not valid parameter patch values"
+    if isinstance(value, EntityRef | PayloadValue):
+        msg = "entity and payload values are not valid parameter patch values"
         raise TypeError(msg)
     return value
 

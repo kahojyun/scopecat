@@ -31,10 +31,22 @@ def test_candidate_config_activation_applies_table_patches(tmp_path: Path) -> No
         id="drive_channels",
         primary_key=["channel_id"],
         columns=[
-            ParameterTableColumn(id="channel_id", kind="string"),
-            ParameterTableColumn(id="resource_id", kind="string"),
-            ParameterTableColumn(id="gain", kind="number"),
-            ParameterTableColumn(id="fixed_if", kind="quantity", unit="MHz"),
+            ParameterTableColumn(
+                id="channel_id",
+                value_type=sc.ScalarType(sc.StringType()),
+            ),
+            ParameterTableColumn(
+                id="resource_id",
+                value_type=sc.ScalarType(sc.StringType()),
+            ),
+            ParameterTableColumn(
+                id="gain",
+                value_type=sc.ScalarType(sc.FloatType()),
+            ),
+            ParameterTableColumn(
+                id="fixed_if",
+                value_type=sc.ScalarType(sc.QuantityType(unit="MHz")),
+            ),
         ],
     )
     system = config.system.model_copy(

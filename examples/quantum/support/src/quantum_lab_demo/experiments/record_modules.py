@@ -33,21 +33,27 @@ READOUT_CLASSIFICATION_RECORDS_MODULE = (
 
 MULTIPLEXED_IQ_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.multiplexed_iq")
-    .input("qubits", kind="entity_array")
+    .input("qubits", value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())))
     .product(
         "multiplexed_iq",
         resource="readout",
         unit="ratio",
         dtype="complex128",
-        axes=(sc.entity_axis("qubit", sc.input("qubits")),),
+        axes=(sc.entity_axis("qubit", sc.input_series("qubits")),),
     )
     .build()
 )
 
 QND_IQ_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.qnd_iq")
-    .input("rounds", kind="count")
-    .input("shots", kind="count")
+    .input(
+        "rounds",
+        value_type=sc.ScalarType(sc.IntType(minimum=1)),
+    )
+    .input(
+        "shots",
+        value_type=sc.ScalarType(sc.IntType(minimum=1)),
+    )
     .product(
         "qnd_iq",
         resource="readout",
@@ -63,8 +69,14 @@ QND_IQ_RECORD_MODULE = (
 
 STABILIZER_IQ_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.stabilizer_iq")
-    .input("patch_qubits", kind="entity_array")
-    .input("rounds", kind="count")
+    .input(
+        "patch_qubits",
+        value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())),
+    )
+    .input(
+        "rounds",
+        value_type=sc.ScalarType(sc.IntType(minimum=1)),
+    )
     .product(
         "stabilizer_iq",
         resource="readout",
@@ -72,7 +84,7 @@ STABILIZER_IQ_RECORD_MODULE = (
         dtype="complex128",
         axes=(
             sc.record_axis("round", size=sc.input("rounds"), kind="repeat"),
-            sc.entity_axis("qubit", sc.input("patch_qubits")),
+            sc.entity_axis("qubit", sc.input_series("patch_qubits")),
         ),
     )
     .build()
@@ -80,7 +92,10 @@ STABILIZER_IQ_RECORD_MODULE = (
 
 BACKEND_PROBABILITY_RECORD_MODULE = (
     sc.module("quantum_lab_demo.experiments.records.backend_probabilities")
-    .input("logical_points", kind="count")
+    .input(
+        "logical_points",
+        value_type=sc.ScalarType(sc.IntType(minimum=1)),
+    )
     .product(
         "backend_probabilities",
         resource="readout",

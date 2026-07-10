@@ -51,8 +51,8 @@ qnd_preview = (
     lab.prepare(QND_REPEATED_MEASUREMENT_TEMPLATE)
     .inputs(
         qubit="q0",
-        rounds=sc.Quantity(value=3.0, unit="count"),
-        shots=sc.Quantity(value=5.0, unit="count"),
+        rounds=3,
+        shots=5,
     )
     .preview(
         name="readout family QND repeated measurement",

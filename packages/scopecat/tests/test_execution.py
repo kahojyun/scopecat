@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+from scopecat._runtime.evidence import instrument_state_evidence_ref
 from scopecat._runtime.executor import execute_run
 from scopecat.experiments import (
     ComputeNodeContext,
     ComputeNodeInput,
     ComputeNodeSpec,
     ExperimentSpec,
+    as_value_expr,
+    compute_result,
     experiment,
     observable,
     set_state,
@@ -26,12 +30,15 @@ from scopecat.instruments.sdk import (
     InstrumentStateField,
     InstrumentStateSnapshot,
 )
-from scopecat.instruments.state import StateValue
 from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.models.execution import InstrumentStateEvidence
 from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunManifest
+from scopecat.models.state import StateValue
 from scopecat.relations import col, grid
 from scopecat.runs import dataset_storage_ref
+from scopecat.value_types import Payload, Scalar
+from scopecat.value_types import Quantity as QuantityType
 from tests.support.instrument_drivers import SignalInstrumentDriver
 from tests.support.records import (
     assert_model_round_trip,
@@ -52,14 +59,16 @@ def test_instrument_models_round_trip() -> None:
         capabilities=[
             CapabilityDescription(
                 id="set_frequency",
-                fields=[CapabilityField(id="frequency", kind="quantity", unit="GHz")],
+                fields=[
+                    CapabilityField(
+                        id="frequency",
+                        value_type=Scalar(QuantityType(unit="GHz")),
+                    )
+                ],
             )
         ],
     )
-    state_value = StateValue(
-        kind="quantity",
-        quantity=Quantity(value=5.0, unit="GHz"),
-    )
+    state_value = StateValue(Quantity(value=5.0, unit="GHz"))
     state = InstrumentStateSnapshot(
         instrument_id="source-0",
         fields=[
@@ -91,9 +100,18 @@ def test_instrument_models_round_trip() -> None:
         ],
     )
 
-    assert_model_round_trip(description)
-    assert_model_round_trip(state)
-    assert_model_round_trip(command)
+    assert_model_round_trip(
+        description,
+        schema_version="scopecat.instrument_description.v1",
+    )
+    assert_model_round_trip(
+        state,
+        schema_version="scopecat.instrument_state_snapshot.v1",
+    )
+    assert_model_round_trip(
+        command,
+        schema_version="scopecat.instrument_state_command.v2",
+    )
 
 
 def test_execute_run_persists_measurements_and_run_files(
@@ -134,10 +152,24 @@ def test_execute_run_persists_measurements_and_run_files(
         ConfigProfileSnapshot,
     )
     persisted_experiment = read_model(run_dir / "experiment-spec.json", ExperimentSpec)
+    state_evidence_path = run_dir / instrument_state_evidence_ref()
+    state_evidence = read_model(state_evidence_path, InstrumentStateEvidence)
     assert persisted_manifest == manifest
     assert persisted_config == config
     assert persisted_experiment.id == summary.experiment_id
-    assert persisted_experiment.schema_version == "scopecat.experiment_spec.v3"
+    assert persisted_experiment.schema_version == "scopecat.experiment_spec.v7"
+    assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v2"
+    assert {
+        snapshot.schema_version
+        for snapshot in [*state_evidence.initial_state, *state_evidence.final_state]
+    } == {"scopecat.instrument_state_snapshot.v1"}
+    final_state_value = state_evidence.final_state[0].fields[0].value.root
+    assert final_state_value == Quantity(value=5.1, unit="GHz")
+    persisted_state_evidence = json.loads(state_evidence_path.read_text())
+    assert persisted_state_evidence["final_state"][0]["fields"][0]["value"] == {
+        "value": 5.1,
+        "unit": "GHz",
+    }
     assert not (run_dir / "experiment-plan.json").exists()
     assert not (run_dir / "records" / "device_program" / "device-program.json").exists()
 
@@ -210,11 +242,7 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
             set_state(
                 "source-0",
                 "play_program.program",
-                {
-                    "kind": "compute_result",
-                    "node_id": "build-program",
-                    "payload_kind": "pulse_program",
-                },
+                compute_result("build-program"),
             )
         ],
         records=[observable("signal", resource="source-0")],
@@ -223,8 +251,12 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
             "compute_nodes": [
                 ComputeNodeSpec(
                     id="build-program",
+                    output_type=Scalar(Payload("pulse_program")),
                     inputs={
-                        "value": ComputeNodeInput(kind="value", value=col("value"))
+                        "value": ComputeNodeInput(
+                            kind="value",
+                            value=as_value_expr(col("value")),
+                        )
                     },
                     fn=build_program,
                 )

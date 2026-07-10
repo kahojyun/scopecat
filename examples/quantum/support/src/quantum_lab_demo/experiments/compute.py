@@ -70,7 +70,7 @@ def build_readout_program(
 
 def build_multiplexed_readout_program(
     *,
-    qubits: sc.EntityArray | Sequence[str],
+    qubits: Sequence[str | sc.EntityRef],
     frequency: sc.Quantity,
     power: sc.Quantity,
 ) -> ReadoutPulseProgram:
@@ -85,14 +85,14 @@ def build_multiplexed_readout_program(
 def build_sqg_rb_sequence(
     *,
     qubit: str | sc.EntityRef,
-    clifford_count: sc.Quantity,
+    clifford_count: int,
     seed: int,
 ) -> RandomizedBenchmarkingSequence:
     qubit_id = _required_str(qubit, "qubit")
     return RandomizedBenchmarkingSequence(
         qubits=(qubit_id,),
         coupler=None,
-        clifford_count=_count_quantity_to_int(clifford_count),
+        clifford_count=_required_int(clifford_count, "clifford_count"),
         seed=seed,
         interleaved_gate=None,
         compiler_id="quantum_lab_demo.experiments.sqg_rb_sequence.v1",
@@ -124,14 +124,14 @@ def build_cz_rb_sequence(
     control_qubit: str,
     partner_qubit: str,
     coupler: str,
-    clifford_count: sc.Quantity,
+    clifford_count: int,
     seed: int,
     interleaved_gate: str,
 ) -> RandomizedBenchmarkingSequence:
     return RandomizedBenchmarkingSequence(
         qubits=(control_qubit, partner_qubit),
         coupler=coupler,
-        clifford_count=_count_quantity_to_int(clifford_count),
+        clifford_count=_required_int(clifford_count, "clifford_count"),
         seed=seed,
         interleaved_gate=interleaved_gate,
         compiler_id="quantum_lab_demo.experiments.cz_rb_sequence.v1",
@@ -161,7 +161,7 @@ def render_cz_rb_coupler_pulse(
 
 def build_simultaneous_rabi_gate_sequence(
     *,
-    qubits: sc.EntityArray | Sequence[str],
+    qubits: Sequence[str | sc.EntityRef],
     length: sc.Quantity,
     amplitude: sc.Quantity,
     frequency: sc.Quantity,
@@ -343,47 +343,50 @@ def render_cz_coupler_waveforms(
     )
 
 
-def build_parallel_gate_set_program(ctx: sc.ComputeContext) -> ParallelGateSetProgram:
-    gates = (
-        ParallelCzGate(
-            control_qubit=_required_str(ctx.inputs["control_qubit_a"], "control_a"),
-            partner_qubit=_required_str(ctx.inputs["partner_qubit_a"], "partner_a"),
-            coupler=_required_str(ctx.inputs["coupler_a"], "coupler_a"),
-            duration=_required_quantity(ctx.inputs["gate_duration"], "gate_duration"),
-            amplitude=_required_quantity(
-                ctx.inputs["coupler_amplitude_a"],
-                "coupler_amplitude_a",
-            ),
-            control_frequency=_required_quantity(
-                ctx.inputs["control_frequency_a"],
-                "control_frequency_a",
-            ),
-            partner_frequency=_required_quantity(
-                ctx.inputs["partner_frequency_a"],
-                "partner_frequency_a",
-            ),
-        ),
-        ParallelCzGate(
-            control_qubit=_required_str(ctx.inputs["control_qubit_b"], "control_b"),
-            partner_qubit=_required_str(ctx.inputs["partner_qubit_b"], "partner_b"),
-            coupler=_required_str(ctx.inputs["coupler_b"], "coupler_b"),
-            duration=_required_quantity(ctx.inputs["gate_duration"], "gate_duration"),
-            amplitude=_required_quantity(
-                ctx.inputs["coupler_amplitude_b"],
-                "coupler_amplitude_b",
-            ),
-            control_frequency=_required_quantity(
-                ctx.inputs["control_frequency_b"],
-                "control_frequency_b",
-            ),
-            partner_frequency=_required_quantity(
-                ctx.inputs["partner_frequency_b"],
-                "partner_frequency_b",
-            ),
-        ),
-    )
+def build_parallel_gate_set_program(
+    *,
+    gates: Sequence[Mapping[str, object]],
+    gate_duration: sc.Quantity,
+) -> ParallelGateSetProgram:
+    duration = _required_quantity(gate_duration, "gate_duration")
+    selected: list[ParallelCzGate] = []
+    used_qubits: set[str] = set()
+    used_couplers: set[str] = set()
+    for index, row in enumerate(gates):
+        path = f"gates[{index}]"
+        control_qubit = _required_str(row.get("control_qubit"), f"{path}.control")
+        partner_qubit = _required_str(row.get("partner_qubit"), f"{path}.partner")
+        coupler = _required_str(row.get("coupler"), f"{path}.coupler")
+        if control_qubit == partner_qubit:
+            msg = f"parallel gate {index} must use two distinct qubits"
+            raise ValueError(msg)
+        overlap = used_qubits.intersection((control_qubit, partner_qubit))
+        if overlap:
+            msg = "parallel gates must use disjoint qubits: " + ", ".join(
+                sorted(overlap)
+            )
+            raise ValueError(msg)
+        if coupler in used_couplers:
+            msg = f"parallel gates must use distinct couplers: {coupler}"
+            raise ValueError(msg)
+        used_qubits.update((control_qubit, partner_qubit))
+        used_couplers.add(coupler)
+        selected.append(
+            ParallelCzGate(
+                control_qubit=control_qubit,
+                partner_qubit=partner_qubit,
+                coupler=coupler,
+                duration=duration,
+                amplitude=_row_quantity(row, "coupler_parking_flux", path),
+                control_frequency=_row_quantity(row, "control_frequency", path),
+                partner_frequency=_row_quantity(row, "partner_frequency", path),
+            )
+        )
+    if not selected:
+        msg = "parallel gate set requires at least one gate"
+        raise ValueError(msg)
     return ParallelGateSetProgram(
-        gates=gates,
+        gates=tuple(selected),
         compiler_id="quantum_lab_demo.experiments.parallel_gate_set.v1",
         parameter_tables=(QUBIT_PARAMETER_TABLE, TWO_QUBIT_GATE_PARAMETER_TABLE),
     )
@@ -447,10 +450,10 @@ def render_parallel_gate_coupler_waveforms(
 
 def build_surface_code_round_program(
     *,
-    patch_qubits: sc.EntityArray | Sequence[str],
-    data_qubits: sc.EntityArray | Sequence[str],
-    ancilla_qubits: sc.EntityArray | Sequence[str],
-    couplers: sc.EntityArray | Sequence[str],
+    patch_qubits: Sequence[str | sc.EntityRef],
+    data_qubits: Sequence[str | sc.EntityRef],
+    ancilla_qubits: Sequence[str | sc.EntityRef],
+    couplers: Sequence[str | sc.EntityRef],
     rounds: int,
     cycle_time: sc.Quantity,
 ) -> SurfaceCodeRoundProgram:
@@ -583,8 +586,6 @@ def _required_quantity(value: object, name: str) -> sc.Quantity:
 def _required_int(value: object, name: str) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
-    if isinstance(value, sc.Quantity):
-        return round(value.value)
     msg = f"{name} must resolve to an integer, got {value!r}"
     raise TypeError(msg)
 
@@ -618,14 +619,8 @@ def _render_drag_like_envelope(
     return np.asarray(envelope, dtype=np.complex128)
 
 
-def _entity_ids(value: sc.EntityArray | Sequence[str]) -> tuple[str, ...]:
-    if isinstance(value, sc.EntityArray):
-        return value.ids
-    return tuple(str(item) for item in value)
-
-
-def _count_quantity_to_int(value: sc.Quantity) -> int:
-    return round(value.value)
+def _entity_ids(value: Sequence[str | sc.EntityRef]) -> tuple[str, ...]:
+    return tuple(_required_str(item, "entity") for item in value)
 
 
 __all__ = [

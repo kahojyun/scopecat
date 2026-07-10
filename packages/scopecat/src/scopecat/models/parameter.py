@@ -2,15 +2,44 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    WithJsonSchema,
+    field_validator,
+    model_validator,
+)
 
+from scopecat._value_type_wire import (
+    ScalarWire,
+    scalar_type_wire_schema,
+)
 from scopecat.units import (
     compatible_units,
     from_base_value,
     is_supported_unit,
     to_base_value,
+)
+from scopecat.value_types import (
+    Bool as BoolType,
+)
+from scopecat.value_types import (
+    Float as FloatType,
+)
+from scopecat.value_types import (
+    Int as IntType,
+)
+from scopecat.value_types import (
+    Quantity as QuantityType,
+)
+from scopecat.value_types import (
+    Scalar,
+)
+from scopecat.value_types import (
+    String as StringType,
 )
 
 
@@ -28,10 +57,22 @@ def _ensure_unique_ids[T: Any](items: list[T], label: str) -> list[T]:
 class Quantity(BaseModel):
     """A numeric value with an explicit unit."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        revalidate_instances="always",
+    )
 
     value: float
     unit: str
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def validate_value(cls, value: object) -> object:
+        if not isinstance(value, int | float) or isinstance(value, bool):
+            msg = "quantity value must be an int or float"
+            raise ValueError(msg)
+        return value
 
     def __init__(
         self,
@@ -173,7 +214,16 @@ class ParameterValueSet(BaseModel):
         return None
 
 
-ParameterTableColumnKind = Literal["quantity", "number", "string", "bool"]
+_PARAMETER_TABLE_SCALAR_WIRE_SCHEMA = scalar_type_wire_schema(
+    ("bool", "int", "float", "string", "quantity"),
+    finite_only=True,
+)
+
+type ParameterTableScalar = Annotated[
+    ScalarWire,
+    WithJsonSchema(_PARAMETER_TABLE_SCALAR_WIRE_SCHEMA, mode="validation"),
+    WithJsonSchema(_PARAMETER_TABLE_SCALAR_WIRE_SCHEMA, mode="serialization"),
+]
 
 
 class ParameterTableColumn(BaseModel):
@@ -182,25 +232,27 @@ class ParameterTableColumn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    kind: ParameterTableColumnKind
-    unit: str | None = None
+    value_type: ParameterTableScalar
     required: bool = True
     description: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @model_validator(mode="after")
-    def validate_unit(self) -> ParameterTableColumn:
-        if self.kind == "quantity":
-            if self.unit is None:
-                msg = f"quantity column {self.id} requires a unit"
-                raise ValueError(msg)
-            if not is_supported_unit(self.unit):
-                msg = f"unsupported unit: {self.unit}"
-                raise ValueError(msg)
-        elif self.unit is not None:
-            msg = f"non-quantity column {self.id} cannot declare a unit"
+    @field_validator("value_type")
+    @classmethod
+    def validate_value_type(cls, value: Scalar) -> Scalar:
+        if not isinstance(
+            value.atom,
+            BoolType | IntType | FloatType | StringType | QuantityType,
+        ):
+            msg = (
+                "parameter table columns support bool, int, float, string, "
+                "and quantity scalar types"
+            )
             raise ValueError(msg)
-        return self
+        if isinstance(value.atom, FloatType | QuantityType) and not value.atom.finite:
+            msg = "persisted parameter table numeric types must require finite values"
+            raise ValueError(msg)
+        return value
 
 
 class ParameterTableDefinition(BaseModel):
@@ -223,7 +275,7 @@ class ParameterTableDefinition(BaseModel):
 
     @model_validator(mode="after")
     def validate_primary_key(self) -> ParameterTableDefinition:
-        columns = {column.id for column in self.columns}
+        columns = {column.id: column for column in self.columns}
         missing = [
             column_id for column_id in self.primary_key if column_id not in columns
         ]
@@ -236,6 +288,14 @@ class ParameterTableDefinition(BaseModel):
         if len(set(self.primary_key)) != len(self.primary_key):
             msg = f"parameter table {self.id} primary key contains duplicates"
             raise ValueError(msg)
+        for column_id in self.primary_key:
+            column = columns[column_id]
+            if not column.required or column.value_type.nullable:
+                msg = (
+                    f"parameter table {self.id} primary key column {column_id!r} "
+                    "must be required and non-null"
+                )
+                raise ValueError(msg)
         return self
 
 
@@ -244,8 +304,8 @@ class ParameterCatalog(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.parameter_catalog.v1"] = (
-        "scopecat.parameter_catalog.v1"
+    schema_version: Literal["scopecat.parameter_catalog.v2"] = (
+        "scopecat.parameter_catalog.v2"
     )
     id: str
     scalar_definitions: list[ParameterDefinition] = Field(default_factory=list)

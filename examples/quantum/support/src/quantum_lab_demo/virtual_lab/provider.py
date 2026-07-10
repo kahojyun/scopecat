@@ -17,7 +17,7 @@ from scopecat.instruments import (
     InstrumentStateField,
     InstrumentStateSnapshot,
     capability,
-    number_field,
+    float_field,
     payload_field,
     product,
     product_axis,
@@ -109,7 +109,7 @@ class QuantumDriveStack(_VirtualInstrumentDriver):
                 capability(
                     "play_pulse_program",
                     fields=[
-                        payload_field("program", payload_kinds=("pulse_program",)),
+                        payload_field("program", schema_id="pulse_program"),
                         quantity_field("length", unit="ns"),
                         quantity_field("amplitude", unit="arb"),
                         quantity_field("frequency", unit="GHz"),
@@ -118,9 +118,9 @@ class QuantumDriveStack(_VirtualInstrumentDriver):
                 capability(
                     "play_gate_sequence",
                     fields=[
-                        payload_field("sequence", payload_kinds=("gate_sequence",)),
+                        payload_field("sequence", schema_id="gate_sequence"),
                         quantity_field("clifford_count", unit="count"),
-                        number_field("seed"),
+                        float_field("seed"),
                     ],
                 ),
             ],
@@ -141,14 +141,14 @@ class QuantumReadoutStack(_VirtualInstrumentDriver):
                 capability(
                     "readout_pulse",
                     fields=[
-                        payload_field("program", payload_kinds=("readout_program",)),
+                        payload_field("program", schema_id="readout_program"),
                         quantity_field("frequency", unit="GHz"),
                         quantity_field("power", unit="dBm"),
                     ],
                 ),
                 capability(
                     "submit_backend_batch",
-                    fields=[payload_field("job", payload_kinds=("backend_job",))],
+                    fields=[payload_field("job", schema_id="backend_job")],
                 ),
                 capability(
                     "acquire_iq",
@@ -226,7 +226,7 @@ class QuantumCouplerStack(_VirtualInstrumentDriver):
             capabilities=[
                 capability(
                     "play_coupler_pulse",
-                    fields=[payload_field("program", payload_kinds=("pulse_program",))],
+                    fields=[payload_field("program", schema_id="pulse_program")],
                 ),
                 capability(
                     "set_flux_bias",

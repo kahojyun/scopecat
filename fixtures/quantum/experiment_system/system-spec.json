@@ -211,7 +211,7 @@
   },
   "metadata": {},
   "parameter_catalog": {
-    "schema_version": "scopecat.parameter_catalog.v1",
+    "schema_version": "scopecat.parameter_catalog.v2",
     "id": "templates-parameter-definitions-catalog",
     "scalar_definitions": [
       {
@@ -367,37 +367,49 @@
         "columns": [
           {
             "id": "qubit",
-            "kind": "string",
+            "value_type": {
+              "type": "string"
+            },
             "description": "Logical qubit id."
           },
           {
             "id": "rabi_pulse_length",
-            "kind": "quantity",
-            "unit": "ns",
+            "value_type": {
+              "type": "quantity",
+              "unit": "ns"
+            },
             "description": "Current Rabi pulse-length center."
           },
           {
             "id": "rabi_drive_amplitude",
-            "kind": "quantity",
-            "unit": "arb",
+            "value_type": {
+              "type": "quantity",
+              "unit": "arb"
+            },
             "description": "Current Rabi drive amplitude."
           },
           {
             "id": "drive_frequency",
-            "kind": "quantity",
-            "unit": "GHz",
+            "value_type": {
+              "type": "quantity",
+              "unit": "GHz"
+            },
             "description": "Current drive frequency."
           },
           {
             "id": "readout_frequency",
-            "kind": "quantity",
-            "unit": "GHz",
+            "value_type": {
+              "type": "quantity",
+              "unit": "GHz"
+            },
             "description": "Current readout frequency."
           },
           {
             "id": "readout_power",
-            "kind": "quantity",
-            "unit": "dBm",
+            "value_type": {
+              "type": "quantity",
+              "unit": "dBm"
+            },
             "description": "Current readout power."
           }
         ],
@@ -413,45 +425,61 @@
         "columns": [
           {
             "id": "control_qubit",
-            "kind": "string",
+            "value_type": {
+              "type": "string"
+            },
             "description": "Control qubit id."
           },
           {
             "id": "partner_qubit",
-            "kind": "string",
+            "value_type": {
+              "type": "string"
+            },
             "description": "Partner qubit id."
           },
           {
             "id": "gate",
-            "kind": "string",
+            "value_type": {
+              "type": "string"
+            },
             "description": "Logical two-qubit gate id."
           },
           {
             "id": "coupler",
-            "kind": "string",
+            "value_type": {
+              "type": "string"
+            },
             "description": "Logical coupler id used for this two-qubit gate."
           },
           {
             "id": "control_echo_amplitude",
-            "kind": "quantity",
-            "unit": "arb",
+            "value_type": {
+              "type": "quantity",
+              "unit": "arb"
+            },
             "description": "Echo drive amplitude for the control qubit."
           },
           {
             "id": "partner_echo_amplitude",
-            "kind": "quantity",
-            "unit": "arb",
+            "value_type": {
+              "type": "quantity",
+              "unit": "arb"
+            },
             "description": "Echo drive amplitude for the partner qubit."
           },
           {
             "id": "coupler_parking_flux",
-            "kind": "quantity",
-            "unit": "arb",
+            "value_type": {
+              "type": "quantity",
+              "unit": "arb"
+            },
             "description": "Flux parking offset used while rendering CZ pulses."
           },
           {
             "id": "sample_rate_hz",
-            "kind": "number",
+            "value_type": {
+              "type": "float"
+            },
             "description": "Waveform rate used by the renderer."
           }
         ],

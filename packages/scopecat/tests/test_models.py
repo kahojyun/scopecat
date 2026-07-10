@@ -15,6 +15,8 @@ from scopecat.models.parameter import (
     ParameterValueSet,
     Quantity,
 )
+from scopecat.value_types import Bool, Float, Int, Payload, Scalar, String
+from scopecat.value_types import Quantity as QuantityType
 from tests.support.records import assert_model_round_trip
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
@@ -31,7 +33,7 @@ def test_config_profile_snapshot_round_trip() -> None:
     assert "parameter_view" not in restored.model_dump(mode="python")
     parameter_view = build_config_parameters(restored)
     assert parameter_view.schema_version == ("scopecat.parameter_view_snapshot.v1")
-    assert restored.parameter_catalog.schema_version == "scopecat.parameter_catalog.v1"
+    assert restored.parameter_catalog.schema_version == "scopecat.parameter_catalog.v2"
     assert parameter_view.get("drive_frequency") is not None
     assert restored.topology.entity("q0") is not None
     connection = restored.connection_profile.connections[0]
@@ -47,7 +49,7 @@ def test_run_request_records_config_source() -> None:
     )
     restored = assert_model_round_trip(
         request,
-        schema_version="scopecat.run_request.v1",
+        schema_version="scopecat.run_request.v2",
     )
 
     assert restored.config_source == "active"
@@ -67,7 +69,7 @@ def test_run_request_records_canonical_scans_only() -> None:
     )
     restored = assert_model_round_trip(
         request,
-        schema_version="scopecat.run_request.v1",
+        schema_version="scopecat.run_request.v2",
     )
 
     assert restored.scans == request.scans
@@ -81,6 +83,28 @@ def test_run_request_records_canonical_scans_only() -> None:
             "unit": "GHz",
         }
     ]
+    with pytest.raises(ValidationError):
+        RunRequest.model_validate(
+            {
+                "schema_version": "scopecat.run_request.v1",
+                "id": "request-002",
+            }
+        )
+    with pytest.raises(ValidationError):
+        RunRequest.model_validate(
+            {
+                "id": "request-002",
+                "scans": [
+                    {
+                        "kind": "point",
+                        "target_id": "drive_frequency",
+                        "axis_id": "drive_frequency",
+                        "values": [5.0],
+                        "input_id": "frequencies",
+                    }
+                ],
+            }
+        )
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
             {
@@ -153,11 +177,13 @@ def test_parameter_catalog_supports_table_definitions() -> None:
                 id="calibration_points",
                 primary_key=["point_index"],
                 columns=[
-                    ParameterTableColumn(id="point_index", kind="string"),
+                    ParameterTableColumn(
+                        id="point_index",
+                        value_type=Scalar(String()),
+                    ),
                     ParameterTableColumn(
                         id="frequency",
-                        kind="quantity",
-                        unit="GHz",
+                        value_type=Scalar(QuantityType(unit="GHz")),
                     ),
                 ],
             )
@@ -167,3 +193,141 @@ def test_parameter_catalog_supports_table_definitions() -> None:
     restored = assert_model_round_trip(catalog)
 
     assert restored.table("calibration_points") is not None
+
+
+@pytest.mark.parametrize(
+    "value_type",
+    [
+        Scalar(Bool()),
+        Scalar(Int(minimum=1, maximum=3)),
+        Scalar(Float(minimum=0.0, maximum=1.0)),
+        Scalar(String(min_length=1, choices=("a", "b"))),
+        Scalar(
+            QuantityType(
+                dimension="frequency",
+                unit="GHz",
+                minimum=4.0,
+                maximum=6.0,
+            ),
+            nullable=True,
+        ),
+    ],
+)
+def test_parameter_table_column_scalar_type_has_stable_wire_format(
+    value_type: Scalar,
+) -> None:
+    column = ParameterTableColumn(id="value", value_type=value_type)
+
+    compact = column.model_dump(mode="json", exclude_defaults=True)
+    restored = ParameterTableColumn.model_validate(compact)
+    restored_from_json = ParameterTableColumn.model_validate_json(
+        column.model_dump_json()
+    )
+
+    assert compact["value_type"]["type"]
+    assert restored == column
+    assert restored_from_json == column
+    assert restored_from_json.model_dump_json() == column.model_dump_json()
+    assert not hasattr(column, "kind")
+
+
+def test_parameter_table_column_wire_is_strict_and_schema_matches_it() -> None:
+    column = ParameterTableColumn(
+        id="value",
+        value_type=Scalar(Float(minimum=0)),
+    )
+    value_type = column.value_type
+
+    assert isinstance(value_type.atom, Float)
+    assert value_type.atom.minimum == 0.0
+    with pytest.raises(ValidationError, match="unknown fields: garbage"):
+        ParameterTableColumn.model_validate(
+            {
+                "id": "value",
+                "value_type": {"type": "bool", "garbage": True},
+            }
+        )
+    with pytest.raises(ValidationError, match="must require finite values"):
+        ParameterTableColumn(
+            id="value",
+            value_type=Scalar(Float(finite=False)),
+        )
+    with pytest.raises(ValidationError, match="support bool, int, float, string"):
+        ParameterTableColumn(
+            id="value",
+            value_type=Scalar(Payload("pulse_program")),
+        )
+    with pytest.raises(ValidationError, match="field 'finite' must be a bool"):
+        ParameterTableColumn.model_validate(
+            {
+                "id": "value",
+                "value_type": {"type": "float", "finite": "false"},
+            }
+        )
+    with pytest.raises(ValidationError, match="field names must be strings"):
+        ParameterTableColumn.model_validate(
+            {
+                "id": "value",
+                "value_type": {"type": "float", 1: "unexpected"},
+            }
+        )
+
+    integer_column = ParameterTableColumn.model_validate(
+        {
+            "id": "value",
+            "value_type": {"type": "int", "minimum": 1.0},
+        }
+    )
+    assert isinstance(integer_column.value_type.atom, Int)
+    assert integer_column.value_type.atom.minimum == 1
+
+    schema = ParameterTableColumn.model_json_schema(mode="validation")
+    value_schema = schema["properties"]["value_type"]
+    definition_name = value_schema["$ref"].rsplit("/", maxsplit=1)[-1]
+    wire_schema = schema["$defs"][definition_name]
+    assert len(wire_schema["oneOf"]) == 5
+    assert all(
+        variant["additionalProperties"] is False for variant in wire_schema["oneOf"]
+    )
+
+
+def test_durable_scalar_models_reject_malformed_runtime_declarations() -> None:
+    invalid_nullable = Scalar(Float())
+    object.__setattr__(invalid_nullable, "nullable", "false")
+    invalid_finite = Float()
+    object.__setattr__(invalid_finite, "finite", "false")
+    invalid_length = String()
+    object.__setattr__(invalid_length, "min_length", False)
+
+    for value_type in (
+        invalid_nullable,
+        Scalar(invalid_finite),
+        Scalar(invalid_length),
+    ):
+        with pytest.raises(ValidationError):
+            ParameterTableColumn(id="value", value_type=value_type)
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        ParameterTableColumn(
+            id="id",
+            value_type=Scalar(String()),
+            required=False,
+        ),
+        ParameterTableColumn(
+            id="id",
+            value_type=Scalar(String(), nullable=True),
+        ),
+    ],
+)
+def test_parameter_table_primary_key_must_be_required_and_non_null(
+    column: ParameterTableColumn,
+) -> None:
+    with pytest.raises(ValidationError, match="required and non-null"):
+        ParameterTableDefinition(
+            id="values",
+            primary_key=["id"],
+            columns=[column],
+        )

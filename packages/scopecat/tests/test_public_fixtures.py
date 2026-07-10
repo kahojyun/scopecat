@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from scopecat.config_profiles import load_config_profile
 from scopecat.experiments import ExperimentSpec
 from scopecat.models.config import build_config_parameters
@@ -18,7 +21,18 @@ def test_public_experiment_json_fixtures_are_specs() -> None:
     assert experiment_files
     for path in experiment_files:
         experiment = read_model(path, ExperimentSpec)
-        assert experiment.schema_version == "scopecat.experiment_spec.v3", path
+        assert experiment.schema_version == "scopecat.experiment_spec.v7", path
+
+
+def test_experiment_spec_rejects_previous_wire_version() -> None:
+    path = next(iter(sorted(FIXTURE_ROOT.glob("**/experiment.json"))))
+    payload = path.read_text().replace(
+        "scopecat.experiment_spec.v7",
+        "scopecat.experiment_spec.v6",
+    )
+
+    with pytest.raises(ValidationError):
+        ExperimentSpec.model_validate_json(payload)
 
 
 def test_public_experiment_json_fixtures_plan_with_local_config() -> None:

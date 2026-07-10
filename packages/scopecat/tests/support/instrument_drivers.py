@@ -13,14 +13,14 @@ from scopecat.instruments import (
     InstrumentStateField,
     InstrumentStateSnapshot,
     capability,
-    number_field,
+    float_field,
     payload_field,
     product,
     quantity_field,
 )
-from scopecat.instruments.state import StateValue
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
+from scopecat.models.state import PayloadRef, StateValue
 
 EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
@@ -44,8 +44,11 @@ class SignalInstrumentDriver:
                     "set_frequency",
                     fields=[quantity_field("frequency", unit="GHz")],
                 ),
-                capability("set_gain", fields=[number_field("gain")]),
-                capability("play_program", fields=[payload_field("program")]),
+                capability("set_gain", fields=[float_field("gain")]),
+                capability(
+                    "play_program",
+                    fields=[payload_field("program", schema_id="pulse_program")],
+                ),
                 capability(
                     "scalar_signal",
                     products=[product("signal", unit="ratio")],
@@ -121,12 +124,12 @@ def load_config() -> ConfigProfileSnapshot:
 
 
 def quantity_state(value: float, unit: str) -> StateValue:
-    return StateValue(kind="quantity", quantity=Quantity(value=value, unit=unit))
+    return StateValue(Quantity(value=value, unit=unit))
 
 
 def number_state(value: float) -> StateValue:
-    return StateValue(kind="number", value=value)
+    return StateValue(value)
 
 
 def payload_state(payload_id: str) -> StateValue:
-    return StateValue(kind="payload", payload_id=payload_id)
+    return StateValue(PayloadRef(payload_id=payload_id))

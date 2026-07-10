@@ -42,8 +42,8 @@ def simple_template() -> ExperimentTemplate:
         )
         .label("Simple scan")
         .inputs(
-            InputDescription(id="subject", kind="entity"),
-            InputDescription(id="drive_frequency", kind="quantity", default=None),
+            InputDescription(id="subject"),
+            InputDescription(id="drive_frequency"),
         )
         .metadata(assembled_by="template")
         .build()

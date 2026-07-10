@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
@@ -9,12 +10,14 @@ from typing import TYPE_CHECKING, Any, cast
 from scopecat._planning.parameter_patches import ParameterPatchSpec
 from scopecat.authoring._bindings import (
     BindingIntent,
+    EntitySource,
     ExperimentBindingIntent,
     ResourcePort,
     ResourceSelector,
     bind,
     build_route_intents,
     ports_by_id,
+    require_port_capability,
     requires,
     resource_port,
 )
@@ -30,44 +33,69 @@ from scopecat.authoring.expressions import (
 from scopecat.authoring.expressions import (
     var as var_expr,
 )
+from scopecat.authoring.value_types import (
+    Entity as EntityType,
+)
+from scopecat.authoring.value_types import (
+    Scalar as ScalarType,
+)
+from scopecat.authoring.value_types import (
+    Series as SeriesType,
+)
+from scopecat.authoring.value_types import (
+    Table as TableType,
+)
+from scopecat.authoring.value_types import (
+    ValueType,
+    ValueValidationError,
+    coerce_literal,
+)
 from scopecat.experiments import (
     ComputeNodeFunction,
     ComputeNodeInput,
     ComputeNodeSpec,
+    ComputeResultRef,
     ExperimentSpec,
     RecordAxisSpec,
     RecordKind,
     RecordSource,
     RecordSpec,
     StateSpec,
+    as_value_expr,
     bind_each,
+    compute_result,
     set_state,
 )
 from scopecat.experiments import (
     record_axis as experiment_record_axis,
 )
-from scopecat.models.entity import EntityArray, EntityRef, entity_array
+from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
+from scopecat.models.value import PayloadValue
 from scopecat.parameters import ParameterDerivationSet, combine_parameter_derivations
 from scopecat.relations import (
-    CaseBranch,
     CellValue,
     EvalContext,
+    GridColumn,
     ParameterRelationData,
     RelationExpr,
     Row,
     ScalarExpr,
+    SeriesExpr,
+    as_scalar_expr,
     col,
     grid,
     literal_rows,
+    outer,
     param,
     range_values,
-    table,
     values,
 )
 from scopecat.relations import (
     input_ref as relation_input_ref,
 )
+from scopecat.relations import input_series as relation_input_series
+from scopecat.relations import input_table as relation_input_table
 from scopecat.relations import (
     linspace as relation_linspace,
 )
@@ -83,11 +111,23 @@ type VariableFactory = Callable[
 type ParameterDerivationInput = (
     ParameterDerivationSet | Sequence[ParameterDerivationSet] | None
 )
+type DataExpr = ScalarExpr | SeriesExpr | RelationExpr
 type AxisSizeInput = (
-    Expression | ScalarExpr | Quantity | float | EntityArray | Sequence[EntityRef | str]
+    Expression | DataExpr | Quantity | float | Sequence[EntityRef | str]
 )
+type StateRouteExpr = ScalarExpr | SeriesExpr
 type ComputeNodeInputValue = (
-    Expression | ScalarExpr | Quantity | float | ComputeResultRef | RouteBindingRef
+    Expression
+    | DataExpr
+    | Quantity
+    | str
+    | int
+    | float
+    | bool
+    | EntityRef
+    | Sequence[object]
+    | ComputeResultRef
+    | RouteBindingRef
 )
 
 
@@ -131,6 +171,7 @@ class RecordAxisIntent:
     size: AxisSizeInput
     kind: str | None = None
     unit: str | None = None
+    entity_values: bool = False
 
     def build(
         self,
@@ -145,6 +186,7 @@ class RecordAxisIntent:
             default=1,
             path=f"records.{record_id}.axes.{self.id}.size",
             inputs=inputs,
+            entity_axis=self.entity_values,
         )
         return experiment_record_axis(
             self.id,
@@ -229,36 +271,63 @@ class ProductSelectionIntent:
 
 
 @dataclass(frozen=True)
-class StateTableIntent:
-    table_id: str
+class StateEachIntent:
+    relation: RelationExpr
+    resource: ScalarExpr
     field: str
-    value_column: str
-    resource_column: str = "resource_id"
+    value: ScalarExpr | ComputeResultRef
+    route_entities: tuple[StateRouteExpr, ...] = ()
     resource_port: str | None = None
-    route_entity_column: str | None = None
 
-    def build(self) -> StateSpec:
+    def build(
+        self,
+        ctx: ExperimentAuthoringContext,
+        resource_ports: Mapping[str, ResourcePort],
+        inputs: Mapping[str, object],
+    ) -> StateSpec:
+        capability_id = _state_field_capability(ctx, self.field)
+        if self.resource_port is not None:
+            port = resource_ports.get(self.resource_port)
+            if port is None:
+                ctx.raise_diagnostic(
+                    "module_unknown_resource_port",
+                    "state binding references unknown resource port "
+                    f"{self.resource_port}",
+                    "state",
+                )
+            require_port_capability(ctx, port, capability_id)
         return bind_each(
-            table(self.table_id),
+            _bind_relation_input_refs(
+                self.relation,
+                inputs,
+                unbound_to_outer=True,
+            ),
             set_state(
-                self.resource_port or col(self.resource_column),
+                _bind_input_refs(
+                    self.resource,
+                    inputs,
+                    unbound_to_outer=True,
+                ),
                 self.field,
-                col(self.value_column),
-                route_entities=(
-                    [col(self.route_entity_column)]
-                    if self.route_entity_column is not None
-                    else []
+                _bind_state_value(
+                    self.value,
+                    inputs,
+                    unbound_to_outer=True,
+                ),
+                route_entities=tuple(
+                    _bind_state_route_expr(
+                        ctx,
+                        entity,
+                        inputs,
+                        unbound_to_outer=True,
+                    )
+                    for entity in self.route_entities
                 ),
             ),
         )
 
 
-ExperimentStateIntent = StateTableIntent
-
-
-@dataclass(frozen=True)
-class ComputeResultRef:
-    node_id: str
+ExperimentStateIntent = StateEachIntent
 
 
 @dataclass(frozen=True)
@@ -272,6 +341,7 @@ class ComputeNodeIntent:
     fn: ComputeNodeFunction
     inputs: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     route_ports: tuple[str, ...] = ()
+    output_type: ScalarType | None = None
 
     def build(self, inputs: Mapping[str, object]) -> ComputeNodeSpec:
         return ComputeNodeSpec(
@@ -280,6 +350,7 @@ class ComputeNodeIntent:
                 name: _compute_node_input(value, inputs) for name, value in self.inputs
             },
             route_ports=list(self.route_ports),
+            output_type=self.output_type,
             fn=self.fn,
         )
 
@@ -287,12 +358,22 @@ class ComputeNodeIntent:
 @dataclass(frozen=True)
 class ModuleInputPort:
     id: str
-    kind: str | None = None
+    value_type: ValueType
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def _entity_input_ids(input_ports: Sequence[ModuleInputPort]) -> tuple[str, ...]:
-    return tuple(port.id for port in input_ports if port.kind == "entity")
+    return tuple(
+        port.id for port in input_ports if _is_entity_input_type(port.value_type)
+    )
+
+
+def _is_entity_input_type(value_type: ValueType) -> bool:
+    if isinstance(value_type, ScalarType):
+        return isinstance(value_type.atom, EntityType)
+    if isinstance(value_type, SeriesType):
+        return isinstance(value_type.item_type.atom, EntityType)
+    return False
 
 
 @dataclass(frozen=True)
@@ -347,7 +428,7 @@ class ModuleBuilder:
                 *(
                     ModuleInputPort(
                         id=input_id,
-                        kind="entity",
+                        value_type=ScalarType(EntityType()),
                         metadata={"role": "entity"},
                     )
                     for input_id in input_ids
@@ -370,14 +451,18 @@ class ModuleBuilder:
         self,
         id: str,  # noqa: A002
         *,
-        kind: str | None = None,
+        value_type: ValueType,
         metadata: Mapping[str, Any] | None = None,
     ) -> ModuleBuilder:
         return replace(
             self,
             input_ports=(
                 *self.input_ports,
-                ModuleInputPort(id=id, kind=kind, metadata=dict(metadata or {})),
+                ModuleInputPort(
+                    id=id,
+                    value_type=value_type,
+                    metadata=dict(metadata or {}),
+                ),
             ),
         )
 
@@ -386,7 +471,7 @@ class ModuleBuilder:
         id: str,  # noqa: A002
         *,
         requires: ResourceSelector | Sequence[str] = (),
-        for_entities: Sequence[str] = (),
+        for_entities: Sequence[EntitySource] = (),
     ) -> ModuleBuilder:
         selector = (
             requires
@@ -423,31 +508,37 @@ class ModuleBuilder:
     def bind(
         self,
         port_path: str,
-        value: Expression | ScalarExpr | Quantity | float,
+        value: Expression | ScalarExpr | ComputeResultRef | Quantity | float,
     ) -> ModuleBuilder:
         return replace(self, bindings=(*self.bindings, bind(port_path, value)))
 
-    def state_table(
+    def state_each(
         self,
-        table_id: str,
+        relation: RelationExpr,
         *,
-        field: str,
-        value_column: str,
-        resource_column: str = "resource_id",
+        resource: object | None = None,
         resource_port: str | None = None,
-        route_entity_column: str | None = None,
+        field: str,
+        value: object,
+        route_entities: Sequence[object] = (),
     ) -> ModuleBuilder:
+        if (resource is None) == (resource_port is None):
+            msg = "state_each requires exactly one of resource or resource_port"
+            raise TypeError(msg)
+        selected_resource = resource_port if resource_port is not None else resource
         return replace(
             self,
             state_intents=(
                 *self.state_intents,
-                StateTableIntent(
-                    table_id=table_id,
+                StateEachIntent(
+                    relation=relation,
+                    resource=_state_scalar_expr(selected_resource),
                     field=field,
-                    value_column=value_column,
-                    resource_column=resource_column,
+                    value=_state_value_expr(value),
+                    route_entities=tuple(
+                        _state_route_expr(entity) for entity in route_entities
+                    ),
                     resource_port=resource_port,
-                    route_entity_column=route_entity_column,
                 ),
             ),
         )
@@ -459,6 +550,7 @@ class ModuleBuilder:
         fn: ComputeNodeFunction,
         inputs: Mapping[str, ComputeNodeInputValue] | None = None,
         route_ports: Sequence[str] = (),
+        output_type: ScalarType | None = None,
     ) -> ModuleBuilder:
         return replace(
             self,
@@ -469,22 +561,8 @@ class ModuleBuilder:
                     fn=fn,
                     inputs=tuple((inputs or {}).items()),
                     route_ports=tuple(route_ports),
+                    output_type=output_type,
                 ),
-            ),
-        )
-
-    def bind_compute(
-        self,
-        port_path: str,
-        node_id: str,
-        *,
-        kind: str,
-    ) -> ModuleBuilder:
-        return replace(
-            self,
-            bindings=(
-                *self.bindings,
-                bind(port_path, _compute_result_state_value(node_id, kind=kind)),
             ),
         )
 
@@ -891,9 +969,18 @@ def _module_use_invocation(
 def _module_invocation_inputs(
     invocation: ModuleInvocation,
     parent_inputs: Mapping[str, object],
+    *,
+    state_scope: bool = False,
 ) -> dict[str, object]:
+    input_types = {port.id: port.value_type for port in invocation.module.input_ports}
     return {
-        input_id: _module_invocation_input_expr(value, parent_inputs)
+        input_id: _module_invocation_input_expr(
+            value,
+            parent_inputs,
+            input_id=input_id,
+            value_type=input_types.get(input_id),
+            state_scope=state_scope,
+        )
         for input_id, value in invocation.inputs.items()
     }
 
@@ -905,6 +992,11 @@ def _localize_module_invocation_assembly(
     source_index: int,
 ) -> ExperimentAssembly:
     local_inputs = _module_invocation_inputs(invocation, parent_inputs)
+    state_inputs = _module_invocation_inputs(
+        invocation,
+        parent_inputs,
+        state_scope=True,
+    )
     assembly = invocation.module.assemble(**local_inputs)
     if not local_inputs:
         return assembly
@@ -936,6 +1028,10 @@ def _localize_module_invocation_assembly(
             _localize_binding_input_refs(binding, local_inputs)
             for binding in assembly.bindings
         ),
+        state_intents=tuple(
+            _localize_state_input_refs(intent, state_inputs)
+            for intent in assembly.state_intents
+        ),
         compute_nodes=tuple(
             _localize_compute_input_refs(node, local_inputs)
             for node in assembly.compute_nodes
@@ -960,25 +1056,32 @@ def _localize_resource_port_input_refs(
     hidden_inputs: dict[str, object] = {}
     localized_ports: list[ResourcePort] = []
     for port in ports:
-        entity_inputs: list[str] = []
-        for input_id in port.selector.entity_inputs:
-            value = inputs.get(input_id)
-            if not isinstance(value, ScalarExpr):
-                entity_inputs.append(input_id)
-                continue
-            if value.kind == "column":
-                entity_inputs.append(_required_name(value.name, "column.name"))
-                continue
-            if value.kind == "literal":
-                hidden_id = f"__local_entity_{source_index}_{input_id}"
-                entity_inputs.append(hidden_id)
-                hidden_inputs[hidden_id] = value.value
-                continue
-            msg = (
-                f"module invocation entity input {input_id!r} must bind to a "
-                "literal entity or parent input"
-            )
-            raise ValueError(msg)
+        entity_inputs: list[EntitySource] = []
+        for source in port.selector.entity_inputs:
+            localized: DataExpr | str
+            if isinstance(source, str):
+                value = inputs.get(source)
+                if isinstance(value, ScalarExpr) and value.kind == "literal":
+                    hidden_id = f"__local_entity_{source_index}_{source}"
+                    hidden_inputs[hidden_id] = value.value
+                    localized = hidden_id
+                elif isinstance(value, ScalarExpr) and value.kind == "column":
+                    localized = _required_name(value.name, "column.name")
+                else:
+                    localized = (
+                        value
+                        if isinstance(value, ScalarExpr | SeriesExpr | RelationExpr)
+                        else source
+                    )
+            else:
+                localized = _substitute_value_input_refs(source, inputs)
+            if isinstance(localized, RelationExpr):
+                msg = (
+                    "resource entity source must be scalar or series-shaped; "
+                    "select table entity columns with table.entities(...)"
+                )
+                raise TypeError(msg)
+            entity_inputs.append(localized)
         localized_ports.append(
             replace(
                 port,
@@ -994,18 +1097,100 @@ def _localize_resource_port_input_refs(
 def _module_invocation_input_expr(
     value: object,
     parent_inputs: Mapping[str, object],
-) -> ScalarExpr:
+    *,
+    input_id: str,
+    value_type: ValueType | None,
+    state_scope: bool = False,
+) -> DataExpr:
     if isinstance(value, ScalarExpr):
-        return _bind_input_refs(value, parent_inputs)
-    if isinstance(value, Expression):
-        return _bind_input_refs(_expr_to_scalar(value), parent_inputs)
-    return _literal(_input_cell(value))
+        expression = _bind_input_refs(
+            value,
+            parent_inputs,
+            unbound_to_outer=state_scope,
+        )
+        if state_scope:
+            expression = _scalar_columns_to_outer(expression)
+    elif isinstance(value, SeriesExpr | RelationExpr):
+        expression = (
+            _bind_value_input_refs(
+                value,
+                parent_inputs,
+                unbound_to_outer=True,
+            )
+            if state_scope
+            else _substitute_value_input_refs(value, parent_inputs)
+        )
+    elif isinstance(value, Expression):
+        expression = _bind_input_refs(
+            _expr_to_scalar(value),
+            parent_inputs,
+            unbound_to_outer=state_scope,
+        )
+        if state_scope:
+            expression = _scalar_columns_to_outer(expression)
+    elif value_type is None:
+        return _literal_data_expr(value)
+    else:
+        coerced = coerce_literal(
+            value_type,
+            value,
+            path=f"inputs.{input_id}",
+        )
+        if isinstance(value_type, ScalarType):
+            expression = _literal(_input_cell(coerced))
+        elif isinstance(value_type, SeriesType):
+            expression = _series_input_value(input_id, coerced)
+        else:
+            expression = _table_input_value(input_id, coerced)
+    _validate_data_expr_shape(
+        expression,
+        value_type,
+        path=f"inputs.{input_id}",
+    )
+    return expression
+
+
+def _validate_data_expr_shape(
+    expression: DataExpr,
+    value_type: ValueType | None,
+    *,
+    path: str,
+) -> None:
+    if value_type is None:
+        return
+    matches = (
+        (isinstance(value_type, ScalarType) and isinstance(expression, ScalarExpr))
+        or (isinstance(value_type, SeriesType) and isinstance(expression, SeriesExpr))
+        or (isinstance(value_type, TableType) and isinstance(expression, RelationExpr))
+    )
+    if matches:
+        return
+    expected = (
+        "scalar"
+        if isinstance(value_type, ScalarType)
+        else "series"
+        if isinstance(value_type, SeriesType)
+        else "table"
+    )
+    actual = (
+        "scalar"
+        if isinstance(expression, ScalarExpr)
+        else "series"
+        if isinstance(expression, SeriesExpr)
+        else "table"
+    )
+    raise ValueValidationError(
+        path,
+        f"expected {expected}-shaped expression, got {actual}-shaped expression",
+    )
 
 
 def _localize_binding_input_refs(
     binding: ExperimentBindingIntent,
     inputs: Mapping[str, object],
 ) -> ExperimentBindingIntent:
+    if isinstance(binding.value, ComputeResultRef):
+        return binding
     expression = (
         binding.value
         if isinstance(binding.value, Expression | ScalarExpr)
@@ -1015,6 +1200,69 @@ def _localize_binding_input_refs(
         binding,
         value=_substitute_input_refs(_expr_to_scalar(expression), inputs),
     )
+
+
+def _localize_state_input_refs(
+    intent: StateEachIntent,
+    inputs: Mapping[str, object],
+) -> StateEachIntent:
+    return replace(
+        intent,
+        relation=_substitute_relation_input_refs(intent.relation, inputs),
+        resource=_substitute_input_refs(intent.resource, inputs),
+        value=(
+            intent.value
+            if isinstance(intent.value, ComputeResultRef)
+            else _substitute_input_refs(intent.value, inputs)
+        ),
+        route_entities=tuple(
+            _substitute_state_route_expr(entity, inputs)
+            for entity in intent.route_entities
+        ),
+    )
+
+
+def _scalar_columns_to_outer(expression: ScalarExpr) -> ScalarExpr:
+    if expression.kind == "column":
+        return outer(_required_name(expression.name, "column.name"))
+    if expression.kind == "param_lookup":
+        return expression.model_copy(
+            update={
+                "key": {
+                    name: _scalar_columns_to_outer(value)
+                    for name, value in (expression.key or {}).items()
+                }
+            }
+        )
+    if expression.kind == "binary":
+        return expression.model_copy(
+            update={
+                "left": _scalar_columns_to_outer(
+                    _required_scalar(expression.left, "expression.left")
+                ),
+                "right": _scalar_columns_to_outer(
+                    _required_scalar(expression.right, "expression.right")
+                ),
+            }
+        )
+    if expression.kind == "case":
+        return expression.model_copy(
+            update={
+                "cases": [
+                    branch.model_copy(
+                        update={
+                            "condition": _scalar_columns_to_outer(branch.condition),
+                            "value": _scalar_columns_to_outer(branch.value),
+                        }
+                    )
+                    for branch in (expression.cases or [])
+                ],
+                "fallback": _scalar_columns_to_outer(
+                    _required_scalar(expression.fallback, "expression.fallback")
+                ),
+            }
+        )
+    return expression
 
 
 def _localize_compute_input_refs(
@@ -1039,8 +1287,10 @@ def _localize_compute_input_value(
 ) -> ComputeNodeInputValue:
     if isinstance(value, ComputeResultRef | RouteBindingRef):
         return value
-    if isinstance(value, Expression | ScalarExpr):
+    if isinstance(value, Expression):
         return _substitute_input_refs(_expr_to_scalar(value), inputs)
+    if isinstance(value, ScalarExpr | SeriesExpr | RelationExpr):
+        return _substitute_value_input_refs(value, inputs)
     return value
 
 
@@ -1072,27 +1322,57 @@ def _localize_record_axis_input_refs(
     axis: RecordAxisIntent,
     inputs: Mapping[str, object],
 ) -> RecordAxisIntent:
-    if not isinstance(axis.size, Expression | ScalarExpr):
+    if not isinstance(axis.size, Expression | ScalarExpr | SeriesExpr | RelationExpr):
         return axis
+    expression = (
+        _expr_to_scalar(axis.size) if isinstance(axis.size, Expression) else axis.size
+    )
     return replace(
         axis,
-        size=_substitute_input_refs(_expr_to_scalar(axis.size), inputs),
+        size=_substitute_value_input_refs(expression, inputs),
     )
+
+
+_EMPTY_INPUT_RESOLUTION: frozenset[str] = frozenset()
+
+
+def _descend_input_resolution(
+    input_name: str,
+    resolving: frozenset[str],
+) -> frozenset[str]:
+    if input_name in resolving:
+        msg = f"cyclic module input reference: {input_name}"
+        raise ValueError(msg)
+    return resolving | {input_name}
 
 
 def _substitute_input_refs(
     expression: ScalarExpr,
     inputs: Mapping[str, object],
+    *,
+    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
 ) -> ScalarExpr:
     if expression.kind == "input":
         input_name = _required_name(expression.name, "input.name")
         value = inputs.get(input_name)
-        return value if isinstance(value, ScalarExpr) else expression
+        if isinstance(value, ScalarExpr):
+            if value.kind == "input" and value.name == input_name:
+                return value
+            return _substitute_input_refs(
+                value,
+                inputs,
+                resolving=_descend_input_resolution(input_name, resolving),
+            )
+        return expression
     if expression.kind == "param_lookup":
         return expression.model_copy(
             update={
                 "key": {
-                    name: _substitute_input_refs(value, inputs)
+                    name: _substitute_input_refs(
+                        value,
+                        inputs,
+                        resolving=resolving,
+                    )
                     for name, value in (expression.key or {}).items()
                 }
             }
@@ -1103,10 +1383,12 @@ def _substitute_input_refs(
                 "left": _substitute_input_refs(
                     _required_scalar(expression.left, "expression.left"),
                     inputs,
+                    resolving=resolving,
                 ),
                 "right": _substitute_input_refs(
                     _required_scalar(expression.right, "expression.right"),
                     inputs,
+                    resolving=resolving,
                 ),
             }
         )
@@ -1119,8 +1401,13 @@ def _substitute_input_refs(
                             "condition": _substitute_input_refs(
                                 branch.condition,
                                 inputs,
+                                resolving=resolving,
                             ),
-                            "value": _substitute_input_refs(branch.value, inputs),
+                            "value": _substitute_input_refs(
+                                branch.value,
+                                inputs,
+                                resolving=resolving,
+                            ),
                         }
                     )
                     for branch in (expression.cases or [])
@@ -1128,10 +1415,379 @@ def _substitute_input_refs(
                 "fallback": _substitute_input_refs(
                     _required_scalar(expression.fallback, "expression.fallback"),
                     inputs,
+                    resolving=resolving,
                 ),
             }
         )
     return expression
+
+
+def _substitute_value_input_refs(
+    expression: DataExpr,
+    inputs: Mapping[str, object],
+    *,
+    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
+) -> DataExpr:
+    if isinstance(expression, ScalarExpr):
+        return _substitute_input_refs(expression, inputs, resolving=resolving)
+    if isinstance(expression, SeriesExpr):
+        return _substitute_series_input_refs(
+            expression,
+            inputs,
+            resolving=resolving,
+        )
+    return _substitute_relation_input_refs(
+        expression,
+        inputs,
+        resolving=resolving,
+    )
+
+
+def _substitute_series_input_refs(
+    expression: SeriesExpr,
+    inputs: Mapping[str, object],
+    *,
+    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
+) -> SeriesExpr:
+    if expression.kind == "input":
+        input_name = _required_name(expression.name, "input.name")
+        value = inputs.get(input_name)
+        if isinstance(value, SeriesExpr):
+            if value.kind == "input" and value.name == input_name:
+                return value
+            return _substitute_series_input_refs(
+                value,
+                inputs,
+                resolving=_descend_input_resolution(input_name, resolving),
+            )
+        if isinstance(value, ScalarExpr | RelationExpr):
+            msg = f"series input {input_name!r} must bind to a series expression"
+            raise TypeError(msg)
+        return expression
+    update: dict[str, object] = {}
+    for field_name in ("start", "stop", "step"):
+        value = getattr(expression, field_name)
+        if value is not None:
+            update[field_name] = _substitute_input_refs(
+                value,
+                inputs,
+                resolving=resolving,
+            )
+    if expression.source is not None:
+        update["source"] = _substitute_relation_input_refs(
+            expression.source,
+            inputs,
+            resolving=resolving,
+        )
+    return expression.model_copy(update=update) if update else expression
+
+
+def _substitute_relation_input_refs(
+    expression: RelationExpr,
+    inputs: Mapping[str, object],
+    *,
+    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
+) -> RelationExpr:
+    if expression.kind == "input":
+        input_name = _required_name(expression.name, "input.name")
+        value = inputs.get(input_name)
+        if isinstance(value, RelationExpr):
+            if value.kind == "input" and value.name == input_name:
+                return value
+            return _substitute_relation_input_refs(
+                value,
+                inputs,
+                resolving=_descend_input_resolution(input_name, resolving),
+            )
+        if isinstance(value, ScalarExpr | SeriesExpr):
+            msg = f"table input {input_name!r} must bind to a table expression"
+            raise TypeError(msg)
+        return expression
+    update: dict[str, object] = {}
+    for field_name in ("source", "left", "right"):
+        value = getattr(expression, field_name)
+        if value is not None:
+            update[field_name] = _substitute_relation_input_refs(
+                value,
+                inputs,
+                resolving=resolving,
+            )
+    if expression.columns is not None:
+        update["columns"] = {
+            name: _substitute_grid_column_input_refs(
+                column,
+                inputs,
+                resolving=resolving,
+            )
+            for name, column in expression.columns.items()
+        }
+    if expression.condition is not None:
+        update["condition"] = _substitute_input_refs(
+            expression.condition,
+            inputs,
+            resolving=resolving,
+        )
+    if expression.new_columns is not None:
+        update["new_columns"] = {
+            name: _substitute_input_refs(
+                value,
+                inputs,
+                resolving=resolving,
+            )
+            for name, value in expression.new_columns.items()
+        }
+    return expression.model_copy(update=update) if update else expression
+
+
+def _substitute_grid_column_input_refs(
+    column: GridColumn,
+    inputs: Mapping[str, object],
+    *,
+    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
+) -> GridColumn:
+    if column.scalar is not None:
+        return column.model_copy(
+            update={
+                "scalar": _substitute_input_refs(
+                    column.scalar,
+                    inputs,
+                    resolving=resolving,
+                )
+            }
+        )
+    if column.series is not None:
+        return column.model_copy(
+            update={
+                "series": _substitute_series_input_refs(
+                    column.series,
+                    inputs,
+                    resolving=resolving,
+                )
+            }
+        )
+    if column.relation is not None:
+        return column.model_copy(
+            update={
+                "relation": _substitute_relation_input_refs(
+                    column.relation,
+                    inputs,
+                    resolving=resolving,
+                )
+            }
+        )
+    return column
+
+
+def _bind_value_input_refs(
+    expression: DataExpr,
+    inputs: Mapping[str, object],
+    *,
+    unbound_to_outer: bool = False,
+    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
+) -> DataExpr:
+    if isinstance(expression, ScalarExpr):
+        return _bind_input_refs(
+            expression,
+            inputs,
+            unbound_to_outer=unbound_to_outer,
+            resolving=resolving,
+        )
+    if isinstance(expression, SeriesExpr):
+        return _bind_series_input_refs(
+            expression,
+            inputs,
+            unbound_to_outer=unbound_to_outer,
+            resolving=resolving,
+        )
+    return _bind_relation_input_refs(
+        expression,
+        inputs,
+        unbound_to_outer=unbound_to_outer,
+        resolving=resolving,
+    )
+
+
+def _bind_series_input_refs(
+    expression: SeriesExpr,
+    inputs: Mapping[str, object],
+    *,
+    unbound_to_outer: bool = False,
+    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
+) -> SeriesExpr:
+    if expression.kind == "input":
+        input_name = _required_name(expression.name, "input.name")
+        if input_name not in inputs:
+            return expression
+        selected = _series_input_value(input_name, inputs[input_name])
+        if selected.kind == "input" and selected.name == input_name:
+            return selected
+        return _bind_series_input_refs(
+            selected,
+            inputs,
+            unbound_to_outer=unbound_to_outer,
+            resolving=_descend_input_resolution(input_name, resolving),
+        )
+    update: dict[str, object] = {}
+    for field_name in ("start", "stop", "step"):
+        value = getattr(expression, field_name)
+        if value is not None:
+            update[field_name] = _bind_input_refs(
+                value,
+                inputs,
+                unbound_to_outer=unbound_to_outer,
+                resolving=resolving,
+            )
+    if expression.source is not None:
+        update["source"] = _bind_relation_input_refs(
+            expression.source,
+            inputs,
+            unbound_to_outer=unbound_to_outer,
+            resolving=resolving,
+        )
+    return expression.model_copy(update=update) if update else expression
+
+
+def _bind_relation_input_refs(
+    expression: RelationExpr,
+    inputs: Mapping[str, object],
+    *,
+    unbound_to_outer: bool = False,
+    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
+) -> RelationExpr:
+    if expression.kind == "input":
+        input_name = _required_name(expression.name, "input.name")
+        if input_name not in inputs:
+            return expression
+        selected = _table_input_value(input_name, inputs[input_name])
+        if selected.kind == "input" and selected.name == input_name:
+            return selected
+        return _bind_relation_input_refs(
+            selected,
+            inputs,
+            unbound_to_outer=unbound_to_outer,
+            resolving=_descend_input_resolution(input_name, resolving),
+        )
+    update: dict[str, object] = {}
+    for field_name in ("source", "left", "right"):
+        value = getattr(expression, field_name)
+        if value is not None:
+            update[field_name] = _bind_relation_input_refs(
+                value,
+                inputs,
+                unbound_to_outer=unbound_to_outer,
+                resolving=resolving,
+            )
+    if expression.columns is not None:
+        update["columns"] = {
+            name: _bind_grid_column_input_refs(
+                column,
+                inputs,
+                unbound_to_outer=unbound_to_outer,
+                resolving=resolving,
+            )
+            for name, column in expression.columns.items()
+        }
+    if expression.condition is not None:
+        update["condition"] = _bind_input_refs(
+            expression.condition,
+            inputs,
+            unbound_to_outer=unbound_to_outer,
+            resolving=resolving,
+        )
+    if expression.new_columns is not None:
+        update["new_columns"] = {
+            name: _bind_input_refs(
+                value,
+                inputs,
+                unbound_to_outer=unbound_to_outer,
+                resolving=resolving,
+            )
+            for name, value in expression.new_columns.items()
+        }
+    return expression.model_copy(update=update) if update else expression
+
+
+def _bind_grid_column_input_refs(
+    column: GridColumn,
+    inputs: Mapping[str, object],
+    *,
+    unbound_to_outer: bool = False,
+    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
+) -> GridColumn:
+    if column.scalar is not None:
+        return column.model_copy(
+            update={
+                "scalar": _bind_input_refs(
+                    column.scalar,
+                    inputs,
+                    unbound_to_outer=unbound_to_outer,
+                    resolving=resolving,
+                )
+            }
+        )
+    if column.series is not None:
+        return column.model_copy(
+            update={
+                "series": _bind_series_input_refs(
+                    column.series,
+                    inputs,
+                    unbound_to_outer=unbound_to_outer,
+                    resolving=resolving,
+                )
+            }
+        )
+    if column.relation is not None:
+        return column.model_copy(
+            update={
+                "relation": _bind_relation_input_refs(
+                    column.relation,
+                    inputs,
+                    unbound_to_outer=unbound_to_outer,
+                    resolving=resolving,
+                )
+            }
+        )
+    return column
+
+
+def _series_input_value(input_name: str, value: object) -> SeriesExpr:
+    if isinstance(value, SeriesExpr):
+        return value
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        sequence = cast("Sequence[object]", value)
+        return values([_input_cell(item) for item in sequence])
+    msg = f"series input {input_name!r} must bind to a sequence"
+    raise TypeError(msg)
+
+
+def _table_input_value(input_name: str, value: object) -> RelationExpr:
+    if isinstance(value, RelationExpr):
+        return value
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        msg = f"table input {input_name!r} must bind to a sequence of rows"
+        raise TypeError(msg)
+    rows: list[dict[str, CellValue]] = []
+    sequence = cast("Sequence[object]", value)
+    for index, item in enumerate(sequence):
+        if not isinstance(item, Mapping):
+            msg = f"table input {input_name!r} row {index} must be a mapping"
+            raise TypeError(msg)
+        row = cast("Mapping[object, object]", item)
+        rows.append({str(name): _input_cell(cell) for name, cell in row.items()})
+    return literal_rows(rows)
+
+
+def _literal_data_expr(value: object) -> DataExpr:
+    if isinstance(value, ScalarExpr | SeriesExpr | RelationExpr):
+        return value
+    if isinstance(value, Expression):
+        return _expr_to_scalar(value)
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        sequence = cast("Sequence[object]", value)
+        if sequence and all(isinstance(item, Mapping) for item in sequence):
+            return _table_input_value("literal", sequence)
+        return values([_input_cell(item) for item in sequence])
+    return _literal(_input_cell(value))
 
 
 def derive(variable_id: str, expression: Expression) -> DerivedVariableIntent:
@@ -1157,8 +1813,12 @@ def input_ref(input_id: str) -> ScalarExpr:
     return relation_input_ref(input_id)
 
 
-def compute_result(node_id: str) -> ComputeResultRef:
-    return ComputeResultRef(node_id=node_id)
+def input_series(input_id: str) -> SeriesExpr:
+    return relation_input_series(input_id)
+
+
+def input_table(input_id: str) -> RelationExpr:
+    return relation_input_table(input_id)
 
 
 def route(port_id: str) -> RouteBindingRef:
@@ -1177,13 +1837,16 @@ def record_axis(
 
 def entity_axis(
     id: str,  # noqa: A002
-    entities: Expression | ScalarExpr | EntityArray | Sequence[EntityRef | str],
+    entities: Expression | ScalarExpr | SeriesExpr | Sequence[EntityRef | str],
 ) -> RecordAxisIntent:
-    return record_axis(
-        id,
-        size=entities,
-        kind="entity",
-        unit=None,
+    return replace(
+        record_axis(
+            id,
+            size=entities,
+            kind="entity",
+            unit=None,
+        ),
+        entity_values=True,
     )
 
 
@@ -1230,41 +1893,36 @@ def record_product(
     )
 
 
-def _resolve_entity_inputs(
+def _validate_entity_inputs(
     ctx: ExperimentAuthoringContext,
     entity_inputs: tuple[str, ...],
     inputs: Mapping[str, object],
-) -> list[EntityRef | EntityArray]:
-    entities: list[EntityRef | EntityArray] = []
+) -> None:
     for input_id in entity_inputs:
         if input_id not in inputs:
             continue
         value = inputs.get(input_id)
         if isinstance(value, str) and value:
-            entities.append(ctx.require_entity(value))
+            ctx.require_entity(value)
             continue
         if isinstance(value, EntityRef):
-            entities.append(ctx.require_entity(value))
-            continue
-        if isinstance(value, EntityArray):
-            entities.append(ctx.require_entity_array(value))
+            ctx.require_entity(value)
             continue
         if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-            selected = entity_array(cast("Sequence[EntityRef | str]", value))
-            entities.append(ctx.require_entity_array(selected))
+            selected = cast("Sequence[EntityRef | str]", value)
+            ctx.require_entities(selected)
             continue
         if not value:
             ctx.raise_diagnostic(
                 "module_entity_input_invalid",
-                f"module entity input {input_id} must be an entity or entity array",
+                f"module entity input {input_id} must be an entity or entity series",
                 input_id,
             )
         ctx.raise_diagnostic(
             "module_entity_input_invalid",
-            f"module entity input {input_id} must be an entity or entity array",
+            f"module entity input {input_id} must be an entity or entity series",
             input_id,
         )
-    return entities
 
 
 def _lower_records(
@@ -1321,32 +1979,33 @@ def link_experiment_assembly(
             "kind",
         )
     _validate_assembly_conflicts(ctx, assembly)
-    _resolve_entity_inputs(ctx, assembly.entity_inputs, assembly.inputs)
+    inputs = _coerce_assembly_inputs(ctx, assembly.input_ports, assembly.inputs)
+    _validate_entity_inputs(ctx, assembly.entity_inputs, inputs)
     resource_ports = ports_by_id(ctx, assembly.resource_ports)
     route_intents = build_route_intents(
         ctx,
         assembly.resource_ports,
-        inputs=assembly.inputs,
+        inputs=inputs,
     )
     variables = {
-        intent.variable_id: intent.build(ctx, assembly.inputs)
-        for intent in assembly.variables
+        intent.variable_id: intent.build(ctx, inputs) for intent in assembly.variables
     }
     bindings = [binding.build(ctx, resource_ports) for binding in assembly.bindings]
     points = _points_relation(
         ctx,
-        _build_point_source(assembly.point_source, assembly.inputs),
+        _build_point_source(assembly.point_source, inputs),
         variables,
-        inputs=assembly.inputs,
+        inputs=inputs,
+        input_ports=assembly.input_ports,
         entity_input_ids=assembly.entity_inputs,
     )
     records = [
-        *_lower_records(ctx, assembly.records, assembly.inputs),
+        *_lower_records(ctx, assembly.records, inputs),
         *_lower_product_selections(
             ctx,
             assembly.record_selections,
             assembly.product_ports,
-            assembly.inputs,
+            inputs,
         ),
     ]
     return ExperimentSpec(
@@ -1354,11 +2013,14 @@ def link_experiment_assembly(
         kind=assembly.kind,
         points=points,
         route_intents=route_intents,
-        compute_nodes=[node.build(assembly.inputs) for node in assembly.compute_nodes],
+        compute_nodes=[node.build(inputs) for node in assembly.compute_nodes],
         params=list(assembly.params),
         state=[
-            *_state_specs(bindings, inputs=assembly.inputs),
-            *(intent.build() for intent in assembly.state_intents),
+            *_state_specs(bindings, inputs=inputs),
+            *(
+                intent.build(ctx, resource_ports, inputs)
+                for intent in assembly.state_intents
+            ),
         ],
         records=records,
         metadata=dict(assembly.metadata),
@@ -1405,6 +2067,70 @@ def _validate_assembly_conflicts(
     )
 
 
+def _coerce_assembly_inputs(
+    ctx: ExperimentAuthoringContext,
+    ports: Sequence[ModuleInputPort],
+    inputs: Mapping[str, object],
+) -> dict[str, object]:
+    declared: dict[str, ValueType] = {}
+    for port in ports:
+        existing = declared.get(port.id)
+        if existing is not None and existing != port.value_type:
+            ctx.raise_diagnostic(
+                "module_input_type_conflict",
+                f"module input {port.id} has incompatible value types",
+                f"inputs.{port.id}",
+            )
+        declared[port.id] = port.value_type
+    result = dict(inputs)
+    for input_id, value_type in declared.items():
+        if input_id not in result:
+            continue
+        value = result[input_id]
+        if isinstance(value, Expression):
+            expression = _expr_to_scalar(value)
+            try:
+                _validate_data_expr_shape(
+                    expression,
+                    value_type,
+                    path=f"inputs.{input_id}",
+                )
+            except ValueValidationError as error:
+                ctx.raise_diagnostic(
+                    "module_input_type_mismatch",
+                    str(error),
+                    error.path,
+                )
+            continue
+        if isinstance(value, ScalarExpr | SeriesExpr | RelationExpr):
+            try:
+                _validate_data_expr_shape(
+                    value,
+                    value_type,
+                    path=f"inputs.{input_id}",
+                )
+            except ValueValidationError as error:
+                ctx.raise_diagnostic(
+                    "module_input_type_mismatch",
+                    str(error),
+                    error.path,
+                )
+            continue
+        try:
+            result[input_id] = coerce_literal(
+                value_type,
+                value,
+                path=f"inputs.{input_id}",
+            )
+        except ValueValidationError as error:
+            ctx.raise_diagnostic(
+                "module_input_type_mismatch",
+                str(error),
+                error.path,
+            )
+    return result
+
+
 def _product_ports_by_id(
     ctx: ExperimentAuthoringContext,
     product_ports: Sequence[ModuleProductPort],
@@ -1432,7 +2158,7 @@ def _merge_resource_ports(roles: Sequence[ResourcePort]) -> tuple[ResourcePort, 
             )
         )
         entity_inputs = tuple(
-            dict.fromkeys(
+            _unique_values(
                 (*existing.selector.entity_inputs, *role.selector.entity_inputs)
             )
         )
@@ -1444,6 +2170,14 @@ def _merge_resource_ports(roles: Sequence[ResourcePort]) -> tuple[ResourcePort, 
             ),
         )
     return tuple(merged.values())
+
+
+def _unique_values[T](values: Sequence[T]) -> list[T]:
+    selected: list[T] = []
+    for value in values:
+        if value not in selected:
+            selected.append(value)
+    return selected
 
 
 def _reject_duplicates(
@@ -1469,6 +2203,7 @@ def _points_relation(
     variables: Mapping[str, ExperimentVariable],
     *,
     inputs: Mapping[str, object],
+    input_ports: Sequence[ModuleInputPort] = (),
     entity_input_ids: Sequence[str] = (),
 ) -> RelationExpr:
     columns: dict[str, object] = {}
@@ -1507,16 +2242,57 @@ def _points_relation(
         relation = point_source.cross(relation) if columns else point_source
     if derived:
         relation = relation.with_columns(**derived)
+    rows = _coerce_point_input_values(
+        ctx,
+        relation.evaluate(
+            ctx.parameter_view,
+            inputs=_input_row(inputs),
+        ),
+        input_ports=input_ports,
+    )
     return literal_rows(
         _resolve_point_entities(
             ctx,
-            relation.evaluate(
-                ctx.parameter_view,
-                inputs=_input_row(inputs),
-            ),
+            rows,
             entity_input_ids=entity_input_ids,
         )
     )
+
+
+def _coerce_point_input_values(
+    ctx: ExperimentAuthoringContext,
+    rows: Sequence[Row],
+    *,
+    input_ports: Sequence[ModuleInputPort],
+) -> list[Row]:
+    scalar_types = {
+        port.id: port.value_type
+        for port in input_ports
+        if isinstance(port.value_type, ScalarType)
+    }
+    result: list[Row] = []
+    for row_index, row in enumerate(rows):
+        selected = dict(row)
+        for column, value_type in scalar_types.items():
+            if column not in selected:
+                continue
+            try:
+                selected[column] = cast(
+                    "CellValue",
+                    coerce_literal(
+                        value_type,
+                        selected[column],
+                        path=f"points.{row_index}.{column}",
+                    ),
+                )
+            except ValueValidationError as error:
+                ctx.raise_diagnostic(
+                    "module_point_value_type_mismatch",
+                    str(error),
+                    error.path,
+                )
+        result.append(selected)
+    return result
 
 
 def _resolve_point_entities(
@@ -1547,8 +2323,6 @@ def _resolve_point_entity_value(
 ) -> CellValue:
     if isinstance(value, EntityRef):
         return ctx.require_entity(value)
-    if isinstance(value, EntityArray):
-        return ctx.require_entity_array(value)
     if resolve_strings and isinstance(value, str) and value:
         return ctx.require_entity(value)
     return value
@@ -1595,22 +2369,45 @@ def _build_point_source(
 def _bind_input_refs(
     expression: ScalarExpr,
     inputs: Mapping[str, object],
+    *,
+    unbound_to_outer: bool = False,
+    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
 ) -> ScalarExpr:
     if expression.kind == "input":
         input_name = _required_name(expression.name, "input.name")
         if input_name not in inputs:
-            return col(input_name)
+            return outer(input_name) if unbound_to_outer else col(input_name)
         value = inputs[input_name]
+        next_resolving = _descend_input_resolution(input_name, resolving)
         if isinstance(value, ScalarExpr):
-            return value
+            if value.kind == "input" and value.name == input_name:
+                return outer(input_name) if unbound_to_outer else col(input_name)
+            bound = _bind_input_refs(
+                value,
+                inputs,
+                unbound_to_outer=unbound_to_outer,
+                resolving=next_resolving,
+            )
+            return _scalar_columns_to_outer(bound) if unbound_to_outer else bound
         if isinstance(value, Expression):
-            return _expr_to_scalar(value)
+            bound = _bind_input_refs(
+                _expr_to_scalar(value),
+                inputs,
+                unbound_to_outer=unbound_to_outer,
+                resolving=next_resolving,
+            )
+            return _scalar_columns_to_outer(bound) if unbound_to_outer else bound
         return _literal(_input_cell(value))
     if expression.kind == "param_lookup":
         return expression.model_copy(
             update={
                 "key": {
-                    name: _bind_input_refs(value, inputs)
+                    name: _bind_input_refs(
+                        value,
+                        inputs,
+                        unbound_to_outer=unbound_to_outer,
+                        resolving=resolving,
+                    )
                     for name, value in (expression.key or {}).items()
                 }
             }
@@ -1621,10 +2418,14 @@ def _bind_input_refs(
                 "left": _bind_input_refs(
                     _required_scalar(expression.left, "expression.left"),
                     inputs,
+                    unbound_to_outer=unbound_to_outer,
+                    resolving=resolving,
                 ),
                 "right": _bind_input_refs(
                     _required_scalar(expression.right, "expression.right"),
                     inputs,
+                    unbound_to_outer=unbound_to_outer,
+                    resolving=resolving,
                 ),
             }
         )
@@ -1634,8 +2435,18 @@ def _bind_input_refs(
                 "cases": [
                     branch.model_copy(
                         update={
-                            "condition": _bind_input_refs(branch.condition, inputs),
-                            "value": _bind_input_refs(branch.value, inputs),
+                            "condition": _bind_input_refs(
+                                branch.condition,
+                                inputs,
+                                unbound_to_outer=unbound_to_outer,
+                                resolving=resolving,
+                            ),
+                            "value": _bind_input_refs(
+                                branch.value,
+                                inputs,
+                                unbound_to_outer=unbound_to_outer,
+                                resolving=resolving,
+                            ),
                         }
                     )
                     for branch in (expression.cases or [])
@@ -1643,6 +2454,8 @@ def _bind_input_refs(
                 "fallback": _bind_input_refs(
                     _required_scalar(expression.fallback, "expression.fallback"),
                     inputs,
+                    unbound_to_outer=unbound_to_outer,
+                    resolving=resolving,
                 ),
             }
         )
@@ -1656,69 +2469,73 @@ def bind_input_refs(
     return _bind_input_refs(expression, inputs)
 
 
-def _bind_input_refs_with_provenance(
-    expression: ScalarExpr,
+def bind_value_input_refs(
+    expression: DataExpr,
     inputs: Mapping[str, object],
-) -> tuple[ScalarExpr, tuple[str, ...]]:
-    if expression.kind == "input":
-        input_name = _required_name(expression.name, "input.name")
-        if input_name not in inputs:
-            return col(input_name), (input_name,)
-        value = inputs[input_name]
-        if isinstance(value, ScalarExpr):
-            return value, (input_name,)
-        if isinstance(value, Expression):
-            return _expr_to_scalar(value), (input_name,)
-        return _literal(_input_cell(value)), (input_name,)
+) -> DataExpr:
+    return _bind_value_input_refs(expression, inputs)
+
+
+def _value_input_refs(expression: DataExpr) -> tuple[str, ...]:
+    refs: set[str] = set()
+    _collect_value_input_refs(expression, refs)
+    return tuple(sorted(refs))
+
+
+def _collect_value_input_refs(expression: DataExpr, refs: set[str]) -> None:
+    if isinstance(expression, ScalarExpr):
+        _collect_scalar_input_refs(expression, refs)
+        return
+    if isinstance(expression, SeriesExpr):
+        if expression.kind == "input" and expression.name:
+            refs.add(expression.name)
+        for bound in (expression.start, expression.stop, expression.step):
+            if bound is not None:
+                _collect_scalar_input_refs(bound, refs)
+        if expression.source is not None:
+            _collect_relation_input_refs(expression.source, refs)
+        return
+    _collect_relation_input_refs(expression, refs)
+
+
+def _collect_scalar_input_refs(expression: ScalarExpr, refs: set[str]) -> None:
+    if expression.kind == "input" and expression.name:
+        refs.add(expression.name)
+        return
     if expression.kind == "param_lookup":
-        bound_keys: dict[str, ScalarExpr] = {}
-        param_source_inputs: list[str] = []
-        for name, value in (expression.key or {}).items():
-            bound, child_inputs = _bind_input_refs_with_provenance(value, inputs)
-            bound_keys[name] = bound
-            param_source_inputs.extend(child_inputs)
-        return expression.model_copy(update={"key": bound_keys}), tuple(
-            sorted(set(param_source_inputs))
-        )
+        for value in (expression.key or {}).values():
+            _collect_scalar_input_refs(value, refs)
+        return
     if expression.kind == "binary":
-        left, left_inputs = _bind_input_refs_with_provenance(
-            _required_scalar(expression.left, "expression.left"),
-            inputs,
-        )
-        right, right_inputs = _bind_input_refs_with_provenance(
-            _required_scalar(expression.right, "expression.right"),
-            inputs,
-        )
-        return (
-            expression.model_copy(update={"left": left, "right": right}),
-            tuple(sorted({*left_inputs, *right_inputs})),
-        )
+        for value in (expression.left, expression.right):
+            if value is not None:
+                _collect_scalar_input_refs(value, refs)
+        return
     if expression.kind == "case":
-        case_source_inputs: list[str] = []
-        cases: list[CaseBranch] = []
-        for branch in expression.cases or []:
-            condition, condition_inputs = _bind_input_refs_with_provenance(
-                branch.condition,
-                inputs,
-            )
-            value, value_inputs = _bind_input_refs_with_provenance(
-                branch.value,
-                inputs,
-            )
-            case_source_inputs.extend((*condition_inputs, *value_inputs))
-            cases.append(
-                branch.model_copy(update={"condition": condition, "value": value})
-            )
-        fallback, fallback_inputs = _bind_input_refs_with_provenance(
-            _required_scalar(expression.fallback, "expression.fallback"),
-            inputs,
-        )
-        case_source_inputs.extend(fallback_inputs)
-        return (
-            expression.model_copy(update={"cases": cases, "fallback": fallback}),
-            tuple(sorted(set(case_source_inputs))),
-        )
-    return expression, ()
+        for branch in expression.cases or ():
+            _collect_scalar_input_refs(branch.condition, refs)
+            _collect_scalar_input_refs(branch.value, refs)
+        if expression.fallback is not None:
+            _collect_scalar_input_refs(expression.fallback, refs)
+
+
+def _collect_relation_input_refs(expression: RelationExpr, refs: set[str]) -> None:
+    if expression.kind == "input" and expression.name:
+        refs.add(expression.name)
+    for source in (expression.source, expression.left, expression.right):
+        if source is not None:
+            _collect_relation_input_refs(source, refs)
+    for column in (expression.columns or {}).values():
+        if column.scalar is not None:
+            _collect_scalar_input_refs(column.scalar, refs)
+        if column.series is not None:
+            _collect_value_input_refs(column.series, refs)
+        if column.relation is not None:
+            _collect_relation_input_refs(column.relation, refs)
+    if expression.condition is not None:
+        _collect_scalar_input_refs(expression.condition, refs)
+    for value in (expression.new_columns or {}).values():
+        _collect_scalar_input_refs(value, refs)
 
 
 def _compute_node_input(
@@ -1729,18 +2546,12 @@ def _compute_node_input(
         return ComputeNodeInput(kind="compute_result", node_id=value.node_id)
     if isinstance(value, RouteBindingRef):
         return ComputeNodeInput(kind="route", port_id=value.port_id)
-    expression = (
-        value
-        if isinstance(value, Expression | ScalarExpr)
-        else Expression.from_value(value)
-    )
-    bound, source_inputs = _bind_input_refs_with_provenance(
-        _expr_to_scalar(expression),
-        inputs,
-    )
+    expression = _literal_data_expr(value)
+    source_inputs = _value_input_refs(expression)
+    bound = _bind_value_input_refs(expression, inputs)
     return ComputeNodeInput(
         kind="value",
-        value=bound,
+        value=as_value_expr(bound),
         source_inputs=list(source_inputs),
     )
 
@@ -1750,14 +2561,103 @@ def _state_specs(
     *,
     inputs: Mapping[str, object],
 ) -> list[StateSpec]:
-    return [
-        set_state(
-            binding.resource_id,
-            f"{binding.capability_id}.{binding.field_path}",
-            _bind_input_refs(_expr_to_scalar(binding.value), inputs),
+    specs: list[StateSpec] = []
+    for binding in bindings:
+        value = binding.value
+        specs.append(
+            set_state(
+                binding.resource_id,
+                f"{binding.capability_id}.{binding.field_path}",
+                (
+                    value
+                    if isinstance(value, ComputeResultRef)
+                    else _bind_input_refs(_expr_to_scalar(value), inputs)
+                ),
+            )
         )
-        for binding in bindings
-    ]
+    return specs
+
+
+def _state_scalar_expr(value: object) -> ScalarExpr:
+    if isinstance(value, Expression):
+        return _expr_to_scalar(value)
+    return as_scalar_expr(value)
+
+
+def _state_value_expr(value: object) -> ScalarExpr | ComputeResultRef:
+    if isinstance(value, ComputeResultRef):
+        return value
+    return _state_scalar_expr(value)
+
+
+def _bind_state_value(
+    value: ScalarExpr | ComputeResultRef,
+    inputs: Mapping[str, object],
+    *,
+    unbound_to_outer: bool = False,
+) -> ScalarExpr | ComputeResultRef:
+    if isinstance(value, ComputeResultRef):
+        return value
+    return _bind_input_refs(value, inputs, unbound_to_outer=unbound_to_outer)
+
+
+def _state_route_expr(value: object) -> StateRouteExpr:
+    if isinstance(value, Expression):
+        return _expr_to_scalar(value)
+    if isinstance(value, ScalarExpr | SeriesExpr):
+        return value
+    if isinstance(value, RelationExpr):
+        msg = "state route entity source must be scalar or series-shaped"
+        raise TypeError(msg)
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return values([_input_cell(item) for item in cast("Sequence[object]", value)])
+    return as_scalar_expr(value)
+
+
+def _bind_state_route_expr(
+    ctx: ExperimentAuthoringContext,
+    expression: StateRouteExpr,
+    inputs: Mapping[str, object],
+    *,
+    unbound_to_outer: bool = False,
+) -> StateRouteExpr:
+    bound = _bind_value_input_refs(
+        expression,
+        inputs,
+        unbound_to_outer=unbound_to_outer,
+    )
+    if isinstance(bound, RelationExpr):
+        ctx.raise_diagnostic(
+            "module_state_route_entity_invalid",
+            "state route entity source must be scalar or series-shaped",
+            "state.route_entities",
+        )
+    return bound
+
+
+def _substitute_state_route_expr(
+    expression: StateRouteExpr,
+    inputs: Mapping[str, object],
+) -> StateRouteExpr:
+    substituted = _substitute_value_input_refs(expression, inputs)
+    if isinstance(substituted, RelationExpr):
+        msg = "state route entity source must be scalar or series-shaped"
+        raise TypeError(msg)
+    return substituted
+
+
+def _state_field_capability(
+    ctx: ExperimentAuthoringContext,
+    field: str,
+) -> str:
+    capability_id, separator, field_path = field.partition(".")
+    if not separator or not capability_id or not field_path:
+        ctx.raise_diagnostic(
+            "module_state_field_invalid",
+            "state field must use 'capability.field' syntax",
+            "state.field",
+        )
+    return capability_id
 
 
 def _expr_to_scalar(expression: Expression | ScalarExpr) -> ScalarExpr:
@@ -1837,33 +2737,66 @@ def _static_axis_size(
     default: int,
     path: str,
     inputs: Mapping[str, object],
+    entity_axis: bool = False,
 ) -> tuple[int, dict[str, Any]]:
-    if isinstance(value, EntityArray):
-        entities = ctx.require_entity_array(value)
-        return entities.size, _entity_axis_metadata(entities)
+    if isinstance(value, SeriesExpr):
+        evaluated = _bind_series_input_refs(value, inputs).evaluate(
+            EvalContext(params=_relation_params(ctx), inputs=_input_values(inputs))
+        )
+        if not entity_axis:
+            return len(evaluated), {}
+        entities = _axis_entities(
+            ctx,
+            evaluated,
+            path=path,
+        )
+        return len(entities), _entity_axis_metadata(entities)
+    if isinstance(value, RelationExpr):
+        if entity_axis:
+            ctx.raise_diagnostic(
+                "module_record_entity_axis_invalid",
+                "entity record axis must be scalar or series-shaped",
+                path,
+            )
+        evaluated_rows = _bind_relation_input_refs(value, inputs).evaluate(
+            _relation_params(ctx),
+            inputs=_input_values(inputs),
+        )
+        return len(evaluated_rows), {}
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        if not entity_axis:
+            return len(value), {}
+        entities = _axis_entities(
+            ctx,
+            cast("Sequence[object]", value),
+            path=path,
+        )
+        return len(entities), _entity_axis_metadata(entities)
+    if entity_axis:
+        if not isinstance(value, Expression | ScalarExpr):
+            ctx.raise_diagnostic(
+                "module_record_entity_axis_invalid",
+                "entity record axis must resolve to an entity series",
+                path,
+            )
         try:
-            entities = entity_array(value)
-        except Exception:
-            entities = None
-        if entities is not None:
-            entities = ctx.require_entity_array(entities)
-            return entities.size, _entity_axis_metadata(entities)
-    expression = (
-        value
-        if isinstance(value, Expression | ScalarExpr) or value is None
-        else _axis_size_expression(value)
-    )
-    if expression is not None:
-        try:
-            evaluated = _expr_to_scalar(expression).eval(
+            evaluated_entity = _expr_to_scalar(value).eval(
                 EvalContext(params=_relation_params(ctx), inputs=_input_row(inputs))
             )
-        except Exception:
-            evaluated = None
-        if isinstance(evaluated, EntityArray):
-            entities = ctx.require_entity_array(evaluated)
-            return entities.size, _entity_axis_metadata(entities)
+        except Exception as error:
+            ctx.raise_diagnostic(
+                "module_record_entity_axis_invalid",
+                f"entity record axis could not be evaluated: {error}",
+                path,
+            )
+        entities = _axis_entities(
+            ctx,
+            [evaluated_entity],
+            path=path,
+        )
+        return len(entities), _entity_axis_metadata(entities)
+    if not isinstance(value, Expression | ScalarExpr) and value is not None:
+        _validate_axis_size_literal(value)
     positive_value = cast(
         "Expression | ScalarExpr | Quantity | float | None",
         value,
@@ -1880,17 +2813,52 @@ def _static_axis_size(
     )
 
 
-def _axis_size_expression(value: AxisSizeInput) -> Expression:
+def _validate_axis_size_literal(value: AxisSizeInput) -> None:
     if isinstance(value, Quantity | int | float) and not isinstance(value, bool):
-        return Expression.from_value(value)
-    msg = f"axis size must be numeric or an entity array, got {value!r}"
+        return
+    msg = f"axis size must be numeric or an entity series, got {value!r}"
     raise TypeError(msg)
 
 
-def _entity_axis_metadata(value: EntityArray) -> dict[str, Any]:
+def _axis_entities(
+    ctx: ExperimentAuthoringContext,
+    values: Sequence[object],
+    *,
+    path: str,
+) -> tuple[EntityRef, ...]:
+    if not values:
+        ctx.raise_diagnostic(
+            "module_record_entity_axis_invalid",
+            "entity record axis must not be empty",
+            path,
+        )
+    if not all(isinstance(value, EntityRef | str) and bool(value) for value in values):
+        ctx.raise_diagnostic(
+            "module_record_entity_axis_invalid",
+            "entity record axis values must be entity references",
+            path,
+        )
+    resolved = ctx.require_entities(cast("Sequence[EntityRef | str]", values))
+    entity_ids = [entity.id for entity in resolved]
+    duplicates = sorted(
+        entity_id for entity_id, count in Counter(entity_ids).items() if count > 1
+    )
+    if duplicates:
+        ctx.raise_diagnostic(
+            "module_record_entity_axis_duplicate",
+            "entity record axis contains duplicate entities: " + ", ".join(duplicates),
+            path,
+        )
+    return resolved
+
+
+def _entity_axis_metadata(value: Sequence[EntityRef]) -> dict[str, Any]:
+    entity_kind = value[0].kind if value else None
+    if entity_kind is None or any(entity.kind != entity_kind for entity in value):
+        entity_kind = None
     return {
-        "entities": [entity.model_dump(mode="json") for entity in value.entities],
-        **({"entity_kind": value.kind} if value.kind else {}),
+        "entities": [entity.model_dump(mode="json") for entity in value],
+        **({"entity_kind": entity_kind} if entity_kind else {}),
     }
 
 
@@ -1908,12 +2876,25 @@ def _input_row(inputs: Mapping[str, object]) -> dict[str, CellValue]:
     return row
 
 
+def _input_values(inputs: Mapping[str, object]) -> dict[str, object]:
+    return dict(inputs)
+
+
 def _input_cell(value: object) -> CellValue:
     if (
-        isinstance(value, Quantity | EntityRef | EntityArray | str | int | float | bool)
+        isinstance(
+            value,
+            Quantity | EntityRef | PayloadValue | str | int | float | bool,
+        )
         or value is None
     ):
         return value
+    if isinstance(value, Mapping):
+        mapping = cast("Mapping[object, object]", value)
+        if not all(isinstance(key, str) for key in mapping):
+            msg = "record input keys must be strings"
+            raise TypeError(msg)
+        return cast("dict[str, Any]", dict(mapping))
     msg = f"input value is not available as a scalar expression value: {value!r}"
     raise TypeError(msg)
 
@@ -1947,16 +2928,6 @@ def _combined_parameter_derivations(
 
 def _literal(value: CellValue) -> ScalarExpr:
     return ScalarExpr(kind="literal", value=value)
-
-
-def _compute_result_state_value(node_id: str, *, kind: str) -> ScalarExpr:
-    return _literal(
-        {
-            "kind": "compute_result",
-            "node_id": node_id,
-            "payload_kind": kind,
-        }
-    )
 
 
 def _required_quantity(value: Quantity | None, path: str) -> Quantity:
@@ -2027,13 +2998,16 @@ __all__ = [
     "ResourcePort",
     "ResourceSelector",
     "RouteBindingRef",
-    "StateTableIntent",
+    "StateEachIntent",
     "VariableIntent",
     "bind",
+    "bind_value_input_refs",
     "compute_result",
     "derive",
     "entity_axis",
     "input_ref",
+    "input_series",
+    "input_table",
     "module",
     "observable",
     "param_ref",

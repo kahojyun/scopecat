@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from typing import cast
 
 from scopecat.models.parameter import (
     ParameterCatalog,
@@ -14,6 +15,12 @@ from scopecat.models.parameter import (
     ParameterTableDefinition,
     ParameterValueSet,
     Quantity,
+)
+from scopecat.parameter_validation import (
+    ParameterTableCellValidationError,
+    coerce_parameter_table,
+    coerce_parameter_table_cell,
+    parameter_table_key_part,
 )
 from scopecat.units import compatible_units, to_base_value
 
@@ -28,6 +35,7 @@ def apply_parameter_patches(
 ) -> ParameterState:
     """Apply concrete patches to accepted parameter state and return a candidate."""
 
+    parameter_state = _normalize_parameter_state_tables(catalog, parameter_state)
     scalar_by_id = {
         value.id: value.model_copy(deep=True)
         for value in parameter_state.scalar_value_set().values
@@ -66,8 +74,8 @@ def apply_parameter_patches(
             table_id = _required(patch.table_id)
             definition = _table_definition(catalog, table_id)
             table = _table_value(table_by_id, table_id)
-            key = _required(patch.key)
-            values = _required(patch.values)
+            key = dict(_required(patch.key))
+            values = dict(_required(patch.values))
             _validate_key(definition, key)
             _validate_patch_columns(definition, values, allow_primary_key=False)
             rows = [dict(row) for row in table.rows]
@@ -76,11 +84,10 @@ def apply_parameter_patches(
                 for column_id, expected in patch.expected_values.items():
                     _assert_equal(
                         row.get(column_id),
-                        expected,
+                        _validate_cell_value(definition, column_id, expected),
                         path=f"{table_id}.{column_id}.expected_value",
                     )
             for column_id, value in values.items():
-                _validate_cell_value(definition, column_id, value)
                 row[column_id] = value
             table_by_id[table_id] = table.model_copy(update={"rows": rows}, deep=True)
         elif patch.kind == "insert_rows":
@@ -92,7 +99,8 @@ def apply_parameter_patches(
             definition = _table_definition(catalog, table_id)
             table = _table_value(table_by_id, table_id)
             rows = [dict(row) for row in table.rows]
-            for row in _required(patch.rows):
+            for raw_row in _required(patch.rows):
+                row = dict(raw_row)
                 _validate_row(definition, row)
                 key = _row_key(definition, row)
                 if _matching_rows(rows, key):
@@ -108,7 +116,7 @@ def apply_parameter_patches(
             table_id = _required(patch.table_id)
             definition = _table_definition(catalog, table_id)
             table = _table_value(table_by_id, table_id)
-            key = _required(patch.key)
+            key = dict(_required(patch.key))
             _validate_key(definition, key)
             rows = [dict(row) for row in table.rows]
             row = _find_one_row(rows, definition, key)
@@ -116,7 +124,7 @@ def apply_parameter_patches(
                 for column_id, expected in patch.expected_values.items():
                     _assert_equal(
                         row.get(column_id),
-                        expected,
+                        _validate_cell_value(definition, column_id, expected),
                         path=f"{table_id}.{column_id}.expected_value",
                     )
             rows.remove(row)
@@ -151,6 +159,8 @@ def diff_parameter_states(
 ) -> ParameterChangeSet:
     """Create a concrete change set from accepted and candidate states."""
 
+    before = _normalize_parameter_state_tables(catalog, before)
+    after = _normalize_parameter_state_tables(catalog, after)
     patches: list[ParameterPatch] = []
     before_scalars = {
         value.id: value.quantity for value in before.scalar_value_set().values
@@ -277,7 +287,7 @@ def _validate_key(
         )
         raise ValueError(msg)
     for column_id, value in key.items():
-        _validate_cell_value(definition, column_id, value)
+        key[column_id] = _validate_cell_value(definition, column_id, value)
 
 
 def _validate_patch_columns(
@@ -294,7 +304,7 @@ def _validate_patch_columns(
         if not allow_primary_key and column_id in primary_key:
             msg = f"table {definition.id!r} cannot update primary key {column_id!r}"
             raise ValueError(msg)
-        _validate_cell_value(definition, column_id, value)
+        values[column_id] = _validate_cell_value(definition, column_id, value)
 
 
 def _validate_row(
@@ -311,39 +321,34 @@ def _validate_row(
             msg = f"table {definition.id!r} row is missing {column.id!r}"
             raise ValueError(msg)
         if column.id in row:
-            _validate_cell_value(definition, column.id, row[column.id])
+            row[column.id] = _validate_cell_value(
+                definition,
+                column.id,
+                row[column.id],
+            )
 
 
 def _validate_cell_value(
     definition: ParameterTableDefinition,
     column_id: str,
     value: ParameterPatchValue,
-) -> None:
+) -> ParameterPatchValue:
     column = next((item for item in definition.columns if item.id == column_id), None)
     if column is None:
         msg = f"table {definition.id!r} has no column {column_id!r}"
         raise ValueError(msg)
-    if value is None:
-        if column.required:
-            msg = f"table {definition.id!r} column {column_id!r} is required"
-            raise ValueError(msg)
-        return
-    if column.kind == "quantity":
-        if not isinstance(value, Quantity):
-            msg = f"table {definition.id!r} column {column_id!r} requires quantity"
-            raise ValueError(msg)
-        _validate_quantity_unit(value, _required(column.unit), path=column_id)
-    elif column.kind == "number":
-        if not isinstance(value, int | float) or isinstance(value, bool):
-            msg = f"table {definition.id!r} column {column_id!r} requires number"
-            raise ValueError(msg)
-    elif column.kind == "string":
-        if not isinstance(value, str):
-            msg = f"table {definition.id!r} column {column_id!r} requires string"
-            raise ValueError(msg)
-    elif column.kind == "bool" and not isinstance(value, bool):
-        msg = f"table {definition.id!r} column {column_id!r} requires bool"
-        raise ValueError(msg)
+    try:
+        return cast(
+            "ParameterPatchValue",
+            coerce_parameter_table_cell(
+                table_id=definition.id,
+                column=column,
+                value=value,
+                path=column_id,
+            ),
+        )
+    except ParameterTableCellValidationError as error:
+        raise ValueError(str(error)) from error
 
 
 def _find_one_row(
@@ -393,11 +398,22 @@ def _rows_by_key(
 
 
 def _key_part(value: ParameterPatchValue) -> str:
-    if isinstance(value, Quantity):
-        return f"quantity:{value.value!r}:{value.unit}"
-    if isinstance(value, dict):
-        return "dict:" + repr(sorted(value.items()))
-    return repr(value)
+    return parameter_table_key_part(value)
+
+
+def _normalize_parameter_state_tables(
+    catalog: ParameterCatalog,
+    parameter_state: ParameterState,
+) -> ParameterState:
+    tables: list[ParameterTable] = []
+    for table in parameter_state.tables:
+        definition = catalog.table(table.id)
+        tables.append(
+            coerce_parameter_table(definition, table)
+            if definition is not None
+            else table.model_copy(deep=True)
+        )
+    return parameter_state.model_copy(update={"tables": tables}, deep=True)
 
 
 def _quantity_value(value: ParameterPatchValue, *, path: str) -> Quantity:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
@@ -9,7 +10,7 @@ from typing import NoReturn
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.entity import EntityArray, EntityRef, entity_ref
+from scopecat.models.entity import EntityRef, entity_ref
 from scopecat.models.parameter import ParameterViewSnapshot, Quantity
 from scopecat.models.run import RunConfigSource
 
@@ -47,13 +48,11 @@ class ExperimentAuthoringContext:
             metadata={**known.metadata, **selected.metadata},
         )
 
-    def require_entity_array(self, entities: EntityArray) -> EntityArray:
-        resolved = tuple(self.require_entity(entity) for entity in entities.entities)
-        return EntityArray(
-            entities=resolved,
-            kind=entities.kind or _common_entity_kind(resolved),
-            metadata=dict(entities.metadata),
-        )
+    def require_entities(
+        self,
+        entities: Sequence[EntityRef | str],
+    ) -> tuple[EntityRef, ...]:
+        return tuple(self.require_entity(entity) for entity in entities)
 
     def require_parameter(self, parameter_id: str) -> Quantity:
         parameter = self.parameter_view.get(parameter_id)
@@ -78,13 +77,6 @@ class ExperimentAuthoringContext:
         self, code: str, message: str, path: str | None = None
     ) -> NoReturn:
         raise ValidationFailed([self.diagnostic("error", code, message, path)])
-
-
-def _common_entity_kind(entities: tuple[EntityRef, ...]) -> str | None:
-    kinds = {entity.kind for entity in entities if entity.kind is not None}
-    if len(kinds) == 1:
-        return next(iter(kinds))
-    return None
 
 
 def diagnostic(

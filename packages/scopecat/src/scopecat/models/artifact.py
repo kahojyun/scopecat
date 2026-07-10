@@ -74,7 +74,7 @@ class CommandPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    kind: str
+    schema_id: str = Field(min_length=1)
     uri: str | None = None
     content_hash: str | None = None
     media_type: str | None = None

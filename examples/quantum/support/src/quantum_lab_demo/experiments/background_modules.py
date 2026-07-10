@@ -16,8 +16,8 @@ FLUX_BACKGROUND_MODULE = (
         "quantum_lab_demo.experiments.background.flux",
         metadata={"template_id": FLUX_BACKGROUND_RABI_TEMPLATE_ID},
     )
-    .input("coupler", kind="entity")
-    .input("flux_bias", kind="quantity")
+    .input("coupler", value_type=sc.ScalarType(sc.EntityType()))
+    .input("flux_bias", value_type=sc.ScalarType(sc.QuantityType()))
     .resource(
         "coupler_bias",
         requires=("set_flux_bias",),
@@ -32,8 +32,14 @@ SPECTATOR_FLUX_BACKGROUND_MODULE = (
         "quantum_lab_demo.experiments.background.spectator_flux",
         metadata={"template_id": SPECTATOR_CZ_TEMPLATE_ID},
     )
-    .input("background_couplers", kind="entity_array")
-    .input("spectator_flux_bias", kind="quantity")
+    .input(
+        "background_couplers",
+        value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())),
+    )
+    .input(
+        "spectator_flux_bias",
+        value_type=sc.ScalarType(sc.QuantityType()),
+    )
     .resource(
         "spectator_bias",
         requires=("set_flux_bias",),
@@ -52,12 +58,12 @@ SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE = (
         "coupler_bias",
         requires=("set_flux_bias",),
     )
-    .state_table(
-        TWO_QUBIT_GATE_PARAMETER_TABLE,
-        field="set_flux_bias.offset",
-        value_column="coupler_parking_flux",
+    .state_each(
+        sc.parameter_table(TWO_QUBIT_GATE_PARAMETER_TABLE),
         resource_port="coupler_bias",
-        route_entity_column="coupler",
+        field="set_flux_bias.offset",
+        value=sc.col("coupler_parking_flux"),
+        route_entities=(sc.col("coupler"),),
     )
     .build()
 )

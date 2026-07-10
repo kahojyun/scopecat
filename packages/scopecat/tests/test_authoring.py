@@ -23,7 +23,7 @@ from scopecat.experiments import (
     RunRequest,
 )
 from scopecat.models.config import RoutingGraph, RoutingResource
-from scopecat.models.entity import EntityRef, entity_array
+from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import (
     ParameterTable,
     ParameterTableColumn,
@@ -31,7 +31,7 @@ from scopecat.models.parameter import (
     Quantity,
 )
 from scopecat.parameters import ParameterDerivationSet, ScalarParameterDerivation
-from scopecat.relations import RelationExpr, ScalarExpr, param
+from scopecat.relations import RelationExpr, ScalarExpr, param, values
 from tests.support.authoring import (
     SIMPLE_MODULE,
     load_config,
@@ -74,7 +74,7 @@ def _module_fixture(
         input_ports=tuple(
             authoring.ModuleInputPort(
                 id=input_id,
-                kind="entity",
+                value_type=authoring.ScalarType(authoring.EntityType()),
                 metadata={"role": "entity"},
             )
             for input_id in entity_inputs
@@ -178,12 +178,19 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
 
     module = (
         authoring.module("test.compute_provenance")
-        .input("qubit", kind="entity")
-        .input("pulse_length", kind="quantity")
+        .input(
+            "qubit",
+            value_type=authoring.ScalarType(authoring.EntityType()),
+        )
+        .input(
+            "pulse_length",
+            value_type=authoring.ScalarType(authoring.QuantityType()),
+        )
         .resource("drive", requires=("play_pulse_program",))
         .compute(
             "build-program",
             fn=build_program,
+            output_type=authoring.ScalarType(authoring.PayloadType("pulse")),
             inputs={
                 "qubit": authoring.input_ref("qubit"),
                 "length": authoring.input_ref("pulse_length"),
@@ -194,7 +201,10 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
                 ),
             },
         )
-        .bind_compute("drive.play_pulse_program.program", "build-program", kind="pulse")
+        .bind(
+            "drive.play_pulse_program.program",
+            authoring.compute_result("build-program"),
+        )
         .build()
     )
     template = (
@@ -202,7 +212,6 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         .experiment_id("compute-provenance")
         .input(
             "pulse_length",
-            kind="quantity",
             default=Quantity(value=20.0, unit="ns"),
         )
         .build()
@@ -218,12 +227,19 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
     assert node.inputs["qubit"].source_inputs == ["qubit"]
     assert node.inputs["length"].source_inputs == ["pulse_length"]
     assert node.inputs["frequency"].source_inputs == ["qubit"]
+    assert node.output_type == authoring.ScalarType(authoring.PayloadType("pulse"))
+    assert resolved.experiment.state[0].value == authoring.ComputeResultRef(
+        node_id="build-program"
+    )
 
 
 def test_template_can_scan_entity_input_without_subject_special_case() -> None:
     module = (
         authoring.module("test.entity_scan_module")
-        .input("qubit", kind="entity")
+        .input(
+            "qubit",
+            value_type=authoring.ScalarType(authoring.EntityType()),
+        )
         .product("signal", resource="source", unit="ratio")
         .build()
     )
@@ -382,11 +398,13 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
                     id="sample_qubits",
                     primary_key=["qubit"],
                     columns=[
-                        ParameterTableColumn(id="qubit", kind="string"),
+                        ParameterTableColumn(
+                            id="qubit",
+                            value_type=sc.ScalarType(sc.StringType()),
+                        ),
                         ParameterTableColumn(
                             id="drive_frequency",
-                            kind="quantity",
-                            unit="GHz",
+                            value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
                         ),
                     ],
                 ),
@@ -522,11 +540,13 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
                     id="sample_qubits",
                     primary_key=["qubit"],
                     columns=[
-                        ParameterTableColumn(id="qubit", kind="string"),
+                        ParameterTableColumn(
+                            id="qubit",
+                            value_type=sc.ScalarType(sc.StringType()),
+                        ),
                         ParameterTableColumn(
                             id="rabi_length",
-                            kind="quantity",
-                            unit="ns",
+                            value_type=sc.ScalarType(sc.QuantityType(unit="ns")),
                         ),
                     ],
                 ),
@@ -609,27 +629,32 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
     ]
 
 
-def test_entity_array_input_can_define_record_axis() -> None:
+def test_entity_series_input_can_define_record_axis() -> None:
     module = (
-        authoring.module("test.entity_array_axis_module")
-        .input("qubits", kind="entity_array")
+        authoring.module("test.entity_series_axis_module")
+        .input(
+            "qubits",
+            value_type=authoring.SeriesType(
+                authoring.ScalarType(authoring.EntityType())
+            ),
+        )
         .product(
             "iq",
             resource="source",
             dtype="complex128",
-            axes=(authoring.entity_axis("qubit", authoring.input_ref("qubits")),),
+            axes=(authoring.entity_axis("qubit", authoring.input_series("qubits")),),
         )
         .build()
     )
     template = (
-        module.template("test.entity_array_axis", kind="entity_array_axis")
-        .experiment_id("entity-array-axis")
+        module.template("test.entity_series_axis", kind="entity_series_axis")
+        .experiment_id("entity-series-axis")
         .record_product("iq")
         .build()
     )
 
     resolved = resolve_experiment(
-        template.bind(qubits=entity_array(["q0"])),
+        template.bind(qubits=("q0",)),
         workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
@@ -643,8 +668,75 @@ def test_entity_array_input_can_define_record_axis() -> None:
         "entities": [{"id": "q0", "kind": "logical_device", "metadata": {}}],
     }
 
+    with pytest.raises(ValidationFailed) as error:
+        resolve_experiment(
+            template.bind(qubits=("missing",)),
+            workspace=Path("/tmp/scopecat-test"),
+            config_profile=load_config(),
+        )
+    assert error.value.diagnostics[0].code == "unknown_authoring_entity"
 
-def test_entity_array_routes_as_single_point_with_ordered_product_axis() -> None:
+    with pytest.raises(ValidationFailed) as error:
+        resolve_experiment(
+            template.bind(qubits=("q0", "q0")),
+            workspace=Path("/tmp/scopecat-test"),
+            config_profile=load_config(),
+        )
+    assert error.value.diagnostics[0].code == "module_record_entity_axis_duplicate"
+
+    with pytest.raises(ValidationFailed) as error:
+        resolve_experiment(
+            template.bind(qubits=()),
+            workspace=Path("/tmp/scopecat-test"),
+            config_profile=load_config(),
+        )
+    assert error.value.diagnostics[0].code == "module_record_entity_axis_invalid"
+
+
+def test_non_entity_string_series_defines_categorical_record_axis() -> None:
+    module = (
+        authoring.module("test.categorical_axis")
+        .product(
+            "iq",
+            resource="source",
+            dtype="complex128",
+            axes=(
+                authoring.record_axis(
+                    "component",
+                    size=values(["I", "Q"]),
+                    kind="component",
+                ),
+                authoring.record_axis(
+                    "entity_role",
+                    size=2,
+                    kind="entity",
+                ),
+            ),
+        )
+        .build()
+    )
+    template = (
+        module.template("test.categorical_axis", kind="categorical_axis")
+        .record_product("iq")
+        .build()
+    )
+
+    resolved = resolve_experiment(
+        template.bind(),
+        workspace=Path("/tmp/scopecat-test"),
+        config_profile=load_config(),
+    )
+
+    axis = resolved.experiment.records[0].axes[0]
+    assert axis.size == 2
+    assert axis.metadata == {}
+    role_axis = resolved.experiment.records[0].axes[1]
+    assert role_axis.kind == "entity"
+    assert role_axis.size == 2
+    assert role_axis.metadata == {}
+
+
+def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> None:
     seed_config = load_config()
     source_0 = seed_config.instrument_registry.instruments[0]
     topology = seed_config.topology.model_copy(
@@ -676,8 +768,13 @@ def test_entity_array_routes_as_single_point_with_ordered_product_axis() -> None
     )
     config = seed_config.model_copy(update={"system": system})
     module = (
-        authoring.module("test.entity_array_routing")
-        .input("qubits", kind="entity_array")
+        authoring.module("test.entity_series_routing")
+        .input(
+            "qubits",
+            value_type=authoring.SeriesType(
+                authoring.ScalarType(authoring.EntityType())
+            ),
+        )
         .resource(
             "readout",
             requires=authoring.requires("set_frequency", for_entities=("qubits",)),
@@ -686,19 +783,19 @@ def test_entity_array_routes_as_single_point_with_ordered_product_axis() -> None
             "iq",
             resource="readout",
             dtype="complex128",
-            axes=(authoring.entity_axis("qubit", authoring.input_ref("qubits")),),
+            axes=(authoring.entity_axis("qubit", authoring.input_series("qubits")),),
         )
         .build()
     )
     template = (
-        module.template("test.entity_array_routing", kind="entity_array_routing")
-        .experiment_id("entity-array-routing")
+        module.template("test.entity_series_routing", kind="entity_series_routing")
+        .experiment_id("entity-series-routing")
         .record_product("iq")
         .build()
     )
 
     resolved = resolve_experiment(
-        template.bind(qubits=entity_array(["q0", "q1"])),
+        template.bind(qubits=("q0", "q1")),
         workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
@@ -788,7 +885,6 @@ def test_short_authoring_helpers_lower_to_plan() -> None:
             id="test.short_helpers",
             experiment_id="short-helper-scan",
             kind="simple_scan",
-            inputs={"subject": "q0"},
         ).scan(
             "drive_frequency",
             center=param("drive_frequency"),
@@ -834,7 +930,6 @@ def test_template_composition_merges_shared_resource_port_capabilities() -> None
                 records,
                 id="test.shared_resource",
                 kind="simple_scan",
-                inputs={"subject": "q0"},
             )
         )
     )
@@ -870,7 +965,6 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
                 second,
                 id="test.duplicate_record",
                 kind="simple_scan",
-                inputs={"subject": "q0"},
             ),
             workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
@@ -882,7 +976,10 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
 def test_module_composition_invocation_literals_bind_local_inputs() -> None:
     child = (
         authoring.module("test.invocation_defaults.child")
-        .input("drive_frequency", kind="quantity")
+        .input(
+            "drive_frequency",
+            value_type=authoring.ScalarType(authoring.QuantityType()),
+        )
         .resource("source", requires=("set_frequency",))
         .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
         .build()
@@ -904,7 +1001,10 @@ def test_module_composition_invocation_literals_bind_local_inputs() -> None:
 def test_module_composition_invocation_expressions_bind_local_inputs() -> None:
     child = (
         authoring.module("test.invocation_override.child")
-        .input("drive_frequency", kind="quantity")
+        .input(
+            "drive_frequency",
+            value_type=authoring.ScalarType(authoring.QuantityType()),
+        )
         .resource("source", requires=("set_frequency",))
         .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
         .build()
@@ -924,7 +1024,10 @@ def test_module_composition_invocation_expressions_bind_local_inputs() -> None:
 def test_module_composition_invocation_input_refs_bind_to_parent_inputs() -> None:
     child = (
         authoring.module("test.invocation_parent_input.child")
-        .input("drive_frequency", kind="quantity")
+        .input(
+            "drive_frequency",
+            value_type=authoring.ScalarType(authoring.QuantityType()),
+        )
         .resource("source", requires=("set_frequency",))
         .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
         .build()
@@ -945,14 +1048,20 @@ def test_module_composition_invocation_input_refs_bind_to_parent_inputs() -> Non
 def test_module_composition_does_not_merge_sibling_invocation_inputs() -> None:
     first = (
         authoring.module("test.invocation_sibling.first")
-        .input("drive_frequency", kind="quantity")
+        .input(
+            "drive_frequency",
+            value_type=authoring.ScalarType(authoring.QuantityType()),
+        )
         .resource("source", requires=("set_frequency",))
         .bind("source.set_frequency.frequency", authoring.input_ref("drive_frequency"))
         .build()
     )
     second = (
         authoring.module("test.invocation_sibling.second")
-        .input("drive_frequency", kind="quantity")
+        .input(
+            "drive_frequency",
+            value_type=authoring.ScalarType(authoring.QuantityType()),
+        )
         .resource("detector", requires=("set_frequency",))
         .bind(
             "detector.set_frequency.frequency",
@@ -983,7 +1092,10 @@ def test_module_composition_localizes_invocation_entity_inputs() -> None:
     child = (
         authoring.module("test.invocation_entity.child")
         .entity("qubit")
-        .input("drive_frequency", kind="quantity")
+        .input(
+            "drive_frequency",
+            value_type=authoring.ScalarType(authoring.QuantityType()),
+        )
         .resource(
             "drive",
             requires=authoring.requires("set_frequency", for_entities=("qubit",)),
@@ -1007,11 +1119,9 @@ def test_module_composition_localizes_invocation_entity_inputs() -> None:
     assert "qubit" not in assembly.inputs
     assert "qubit" not in assembly.entity_inputs
     assert all(port.id != "qubit" for port in assembly.input_ports)
-    assert (
-        assembly.resource_ports[0]
-        .selector.entity_inputs[0]
-        .startswith("__local_entity_")
-    )
+    hidden_input = assembly.resource_ports[0].selector.entity_inputs[0]
+    assert isinstance(hidden_input, str)
+    assert hidden_input.startswith("__local_entity_")
 
 
 def test_combined_module_parameter_derivations_chain_in_order() -> None:
@@ -1131,7 +1241,6 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
             scan,
             id="test.scripted_scan",
             kind="simple_scan",
-            inputs={"subject": "q0"},
         ).scan(
             "drive_frequency",
             center=param("drive_final"),
@@ -1148,7 +1257,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
     )
 
     assert resolved.template_id == "test.scripted_scan"
-    assert resolved.inputs == {"subject": "q0"}
+    assert resolved.inputs == {}
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=5.0, unit="GHz"
     )
@@ -1187,7 +1296,6 @@ def test_module_parameter_derivations_feed_authoring_and_planning() -> None:
             id="test.derived_parameters",
             experiment_id="derived-parameter-scan",
             kind="simple_scan",
-            inputs={"subject": "q0"},
         ).scan(
             "drive_frequency",
             center=param("drive_frequency"),
@@ -1243,7 +1351,6 @@ def test_link_assembly_reports_duplicate_variables() -> None:
                 id="test.duplicate_variables",
                 experiment_id="duplicate-variable-scan",
                 kind="simple_scan",
-                inputs={"subject": "q0"},
             ),
             workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
@@ -1283,7 +1390,6 @@ def test_module_uses_record_axes() -> None:
             id="test.record_axes",
             experiment_id="record-axes-scan",
             kind="simple_scan",
-            inputs={"subject": "q0"},
         ).scan(
             "drive_frequency",
             center=param("drive_frequency"),
@@ -1419,11 +1525,13 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
                     id="flux_bias",
                     primary_key=["resource_id"],
                     columns=[
-                        ParameterTableColumn(id="resource_id", kind="string"),
+                        ParameterTableColumn(
+                            id="resource_id",
+                            value_type=sc.ScalarType(sc.StringType()),
+                        ),
                         ParameterTableColumn(
                             id="offset",
-                            kind="quantity",
-                            unit="arb",
+                            value_type=sc.ScalarType(sc.QuantityType(unit="arb")),
                         ),
                     ],
                 ),
@@ -1458,10 +1566,11 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
     )
     background = (
         authoring.module("test.background_flux")
-        .state_table(
-            "flux_bias",
+        .state_each(
+            sc.parameter_table("flux_bias"),
+            resource=sc.col("resource_id"),
             field="set_offset.offset",
-            value_column="offset",
+            value=sc.col("offset"),
         )
         .build()
     )

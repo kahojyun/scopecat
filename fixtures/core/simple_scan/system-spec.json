@@ -54,7 +54,7 @@
   },
   "metadata": {},
   "parameter_catalog": {
-    "schema_version": "scopecat.parameter_catalog.v1",
+    "schema_version": "scopecat.parameter_catalog.v2",
     "id": "example-parameter-definitions-catalog",
     "scalar_definitions": [
       {

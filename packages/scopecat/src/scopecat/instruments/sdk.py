@@ -4,28 +4,74 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Any, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator
 
+from scopecat._value_type_wire import ScalarWire, scalar_type_wire_schema
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.instruments.state import StateValue
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.models.parameter import Quantity as QuantityValue
 from scopecat.models.provider import ProviderOptionDescription
+from scopecat.models.state import PayloadRef, StateLiteral, StateValue
+from scopecat.models.value import PayloadValue
 from scopecat.results import MeasurementDType, MeasurementValue
-from scopecat.units import compatible_units
+from scopecat.value_types import Float as FloatType
+from scopecat.value_types import Payload as PayloadType
+from scopecat.value_types import Quantity as QuantityType
+from scopecat.value_types import Scalar
+from scopecat.value_validation import ValueValidationError, validate_literal
 
-CapabilityFieldKind = Literal["quantity", "number", "payload"]
+_CAPABILITY_FIELD_SCALAR_WIRE_SCHEMA = scalar_type_wire_schema(
+    ("float", "quantity", "payload"),
+    finite_only=True,
+    allow_nullable=False,
+)
+
+type CapabilityFieldScalar = Annotated[
+    ScalarWire,
+    WithJsonSchema(_CAPABILITY_FIELD_SCALAR_WIRE_SCHEMA, mode="validation"),
+    WithJsonSchema(_CAPABILITY_FIELD_SCALAR_WIRE_SCHEMA, mode="serialization"),
+]
 
 
 class CapabilityField(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    kind: CapabilityFieldKind
-    unit: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    value_type: CapabilityFieldScalar
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        json_schema_extra={
+            "propertyNames": {"not": {"const": "payload_kinds"}},
+        },
+    )
+
+    @field_validator("value_type")
+    @classmethod
+    def validate_value_type(cls, value: Scalar) -> Scalar:
+        if value.nullable:
+            msg = "instrument capability fields must be non-nullable"
+            raise ValueError(msg)
+        if not isinstance(value.atom, FloatType | QuantityType | PayloadType):
+            msg = "instrument capability fields support float, quantity, and payload"
+            raise ValueError(msg)
+        if isinstance(value.atom, FloatType | QuantityType) and not value.atom.finite:
+            msg = "instrument capability numeric fields must require finite values"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("metadata")
+    @classmethod
+    def reject_legacy_payload_kinds(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if "payload_kinds" in value:
+            msg = (
+                "payload_kinds is no longer metadata; declare Payload.schema_id "
+                "in value_type"
+            )
+            raise ValueError(msg)
+        return value
 
 
 class ProductAxisDescription(BaseModel):
@@ -61,7 +107,9 @@ class CapabilityDescription(BaseModel):
 class InstrumentDescription(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.instrument_description.v0"
+    schema_version: Literal["scopecat.instrument_description.v1"] = (
+        "scopecat.instrument_description.v1"
+    )
     instrument_id: str
     implementation_id: str
     implementation_version: str
@@ -80,7 +128,9 @@ class InstrumentStateField(BaseModel):
 class InstrumentStateSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.instrument_state_snapshot.v0"
+    schema_version: Literal["scopecat.instrument_state_snapshot.v1"] = (
+        "scopecat.instrument_state_snapshot.v1"
+    )
     instrument_id: str
     fields: list[InstrumentStateField] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -110,7 +160,9 @@ class InstrumentStateCommandField(BaseModel):
 class InstrumentStateCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.instrument_state_command.v0"
+    schema_version: Literal["scopecat.instrument_state_command.v2"] = (
+        "scopecat.instrument_state_command.v2"
+    )
     instrument_id: str
     fields: list[InstrumentStateCommandField] = Field(default_factory=list)
     payloads: dict[str, CommandPayload] = Field(default_factory=dict)
@@ -299,20 +351,19 @@ def quantity_field(
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
-        kind="quantity",
-        unit=unit,
+        value_type=Scalar(QuantityType(unit=unit)),
         metadata=dict(metadata or {}),
     )
 
 
-def number_field(
+def float_field(
     id: str,  # noqa: A002
     *,
     metadata: dict[str, Any] | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
-        kind="number",
+        value_type=Scalar(FloatType()),
         metadata=dict(metadata or {}),
     )
 
@@ -320,16 +371,13 @@ def number_field(
 def payload_field(
     id: str,  # noqa: A002
     *,
-    payload_kinds: tuple[str, ...] = (),
+    schema_id: str,
     metadata: dict[str, Any] | None = None,
 ) -> CapabilityField:
-    field_metadata = dict(metadata or {})
-    if payload_kinds:
-        field_metadata["payload_kinds"] = list(payload_kinds)
     return CapabilityField(
         id=id,
-        kind="payload",
-        metadata=field_metadata,
+        value_type=Scalar(PayloadType(schema_id=schema_id)),
+        metadata=dict(metadata or {}),
     )
 
 
@@ -405,11 +453,13 @@ def apply_state_command_to_snapshot(
     command: InstrumentStateCommand,
 ) -> InstrumentStateSnapshot:
     fields = {
-        (field.capability_id, field.field_path): field.value
+        (field.capability_id, field.field_path): field.value.model_copy(deep=True)
         for field in snapshot.fields
     }
     for field in command.fields:
-        fields[(field.capability_id, field.field_path)] = field.value
+        fields[(field.capability_id, field.field_path)] = field.value.model_copy(
+            deep=True
+        )
     return InstrumentStateSnapshot(
         instrument_id=snapshot.instrument_id,
         fields=[
@@ -443,59 +493,80 @@ def _validate_state_value(
     spec: CapabilityField,
     payloads: dict[str, CommandPayload],
 ) -> list[Diagnostic]:
-    if value.kind != spec.kind:
-        return [
-            _diagnostic(
-                "error",
-                "instrument_driver_field_kind_mismatch",
-                f"{field_path} must be {spec.kind}, got {value.kind}",
-                "value",
+    atom = spec.value_type.atom
+    state_literal = value.root
+    literal: object
+    literal_path: str
+    if isinstance(atom, FloatType):
+        if not isinstance(state_literal, float):
+            return _field_value_mismatch(
+                field_path,
+                f"expected float, got {_state_literal_type(state_literal)}",
             )
-        ]
-    if spec.kind == "quantity":
-        if value.quantity is None:
-            return [
-                _diagnostic(
-                    "error",
-                    "instrument_driver_field_not_quantity",
-                    f"{field_path} must be a quantity",
-                    "value",
-                )
-            ]
-        if spec.unit is not None and not compatible_units(
-            spec.unit, value.quantity.unit
-        ):
-            return [
-                _diagnostic(
-                    "error",
-                    "instrument_driver_unit_mismatch",
-                    f"{field_path} must use {spec.unit}-compatible units",
-                    "value.unit",
-                )
-            ]
-    if spec.kind == "payload":
-        payload = payloads.get(value.payload_id or "")
+        literal = state_literal
+        literal_path = "value"
+    elif isinstance(atom, QuantityType):
+        if not isinstance(state_literal, QuantityValue):
+            return _field_value_mismatch(
+                field_path,
+                f"expected quantity, got {_state_literal_type(state_literal)}",
+            )
+        literal = state_literal
+        literal_path = "value"
+    elif isinstance(atom, PayloadType):
+        if not isinstance(state_literal, PayloadRef):
+            return _field_value_mismatch(
+                field_path,
+                f"expected payload reference, got {_state_literal_type(state_literal)}",
+            )
+        payload = payloads.get(state_literal.payload_id)
         if payload is None:
             return [
                 _diagnostic(
                     "error",
                     "instrument_driver_unknown_payload",
-                    f"{field_path} references unknown payload {value.payload_id}",
+                    f"{field_path} references unknown payload "
+                    f"{state_literal.payload_id}",
                     "value.payload_id",
                 )
             ]
-        payload_kinds = tuple(spec.metadata.get("payload_kinds", ()))
-        if payload_kinds and payload.kind not in payload_kinds:
-            return [
-                _diagnostic(
-                    "error",
-                    "instrument_driver_payload_kind_mismatch",
-                    f"{field_path} expects payload kind {', '.join(payload_kinds)}, "
-                    f"got {payload.kind}",
-                    "value.payload_id",
-                )
-            ]
+        literal = PayloadValue(schema_id=payload.schema_id, payload=payload.payload)
+        literal_path = "value.payload_id"
+    else:  # CapabilityField validation makes this unreachable.
+        raise AssertionError(type(atom).__name__)
+    try:
+        validate_literal(spec.value_type, literal, path=literal_path)
+    except ValueValidationError as error:
+        return _field_value_mismatch(
+            field_path,
+            error.reason,
+            path=error.path,
+        )
     return []
+
+
+def _state_literal_type(value: StateLiteral) -> str:
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, QuantityValue):
+        return "quantity"
+    return "payload reference"
+
+
+def _field_value_mismatch(
+    field_path: str,
+    reason: str,
+    *,
+    path: str = "value",
+) -> list[Diagnostic]:
+    return [
+        _diagnostic(
+            "error",
+            "instrument_driver_field_value_mismatch",
+            f"{field_path}: {reason}",
+            path,
+        )
+    ]
 
 
 def _diagnostic(

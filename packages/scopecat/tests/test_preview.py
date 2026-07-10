@@ -40,7 +40,7 @@ def test_preview_experiment_builds_expected_plan() -> None:
     assert preview.state_fields[0].resource_id == "source-0"
     assert preview.state_fields[0].capability_id == "set_frequency"
     assert preview.state_fields[0].field_path == "frequency"
-    assert preview.state_fields[0].value_kind == "quantity"
+    assert preview.state_fields[0].value == Quantity(value=4.9, unit="GHz")
     assert preview.records[0].shape == (3,)
     assert diagnostics == ()
 

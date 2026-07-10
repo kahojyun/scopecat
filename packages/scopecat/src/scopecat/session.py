@@ -45,6 +45,7 @@ from scopecat.candidate_configs import (
 )
 from scopecat.experiments import (
     ComputeNodeFunction,
+    ComputeResultRef,
     ParameterScanAxis,
     ScanAxis,
     ScanGroup,
@@ -67,7 +68,7 @@ from scopecat.parameter_changes import (
     review_parameter_changes,
 )
 from scopecat.preview import PreviewExperimentResult, ValidateExperimentResult
-from scopecat.relations import ScalarExpr, param
+from scopecat.relations import RelationExpr, ScalarExpr, param
 from scopecat.results import MeasurementDType
 from scopecat.run_overview import RunOverview, build_run_overview
 from scopecat.run_selectors import RunSelector
@@ -86,6 +87,7 @@ from scopecat.session_run_handle import (
     run_handle_id,
 )
 from scopecat.system_overview import SystemSummary, build_system_summary
+from scopecat.value_types import Scalar
 
 
 @dataclass(frozen=True)
@@ -349,7 +351,7 @@ class Experiment:
     def bind(
         self,
         port_path: str,
-        value: Expression | ScalarExpr | Quantity | float,
+        value: Expression | ScalarExpr | ComputeResultRef | Quantity | float,
     ) -> Experiment:
         return replace(self, module=self.module.bind(port_path, value))
 
@@ -360,6 +362,7 @@ class Experiment:
         fn: ComputeNodeFunction,
         inputs: Mapping[str, Any] | None = None,
         route_ports: Sequence[str] = (),
+        output_type: Scalar | None = None,
     ) -> Experiment:
         return replace(
             self,
@@ -368,34 +371,29 @@ class Experiment:
                 fn=fn,
                 inputs=inputs,
                 route_ports=route_ports,
+                output_type=output_type,
             ),
         )
 
-    def bind_compute(self, port_path: str, node_id: str, *, kind: str) -> Experiment:
-        return replace(
-            self,
-            module=self.module.bind_compute(port_path, node_id, kind=kind),
-        )
-
-    def state_table(
+    def state_each(
         self,
-        table_id: str,
+        relation: RelationExpr,
         *,
-        field: str,
-        value_column: str,
-        resource_column: str = "resource_id",
+        resource: object | None = None,
         resource_port: str | None = None,
-        route_entity_column: str | None = None,
+        field: str,
+        value: object,
+        route_entities: Sequence[object] = (),
     ) -> Experiment:
         return replace(
             self,
-            module=self.module.state_table(
-                table_id,
-                field=field,
-                value_column=value_column,
-                resource_column=resource_column,
+            module=self.module.state_each(
+                relation,
+                resource=resource,
                 resource_port=resource_port,
-                route_entity_column=route_entity_column,
+                field=field,
+                value=value,
+                route_entities=route_entities,
             ),
         )
 

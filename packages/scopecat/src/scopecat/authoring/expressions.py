@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from scopecat.models.parameter import Quantity
+from scopecat.models.value import ComputeResultRef
 from scopecat.relations import ScalarExpr
 from scopecat.units import compatible_units, is_supported_unit
 
@@ -233,7 +234,7 @@ class BindingSpec(BaseModel):
     resource_id: str
     capability_id: str
     field_path: str
-    value: Expression | ScalarExpr
+    value: Expression | ScalarExpr | ComputeResultRef
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("resource_id", "capability_id", "field_path")
@@ -295,7 +296,7 @@ def bind(
     resource_id: str,
     capability_id: str,
     field_path: str,
-    value: Expression | ScalarExpr | Quantity | float,
+    value: Expression | ScalarExpr | ComputeResultRef | Quantity | float,
 ) -> BindingSpec:
     """Bind an expression to a desired-state field."""
 
@@ -303,7 +304,11 @@ def bind(
         resource_id=resource_id,
         capability_id=capability_id,
         field_path=field_path,
-        value=value if isinstance(value, ScalarExpr) else Expression.from_value(value),
+        value=(
+            value
+            if isinstance(value, ScalarExpr | ComputeResultRef)
+            else Expression.from_value(value)
+        ),
     )
 
 

@@ -15,6 +15,7 @@ from scopecat.parameters import (
     build_parameter_view,
 )
 from scopecat.relations import col, table
+from scopecat.value_types import Bool, Float, Scalar, String
 
 
 def test_parameter_view_snapshot_records_scalar_validation_diagnostics() -> None:
@@ -66,8 +67,14 @@ def test_parameter_view_snapshot_records_derivation_diagnostics() -> None:
                     id="drive_plan",
                     primary_key=["channel_id"],
                     columns=[
-                        ParameterTableColumn(id="channel_id", kind="string"),
-                        ParameterTableColumn(id="enabled", kind="bool"),
+                        ParameterTableColumn(
+                            id="channel_id",
+                            value_type=Scalar(String()),
+                        ),
+                        ParameterTableColumn(
+                            id="enabled",
+                            value_type=Scalar(Bool()),
+                        ),
                     ],
                 )
             ],
@@ -101,6 +108,64 @@ def test_parameter_view_snapshot_records_derivation_diagnostics() -> None:
         "invalid_parameter_table_bool",
     ]
     assert build.table("drive_plan") is not None
+
+
+def test_parameter_table_cells_use_scalar_constraints_and_nullable_semantics() -> None:
+    build = build_parameter_view(
+        catalog=ParameterCatalog(
+            id="catalog",
+            table_definitions=[
+                ParameterTableDefinition(
+                    id="channels",
+                    primary_key=["id"],
+                    columns=[
+                        ParameterTableColumn(
+                            id="id",
+                            value_type=Scalar(String(pattern=r"ch-\d+")),
+                        ),
+                        ParameterTableColumn(
+                            id="gain",
+                            value_type=Scalar(Float(minimum=0.0, maximum=1.0)),
+                        ),
+                        ParameterTableColumn(
+                            id="note",
+                            value_type=Scalar(String()),
+                            required=False,
+                        ),
+                        ParameterTableColumn(
+                            id="nullable_note",
+                            value_type=Scalar(String(), nullable=True),
+                            required=False,
+                        ),
+                    ],
+                )
+            ],
+        ),
+        parameter_state=ParameterState(
+            id="state",
+            scalar_values=ParameterValueSet(id="scalars", values=[]),
+            tables=[
+                ParameterTable(
+                    id="channels",
+                    rows=[
+                        {
+                            "id": "bad",
+                            "gain": 2.0,
+                            "note": None,
+                            "nullable_note": None,
+                        },
+                        {"id": "ch-2", "gain": 0.5},
+                    ],
+                )
+            ],
+        ),
+    )
+
+    assert _codes(build.diagnostics) == [
+        "invalid_parameter_table_string",
+        "invalid_parameter_table_number",
+        "invalid_parameter_table_string",
+    ]
 
 
 def test_parameter_view_snapshot_records_failed_derivations_as_diagnostics() -> None:

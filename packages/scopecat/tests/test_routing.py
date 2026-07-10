@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
+from scopecat._planning.planner import build_planner_snapshot
+from scopecat._runtime.lowering import compile_point_routes
 from scopecat.experiments import (
     ExperimentSpec,
     ResourceRouteIntent,
+    as_value_expr,
     set_state,
 )
 from scopecat.models.config import (
@@ -19,7 +23,7 @@ from scopecat.models.config import (
 )
 from scopecat.models.entity import EntityRef
 from scopecat.planning.validation import validate_config
-from scopecat.relations import lit, literal_rows
+from scopecat.relations import input_series, lit, literal_rows, values
 from scopecat.routing import RoutingError, RoutingView
 from tests.support.authoring import load_config, parameter_view
 from tests.support.experiment_preview import preview_result
@@ -538,6 +542,69 @@ def test_runtime_graph_reports_conflicting_state_field_values() -> None:
     }
 
 
+def test_route_entity_expressions_reject_table_shape() -> None:
+    with pytest.raises(ValidationError):
+        ResourceRouteIntent.model_validate(
+            {
+                "port_id": "source",
+                "entity_exprs": [as_value_expr(literal_rows([{"entity": "q0"}]))],
+            }
+        )
+
+
+def test_runtime_graph_reports_invalid_route_entity_member() -> None:
+    experiment = ExperimentSpec(
+        id="invalid-route-entity",
+        kind="routing_test",
+        points=literal_rows([{}]),
+        route_intents=[
+            ResourceRouteIntent(
+                port_id="source",
+                capabilities=["set_frequency"],
+                entity_exprs=[as_value_expr(lit(1))],
+            ),
+            ResourceRouteIntent(
+                port_id="empty-source",
+                capabilities=["set_frequency"],
+                entity_exprs=[as_value_expr(values([]))],
+            ),
+        ],
+    )
+
+    _preview, diagnostics = preview_result(
+        experiment,
+        parameter_view(),
+        config=load_config(),
+    )
+
+    assert [diagnostic.code for diagnostic in diagnostics].count(
+        "module_resource_entity_invalid"
+    ) == 2
+
+
+def test_route_entity_evaluation_failure_does_not_create_wildcard_binding() -> None:
+    experiment = ExperimentSpec(
+        id="failed-route-entity-expression",
+        kind="routing_test",
+        points=literal_rows([{}]),
+        route_intents=[
+            ResourceRouteIntent(
+                port_id="source",
+                capabilities=["set_frequency"],
+                entity_exprs=[as_value_expr(input_series("missing"))],
+            )
+        ],
+    )
+    plan = build_planner_snapshot(experiment, parameter_view())
+
+    bindings, diagnostics = compile_point_routes(plan, config=load_config())
+
+    assert bindings == {}
+    assert {diagnostic["code"] for diagnostic in diagnostics} == {
+        "runtime_graph_route_entity_invalid"
+    }
+
+
 def _two_route_experiment() -> ExperimentSpec:
     return ExperimentSpec(
         id="two-route-conflict",
@@ -547,12 +614,12 @@ def _two_route_experiment() -> ExperimentSpec:
             ResourceRouteIntent(
                 port_id="drive_a",
                 capabilities=["set_frequency"],
-                entity_exprs=[lit("q0")],
+                entity_exprs=[as_value_expr(lit("q0"))],
             ),
             ResourceRouteIntent(
                 port_id="drive_b",
                 capabilities=["set_frequency"],
-                entity_exprs=[lit("q1")],
+                entity_exprs=[as_value_expr(lit("q1"))],
             ),
         ],
     )

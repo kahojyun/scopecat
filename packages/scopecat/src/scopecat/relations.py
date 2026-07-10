@@ -19,10 +19,11 @@ from scopecat._relation_scalar_eval import (
     is_cell_value,
     read_path,
 )
-from scopecat.models.entity import EntityArray, EntityRef
+from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import ParameterViewSnapshot, Quantity
+from scopecat.models.value import PayloadValue
 
-type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | EntityArray
+type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | PayloadValue
 type CellValue = ScalarValue | dict[str, Any]
 type Row = dict[str, CellValue]
 type ScalarExprKind = Literal[
@@ -49,10 +50,18 @@ type ScalarOperator = Literal[
     "and",
     "or",
 ]
-type SeriesExprKind = Literal["values", "linspace", "range"]
+type SeriesExprKind = Literal[
+    "values",
+    "linspace",
+    "range",
+    "input",
+    "relation_column",
+    "relation_entities",
+]
 type RelationExprKind = Literal[
     "literal_rows",
     "table",
+    "input",
     "grid",
     "select",
     "filter",
@@ -117,7 +126,7 @@ class ParameterRelationData(BaseModel):
         *,
         row: Row | None = None,
         outer_row: Row | None = None,
-        inputs: Mapping[str, CellValue] | None = None,
+        inputs: Mapping[str, object] | None = None,
     ) -> EvalContext:
         return EvalContext(
             params=self,
@@ -135,7 +144,7 @@ class EvalContext(BaseModel):
     params: ParameterRelationData = Field(default_factory=ParameterRelationData)
     row: Row = Field(default_factory=dict)
     outer_row: Row | None = None
-    inputs: Row = Field(default_factory=dict)
+    inputs: dict[str, Any] = Field(default_factory=dict)
 
 
 class CaseBranch(BaseModel):
@@ -321,6 +330,10 @@ class SeriesExpr(BaseModel):
     count: int | None = None
     unit: str | None = None
     include_stop: bool = False
+    name: str | None = None
+    source: RelationExpr | None = None
+    column: str | None = None
+    columns: list[str] | None = None
 
     @model_validator(mode="after")
     def validate_shape(self) -> SeriesExpr:
@@ -328,7 +341,16 @@ class SeriesExpr(BaseModel):
             if self.items is None:
                 msg = "values series requires items"
                 raise ValueError(msg)
-            self._reject("start", "stop", "step", "count")
+            self._reject(
+                "start",
+                "stop",
+                "step",
+                "count",
+                "name",
+                "source",
+                "column",
+                "columns",
+            )
         elif self.kind == "linspace":
             if self.start is None or self.stop is None or self.count is None:
                 msg = "linspace series requires start, stop, and count"
@@ -336,12 +358,69 @@ class SeriesExpr(BaseModel):
             if self.count < 1:
                 msg = "linspace count must be positive"
                 raise ValueError(msg)
-            self._reject("items", "step")
+            self._reject(
+                "items",
+                "step",
+                "name",
+                "source",
+                "column",
+                "columns",
+            )
         elif self.kind == "range":
             if self.start is None or self.stop is None or self.step is None:
                 msg = "range series requires start, stop, and step"
                 raise ValueError(msg)
-            self._reject("items", "count")
+            self._reject(
+                "items",
+                "count",
+                "name",
+                "source",
+                "column",
+                "columns",
+            )
+        elif self.kind == "input":
+            if not self.name:
+                msg = "input series requires name"
+                raise ValueError(msg)
+            self._reject(
+                "items",
+                "start",
+                "stop",
+                "step",
+                "count",
+                "source",
+                "column",
+                "columns",
+            )
+        elif self.kind == "relation_column":
+            if self.source is None or not self.column:
+                msg = "relation column series requires source and column"
+                raise ValueError(msg)
+            self._reject(
+                "items",
+                "start",
+                "stop",
+                "step",
+                "count",
+                "name",
+                "columns",
+            )
+        elif self.kind == "relation_entities":
+            if self.source is None or not self.columns:
+                msg = "relation entities series requires source and columns"
+                raise ValueError(msg)
+            if any(not column for column in self.columns):
+                msg = "relation entities columns must be non-empty"
+                raise ValueError(msg)
+            self._reject(
+                "items",
+                "start",
+                "stop",
+                "step",
+                "count",
+                "name",
+                "column",
+            )
         return self
 
     def evaluate(self, ctx: EvalContext) -> list[CellValue]:
@@ -387,6 +466,21 @@ class SeriesExpr(BaseModel):
                     values.append(current)
                     current += step
             return _series_values(values, unit=unit)
+        if self.kind == "input":
+            return _input_series(ctx.inputs, _required(self.name))
+        if self.kind == "relation_column":
+            return [
+                read_path(row, _required(self.column))
+                for row in _required(self.source).evaluate_in_context(ctx)
+            ]
+        if self.kind == "relation_entities":
+            entities: list[CellValue] = []
+            for row in _required(self.source).evaluate_in_context(ctx):
+                for column in _required(self.columns):
+                    value = read_path(row, column)
+                    if not any(_cell_matches(existing, value) for existing in entities):
+                        entities.append(value)
+            return entities
         msg = f"unsupported series kind: {self.kind}"
         raise ValueError(msg)
 
@@ -449,6 +543,7 @@ class RelationExpr(BaseModel):
     kind: RelationExprKind
     rows: list[Row] | None = None
     table_id: str | None = None
+    name: str | None = None
     columns: dict[str, GridColumn] | None = None
     source: RelationExpr | None = None
     left: RelationExpr | None = None
@@ -472,6 +567,11 @@ class RelationExpr(BaseModel):
                 msg = "table relation requires table_id"
                 raise ValueError(msg)
             self._reject_common("table_id")
+        elif self.kind == "input":
+            if not self.name:
+                msg = "input relation requires name"
+                raise ValueError(msg)
+            self._reject_common("name")
         elif self.kind == "grid":
             if self.columns is None:
                 msg = "grid relation requires columns"
@@ -520,7 +620,7 @@ class RelationExpr(BaseModel):
         *,
         row: Row | None = None,
         outer_row: Row | None = None,
-        inputs: Mapping[str, CellValue] | None = None,
+        inputs: Mapping[str, object] | None = None,
     ) -> list[Row]:
         relation_params = _relation_params(params)
         return self.evaluate_in_context(
@@ -537,6 +637,8 @@ class RelationExpr(BaseModel):
             return [dict(row) for row in _required(self.rows)]
         if self.kind == "table":
             return ctx.params.table_rows(_required(self.table_id))
+        if self.kind == "input":
+            return _input_table(ctx.inputs, _required(self.name))
         if self.kind == "grid":
             names = tuple(_required(self.columns))
             choices = [_required(self.columns)[name].evaluate(ctx) for name in names]
@@ -649,10 +751,27 @@ class RelationExpr(BaseModel):
     def limit(self, count: int) -> RelationExpr:
         return RelationExpr(kind="limit", source=self, limit_count=count)
 
+    def column(self, column: str) -> SeriesExpr:
+        """Project one relation column as an ordered, duplicate-preserving series."""
+
+        if not column:
+            msg = "relation column must be non-empty"
+            raise ValueError(msg)
+        return SeriesExpr(kind="relation_column", source=self, column=column)
+
+    def entities(self, *columns: str) -> SeriesExpr:
+        """Flatten entity columns row-major and remove duplicates stably."""
+
+        if not columns:
+            msg = "relation entities requires at least one column"
+            raise ValueError(msg)
+        return SeriesExpr(kind="relation_entities", source=self, columns=list(columns))
+
     def _reject_common(self, *allowed: str) -> None:
         all_fields = {
             "rows",
             "table_id",
+            "name",
             "columns",
             "source",
             "left",
@@ -688,6 +807,18 @@ def outer(name: str) -> ScalarExpr:
 
 def input_ref(name: str) -> ScalarExpr:
     return ScalarExpr(kind="input", name=name)
+
+
+def input_series(name: str) -> SeriesExpr:
+    """Reference a series-shaped input."""
+
+    return SeriesExpr(kind="input", name=name)
+
+
+def input_table(name: str) -> RelationExpr:
+    """Reference a table-shaped input."""
+
+    return RelationExpr(kind="input", name=name)
 
 
 def _cell_matches(left: CellValue, right: CellValue) -> bool:
@@ -906,14 +1037,74 @@ def _normalize_table_cell(value: object) -> CellValue:
             return Quantity.model_validate(mapping)
         if "id" in mapping and set(mapping) <= {"id", "kind", "metadata"}:
             return EntityRef.model_validate(mapping)
-        if "entities" in mapping and set(mapping) <= {"entities", "kind", "metadata"}:
-            return EntityArray.model_validate(mapping)
         msg = f"parameter table cell contains unsupported mapping {value!r}"
         raise TypeError(msg)
     if is_cell_value(value):
         return value
     msg = f"parameter table cell contains unsupported value {value!r}"
     raise TypeError(msg)
+
+
+def _input_series(inputs: Mapping[str, object], name: str) -> list[CellValue]:
+    try:
+        value = inputs[name]
+    except KeyError as exc:
+        msg = f"unknown series input {name!r}"
+        raise KeyError(msg) from exc
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        msg = f"series input {name!r} must be a sequence"
+        raise TypeError(msg)
+    items: list[CellValue] = []
+    for item in cast("Sequence[object]", value):
+        if not is_cell_value(item):
+            msg = f"series input {name!r} contains unsupported value {item!r}"
+            raise TypeError(msg)
+        items.append(item)
+    return items
+
+
+def _input_table(inputs: Mapping[str, object], name: str) -> list[Row]:
+    try:
+        value = inputs[name]
+    except KeyError as exc:
+        msg = f"unknown table input {name!r}"
+        raise KeyError(msg) from exc
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        msg = f"table input {name!r} must be a sequence of rows"
+        raise TypeError(msg)
+    rows: list[Row] = []
+    for row in cast("Sequence[object]", value):
+        if not isinstance(row, Mapping):
+            msg = f"table input {name!r} contains non-row value {row!r}"
+            raise TypeError(msg)
+        mapping = cast("Mapping[object, object]", row)
+        if not all(isinstance(key, str) for key in mapping):
+            msg = f"table input {name!r} row keys must be strings"
+            raise TypeError(msg)
+        rows.append(
+            {
+                cast(str, key): _normalize_input_cell(item)
+                for key, item in mapping.items()
+            }
+        )
+    return rows
+
+
+def _normalize_input_cell(value: object) -> CellValue:
+    if not isinstance(value, Mapping):
+        if is_cell_value(value):
+            return value
+        msg = f"input table cell contains unsupported value {value!r}"
+        raise TypeError(msg)
+    mapping = cast("Mapping[object, object]", value)
+    if set(mapping) == {"value", "unit"}:
+        return Quantity.model_validate(mapping)
+    if "id" in mapping and set(mapping) <= {"id", "kind", "metadata"}:
+        return EntityRef.model_validate(mapping)
+    if not all(isinstance(key, str) for key in mapping):
+        msg = "input table mapping cells must use string keys"
+        raise TypeError(msg)
+    return dict(cast("Mapping[str, Any]", mapping))
 
 
 def _required[T](value: T | None) -> T:
@@ -942,6 +1133,8 @@ __all__ = [
     "col",
     "grid",
     "input_ref",
+    "input_series",
+    "input_table",
     "linspace",
     "lit",
     "literal_rows",

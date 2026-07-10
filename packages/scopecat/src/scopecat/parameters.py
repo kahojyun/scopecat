@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
+from contextlib import suppress
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -23,6 +24,12 @@ from scopecat.models.parameter import (
     ParameterValueSet,
     ParameterViewSnapshot,
     Quantity,
+)
+from scopecat.parameter_validation import (
+    ParameterTableCellValidationError,
+    coerce_parameter_table_cell,
+    parameter_table_key_part,
+    validate_parameter_table_cell,
 )
 from scopecat.relations import ParameterRelationData, RelationExpr, ScalarExpr
 from scopecat.units import compatible_units, to_base_value
@@ -61,7 +68,9 @@ class ParameterDerivationSet(BaseModel):
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
-    schema_version: str = "scopecat.parameter_derivation_set.v1"
+    schema_version: Literal["scopecat.parameter_derivation_set.v2"] = (
+        "scopecat.parameter_derivation_set.v2"
+    )
     id: str
     scalars: list[ScalarParameterDerivation] = Field(default_factory=list)
     tables: list[TableParameterDerivation] = Field(default_factory=list)
@@ -120,7 +129,7 @@ def combine_parameter_derivations(
 
 
 PARAMETER_VIEW_IMPLEMENTATION_ID = "scopecat.parameter_view.local"
-PARAMETER_VIEW_IMPLEMENTATION_VERSION = "v1"
+PARAMETER_VIEW_IMPLEMENTATION_VERSION = "v2"
 
 
 def build_parameter_view(
@@ -135,7 +144,13 @@ def build_parameter_view(
     scalar_by_id = {
         value.id: value for value in parameter_state.scalar_value_set().values
     }
-    table_by_id = {table.id: table for table in parameter_state.tables}
+    table_by_id = {
+        table.id: _normalize_parameter_table(
+            catalog.table(table.id),
+            table,
+        )
+        for table in parameter_state.tables
+    }
     diagnostics.extend(
         _validate_parameter_state_against_catalog(
             catalog=catalog,
@@ -177,6 +192,7 @@ def build_parameter_view(
                 )
             scalar_by_id[value.id] = value
         for table in derived_tables:
+            table = _normalize_parameter_table(catalog.table(table.id), table)
             if table.id in table_by_id:
                 diagnostics.append(
                     _parameter_diagnostic(
@@ -230,6 +246,33 @@ def build_parameter_view(
         tables=tables,
         diagnostics=diagnostics,
     )
+
+
+def _normalize_parameter_table(
+    definition: ParameterTableDefinition | None,
+    table: ParameterTable,
+) -> ParameterTable:
+    if definition is None:
+        return table
+    columns = {column.id: column for column in definition.columns}
+    rows: list[dict[str, object]] = []
+    for row_index, row in enumerate(table.rows):
+        selected = dict(row)
+        for column_id, value in row.items():
+            column = columns.get(column_id)
+            if column is None:
+                continue
+            # Validation emits the user-facing diagnostic. Preserve invalid raw
+            # values so the immutable view remains inspectable.
+            with suppress(ParameterTableCellValidationError):
+                selected[column_id] = coerce_parameter_table_cell(
+                    table_id=table.id,
+                    column=column,
+                    value=value,
+                    path=f"{table.id}.rows.{row_index}.{column_id}",
+                )
+        rows.append(selected)
+    return table.model_copy(update={"rows": rows}, deep=True)
 
 
 def _parameter_view_content_hash(
@@ -417,7 +460,7 @@ def _validate_parameter_table(
                 )
             )
         else:
-            key = tuple(_build_key_part(value) for value in key_values)
+            key = tuple(parameter_table_key_part(value) for value in key_values)
             if key in seen_keys:
                 diagnostics.append(
                     _parameter_diagnostic(
@@ -451,75 +494,23 @@ def _validate_parameter_table_cell(
     raw_value: object,
     path: str,
 ) -> list[dict[str, Any]]:
-    diagnostics: list[dict[str, Any]] = []
-    if raw_value is None:
-        if column.required:
-            diagnostics.append(
-                _parameter_diagnostic(
-                    "error",
-                    "missing_required_parameter_table_cell",
-                    f"parameter table {table_id} column {column.id} is required",
-                    path,
-                )
-            )
-        return diagnostics
-    if column.kind == "quantity":
-        try:
-            quantity = Quantity.model_validate(raw_value)
-        except ValueError as error:
-            diagnostics.append(
-                _parameter_diagnostic(
-                    "error",
-                    "invalid_parameter_table_quantity",
-                    f"parameter table {table_id} column {column.id} is not a "
-                    f"valid quantity: {error}",
-                    path,
-                )
-            )
-            return diagnostics
-        if column.unit is not None and not compatible_units(column.unit, quantity.unit):
-            diagnostics.append(
-                _parameter_diagnostic(
-                    "error",
-                    "incompatible_parameter_table_quantity_unit",
-                    f"parameter table {table_id} column {column.id} uses unit "
-                    f"{quantity.unit}, but definition uses {column.unit}",
-                    path,
-                )
-            )
-        return diagnostics
-    if column.kind == "number":
-        if not isinstance(raw_value, int | float) or isinstance(raw_value, bool):
-            diagnostics.append(
-                _parameter_diagnostic(
-                    "error",
-                    "invalid_parameter_table_number",
-                    f"parameter table {table_id} column {column.id} must be numeric",
-                    path,
-                )
-            )
-        return diagnostics
-    if column.kind == "string":
-        if not isinstance(raw_value, str):
-            diagnostics.append(
-                _parameter_diagnostic(
-                    "error",
-                    "invalid_parameter_table_string",
-                    f"parameter table {table_id} column {column.id} must be a string",
-                    path,
-                )
-            )
-        return diagnostics
-    if column.kind == "bool" and not isinstance(raw_value, bool):
-        diagnostics.append(
+    try:
+        validate_parameter_table_cell(
+            table_id=table_id,
+            column=column,
+            value=raw_value,
+            path=path,
+        )
+    except ParameterTableCellValidationError as error:
+        return [
             _parameter_diagnostic(
                 "error",
-                "invalid_parameter_table_bool",
-                f"parameter table {table_id} column {column.id} must be a bool",
+                error.code,
+                str(error),
                 path,
             )
-        )
-    return diagnostics
+        ]
+    return []
 
 
 def _outside_safety(
@@ -545,12 +536,6 @@ def _outside_safety(
         if point_base > max_base:
             return True
     return False
-
-
-def _build_key_part(value: object) -> str:
-    if isinstance(value, Quantity):
-        return f"quantity:{value.value!r}:{value.unit}"
-    return repr(value)
 
 
 def _parameter_diagnostic(

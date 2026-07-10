@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 from scopecat.models.config import (
     ConfigProfileSnapshot,
@@ -11,7 +12,7 @@ from scopecat.models.config import (
     RoutingEdge,
     RoutingResource,
 )
-from scopecat.models.entity import EntityArray, EntityRef
+from scopecat.models.entity import EntityRef
 
 
 @dataclass(frozen=True)
@@ -301,11 +302,26 @@ def _entity_ids(values: Sequence[object]) -> tuple[str, ...]:
     entity_ids: list[str] = []
     for value in values:
         if isinstance(value, EntityRef):
+            if not value.id:
+                raise RoutingError(
+                    "module_resource_entity_invalid",
+                    "route entity id must be non-empty",
+                )
             entity_ids.append(value.id)
-        elif isinstance(value, EntityArray):
-            entity_ids.extend(value.ids)
         elif isinstance(value, str) and value:
             entity_ids.append(value)
+        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+            if not value:
+                raise RoutingError(
+                    "module_resource_entity_invalid",
+                    "route entity series must not be empty",
+                )
+            entity_ids.extend(_entity_ids(cast("Sequence[object]", value)))
+        else:
+            raise RoutingError(
+                "module_resource_entity_invalid",
+                f"route entity must resolve to an entity reference, got {value!r}",
+            )
     return tuple(dict.fromkeys(entity_ids))
 
 

@@ -3,13 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import scopecat as sc
 from demo_lab_test_paths import (
     EXPERIMENT_FIXTURE_DIR,
     EXPERIMENT_VIRTUAL_LAB_PROFILE,
 )
 from scopecat._runtime.executor import execute_run
-from scopecat.authoring import ExperimentInvocation, resolve_experiment
+from scopecat.authoring import (
+    ExperimentInvocation,
+    PayloadType,
+    ScalarType,
+    resolve_experiment,
+)
 from scopecat.config_profiles import load_config_profile
 from scopecat.errors import ValidationFailed
 from scopecat.experiments import ExperimentSpec
@@ -48,7 +52,10 @@ def load_config() -> ConfigProfileSnapshot:
             5,
         ),
         (
-            SQG_RB_TEMPLATE.bind(qubit="q0", lengths=[4, 8], seed=11),
+            SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan(
+                "clifford_count",
+                [4, 8],
+            ),
             "clifford_count",
             2,
         ),
@@ -56,9 +63,8 @@ def load_config() -> ConfigProfileSnapshot:
             CZ_RB_TEMPLATE.bind(
                 control_qubit="q0",
                 partner_qubit="q1",
-                lengths=[2, 4],
                 seed=17,
-            ),
+            ).scan("clifford_count", [2, 4]),
             "clifford_count",
             2,
         ),
@@ -89,9 +95,9 @@ def test_cz_chevron_emits_waveform_compute_summaries(tmp_path: Path) -> None:
             CZ_CHEVRON_TEMPLATE.bind(
                 control_qubit="q0",
                 partner_qubit="q1",
-                durations=[24],
-                amplitudes=[0.18],
             )
+            .scan("coupler_duration", [24], unit="ns")
+            .scan("coupler_amplitude", [0.18], unit="arb")
         )
         .run(
             event_sink=events.append,
@@ -147,22 +153,20 @@ def test_cz_chevron_emits_waveform_compute_summaries(tmp_path: Path) -> None:
         (
             QND_REPEATED_MEASUREMENT_TEMPLATE.bind(
                 qubit="q0",
-                rounds=sc.Quantity(value=2.0, unit="count"),
-                shots=sc.Quantity(value=3.0, unit="count"),
+                rounds=2,
+                shots=3,
             ),
             "qnd_iq",
             [1, 2, 3],
         ),
         (
-            TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(
-                rounds=sc.Quantity(value=2.0, unit="count")
-            ),
+            TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(rounds=2),
             "stabilizer_iq",
             [1, 2, 4],
         ),
         (
             BACKEND_BATCH_TEMPLATE.bind(
-                logical_points=sc.Quantity(value=4.0, unit="count"),
+                logical_points=4,
                 seed=5,
             ),
             "backend_probabilities",
@@ -205,34 +209,25 @@ def test_array_record_cases_run_provider_python_api(
         ]
 
 
-def test_rejects_invalid_payload_kind(
+def test_rejects_invalid_payload_schema(
     tmp_path: Path,
 ) -> None:
     resolved = resolve_experiment(
-        SQG_RB_TEMPLATE.bind(qubit="q0", lengths=[4], seed=11),
+        SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan("clifford_count", [4]),
         workspace=tmp_path,
         config_profile=load_config(),
     )
     assert isinstance(resolved.experiment, ExperimentSpec)
-    sequence_state = resolved.experiment.state[0]
-    assert sequence_state.value is not None
+    sequence_node_id = "build-sqg-rb-sequence"
     experiment = resolved.experiment.model_copy(
         update={
-            "state": [
-                sequence_state.model_copy(
-                    update={
-                        "value": sequence_state.value.model_copy(
-                            update={
-                                "value": {
-                                    "kind": "compute_result",
-                                    "node_id": "build-sqg-rb-sequence",
-                                    "payload_kind": "pulse_program",
-                                }
-                            }
-                        )
-                    }
-                ),
-                *resolved.experiment.state[1:],
+            "compute_nodes": [
+                node.model_copy(
+                    update={"output_type": ScalarType(PayloadType("pulse_program"))}
+                )
+                if node.id == sequence_node_id
+                else node
+                for node in resolved.experiment.compute_nodes
             ]
         }
     )
@@ -252,7 +247,7 @@ def test_rejects_invalid_payload_kind(
             parameter_derivations=resolved.parameter_derivations,
         )
 
-    assert error.value.diagnostics[0].code == "instrument_driver_payload_kind_mismatch"
+    assert error.value.diagnostics[0].code == "instrument_driver_field_value_mismatch"
 
 
 def _lab(tmp_path: Path):

@@ -76,10 +76,10 @@ class RuntimeComputeCache:
                 compute_results[(point.point_index, step.node_id)] = result
                 node_tokens[step.node_id] = cache_entry.token
                 reused_node_ids.append(step.node_id)
-                if step.payload_id is not None and step.payload_kind is not None:
-                    payloads[step.payload_id] = CommandPayload(
-                        id=step.payload_id,
-                        kind=step.payload_kind,
+                if step.payload is not None:
+                    payloads[step.payload.id] = CommandPayload(
+                        id=step.payload.id,
+                        schema_id=step.payload.schema_id,
                         metadata={
                             "compute_node_id": step.node_id,
                             "point_index": point.point_index,
@@ -98,9 +98,9 @@ class RuntimeComputeCache:
                     params=point.params,
                     compute_nodes=[node],
                     route_bindings=point.route_bindings,
-                    compute_payload_kinds=(
-                        {step.node_id: step.payload_kind}
-                        if step.payload_kind is not None
+                    compute_payload_schema_ids=(
+                        {step.node_id: step.payload.schema_id}
+                        if step.payload is not None
                         else {}
                     ),
                     initial_compute_results=compute_results,

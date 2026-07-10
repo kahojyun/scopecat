@@ -14,7 +14,15 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    WithJsonSchema,
+    field_validator,
+    model_validator,
+)
 
 from scopecat._planning.parameter_patches import (
     ParameterPatchSpec,
@@ -29,18 +37,38 @@ from scopecat._planning.records import (
 from scopecat._planning.state import (
     StateRecord,
     StateSpec,
+    as_state_route_value_expr,
 )
+from scopecat._value_expressions import (
+    ScalarOrSeriesValueExpr,
+    ValueExpr,
+    as_scalar_or_series_value_expr,
+    as_value_expr,
+)
+from scopecat._value_expressions import (
+    ScalarValueExpr as ScalarValueExpr,
+)
+from scopecat._value_expressions import (
+    SeriesValueExpr as SeriesValueExpr,
+)
+from scopecat._value_expressions import (
+    TableValueExpr as TableValueExpr,
+)
+from scopecat._value_type_wire import ScalarWire, scalar_type_wire_schema
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.config import RoutingChannelBinding
 from scopecat.models.parameter import (
     Quantity,
 )
+from scopecat.models.state import StateValue
+from scopecat.models.value import ComputeResultRef
 from scopecat.relations import (
     CellValue,
     ParameterRelationData,
     RelationExpr,
     Row,
     ScalarExpr,
+    SeriesExpr,
     as_scalar_expr,
     col,
     grid,
@@ -59,6 +87,8 @@ from scopecat.relations import (
 from scopecat.results import (
     MeasurementDType,
 )
+from scopecat.value_types import Payload as PayloadType
+from scopecat.value_types import Scalar
 
 
 class PointScanRecord(BaseModel):
@@ -71,7 +101,6 @@ class PointScanRecord(BaseModel):
     axis_id: str
     values: list[Any]
     unit: str | None = None
-    input_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class AroundScanRecord(BaseModel):
@@ -85,7 +114,6 @@ class AroundScanRecord(BaseModel):
     center: Any
     span: Any
     points: int
-    input_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ParameterScanRecord(BaseModel):
@@ -127,7 +155,7 @@ class RunRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.run_request.v1"
+    schema_version: Literal["scopecat.run_request.v2"] = "scopecat.run_request.v2"
     id: str
     template_id: str | None = None
     template_inputs: dict[str, Any] = Field(default_factory=dict)
@@ -143,7 +171,9 @@ class ExperimentSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
-    schema_version: str = "scopecat.experiment_spec.v3"
+    schema_version: Literal["scopecat.experiment_spec.v7"] = (
+        "scopecat.experiment_spec.v7"
+    )
     id: str
     kind: str
     request: RunRequest | None = None
@@ -159,6 +189,17 @@ class ExperimentSpec(BaseModel):
 
 ComputeNodeFunction = Callable[..., object]
 
+_COMPUTE_NODE_OUTPUT_TYPE_WIRE_SCHEMA = scalar_type_wire_schema(
+    ("payload",),
+    allow_nullable=False,
+)
+
+type ComputeNodeOutputType = Annotated[
+    ScalarWire,
+    WithJsonSchema(_COMPUTE_NODE_OUTPUT_TYPE_WIRE_SCHEMA, mode="validation"),
+    WithJsonSchema(_COMPUTE_NODE_OUTPUT_TYPE_WIRE_SCHEMA, mode="serialization"),
+]
+
 
 class ComputeNodeInput(BaseModel):
     """Input edge for a point-local pure compute node."""
@@ -166,10 +207,17 @@ class ComputeNodeInput(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     kind: Literal["value", "compute_result", "route"]
-    value: ScalarExpr | None = None
+    value: ValueExpr | None = None
     node_id: str | None = None
     port_id: str | None = None
     source_inputs: list[str] = Field(default_factory=list)
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def coerce_value_expression(cls, value: object) -> object:
+        if isinstance(value, ScalarExpr | SeriesExpr | RelationExpr):
+            return as_value_expr(value)
+        return value
 
     @model_validator(mode="after")
     def validate_shape(self) -> ComputeNodeInput:
@@ -205,7 +253,18 @@ class ComputeNodeSpec(BaseModel):
     id: str
     inputs: dict[str, ComputeNodeInput] = Field(default_factory=dict)
     route_ports: list[str] = Field(default_factory=list)
+    output_type: ComputeNodeOutputType | None = None
     fn: ComputeNodeFunction | None = Field(default=None, exclude=True)
+
+    @field_validator("output_type")
+    @classmethod
+    def validate_output_type(cls, value: Scalar | None) -> Scalar | None:
+        if value is None:
+            return None
+        if value.nullable or not isinstance(value.atom, PayloadType):
+            msg = "compute node output type must be a non-nullable payload scalar"
+            raise ValueError(msg)
+        return value
 
 
 @dataclass(frozen=True)
@@ -255,8 +314,21 @@ class ResourceRouteIntent(BaseModel):
 
     port_id: str
     capabilities: list[str] = Field(default_factory=list)
-    entity_exprs: list[ScalarExpr] = Field(default_factory=list)
+    entity_exprs: list[ScalarOrSeriesValueExpr] = Field(default_factory=list)
     resource_id: str | None = None
+
+    @field_validator("entity_exprs", mode="before")
+    @classmethod
+    def coerce_entity_expressions(cls, value: object) -> object:
+        if isinstance(value, list | tuple):
+            items = cast("Sequence[object]", value)
+            return [
+                as_scalar_or_series_value_expr(item)
+                if isinstance(item, ScalarExpr | SeriesExpr)
+                else item
+                for item in items
+            ]
+        return value
 
 
 class PointRouteBinding(BaseModel):
@@ -272,48 +344,11 @@ class PointRouteBinding(BaseModel):
     channel_bindings: list[RoutingChannelBinding] = Field(default_factory=list)
 
 
-class ProgramStateValue(BaseModel):
-    """Device-program state value before conversion to driver SDK commands."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["quantity", "number", "payload"]
-    quantity: Quantity | None = None
-    value: float | None = None
-    payload_id: str | None = None
-
-    @model_validator(mode="after")
-    def validate_shape(self) -> ProgramStateValue:
-        if self.kind == "quantity":
-            if self.quantity is None:
-                msg = "quantity program state value requires quantity"
-                raise ValueError(msg)
-            if self.value is not None or self.payload_id is not None:
-                msg = "quantity program state value cannot contain value or payload_id"
-                raise ValueError(msg)
-            return self
-        if self.kind == "number":
-            if self.value is None:
-                msg = "number program state value requires value"
-                raise ValueError(msg)
-            if self.quantity is not None or self.payload_id is not None:
-                msg = "number program state value cannot contain quantity or payload_id"
-                raise ValueError(msg)
-            return self
-        if self.payload_id is None:
-            msg = "payload program state value requires payload_id"
-            raise ValueError(msg)
-        if self.quantity is not None or self.value is not None:
-            msg = "payload program state value cannot contain quantity or value"
-            raise ValueError(msg)
-        return self
-
-
 class ProgramStateField(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     field_path: str
-    value: ProgramStateValue
+    value: StateValue
     channel_bindings: list[RoutingChannelBinding] = Field(default_factory=list)
 
 
@@ -360,7 +395,6 @@ class ScanAxis:
     center: ScalarExpr | None = None
     span: object | None = None
     point_count: int | None = None
-    input_id: str | None = None
     implicit_center: bool = False
 
     @property
@@ -396,7 +430,6 @@ class ScanAxis:
                 axis_id=self.axis_id,
                 values=[_request_value(value) for value in self.point_values],
                 unit=self.unit,
-                input_id=self.input_id,
             )
         if self.center is None or self.span is None or self.point_count is None:
             msg = f"scan axis {self.axis_id!r} requires values or center/span/points"
@@ -407,7 +440,6 @@ class ScanAxis:
             center=_request_value(self.center),
             span=_request_value(self.span),
             points=self.point_count,
-            input_id=self.input_id,
         )
 
     def values_axis(
@@ -421,7 +453,6 @@ class ScanAxis:
             values=values,
             unit=unit,
             target_id=self.target_id,
-            input_id=self.input_id,
         )
 
     def values(
@@ -453,7 +484,6 @@ class ScanAxis:
             center=center,
             span=span,
             point_count=points,
-            input_id=self.input_id,
         )
 
 
@@ -521,7 +551,6 @@ def axis(
     span: object | None = None,
     points: int | None = None,
     target_id: str | None = None,
-    input_id: str | None = None,
 ) -> ScanAxis:
     if not axis_id:
         msg = "scan axis id must be non-empty"
@@ -544,7 +573,6 @@ def axis(
         center=center,
         span=span,
         point_count=points,
-        input_id=input_id,
     )
 
 
@@ -813,9 +841,15 @@ def set_state(
         kind="set",
         resource=as_scalar_expr(resource),
         field=field,
-        value=as_scalar_expr(value),
-        route_entities=[as_scalar_expr(entity) for entity in route_entities],
+        value=value if isinstance(value, ComputeResultRef) else as_scalar_expr(value),
+        route_entities=[as_state_route_value_expr(entity) for entity in route_entities],
     )
+
+
+def compute_result(node_id: str) -> ComputeResultRef:
+    """Reference one point-local compute result."""
+
+    return ComputeResultRef(node_id=node_id)
 
 
 def bind_each(relation: RelationExpr, *state: StateSpec) -> StateSpec:
@@ -923,6 +957,8 @@ ExperimentSpec.model_rebuild()
 
 __all__ = [
     "AroundScanRecord",
+    "ComputeNodeOutputType",
+    "ComputeResultRef",
     "ExperimentSpec",
     "LocalOverrides",
     "ParameterPatchSpec",
@@ -935,6 +971,7 @@ __all__ = [
     "RecordSource",
     "RecordSpec",
     "ResourceRouteIntent",
+    "ScalarValueExpr",
     "ScanAxis",
     "ScanGroup",
     "ScanGroupRecord",
@@ -942,11 +979,16 @@ __all__ = [
     "ScanLeaf",
     "ScanLeafRecord",
     "ScanRecord",
+    "SeriesValueExpr",
     "StateRecord",
     "StateSpec",
+    "TableValueExpr",
+    "ValueExpr",
+    "as_value_expr",
     "axis",
     "bind_each",
     "cartesian",
+    "compute_result",
     "configure",
     "delete_param_rows",
     "experiment",

@@ -240,7 +240,7 @@ def test_default_quantum_wiring_preview_includes_resolved_channel_routes(
             workspace=tmp_path,
             config_profile=quantum_wiring_config_profile(),
         )
-        .prepare(SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=sc.entity_array(("q0", "q1"))))
+        .prepare(SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=("q0", "q1")))
         .preview()
     )
 
@@ -268,7 +268,7 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
 ) -> None:
     config = quantum_wiring_config_profile()
     resolved = resolve_experiment(
-        SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=sc.entity_array(("q0", "q1"))),
+        SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=("q0", "q1")),
         workspace=tmp_path,
         config_profile=config,
     )

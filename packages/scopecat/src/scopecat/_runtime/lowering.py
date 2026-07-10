@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from inspect import Parameter, signature
 from typing import Any, Protocol, cast
@@ -19,13 +20,17 @@ from scopecat.experiments import (
     ProductBinding,
     ProgramResourceState,
     ProgramStateField,
-    ProgramStateValue,
+    ScalarValueExpr,
+    SeriesValueExpr,
+    ValueExpr,
 )
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.config import ConfigProfileSnapshot, RoutingChannelBinding
-from scopecat.models.entity import EntityArray, EntityRef
+from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
-from scopecat.relations import EvalContext, ParameterRelationData, ScalarExpr
+from scopecat.models.state import PayloadRef, StateValue
+from scopecat.models.value import ComputeResultRef, PayloadValue
+from scopecat.relations import EvalContext, ParameterRelationData
 from scopecat.routing import RoutingError, RoutingView
 
 
@@ -33,7 +38,7 @@ def compile_compute_node_payloads(
     plan: PlannerSnapshot,
     *,
     route_bindings: dict[int, list[PointRouteBinding]],
-    compute_payload_kinds: dict[str, str],
+    compute_payload_schema_ids: dict[str, str],
 ) -> tuple[
     dict[tuple[int, str], object],
     dict[str, CommandPayload],
@@ -55,7 +60,7 @@ def compile_compute_node_payloads(
                 params=point_params,
                 compute_nodes=plan.compute_nodes,
                 route_bindings=tuple(route_bindings.get(point_index, ())),
-                compute_payload_kinds=compute_payload_kinds,
+                compute_payload_schema_ids=compute_payload_schema_ids,
                 initial_compute_results=compute_results,
             )
         )
@@ -71,7 +76,7 @@ def evaluate_compute_nodes_for_point(
     params: ParameterRelationData,
     compute_nodes: Sequence[ComputeNodeSpec],
     route_bindings: Sequence[PointRouteBinding],
-    compute_payload_kinds: dict[str, str],
+    compute_payload_schema_ids: dict[str, str],
     initial_compute_results: dict[tuple[int, str], object] | None = None,
 ) -> tuple[
     dict[tuple[int, str], object],
@@ -119,11 +124,11 @@ def evaluate_compute_nodes_for_point(
             result_key = (point.point_index, node.id)
             compute_results[result_key] = result
             point_results[result_key] = result
-            payload_kind = compute_payload_kinds.get(node.id)
-            if payload_kind is not None:
+            schema_id = compute_payload_schema_ids.get(node.id)
+            if schema_id is not None:
                 payload = CommandPayload(
                     id=_compute_result_payload_id(node, point.point_index),
-                    kind=payload_kind,
+                    schema_id=schema_id,
                     metadata={
                         "compute_node_id": node.id,
                         "point_index": point.point_index,
@@ -158,10 +163,13 @@ def _compute_node_inputs(
     values: dict[str, object] = {}
     for name, input_spec in node.inputs.items():
         if input_spec.kind == "value":
-            values[name] = _required_scalar(
-                input_spec.value,
-                f"compute_nodes.{node.id}.inputs.{name}.value",
-            ).eval(ctx)
+            values[name] = _evaluate_value_expr(
+                _required_value_expr(
+                    input_spec.value,
+                    f"compute_nodes.{node.id}.inputs.{name}.value",
+                ),
+                ctx,
+            )
             continue
         if input_spec.kind == "compute_result":
             values[name] = compute_results[
@@ -266,12 +274,23 @@ def compile_point_routes(
     bindings: dict[int, list[PointRouteBinding]] = {}
     diagnostics: list[dict[str, Any]] = []
     for point in plan.points:
+        point_params = plan.point_parameters.get(
+            point.point_index,
+            ParameterRelationData(),
+        )
         for intent in plan.route_intents:
             entity_values: list[object] = []
+            entity_expression_failed = False
             for expression in intent.entity_exprs:
                 try:
-                    entity_values.append(expression.eval(EvalContext(row=point.row)))
+                    entity_values.append(
+                        _evaluate_value_expr(
+                            expression,
+                            EvalContext(params=point_params, row=point.row),
+                        )
+                    )
                 except Exception as error:
+                    entity_expression_failed = True
                     diagnostics.append(
                         planning_diagnostic(
                             "error",
@@ -283,6 +302,8 @@ def compile_point_routes(
                             f"route_intents.{intent.port_id}",
                         )
                     )
+            if entity_expression_failed:
+                continue
             try:
                 binding = routing.route_point(
                     port_id=intent.port_id,
@@ -317,10 +338,12 @@ def compile_desired_state_points(
     state_records: list[StateRecord],
     *,
     command_payload_ids: set[str],
+    unavailable_compute_payload_node_ids: frozenset[str],
     route_bindings: dict[int, list[PointRouteBinding]],
 ) -> tuple[dict[int, list[ProgramResourceState]], list[dict[str, Any]]]:
     grouped: dict[tuple[int, str, str], list[ProgramStateField]] = {}
     diagnostics: list[dict[str, Any]] = []
+    missing_compute_payload_node_ids: set[str] = set()
     for record in state_records:
         capability_id, separator, field_path = record.field.partition(".")
         if not separator or not capability_id or not field_path:
@@ -339,6 +362,24 @@ def compile_desired_state_points(
             command_payload_ids=command_payload_ids,
         )
         if value is None:
+            if isinstance(record.value, ComputeResultRef):
+                node_id = record.value.node_id
+                if node_id in unavailable_compute_payload_node_ids:
+                    continue
+                if node_id not in missing_compute_payload_node_ids:
+                    missing_compute_payload_node_ids.add(node_id)
+                    diagnostics.append(
+                        planning_diagnostic(
+                            "error",
+                            "compute_payload_not_materialized",
+                            (
+                                f"compute payload for node {node_id!r} has no "
+                                "command payload"
+                            ),
+                            "desired_state.value",
+                        )
+                    )
+                continue
             diagnostics.append(
                 planning_diagnostic(
                     "error",
@@ -351,6 +392,26 @@ def compile_desired_state_points(
                 )
             )
             continue
+        channel_bindings, unbound_entity_ids = _state_field_channel_bindings(
+            resource_id=record.resource,
+            capability_id=capability_id,
+            route_entities=record.route_entities,
+            route_bindings=route_bindings.get(record.point_index, []),
+        )
+        if unbound_entity_ids:
+            diagnostics.append(
+                planning_diagnostic(
+                    "error",
+                    "state_route_entity_unbound",
+                    (
+                        f"state route entities are not bound to {record.resource!r} "
+                        f"for capability {capability_id!r}: "
+                        + ", ".join(unbound_entity_ids)
+                    ),
+                    "desired_state.route_entities",
+                )
+            )
+            continue
         grouped.setdefault(
             (record.point_index, record.resource, capability_id),
             [],
@@ -358,12 +419,7 @@ def compile_desired_state_points(
             ProgramStateField(
                 field_path=field_path,
                 value=value,
-                channel_bindings=_state_field_channel_bindings(
-                    resource_id=record.resource,
-                    capability_id=capability_id,
-                    route_entities=record.route_entities,
-                    route_bindings=route_bindings.get(record.point_index, []),
-                ),
+                channel_bindings=channel_bindings,
             )
         )
 
@@ -385,13 +441,13 @@ def _state_field_channel_bindings(
     capability_id: str,
     route_entities: Sequence[object],
     route_bindings: Sequence[PointRouteBinding],
-) -> list[RoutingChannelBinding]:
+) -> tuple[list[RoutingChannelBinding], tuple[str, ...]]:
     if not route_entities:
-        return []
-    entity_ids = set(_state_route_entity_ids(route_entities))
+        return [], ()
+    entity_ids = _state_route_entity_ids(route_entities)
     if not entity_ids:
-        return []
-    selected: list[RoutingChannelBinding] = []
+        return [], ()
+    selected: dict[str, RoutingChannelBinding] = {}
     for route in route_bindings:
         if route.port_id != resource_id and route.resource_id != resource_id:
             continue
@@ -399,66 +455,27 @@ def _state_field_channel_bindings(
             continue
         for binding in route.channel_bindings:
             if binding.entity_id in entity_ids:
-                selected.append(binding)
-    return selected
+                selected.setdefault(binding.entity_id, binding)
+    return (
+        [selected[entity_id] for entity_id in entity_ids if entity_id in selected],
+        tuple(entity_id for entity_id in entity_ids if entity_id not in selected),
+    )
 
 
 def _state_route_entity_ids(values: Sequence[object]) -> tuple[str, ...]:
     entity_ids: list[str] = []
     for value in values:
         if isinstance(value, EntityRef):
+            if not value.id:
+                msg = "state route entity id must be non-empty"
+                raise ValueError(msg)
             entity_ids.append(value.id)
-        elif isinstance(value, EntityArray):
-            entity_ids.extend(value.ids)
         elif isinstance(value, str) and value:
             entity_ids.append(value)
+        else:
+            msg = f"state route entity must be an entity reference, got {value!r}"
+            raise TypeError(msg)
     return tuple(dict.fromkeys(entity_ids))
-
-
-def compute_payload_kinds(
-    state_records: list[StateRecord],
-) -> tuple[dict[str, str], list[dict[str, Any]]]:
-    kinds: dict[str, str] = {}
-    diagnostics: list[dict[str, Any]] = []
-    for record in state_records:
-        for node_id, payload_kind in _compute_result_references(record.value):
-            previous = kinds.get(node_id)
-            if previous is None:
-                kinds[node_id] = payload_kind
-            elif previous != payload_kind:
-                diagnostics.append(
-                    planning_diagnostic(
-                        "error",
-                        "compute_result_payload_kind_conflict",
-                        (
-                            f"compute result {node_id!r} is bound as both "
-                            f"{previous!r} and {payload_kind!r}"
-                        ),
-                        "desired_state.value",
-                    )
-                )
-    return kinds, diagnostics
-
-
-def _compute_result_references(value: object) -> list[tuple[str, str]]:
-    if isinstance(value, dict):
-        mapping = cast("dict[object, object]", value)
-        refs: list[tuple[str, str]] = []
-        if mapping.get("kind") == "compute_result":
-            node_id = mapping.get("node_id")
-            payload_kind = mapping.get("payload_kind")
-            if isinstance(node_id, str) and isinstance(payload_kind, str):
-                refs.append((node_id, payload_kind))
-        for child in mapping.values():
-            refs.extend(_compute_result_references(child))
-        return refs
-    if isinstance(value, list | tuple):
-        sequence_refs: list[tuple[str, str]] = []
-        sequence = cast("Sequence[object]", value)
-        for child in sequence:
-            sequence_refs.extend(_compute_result_references(child))
-        return sequence_refs
-    return []
 
 
 def compile_collect_instructions(
@@ -536,7 +553,7 @@ def normalize_desired_state(
     return normalized, diagnostics
 
 
-def _state_value_signature(value: ProgramStateValue) -> str:
+def _state_value_signature(value: StateValue) -> str:
     return value.model_dump_json(round_trip=True)
 
 
@@ -726,23 +743,23 @@ def _state_value(
     *,
     point_index: int,
     command_payload_ids: set[str],
-) -> ProgramStateValue | None:
+) -> StateValue | None:
     if isinstance(value, Quantity):
-        return ProgramStateValue(kind="quantity", quantity=value)
-    if isinstance(value, int | float):
-        return ProgramStateValue(kind="number", value=float(value))
-    if isinstance(value, dict):
-        payload_value = cast("dict[str, object]", value)
-        kind = payload_value.get("kind")
-        if kind == "compute_result":
-            node_id = payload_value.get("node_id")
-            if isinstance(node_id, str):
-                payload_id = compute_result_payload_id(
-                    node_id,
-                    point_index,
-                )
-                if payload_id in command_payload_ids:
-                    return ProgramStateValue(kind="payload", payload_id=payload_id)
+        if not math.isfinite(value.value):
+            return None
+        return StateValue(value)
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        try:
+            numeric_value = float(value)
+        except OverflowError:
+            return None
+        if not math.isfinite(numeric_value):
+            return None
+        return StateValue(numeric_value)
+    if isinstance(value, ComputeResultRef):
+        payload_id = compute_result_payload_id(value.node_id, point_index)
+        if payload_id in command_payload_ids:
+            return StateValue(PayloadRef(payload_id=payload_id))
     return None
 
 
@@ -754,7 +771,33 @@ def compute_result_payload_id(node_id: str, point_index: int) -> str:
     return f"{node_id}.payload.point-{point_index}"
 
 
-def _required_scalar(value: ScalarExpr | None, path: str) -> ScalarExpr:
+def _evaluate_value_expr(
+    value: ValueExpr,
+    ctx: EvalContext,
+) -> object:
+    if isinstance(value, ScalarValueExpr):
+        return _unwrap_payload_values(value.expr.eval(ctx))
+    if isinstance(value, SeriesValueExpr):
+        return _unwrap_payload_values(value.expr.evaluate(ctx))
+    return _unwrap_payload_values(value.expr.evaluate_in_context(ctx))
+
+
+def _unwrap_payload_values(value: object) -> object:
+    if isinstance(value, PayloadValue):
+        return value.payload
+    if isinstance(value, list):
+        items = cast("list[object]", value)
+        return [_unwrap_payload_values(item) for item in items]
+    if isinstance(value, tuple):
+        items = cast("tuple[object, ...]", value)
+        return tuple(_unwrap_payload_values(item) for item in items)
+    if isinstance(value, dict):
+        mapping = cast("Mapping[object, object]", value)
+        return {name: _unwrap_payload_values(item) for name, item in mapping.items()}
+    return value
+
+
+def _required_value_expr(value: ValueExpr | None, path: str) -> ValueExpr:
     if value is None:
         msg = f"{path} is required"
         raise ValueError(msg)
@@ -773,7 +816,6 @@ __all__ = [
     "compile_compute_node_payloads",
     "compile_desired_state_points",
     "compile_point_routes",
-    "compute_payload_kinds",
     "compute_result_payload_id",
     "evaluate_compute_nodes_for_point",
     "normalize_desired_state",

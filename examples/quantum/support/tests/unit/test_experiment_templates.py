@@ -14,7 +14,7 @@ from scopecat.errors import ValidationFailed
 from scopecat.experiments import (
     ExperimentSpec,
 )
-from scopecat.instruments import RuntimePayloadObservation
+from scopecat.instruments import PayloadRef, RuntimePayloadObservation
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
@@ -36,6 +36,7 @@ from quantum_lab_demo.experiments import (
     SYSTEM_BACKGROUND_RABI_TEMPLATE_ID,
     TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
 )
+from quantum_lab_demo.experiments.compute import build_parallel_gate_set_program
 from quantum_lab_demo.experiments.payloads import (
     BackendBatchJob,
     CzChevronProgram,
@@ -114,7 +115,7 @@ def test_template_constants_cover_experiment_system() -> None:
         ),
         (
             "simultaneous_rabi",
-            SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=sc.entity_array(("q0", "q1"))),
+            SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=("q0", "q1")),
             SIMULTANEOUS_RABI_TEMPLATE_ID,
             "simultaneous_rabi",
         ),
@@ -138,21 +139,22 @@ def test_template_constants_cover_experiment_system() -> None:
         ),
         (
             "multiplexed_readout",
-            MULTIPLEXED_READOUT_TEMPLATE.bind(qubits=sc.entity_array(("q0", "q1"))),
+            MULTIPLEXED_READOUT_TEMPLATE.bind(qubits=("q0", "q1")),
             MULTIPLEXED_READOUT_TEMPLATE_ID,
             "multiplexed_readout",
         ),
         (
             "multiplexed_readout_calibration",
-            MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE.bind(
-                qubits=sc.entity_array(("q0", "q1"))
-            ),
+            MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE.bind(qubits=("q0", "q1")),
             MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE_ID,
             "multiplexed_readout_calibration",
         ),
         (
             "sqg_rb",
-            SQG_RB_TEMPLATE.bind(qubit="q0", lengths=[4, 8], seed=11),
+            SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan(
+                "clifford_count",
+                [4, 8],
+            ),
             SQG_RB_TEMPLATE_ID,
             "sqg_rb",
         ),
@@ -161,9 +163,8 @@ def test_template_constants_cover_experiment_system() -> None:
             CZ_RB_TEMPLATE.bind(
                 control_qubit="q0",
                 partner_qubit="q1",
-                lengths=[2, 4],
                 seed=17,
-            ),
+            ).scan("clifford_count", [2, 4]),
             CZ_RB_TEMPLATE_ID,
             "cz_rb",
         ),
@@ -172,9 +173,9 @@ def test_template_constants_cover_experiment_system() -> None:
             CZ_CHEVRON_TEMPLATE.bind(
                 control_qubit="q0",
                 partner_qubit="q1",
-                durations=[24, 36],
-                amplitudes=[0.18, 0.24],
-            ),
+            )
+            .scan("coupler_duration", [24, 36], unit="ns")
+            .scan("coupler_amplitude", [0.18, 0.24], unit="arb"),
             CZ_CHEVRON_TEMPLATE_ID,
             "cz_chevron",
         ),
@@ -183,24 +184,26 @@ def test_template_constants_cover_experiment_system() -> None:
             SPECTATOR_CZ_TEMPLATE.bind(
                 control_qubit="q0",
                 partner_qubit="q1",
-                background_couplers=sc.entity_array(("coupler-q2-q3",)),
-                durations=[24],
-                amplitudes=[0.18],
-            ),
+                background_couplers=("coupler-q2-q3",),
+            )
+            .scan("coupler_duration", [24], unit="ns")
+            .scan("coupler_amplitude", [0.18], unit="arb"),
             SPECTATOR_CZ_TEMPLATE_ID,
             "spectator_cz_calibration",
         ),
         (
             "parallel_gate_set",
-            PARALLEL_GATE_SET_TEMPLATE.bind(durations=[28]),
+            PARALLEL_GATE_SET_TEMPLATE.bind().scan(
+                "gate_duration",
+                [28],
+                unit="ns",
+            ),
             PARALLEL_GATE_SET_TEMPLATE_ID,
             "parallel_gate_set",
         ),
         (
             "toy_surface_code_round",
-            TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(
-                rounds=sc.Quantity(value=2.0, unit="count")
-            ),
+            TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(rounds=2),
             TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
             "toy_surface_code_round",
         ),
@@ -208,8 +211,8 @@ def test_template_constants_cover_experiment_system() -> None:
             "qnd_repeated_measurement",
             QND_REPEATED_MEASUREMENT_TEMPLATE.bind(
                 qubit="q0",
-                rounds=sc.Quantity(value=3.0, unit="count"),
-                shots=sc.Quantity(value=5.0, unit="count"),
+                rounds=3,
+                shots=5,
             ),
             QND_REPEATED_MEASUREMENT_TEMPLATE_ID,
             "qnd_repeated_measurement",
@@ -217,7 +220,7 @@ def test_template_constants_cover_experiment_system() -> None:
         (
             "backend_batch",
             BACKEND_BATCH_TEMPLATE.bind(
-                logical_points=sc.Quantity(value=4.0, unit="count"),
+                logical_points=4,
                 seed=5,
             ),
             BACKEND_BATCH_TEMPLATE_ID,
@@ -300,7 +303,7 @@ def test_rabi_generates_point_local_pulse_programs(tmp_path: Path) -> None:
     preview = _preview(tmp_path, invocation, config)
     payloads = _run_observed_payloads(tmp_path, invocation)
 
-    assert [(item.node_id, item.kind) for item in preview.payloads] == [
+    assert [(item.node_id, item.schema_id) for item in preview.payloads] == [
         ("render-rabi-waveforms", "pulse_program")
     ]
     assert len(payloads) == 5
@@ -309,7 +312,7 @@ def test_rabi_generates_point_local_pulse_programs(tmp_path: Path) -> None:
             [
                 field
                 for field in preview.state_fields
-                if field.value_kind == "payload" and field.field_path == "program"
+                if isinstance(field.value, PayloadRef) and field.field_path == "program"
             ]
         )
         == 5
@@ -323,11 +326,11 @@ def test_rabi_generates_point_local_pulse_programs(tmp_path: Path) -> None:
     assert payload.samples.shape == (10,)
 
 
-def test_simultaneous_rabi_generates_entity_array_waveform_payloads(
+def test_simultaneous_rabi_generates_entity_series_waveform_payloads(
     tmp_path: Path,
 ) -> None:
     config = load_experiment_config()
-    invocation = SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=sc.entity_array(("q0", "q1")))
+    invocation = SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=("q0", "q1"))
     resolved = resolve_experiment(
         invocation,
         workspace=tmp_path,
@@ -417,7 +420,7 @@ def test_multiplexed_readout_is_single_point_entity_axis_record(
 ) -> None:
     preview = _preview(
         tmp_path,
-        MULTIPLEXED_READOUT_TEMPLATE.bind(qubits=sc.entity_array(("q0", "q1"))),
+        MULTIPLEXED_READOUT_TEMPLATE.bind(qubits=("q0", "q1")),
     )
 
     observable = next(
@@ -434,9 +437,7 @@ def test_multiplexed_readout_calibration_scans_shared_readout_pulse(
 ) -> None:
     preview = _preview(
         tmp_path,
-        MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE.bind(
-            qubits=sc.entity_array(("q0", "q1"))
-        ),
+        MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE.bind(qubits=("q0", "q1")),
     )
 
     observable = next(
@@ -449,11 +450,17 @@ def test_multiplexed_readout_calibration_scans_shared_readout_pulse(
 
 def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None:
     config = load_experiment_config()
-    invocation = CZ_CHEVRON_TEMPLATE.bind(
-        control_qubit="q0",
-        partner_qubit="q1",
-        durations=[24, 36],
-        amplitudes=[0.18, 0.24],
+    invocation = (
+        CZ_CHEVRON_TEMPLATE.bind(
+            control_qubit="q0",
+            partner_qubit="q1",
+        )
+        .scan("coupler_duration", [24, 36], unit="ns")
+        .scan(
+            "coupler_amplitude",
+            [0.18, 0.24],
+            unit="arb",
+        )
     )
     preview = _preview(tmp_path, invocation, config)
 
@@ -477,7 +484,13 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
     assert preview.point_count == 4
     assert len(payloads) == 12
     assert (
-        len([field for field in preview.state_fields if field.value_kind == "payload"])
+        len(
+            [
+                field
+                for field in preview.state_fields
+                if isinstance(field.value, PayloadRef)
+            ]
+        )
         == 12
     )
     assert isinstance(drive_payload, RenderedWaveformBundle)
@@ -594,11 +607,11 @@ def test_spectator_cz_adds_background_state(tmp_path: Path) -> None:
         SPECTATOR_CZ_TEMPLATE.bind(
             control_qubit="q0",
             partner_qubit="q1",
-            background_couplers=sc.entity_array(("coupler-q2-q3",)),
-            durations=[24],
-            amplitudes=[0.18],
+            background_couplers=("coupler-q2-q3",),
             spectator_flux_bias=Quantity(value=0.025, unit="arb"),
-        ),
+        )
+        .scan("coupler_duration", [24], unit="ns")
+        .scan("coupler_amplitude", [0.18], unit="arb"),
         config,
     )
 
@@ -622,7 +635,11 @@ def test_spectator_cz_adds_background_state(tmp_path: Path) -> None:
 def test_parallel_gate_set_routes_disjoint_pairs(tmp_path: Path) -> None:
     payloads = _run_observed_payloads(
         tmp_path,
-        PARALLEL_GATE_SET_TEMPLATE.bind(durations=[28]),
+        PARALLEL_GATE_SET_TEMPLATE.bind().scan(
+            "gate_duration",
+            [28],
+            unit="ns",
+        ),
     )
     gate_program = next(
         payload.payload
@@ -655,11 +672,121 @@ def test_parallel_gate_set_routes_disjoint_pairs(tmp_path: Path) -> None:
     assert coupler_payload.samples.shape == (2, 28)
 
 
+@pytest.mark.parametrize("gate_count", (1, 3))
+def test_parallel_gate_compute_accepts_arbitrary_table_cardinality(
+    gate_count: int,
+) -> None:
+    rows = [
+        {
+            "control_qubit": f"q{2 * index}",
+            "partner_qubit": f"q{2 * index + 1}",
+            "coupler": f"coupler-{index}",
+            "coupler_parking_flux": Quantity(value=0.02 + index * 0.001, unit="arb"),
+            "control_frequency": Quantity(value=5.0 + index * 0.1, unit="GHz"),
+            "partner_frequency": Quantity(value=5.05 + index * 0.1, unit="GHz"),
+        }
+        for index in range(gate_count)
+    ]
+
+    program = build_parallel_gate_set_program(
+        gates=rows,
+        gate_duration=Quantity(value=28.0, unit="ns"),
+    )
+
+    assert len(program.gates) == gate_count
+    assert [gate.control_qubit for gate in program.gates] == [
+        f"q{2 * index}" for index in range(gate_count)
+    ]
+    assert all(
+        gate.duration == Quantity(value=28.0, unit="ns") for gate in program.gates
+    )
+
+
+@pytest.mark.parametrize(
+    ("gates", "expected_qubits", "expected_couplers"),
+    (
+        pytest.param(
+            (
+                {
+                    "control_qubit": "q0",
+                    "partner_qubit": "q1",
+                    "gate": "cz",
+                },
+            ),
+            ("q0", "q1"),
+            ("coupler-q0-q1",),
+            id="one-row",
+        ),
+        pytest.param(
+            (
+                {
+                    "control_qubit": "q2",
+                    "partner_qubit": "q3",
+                    "gate": "cz",
+                },
+                {
+                    "control_qubit": "q0",
+                    "partner_qubit": "q1",
+                    "gate": "cz",
+                },
+            ),
+            ("q2", "q3", "q0", "q1"),
+            ("coupler-q2-q3", "coupler-q0-q1"),
+            id="reordered-two-rows",
+        ),
+    ),
+)
+def test_parallel_gate_table_drives_program_and_resource_route_order(
+    tmp_path: Path,
+    gates: tuple[dict[str, str], ...],
+    expected_qubits: tuple[str, ...],
+    expected_couplers: tuple[str, ...],
+) -> None:
+    payloads = _run_observed_payloads(
+        tmp_path,
+        PARALLEL_GATE_SET_TEMPLATE.bind(gates=gates).scan(
+            "gate_duration",
+            [28],
+            unit="ns",
+        ),
+    )
+    gate_program = next(
+        payload.payload
+        for payload in payloads
+        if isinstance(payload.payload, ParallelGateSetProgram)
+    )
+    waveform_payloads = {
+        payload.payload.resource_id: payload.payload
+        for payload in payloads
+        if isinstance(payload.payload, RenderedWaveformBundle)
+    }
+
+    assert [
+        (gate.control_qubit, gate.partner_qubit, gate.coupler)
+        for gate in gate_program.gates
+    ] == [
+        (control, partner, coupler)
+        for (control, partner), coupler in zip(
+            zip(expected_qubits[::2], expected_qubits[1::2], strict=True),
+            expected_couplers,
+            strict=True,
+        )
+    ]
+    assert waveform_payloads["drive-stack"].entity_ids == expected_qubits
+    assert waveform_payloads["coupler-stack"].entity_ids == expected_couplers
+    assert waveform_payloads["drive-stack"].samples.shape == (
+        len(expected_qubits),
+        28,
+    )
+    assert waveform_payloads["coupler-stack"].samples.shape == (
+        len(expected_couplers),
+        28,
+    )
+
+
 def test_toy_surface_code_round_uses_round_and_entity_axes(tmp_path: Path) -> None:
     config = load_experiment_config()
-    invocation = TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(
-        rounds=sc.Quantity(value=2.0, unit="count")
-    )
+    invocation = TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(rounds=2)
     preview = _preview(tmp_path, invocation, config)
 
     payloads = _run_observed_payloads(tmp_path, invocation)
@@ -686,8 +813,8 @@ def test_qnd_repeated_measurement_keeps_dense_round_shot_array(
         tmp_path,
         QND_REPEATED_MEASUREMENT_TEMPLATE.bind(
             qubit="q0",
-            rounds=sc.Quantity(value=3.0, unit="count"),
-            shots=sc.Quantity(value=5.0, unit="count"),
+            rounds=3,
+            shots=5,
         ),
     )
 
@@ -703,7 +830,7 @@ def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
 ) -> None:
     config = load_experiment_config()
     invocation = BACKEND_BATCH_TEMPLATE.bind(
-        logical_points=sc.Quantity(value=4.0, unit="count"),
+        logical_points=4,
         seed=5,
     )
     preview = _preview(tmp_path, invocation, config)
@@ -726,7 +853,7 @@ def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
     assert observable.shape == (1, 4)
 
 
-def test_template_reports_empty_sequence_axis(tmp_path: Path) -> None:
+def test_template_rejects_removed_scan_input_alias(tmp_path: Path) -> None:
     with pytest.raises(ValidationFailed) as error:
         resolve_experiment(
             SQG_RB_TEMPLATE.bind(qubit="q0", lengths=[]),
@@ -734,7 +861,22 @@ def test_template_reports_empty_sequence_axis(tmp_path: Path) -> None:
             config_profile=load_experiment_config(),
         )
 
-    assert error.value.diagnostics[0].code == "module_point_values_empty"
+    assert error.value.diagnostics[0].code == "experiment_template_unknown_input"
+
+
+def test_template_validates_scan_points_against_module_input_type(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValidationFailed) as error:
+        resolve_experiment(
+            SQG_RB_TEMPLATE.bind(qubit="q0").scan("clifford_count", [0]),
+            workspace=tmp_path,
+            config_profile=load_experiment_config(),
+        )
+
+    diagnostic = error.value.diagnostics[0]
+    assert diagnostic.code == "module_point_value_type_mismatch"
+    assert diagnostic.path == "points.0.clifford_count"
 
 
 def _run_observed_payloads(

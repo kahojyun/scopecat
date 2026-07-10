@@ -13,6 +13,8 @@ from scopecat.models.parameter import (
     Quantity,
 )
 from scopecat.parameters import apply_parameter_patches, diff_parameter_states
+from scopecat.value_types import Bool, Float, Scalar, String
+from scopecat.value_types import Quantity as QuantityType
 
 
 def test_parameter_patches_apply_to_candidate_state_without_mutating_source() -> None:
@@ -118,7 +120,25 @@ def test_parameter_patches_reject_stale_expected_values() -> None:
 
 
 def test_parameter_patches_validate_table_schema_and_units() -> None:
-    with pytest.raises(ValueError, match="requires quantity"):
+    numeric_quantity_patch = ParameterPatch(
+        kind="update_rows",
+        table_id="drive_channels",
+        key={"channel_id": "xy0"},
+        values={"fixed_if": 120},
+    )
+    candidate = apply_parameter_patches(
+        catalog=_catalog(),
+        parameter_state=_state(),
+        patches=[numeric_quantity_patch],
+    )
+
+    assert candidate.tables[0].rows[0]["fixed_if"] == Quantity(
+        value=120,
+        unit="MHz",
+    )
+    assert numeric_quantity_patch.values == {"fixed_if": 120}
+
+    with pytest.raises(ValueError, match="use dimension 'frequency'"):
         apply_parameter_patches(
             catalog=_catalog(),
             parameter_state=_state(),
@@ -127,14 +147,15 @@ def test_parameter_patches_validate_table_schema_and_units() -> None:
                     kind="update_rows",
                     table_id="drive_channels",
                     key={"channel_id": "xy0"},
-                    values={"fixed_if": 120},
+                    values={"fixed_if": Quantity(value=120, unit="ns")},
                 )
             ],
         )
 
 
 def test_diff_parameter_states_returns_replayable_change_set() -> None:
-    source = _state()
+    source = ParameterState.model_validate_json(_state().model_dump_json())
+    assert isinstance(source.tables[0].rows[0]["fixed_if"], dict)
     candidate = apply_parameter_patches(
         catalog=_catalog(),
         parameter_state=source,
@@ -189,6 +210,65 @@ def test_diff_parameter_states_returns_replayable_change_set() -> None:
     assert replayed.tables == candidate.tables
 
 
+def test_quantity_primary_key_matches_json_rows_after_normalization() -> None:
+    catalog = ParameterCatalog(
+        id="catalog",
+        table_definitions=[
+            ParameterTableDefinition(
+                id="frequencies",
+                primary_key=["frequency"],
+                columns=[
+                    ParameterTableColumn(
+                        id="frequency",
+                        value_type=Scalar(QuantityType(unit="GHz")),
+                    ),
+                    ParameterTableColumn(
+                        id="label",
+                        value_type=Scalar(String()),
+                    ),
+                ],
+            )
+        ],
+    )
+    state = ParameterState.model_validate(
+        {
+            "id": "state",
+            "scalar_values": {"id": "scalars", "values": []},
+            "tables": [
+                {
+                    "id": "frequencies",
+                    "rows": [
+                        {
+                            "frequency": {"value": 5000, "unit": "MHz"},
+                            "label": "old",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    candidate = apply_parameter_patches(
+        catalog=catalog,
+        parameter_state=state,
+        patches=[
+            ParameterPatch(
+                kind="update_rows",
+                table_id="frequencies",
+                key={"frequency": Quantity(value=5, unit="GHz")},
+                values={"label": "new"},
+            )
+        ],
+    )
+
+    assert candidate.tables[0].rows == [
+        {
+            "frequency": Quantity(value=5, unit="GHz"),
+            "label": "new",
+        }
+    ]
+
+
 def _catalog() -> ParameterCatalog:
     return ParameterCatalog(
         id="catalog",
@@ -205,11 +285,26 @@ def _catalog() -> ParameterCatalog:
                 id="drive_channels",
                 primary_key=["channel_id"],
                 columns=[
-                    ParameterTableColumn(id="channel_id", kind="string"),
-                    ParameterTableColumn(id="resource_id", kind="string"),
-                    ParameterTableColumn(id="enabled", kind="bool"),
-                    ParameterTableColumn(id="gain", kind="number"),
-                    ParameterTableColumn(id="fixed_if", kind="quantity", unit="MHz"),
+                    ParameterTableColumn(
+                        id="channel_id",
+                        value_type=Scalar(String()),
+                    ),
+                    ParameterTableColumn(
+                        id="resource_id",
+                        value_type=Scalar(String()),
+                    ),
+                    ParameterTableColumn(
+                        id="enabled",
+                        value_type=Scalar(Bool()),
+                    ),
+                    ParameterTableColumn(
+                        id="gain",
+                        value_type=Scalar(Float()),
+                    ),
+                    ParameterTableColumn(
+                        id="fixed_if",
+                        value_type=Scalar(QuantityType(unit="MHz")),
+                    ),
                 ],
             )
         ],

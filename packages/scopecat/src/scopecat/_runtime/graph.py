@@ -15,6 +15,7 @@ from scopecat._planning.compute_dependencies import (
     ComputeDependencySummary,
     summarize_compute_dependencies,
 )
+from scopecat._planning.compute_payloads import resolve_compute_payload_schemas
 from scopecat._planning.planner import (
     PlannerPoint,
     PlannerSnapshot,
@@ -25,7 +26,6 @@ from scopecat._runtime.lowering import (
     compile_collect_instructions,
     compile_desired_state_points,
     compile_point_routes,
-    compute_payload_kinds,
     compute_result_payload_id,
     normalize_desired_state,
     resolve_program_state_resources,
@@ -49,13 +49,20 @@ from scopecat.results import CoordinateValue, MeasurementDatasetSchema
 
 
 @dataclass(frozen=True)
+class RuntimeComputePayloadPlan:
+    """One typed command payload materialized from a compute result."""
+
+    id: str
+    schema_id: str
+
+
+@dataclass(frozen=True)
 class RuntimeComputeStep:
     """Point-local pure compute node boundary for future dirty execution."""
 
     node_id: str
     dependencies: ComputeDependencySummary
-    payload_id: str | None = None
-    payload_kind: str | None = None
+    payload: RuntimeComputePayloadPlan | None = None
 
     @property
     def dirty_inputs(self) -> dict[str, list[str]]:
@@ -123,18 +130,21 @@ def build_runtime_graph(
         plan,
         config=config,
     )
-    payload_kinds, compute_payload_kind_diagnostics = compute_payload_kinds(
-        plan.desired_state
+    payload_resolution = resolve_compute_payload_schemas(
+        plan.desired_state,
+        plan.compute_nodes,
     )
+    payload_schemas = payload_resolution.schema_ids
     compute_dependencies_by_node = summarize_compute_dependencies(plan.compute_nodes)
     command_payloads = _expected_command_payload_stubs(
         points=plan.points,
         compute_nodes=plan.compute_nodes,
-        payload_kinds=payload_kinds,
+        payload_schemas=payload_schemas,
     )
     desired_points, state_diagnostics = compile_desired_state_points(
         plan.desired_state,
         command_payload_ids=set(command_payloads),
+        unavailable_compute_payload_node_ids=(payload_resolution.unavailable_node_ids),
         route_bindings=route_bindings,
     )
     collect_by_point = compile_collect_instructions(
@@ -175,7 +185,7 @@ def build_runtime_graph(
                     point_index=point.point_index,
                     compute_nodes=plan.compute_nodes,
                     dependencies_by_node=compute_dependencies_by_node,
-                    payload_kinds=payload_kinds,
+                    payload_schemas=payload_schemas,
                 ),
                 route_bindings=tuple(route_bindings.get(point.point_index, [])),
                 desired_state=tuple(normalized_desired_state),
@@ -201,7 +211,7 @@ def build_runtime_graph(
         diagnostics=(
             *plan.diagnostics,
             *route_resolution_diagnostics,
-            *compute_payload_kind_diagnostics,
+            *payload_resolution.diagnostics,
             *state_diagnostics,
             *normalize_diagnostics,
             *route_constraint_diagnostics_result,
@@ -253,18 +263,18 @@ def _expected_command_payload_stubs(
     *,
     points: list[PlannerPoint],
     compute_nodes: list[ComputeNodeSpec],
-    payload_kinds: dict[str, str],
+    payload_schemas: dict[str, str],
 ) -> dict[str, CommandPayload]:
     payloads: dict[str, CommandPayload] = {}
     for point in points:
         for node in compute_nodes:
-            payload_kind = payload_kinds.get(node.id)
-            if payload_kind is None:
+            schema_id = payload_schemas.get(node.id)
+            if schema_id is None:
                 continue
             payload_id = compute_result_payload_id(node.id, point.point_index)
             payloads[payload_id] = CommandPayload(
                 id=payload_id,
-                kind=payload_kind,
+                schema_id=schema_id,
                 metadata={
                     "compute_node_id": node.id,
                     "point_index": point.point_index,
@@ -280,24 +290,27 @@ def _runtime_compute_steps(
     point_index: int,
     compute_nodes: list[ComputeNodeSpec],
     dependencies_by_node: dict[str, ComputeDependencySummary],
-    payload_kinds: dict[str, str],
+    payload_schemas: dict[str, str],
 ) -> tuple[RuntimeComputeStep, ...]:
     return tuple(
         RuntimeComputeStep(
             node_id=node.id,
             dependencies=dependencies_by_node.get(node.id, ComputeDependencySummary()),
-            payload_id=(
-                compute_result_payload_id(node.id, point_index)
-                if node.id in payload_kinds
+            payload=(
+                RuntimeComputePayloadPlan(
+                    id=compute_result_payload_id(node.id, point_index),
+                    schema_id=payload_schemas[node.id],
+                )
+                if node.id in payload_schemas
                 else None
             ),
-            payload_kind=payload_kinds.get(node.id),
         )
         for node in compute_nodes
     )
 
 
 __all__ = [
+    "RuntimeComputePayloadPlan",
     "RuntimeComputeStep",
     "RuntimeGraph",
     "RuntimePoint",

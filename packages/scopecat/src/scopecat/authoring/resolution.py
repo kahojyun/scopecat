@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from scopecat._planning.parameter_patches import ParameterPatchSpec
 from scopecat.authoring._invocation_plan import (
@@ -128,11 +128,16 @@ def compile_prepared_invocation(
     invocation = prepared.invocation
     request_context = prepared.request_context
     scans = _effective_scans(invocation)
-    inputs = _merged_inputs(invocation, scans=scans)
-    request = _materialized_request(request_context, inputs=inputs, scans=scans)
+    inputs = _merged_inputs(invocation)
 
     try:
         compiled = _compile_invocation_template(invocation, inputs)
+        _validate_invocation_inputs(
+            invocation,
+            compiled,
+            inputs,
+            scans=scans,
+        )
     except ValidationFailed:
         raise
     except Exception as error:
@@ -147,6 +152,7 @@ def compile_prepared_invocation(
                 )
             ]
         ) from error
+    request = _materialized_request(request_context, inputs=inputs, scans=scans)
     invocation_derivations = invocation.template.parameter_derivations
     merged_inputs = {**compiled.inputs, **inputs}
     parameter_derivations = _combined_parameter_derivations(
@@ -199,6 +205,46 @@ def _compile_invocation_template(
         assemblies=assemblies,
         metadata=template.metadata,
     )
+
+
+def _validate_invocation_inputs(
+    invocation: ExperimentInvocation,
+    assembly: ExperimentAssembly,
+    inputs: Mapping[str, object],
+    *,
+    scans: Sequence[ScanItem],
+) -> None:
+    allowed = {description.id for description in invocation.template.inputs} | {
+        port.id for port in assembly.input_ports
+    }
+    unknown = sorted(set(inputs) - allowed)
+    scan_inputs = {leaf.axis_id for scan in scans for leaf in iter_scan_leaves(scan)}
+    missing = [
+        description.id
+        for description in invocation.template.inputs
+        if description.id not in inputs and description.id not in scan_inputs
+    ]
+    diagnostics: list[Diagnostic] = []
+    if unknown:
+        diagnostics.append(
+            _diagnostic(
+                "error",
+                "experiment_template_unknown_input",
+                "experiment template received unknown input: " + ", ".join(unknown),
+                "template.inputs",
+            )
+        )
+    if missing:
+        diagnostics.append(
+            _diagnostic(
+                "error",
+                "experiment_template_missing_input",
+                "experiment template missing required input: " + ", ".join(missing),
+                "template.inputs",
+            )
+        )
+    if diagnostics:
+        raise ValidationFailed(diagnostics)
 
 
 def _compiled_derivation_id(assembly: ExperimentAssembly, request: RunRequest) -> str:
@@ -361,7 +407,6 @@ def _inherit_default_scan_fields(
         replacement,
         target_id=default.target_id,
         center=default.center,
-        input_id=replacement.input_id or default.input_id,
     )
 
 
@@ -393,8 +438,6 @@ def _validate_group_override_shape(
 
 def _merged_inputs(
     invocation: ExperimentInvocation,
-    *,
-    scans: Sequence[ScanItem],
 ) -> dict[str, object]:
     merged = {
         input_description.id: input_description.default
@@ -402,23 +445,6 @@ def _merged_inputs(
         if input_description.has_default
     }
     merged.update(invocation.inputs)
-    scan_axes = {leaf.axis_id for scan in scans for leaf in iter_scan_leaves(scan)}
-    missing = [
-        option.id
-        for option in invocation.template.inputs
-        if option.id not in merged and option.id not in scan_axes
-    ]
-    if missing:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "experiment_template_missing_input",
-                    "experiment template missing required input: " + ", ".join(missing),
-                    "template.inputs",
-                )
-            ]
-        )
     return merged
 
 
@@ -562,44 +588,13 @@ def _bind_scan_inputs(scan: ScanItem, inputs: Mapping[str, object]) -> ScanItem:
     from scopecat.authoring.assembly import bind_input_refs
 
     if isinstance(scan, ScanAxis):
-        selected = _scan_with_input_override(scan, inputs)
-        if selected.center is not None:
-            return replace(selected, center=bind_input_refs(selected.center, inputs))
-        return selected
+        if scan.center is not None:
+            return replace(scan, center=bind_input_refs(scan.center, inputs))
+        return scan
     if isinstance(scan, ScanGroup):
         return replace(
             scan,
             scans=tuple(_bind_scan_inputs(child, inputs) for child in scan.scans),
-        )
-    return scan
-
-
-def _scan_with_input_override(
-    scan: ScanAxis,
-    inputs: Mapping[str, object],
-) -> ScanAxis:
-    if scan.input_id is None or scan.input_id not in inputs:
-        return scan
-    value = inputs[scan.input_id]
-    if value is None:
-        return scan
-    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        if not value:
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "module_point_values_empty",
-                        f"{scan.axis_id} point values must contain at least one value",
-                        scan.input_id or scan.axis_id,
-                    )
-                ]
-            )
-        return replace(
-            scan,
-            point_values=tuple(cast("Sequence[object]", value)),
-            center=None,
-            span=None,
         )
     return scan
 

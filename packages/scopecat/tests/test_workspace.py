@@ -327,8 +327,8 @@ def test_prepared_template_builder_preview_and_run_terminals(
     template = (
         SIMPLE_MODULE.template("test.prepared_builder", kind="simple_scan")
         .experiment_id("prepared-builder")
-        .input("subject", kind="entity")
-        .input("drive_frequency", kind="quantity", default=None)
+        .input("subject")
+        .input("drive_frequency")
         .scan(
             "drive_frequency",
             center=lit(Quantity(value=5.0, unit="GHz")),
@@ -439,7 +439,7 @@ def test_invocation_scan_overrides_axis_inside_default_zip_group(
     template = (
         SIMPLE_MODULE.template("test.default_zip_override", kind="default_zip_override")
         .experiment_id("default-zip-override")
-        .input("subject", kind="entity")
+        .input("subject")
         .scan(
             sc.zip(
                 sc.axis("drive_frequency", [4.9, 5.0], unit="GHz"),
@@ -480,7 +480,7 @@ def test_invocation_scan_group_rejects_mixed_default_override(
     template = (
         SIMPLE_MODULE.template("test.mixed_scan_override", kind="mixed_scan_override")
         .experiment_id("mixed-scan-override")
-        .input("subject", kind="entity")
+        .input("subject")
         .scan("drive_frequency", [4.9, 5.0], unit="GHz")
     )
 
@@ -562,7 +562,10 @@ def test_workspace_module_can_be_composed(
     )
     signal_scan = (
         sc.module("workspace.signal_scan")
-        .input("drive_frequency", kind="quantity")
+        .input(
+            "drive_frequency",
+            value_type=sc.ScalarType(sc.QuantityType()),
+        )
         .resource("source", requires=("set_frequency",))
         .bind("source.set_frequency.frequency", sc.var("drive_frequency"))
         .product("signal", resource="source")

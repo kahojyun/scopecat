@@ -53,7 +53,6 @@ _INPUT_DEFAULT_MISSING = _InputDefaultMissing()
 @dataclass(frozen=True)
 class InputDescription:
     id: str
-    kind: str | None = None
     default: object = _INPUT_DEFAULT_MISSING
     label: str | None = None
     description: str | None = None
@@ -119,7 +118,6 @@ class ExperimentInvocation:
         center: ScalarExpr | None = None,
         span: Expression | Quantity | str | None = None,
         points: int | None = None,
-        input_id: str | None = None,
     ) -> ExperimentInvocation:
         selected = _scan_item(
             target,
@@ -128,7 +126,6 @@ class ExperimentInvocation:
             center=center,
             span=span,
             points=points,
-            input_id=input_id,
         )
         return replace(self, scans=(*self.scans, selected))
 
@@ -192,7 +189,6 @@ class TemplateBuilder:
         center: ScalarExpr | None = None,
         span: Expression | Quantity | str | None = None,
         points: int | None = None,
-        input_id: str | None = None,
     ) -> TemplateBuilder:
         return replace(
             self,
@@ -205,7 +201,6 @@ class TemplateBuilder:
                     center=center,
                     span=span,
                     points=points,
-                    input_id=input_id,
                 ),
             ),
         )
@@ -214,7 +209,6 @@ class TemplateBuilder:
         self,
         id: str,  # noqa: A002
         *,
-        kind: str | None = None,
         default: object = _INPUT_DEFAULT_MISSING,
         label: str | None = None,
         description: str | None = None,
@@ -224,7 +218,6 @@ class TemplateBuilder:
             *self._inputs,
             InputDescription(
                 id=id,
-                kind=kind,
                 default=default,
                 label=label,
                 description=description,
@@ -309,7 +302,6 @@ def _scan_item(
     center: ScalarExpr | None = None,
     span: Expression | Quantity | str | None = None,
     points: int | None = None,
-    input_id: str | None = None,
 ) -> ScanItem:
     if isinstance(target, ScanAxis | ParameterScanAxis | ScanGroup):
         if (
@@ -318,7 +310,6 @@ def _scan_item(
             or center is not None
             or span is not None
             or points is not None
-            or input_id is not None
         ):
             msg = "scan item cannot be combined with scan construction arguments"
             raise ValueError(msg)
@@ -327,7 +318,7 @@ def _scan_item(
         if center is not None or span is not None or points is not None:
             msg = "scan values cannot be combined with center/span/points"
             raise ValueError(msg)
-        return axis(target, values=values, unit=unit, input_id=input_id)
+        return axis(target, values=values, unit=unit)
     if span is None or points is None:
         msg = "scan requires values or span and points"
         raise ValueError(msg)
@@ -337,7 +328,6 @@ def _scan_item(
             center=center or param(target),
             span=_scan_span_value(span),
             points=points,
-            input_id=input_id,
         ),
         implicit_center=center is None,
     )

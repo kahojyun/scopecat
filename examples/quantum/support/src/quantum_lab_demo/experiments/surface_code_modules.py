@@ -16,12 +16,27 @@ TOY_SURFACE_CODE_ROUND_MODULE = (
         "quantum_lab_demo.experiments.surface_code.toy_round",
         metadata={"template_id": TOY_SURFACE_CODE_ROUND_TEMPLATE_ID},
     )
-    .input("patch_qubits", kind="entity_array")
-    .input("data_qubits", kind="entity_array")
-    .input("ancilla_qubits", kind="entity_array")
-    .input("couplers", kind="entity_array")
-    .input("rounds", kind="count")
-    .input("cycle_time", kind="quantity")
+    .input(
+        "patch_qubits",
+        value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())),
+    )
+    .input(
+        "data_qubits",
+        value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())),
+    )
+    .input(
+        "ancilla_qubits",
+        value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())),
+    )
+    .input(
+        "couplers",
+        value_type=sc.SeriesType(sc.ScalarType(sc.EntityType())),
+    )
+    .input(
+        "rounds",
+        value_type=sc.ScalarType(sc.IntType(minimum=1)),
+    )
+    .input("cycle_time", value_type=sc.ScalarType(sc.QuantityType()))
     .resource(
         "drive",
         requires=("play_gate_sequence", "play_pulse_program"),
@@ -40,11 +55,12 @@ TOY_SURFACE_CODE_ROUND_MODULE = (
     .compute(
         "build-surface-code-round-program",
         fn=build_surface_code_round_program,
+        output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
         inputs={
-            "patch_qubits": sc.input("patch_qubits"),
-            "data_qubits": sc.input("data_qubits"),
-            "ancilla_qubits": sc.input("ancilla_qubits"),
-            "couplers": sc.input("couplers"),
+            "patch_qubits": sc.input_series("patch_qubits"),
+            "data_qubits": sc.input_series("data_qubits"),
+            "ancilla_qubits": sc.input_series("ancilla_qubits"),
+            "couplers": sc.input_series("couplers"),
             "rounds": sc.input("rounds"),
             "cycle_time": sc.input("cycle_time"),
         },
@@ -52,6 +68,7 @@ TOY_SURFACE_CODE_ROUND_MODULE = (
     .compute(
         "render-surface-code-drive-waveforms",
         fn=render_surface_code_drive_waveforms,
+        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
         inputs={
             "program": sc.compute_result("build-surface-code-round-program"),
             "drive_route": sc.route("drive"),
@@ -61,28 +78,29 @@ TOY_SURFACE_CODE_ROUND_MODULE = (
     .compute(
         "render-surface-code-coupler-waveforms",
         fn=render_surface_code_coupler_waveforms,
+        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
         inputs={
             "program": sc.compute_result("build-surface-code-round-program"),
             "coupler_route": sc.route("coupler"),
         },
         route_ports=("coupler",),
     )
-    .bind_compute(
+    .bind(
         "drive.play_gate_sequence.sequence",
-        "build-surface-code-round-program",
-        kind="gate_sequence",
+        sc.compute_result("build-surface-code-round-program"),
     )
-    .bind_compute(
+    .bind(
         "drive.play_pulse_program.program",
-        "render-surface-code-drive-waveforms",
-        kind="pulse_program",
+        sc.compute_result("render-surface-code-drive-waveforms"),
     )
-    .bind_compute(
+    .bind(
         "coupler.play_coupler_pulse.program",
-        "render-surface-code-coupler-waveforms",
-        kind="pulse_program",
+        sc.compute_result("render-surface-code-coupler-waveforms"),
     )
-    .bind("readout.acquire_iq.repetitions", sc.input("rounds"))
+    .bind(
+        "readout.acquire_iq.repetitions",
+        sc.input("rounds") * sc.Quantity(value=1.0, unit="count"),
+    )
     .build()
 )
 

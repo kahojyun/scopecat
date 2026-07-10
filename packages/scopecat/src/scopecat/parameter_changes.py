@@ -17,13 +17,14 @@ from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.ids import artifact_slug
 from scopecat.models.artifact import RunRecordEntry
-from scopecat.models.entity import EntityArray, EntityRef
+from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import (
     ParameterChangeSet,
     ParameterPatch,
     ParameterPatchValue,
 )
 from scopecat.models.run import RunManifest, utc_now
+from scopecat.models.value import PayloadValue
 from scopecat.relations import ScalarExpr
 from scopecat.runs import RunStore, list_records, open_run_store
 
@@ -309,8 +310,8 @@ def _literal_expr_value(expr: ScalarExpr) -> ParameterPatchValue:
         )
         raise ValueError(msg)
     value = expr.value
-    if isinstance(value, EntityArray | EntityRef):
-        msg = "analysis parameter changes cannot patch entity values"
+    if isinstance(value, EntityRef | PayloadValue):
+        msg = "analysis parameter changes cannot patch entity or payload values"
         raise ValueError(msg)
     return value
 

@@ -91,7 +91,7 @@ cz_rb_preview = (
         coupler="coupler-q0-q1",
         seed=23,
     )
-    .scan("clifford_count", [2, 4, 8], unit="count")
+    .scan("clifford_count", [2, 4, 8])
     .preview(
         name="gate family CZ RB",
         tags=("gate", "benchmarking"),
@@ -150,7 +150,7 @@ spectator_cz_preview = (
         control_qubit="q0",
         partner_qubit="q1",
         coupler="coupler-q0-q1",
-        background_couplers=sc.entity_array(("coupler-q2-q3",)),
+        background_couplers=("coupler-q2-q3",),
     )
     .scan("coupler_duration", [24], unit="ns")
     .scan("coupler_amplitude", [0.18], unit="arb")
@@ -203,7 +203,7 @@ compute_events = [event for event in events if event["kind"] == "compute_finishe
 waveform_summaries = [
     event["summary"]
     for event in compute_events
-    if event["summary"].get("payload_kind") == "pulse_program"
+    if event["summary"].get("schema_id") == "pulse_program"
 ]
 build_preview = next(
     payload
@@ -269,7 +269,7 @@ gate_family_summary = {
     "spectator_cz_points": spectator_cz_preview.point_count,
     "parallel_gate_points": parallel_gate_preview.point_count,
     "waveform_preview_payloads": [
-        (payload.node_id, payload.kind, payload.state_fields)
+        (payload.node_id, payload.schema_id, payload.state_fields)
         for payload in waveform_preview.payloads
     ],
     "waveform_build_dependencies": build_preview.dependencies,

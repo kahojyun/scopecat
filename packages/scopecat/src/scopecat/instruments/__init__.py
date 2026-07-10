@@ -31,14 +31,15 @@ from scopecat.instruments.sdk import (
     ProductDescription,
     apply_state_command_to_snapshot,
     capability,
+    float_field,
     normalize_driver_diagnostics,
-    number_field,
     payload_field,
     product,
     product_axis,
     quantity_field,
     validate_state_command,
 )
+from scopecat.models.state import PayloadRef, StateValue
 
 __all__ = [
     "CapabilityDescription",
@@ -60,6 +61,7 @@ __all__ = [
     "InstrumentStateCommandField",
     "InstrumentStateField",
     "InstrumentStateSnapshot",
+    "PayloadRef",
     "ProductAxisDescription",
     "ProductDescription",
     "RuntimeEvent",
@@ -67,10 +69,11 @@ __all__ = [
     "RuntimeEventSink",
     "RuntimePayloadObservation",
     "RuntimePayloadObserver",
+    "StateValue",
     "apply_state_command_to_snapshot",
     "capability",
+    "float_field",
     "normalize_driver_diagnostics",
-    "number_field",
     "payload_field",
     "product",
     "product_axis",

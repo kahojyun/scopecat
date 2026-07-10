@@ -7,9 +7,8 @@ from scopecat.authoring import ExperimentInvocation, resolve_experiment
 from scopecat.experiments import (
     ExperimentSpec,
 )
-from scopecat.instruments import RuntimePayloadObservation
+from scopecat.instruments import PayloadRef, RuntimePayloadObservation
 from scopecat.models.artifact import CommandPayload
-from scopecat.models.parameter import Quantity
 
 from quantum_lab_demo.experiments import SQG_RB_TEMPLATE
 from quantum_lab_demo.experiments.payloads import (
@@ -22,7 +21,10 @@ from quantum_lab_demo.lab import quantum_lab
 def test_sequence_compilation_stays_memory_payload_boundary(
     tmp_path: Path,
 ) -> None:
-    invocation = SQG_RB_TEMPLATE.bind(qubit="q0", lengths=[4, 8], seed=11)
+    invocation = SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan(
+        "clifford_count",
+        [4, 8],
+    )
     resolved = resolve_experiment(
         invocation,
         workspace=tmp_path,
@@ -40,20 +42,20 @@ def test_sequence_compilation_stays_memory_payload_boundary(
     payloads = _run_observed_payloads(tmp_path, invocation)
 
     assert [point.coordinates["clifford_count"] for point in preview.points] == [
-        Quantity(value=4, unit="count"),
-        Quantity(value=8, unit="count"),
+        4,
+        8,
     ]
     assert [
         (field.resource_id, field.capability_id, field.field_path)
         for field in preview.state_fields
-        if field.value_kind == "payload"
+        if isinstance(field.value, PayloadRef)
     ] == [
         ("drive-stack", "play_gate_sequence", "sequence"),
         ("drive-stack", "play_pulse_program", "program"),
         ("drive-stack", "play_gate_sequence", "sequence"),
         ("drive-stack", "play_pulse_program", "program"),
     ]
-    assert [payload.kind for payload in payloads] == [
+    assert [payload.schema_id for payload in payloads] == [
         "gate_sequence",
         "pulse_program",
         "gate_sequence",

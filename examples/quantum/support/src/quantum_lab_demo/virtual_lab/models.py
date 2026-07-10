@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from scopecat.instruments.state import StateValue
+from scopecat.instruments import StateValue
 
 
 class VirtualResponseProfile(BaseModel):
@@ -29,7 +29,9 @@ class VirtualDeviceProfile(BaseModel):
 class VirtualLabProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "quantum_lab_demo.virtual_lab_profile.v0"
+    schema_version: Literal["quantum_lab_demo.virtual_lab_profile.v1"] = (
+        "quantum_lab_demo.virtual_lab_profile.v1"
+    )
     id: str
     devices: list[VirtualDeviceProfile]
     response_models: list[VirtualResponseProfile] = Field(default_factory=list)

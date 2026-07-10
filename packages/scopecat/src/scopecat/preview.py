@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from scopecat.diagnostics import Diagnostic
 from scopecat.models.run import RunConfigSource
+from scopecat.models.state import StateLiteral
 from scopecat.results import MeasurementDatasetSchema
 
 
@@ -72,16 +73,14 @@ class ExperimentPreviewStateField:
     resource_id: str
     capability_id: str
     field_path: str
-    value_kind: str
-    value: object | None = None
-    payload_id: str | None = None
+    value: StateLiteral
     channel_bindings: tuple[ExperimentPreviewChannelBinding, ...] = ()
 
 
 @dataclass(frozen=True)
 class ExperimentPreviewPayload:
     node_id: str
-    kind: str
+    schema_id: str
     state_fields: tuple[str, ...]
     dependencies: dict[str, tuple[str, ...]]
 
@@ -91,7 +90,7 @@ class ExperimentPreviewComputeStep:
     point_index: int
     node_id: str
     payload_id: str | None
-    payload_kind: str | None
+    schema_id: str | None
     dependencies: dict[str, tuple[str, ...]]
 
 
