@@ -1,22 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import cast
 
 import pytest
 import scopecat as sc
 from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
-from scopecat._runtime.executor import execute_run
+from scopecat._compiler.binding import bind_program
+from scopecat._execution.executor import execute_run
 from scopecat.authoring._module_composition import assemble_invocation_internal
 from scopecat.authoring._resolution import resolve_experiment
 from scopecat.config_profiles import load_config_profile
 from scopecat.instruments import (
+    ApplyReceipt,
     CollectCommand,
     InstrumentDescription,
     InstrumentDriver,
+    InstrumentProvider,
     InstrumentProviderContext,
+    InstrumentProviderDescription,
+    InstrumentProviderResult,
     InstrumentReadback,
-    InstrumentResult,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
 )
@@ -262,6 +265,25 @@ def test_default_quantum_wiring_preview_includes_resolved_channel_routes(
     ]
 
 
+def test_virtual_provider_description_declares_full_instrument_schemas() -> None:
+    config = quantum_wiring_config_profile()
+    provider = QuantumLabVirtualProvider(profile=EXPERIMENT_VIRTUAL_LAB_PROFILE)
+
+    description = provider.describe(InstrumentProviderContext(config=config))
+
+    assert description.diagnostics == ()
+    assert [instrument.instrument_id for instrument in description.instruments] == [
+        "drive-stack",
+        "readout-stack",
+        "coupler-stack",
+    ]
+    assert {
+        capability.id
+        for instrument in description.instruments
+        for capability in instrument.capabilities
+    } >= {"play_pulse_program", "acquire_iq", "set_flux_bias"}
+
+
 def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
     tmp_path,
 ) -> None:
@@ -271,22 +293,25 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
         workspace=tmp_path,
         config_profile=config,
     )
-    provider_result = QuantumLabVirtualProvider(
-        profile=EXPERIMENT_VIRTUAL_LAB_PROFILE
-    ).provide(InstrumentProviderContext(config=config))
-    drivers = [_RecordingDriver(driver) for driver in provider_result.drivers]
+    provider = _RecordingProvider(
+        QuantumLabVirtualProvider(profile=EXPERIMENT_VIRTUAL_LAB_PROFILE)
+    )
+    plan = bind_program(resolved.experiment, resolved.environment)
 
     manifest, _snapshot = execute_run(
         config=config,
-        experiment=resolved.experiment,
-        parameters=resolved.parameters,
-        instruments=cast("list[InstrumentDriver]", drivers),
+        plan=plan,
+        request=resolved.request,
+        instrument_provider=provider,
         workspace=tmp_path,
+        config_source=resolved.config_source,
     )
 
-    drive = next(driver for driver in drivers if driver.instrument_id == "drive-stack")
+    drive = next(
+        driver for driver in provider.drivers if driver.instrument_id == "drive-stack"
+    )
     readout = next(
-        driver for driver in drivers if driver.instrument_id == "readout-stack"
+        driver for driver in provider.drivers if driver.instrument_id == "readout-stack"
     )
     drive_program = next(
         field
@@ -321,20 +346,16 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
 @dataclass
 class _RecordingDriver:
     wrapped: InstrumentDriver
+    instrument_id: str = field(init=False)
+    implementation_id: str = field(init=False)
+    implementation_version: str = field(init=False)
     applied_commands: list[InstrumentStateCommand] = field(default_factory=list)
     collect_commands: list[CollectCommand] = field(default_factory=list)
 
-    @property
-    def instrument_id(self) -> str:
-        return self.wrapped.instrument_id
-
-    @property
-    def implementation_id(self) -> str:
-        return self.wrapped.implementation_id
-
-    @property
-    def implementation_version(self) -> str:
-        return self.wrapped.implementation_version
+    def __post_init__(self) -> None:
+        self.instrument_id = self.wrapped.instrument_id
+        self.implementation_id = self.wrapped.implementation_id
+        self.implementation_version = self.wrapped.implementation_version
 
     def describe(self) -> InstrumentDescription:
         return self.wrapped.describe()
@@ -342,7 +363,7 @@ class _RecordingDriver:
     def read_state(self) -> InstrumentStateSnapshot:
         return self.wrapped.read_state()
 
-    def apply_state(self, command: InstrumentStateCommand) -> InstrumentResult:
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self.applied_commands.append(command)
         return self.wrapped.apply_state(command)
 
@@ -355,3 +376,27 @@ class _RecordingDriver:
 
     def abort(self) -> None:
         return self.wrapped.abort()
+
+
+@dataclass
+class _RecordingProvider:
+    wrapped: InstrumentProvider
+    drivers: list[_RecordingDriver] = field(default_factory=list)
+
+    @property
+    def provider_id(self) -> str:
+        return self.wrapped.provider_id
+
+    def describe(
+        self, context: InstrumentProviderContext
+    ) -> InstrumentProviderDescription:
+        return self.wrapped.describe(context)
+
+    def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
+        result = self.wrapped.provide(context)
+        self.drivers = [_RecordingDriver(driver) for driver in result.drivers]
+        return InstrumentProviderResult(
+            drivers=tuple(self.drivers),
+            diagnostics=result.diagnostics,
+            metadata=dict(result.metadata),
+        )

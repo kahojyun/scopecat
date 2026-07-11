@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from scopecat._compiler.program import (
+    TypedPointSource,
     bind_each,
     overlay_parameter_cell,
     set_state,
-)
-from scopecat._compiler.program import (
-    linked_program as experiment,
+    typed_program,
 )
 from scopecat._relations import (
+    RelationExpr,
     col,
     grid,
     linspace,
@@ -20,31 +20,39 @@ from scopecat._relations import (
 from scopecat.models.parameter import Quantity
 from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Scalar, String
+from scopecat.value_types import Table as TableType
 from tests.support.experiment_preview import preview_contract
 from tests.support.parameter_fixtures import parameters as _parameters
 
 
+def _point_source(expr: RelationExpr) -> TypedPointSource:
+    return TypedPointSource(
+        expr=expr,
+        value_type=TableType(columns=(), allow_extra_columns=True),
+    )
+
+
 def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
-    unchanged = experiment(
+    unchanged = typed_program(
         id="unchanged-state-patches",
         kind="diagnostic",
-        points=grid(index=[0, 1]),
+        point_source=_point_source(grid(index=[0, 1])),
         state=[
             set_state(
                 "drive-a",
-                "carrier_frequency",
+                "drive.carrier_frequency",
                 Quantity(value=5.0, unit="GHz"),
             )
         ],
     )
-    swept = experiment(
+    swept = typed_program(
         id="swept-state-patches",
         kind="diagnostic",
-        points=grid(frequency=linspace(5.0, 5.1, 2, unit="GHz")),
+        point_source=_point_source(grid(frequency=linspace(5.0, 5.1, 2, unit="GHz"))),
         state=[
             set_state(
                 "drive-a",
-                "carrier_frequency",
+                "drive.carrier_frequency",
                 col("frequency"),
             )
         ],
@@ -62,14 +70,26 @@ def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
     ]
 
     assert unchanged_patches == [
-        (0, "drive-a", "carrier_frequency", None, Quantity(value=5.0, unit="GHz"))
+        (
+            0,
+            "drive-a",
+            "drive.carrier_frequency",
+            None,
+            Quantity(value=5.0, unit="GHz"),
+        )
     ]
     assert swept_patches == [
-        (0, "drive-a", "carrier_frequency", None, Quantity(value=5.0, unit="GHz")),
+        (
+            0,
+            "drive-a",
+            "drive.carrier_frequency",
+            None,
+            Quantity(value=5.0, unit="GHz"),
+        ),
         (
             1,
             "drive-a",
-            "carrier_frequency",
+            "drive.carrier_frequency",
             Quantity(value=5.0, unit="GHz"),
             Quantity(value=5.1, unit="GHz"),
         ),
@@ -78,16 +98,18 @@ def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
 
 
 def test_preview_repeated_state_uses_outer_point_row() -> None:
-    spec = experiment(
+    spec = typed_program(
         id="shared-lo-fixed-if-scan",
         kind="drive.shared_lo_scan",
-        points=grid(lo_frequency=linspace(4.9, 5.0, 2, unit="GHz")),
+        point_source=_point_source(
+            grid(lo_frequency=linspace(4.9, 5.0, 2, unit="GHz"))
+        ),
         state=[
             bind_each(
                 table("drive_channels"),
                 set_state(
                     col("resource_id"),
-                    "carrier_frequency",
+                    "drive.carrier_frequency",
                     outer("lo_frequency") + col("fixed_if"),
                 ),
             )
@@ -104,18 +126,18 @@ def test_preview_repeated_state_uses_outer_point_row() -> None:
         (change.point_index, change.resource, change.field, change.after)
         for change in preview.state_changes
     ] == [
-        (0, "xy0", "carrier_frequency", Quantity(value=5.0, unit="GHz")),
-        (0, "xy1", "carrier_frequency", Quantity(value=5.02, unit="GHz")),
-        (1, "xy0", "carrier_frequency", Quantity(value=5.1, unit="GHz")),
-        (1, "xy1", "carrier_frequency", Quantity(value=5.12, unit="GHz")),
+        (0, "xy0", "drive.carrier_frequency", Quantity(value=5.0, unit="GHz")),
+        (0, "xy1", "drive.carrier_frequency", Quantity(value=5.02, unit="GHz")),
+        (1, "xy0", "drive.carrier_frequency", Quantity(value=5.1, unit="GHz")),
+        (1, "xy1", "drive.carrier_frequency", Quantity(value=5.12, unit="GHz")),
     ]
 
 
 def test_preview_selected_target_table_plans_simultaneous_resources() -> None:
-    spec = experiment(
+    spec = typed_program(
         id="selected-readouts-with-shared-drives",
         kind="readout.selected_parallel_scan",
-        points=(
+        point_source=_point_source(
             table("readout_devices")
             .join(
                 literal_rows([{"device_id": "r1"}, {"device_id": "r0"}]),

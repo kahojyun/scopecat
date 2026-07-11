@@ -4,11 +4,11 @@ from pathlib import Path
 
 from scopecat.config_profiles import load_config_profile
 from scopecat.instruments import (
+    ApplyReceipt,
     CollectCommand,
     DriverDiagnostic,
     InstrumentDescription,
     InstrumentReadback,
-    InstrumentResult,
     InstrumentStateCommand,
     InstrumentStateField,
     InstrumentStateSnapshot,
@@ -71,11 +71,11 @@ class SignalInstrumentDriver:
             metadata={"mode": "test_offline"},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> InstrumentResult:
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self.applied.append(command)
         for field in command.fields:
             self._state[(field.capability_id, field.field_path)] = field.value
-        return InstrumentResult()
+        return ApplyReceipt(status="applied")
 
     def collect(self, command: CollectCommand) -> InstrumentReadback:
         self.collect_commands.append(command)
@@ -94,9 +94,10 @@ class SignalInstrumentDriver:
 
 
 class BlockingSignalInstrumentDriver(SignalInstrumentDriver):
-    def apply_state(self, command: InstrumentStateCommand) -> InstrumentResult:
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         del command
-        return InstrumentResult(
+        return ApplyReceipt(
+            status="not_applied",
             diagnostics=[
                 DriverDiagnostic(
                     severity="error",
@@ -104,7 +105,7 @@ class BlockingSignalInstrumentDriver(SignalInstrumentDriver):
                     message="driver blocked",
                     path="driver",
                 ).to_diagnostic()
-            ]
+            ],
         )
 
 

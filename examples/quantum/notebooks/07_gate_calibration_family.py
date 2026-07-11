@@ -223,12 +223,14 @@ waveform_summaries = [
 build_preview = next(
     payload
     for payload in waveform_preview.payloads
-    if payload.node_id == "build-cz-chevron-program"
+    if payload.node_id.endswith("/build-cz-chevron-program")
 )
 drive_event = next(
     event
     for event in compute_events
-    if event["summary"].get("node_id") == "render-cz-chevron-drive-waveforms"
+    if str(event["summary"].get("kernel_id", "")).endswith(
+        "/render-cz-chevron-drive-waveforms"
+    )
 )
 
 flux_background_state_count = len(

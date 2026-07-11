@@ -6,6 +6,9 @@ from typing import Any, cast
 import pytest
 
 import scopecat.authoring as authoring
+from scopecat._compiler.binding import bind_program
+from scopecat._compiler.ids import NodeId
+from scopecat._compiler.program import ComputeEdge, ValueInput
 from scopecat._compute_result import ComputeResultRef
 from scopecat._relations import (
     EvalContext,
@@ -114,7 +117,7 @@ def _literal_table(
 def _state_values(
     resolved: ResolvedExperiment,
 ) -> list[tuple[int, str, object]]:
-    points = resolved.experiment.points.evaluate(resolved.parameters)
+    points = resolved.experiment.point_source.expr.evaluate(resolved.parameters)
     return [
         (record.point_index, record.resource, record.value)
         for point_index, point in enumerate(points)
@@ -189,7 +192,8 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
 
     node = experiment.compute_nodes[0]
     rows = node.inputs["rows"]
-    assert rows.source_inputs == ["gate_rows"]
+    assert isinstance(rows, ValueInput)
+    assert rows.source_inputs == ("gate_rows",)
     assert isinstance(rows.value, TableValueExpr)
     assert rows.value.expr.evaluate() == [
         {
@@ -203,7 +207,8 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
     ]
 
     offset_values = node.inputs["offsets"]
-    assert offset_values.source_inputs == ["offset_values"]
+    assert isinstance(offset_values, ValueInput)
+    assert offset_values.source_inputs == ("offset_values",)
     assert isinstance(offset_values.value, SeriesValueExpr)
     assert offset_values.value.expr.evaluate(EvalContext()) == [0.25, 0.5]
 
@@ -304,10 +309,12 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
     node = resolved.experiment.compute_nodes[0]
 
     rows = node.inputs["rows"]
+    assert isinstance(rows, ValueInput)
     assert isinstance(rows.value, TableValueExpr)
     assert rows.value.expr.evaluate() == []
 
     items = node.inputs["items"]
+    assert isinstance(items, ValueInput)
     assert isinstance(items.value, SeriesValueExpr)
     assert items.value.expr.evaluate(EvalContext()) == [{"label": "first"}]
 
@@ -358,15 +365,18 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
         config_profile=load_config(),
     )
     node = resolved.experiment.compute_nodes[0]
-    points = resolved.experiment.points.evaluate(resolved.parameters)
+    points = resolved.experiment.point_source.expr.evaluate(resolved.parameters)
 
     scalar = node.inputs["value"]
+    assert isinstance(scalar, ValueInput)
     assert isinstance(scalar.value, ScalarValueExpr)
     assert scalar.value.expr.eval(EvalContext(row=points[1])) == 0.5
     series = node.inputs["items"]
+    assert isinstance(series, ValueInput)
     assert isinstance(series.value, SeriesValueExpr)
     assert series.value.expr.evaluate(EvalContext()) == [1.0, 2.0]
     table = node.inputs["rows"]
+    assert isinstance(table, ValueInput)
     assert isinstance(table.value, TableValueExpr)
     assert table.value.expr.evaluate() == [{"resource_id": "source-a", "base": 1.0}]
 
@@ -410,7 +420,8 @@ def test_scan_points_are_coerced_by_same_named_scalar_input_type() -> None:
         workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
-    value = resolved.experiment.points.evaluate(resolved.parameters)[0]["value"]
+    plan = bind_program(resolved.experiment, resolved.environment)
+    value = plan.points[0].row["value"]
 
     assert value == 1.0
     assert isinstance(value, float)
@@ -580,10 +591,13 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         config_profile=load_config(),
     )
     linked_consumer = next(
-        node for node in resolved.experiment.compute_nodes if node.id == "consume"
+        node
+        for node in resolved.experiment.compute_nodes
+        if node.id.local_id == "consume"
     )
-    assert linked_consumer.inputs["program"].kind == "compute_result"
-    assert linked_consumer.inputs["program"].node_id == "produce"
+    program_edge = linked_consumer.inputs["program"]
+    assert isinstance(program_edge, ComputeEdge)
+    assert program_edge.producer == NodeId(local_id="produce")
 
     incompatible_program = authoring.input(
         "program",
@@ -647,15 +661,17 @@ def test_series_compute_output_is_a_first_class_typed_value() -> None:
     produce = next(
         node
         for node in resolved.experiment.compute_nodes
-        if node.id == "produce-series"
+        if node.id.local_id == "produce-series"
     )
     consume = next(
         node
         for node in resolved.experiment.compute_nodes
-        if node.id == "consume-series"
+        if node.id.local_id == "consume-series"
     )
     assert produce.output_type == float_series
-    assert consume.inputs["values"].node_id == "produce-series"
+    values_edge = consume.inputs["values"]
+    assert isinstance(values_edge, ComputeEdge)
+    assert values_edge.producer == NodeId(local_id="produce-series")
 
 
 def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
@@ -707,7 +723,9 @@ def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
         config_profile=load_config(),
     )
 
-    value = resolved.experiment.compute_nodes[0].inputs["label"].value
+    value_input = resolved.experiment.compute_nodes[0].inputs["label"]
+    assert isinstance(value_input, ValueInput)
+    value = value_input.value
     assert isinstance(value, ScalarValueExpr)
     assert value.expr.value is None
 
@@ -861,7 +879,12 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
 
     state = resolved.experiment.state[0]
     assert state.state is not None
-    assert state.state[0].value == ComputeResultRef(node_id="build-program")
+    assert state.state[0].value == ComputeResultRef(
+        node_id=NodeId(
+            scope=("test.collection_state.compute_payload_child[0]",),
+            local_id="build-program",
+        )
+    )
 
 
 def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:

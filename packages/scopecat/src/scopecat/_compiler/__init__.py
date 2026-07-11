@@ -1,19 +1,9 @@
-"""Private authoring compiler surface."""
+"""Private typed compiler package.
 
-from scopecat._compiler.program import (
-    ComputeNodeFunction,
-    ComputeNodeInput,
-    ComputeNodeOutputType,
-    ComputeNodeSpec,
-    LinkedProgram,
-    ResourceRouteIntent,
-)
+Compiler models are imported from their defining modules so this package does
+not become a compatibility facade for transient IR generations.
+"""
 
-__all__ = [
-    "ComputeNodeFunction",
-    "ComputeNodeInput",
-    "ComputeNodeOutputType",
-    "ComputeNodeSpec",
-    "LinkedProgram",
-    "ResourceRouteIntent",
-]
+from scopecat._compiler.ids import NodeId
+
+__all__ = ["NodeId"]

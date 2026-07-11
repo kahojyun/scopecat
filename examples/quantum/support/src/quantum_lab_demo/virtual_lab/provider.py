@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from scopecat.instruments import (
+    ApplyReceipt,
     CollectCommand,
     DriverDiagnostic,
     InstrumentDescription,
@@ -12,7 +13,6 @@ from scopecat.instruments import (
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentReadback,
-    InstrumentResult,
     InstrumentStateCommand,
     InstrumentStateField,
     InstrumentStateSnapshot,
@@ -81,9 +81,9 @@ class _VirtualInstrumentDriver:
             metadata=self._metadata,
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> InstrumentResult:
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self._device.apply(command)
-        return InstrumentResult()
+        return ApplyReceipt(status="applied")
 
     def collect(self, command: CollectCommand) -> InstrumentReadback:
         del command
@@ -245,16 +245,12 @@ class _VirtualLabProvider:
         provider_id: str,
         label: str,
         description: str,
-        provided_instrument_ids: tuple[str, ...],
-        capabilities: tuple[str, ...],
         category: str,
     ) -> None:
         self.profile = load_virtual_lab_profile(profile)
         self._provider_id = provider_id
         self._label = label
         self._description = description
-        self._provided_instrument_ids = provided_instrument_ids
-        self._capabilities = capabilities
         self._metadata = {
             "mode": "virtual_lab",
             "category": category,
@@ -274,14 +270,26 @@ class _VirtualLabProvider:
     def provider_id(self) -> str:
         return self._provider_id
 
-    def describe(self) -> InstrumentProviderDescription:
+    def describe(
+        self, context: InstrumentProviderContext
+    ) -> InstrumentProviderDescription:
+        del context
+        diagnostics = []
+        try:
+            instruments = tuple(
+                driver.describe()
+                for driver in self._build_virtual_instruments(self._lab())
+            )
+        except DriverDiagnostic as error:
+            diagnostics.append(error.to_diagnostic())
+            instruments = ()
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
+            instruments=instruments,
+            diagnostics=tuple(diagnostics),
             label=self._label,
             description=self._description,
             options=self._options,
-            provided_instrument_ids=self._provided_instrument_ids,
-            capabilities=self._capabilities,
             metadata=self._metadata,
         )
 
@@ -327,16 +335,6 @@ class QuantumLabVirtualProvider(_VirtualLabProvider):
             description=(
                 "Provides virtual hardware-shaped devices for experiment-system "
                 "authoring templates."
-            ),
-            provided_instrument_ids=("drive-stack", "readout-stack", "coupler-stack"),
-            capabilities=(
-                "play_pulse_program",
-                "play_gate_sequence",
-                "readout_pulse",
-                "submit_backend_batch",
-                "acquire_iq",
-                "play_coupler_pulse",
-                "set_flux_bias",
             ),
             category="experiment_system",
         )

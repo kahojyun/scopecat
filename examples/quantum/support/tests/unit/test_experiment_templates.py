@@ -309,7 +309,10 @@ def test_rabi_generates_point_local_pulse_programs(tmp_path: Path) -> None:
     payloads = _run_observed_payloads(tmp_path, invocation)
 
     assert [(item.node_id, item.schema_id) for item in preview.payloads] == [
-        ("render-rabi-waveforms", "pulse_program")
+        (
+            "quantum_lab_demo.experiments.rabi[0]/render-rabi-waveforms",
+            "pulse_program",
+        )
     ]
     assert len(payloads) == 5
     assert (
@@ -500,9 +503,14 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
     build_payload = next(
         payload
         for payload in preview.payloads
-        if payload.node_id == "build-cz-chevron-program"
+        if payload.node_id
+        == (
+            "quantum_lab_demo.experiments.two_qubit.cz_chevron[0]/"
+            "build-cz-chevron-program"
+        )
     )
     assert build_payload.dependencies == {
+        "input_refs": ("control_qubit", "coupler", "partner_qubit"),
         "parameters": ("qubits", "two_qubit_gates"),
         "point_columns": ("coupler_amplitude", "coupler_duration"),
     }

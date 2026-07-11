@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+
+from pydantic import JsonValue
 
 from scopecat._measurement_storage import (
     MEASUREMENT_DATASET_KIND,
@@ -115,12 +117,14 @@ def build_raw_measurement_dataset(
     dataset_id: str,
     records: Sequence[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
+    metadata: Mapping[str, JsonValue] | None = None,
 ) -> RunDatasetEntry:
     return measurement_dataset_entry(
         dataset_id=dataset_id,
         dataset_role="raw",
         records=records,
         expected_schema=expected_schema,
+        metadata=metadata,
     )
 
 

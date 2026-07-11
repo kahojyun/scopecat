@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from scopecat._manifest_updates import write_manifest_artifacts, write_manifest_records
 from scopecat._parameter_updates import ParameterUpdate
+from scopecat._storage.local.io import ensure_durable_directory
 from scopecat._storage.refs import record_content_ref
 from scopecat.candidate_configs import (
     CandidateConfig,
@@ -849,7 +850,7 @@ def _write_run_bytes(
     content: bytes,
 ) -> None:
     path = storage.ref_path(run_id, ref)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_durable_directory(path.parent)
     path.write_bytes(content)
 
 

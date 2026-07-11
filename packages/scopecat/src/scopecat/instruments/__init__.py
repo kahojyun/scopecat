@@ -8,6 +8,7 @@ from scopecat.instruments.events import (
     RuntimePayloadObserver,
 )
 from scopecat.instruments.sdk import (
+    ApplyReceipt,
     CapabilityDescription,
     CapabilityField,
     CollectAxisRequest,
@@ -22,7 +23,6 @@ from scopecat.instruments.sdk import (
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentReadback,
-    InstrumentResult,
     InstrumentStateCommand,
     InstrumentStateCommandField,
     InstrumentStateField,
@@ -42,6 +42,7 @@ from scopecat.instruments.sdk import (
 from scopecat.models.state import PayloadRef, StateValue
 
 __all__ = [
+    "ApplyReceipt",
     "CapabilityDescription",
     "CapabilityField",
     "CollectAxisRequest",
@@ -56,7 +57,6 @@ __all__ = [
     "InstrumentProviderDescription",
     "InstrumentProviderResult",
     "InstrumentReadback",
-    "InstrumentResult",
     "InstrumentStateCommand",
     "InstrumentStateCommandField",
     "InstrumentStateField",

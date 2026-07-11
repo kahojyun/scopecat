@@ -1,27 +1,34 @@
 from pathlib import Path
 
+from scopecat._compiler.environment import validate_config_environment
 from scopecat._compiler.program import (
-    LinkedProgram,
-    linked_program,
+    TypedPointSource,
+    TypedProgram,
     observable,
     set_state,
+    typed_program,
 )
-from scopecat._parameter_resolution import resolve_config_parameters
-from scopecat._relations import col, grid, range_values, table
-from scopecat._workflows.preview import build_experiment_preview
+from scopecat._relations import RelationExpr, col, grid, range_values, table
 from scopecat.config_profiles import load_config_profile
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
+from scopecat.value_types import Table as TableType
+from tests.support.experiment_preview import preview_result
 from tests.support.workflow_fixtures import load_experiment
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
 
-def _preview_spec(spec: LinkedProgram, config: ConfigProfileSnapshot):
-    return build_experiment_preview(
-        spec,
-        resolve_config_parameters(config).data,
-        config=config,
+def _preview_spec(spec: TypedProgram, config: ConfigProfileSnapshot):
+    return preview_result(
+        spec, validate_config_environment(config).parameters, config=config
+    )
+
+
+def _point_source(expr: RelationExpr) -> TypedPointSource:
+    return TypedPointSource(
+        expr=expr,
+        value_type=TableType(columns=(), allow_extra_columns=True),
     )
 
 
@@ -34,7 +41,7 @@ def test_preview_experiment_builds_expected_plan() -> None:
     assert preview.experiment_id == spec.id
     assert preview.experiment_kind == spec.kind
     assert preview.point_count == 3
-    assert preview.state_changes[0].resource == "source"
+    assert preview.state_changes[0].resource == "source-0"
     assert preview.state_changes[0].field == "set_frequency.frequency"
     assert preview.state_changes[0].after == Quantity(value=4.9, unit="GHz")
     assert preview.state_fields[0].resource_id == "source-0"
@@ -47,16 +54,18 @@ def test_preview_experiment_builds_expected_plan() -> None:
 
 def test_preview_experiment_includes_float_step_stop_point() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
-    spec = linked_program(
+    spec = typed_program(
         id="float-range-scan",
         kind="simple_scan",
-        points=grid(
-            drive_frequency=range_values(
-                5.9,
-                6.0,
-                0.025,
-                unit="GHz",
-                include_stop=True,
+        point_source=_point_source(
+            grid(
+                drive_frequency=range_values(
+                    5.9,
+                    6.0,
+                    0.025,
+                    unit="GHz",
+                    include_stop=True,
+                )
             )
         ),
         state=[
@@ -87,10 +96,10 @@ def test_preview_experiment_includes_float_step_stop_point() -> None:
 def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     value = Quantity(value=5.0, unit="GHz")
-    spec = linked_program(
+    spec = typed_program(
         id="duplicate-coordinate-scan",
         kind="simple_scan",
-        points=grid(drive_frequency=[value, value]),
+        point_source=_point_source(grid(drive_frequency=[value, value])),
     )
 
     preview, diagnostics = _preview_spec(spec, config)
@@ -101,10 +110,10 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
 
 def test_validate_experiment_does_not_duplicate_preview_diagnostics() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
-    spec = linked_program(
+    spec = typed_program(
         id="bad-preview-points",
         kind="diagnostic",
-        points=table("missing_table"),
+        point_source=_point_source(table("missing_table")),
     )
 
     _preview, diagnostics = _preview_spec(spec, config)

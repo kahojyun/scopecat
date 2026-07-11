@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from scopecat._compiler.program import LinkedProgram
+from scopecat._compiler.graph import ComputeGraphError, order_compute_nodes
+from scopecat._compiler.program import TypedProgram
 from scopecat.authoring._assembly_lowering import (
     coerce_assembly_inputs,
     input_row,
     lower_compute_node_intent,
     lower_parameter_overlay_intent,
+    lower_point_source,
     lower_state_intent,
-    points_relation,
     state_specs,
     validate_assembly_conflicts,
     validate_consumed_inputs,
@@ -38,7 +39,7 @@ from scopecat.authoring._value_binding import (
 def link_experiment_assembly_internal(
     assembly: ExperimentAssemblyInternal,
     ctx: ExperimentAuthoringContext,
-) -> LinkedProgram:
+) -> TypedProgram:
     if not assembly.experiment_id:
         ctx.raise_diagnostic(
             "experiment_assembly_entrypoint_missing_id",
@@ -66,11 +67,9 @@ def link_experiment_assembly_internal(
         lower_binding_intent(binding, ctx, resource_ports)
         for binding in assembly.bindings
     ]
-    points = points_relation(
-        ctx,
+    point_source = lower_point_source(
         assembly.point_source,
         inputs=inputs,
-        input_ports=assembly.input_ports,
         entity_input_ids=assembly.entity_inputs,
     )
     records = [
@@ -92,26 +91,31 @@ def link_experiment_assembly_internal(
             input_row=input_row,
         ),
     ]
-    return LinkedProgram(
+    lowered_compute_nodes = tuple(
+        lower_compute_node_intent(node, inputs) for node in assembly.compute_nodes
+    )
+    try:
+        compute_nodes = order_compute_nodes(lowered_compute_nodes)
+    except ComputeGraphError as error:
+        ctx.raise_diagnostic(error.code, str(error), error.path)
+    return TypedProgram(
         id=assembly.experiment_id,
         kind=assembly.kind,
-        points=points,
-        route_intents=route_intents,
-        compute_nodes=[
-            lower_compute_node_intent(node, inputs) for node in assembly.compute_nodes
-        ],
-        parameter_overlays=[
+        point_source=point_source,
+        route_intents=tuple(route_intents),
+        compute_nodes=compute_nodes,
+        parameter_overlays=tuple(
             lower_parameter_overlay_intent(ctx, intent, inputs)
             for intent in assembly.parameter_overlays
-        ],
-        state=[
+        ),
+        state=(
             *state_specs(bindings, inputs=inputs),
             *(
                 lower_state_intent(ctx, intent, resource_ports, inputs)
                 for intent in assembly.state_intents
             ),
-        ],
-        records=records,
+        ),
+        records=tuple(records),
         metadata=dict(assembly.metadata),
     )
 

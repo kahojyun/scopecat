@@ -6,7 +6,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 from scopecat.diagnostics import Diagnostic
 from scopecat.models._schema_utils import (
@@ -43,7 +50,7 @@ class MeasurementDimension(BaseModel):
     label: str | None = None
     size: int | None = Field(default=None, ge=0)
     unit: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     @field_validator("unit")
     @classmethod
@@ -64,7 +71,7 @@ class MeasurementVariable(BaseModel):
     uncertainty_of: str | None = None
     status_of: str | None = None
     mask_of: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     @field_validator("unit")
     @classmethod
@@ -93,7 +100,7 @@ class MeasurementDatasetSchema(BaseModel):
     variables: list[MeasurementVariable] = Field(default_factory=list)
     primary_coordinates: list[str] = Field(default_factory=list)
     primary_observables: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_references(self) -> MeasurementDatasetSchema:
@@ -163,7 +170,7 @@ class MeasurementArray(BaseModel):
     unit: str | None = None
     shape: list[int] = Field(min_length=1)
     values: MeasurementArrayData
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     @field_validator("unit")
     @classmethod
@@ -191,7 +198,7 @@ class MeasurementRecord(BaseModel):
     point_index: int
     coordinates: dict[str, CoordinateValue]
     observables: dict[str, MeasurementValue]
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class MeasurementDataset(BaseModel):
@@ -200,7 +207,7 @@ class MeasurementDataset(BaseModel):
     dataset_id: str
     dataset_schema: MeasurementDatasetSchema = Field(alias="schema")
     records: list[MeasurementRecord]
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -221,7 +228,7 @@ def infer_measurement_dataset_schema(
     records: Sequence[MeasurementRecord],
     dimension_id: str = "point",
     dimension_label: str | None = "Point",
-    metadata: dict[str, Any] | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
 ) -> MeasurementDatasetSchema:
     """Infer the compatible point-table dataset schema for record JSONL data."""
 
@@ -269,7 +276,7 @@ def infer_measurement_dataset_schema(
         variables=variables,
         primary_coordinates=list(coordinate_values),
         primary_observables=list(observable_values),
-        metadata=metadata or {},
+        metadata=dict(metadata or {}),
     )
 
 
@@ -519,7 +526,7 @@ def _measurement_variable(
     dimension_id: str,
     shape: list[int],
 ) -> tuple[MeasurementVariable, list[MeasurementDimension]]:
-    metadata: dict[str, Any] = {}
+    metadata: dict[str, JsonValue] = {}
     units = _measurement_value_units(values)
     unit: str | None = None
     if len(units) == 1:

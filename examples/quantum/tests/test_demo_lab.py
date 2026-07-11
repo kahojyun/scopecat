@@ -66,30 +66,38 @@ def test_notebook_style_examples_execute_user_workflows(
         "parallel_gate_points": 1,
         "waveform_preview_payloads": [
             (
+                "quantum_lab_demo.experiments.two_qubit.cz_chevron[0]/"
                 "build-cz-chevron-program",
                 "gate_sequence",
                 ("play_gate_sequence.sequence",),
             ),
             (
+                "quantum_lab_demo.experiments.two_qubit.cz_chevron[0]/"
                 "render-cz-chevron-coupler-waveforms",
                 "pulse_program",
                 ("play_coupler_pulse.program",),
             ),
             (
+                "quantum_lab_demo.experiments.two_qubit.cz_chevron[0]/"
                 "render-cz-chevron-drive-waveforms",
                 "pulse_program",
                 ("play_pulse_program.program",),
             ),
         ],
         "waveform_build_dependencies": {
+            "input_refs": ("control_qubit", "coupler", "partner_qubit"),
             "parameters": ("qubits", "two_qubit_gates"),
             "point_columns": ("coupler_amplitude", "coupler_duration"),
         },
         "waveform_drive_runtime_dependencies": {
+            "input_refs": ["control_qubit", "coupler", "partner_qubit"],
             "parameters": ["qubits", "two_qubit_gates"],
             "point_columns": ["coupler_amplitude", "coupler_duration"],
             "routes": ["drive"],
-            "upstream_compute": ["build-cz-chevron-program"],
+            "upstream_compute": [
+                "quantum_lab_demo.experiments.two_qubit.cz_chevron[0]/"
+                "build-cz-chevron-program"
+            ],
         },
         "waveform_run_status": "completed",
         "waveform_compute_event_count": 3,
@@ -114,7 +122,9 @@ def test_notebook_style_examples_execute_user_workflows(
     assert system_scale["system_scale_summary"] == {
         "surface_code_records": ["stabilizer_iq"],
         "surface_code_coordinates": [],
-        "backend_batch_payloads": ["build-backend-batch-job"],
+        "backend_batch_payloads": [
+            "quantum_lab_demo.experiments.backend.batch[0]/build-backend-batch-job"
+        ],
         "backend_batch_records": ["backend_probabilities"],
     }
 

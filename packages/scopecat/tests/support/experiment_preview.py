@@ -1,20 +1,25 @@
 from __future__ import annotations
 
-from scopecat._compiler.program import LinkedProgram
+from dataclasses import replace
+
+from scopecat._compiler.binding import bind_program
+from scopecat._compiler.environment import validate_config_environment
+from scopecat._compiler.program import TypedProgram
 from scopecat._relations import ParameterRelationData
 from scopecat._workflows.preview import build_experiment_preview
 from scopecat.diagnostics import Diagnostic
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.preview import ExperimentPreview
+from tests.support.authoring import load_config
 
 
 def preview_contract(
-    experiment: LinkedProgram,
+    experiment: TypedProgram,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
 ) -> ExperimentPreview:
-    preview, diagnostics = build_experiment_preview(
+    preview, diagnostics = preview_result(
         experiment,
         parameters,
         config=config,
@@ -24,13 +29,14 @@ def preview_contract(
 
 
 def preview_result(
-    experiment: LinkedProgram,
+    experiment: TypedProgram,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
 ) -> tuple[ExperimentPreview, tuple[Diagnostic, ...]]:
-    return build_experiment_preview(
-        experiment,
-        parameters,
-        config=config,
+    environment = replace(
+        validate_config_environment(config or load_config()),
+        parameters=parameters,
     )
+    plan = bind_program(experiment, environment)
+    return build_experiment_preview(plan), plan.diagnostics

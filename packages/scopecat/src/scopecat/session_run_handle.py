@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, NoReturn, Protocol
 
 from scopecat._manifest_updates import write_manifest_artifacts
+from scopecat._storage.local.io import ensure_durable_directory
 from scopecat._storage.refs import artifact_content_ref
 from scopecat._workflows.comparison import list_run_comparisons
 from scopecat._workflows.runs import (
@@ -211,12 +212,12 @@ class RunHandle:
         ref = artifact_content_ref(artifact_id=key, kind=kind)
         storage = open_run_store(self.session.workspace)
         if source_path is not None:
-            storage.ref_path(self.id, ref).parent.mkdir(parents=True, exist_ok=True)
+            ensure_durable_directory(storage.ref_path(self.id, ref).parent)
             storage.ref_path(self.id, ref).write_bytes(source_path.read_bytes())
         elif text is not None:
             storage.write_text(self.id, ref, text)
         elif content is not None:
-            storage.ref_path(self.id, ref).parent.mkdir(parents=True, exist_ok=True)
+            ensure_durable_directory(storage.ref_path(self.id, ref).parent)
             storage.ref_path(self.id, ref).write_bytes(content)
         artifact = RunArtifactEntry(
             id=key,

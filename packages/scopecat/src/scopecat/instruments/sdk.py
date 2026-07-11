@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Annotated, Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    WithJsonSchema,
+    field_validator,
+)
 
 from scopecat._value_type_wire import ScalarWire, scalar_type_wire_schema
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
@@ -133,7 +140,7 @@ class InstrumentStateSnapshot(BaseModel):
     )
     instrument_id: str
     fields: list[InstrumentStateField] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class CommandChannelBinding(BaseModel):
@@ -163,16 +170,28 @@ class InstrumentStateCommand(BaseModel):
     schema_version: Literal["scopecat.instrument_state_command.v2"] = (
         "scopecat.instrument_state_command.v2"
     )
+    operation_id: str | None = None
+    attempt: int = Field(default=1, ge=1)
     instrument_id: str
     fields: list[InstrumentStateCommandField] = Field(default_factory=list)
     payloads: dict[str, CommandPayload] = Field(default_factory=dict)
 
 
-class InstrumentResult(BaseModel):
+class ApplyReceipt(BaseModel):
+    """Outcome reported after one instrument state command.
+
+    ``unknown`` is intentionally distinct from failure.  A driver can lose the
+    response after the hardware accepted a command, so the execution engine must
+    reconcile state before it can safely issue another command or retry.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
+    schema_version: Literal["scopecat.apply_receipt.v1"] = "scopecat.apply_receipt.v1"
+    status: Literal["applied", "not_applied", "unknown"] = "applied"
     diagnostics: list[Diagnostic] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    state: InstrumentStateSnapshot | None = None
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class CollectAxisRequest(BaseModel):
@@ -201,6 +220,8 @@ class CollectCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: str = "scopecat.collect_command.v0"
+    operation_id: str | None = None
+    attempt: int = Field(default=1, ge=1)
     instrument_id: str
     point_index: int
     point_count: int
@@ -213,7 +234,7 @@ class InstrumentReadback(BaseModel):
 
     values: dict[str, MeasurementValue] = Field(default_factory=dict)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -246,7 +267,7 @@ class InstrumentDriver(Protocol):
 
     def read_state(self) -> InstrumentStateSnapshot: ...
 
-    def apply_state(self, command: InstrumentStateCommand) -> InstrumentResult: ...
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt: ...
 
     def collect(self, command: CollectCommand) -> InstrumentReadback: ...
 
@@ -264,25 +285,46 @@ class InstrumentProviderContext:
 class InstrumentProviderResult:
     drivers: tuple[InstrumentDriver, ...]
     diagnostics: tuple[Diagnostic, ...] = ()
-    metadata: dict[str, Any] = dc_field(default_factory=dict)
+    metadata: dict[str, JsonValue] = dc_field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class InstrumentProviderDescription:
+    """Pure, config-specific declaration of instruments a provider can create."""
+
     provider_id: str
+    instruments: tuple[InstrumentDescription, ...] = ()
+    diagnostics: tuple[Diagnostic, ...] = ()
     label: str | None = None
     description: str | None = None
     options: tuple[ProviderOptionDescription, ...] = ()
-    provided_instrument_ids: tuple[str, ...] = ()
-    capabilities: tuple[str, ...] = ()
     metadata: dict[str, Any] = dc_field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.provider_id:
+            msg = "instrument provider id must be non-empty"
+            raise ValueError(msg)
+        instrument_ids = [instrument.instrument_id for instrument in self.instruments]
+        if len(instrument_ids) != len(set(instrument_ids)):
+            duplicates = sorted(
+                instrument_id
+                for instrument_id in set(instrument_ids)
+                if instrument_ids.count(instrument_id) > 1
+            )
+            msg = (
+                "instrument provider descriptions require unique instrument ids: "
+                f"{', '.join(duplicates)}"
+            )
+            raise ValueError(msg)
 
 
 class InstrumentProvider(Protocol):
     @property
     def provider_id(self) -> str: ...
 
-    def describe(self) -> InstrumentProviderDescription: ...
+    def describe(
+        self, context: InstrumentProviderContext
+    ) -> InstrumentProviderDescription: ...
 
     def provide(
         self, context: InstrumentProviderContext

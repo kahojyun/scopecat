@@ -5,8 +5,8 @@ from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from scopecat._compiler.diagnostics import compiler_diagnostic
 from scopecat._compute_result import ComputeResultRef
-from scopecat._planning.diagnostics import planning_diagnostic
 from scopecat._relations import (
     CellValue,
     EvalContext,
@@ -156,7 +156,7 @@ def validate_state_records(records: list[StateRecord]) -> list[dict[str, Any]]:
         )
         if key in seen and seen[key] != record.value:
             diagnostics.append(
-                planning_diagnostic(
+                compiler_diagnostic(
                     "error",
                     "experiment_conflicting_desired_state",
                     (

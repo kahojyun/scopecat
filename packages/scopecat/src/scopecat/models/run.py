@@ -11,8 +11,12 @@ from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry, RunRecor
 from scopecat.models.config import ConfigContentHash
 
 RunStatus = Literal[
+    "planned",
+    "running",
     "completed",
     "failed",
+    "interrupted",
+    "unknown",
 ]
 
 

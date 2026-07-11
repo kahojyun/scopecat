@@ -7,7 +7,8 @@ from demo_lab_test_paths import (
     EXPERIMENT_FIXTURE_DIR,
     EXPERIMENT_VIRTUAL_LAB_PROFILE,
 )
-from scopecat._runtime.executor import execute_run
+from scopecat._compiler.binding import bind_program
+from scopecat._execution.executor import execute_run
 from scopecat.authoring import (
     ExperimentInvocation,
     PayloadType,
@@ -17,7 +18,6 @@ from scopecat.authoring._resolution import resolve_experiment
 from scopecat.config_profiles import load_config_profile
 from scopecat.errors import ValidationFailed
 from scopecat.instruments import RuntimeEvent
-from scopecat.instruments.sdk import InstrumentProviderContext
 from scopecat.models.config import ConfigProfileSnapshot
 
 from quantum_lab_demo.experiments import (
@@ -37,6 +37,9 @@ from quantum_lab_demo.experiments.points import (
 )
 from quantum_lab_demo.experiments.readout_responses import _settings_from_config
 from quantum_lab_demo.lab import quantum_lab
+
+_CZ_CHEVRON_SCOPE = "quantum_lab_demo.experiments.two_qubit.cz_chevron[0]"
+_BACKEND_BATCH_SCOPE = "quantum_lab_demo.experiments.backend.batch[0]"
 
 
 def load_config() -> ConfigProfileSnapshot:
@@ -101,7 +104,9 @@ def test_experiment_system_run_provider_python_api(
     assert len(measurements.dataset.records) == expected_measurements
 
 
-def test_cz_chevron_emits_waveform_compute_summaries(tmp_path: Path) -> None:
+def test_cz_chevron_emits_scoped_compute_lifecycle_summaries(
+    tmp_path: Path,
+) -> None:
     events: list[RuntimeEvent] = []
 
     run = (
@@ -125,39 +130,21 @@ def test_cz_chevron_emits_waveform_compute_summaries(tmp_path: Path) -> None:
     drive_summary = next(
         summary
         for summary in compute_summaries
-        if summary.get("node_id") == "render-cz-chevron-drive-waveforms"
+        if summary.get("kernel_id")
+        == f"{_CZ_CHEVRON_SCOPE}/render-cz-chevron-drive-waveforms"
     )
     program_summary = next(
         summary
         for summary in compute_summaries
-        if summary.get("node_id") == "build-cz-chevron-program"
+        if summary.get("kernel_id") == f"{_CZ_CHEVRON_SCOPE}/build-cz-chevron-program"
     )
 
     assert run.manifest.status == "completed"
-    assert program_summary["fields"] == [
-        "control_qubit",
-        "partner_qubit",
-        "coupler",
-        "drive_pulses",
-        "coupler_pulse",
-        "sample_rate_hz",
-        "compiler_id",
-        "parameters",
-    ]
-    assert program_summary["dependencies"] == {
-        "parameters": ["qubits", "two_qubit_gates"],
-        "point_columns": ["coupler_amplitude", "coupler_duration"],
-    }
-    assert drive_summary["sample_shape"] == [2, 24]
-    assert drive_summary["dependencies"] == {
-        "parameters": ["qubits", "two_qubit_gates"],
-        "point_columns": ["coupler_amplitude", "coupler_duration"],
-        "routes": ["drive"],
-        "upstream_compute": ["build-cz-chevron-program"],
-    }
-    assert drive_summary["sample_dtype"] == "complex128"
-    assert drive_summary["channel_count"] == 2
-    assert drive_summary["entity_ids"] == ["q0", "q1"]
+    for summary in (program_summary, drive_summary):
+        kernel_id = summary["kernel_id"]
+        assert summary["compute_status"] == "evaluated"
+        assert summary["payload_id"].startswith(f"{kernel_id}.payload.")
+        assert summary["operation_id"].endswith(f".compute.{kernel_id}")
 
 
 @pytest.mark.parametrize(
@@ -211,15 +198,13 @@ def test_array_record_cases_run_provider_python_api(
             event.summary
             for event in events
             if event.kind == "compute_finished"
-            and event.summary.get("node_id") == "build-backend-batch-job"
+            and event.summary.get("kernel_id")
+            == f"{_BACKEND_BATCH_SCOPE}/build-backend-batch-job"
         )
-        assert batch_summary["fields"] == [
-            "logical_points",
-            "submitted_point_uids",
-            "returned_order",
-            "seed",
-            "compiler_id",
-        ]
+        assert batch_summary["compute_status"] == "evaluated"
+        assert batch_summary["payload_id"].startswith(
+            f"{_BACKEND_BATCH_SCOPE}/build-backend-batch-job.payload."
+        )
 
 
 def test_rejects_invalid_payload_schema(
@@ -237,7 +222,7 @@ def test_rejects_invalid_payload_schema(
                 node.model_copy(
                     update={"output_type": ScalarType(PayloadType("pulse_program"))}
                 )
-                if node.id == sequence_node_id
+                if node.id.local_id == sequence_node_id
                 else node
                 for node in resolved.experiment.compute_nodes
             ]
@@ -246,16 +231,15 @@ def test_rejects_invalid_payload_schema(
 
     lab = _lab(tmp_path)
     assert lab.instrument_provider is not None
-    provider = lab.instrument_provider.provide(
-        InstrumentProviderContext(config=resolved.config)
-    )
+    plan = bind_program(experiment, resolved.environment)
     with pytest.raises(ValidationFailed) as error:
         execute_run(
             config=resolved.config,
-            experiment=experiment,
-            instruments=list(provider.drivers),
+            plan=plan,
+            request=resolved.request,
+            instrument_provider=lab.instrument_provider,
             workspace=tmp_path,
-            parameters=resolved.parameters,
+            config_source=resolved.config_source,
         )
 
     assert error.value.diagnostics[0].code == "instrument_driver_field_value_mismatch"

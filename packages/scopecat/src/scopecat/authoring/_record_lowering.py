@@ -7,11 +7,11 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, cast
 
 from scopecat._compiler.program import record_axis as compiler_record_axis
-from scopecat._compute_result import ComputeResultRef
-from scopecat._planning.records import (
+from scopecat._compiler.records import (
     RecordAxisSpec,
     RecordSpec,
 )
+from scopecat._compute_result import ComputeResultRef
 from scopecat._relations import (
     CellValue,
     EvalContext,

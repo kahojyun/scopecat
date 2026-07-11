@@ -76,6 +76,7 @@ from scopecat.candidate_configs import (
     CandidateConfigInput,
     resolve_candidate_config,
 )
+from scopecat.errors import ValidationFailed
 from scopecat.instruments import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.instruments.sdk import InstrumentProvider
 from scopecat.models.config import ConfigProfileSnapshot
@@ -777,11 +778,20 @@ def _validate_prepared(
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
 ) -> ValidateExperimentResult:
-    selected_config, selected_config_profile = _prepared_config_selection(
-        session,
-        config=config,
-        config_profile=config_profile,
-    )
+    try:
+        selected_config, selected_config_profile = _prepared_config_selection(
+            session,
+            config=config,
+            config_profile=config_profile,
+        )
+    except ValidationFailed as error:
+        return ValidateExperimentResult(
+            diagnostics=tuple(error.diagnostics),
+            summary=None,
+            template_id=None,
+            inputs={},
+            config_source=None,
+        )
     return validate_experiment(
         _prepared_invocation_with_run_options(
             prepared_invocation,

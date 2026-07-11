@@ -178,13 +178,13 @@ evidence such as measurements, outcomes, and diagnostics. These records answer
 what the operator requested, what configuration was accepted, what was planned,
 and what actually happened.
 
-Experiment modules, `LinkedProgram`, and compiler and runtime graphs are
-transient Python objects. They may change as the DSL and compiler improve and
-are not durable or replayable formats. `RunPlanRecord` is a stable projection
-for inspection, not an executable graph. It records points, outputs, intended
-state changes, and resolved resource routes; compute steps, generated payloads,
-expanded driver fields, and runtime counters stay in transient preview/runtime
-models and execution evidence.
+Experiment modules, `TypedProgram`, `BoundPlan`, and `ExecutionProgram` are
+transient Python objects. They may change as the DSL, compiler, and execution
+engine improve and are not durable or replayable formats. `RunPlanRecord` is a
+stable projection for inspection, not an executable program. It records points,
+outputs, intended state changes, and resolved resource routes; compute steps,
+generated payloads, expanded driver fields, and runtime counters stay in
+transient preview/execution models and execution evidence.
 
 The durable records remain independently readable. `RunHandle.config` loads only
 the accepted configuration snapshot, `RunHandle.request` loads operator intent

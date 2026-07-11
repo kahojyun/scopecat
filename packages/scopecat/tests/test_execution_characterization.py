@@ -1,0 +1,744 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import cast
+
+import scopecat as sc
+from scopecat._content_identity import stable_content_hash
+from scopecat._execution.engine import ExecutionEngine
+from scopecat._execution.journal import (
+    ExecutionJournalEntry,
+    MemoryCollectionCommitter,
+    MemoryExecutionJournal,
+    MemoryMeasurementCommitter,
+    MemoryPayloadEvidenceCommitter,
+)
+from scopecat._execution.program import (
+    ApplyStateOperation,
+    ApplyStateStage,
+    CollectOperation,
+    CollectStage,
+    ComputeOperation,
+    ComputeStage,
+    ExecutionProgram,
+    OutputInput,
+    PointProgram,
+    StateTarget,
+)
+from scopecat.diagnostics import Diagnostic
+from scopecat.instruments import (
+    ApplyReceipt,
+    CollectCommand,
+    CollectProductRequest,
+    InstrumentProviderContext,
+    InstrumentProviderDescription,
+    InstrumentProviderResult,
+    InstrumentReadback,
+    InstrumentStateCommand,
+    InstrumentStateSnapshot,
+)
+from scopecat.models.parameter import Quantity
+from scopecat.models.state import PayloadRef, StateValue
+from scopecat.value_types import Float, Scalar
+from scopecat.value_types import Quantity as QuantityType
+from tests.support.authoring import load_config
+from tests.support.instrument_drivers import SignalInstrumentDriver
+
+
+class _SingleDriverProvider:
+    def __init__(self, driver: SignalInstrumentDriver) -> None:
+        self.driver = driver
+
+    @property
+    def provider_id(self) -> str:
+        return "tests.execution_characterization"
+
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        del context
+        return InstrumentProviderDescription(
+            provider_id=self.provider_id,
+            instruments=(self.driver.describe(),),
+        )
+
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        del context
+        return InstrumentProviderResult(drivers=(self.driver,))
+
+
+def test_workspace_run_schedules_parent_compute_before_child_consumer(
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+
+    source_program_type = sc.ScalarType(sc.PayloadType("source_program"))
+    pulse_program_type = sc.ScalarType(sc.PayloadType("pulse_program"))
+    program = sc.input("program", source_program_type)
+    state_rows = sc.input(
+        "state_rows",
+        sc.TableType(columns=(sc.TableColumn("slot", sc.ScalarType(sc.IntType())),)),
+    )
+
+    def consume(*, program: object) -> dict[str, object]:
+        calls.append("consume")
+        return {"consumed": program}
+
+    consume_program = sc.compute(
+        "consume-program",
+        fn=consume,
+        inputs={"program": program},
+        output_type=pulse_program_type,
+    )
+    child = (
+        sc.module("tests.compute_schedule.child")
+        .inputs(program, state_rows)
+        .computes(consume_program)
+        .state_each(
+            state_rows,
+            resource="source-0",
+            field="play_program.program",
+            value=consume_program.output,
+        )
+        .build()
+    )
+
+    def produce() -> dict[str, object]:
+        calls.append("produce")
+        return {"source": "parent"}
+
+    produce_program = sc.compute(
+        "produce-program",
+        fn=produce,
+        output_type=source_program_type,
+    )
+    parent = (
+        sc.module("tests.compute_schedule.parent")
+        .computes(produce_program)
+        .use(
+            child(
+                program=produce_program.output,
+                state_rows=({"slot": 0},),
+            )
+        )
+        .build()
+    )
+    template = (
+        parent.template("tests.compute_schedule", kind="characterization")
+        .experiment_id("compute-schedule")
+        .build()
+    )
+    driver = SignalInstrumentDriver()
+    lab = sc.open(
+        tmp_path,
+        config=load_config(),
+        instrument_provider=_SingleDriverProvider(driver),
+    )
+
+    run = lab.prepare(template).run()
+
+    assert run.manifest.status == "completed"
+    assert calls == ["produce", "consume"]
+    assert len(driver.applied) == 1
+    applied = driver.applied[0]
+    payload_ref = applied.fields[0].value.root
+    assert isinstance(payload_ref, PayloadRef)
+    command_payload = applied.payloads[payload_ref.payload_id]
+    assert command_payload.payload == {"consumed": {"source": "parent"}}
+    assert command_payload.evidence_ref is not None
+    assert command_payload.evidence_ref.startswith("execution/payloads/")
+    assert command_payload.content_hash
+    assert (
+        tmp_path / "runs" / run.manifest.run_id / command_payload.evidence_ref
+    ).is_file()
+
+
+def test_compute_output_is_normalized_before_downstream_use() -> None:
+    consumed: list[Quantity] = []
+    producer_id = "normalized-output-point.compute.producer"
+
+    def consume(*, value: Quantity) -> float:
+        consumed.append(value)
+        return value.value
+
+    program = ExecutionProgram(
+        experiment_id="normalized-compute-output",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid="normalized-output-point",
+                coordinates={},
+                stages=(
+                    ComputeStage(
+                        operations=(
+                            ComputeOperation(
+                                operation_id=producer_id,
+                                kernel_id="producer",
+                                kernel=lambda: Quantity(
+                                    value=5000.0,
+                                    unit="MHz",
+                                ),
+                                inputs={},
+                                output_type=Scalar(QuantityType(unit="GHz")),
+                            ),
+                            ComputeOperation(
+                                operation_id=(
+                                    "normalized-output-point.compute.consumer"
+                                ),
+                                kernel_id="consumer",
+                                kernel=consume,
+                                inputs={"value": OutputInput(producer_id)},
+                                output_type=Scalar(Float()),
+                            ),
+                        )
+                    ),
+                ),
+            ),
+        ),
+        expected_output_ids=frozenset(),
+    )
+
+    result = ExecutionEngine(
+        run_id="normalized-output-run",
+        program=program,
+        drivers={},
+        journal=MemoryExecutionJournal(),
+        measurements=MemoryMeasurementCommitter(),
+        readbacks=MemoryCollectionCommitter(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "completed"
+    assert consumed == [Quantity(value=5.0, unit="GHz")]
+
+
+class _BlockingStateDriver(SignalInstrumentDriver):
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
+        self.applied.append(command)
+        return ApplyReceipt(
+            status="not_applied",
+            diagnostics=[
+                Diagnostic(
+                    severity="error",
+                    code="instrument_driver_blocked",
+                    message="driver blocked",
+                    path=self.instrument_id,
+                )
+            ],
+        )
+
+
+class _ConflictingAppliedStateDriver(SignalInstrumentDriver):
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
+        super().apply_state(command)
+        return ApplyReceipt(
+            status="applied",
+            diagnostics=[
+                Diagnostic(
+                    severity="error",
+                    code="instrument_driver_applied_with_error",
+                    message="driver reported an error after applying state",
+                    path=self.instrument_id,
+                )
+            ],
+        )
+
+
+class _MalformedApplyDriver(SignalInstrumentDriver):
+    def __init__(self, *, instrument_id: str = "source-0") -> None:
+        super().__init__(instrument_id=instrument_id)
+        self.abort_count = 0
+        self.read_count = 0
+
+    def read_state(self) -> InstrumentStateSnapshot:
+        self.read_count += 1
+        return super().read_state()
+
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
+        super().apply_state(command)
+        return cast("ApplyReceipt", object())
+
+    def abort(self) -> None:
+        self.abort_count += 1
+
+
+class _FinalizationTrackingDriver(SignalInstrumentDriver):
+    def __init__(self, *, instrument_id: str) -> None:
+        super().__init__(instrument_id=instrument_id)
+        self.abort_count = 0
+        self.read_count = 0
+
+    def read_state(self) -> InstrumentStateSnapshot:
+        self.read_count += 1
+        return super().read_state()
+
+    def abort(self) -> None:
+        self.abort_count += 1
+
+
+class _MalformedCollectDriver(SignalInstrumentDriver):
+    def collect(self, command: CollectCommand) -> InstrumentReadback:
+        super().collect(command)
+        return cast("InstrumentReadback", object())
+
+
+class _BrokenFinalizationJournal(MemoryExecutionJournal):
+    def append(self, entry: ExecutionJournalEntry) -> ExecutionJournalEntry:
+        if entry.stage in {"abort", "terminal_readback"}:
+            raise RuntimeError("lifecycle journal unavailable")
+        return super().append(entry)
+
+
+def test_malformed_apply_receipt_is_unknown_and_journaled() -> None:
+    driver = _MalformedApplyDriver()
+    operation = _gain_operation(driver.instrument_id, 1.0)
+    program = ExecutionProgram(
+        experiment_id="malformed-apply-receipt",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid="malformed-apply-point",
+                coordinates={},
+                stages=(ApplyStateStage(operations=(operation,)),),
+            ),
+        ),
+        expected_output_ids=frozenset(),
+        resource_order=(driver.instrument_id,),
+    )
+    journal = MemoryExecutionJournal()
+
+    result = ExecutionEngine(
+        run_id="malformed-apply-run",
+        program=program,
+        drivers={driver.instrument_id: driver},
+        journal=journal,
+        measurements=MemoryMeasurementCommitter(),
+        readbacks=MemoryCollectionCommitter(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "unknown"
+    assert result.uncertain
+    assert "instrument_apply_unknown" in {
+        diagnostic.code for diagnostic in result.diagnostics
+    }
+    assert [
+        entry.state
+        for entry in journal.entries
+        if entry.operation_id == operation.operation_id
+    ] == ["started", "unknown"]
+
+
+def test_malformed_collect_readback_is_unknown_and_journaled() -> None:
+    driver = _MalformedCollectDriver()
+    point_uid = "malformed-collect-point"
+    operation = _collect_operation(point_uid, driver.instrument_id, "signal")
+    program = ExecutionProgram(
+        experiment_id="malformed-collect-readback",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid=point_uid,
+                coordinates={},
+                stages=(CollectStage(operations=(operation,)),),
+            ),
+        ),
+        expected_output_ids=frozenset({"signal"}),
+        resource_order=(driver.instrument_id,),
+    )
+    journal = MemoryExecutionJournal()
+    readbacks = MemoryCollectionCommitter()
+
+    result = ExecutionEngine(
+        run_id="malformed-collect-run",
+        program=program,
+        drivers={driver.instrument_id: driver},
+        journal=journal,
+        measurements=MemoryMeasurementCommitter(),
+        readbacks=readbacks,
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "unknown"
+    assert result.uncertain
+    assert "instrument_collect_unknown" in {
+        diagnostic.code for diagnostic in result.diagnostics
+    }
+    assert readbacks.chunks == ()
+    assert [
+        entry.state
+        for entry in journal.entries
+        if entry.operation_id == operation.operation_id
+    ] == ["started", "unknown"]
+
+
+def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> None:
+    first = _MalformedApplyDriver(instrument_id="source-a")
+    second = _FinalizationTrackingDriver(instrument_id="source-b")
+    program = ExecutionProgram(
+        experiment_id="finalization-journal-failure",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid="finalization-journal-point",
+                coordinates={},
+                stages=(
+                    ApplyStateStage(
+                        operations=(
+                            _gain_operation("source-a", 1.0),
+                            _gain_operation("source-b", 2.0),
+                        )
+                    ),
+                ),
+            ),
+        ),
+        expected_output_ids=frozenset(),
+        resource_order=("source-a", "source-b"),
+    )
+
+    result = ExecutionEngine(
+        run_id="finalization-journal-run",
+        program=program,
+        drivers={"source-a": first, "source-b": second},
+        journal=_BrokenFinalizationJournal(),
+        measurements=MemoryMeasurementCommitter(),
+        readbacks=MemoryCollectionCommitter(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "unknown"
+    assert first.abort_count == 1
+    assert second.abort_count == 1
+    assert first.read_count == 2
+    assert second.read_count == 2
+    assert {state.instrument_id for state in result.final_state} == {
+        "source-a",
+        "source-b",
+    }
+    assert "execution_journal_commit_failed" in {
+        diagnostic.code for diagnostic in result.diagnostics
+    }
+
+
+class _ReceiptEvidenceStateDriver(SignalInstrumentDriver):
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
+        super().apply_state(command)
+        return ApplyReceipt(
+            status="applied",
+            state=self.read_state(),
+            metadata={
+                "controller": {"sequence": 17, "confirmed": True},
+            },
+        )
+
+
+def test_apply_journal_persists_full_receipt_evidence() -> None:
+    driver = _ReceiptEvidenceStateDriver()
+    program = ExecutionProgram(
+        experiment_id="apply-receipt-evidence",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid="apply-receipt-evidence-point",
+                coordinates={},
+                stages=(
+                    ApplyStateStage(operations=(_gain_operation("source-0", 2.0),)),
+                ),
+            ),
+        ),
+        expected_output_ids=frozenset(),
+        resource_order=("source-0",),
+    )
+    journal = MemoryExecutionJournal()
+
+    result = ExecutionEngine(
+        run_id="apply-receipt-evidence-run",
+        program=program,
+        drivers={driver.instrument_id: driver},
+        journal=journal,
+        measurements=MemoryMeasurementCommitter(),
+        readbacks=MemoryCollectionCommitter(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "completed"
+    completed = next(
+        entry
+        for entry in journal.entries
+        if entry.stage == "apply_state" and entry.state == "completed"
+    )
+    receipt = completed.summary["receipt"]
+    assert isinstance(receipt, dict)
+    assert receipt["status"] == "applied"
+    assert receipt["metadata"] == {"controller": {"sequence": 17, "confirmed": True}}
+    assert receipt["state"]["instrument_id"] == "source-0"
+    assert completed.summary["receipt_content_hash"] == stable_content_hash(receipt)
+
+
+def test_state_apply_stops_on_blocking_result_without_committing_state() -> None:
+    first = _BlockingStateDriver(instrument_id="source-a")
+    second = SignalInstrumentDriver(instrument_id="source-b")
+    program = ExecutionProgram(
+        experiment_id="blocking-state",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid="blocking-state-point",
+                coordinates={},
+                stages=(
+                    ApplyStateStage(
+                        operations=(
+                            _gain_operation("source-a", 1.0),
+                            _gain_operation("source-b", 2.0),
+                        )
+                    ),
+                ),
+            ),
+        ),
+        expected_output_ids=frozenset(),
+        resource_order=("source-a", "source-b"),
+    )
+    journal = MemoryExecutionJournal()
+    engine = ExecutionEngine(
+        run_id="blocking-state-run",
+        program=program,
+        drivers={
+            first.instrument_id: first,
+            second.instrument_id: second,
+        },
+        journal=journal,
+        measurements=MemoryMeasurementCommitter(),
+        readbacks=MemoryCollectionCommitter(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    )
+
+    result = engine.run()
+
+    assert result.status == "failed"
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "instrument_driver_blocked"
+    ]
+    assert len(first.applied) == 1
+    assert second.applied == []
+    assert (
+        tuple(
+            engine.current_states[instrument_id]
+            for instrument_id in program.resource_order
+        )
+        == result.initial_state
+    )
+    assert result.final_state == result.initial_state
+    assert result.changed_field_count == 0
+    assert result.state_command_count == 0
+    assert result.points[0].status == "failed"
+    assert [
+        (entry.operation_id, entry.state)
+        for entry in journal.entries
+        if entry.stage == "apply_state"
+    ] == [
+        ("blocking-state-point.state.source-a", "started"),
+        ("blocking-state-point.state.source-a", "failed"),
+    ]
+    started = next(
+        entry
+        for entry in journal.entries
+        if entry.operation_id == "blocking-state-point.state.source-a"
+        and entry.state == "started"
+    )
+    assert started.summary["command"]["operation_id"] == started.operation_id
+    assert started.summary["command_content_hash"]
+
+
+class _UnexpectedProductDriver(SignalInstrumentDriver):
+    def collect(self, command: CollectCommand) -> InstrumentReadback:
+        self.collect_commands.append(command)
+        return InstrumentReadback(
+            values={
+                "signal": Quantity(value=1.0, unit="ratio"),
+                "unexpected": Quantity(value=2.0, unit="ratio"),
+            }
+        )
+
+
+def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> None:
+    first = _UnexpectedProductDriver(instrument_id="source-a")
+    second = SignalInstrumentDriver(instrument_id="source-b")
+    point_uid = "blocking-collect-point"
+    first_operation = _collect_operation(point_uid, "source-a", "first")
+    second_operation = _collect_operation(point_uid, "source-b", "second")
+    program = ExecutionProgram(
+        experiment_id="blocking-collect",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid=point_uid,
+                coordinates={},
+                stages=(CollectStage(operations=(first_operation, second_operation)),),
+            ),
+        ),
+        expected_output_ids=frozenset({"first", "second"}),
+        resource_order=("source-a", "source-b"),
+    )
+    journal = MemoryExecutionJournal()
+    measurements = MemoryMeasurementCommitter()
+    readbacks = MemoryCollectionCommitter()
+    result = ExecutionEngine(
+        run_id="blocking-collect-run",
+        program=program,
+        drivers={
+            first.instrument_id: first,
+            second.instrument_id: second,
+        },
+        journal=journal,
+        measurements=measurements,
+        readbacks=readbacks,
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "failed"
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "instrument_unexpected_product"
+    ]
+    assert len(first.collect_commands) == 1
+    assert second.collect_commands == []
+    assert measurements.measurements == ()
+    assert len(readbacks.chunks) == 1
+    assert set(readbacks.chunks[0].readback.values) == {"signal", "unexpected"}
+    assert [
+        (entry.operation_id, entry.state)
+        for entry in journal.entries
+        if entry.stage == "collect"
+    ] == [
+        (first_operation.operation_id, "started"),
+        (first_operation.operation_id, "failed"),
+    ]
+    failed_entry = next(
+        entry
+        for entry in journal.entries
+        if entry.operation_id == first_operation.operation_id
+        and entry.state == "failed"
+    )
+    assert failed_entry.summary["readback_ref"]
+    assert failed_entry.summary["readback_content_hash"]
+
+
+def test_applied_receipt_with_blocking_diagnostic_is_unknown() -> None:
+    first = _ConflictingAppliedStateDriver(instrument_id="source-a")
+    second = SignalInstrumentDriver(instrument_id="source-b")
+    program = ExecutionProgram(
+        experiment_id="conflicting-applied-state",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid="conflicting-applied-state-point",
+                coordinates={},
+                stages=(
+                    ApplyStateStage(
+                        operations=(
+                            ApplyStateOperation(
+                                operation_id=(
+                                    "conflicting-applied-state-point.state.source-a"
+                                ),
+                                instrument_id="source-a",
+                                targets=(
+                                    StateTarget(
+                                        capability_id="set_gain",
+                                        field_path="gain",
+                                        value=StateValue(1.0),
+                                    ),
+                                ),
+                            ),
+                            ApplyStateOperation(
+                                operation_id=(
+                                    "conflicting-applied-state-point.state.source-b"
+                                ),
+                                instrument_id="source-b",
+                                targets=(
+                                    StateTarget(
+                                        capability_id="set_gain",
+                                        field_path="gain",
+                                        value=StateValue(2.0),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                ),
+            ),
+        ),
+        expected_output_ids=frozenset(),
+        resource_order=("source-a", "source-b"),
+    )
+    journal = MemoryExecutionJournal()
+    engine = ExecutionEngine(
+        run_id="conflicting-applied-state-run",
+        program=program,
+        drivers={
+            first.instrument_id: first,
+            second.instrument_id: second,
+        },
+        journal=journal,
+        measurements=MemoryMeasurementCommitter(),
+        readbacks=MemoryCollectionCommitter(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    )
+
+    result = engine.run()
+
+    assert result.status == "unknown"
+    assert result.uncertain
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "instrument_driver_applied_with_error",
+        "instrument_apply_receipt_conflict",
+    ]
+    assert len(first.applied) == 1
+    assert second.applied == []
+    assert engine.current_states["source-a"] == result.initial_state[0]
+    assert result.final_state[0] != result.initial_state[0]
+    assert result.final_state[0].fields[0].value == StateValue(1.0)
+    assert result.changed_field_count == 0
+    assert result.state_command_count == 0
+    assert [
+        (entry.operation_id, entry.state)
+        for entry in journal.entries
+        if entry.stage == "apply_state"
+    ] == [
+        ("conflicting-applied-state-point.state.source-a", "started"),
+        ("conflicting-applied-state-point.state.source-a", "unknown"),
+    ]
+
+
+def _gain_operation(instrument_id: str, value: float) -> ApplyStateOperation:
+    return ApplyStateOperation(
+        operation_id=f"blocking-state-point.state.{instrument_id}",
+        instrument_id=instrument_id,
+        targets=(
+            StateTarget(
+                capability_id="set_gain",
+                field_path="gain",
+                value=StateValue(value),
+            ),
+        ),
+    )
+
+
+def _collect_operation(
+    point_uid: str,
+    instrument_id: str,
+    output_id: str,
+) -> CollectOperation:
+    return CollectOperation(
+        operation_id=f"{point_uid}.collect.{instrument_id}",
+        instrument_id=instrument_id,
+        command=CollectCommand(
+            instrument_id=instrument_id,
+            point_index=0,
+            point_count=1,
+            requests=[CollectProductRequest(id="signal")],
+        ),
+        record_bindings={"signal": output_id},
+    )

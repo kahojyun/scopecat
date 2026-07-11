@@ -25,7 +25,7 @@ from tests.support.authoring import (
 )
 from tests.support.records import read_model
 from tests.support.signal_instruments import TestSignalInstrumentProvider
-from tests.support.workflow_fixtures import load_invocation
+from tests.support.workflow_fixtures import load_config, load_invocation
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 PHASE_OFFSET_POINT = sc.point(
@@ -222,6 +222,97 @@ def test_workspace_experiment_composes_module_source_with_fragments(
     preview = experiment.preview()
 
     assert preview.primary_observables == ("signal", "manual_signal")
+
+
+def test_prepared_experiment_validate_returns_authoring_diagnostics(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+    )
+
+    validation = lab.prepare(simple_template()).validate()
+
+    assert validation.ok is False
+    assert validation.summary is None
+    assert [diagnostic.code for diagnostic in validation.diagnostics] == [
+        "experiment_template_missing_input"
+    ]
+
+
+def test_prepared_experiment_validate_returns_config_selection_diagnostics(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(tmp_path)
+
+    validation = lab.prepare(
+        simple_template(),
+        config=load_config(),
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+    ).validate()
+
+    assert validation.ok is False
+    assert validation.summary is None
+    assert validation.template_id is None
+    assert validation.inputs == {}
+    assert validation.config_source is None
+    assert [diagnostic.code for diagnostic in validation.diagnostics] == [
+        "conflicting_experiment_run_config_source"
+    ]
+
+
+def test_prepared_experiment_validate_returns_record_schema_diagnostics(
+    tmp_path: Path,
+) -> None:
+    module = (
+        sc.module("test.invalid-record-unit")
+        .record("signal", unit="not-a-unit")
+        .build()
+    )
+    template = module.template(
+        "test.invalid-record-unit",
+        kind="diagnostic",
+    ).build()
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+    )
+
+    validation = lab.prepare(template).validate()
+
+    assert validation.ok is False
+    assert validation.summary is None
+    assert [diagnostic.code for diagnostic in validation.diagnostics] == [
+        "experiment_record_unit_unsupported"
+    ]
+
+
+def test_prepared_experiment_validate_returns_candidate_config_diagnostics(
+    tmp_path: Path,
+) -> None:
+    candidate = sc.CandidateConfig(
+        analysis_title="invalid candidate",
+        analysis_key="invalid-candidate",
+        parameter_proposals=(),
+    )
+    prepared = sc.open(tmp_path).prepare(simple_template(), config=candidate)
+
+    validation = prepared.validate()
+
+    assert validation.ok is False
+    assert validation.summary is None
+    assert validation.template_id is None
+    assert validation.inputs == {}
+    assert validation.config_source is None
+    assert [diagnostic.code for diagnostic in validation.diagnostics] == [
+        "candidate_config_empty"
+    ]
+    with pytest.raises(ValidationFailed) as preview_error:
+        prepared.preview()
+    assert [diagnostic.code for diagnostic in preview_error.value.diagnostics] == [
+        "candidate_config_empty"
+    ]
 
 
 def test_workspace_experiment_lowers_to_runnable_spec(
@@ -622,7 +713,7 @@ def test_workspace_experiment_defines_complete_experiment(
     )
 
     assert run.manifest.status == "completed"
-    assert persisted_plan.state_changes[0].resource == "source"
+    assert persisted_plan.state_changes[0].resource == "source-0"
     assert persisted_plan.state_changes[0].field == "set_frequency.frequency"
     assert persisted_plan.state_changes[0].after == Quantity(
         value=4.9,

@@ -1,11 +1,22 @@
-"""Typed point-local parameter overlays in the transient compiler graph."""
+"""Typed point-local parameter overlays and config-binding semantics."""
 
 from __future__ import annotations
 
+from typing import cast
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat._relations import ScalarExpr
+from scopecat._compiler.diagnostics import CompilerDiagnosticError
+from scopecat._relations import (
+    CellValue,
+    EvalContext,
+    ParameterRelationData,
+    ScalarExpr,
+)
+from scopecat._scalar_operators import runtime_values_equal
+from scopecat.models.entity import EntityRef, same_entity_identity
 from scopecat.value_types import Scalar
+from scopecat.value_validation import ValueValidationError, coerce_literal
 
 
 class TypedOverlayExpression(BaseModel):
@@ -43,4 +54,100 @@ class PointParameterOverlay(BaseModel):
         return self
 
 
-__all__ = ["PointParameterOverlay", "TypedOverlayExpression"]
+def apply_point_parameter_overlay(
+    overlay: PointParameterOverlay,
+    *,
+    ctx: EvalContext,
+    params: ParameterRelationData,
+) -> None:
+    """Apply one catalog-typed cell replacement to a point-local environment."""
+
+    try:
+        rows = params.tables[overlay.table_id]
+    except KeyError as error:
+        msg = f"unknown parameter table {overlay.table_id!r}"
+        raise CompilerDiagnosticError(
+            "experiment_parameter_overlay_table_missing",
+            msg,
+        ) from error
+
+    key = {
+        column_id: _coerce_overlay_value(
+            expression.expr.eval(ctx),
+            expression.value_type,
+            code="experiment_parameter_overlay_key_invalid",
+            path=f"{overlay.table_id}.key.{column_id}",
+        )
+        for column_id, expression in overlay.key.items()
+    }
+    matches = [
+        row
+        for row in rows
+        if all(
+            _cell_matches(row.get(column_id), value) for column_id, value in key.items()
+        )
+    ]
+    if not matches:
+        msg = f"{overlay.table_id!r} key {key!r} matched no rows"
+        raise CompilerDiagnosticError(
+            "experiment_parameter_overlay_row_not_found",
+            msg,
+        )
+    if len(matches) > 1:
+        msg = f"{overlay.table_id!r} key {key!r} matched {len(matches)} rows"
+        raise CompilerDiagnosticError(
+            "experiment_parameter_overlay_row_ambiguous",
+            msg,
+        )
+
+    row = matches[0]
+    if overlay.column_id not in row:
+        msg = (
+            f"parameter table {overlay.table_id!r} row does not contain "
+            f"column {overlay.column_id!r}"
+        )
+        raise CompilerDiagnosticError(
+            "experiment_parameter_overlay_column_missing",
+            msg,
+        )
+    _coerce_overlay_value(
+        row[overlay.column_id],
+        overlay.value.value_type,
+        code="experiment_parameter_overlay_resolved_value_invalid",
+        path=f"{overlay.table_id}.{overlay.column_id}",
+    )
+    row[overlay.column_id] = _coerce_overlay_value(
+        overlay.value.expr.eval(ctx),
+        overlay.value.value_type,
+        code="experiment_parameter_overlay_value_invalid",
+        path=f"{overlay.table_id}.{overlay.column_id}",
+    )
+
+
+def _coerce_overlay_value(
+    value: object,
+    value_type: Scalar,
+    *,
+    code: str,
+    path: str,
+) -> CellValue:
+    try:
+        return cast("CellValue", coerce_literal(value_type, value, path=path))
+    except ValueValidationError as error:
+        raise CompilerDiagnosticError(code, str(error)) from error
+
+
+def _cell_matches(left: CellValue | None, right: CellValue) -> bool:
+    if isinstance(left, EntityRef) and isinstance(right, EntityRef):
+        return same_entity_identity(left, right)
+    try:
+        return runtime_values_equal(left, right)
+    except TypeError:
+        return False
+
+
+__all__ = [
+    "PointParameterOverlay",
+    "TypedOverlayExpression",
+    "apply_point_parameter_overlay",
+]

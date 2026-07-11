@@ -1,16 +1,35 @@
+from dataclasses import replace
+
+from scopecat._compiler.binding import bind_program
+from scopecat._compiler.environment import validate_config_environment
 from scopecat._compiler.program import (
+    TypedPointSource,
     bind_each,
-    linked_program,
     overlay_parameter_cell,
     set_state,
+    typed_program,
 )
-from scopecat._planning.planner import build_planner_snapshot
-from scopecat._relations import col, grid, literal_rows, outer, table
+from scopecat._relations import RelationExpr, col, grid, literal_rows, outer, table
 from scopecat.models.parameter import Quantity
 from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Scalar, String
-from tests.support.experiment_preview import preview_result
+from scopecat.value_types import Table as TableType
+from tests.support.authoring import load_config
 from tests.support.parameter_fixtures import parameters
+
+
+def _point_source(expr: RelationExpr) -> TypedPointSource:
+    return TypedPointSource(
+        expr=expr,
+        value_type=TableType(columns=(), allow_extra_columns=True),
+    )
+
+
+def _environment():
+    return replace(
+        validate_config_environment(load_config()),
+        parameters=parameters(),
+    )
 
 
 def _frequency_overlay(*, key: object, value: object):
@@ -25,20 +44,22 @@ def _frequency_overlay(*, key: object, value: object):
 
 
 def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
-    spec = linked_program(
+    spec = typed_program(
         id="readout-frequency-overlay",
         kind="readout.frequency_scan",
-        points=literal_rows(
-            [
-                {
-                    "device_id": "r0",
-                    "frequency": Quantity(value=5_900, unit="MHz"),
-                },
-                {
-                    "device_id": "r1",
-                    "frequency": Quantity(value=6_200, unit="MHz"),
-                },
-            ]
+        point_source=_point_source(
+            literal_rows(
+                [
+                    {
+                        "device_id": "r0",
+                        "frequency": Quantity(value=5_900, unit="MHz"),
+                    },
+                    {
+                        "device_id": "r1",
+                        "frequency": Quantity(value=6_200, unit="MHz"),
+                    },
+                ]
+            )
         ),
         parameter_overlays=[
             _frequency_overlay(key=col("device_id"), value=col("frequency"))
@@ -56,28 +77,28 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
         ],
     )
 
-    plan = build_planner_snapshot(spec, parameters())
+    plan = bind_program(spec, _environment())
 
-    assert plan.point_parameters[0].tables["readout_devices"][0]["frequency"] == (
+    assert plan.points[0].parameters.tables["readout_devices"][0]["frequency"] == (
         Quantity(value=5.9, unit="GHz")
     )
-    assert plan.point_parameters[0].tables["readout_devices"][1]["frequency"] == (
+    assert plan.points[0].parameters.tables["readout_devices"][1]["frequency"] == (
         Quantity(value=6.1, unit="GHz")
     )
-    assert plan.point_parameters[1].tables["readout_devices"][0]["frequency"] == (
+    assert plan.points[1].parameters.tables["readout_devices"][0]["frequency"] == (
         Quantity(value=5.95, unit="GHz")
     )
-    assert plan.point_parameters[1].tables["readout_devices"][1]["frequency"] == (
+    assert plan.points[1].parameters.tables["readout_devices"][1]["frequency"] == (
         Quantity(value=6.2, unit="GHz")
     )
     assert not hasattr(plan, "parameter_patches")
 
 
 def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> None:
-    spec = linked_program(
+    spec = typed_program(
         id="missing-overlay-row",
         kind="diagnostic",
-        points=grid(device_id=["missing"]),
+        point_source=_point_source(grid(device_id=["missing"])),
         parameter_overlays=[
             _frequency_overlay(
                 key=col("device_id"),
@@ -87,36 +108,41 @@ def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> N
         state=[set_state("readout-a", "frequency", col("device_id"))],
     )
 
-    preview, diagnostics = preview_result(spec, parameters())
+    plan = bind_program(spec, _environment())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [diagnostic.code for diagnostic in plan.diagnostics] == [
         "experiment_parameter_overlay_row_not_found"
     ]
-    assert preview.state_changes == ()
+    assert plan.points == ()
+    assert plan.records == ()
+    assert plan.expected_dataset_schema is None
+    assert plan.state_changes == ()
 
 
 def test_point_parameter_overlay_validates_value_against_catalog_type() -> None:
-    spec = linked_program(
+    spec = typed_program(
         id="invalid-overlay-value",
         kind="diagnostic",
-        points=grid(device_id=["r0"], frequency=["not-a-frequency"]),
+        point_source=_point_source(
+            grid(device_id=["r0"], frequency=["not-a-frequency"])
+        ),
         parameter_overlays=[
             _frequency_overlay(key=col("device_id"), value=col("frequency"))
         ],
     )
 
-    _preview, diagnostics = preview_result(spec, parameters())
+    plan = bind_program(spec, _environment())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [diagnostic.code for diagnostic in plan.diagnostics] == [
         "experiment_parameter_overlay_value_invalid"
     ]
 
 
 def test_point_parameter_overlay_reports_missing_table() -> None:
-    spec = linked_program(
+    spec = typed_program(
         id="missing-overlay-table",
         kind="diagnostic",
-        points=grid(device_id=["r0"]),
+        point_source=_point_source(grid(device_id=["r0"])),
         parameter_overlays=[
             overlay_parameter_cell(
                 "missing_table",
@@ -129,8 +155,8 @@ def test_point_parameter_overlay_reports_missing_table() -> None:
         ],
     )
 
-    _preview, diagnostics = preview_result(spec, parameters())
+    plan = bind_program(spec, _environment())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [diagnostic.code for diagnostic in plan.diagnostics] == [
         "experiment_parameter_overlay_table_missing"
     ]

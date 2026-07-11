@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from scopecat._compiler.ids import NodeId
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_compute_value_ref,
@@ -58,10 +59,15 @@ class ComputeNodeIntent:
     fn: ComputeFunction
     output_type: ValueType
     inputs: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
+    scope: tuple[str, ...] = ()
+
+    @property
+    def node_id(self) -> NodeId:
+        return NodeId(scope=self.scope, local_id=self.id)
 
     @property
     def result(self) -> ValueRef:
-        return internal_compute_value_ref(self.id, self.output_type)
+        return internal_compute_value_ref(self.node_id, self.output_type)
 
 
 @dataclass(frozen=True)

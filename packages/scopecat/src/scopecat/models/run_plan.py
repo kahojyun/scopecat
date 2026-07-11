@@ -8,7 +8,6 @@ from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat.models._run_request_values import normalize_json_value
 from scopecat.models.entity import EntityRef
 from scopecat.models.measurement import CoordinateValue, MeasurementDatasetSchema
 from scopecat.models.parameter import Quantity
@@ -92,13 +91,6 @@ def _normalize_entity_ref(value: object) -> object:
     if not isinstance(value, EntityRef):
         return value
     return EntityRef.model_validate(value.model_dump(mode="python"))
-
-
-def _normalized_json_mapping(value: Mapping[str, object]) -> dict[str, object]:
-    normalized = normalize_json_value(value)
-    if not isinstance(normalized, dict):
-        raise AssertionError("JSON mapping normalization must produce an object")
-    return cast("dict[str, object]", normalized)
 
 
 class RunPlanPoint(_RunPlanModel):
@@ -268,19 +260,16 @@ class RunPlanRecord(_RunPlanModel):
             schema.metadata,
             path="run plan expected dataset schema metadata",
         )
-        schema.metadata = _normalized_json_mapping(schema.metadata)
         for dimension in schema.dimensions:
             _validate_json_value(
                 dimension.metadata,
                 path=f"run plan dataset dimension {dimension.id!r} metadata",
             )
-            dimension.metadata = _normalized_json_mapping(dimension.metadata)
         for variable in schema.variables:
             _validate_json_value(
                 variable.metadata,
                 path=f"run plan dataset variable {variable.id!r} metadata",
             )
-            variable.metadata = _normalized_json_mapping(variable.metadata)
         if schema.primary_coordinates != self.coordinate_ids:
             msg = (
                 "run plan expected dataset schema primary_coordinates must equal "

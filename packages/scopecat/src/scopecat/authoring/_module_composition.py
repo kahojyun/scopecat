@@ -43,6 +43,7 @@ from scopecat.authoring._value_refs import (
     ValueRef,
     internal_bind_value_ref_inputs,
     internal_literal_value_ref,
+    internal_scope_compute_value_ref,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
     require_assignable,
@@ -164,7 +165,11 @@ def assemble_module_internal(
     if not module.invocations:
         return own
     source_assemblies = tuple(
-        _localize_module_invocation_assembly(source) for source in module.invocations
+        _localize_module_invocation_assembly(
+            source,
+            scope=(f"{source.module.id}[{index}]",),
+        )
+        for index, source in enumerate(module.invocations)
     )
     combined = ExperimentAssemblyInternal.combine(
         experiment_id=module.id,
@@ -318,14 +323,15 @@ def _merge_point_dependencies(
 
 def _localize_module_invocation_assembly(
     invocation: ModuleInvocation,
+    *,
+    scope: tuple[str, ...],
 ) -> ExperimentAssemblyInternal:
     local_inputs = _module_invocation_inputs(invocation)
     assembly = assemble_module_internal(invocation.module, **local_inputs)
-    if not local_inputs:
-        return assembly
     resource_ports = _localize_resource_port_input_refs(
         assembly.resource_ports,
         local_inputs,
+        scope=scope,
     )
     return replace(
         assembly,
@@ -344,22 +350,26 @@ def _localize_module_invocation_assembly(
         ),
         resource_ports=resource_ports,
         bindings=tuple(
-            _localize_binding_input_refs(binding, local_inputs)
+            _localize_binding_input_refs(binding, local_inputs, scope=scope)
             for binding in assembly.bindings
         ),
         state_intents=tuple(
-            _localize_state_input_refs(intent, local_inputs)
+            _localize_state_input_refs(intent, local_inputs, scope=scope)
             for intent in assembly.state_intents
         ),
         compute_nodes=tuple(
-            _localize_compute_input_refs(node, local_inputs)
+            _localize_compute_input_refs(node, local_inputs, scope=scope)
             for node in assembly.compute_nodes
         ),
         records=tuple(
             localize_record_input_refs(
                 record,
                 local_inputs,
-                localize_value_ref=_localize_value_ref,
+                localize_value_ref=lambda value, inputs: _localize_value_ref(
+                    value,
+                    inputs,
+                    scope=scope,
+                ),
             )
             for record in assembly.records
         ),
@@ -367,7 +377,11 @@ def _localize_module_invocation_assembly(
             localize_product_input_refs(
                 product,
                 local_inputs,
-                localize_value_ref=_localize_value_ref,
+                localize_value_ref=lambda value, inputs: _localize_value_ref(
+                    value,
+                    inputs,
+                    scope=scope,
+                ),
             )
             for product in assembly.product_ports
         ),
@@ -377,12 +391,14 @@ def _localize_module_invocation_assembly(
 def _localize_resource_port_input_refs(
     ports: Sequence[ResourcePort],
     inputs: Mapping[str, object],
+    *,
+    scope: tuple[str, ...],
 ) -> tuple[ResourcePort, ...]:
     localized_ports: list[ResourcePort] = []
     for port in ports:
         entity_inputs: list[ValueRef] = []
         for source in port.selector.entity_inputs:
-            localized = _localize_value_ref(source, inputs)
+            localized = _localize_value_ref(source, inputs, scope=scope)
             if isinstance(localized.value_type, TableType):
                 msg = (
                     "resource entity source must be scalar or series-shaped; "
@@ -422,6 +438,8 @@ def _module_invocation_input_expr(
 def _localize_value_ref(
     value: ValueRef,
     inputs: Mapping[str, object],
+    *,
+    scope: tuple[str, ...],
 ) -> ValueRef:
     """Attach a typed child-input environment without lowering its value graph."""
 
@@ -434,7 +452,7 @@ def _localize_value_ref(
         msg = "localized module inputs must remain typed values"
         raise TypeError(msg)
     return internal_bind_value_ref_inputs(
-        value,
+        internal_scope_compute_value_ref(value, *scope),
         typed_inputs,
     )
 
@@ -442,11 +460,13 @@ def _localize_value_ref(
 def _localize_binding_input_refs(
     binding: ExperimentBindingIntent,
     inputs: Mapping[str, object],
+    *,
+    scope: tuple[str, ...],
 ) -> ExperimentBindingIntent:
     if isinstance(binding.value, ValueRef):
         return replace(
             binding,
-            value=_localize_value_ref(binding.value, inputs),
+            value=_localize_value_ref(binding.value, inputs, scope=scope),
         )
     return binding
 
@@ -454,8 +474,10 @@ def _localize_binding_input_refs(
 def _localize_state_input_refs(
     intent: StateEachIntent,
     inputs: Mapping[str, object],
+    *,
+    scope: tuple[str, ...],
 ) -> StateEachIntent:
-    relation = _localize_value_ref(intent.relation, inputs)
+    relation = _localize_value_ref(intent.relation, inputs, scope=scope)
     if not isinstance(relation.value_type, TableType):
         msg = "state_each relation must be table-shaped"
         raise TypeError(msg)
@@ -463,17 +485,17 @@ def _localize_state_input_refs(
         intent,
         relation=relation,
         resource=(
-            _localize_value_ref(intent.resource, inputs)
+            _localize_value_ref(intent.resource, inputs, scope=scope)
             if isinstance(intent.resource, ValueRef)
             else intent.resource
         ),
         value=(
-            _localize_value_ref(intent.value, inputs)
+            _localize_value_ref(intent.value, inputs, scope=scope)
             if isinstance(intent.value, ValueRef)
             else intent.value
         ),
         route_entities=tuple(
-            _localize_value_ref(entity, inputs)
+            _localize_value_ref(entity, inputs, scope=scope)
             if isinstance(entity, ValueRef)
             else entity
             for entity in intent.route_entities
@@ -484,13 +506,16 @@ def _localize_state_input_refs(
 def _localize_compute_input_refs(
     node: ComputeNodeIntent,
     inputs: Mapping[str, object],
+    *,
+    scope: tuple[str, ...],
 ) -> ComputeNodeIntent:
     return replace(
         node,
+        scope=(*scope, *node.scope),
         inputs=tuple(
             (
                 name,
-                _localize_compute_input_value(value, inputs),
+                _localize_compute_input_value(value, inputs, scope=scope),
             )
             for name, value in node.inputs
         ),
@@ -500,9 +525,11 @@ def _localize_compute_input_refs(
 def _localize_compute_input_value(
     value: ComputeNodeInputValue,
     inputs: Mapping[str, object],
+    *,
+    scope: tuple[str, ...],
 ) -> ComputeNodeInputValue:
     if isinstance(value, ValueRef):
-        return _localize_value_ref(value, inputs)
+        return _localize_value_ref(value, inputs, scope=scope)
     return value
 
 

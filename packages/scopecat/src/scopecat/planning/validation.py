@@ -31,7 +31,11 @@ def _diagnostic(
     return Diagnostic(severity=severity, code=code, message=message, path=path)
 
 
-def validate_config_profile(config: ConfigProfileSnapshot) -> list[Diagnostic]:
+def validate_config_profile(
+    config: ConfigProfileSnapshot,
+    *,
+    include_parameter_values: bool = True,
+) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
     if config.environment.workspace_id != config.system.workspace_id:
@@ -480,7 +484,8 @@ def validate_config_profile(config: ConfigProfileSnapshot) -> list[Diagnostic]:
                 )
             )
 
-    diagnostics.extend(resolve_config_parameters(config).diagnostics)
+    if include_parameter_values:
+        diagnostics.extend(resolve_config_parameters(config).diagnostics)
 
     return diagnostics
 

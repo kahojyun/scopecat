@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from scopecat._runtime.executor import execute_run
 from scopecat.instruments import (
     CapabilityField,
     InstrumentDescription,
@@ -30,6 +29,7 @@ from scopecat.models.parameter import Quantity
 from scopecat.models.state import PayloadRef, StateValue
 from scopecat.value_types import Bool, Float, Payload, Scalar
 from scopecat.value_types import Quantity as QuantityType
+from tests.support.execution import execute_bound_run
 from tests.support.instrument_drivers import (
     SignalInstrumentDriver,
     load_config,
@@ -37,6 +37,7 @@ from tests.support.instrument_drivers import (
     payload_state,
     quantity_state,
 )
+from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import load_experiment
 
 
@@ -476,12 +477,14 @@ def test_provider_builds_fresh_drivers() -> None:
         def provider_id(self) -> str:
             return "tests.driver_provider"
 
-        def describe(self) -> InstrumentProviderDescription:
+        def describe(
+            self, context: InstrumentProviderContext
+        ) -> InstrumentProviderDescription:
+            assert context.config.workspace_id == "example-workspace"
             return InstrumentProviderDescription(
                 provider_id=self.provider_id,
+                instruments=(SignalInstrumentDriver().describe(),),
                 label="Driver provider",
-                provided_instrument_ids=("source-0",),
-                capabilities=("set_frequency", "scalar_signal"),
                 metadata={"mode": "test_offline"},
             )
 
@@ -492,18 +495,58 @@ def test_provider_builds_fresh_drivers() -> None:
             return InstrumentProviderResult(drivers=(SignalInstrumentDriver(),))
 
     provider = Provider()
-    first = provider.provide(InstrumentProviderContext(config=load_config()))
-    second = provider.provide(InstrumentProviderContext(config=load_config()))
+    context = InstrumentProviderContext(config=load_config())
+    first = provider.provide(context)
+    second = provider.provide(context)
 
-    assert provider.describe().provider_id == "tests.driver_provider"
+    description = provider.describe(context)
+    assert description.provider_id == "tests.driver_provider"
+    assert [item.instrument_id for item in description.instruments] == ["source-0"]
     assert first.diagnostics == ()
     assert first.drivers[0] is not second.drivers[0]
+
+
+def test_provider_description_resolves_instruments_from_config() -> None:
+    context = InstrumentProviderContext(config=load_config())
+
+    description = TestSignalInstrumentProvider().describe(context)
+
+    assert description.diagnostics == ()
+    assert [instrument.instrument_id for instrument in description.instruments] == [
+        "source-0"
+    ]
+    assert [
+        capability.id for capability in description.instruments[0].capabilities
+    ] == ["set_frequency", "scalar_signal"]
+
+
+def test_provider_description_reports_dynamic_selection_errors() -> None:
+    context = InstrumentProviderContext(config=load_config())
+
+    description = TestSignalInstrumentProvider(instrument_id="missing-source").describe(
+        context
+    )
+
+    assert description.instruments == ()
+    assert [diagnostic.code for diagnostic in description.diagnostics] == [
+        "test_signal_provider_unknown_instrument"
+    ]
+
+
+def test_provider_description_rejects_duplicate_instrument_ids() -> None:
+    instrument = SignalInstrumentDriver().describe()
+
+    with pytest.raises(ValueError, match="unique instrument ids: source-0"):
+        InstrumentProviderDescription(
+            provider_id="tests.duplicate-provider",
+            instruments=(instrument, instrument),
+        )
 
 
 def test_execute_run_accepts_instrument_driver(tmp_path: Path) -> None:
     instrument = SignalInstrumentDriver()
 
-    manifest, snapshot = execute_run(
+    manifest, snapshot = execute_bound_run(
         config=load_config(),
         experiment=load_experiment(),
         instruments=[instrument],

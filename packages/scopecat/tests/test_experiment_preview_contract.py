@@ -1,27 +1,39 @@
+from scopecat._compiler.ids import NodeId
 from scopecat._compiler.program import (
-    ComputeNodeSpec,
+    TypedComputeNode,
+    TypedPointSource,
     compute_result,
-    linked_program,
     observable,
     overlay_parameter_cell,
     record_axis,
     set_state,
+    typed_program,
 )
-from scopecat._relations import col, grid, linspace, param, table
+from scopecat._relations import RelationExpr, col, grid, linspace, param, table
 from scopecat.models.parameter import Quantity
 from scopecat.value_types import Payload, Scalar, String
 from scopecat.value_types import Quantity as QuantityType
+from scopecat.value_types import Table as TableType
 from tests.support.experiment_preview import preview_contract, preview_result
 from tests.support.parameter_fixtures import parameters as _parameters
 
 
+def _point_source(expr: RelationExpr) -> TypedPointSource:
+    return TypedPointSource(
+        expr=expr,
+        value_type=TableType(columns=(), allow_extra_columns=True),
+    )
+
+
 def test_preview_contract_summarizes_points_state_and_records() -> None:
-    spec = linked_program(
+    spec = typed_program(
         id="readout-frequency-calibration",
         kind="readout.frequency_scan",
-        points=grid(
-            readout=table("readout_devices").filter(col("enabled").eq(True)),
-            readout_frequency=linspace(5.9, 6.0, 2, unit="GHz"),
+        point_source=_point_source(
+            grid(
+                readout=table("readout_devices").filter(col("enabled").eq(True)),
+                readout_frequency=linspace(5.9, 6.0, 2, unit="GHz"),
+            )
         ),
         parameter_overlays=[
             overlay_parameter_cell(
@@ -110,10 +122,10 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
 
 
 def test_preview_contract_summarizes_record_axes() -> None:
-    spec = linked_program(
+    spec = typed_program(
         id="readout-iq",
         kind="readout.iq",
-        points=grid(index=[0]),
+        point_source=_point_source(grid(index=[0])),
         records=[
             observable(
                 "i0",
@@ -135,10 +147,10 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
     def build_waveform() -> dict[str, object]:
         return {"kind": "waveform"}
 
-    spec = linked_program(
+    spec = typed_program(
         id="preview-waveform-boundary",
         kind="diagnostic",
-        points=grid(index=[0]),
+        point_source=_point_source(grid(index=[0])),
         state=[
             set_state(
                 "drive-a",
@@ -146,18 +158,14 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
                 compute_result("build-waveform"),
             )
         ],
-        records=[],
-    ).model_copy(
-        update={
-            "compute_nodes": [
-                ComputeNodeSpec(
-                    id="build-waveform",
-                    output_type=Scalar(Payload("waveform_bundle")),
-                    inputs={},
-                    fn=build_waveform,
-                )
-            ]
-        }
+        compute_nodes=[
+            TypedComputeNode(
+                id=NodeId(local_id="build-waveform"),
+                output_type=Scalar(Payload("waveform_bundle")),
+                inputs={},
+                fn=build_waveform,
+            )
+        ],
     )
 
     preview = preview_contract(spec, _parameters())
@@ -165,24 +173,16 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
     assert preview.runtime.compute_node_count == 1
     assert preview.runtime.compute_step_count == 1
     assert preview.runtime.payload_count == 1
-    assert [
-        (
-            step.point_index,
-            step.node_id,
-            step.payload_id,
-            step.schema_id,
-            step.dependencies,
-        )
-        for step in preview.compute_steps
-    ] == [
-        (
-            0,
-            "build-waveform",
-            "build-waveform.payload.point-0",
-            "waveform_bundle",
-            {},
-        )
-    ]
+    assert len(preview.compute_steps) == 1
+    step = preview.compute_steps[0]
+    assert (
+        step.point_index,
+        step.node_id,
+        step.schema_id,
+        step.dependencies,
+    ) == (0, "build-waveform", "waveform_bundle", {})
+    assert step.payload_id is not None
+    assert step.payload_id.startswith("build-waveform.payload.")
     assert preview.payloads[0].node_id == "build-waveform"
     assert preview.payloads[0].schema_id == "waveform_bundle"
     assert preview.payloads[0].state_fields == ("play_waveforms.program",)
@@ -190,10 +190,10 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
 
 
 def test_preview_groups_shared_typed_compute_result() -> None:
-    spec = linked_program(
+    spec = typed_program(
         id="preview-shared-payload",
         kind="diagnostic",
-        points=grid(index=[0]),
+        point_source=_point_source(grid(index=[0])),
         state=[
             set_state(
                 "drive-a",
@@ -206,22 +206,20 @@ def test_preview_groups_shared_typed_compute_result() -> None:
                 compute_result("build-waveform"),
             ),
         ],
-        records=[],
-    ).model_copy(
-        update={
-            "compute_nodes": [
-                ComputeNodeSpec(
-                    id="build-waveform",
-                    output_type=Scalar(Payload("waveform_bundle")),
-                )
-            ]
-        }
+        compute_nodes=[
+            TypedComputeNode(
+                id=NodeId(local_id="build-waveform"),
+                output_type=Scalar(Payload("waveform_bundle")),
+                fn=lambda: {"kind": "waveform"},
+            )
+        ],
     )
 
     preview, diagnostics = preview_result(spec, _parameters())
 
     assert diagnostics == ()
-    assert preview.compute_steps[0].payload_id == "build-waveform.payload.point-0"
+    assert preview.compute_steps[0].payload_id is not None
+    assert preview.compute_steps[0].payload_id.startswith("build-waveform.payload.")
     assert preview.compute_steps[0].schema_id == "waveform_bundle"
     assert len(preview.payloads) == 1
     assert preview.payloads[0].schema_id == "waveform_bundle"
@@ -232,10 +230,10 @@ def test_preview_groups_shared_typed_compute_result() -> None:
 
 
 def test_preview_contract_reports_unknown_compute_payload_nodes() -> None:
-    spec = linked_program(
+    spec = typed_program(
         id="preview-unknown-payload-node",
         kind="diagnostic",
-        points=grid(index=[0]),
+        point_source=_point_source(grid(index=[0])),
         state=[
             set_state(
                 "drive-a",
@@ -255,10 +253,10 @@ def test_preview_contract_reports_unknown_compute_payload_nodes() -> None:
 
 
 def test_preview_contract_records_are_durable() -> None:
-    spec = linked_program(
+    spec = typed_program(
         id="record-plan",
         kind="diagnostic",
-        points=grid(index=[0]),
+        point_source=_point_source(grid(index=[0])),
         records=[
             observable(
                 "iq_trace",

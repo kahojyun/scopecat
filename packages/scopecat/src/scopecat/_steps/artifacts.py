@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, ValidationError
 
 from scopecat._measurement_storage import (
     MEASUREMENT_DATASET_KIND,
@@ -17,6 +17,7 @@ from scopecat._measurement_storage import (
     validate_measurement_dataset_records,
     write_measurement_records_path,
 )
+from scopecat._storage.local.io import ensure_durable_directory
 from scopecat._storage.refs import artifact_content_ref, dataset_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
@@ -141,7 +142,7 @@ class StepArtifactWriter(Protocol):
         media_type: str | None = MEASUREMENT_DATASET_MEDIA_TYPE,
         source_step: str | None = None,
         schema: MeasurementDatasetSchema | None = None,
-        schema_metadata: dict[str, Any] | None = None,
+        schema_metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle: ...
 
     def write_data_table(
@@ -250,7 +251,7 @@ class StepArtifactStore:
             dataset_schema=None,
             produced_by=None,
         )
-        handle.path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_durable_directory(handle.path.parent)
         return handle
 
     def write_model(
@@ -301,7 +302,7 @@ class StepArtifactStore:
         media_type: str | None = MEASUREMENT_DATASET_MEDIA_TYPE,
         source_step: str | None = None,
         schema: MeasurementDatasetSchema | None = None,
-        schema_metadata: dict[str, Any] | None = None,
+        schema_metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle:
         record_list = list(records)
         if schema is not None:
@@ -458,7 +459,7 @@ class StepArtifactStore:
             dataset_schema=schema,
             produced_by=produced_by,
         )
-        handle.path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_durable_directory(handle.path.parent)
         with handle.path.open("w") as data_file:
             for record in records:
                 data_file.write(record.model_dump_json() + "\n")
@@ -484,7 +485,7 @@ class StepArtifactStore:
             dataset_schema=schema,
             produced_by=produced_by,
         )
-        handle.path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_durable_directory(handle.path.parent)
         if content and not content.endswith("\n"):
             content = f"{content}\n"
         handle.path.write_text(content)

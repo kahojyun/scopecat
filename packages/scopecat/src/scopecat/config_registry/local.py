@@ -23,12 +23,17 @@ from datetime import datetime
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal, Self
-from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from scopecat._parameter_updates import merge_candidate_parameter_snapshots
 from scopecat._storage.local import LocalRunStore
+from scopecat._storage.local.io import (
+    ensure_durable_directory,
+)
+from scopecat._storage.local.io import (
+    write_model_atomic as _write_local_model_atomic,
+)
 from scopecat._storage.refs import CONFIG_REGISTRY_LOCK_REF, record_content_ref
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
@@ -1365,7 +1370,7 @@ def _read_active_state_optional(workspace: Path) -> ConfigRegistryActiveState | 
 @contextmanager
 def _registry_lock(workspace: Path) -> Generator[None]:
     lock_path = workspace / CONFIG_REGISTRY_LOCK_REF
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_durable_directory(lock_path.parent)
     with lock_path.open("a+b") as lock_file:
         flock(lock_file.fileno(), LOCK_EX)
         try:
@@ -1656,19 +1661,8 @@ def _write_registry_index_if_needed(
     )
 
 
-def _write_model(path: Path, model: BaseModel) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(model.model_dump(mode="json"), indent=2) + "\n")
-
-
 def _write_model_atomic(path: Path, model: BaseModel) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-    try:
-        _write_model(temporary_path, model)
-        temporary_path.replace(path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
+    _write_local_model_atomic(path, model)
 
 
 def _workspace_relative_path(workspace: Path, ref: str) -> Path:

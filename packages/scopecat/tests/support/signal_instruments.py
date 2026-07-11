@@ -6,13 +6,13 @@ from dataclasses import dataclass
 
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.instruments import (
+    ApplyReceipt,
     CollectCommand,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentReadback,
-    InstrumentResult,
     InstrumentStateCommand,
     InstrumentStateField,
     InstrumentStateSnapshot,
@@ -32,9 +32,18 @@ class TestSignalInstrumentProvider:
     instrument_id: str | None = None
     provider_id: str = "tests.signal_instrument_provider"
 
-    def describe(self) -> InstrumentProviderDescription:
+    def describe(
+        self, context: InstrumentProviderContext
+    ) -> InstrumentProviderDescription:
+        instrument_id, diagnostics = self._resolve_instrument_id(context)
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
+            instruments=(
+                (TestSignalInstrument(instrument_id=instrument_id).describe(),)
+                if not diagnostics
+                else ()
+            ),
+            diagnostics=tuple(diagnostics),
             label="Test signal instrument provider",
             description="Provides a fresh offline test signal instrument driver.",
             options=(
@@ -45,10 +54,6 @@ class TestSignalInstrumentProvider:
                     label="Instrument id",
                 ),
             ),
-            provided_instrument_ids=(
-                (self.instrument_id,) if self.instrument_id is not None else ()
-            ),
-            capabilities=("set_frequency", "scalar_signal"),
             metadata={
                 "mode": "test_offline",
                 "auto_selects_single_set_frequency_instrument": (
@@ -182,11 +187,11 @@ class TestSignalInstrument:
             metadata={"mode": "test_offline"},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> InstrumentResult:
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self.applied_commands.append(command)
         for field in command.fields:
             self._state[(field.capability_id, field.field_path)] = field.value
-        return InstrumentResult()
+        return ApplyReceipt(status="applied")
 
     def collect(self, command: CollectCommand) -> InstrumentReadback:
         self.collect_commands.append(command)

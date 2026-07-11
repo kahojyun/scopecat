@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+
+from pydantic import JsonValue
 
 from scopecat.artifact_reports import (
     ArtifactAvailabilityReport,
@@ -54,7 +56,7 @@ class MeasurementSink:
         point_index: int,
         coordinates: dict[str, CoordinateValue],
         observables: dict[str, MeasurementValue],
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> None:
         self._measurements.append(
             MeasurementRecord(
@@ -62,7 +64,7 @@ class MeasurementSink:
                 point_index=point_index,
                 coordinates=coordinates,
                 observables=observables,
-                metadata=metadata or {},
+                metadata=dict(metadata or {}),
             )
         )
 

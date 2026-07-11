@@ -1,38 +1,38 @@
-"""Transient linked program produced by the authoring compiler.
+"""Typed transient program produced by the authoring compiler.
 
-Nothing in this module is a durable wire format. ``LinkedProgram`` is passed
-directly from authoring resolution to planning/runtime lowering and deliberately
-has no schema version or round-trip compatibility promise.
+Nothing in this module is a durable wire format. ``TypedProgram`` retains the
+typed point source and explicit dataflow edges needed by later compiler passes,
+and deliberately has no schema version or round-trip compatibility promise.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     field_validator,
-    model_validator,
 )
 
+from scopecat._compiler.ids import NodeId
 from scopecat._compiler.parameter_overlays import (
     PointParameterOverlay,
     TypedOverlayExpression,
 )
-from scopecat._compute_result import ComputeResultRef
-from scopecat._planning.records import (
+from scopecat._compiler.records import (
     RecordAxisSpec,
     RecordKind,
     RecordSource,
     RecordSpec,
 )
-from scopecat._planning.state import (
+from scopecat._compiler.state import (
     StateSpec,
     as_state_route_value_expr,
 )
+from scopecat._compute_result import ComputeResultRef
 from scopecat._relations import (
     RelationExpr,
     ScalarExpr,
@@ -46,24 +46,22 @@ from scopecat._value_expressions import (
     as_value_expr,
 )
 from scopecat.results import MeasurementDType
-from scopecat.value_types import Route, Scalar, ValueType
-
-ComputeNodeFunction = Callable[..., object]
-
-type ComputeNodeOutputType = ValueType
+from scopecat.value_types import Route, Scalar, Table, ValueType
 
 
-class ComputeNodeInput(BaseModel):
-    """Input edge for a point-local pure compute node."""
+class ValueInput(BaseModel):
+    """Typed expression evaluated for one compute invocation."""
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
 
-    kind: Literal["value", "compute_result", "route"]
-    value: ValueExpr | None = None
-    node_id: str | None = None
-    port_id: str | None = None
-    source_inputs: list[str] = Field(default_factory=list)
-    value_type: ValueType | Route
+    kind: Literal["value"] = "value"
+    value: ValueExpr
+    source_inputs: tuple[str, ...] = ()
+    value_type: ValueType
 
     @field_validator("value", mode="before")
     @classmethod
@@ -72,50 +70,54 @@ class ComputeNodeInput(BaseModel):
             return as_value_expr(value)
         return value
 
-    @model_validator(mode="after")
-    def validate_shape(self) -> ComputeNodeInput:
-        if self.kind == "value":
-            if (
-                self.value is None
-                or self.node_id is not None
-                or self.port_id is not None
-            ):
-                msg = "value compute node input requires value only"
-                raise ValueError(msg)
-            if isinstance(self.value_type, Route):
-                msg = "value compute node input requires a value type"
-                raise ValueError(msg)
-            return self
-        if self.kind == "compute_result":
-            if (
-                self.node_id is None
-                or self.value is not None
-                or self.port_id is not None
-            ):
-                msg = "compute result input requires node_id only"
-                raise ValueError(msg)
-            if isinstance(self.value_type, Route):
-                msg = "compute result input requires a value type"
-                raise ValueError(msg)
-            return self
-        if self.port_id is None or self.value is not None or self.node_id is not None:
-            msg = "route compute node input requires port_id only"
-            raise ValueError(msg)
-        if not isinstance(self.value_type, Route):
-            msg = "route compute node input requires a route type"
-            raise ValueError(msg)
-        return self
+
+class ComputeEdge(BaseModel):
+    """Explicit dependency on the result of another compute node."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    kind: Literal["compute"] = "compute"
+    producer: NodeId
+    value_type: ValueType
 
 
-class ComputeNodeSpec(BaseModel):
-    """Runtime-lowered pure code island declared by an authoring module."""
+class RouteInput(BaseModel):
+    """Explicit dependency on a point-local resolved resource route."""
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
 
-    id: str
-    inputs: dict[str, ComputeNodeInput] = Field(default_factory=dict)
-    output_type: ComputeNodeOutputType
-    fn: ComputeNodeFunction | None = Field(default=None, exclude=True)
+    kind: Literal["route"] = "route"
+    port_id: str
+    value_type: Route
+
+
+type ComputeInput = Annotated[
+    ValueInput | ComputeEdge | RouteInput,
+    Field(discriminator="kind"),
+]
+
+
+class TypedComputeNode(BaseModel):
+    """One typed pure-code node in the expanded compute graph."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    id: NodeId
+    inputs: dict[str, ComputeInput] = Field(default_factory=dict)
+    output_type: ValueType
+    fn: Callable[..., object] | None = Field(default=None, exclude=True)
 
 
 class ResourceRouteIntent(BaseModel):
@@ -124,8 +126,8 @@ class ResourceRouteIntent(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     port_id: str
-    capabilities: list[str] = Field(default_factory=list)
-    entity_exprs: list[ScalarOrSeriesValueExpr] = Field(default_factory=list)
+    capabilities: tuple[str, ...] = ()
+    entity_exprs: tuple[ScalarOrSeriesValueExpr, ...] = ()
     resource_id: str | None = None
 
     @field_validator("entity_exprs", mode="before")
@@ -142,19 +144,37 @@ class ResourceRouteIntent(BaseModel):
         return value
 
 
-class LinkedProgram(BaseModel):
-    """Closed, transient compiler output for one run segment."""
+class TypedPointSource(BaseModel):
+    """Bound but unevaluated point relation with its semantic table type."""
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    expr: RelationExpr
+    value_type: Table
+    entity_column_ids: tuple[str, ...] = ()
+
+
+class TypedProgram(BaseModel):
+    """Closed typed compiler output for one run segment."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
 
     id: str
     kind: str
-    points: RelationExpr
-    route_intents: list[ResourceRouteIntent] = Field(default_factory=list)
-    parameter_overlays: list[PointParameterOverlay] = Field(default_factory=list)
-    compute_nodes: list[ComputeNodeSpec] = Field(default_factory=list)
-    state: list[StateSpec] = Field(default_factory=list)
-    records: list[RecordSpec] = Field(default_factory=list)
+    point_source: TypedPointSource
+    route_intents: tuple[ResourceRouteIntent, ...] = ()
+    parameter_overlays: tuple[PointParameterOverlay, ...] = ()
+    compute_nodes: tuple[TypedComputeNode, ...] = ()
+    state: tuple[StateSpec, ...] = ()
+    records: tuple[RecordSpec, ...] = ()
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -205,10 +225,11 @@ def set_state(
     )
 
 
-def compute_result(node_id: str) -> ComputeResultRef:
+def compute_result(node_id: NodeId | str) -> ComputeResultRef:
     """Reference one point-local compute result."""
 
-    return ComputeResultRef(node_id=node_id)
+    selected = node_id if isinstance(node_id, NodeId) else NodeId(local_id=node_id)
+    return ComputeResultRef(node_id=selected)
 
 
 def bind_each(relation: RelationExpr, *state: StateSpec) -> StateSpec:
@@ -285,41 +306,51 @@ def observable(
     )
 
 
-def linked_program(
+def typed_program(
     *,
     id: str,  # noqa: A002
     kind: str,
-    points: RelationExpr,
-    parameter_overlays: list[PointParameterOverlay] | None = None,
-    state: list[StateSpec] | None = None,
-    records: list[RecordSpec] | None = None,
-) -> LinkedProgram:
-    """Build a low-level linked program for internal tests and compiler code."""
+    point_source: TypedPointSource,
+    route_intents: Sequence[ResourceRouteIntent] = (),
+    parameter_overlays: Sequence[PointParameterOverlay] = (),
+    compute_nodes: Sequence[TypedComputeNode] = (),
+    state: Sequence[StateSpec] = (),
+    records: Sequence[RecordSpec] = (),
+    metadata: dict[str, Any] | None = None,
+) -> TypedProgram:
+    """Build and verify one low-level typed program."""
 
-    return LinkedProgram(
+    from scopecat._compiler.graph import order_compute_nodes
+
+    return TypedProgram(
         id=id,
         kind=kind,
-        points=points,
-        parameter_overlays=parameter_overlays or [],
-        state=state or [],
-        records=records or [],
+        point_source=point_source,
+        route_intents=tuple(route_intents),
+        parameter_overlays=tuple(parameter_overlays),
+        compute_nodes=order_compute_nodes(compute_nodes),
+        state=tuple(state),
+        records=tuple(records),
+        metadata=dict(metadata or {}),
     )
 
 
 __all__ = [
-    "ComputeNodeFunction",
-    "ComputeNodeInput",
-    "ComputeNodeOutputType",
-    "ComputeNodeSpec",
-    "LinkedProgram",
+    "ComputeEdge",
+    "ComputeInput",
     "ResourceRouteIntent",
+    "RouteInput",
+    "TypedComputeNode",
+    "TypedPointSource",
+    "TypedProgram",
+    "ValueInput",
     "bind_each",
     "compute_result",
-    "linked_program",
     "observable",
     "overlay_parameter_cell",
     "record_axis",
     "record_output",
     "set_state",
     "shot_axis",
+    "typed_program",
 ]

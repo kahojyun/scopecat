@@ -60,6 +60,7 @@ type RelationExprKind = Literal[
     "filter",
     "join",
     "cross",
+    "zip",
     "with_columns",
     "sort",
     "limit",
@@ -566,6 +567,7 @@ class RelationExpr(BaseModel):
     source: RelationExpr | None = None
     left: RelationExpr | None = None
     right: RelationExpr | None = None
+    sources: list[RelationExpr] | None = None
     select_columns: list[str] | None = None
     condition: ScalarExpr | None = None
     on: dict[str, str] | None = None
@@ -615,6 +617,11 @@ class RelationExpr(BaseModel):
                 msg = "cross relation requires left and right"
                 raise ValueError(msg)
             self._reject_common("left", "right")
+        elif self.kind == "zip":
+            if not self.sources:
+                msg = "zip relation requires at least one source"
+                raise ValueError(msg)
+            self._reject_common("sources")
         elif self.kind == "with_columns":
             if self.source is None or self.new_columns is None:
                 msg = "with_columns relation requires source and new_columns"
@@ -734,6 +741,27 @@ class RelationExpr(BaseModel):
                 for right_row in right_rows:
                     crossed.append(_merge_rows(left_row, right_row, operation="cross"))
             return crossed
+        if self.kind == "zip":
+            rows_by_source = [
+                source.evaluate_in_context(ctx) for source in _required(self.sources)
+            ]
+            lengths = {len(rows) for rows in rows_by_source}
+            if len(lengths) != 1:
+                msg = "zip relation requires sources with equal length"
+                raise ValueError(msg)
+            zipped: list[Row] = []
+            for row_group in zip(*rows_by_source, strict=True):
+                merged: Row = {}
+                for row in row_group:
+                    overlap = set(merged).intersection(row)
+                    if overlap:
+                        msg = "zip relation contains duplicate columns: " + ", ".join(
+                            sorted(overlap)
+                        )
+                        raise ValueError(msg)
+                    merged.update(row)
+                zipped.append(merged)
+            return zipped
         if self.kind == "with_columns":
             derived_rows: list[Row] = []
             for source_row in _required(self.source).evaluate_in_context(ctx):
@@ -820,6 +848,7 @@ class RelationExpr(BaseModel):
             "source",
             "left",
             "right",
+            "sources",
             "select_columns",
             "condition",
             "on",
@@ -835,6 +864,12 @@ class RelationExpr(BaseModel):
         if unexpected:
             msg = f"{self.kind} relation cannot contain: {', '.join(unexpected)}"
             raise ValueError(msg)
+
+
+def zip_relations(*sources: RelationExpr) -> RelationExpr:
+    """Combine relation rows positionally without evaluating either source."""
+
+    return RelationExpr(kind="zip", sources=list(sources))
 
 
 def lit(value: CellValue) -> ScalarExpr:
@@ -1240,4 +1275,5 @@ __all__ = [
     "table",
     "values",
     "when",
+    "zip_relations",
 ]

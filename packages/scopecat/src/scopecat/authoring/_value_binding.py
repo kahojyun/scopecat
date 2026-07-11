@@ -264,6 +264,17 @@ def bind_relation_input_refs(
                 preserve_unbound_inputs=preserve_unbound_inputs,
                 resolving=resolving,
             )
+    if expression.sources is not None:
+        update["sources"] = [
+            bind_relation_input_refs(
+                source,
+                inputs,
+                unbound_to_outer=unbound_to_outer,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            )
+            for source in expression.sources
+        ]
     if expression.columns is not None:
         update["columns"] = {
             name: _bind_grid_column_input_refs(
@@ -506,6 +517,8 @@ def _collect_relation_input_refs(expression: RelationExpr, refs: set[str]) -> No
     for source in (expression.source, expression.left, expression.right):
         if source is not None:
             _collect_relation_input_refs(source, refs)
+    for source in expression.sources or ():
+        _collect_relation_input_refs(source, refs)
     for column in (expression.columns or {}).values():
         if column.scalar is not None:
             _collect_scalar_input_refs(column.scalar, refs)

@@ -209,12 +209,14 @@ class RoutingView:
                     continue
                 selected.append(self._enriched_binding(binding))
         if selected:
-            selected_by_entity = {binding.entity_id: binding for binding in selected}
             if entity_ids:
+                selected_by_entity: dict[str, list[RoutingChannelBinding]] = {}
+                for binding in selected:
+                    selected_by_entity.setdefault(binding.entity_id, []).append(binding)
                 return tuple(
-                    selected_by_entity[entity_id]
+                    binding
                     for entity_id in entity_ids
-                    if entity_id in selected_by_entity
+                    for binding in selected_by_entity.get(entity_id, ())
                 )
             return tuple(selected)
         channels_by_entity = dict(

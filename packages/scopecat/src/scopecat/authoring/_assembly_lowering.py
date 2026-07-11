@@ -10,17 +10,19 @@ from scopecat._compiler.parameter_overlays import (
     TypedOverlayExpression,
 )
 from scopecat._compiler.program import (
-    ComputeNodeInput,
-    ComputeNodeSpec,
+    ComputeEdge,
+    RouteInput,
+    TypedComputeNode,
+    TypedPointSource,
+    ValueInput,
     bind_each,
     set_state,
 )
+from scopecat._compiler.state import StateSpec
 from scopecat._compute_result import ComputeResultRef
-from scopecat._planning.state import StateSpec
 from scopecat._relations import (
     CellValue,
     RelationExpr,
-    Row,
     ScalarExpr,
     SeriesExpr,
     as_scalar_expr,
@@ -61,9 +63,6 @@ from scopecat.authoring._value_refs import (
     require_assignable,
 )
 from scopecat.authoring._value_type_compatibility import literal_scalar_type
-from scopecat.authoring.value_types import (
-    Scalar as ScalarType,
-)
 from scopecat.authoring.value_types import Table as TableType
 from scopecat.authoring.value_types import (
     ValueType,
@@ -141,9 +140,9 @@ def validate_entity_inputs(
 def lower_compute_node_intent(
     node: ComputeNodeIntent,
     inputs: Mapping[str, object],
-) -> ComputeNodeSpec:
-    return ComputeNodeSpec(
-        id=node.id,
+) -> TypedComputeNode:
+    return TypedComputeNode(
+        id=node.node_id,
         inputs={
             name: compute_node_input(
                 value,
@@ -230,7 +229,7 @@ def validate_assembly_conflicts(
     )
     _reject_duplicates(
         ctx,
-        ids=[node.id for node in assembly.compute_nodes],
+        ids=[node.node_id.qualified_name for node in assembly.compute_nodes],
         code="module_compute_node_duplicate",
         message="experiment assembly defines duplicate program nodes",
         path="compute_nodes",
@@ -416,137 +415,57 @@ def _reject_duplicates(
         )
 
 
-def points_relation(
-    ctx: ExperimentAuthoringContext,
+def lower_point_source(
     point_source: ValueRef | None,
     *,
     inputs: Mapping[str, object],
-    input_ports: Sequence[ModuleInputPort] = (),
     entity_input_ids: Sequence[str] = (),
-) -> RelationExpr:
-    relation = (
-        internal_lower_table_value_ref(point_source)
-        if point_source is not None
-        else literal_rows([{}])
+) -> TypedPointSource:
+    """Bind invocation inputs while retaining config-dependent point intent."""
+
+    if point_source is None:
+        relation = literal_rows([{}])
+        value_type = TableType(columns=(), min_rows=1, max_rows=1)
+    else:
+        relation = internal_lower_table_value_ref(point_source)
+        value_type = point_source.value_type
+        if not isinstance(value_type, TableType):
+            raise AssertionError("validated point source must remain table-shaped")
+    return TypedPointSource(
+        expr=bind_relation_input_refs(relation, inputs),
+        value_type=value_type,
+        entity_column_ids=tuple(dict.fromkeys(entity_input_ids)),
     )
-    rows = _coerce_point_input_values(
-        ctx,
-        relation.evaluate(
-            ctx.parameters,
-            inputs=input_row(inputs),
-        ),
-        input_ports=input_ports,
-    )
-    return literal_rows(
-        _resolve_point_entities(
-            ctx,
-            rows,
-            entity_input_ids=entity_input_ids,
-        )
-    )
-
-
-def _coerce_point_input_values(
-    ctx: ExperimentAuthoringContext,
-    rows: Sequence[Row],
-    *,
-    input_ports: Sequence[ModuleInputPort],
-) -> list[Row]:
-    scalar_types = {
-        port.id: port.value_type
-        for port in input_ports
-        if isinstance(port.value_type, ScalarType)
-    }
-    result: list[Row] = []
-    for row_index, row in enumerate(rows):
-        selected = dict(row)
-        for column, value_type in scalar_types.items():
-            if column not in selected:
-                continue
-            try:
-                selected[column] = cast(
-                    "CellValue",
-                    coerce_literal(
-                        value_type,
-                        selected[column],
-                        path=f"points.{row_index}.{column}",
-                    ),
-                )
-            except ValueValidationError as error:
-                ctx.raise_diagnostic(
-                    "module_point_value_type_mismatch",
-                    str(error),
-                    error.path,
-                )
-        result.append(selected)
-    return result
-
-
-def _resolve_point_entities(
-    ctx: ExperimentAuthoringContext,
-    rows: Sequence[Row],
-    *,
-    entity_input_ids: Sequence[str] = (),
-) -> list[Row]:
-    entity_columns = set(entity_input_ids)
-    return [
-        {
-            name: _resolve_point_entity_value(
-                ctx,
-                value,
-                resolve_strings=name in entity_columns,
-            )
-            for name, value in row.items()
-        }
-        for row in rows
-    ]
-
-
-def _resolve_point_entity_value(
-    ctx: ExperimentAuthoringContext,
-    value: CellValue,
-    *,
-    resolve_strings: bool = False,
-) -> CellValue:
-    if isinstance(value, EntityRef):
-        return ctx.require_entity(value)
-    if resolve_strings and isinstance(value, str) and value:
-        return ctx.require_entity(value)
-    return value
 
 
 def compute_node_input(
     value: ComputeNodeInputValue,
     inputs: Mapping[str, object],
-) -> ComputeNodeInput:
+) -> ValueInput | ComputeEdge | RouteInput:
     if isinstance(value, ValueRef):
         lowered = internal_lower_value_ref(value)
         if isinstance(lowered, ComputeResultRef):
-            return ComputeNodeInput(
-                kind="compute_result",
-                node_id=lowered.node_id,
+            return ComputeEdge(
+                producer=lowered.node_id,
                 value_type=value.value_type,
             )
         source_inputs = value_input_refs(lowered)
         bound = bind_value_input_refs(lowered, inputs)
-        return ComputeNodeInput(
-            kind="value",
+        return ValueInput(
             value=as_value_expr(bound),
-            source_inputs=list(source_inputs),
+            source_inputs=tuple(source_inputs),
             value_type=value.value_type,
         )
     if isinstance(value, RouteRef):
-        return ComputeNodeInput(
-            kind="route",
+        return RouteInput(
             port_id=value.port_id,
             value_type=value.value_type,
         )
     expression = literal_data_expr(value)
     bound = bind_value_input_refs(expression, inputs)
-    return ComputeNodeInput(
-        kind="value",
+    return ValueInput(
         value=as_value_expr(bound),
-        source_inputs=[],
+        source_inputs=(),
         value_type=literal_scalar_type(value),
     )
 

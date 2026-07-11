@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
+from scopecat._compiler.ids import NodeId
 from scopecat._compute_result import ComputeResultRef
 from scopecat._relations import (
     RelationExpr,
@@ -139,7 +140,7 @@ class ValueRef:
     """
 
     _source_kind: _ValueRefSource = field(repr=False)
-    _source_id: str | None = field(repr=False)
+    _source_id: str | NodeId | None = field(repr=False)
     _value_type: ValueType = field(repr=False)
     _expression: _ValueExpression | None = field(
         default=None,
@@ -171,7 +172,7 @@ class ValueRef:
         cls,
         *,
         source_kind: _ValueRefSource,
-        source_id: str | None,
+        source_id: str | NodeId | None,
         value_type: ValueType,
         expression: _ValueExpression | None = None,
         input_binding_layers: tuple[tuple[tuple[str, ValueRef], ...], ...] = (),
@@ -693,14 +694,17 @@ def internal_input_value_ref(input_id: str, value_type: ValueType) -> ValueRef:
 
 
 def internal_compute_value_ref(
-    node_id: str,
+    node_id: NodeId | str,
     value_type: ValueType,
     *,
     point_dependencies: tuple[PointValueDependency, ...] = (),
 ) -> ValueRef:
+    selected_node_id = (
+        node_id if isinstance(node_id, NodeId) else NodeId(local_id=node_id)
+    )
     return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
         source_kind="compute",
-        source_id=node_id,
+        source_id=selected_node_id,
         value_type=value_type,
         point_dependencies=_merge_point_dependencies(point_dependencies),
     )
@@ -738,6 +742,55 @@ def internal_value_ref_point_id(value: ValueRef) -> str | None:
     return cast("str | None", object.__getattribute__(value, "_source_id"))
 
 
+def internal_value_ref_compute_node_id(value: ValueRef) -> NodeId | None:
+    if internal_value_ref_source_kind(value) != "compute":
+        return None
+    return cast("NodeId", object.__getattribute__(value, "_source_id"))
+
+
+def internal_scope_compute_value_ref(value: ValueRef, *scope: str) -> ValueRef:
+    """Prefix compute symbols owned by one expanded module instance."""
+
+    if not scope:
+        return value
+    source_kind = internal_value_ref_source_kind(value)
+    if source_kind == "compute":
+        return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+            source_kind="compute",
+            source_id=_required_compute_node_id(value).prefixed(*scope),
+            value_type=value.value_type,
+            parameter_contracts=internal_value_ref_parameter_contracts(value),
+            point_dependencies=internal_value_ref_point_dependencies(value),
+        )
+    if source_kind != "expression":
+        return value
+    expression = cast(
+        "_ValueExpression",
+        object.__getattribute__(value, "_expression"),
+    )
+    layers = cast(
+        "tuple[tuple[tuple[str, ValueRef], ...], ...]",
+        object.__getattribute__(value, "_input_binding_layers"),
+    )
+    if not layers:
+        return value
+    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+        source_kind="expression",
+        source_id=None,
+        value_type=value.value_type,
+        expression=expression,
+        input_binding_layers=tuple(
+            tuple(
+                (input_id, internal_scope_compute_value_ref(bound, *scope))
+                for input_id, bound in layer
+            )
+            for layer in layers
+        ),
+        parameter_contracts=internal_value_ref_parameter_contracts(value),
+        point_dependencies=internal_value_ref_point_dependencies(value),
+    )
+
+
 def internal_value_ref_parameter_contracts(
     value: ValueRef,
 ) -> tuple[ParameterContract, ...]:
@@ -763,7 +816,7 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
 
     source_kind = internal_value_ref_source_kind(value)
     if source_kind == "compute":
-        return ComputeResultRef(node_id=_required_source_id(value))
+        return ComputeResultRef(node_id=_required_compute_node_id(value))
     if source_kind == "expression":
         expression = cast(
             "_ValueExpression",
@@ -780,7 +833,7 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
         for layer in layers:
             expression = substitute_value_input_refs(expression, dict(layer))
         return expression
-    source_id = _required_source_id(value)
+    source_id = _required_string_source_id(value)
     if source_kind == "point":
         return col(source_id)
     if isinstance(value.value_type, Scalar):
@@ -870,7 +923,7 @@ def internal_bind_value_ref_inputs(
 
     source_kind = internal_value_ref_source_kind(value)
     if source_kind == "input":
-        input_id = _required_source_id(value)
+        input_id = _required_string_source_id(value)
         selected = inputs.get(input_id)
         return value if selected is None else selected
     if source_kind != "expression" or not inputs:
@@ -916,7 +969,7 @@ def internal_bind_value_ref_inputs(
 def _value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
     source_kind = internal_value_ref_source_kind(value)
     if source_kind == "input":
-        return frozenset((_required_source_id(value),))
+        return frozenset((_required_string_source_id(value),))
     if source_kind != "expression":
         return frozenset()
 
@@ -1122,13 +1175,24 @@ def _require_expression_shape(
     raise TypeError(msg)
 
 
-def _required_source_id(value_ref: ValueRef) -> str:
+def _required_string_source_id(value_ref: ValueRef) -> str:
     source_id = cast(
-        "str | None",
+        "str | NodeId | None",
         object.__getattribute__(value_ref, "_source_id"),
     )
-    if source_id is None:
-        msg = "value reference source id is required"
+    if not isinstance(source_id, str):
+        msg = "value reference string source id is required"
+        raise ValueError(msg)
+    return source_id
+
+
+def _required_compute_node_id(value_ref: ValueRef) -> NodeId:
+    source_id = cast(
+        "str | NodeId | None",
+        object.__getattribute__(value_ref, "_source_id"),
+    )
+    if not isinstance(source_id, NodeId):
+        msg = "compute value reference node id is required"
         raise ValueError(msg)
     return source_id
 

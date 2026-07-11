@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat._runtime.executor import execute_run
+from scopecat._compiler.environment import validate_config_environment
+from scopecat._execution.executor import execute_run
 from scopecat._storage.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
     RUN_PLAN_REF,
     RUN_REQUEST_REF,
 )
 from scopecat._workflows._diagnostics import diagnostic as _diagnostic
+from scopecat._workflows.compilation import compile_experiment
 from scopecat._workflows.config import (
     ConfigProfileInput,
     ResolvedConfig,
@@ -18,22 +20,17 @@ from scopecat._workflows.config import (
 )
 from scopecat._workflows.preview import build_experiment_preview
 from scopecat.authoring._invocation_plan import PreparedInvocation
-from scopecat.authoring._resolution import resolve_prepared_invocation
 from scopecat.errors import ValidationFailed
 from scopecat.instruments import (
     RuntimeEventSink,
     RuntimePayloadObserver,
 )
-from scopecat.instruments.sdk import (
-    InstrumentProvider,
-    InstrumentProviderContext,
-)
+from scopecat.instruments.sdk import InstrumentProvider
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunConfigSource, RunManifest
 from scopecat.models.run_plan import RunPlanRecord
 from scopecat.models.run_request import RunRequest
-from scopecat.planning.validation import has_blocking_diagnostics, validate_config
 from scopecat.preview import PreviewExperimentResult, ValidateExperimentResult
 from scopecat.results import MeasurementDatasetInputDiagnostics
 from scopecat.run_data import (
@@ -337,12 +334,17 @@ def start_run(
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
-    resolved = resolve_prepared_invocation(
+    environment = validate_config_environment(config)
+    if not environment.valid:
+        raise ValidationFailed(list(environment.diagnostics))
+    compiled = compile_experiment(
         experiment,
-        config=config,
+        environment=environment,
         workspace=workspace,
         config_source=config_source,
     )
+    if not compiled.valid:
+        raise ValidationFailed(list(compiled.diagnostics))
     if instrument_provider is None:
         raise ValidationFailed(
             [
@@ -354,19 +356,12 @@ def start_run(
                 )
             ]
         )
-    provider_result = instrument_provider.provide(
-        InstrumentProviderContext(config=config)
-    )
-    diagnostics = list(provider_result.diagnostics)
-    if has_blocking_diagnostics(diagnostics):
-        raise ValidationFailed(diagnostics)
     manifest, _ = execute_run(
         config=config,
-        experiment=resolved.experiment,
-        request=resolved.request,
-        instruments=list(provider_result.drivers),
+        plan=compiled.plan,
+        request=compiled.request,
+        instrument_provider=instrument_provider,
         workspace=workspace,
-        parameters=resolved.parameters,
         config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -407,33 +402,49 @@ def validate_experiment(
     config: str | ConfigProfileSnapshot = "active",
     config_profile: ConfigProfileInput | None = None,
 ) -> ValidateExperimentResult:
-    config_result = _resolve_config(
-        workspace=workspace,
-        config=config,
-        config_profile=config_profile,
-    )
-    config_snapshot = config_result.config
-    resolved = resolve_prepared_invocation(
-        experiment,
-        config=config_snapshot,
-        workspace=workspace,
-        config_source=config_result.config_source,
-    )
-    diagnostics = list(validate_config(config_snapshot))
-    summary = None
-    if not has_blocking_diagnostics(diagnostics):
-        summary, preview_diagnostics = build_experiment_preview(
-            resolved.experiment,
-            resolved.parameters,
-            config=config_snapshot,
+    try:
+        config_result = _resolve_config(
+            workspace=workspace,
+            config=config,
+            config_profile=config_profile,
         )
-        diagnostics.extend(preview_diagnostics)
+    except ValidationFailed as error:
+        return ValidateExperimentResult(
+            diagnostics=tuple(error.diagnostics),
+            summary=None,
+            template_id=None,
+            inputs={},
+            config_source=None,
+        )
+    config_snapshot = config_result.config
+    environment = validate_config_environment(config_snapshot)
+    diagnostics = list(environment.diagnostics)
+    summary = None
+    compiled = None
+    if environment.valid:
+        try:
+            compiled = compile_experiment(
+                experiment,
+                environment=environment,
+                workspace=workspace,
+                config_source=config_result.config_source,
+            )
+        except ValidationFailed as error:
+            diagnostics.extend(error.diagnostics)
+        else:
+            diagnostics = list(compiled.diagnostics)
+            if compiled.valid:
+                summary = build_experiment_preview(compiled.plan)
     return ValidateExperimentResult(
         diagnostics=tuple(diagnostics),
         summary=summary,
-        template_id=resolved.template_id,
-        inputs=dict(resolved.inputs),
-        config_source=resolved.config_source,
+        template_id=compiled.template_id if compiled is not None else None,
+        inputs=dict(compiled.inputs) if compiled is not None else {},
+        config_source=(
+            compiled.config_source
+            if compiled is not None
+            else config_result.config_source
+        ),
     )
 
 

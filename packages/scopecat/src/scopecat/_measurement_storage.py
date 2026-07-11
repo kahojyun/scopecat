@@ -7,11 +7,14 @@ through this module instead of depending on that representation directly.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+import os
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from uuid import uuid4
 
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
+from scopecat._storage.local.io import encode_model_json, ensure_durable_directory
 from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.errors import ValidationFailed
 from scopecat.models.artifact import RunDatasetEntry
@@ -35,7 +38,7 @@ def measurement_dataset_schema(
     dataset_role: MeasurementDatasetRole,
     records: Sequence[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None = None,
-    metadata: dict[str, object] | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
 ) -> MeasurementDatasetSchema:
     if expected_schema is None:
         return infer_measurement_dataset_schema(
@@ -75,13 +78,14 @@ def measurement_dataset_entry(
     records: Sequence[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None = None,
     media_type: str | None = MEASUREMENT_DATASET_MEDIA_TYPE,
-    metadata: dict[str, object] | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
 ) -> RunDatasetEntry:
     schema = measurement_dataset_schema(
         dataset_id=dataset_id,
         dataset_role=dataset_role,
         records=records,
         expected_schema=expected_schema,
+        metadata=metadata,
     )
     return RunDatasetEntry(
         id=dataset_id,
@@ -98,10 +102,26 @@ def write_measurement_records_path(
     path: Path,
     records: Sequence[MeasurementRecord],
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as data_file:
-        for record in records:
-            data_file.write(record.model_dump_json() + "\n")
+    ensure_durable_directory(path.parent)
+    temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary_path.open("w") as data_file:
+            for record in records:
+                data_file.write(encode_model_json(record) + "\n")
+            data_file.flush()
+            os.fsync(data_file.fileno())
+        temporary_path.replace(path)
+        _fsync_directory(path.parent)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def _fsync_directory(path: Path) -> None:
+    directory_fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def read_measurement_records_path(
@@ -164,7 +184,7 @@ def read_measurement_dataset_path(
     dataset_id: str,
     ref: str,
     schema_data: dict[str, object] | None,
-    metadata: dict[str, object],
+    metadata: Mapping[str, object],
     diagnostics: MeasurementDatasetInputDiagnostics,
 ) -> MeasurementDataset:
     diagnostic_path = diagnostics.diagnostic_path or ref
@@ -217,12 +237,21 @@ def read_measurement_dataset_path(
             diagnostic_path=diagnostic_path,
         )
 
-    return MeasurementDataset(
-        dataset_id=dataset_id,
-        schema=schema,
-        records=records,
-        metadata=dict(metadata),
-    )
+    try:
+        return MeasurementDataset.model_validate(
+            {
+                "dataset_id": dataset_id,
+                "schema": schema,
+                "records": records,
+                "metadata": dict(metadata),
+            }
+        )
+    except ValidationError as error:
+        raise _invalid_dataset_schema(
+            diagnostics=diagnostics,
+            ref=ref,
+            diagnostic_path=diagnostic_path,
+        ) from error
 
 
 def _invalid_dataset_schema(

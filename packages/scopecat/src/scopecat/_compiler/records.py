@@ -1,3 +1,5 @@
+"""Typed record declarations and config-bound record planning."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -5,7 +7,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from scopecat._planning.diagnostics import planning_diagnostic
+from scopecat._compiler.diagnostics import compiler_diagnostic
 from scopecat._relations import CellValue, Row
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
@@ -15,7 +17,7 @@ from scopecat.results import (
     MeasurementDType,
     MeasurementVariable,
 )
-from scopecat.units import compatible_units
+from scopecat.units import compatible_units, is_supported_unit
 
 RecordKind = Literal["observable", "artifact", "readback", "expression"]
 RecordSource = Literal["instrument", "state", "point", "expression", "runtime"]
@@ -113,37 +115,111 @@ def plan_records(
     ]
 
 
-def validate_record_plan(records: Sequence[RecordPlan]) -> list[dict[str, Any]]:
+def validate_record_plan(
+    records: Sequence[RecordPlan],
+    *,
+    coordinate_ids: Sequence[str] = (),
+) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
     record_ids = [record.id for record in records]
     duplicate_record_ids = _duplicates(record_ids)
     for record_id in sorted(duplicate_record_ids):
         diagnostics.append(
-            planning_diagnostic(
+            compiler_diagnostic(
                 "error",
                 "experiment_record_duplicate",
                 f"experiment record {record_id!r} is duplicated",
                 "records",
             )
         )
+    coordinate_collisions = set(record_ids) & set(coordinate_ids)
+    for record_id in sorted(coordinate_collisions):
+        diagnostics.append(
+            compiler_diagnostic(
+                "error",
+                "experiment_record_coordinate_collision",
+                f"record {record_id!r} conflicts with a point coordinate",
+                f"records.{record_id}",
+            )
+        )
+    axes_by_id: dict[str, tuple[str, RecordAxisPlan]] = {}
     for record in records:
+        if record.unit is not None and not is_supported_unit(record.unit):
+            diagnostics.append(
+                compiler_diagnostic(
+                    "error",
+                    "experiment_record_unit_unsupported",
+                    f"record {record.id!r} uses unsupported unit {record.unit!r}",
+                    f"records.{record.id}.unit",
+                )
+            )
         axis_ids = [axis.id for axis in record.axes]
         for axis_id in sorted(_duplicates(axis_ids)):
             diagnostics.append(
-                planning_diagnostic(
+                compiler_diagnostic(
                     "error",
                     "experiment_record_axis_duplicate",
                     f"record {record.id!r} axis {axis_id!r} is duplicated",
                     f"records.{record.id}.axes",
                 )
             )
+        seen_axis_ids: set[str] = set()
+        for axis in record.axes:
+            if axis.id in seen_axis_ids:
+                continue
+            seen_axis_ids.add(axis.id)
+            if axis.id == "point":
+                diagnostics.append(
+                    compiler_diagnostic(
+                        "error",
+                        "experiment_record_axis_reserved",
+                        "record axis 'point' conflicts with the point dimension",
+                        f"records.{record.id}.axes.point",
+                    )
+                )
+            if axis.unit is not None and not is_supported_unit(axis.unit):
+                diagnostics.append(
+                    compiler_diagnostic(
+                        "error",
+                        "experiment_record_axis_unit_unsupported",
+                        f"record {record.id!r} axis {axis.id!r} uses unsupported "
+                        f"unit {axis.unit!r}",
+                        f"records.{record.id}.axes.{axis.id}.unit",
+                    )
+                )
+            existing = axes_by_id.get(axis.id)
+            if existing is None:
+                axes_by_id[axis.id] = (record.id, axis)
+                continue
+            existing_record_id, existing_axis = existing
+            if _axes_are_compatible(existing_axis, axis):
+                continue
+            diagnostics.append(
+                compiler_diagnostic(
+                    "error",
+                    "experiment_record_axis_conflict",
+                    f"record {record.id!r} axis {axis.id!r} conflicts with "
+                    f"record {existing_record_id!r}; shared axes must have "
+                    "identical kind, size, unit, and metadata",
+                    f"records.{record.id}.axes.{axis.id}",
+                )
+            )
         if record.kind != "observable":
             diagnostics.append(
-                planning_diagnostic(
+                compiler_diagnostic(
                     "error",
                     "experiment_record_kind_unsupported",
                     f"record kind {record.kind!r} is not supported yet",
                     f"records.{record.id}.kind",
+                )
+            )
+        elif record.source != "instrument":
+            diagnostics.append(
+                compiler_diagnostic(
+                    "error",
+                    "experiment_record_source_unsupported",
+                    f"observable record source {record.source!r} is not supported yet",
+                    f"records.{record.id}.source",
                 )
             )
     product_keys_by_resource: dict[str | None, list[str]] = {}
@@ -158,7 +234,7 @@ def validate_record_plan(records: Sequence[RecordPlan]) -> list[dict[str, Any]]:
     for resource, product_keys in product_keys_by_resource.items():
         for product_key in sorted(_duplicates(product_keys)):
             diagnostics.append(
-                planning_diagnostic(
+                compiler_diagnostic(
                     "error",
                     "experiment_record_product_duplicate",
                     f"instrument product {product_key!r} is mapped more than once",
@@ -243,6 +319,15 @@ def _record_product_key(record: RecordPlan) -> str:
     if record.capability:
         return record.capability
     return record.id
+
+
+def _axes_are_compatible(left: RecordAxisPlan, right: RecordAxisPlan) -> bool:
+    return (
+        left.kind == right.kind
+        and left.size == right.size
+        and left.unit == right.unit
+        and left.metadata == right.metadata
+    )
 
 
 def _coordinate_variables(
@@ -348,3 +433,18 @@ def _duplicates(values: Sequence[str]) -> set[str]:
             duplicates.add(value)
         seen.add(value)
     return duplicates
+
+
+__all__ = [
+    "PointRecordLike",
+    "RecordAxisPlan",
+    "RecordAxisSpec",
+    "RecordKind",
+    "RecordPlan",
+    "RecordSource",
+    "RecordSpec",
+    "expected_dataset_schema",
+    "plan_records",
+    "point_coordinate_ids",
+    "validate_record_plan",
+]

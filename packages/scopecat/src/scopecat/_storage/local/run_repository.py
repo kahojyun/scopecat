@@ -10,6 +10,9 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from scopecat._storage.local.io import (
+    ensure_durable_directory,
+)
+from scopecat._storage.local.io import (
     read_jsonl as _read_jsonl,
 )
 from scopecat._storage.local.io import (
@@ -95,7 +98,7 @@ class LocalRunStore:
         """
 
         lock_path = self.layout.run_dir(run_id) / ".run.lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_durable_directory(lock_path.parent)
         with lock_path.open("a+b") as lock_file:
             flock(lock_file.fileno(), LOCK_EX)
             try:
@@ -108,7 +111,7 @@ class LocalRunStore:
         """Join the registry-to-run lock order used by promotion decisions."""
 
         lock_path = self.layout.workspace / CONFIG_REGISTRY_LOCK_REF
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_durable_directory(lock_path.parent)
         with lock_path.open("a+b") as lock_file:
             flock(lock_file.fileno(), LOCK_EX)
             try:
@@ -132,11 +135,36 @@ class LocalRunStore:
         plan: RunPlanRecord,
         config: ConfigProfileSnapshot,
     ) -> None:
-        self.write_model(manifest.run_id, MANIFEST_REF, manifest)
+        # Publish accepted inputs before the manifest makes the run visible.
         if request is not None:
-            self.write_model(manifest.run_id, RUN_REQUEST_REF, request)
-        self.write_model(manifest.run_id, RUN_PLAN_REF, plan)
-        self.write_model(manifest.run_id, CONFIG_PROFILE_SNAPSHOT_REF, config)
+            self.write_model_atomic(manifest.run_id, RUN_REQUEST_REF, request)
+        self.write_model_atomic(manifest.run_id, RUN_PLAN_REF, plan)
+        self.write_model_atomic(
+            manifest.run_id,
+            CONFIG_PROFILE_SNAPSHOT_REF,
+            config,
+        )
+        self.write_manifest(manifest)
+
+    def write_run_skeleton(
+        self,
+        *,
+        manifest: RunManifest,
+        request: RunRequest | None,
+        plan: RunPlanRecord,
+        config: ConfigProfileSnapshot,
+    ) -> None:
+        """Durably accept a run before any instrument interaction begins."""
+
+        if manifest.status not in {"planned", "running"}:
+            msg = "run skeleton manifest must be planned or running"
+            raise ValueError(msg)
+        self.write_structured_run_inputs(
+            manifest=manifest,
+            request=request,
+            plan=plan,
+            config=config,
+        )
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
         return self.read_model(
@@ -150,6 +178,9 @@ class LocalRunStore:
 
     def write_model(self, run_id: str, ref: str, model: BaseModel) -> None:
         _write_model(self.ref_path(run_id, ref), model)
+
+    def write_model_atomic(self, run_id: str, ref: str, model: BaseModel) -> None:
+        _write_model_atomic(self.ref_path(run_id, ref), model)
 
     def write_model_if_absent(
         self,

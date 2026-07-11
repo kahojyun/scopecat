@@ -7,6 +7,9 @@ import pytest
 
 import scopecat as sc
 import scopecat.authoring as authoring
+from scopecat._compiler.environment import validate_config_environment
+from scopecat._compiler.ids import NodeId
+from scopecat._compiler.program import ValueInput
 from scopecat._compute_result import ComputeResultRef
 from scopecat._relations import (
     EvalContext,
@@ -182,7 +185,7 @@ def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
     )
     assert [record.id for record in experiment.records] == ["signal"]
     assert preview.primary_observables == ("signal",)
-    assert preview.state_changes[0].resource == "source"
+    assert preview.state_changes[0].resource == "source-0"
     assert preview.state_changes[0].field == "set_frequency.frequency"
     assert preview.state_changes[0].after == Quantity(value=4.9, unit="GHz")
     assert preview.state_fields[0].resource_id == "source-0"
@@ -225,7 +228,7 @@ def test_template_selects_module_products_as_records() -> None:
         config_profile=load_config(),
     )
 
-    assert unselected.experiment.records == []
+    assert unselected.experiment.records == ()
     assert [record.id for record in selected.experiment.records] == ["signal"]
     assert selected.experiment.records[0].metadata == {"product_id": "signal"}
 
@@ -342,12 +345,18 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
     )
     node = resolved.experiment.compute_nodes[0]
 
-    assert node.inputs["qubit"].source_inputs == ["qubit"]
-    assert node.inputs["length"].source_inputs == ["pulse_length"]
-    assert node.inputs["frequency"].source_inputs == ["qubit"]
+    qubit_input = node.inputs["qubit"]
+    length_input = node.inputs["length"]
+    frequency_input = node.inputs["frequency"]
+    assert isinstance(qubit_input, ValueInput)
+    assert isinstance(length_input, ValueInput)
+    assert isinstance(frequency_input, ValueInput)
+    assert qubit_input.source_inputs == ("qubit",)
+    assert length_input.source_inputs == ("pulse_length",)
+    assert frequency_input.source_inputs == ("qubit",)
     assert node.output_type == authoring.ScalarType(authoring.PayloadType("pulse"))
     assert resolved.experiment.state[0].value == ComputeResultRef(
-        node_id="build-program"
+        node_id=NodeId(local_id="build-program")
     )
 
 
@@ -976,7 +985,26 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
             ),
         }
     )
-    config = seed_config.model_copy(update={"system": system})
+    environment = seed_config.environment.model_copy(
+        update={
+            "connection_profile": seed_config.connection_profile.model_copy(
+                update={
+                    "connections": [
+                        connection.model_copy(
+                            update={
+                                "id": "readout-array-offline",
+                                "instrument_id": "readout-array",
+                            }
+                        )
+                        for connection in seed_config.connection_profile.connections
+                    ]
+                }
+            )
+        }
+    )
+    config = seed_config.model_copy(
+        update={"system": system, "environment": environment}
+    )
     qubits = sc.input(
         "qubits",
         authoring.SeriesType(authoring.ScalarType(authoring.EntityType())),
@@ -1073,7 +1101,7 @@ def test_request_projection_rejects_transient_typed_and_compiler_values() -> Non
     transient_values = (
         typed_value,
         input_ref("subject"),
-        ComputeResultRef(node_id="build-program"),
+        ComputeResultRef(node_id=NodeId(local_id="build-program")),
     )
 
     for value in transient_values:
@@ -1101,7 +1129,7 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
         assembly,
         request=request,
         inputs={"subject": "q0"},
-        config=load_config(),
+        environment=validate_config_environment(load_config()),
         workspace=Path("/tmp/scopecat-test"),
         config_source=None,
     )
@@ -1109,7 +1137,7 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
     assert resolved.experiment.id == "authored-simple-scan"
     assert resolved.config.id == load_config().id
     preview = preview_contract(resolved.experiment, resolved.parameters)
-    assert preview.state_changes[0].resource == "source"
+    assert preview.state_changes[0].resource == "source-0"
 
 
 def test_template_composition_merges_shared_resource_port_capabilities() -> None:

@@ -7,8 +7,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 
-from scopecat._compiler.program import LinkedProgram
-from scopecat._parameter_resolution import resolve_config_parameters
+from scopecat._compiler.environment import (
+    ValidatedConfigEnvironment,
+    validate_config_environment,
+)
+from scopecat._compiler.program import TypedProgram
 from scopecat._relations import ParameterRelationData
 from scopecat.authoring._assembly_linking import link_experiment_assembly_internal
 from scopecat.authoring._context import ExperimentAuthoringContext
@@ -72,12 +75,13 @@ from scopecat.planning.validation import has_blocking_diagnostics
 
 @dataclass(frozen=True)
 class ResolvedExperiment:
-    experiment: LinkedProgram
+    experiment: TypedProgram
     request: RunRequest
     template_id: str | None
     inputs: dict[str, object]
     config: ConfigProfileSnapshot
     parameters: ParameterRelationData
+    environment: ValidatedConfigEnvironment
     config_source: RunConfigSource | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
 
@@ -118,7 +122,7 @@ def resolve_experiment_with_config(
 ) -> ResolvedExperiment:
     return resolve_prepared_invocation(
         prepare_invocation(experiment),
-        config=config,
+        environment=validate_config_environment(config),
         workspace=workspace,
         config_source=config_source,
     )
@@ -127,16 +131,18 @@ def resolve_experiment_with_config(
 def resolve_prepared_invocation(
     prepared: PreparedInvocation,
     *,
-    config: ConfigProfileSnapshot,
+    environment: ValidatedConfigEnvironment,
     workspace: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> ResolvedExperiment:
+    if not environment.valid:
+        raise ValidationFailed(list(environment.diagnostics))
     compiled = compile_prepared_invocation(prepared)
     return _link_assembly(
         compiled.assembly,
         request=compiled.request,
         inputs=compiled.inputs,
-        config=config,
+        environment=environment,
         workspace=workspace,
         config_source=config_source,
     )
@@ -272,16 +278,13 @@ def _link_assembly(
     *,
     request: RunRequest,
     inputs: Mapping[str, object],
-    config: ConfigProfileSnapshot,
+    environment: ValidatedConfigEnvironment,
     workspace: str | Path,
     config_source: RunConfigSource | None,
 ) -> ResolvedExperiment:
-    resolved_parameters = resolve_config_parameters(config)
-    if has_blocking_diagnostics(resolved_parameters.diagnostics):
-        raise ValidationFailed(list(resolved_parameters.diagnostics))
     context = ExperimentAuthoringContext(
-        config=config,
-        parameters=resolved_parameters.data,
+        config=environment.config,
+        parameters=environment.parameters,
         workspace=Path(workspace),
         config_source=config_source,
     )
@@ -303,23 +306,23 @@ def _link_assembly(
         ) from error
     return _resolved_invocation(
         experiment,
-        config=config,
+        environment=environment,
         workspace=workspace,
         config_source=config_source,
         request=request,
         inputs=inputs,
-        parameters=resolved_parameters.data,
+        parameters=environment.parameters,
         authoring_diagnostics=[
-            *resolved_parameters.diagnostics,
+            *environment.diagnostics,
             *context.diagnostics,
         ],
     )
 
 
 def _resolved_invocation(
-    experiment: LinkedProgram,
+    experiment: TypedProgram,
     *,
-    config: ConfigProfileSnapshot,
+    environment: ValidatedConfigEnvironment,
     workspace: str | Path,
     config_source: RunConfigSource | None,
     request: RunRequest,
@@ -345,8 +348,9 @@ def _resolved_invocation(
         request=resolved_request,
         template_id=resolved_request.template_id,
         inputs=dict(inputs),
-        config=config,
+        config=environment.config,
         parameters=parameters,
+        environment=environment,
         config_source=config_source,
         diagnostics=tuple(diagnostics),
     )

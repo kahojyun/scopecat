@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from scopecat._compiler.ids import NodeId
 from scopecat._compute_result import ComputeResultRef
 from scopecat.config_profiles import load_config_profile
 from scopecat.models.entity import EntityRef
@@ -429,7 +430,7 @@ def test_run_plan_state_change_preserves_boolean_values() -> None:
 
 def test_run_plan_state_change_accepts_only_durable_descriptors() -> None:
     for value in (
-        ComputeResultRef(node_id="build-program"),
+        ComputeResultRef(node_id=NodeId(local_id="build-program")),
         PayloadValue(schema_id="pulse", payload=object()),
     ):
         with pytest.raises(ValidationError):
@@ -762,17 +763,14 @@ def test_run_plan_record_rejects_non_durable_schema_metadata(value: object) -> N
             RunPlanRecord.model_validate(data)
 
 
-def test_run_plan_record_normalizes_tuple_schema_metadata() -> None:
+def test_run_plan_record_rejects_tuple_schema_metadata() -> None:
     data = _valid_run_plan_data()
     schema = _valid_expected_dataset_schema_data()
     schema["metadata"] = {"tags": ("raw", "accepted")}
     data["expected_dataset_schema"] = schema
 
-    plan = RunPlanRecord.model_validate(data)
-
-    assert plan.expected_dataset_schema is not None
-    assert plan.expected_dataset_schema.metadata == {"tags": ["raw", "accepted"]}
-    assert RunPlanRecord.model_validate_json(plan.model_dump_json()) == plan
+    with pytest.raises(ValidationError, match="not a valid JSON value"):
+        RunPlanRecord.model_validate(data)
 
 
 def test_run_plan_record_aligns_schema_primary_ids() -> None:

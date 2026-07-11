@@ -78,13 +78,13 @@ def build_route_intents(
         route_intents.append(
             ResourceRouteIntent(
                 port_id=port.id,
-                capabilities=list(port.selector.capabilities),
-                entity_exprs=[
+                capabilities=tuple(port.selector.capabilities),
+                entity_exprs=tuple(
                     as_scalar_or_series_value_expr(
                         _route_entity_expr(ctx, input_id, inputs)
                     )
                     for input_id in port.selector.entity_inputs
-                ],
+                ),
                 resource_id=None,
             )
         )

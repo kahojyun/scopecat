@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import builtins
 import re
 from collections.abc import Mapping
 
 from scopecat._relations import (
     RelationExpr,
-    Row,
     ScalarExpr,
     as_scalar_expr,
     grid,
-    literal_rows,
     param,
+    zip_relations,
 )
 from scopecat._relations import linspace as relation_linspace
 from scopecat._relations import values as relation_values
@@ -181,27 +179,9 @@ def _zip_scan_points(
     *,
     inputs: Mapping[str, object] | None,
 ) -> RelationExpr:
-    rows_by_scan = [
-        _lower_scan_points_relation(child, inputs=inputs).evaluate()
-        for child in scan.scans
-    ]
-    lengths = {len(rows) for rows in rows_by_scan}
-    if len(lengths) != 1:
-        msg = "zip scan group requires scans with equal length"
-        raise ValueError(msg)
-    rows: list[Row] = []
-    for row_group in builtins.zip(*rows_by_scan, strict=True):
-        merged: Row = {}
-        for row in row_group:
-            overlap = set(merged).intersection(row)
-            if overlap:
-                msg = "zip scan group contains duplicate axes: " + ", ".join(
-                    sorted(overlap)
-                )
-                raise ValueError(msg)
-            merged.update(row)
-        rows.append(merged)
-    return literal_rows(rows)
+    return zip_relations(
+        *(_lower_scan_points_relation(child, inputs=inputs) for child in scan.scans)
+    )
 
 
 def _scan_points_type(scan: Scan) -> Table:

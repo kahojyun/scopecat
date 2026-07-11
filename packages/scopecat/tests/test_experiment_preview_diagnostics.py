@@ -1,25 +1,35 @@
+import pytest
+
 from scopecat._compiler.program import (
-    linked_program as experiment,
-)
-from scopecat._compiler.program import (
+    TypedPointSource,
     observable,
     overlay_parameter_cell,
     record_axis,
     set_state,
+    typed_program,
 )
-from scopecat._relations import col, grid, table
+from scopecat._compiler.records import RecordAxisSpec
+from scopecat._relations import RelationExpr, col, grid, table
 from scopecat.models.parameter import Quantity
 from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Scalar, String
+from scopecat.value_types import Table as TableType
 from tests.support.experiment_preview import preview_result
 from tests.support.parameter_fixtures import parameters
 
 
+def _point_source(expr: RelationExpr) -> TypedPointSource:
+    return TypedPointSource(
+        expr=expr,
+        value_type=TableType(columns=(), allow_extra_columns=True),
+    )
+
+
 def test_preview_reports_record_output_shape_diagnostics() -> None:
-    spec = experiment(
+    spec = typed_program(
         id="bad-record-shape",
         kind="diagnostic",
-        points=grid(index=[0]),
+        point_source=_point_source(grid(index=[0])),
         records=[
             observable(
                 "signal",
@@ -43,11 +53,55 @@ def test_preview_reports_record_output_shape_diagnostics() -> None:
     assert preview.primary_observables == ("signal", "signal")
 
 
+def test_preview_reports_record_schema_diagnostics_without_model_errors() -> None:
+    spec = typed_program(
+        id="invalid-record-schema",
+        kind="diagnostic",
+        point_source=_point_source(grid(index=[0])),
+        records=[
+            observable("bad-unit", unit="not-a-unit"),
+            observable(
+                "bad-axis-unit",
+                axes=[record_axis("sample", size=2, unit="not-a-unit")],
+            ),
+            observable(
+                "reserved-axis",
+                axes=[record_axis("point", size=2)],
+            ),
+        ],
+    )
+
+    preview, diagnostics = preview_result(spec, parameters())
+
+    assert [diagnostic.code for diagnostic in diagnostics] == [
+        "experiment_record_unit_unsupported",
+        "experiment_record_axis_unit_unsupported",
+        "experiment_record_axis_reserved",
+    ]
+    assert preview.schema is None
+
+
+def test_preview_reports_coordinate_and_record_id_collision() -> None:
+    spec = typed_program(
+        id="coordinate-record-collision",
+        kind="diagnostic",
+        point_source=_point_source(grid(signal=[1.0])),
+        records=[observable("signal", unit="ratio")],
+    )
+
+    preview, diagnostics = preview_result(spec, parameters())
+
+    assert [diagnostic.code for diagnostic in diagnostics] == [
+        "experiment_record_coordinate_collision"
+    ]
+    assert preview.schema is None
+
+
 def test_preview_rejects_duplicate_instrument_product_keys() -> None:
-    spec = experiment(
+    spec = typed_program(
         id="bad-record-products",
         kind="diagnostic",
-        points=grid(index=[0]),
+        point_source=_point_source(grid(index=[0])),
         records=[
             observable("raw_i", unit="ratio", product_key="i"),
             observable("demod_i", unit="ratio", product_key="i"),
@@ -63,11 +117,88 @@ def test_preview_rejects_duplicate_instrument_product_keys() -> None:
     assert preview.primary_observables == ("raw_i", "demod_i")
 
 
+def test_preview_rejects_unimplemented_observable_sources() -> None:
+    spec = typed_program(
+        id="unsupported-record-source",
+        kind="diagnostic",
+        point_source=_point_source(grid(index=[0])),
+        records=[observable("signal", source="point", unit="ratio")],
+    )
+
+    preview, diagnostics = preview_result(spec, parameters())
+
+    assert [diagnostic.code for diagnostic in diagnostics] == [
+        "experiment_record_source_unsupported"
+    ]
+    assert preview.schema is None
+
+
+@pytest.mark.parametrize(
+    "second_axis",
+    [
+        record_axis(
+            "shot",
+            size=3,
+            kind="shot",
+            unit="count",
+            metadata={"mode": "raw"},
+        ),
+        record_axis(
+            "shot",
+            size=2,
+            kind="sample",
+            unit="count",
+            metadata={"mode": "raw"},
+        ),
+        record_axis(
+            "shot",
+            size=2,
+            kind="shot",
+            unit=None,
+            metadata={"mode": "raw"},
+        ),
+        record_axis(
+            "shot",
+            size=2,
+            kind="shot",
+            unit="count",
+            metadata={"mode": "averaged"},
+        ),
+    ],
+)
+def test_preview_rejects_conflicting_shared_record_axes(
+    second_axis: RecordAxisSpec,
+) -> None:
+    first_axis = record_axis(
+        "shot",
+        size=2,
+        kind="shot",
+        unit="count",
+        metadata={"mode": "raw"},
+    )
+    spec = typed_program(
+        id="conflicting-record-axis",
+        kind="diagnostic",
+        point_source=_point_source(grid(index=[0])),
+        records=[
+            observable("i", axes=[first_axis]),
+            observable("q", axes=[second_axis]),
+        ],
+    )
+
+    preview, diagnostics = preview_result(spec, parameters())
+
+    assert [diagnostic.code for diagnostic in diagnostics] == [
+        "experiment_record_axis_conflict"
+    ]
+    assert preview.schema is None
+
+
 def test_preview_reports_points_evaluation_diagnostics() -> None:
-    spec = experiment(
+    spec = typed_program(
         id="missing-points",
         kind="diagnostic",
-        points=table("missing_table"),
+        point_source=_point_source(table("missing_table")),
     )
 
     preview, diagnostics = preview_result(spec, parameters())
@@ -79,10 +210,10 @@ def test_preview_reports_points_evaluation_diagnostics() -> None:
 
 
 def test_preview_reports_parameter_overlay_diagnostics() -> None:
-    spec = experiment(
+    spec = typed_program(
         id="bad-overlay",
         kind="diagnostic",
-        points=grid(device_id=["r0"]),
+        point_source=_point_source(grid(device_id=["r0"])),
         parameter_overlays=[
             overlay_parameter_cell(
                 "readout_devices",
@@ -119,10 +250,10 @@ def test_preview_reports_parameter_overlay_diagnostics() -> None:
 
 
 def test_preview_reports_unknown_parameter_table_diagnostics() -> None:
-    spec = experiment(
+    spec = typed_program(
         id="missing-overlay-table",
         kind="diagnostic",
-        points=grid(device_id=["r0"]),
+        point_source=_point_source(grid(device_id=["r0"])),
         parameter_overlays=[
             overlay_parameter_cell(
                 "missing_table",
@@ -144,16 +275,16 @@ def test_preview_reports_unknown_parameter_table_diagnostics() -> None:
 
 
 def test_preview_reports_state_evaluation_and_conflict_diagnostics() -> None:
-    state_failure = experiment(
+    state_failure = typed_program(
         id="bad-state",
         kind="diagnostic",
-        points=grid(index=[0]),
+        point_source=_point_source(grid(index=[0])),
         state=[set_state(1, "pulse.frequency", Quantity(value=5.9, unit="GHz"))],
     )
-    conflict = experiment(
+    conflict = typed_program(
         id="conflict-state",
         kind="diagnostic",
-        points=grid(index=[0]),
+        point_source=_point_source(grid(index=[0])),
         state=[
             set_state("readout-a", "pulse.frequency", Quantity(value=5.9, unit="GHz")),
             set_state("readout-a", "pulse.frequency", Quantity(value=6.0, unit="GHz")),
@@ -172,5 +303,4 @@ def test_preview_reports_state_evaluation_and_conflict_diagnostics() -> None:
     ]
     assert [change.after for change in conflict_preview.state_changes] == [
         Quantity(value=5.9, unit="GHz"),
-        Quantity(value=6.0, unit="GHz"),
     ]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat._compiler.program import LinkedProgram
+from scopecat._compiler.program import TypedProgram
 from scopecat.authoring import (
     ExperimentInvocation,
     QuantityType,
@@ -37,8 +37,8 @@ def load_config() -> ConfigProfileSnapshot:
     return load_config_profile(WORKFLOW_FIXTURE_DIR / "config-profile.json")
 
 
-def load_experiment() -> LinkedProgram:
-    """Compile the simple-scan DSL fixture into a transient linked program."""
+def load_experiment() -> TypedProgram:
+    """Compile the simple-scan DSL fixture into a transient typed program."""
 
     return resolve_experiment_with_config(
         load_invocation(),

@@ -1,21 +1,8 @@
-"""Internal execution persistence helpers."""
+"""Private config-bound execution package.
 
-from scopecat._execution.persistence import (
-    RAW_MEASUREMENT_DATASET_KIND,
-    build_raw_measurement_dataset,
-    build_run_manifest,
-    parse_expected_dataset_schema,
-    ref_for_dataset,
-    validate_measurement_index_shape,
-    validate_raw_measurement_dataset,
-)
+Execution types and entrypoints are imported from their defining modules.  The
+package deliberately has no eager facade so persistence and engine modules can
+depend on each other through narrow leaf boundaries without import cycles.
+"""
 
-__all__ = [
-    "RAW_MEASUREMENT_DATASET_KIND",
-    "build_raw_measurement_dataset",
-    "build_run_manifest",
-    "parse_expected_dataset_schema",
-    "ref_for_dataset",
-    "validate_measurement_index_shape",
-    "validate_raw_measurement_dataset",
-]
+__all__: list[str] = []
