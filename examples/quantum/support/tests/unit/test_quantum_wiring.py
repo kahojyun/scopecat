@@ -12,9 +12,11 @@ from scopecat.authoring._elaboration import elaborate_module
 from scopecat.authoring._resolution import resolve_experiment
 from scopecat.config_profiles import load_config_profile
 from scopecat.instruments import (
+    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
+    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProvider,
@@ -366,6 +368,7 @@ class _RecordingDriver:
     implementation_id: str = field(init=False)
     implementation_version: str = field(init=False)
     applied_commands: list[InstrumentStateCommand] = field(default_factory=list)
+    action_commands: list[InstrumentActionCommand] = field(default_factory=list)
     collect_commands: list[CollectCommand] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -382,6 +385,10 @@ class _RecordingDriver:
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self.applied_commands.append(command)
         return self.wrapped.apply_state(command)
+
+    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
+        self.action_commands.append(command)
+        return self.wrapped.action(command)
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)

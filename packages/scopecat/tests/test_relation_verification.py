@@ -6,7 +6,7 @@ from typing import cast
 import pytest
 
 import scopecat._relation_backend as relation_backend
-from scopecat._relation_analysis import PlanNode, PlanReferences, RelationOperation
+from scopecat._relation_analysis import PlanNode, RelationOperation
 from scopecat._relation_backend import (
     ReferenceRelationBackend,
     RelationBackendCapabilityDimension,
@@ -1271,20 +1271,6 @@ def test_statically_empty_point_cross_omits_point_collision_obligation() -> None
     assert verified.external_row_interface.point is None
 
 
-def test_verified_plan_cannot_be_forged_through_its_constructor() -> None:
-    with pytest.raises(TypeError, match="only be created"):
-        VerifiedRelationPlan(
-            root=lit(1),
-            certified_type=INT,
-            facts=(),
-            imports=(),
-            references=PlanReferences(),
-            required_operations=(RelationOperation.SCALAR_LITERAL,),
-            runtime_obligations=(),
-            bindings=RelationTypeBindings(),
-        )
-
-
 def test_verified_plan_defensively_copies_the_source_root() -> None:
     source = literal_rows([{"value": 1}]).limit(1)
     verified = verify_relation_plan(source)
@@ -1296,7 +1282,7 @@ def test_verified_plan_defensively_copies_the_source_root() -> None:
     assert verified.root.limit_count == 1
 
 
-def test_backend_selection_consumes_proof_and_rechecks_capabilities() -> None:
+def test_backend_selection_consumes_proof_and_checks_capabilities() -> None:
     verified = verify_relation_plan(literal_rows([{"value": 1}]).sort("value"))
     backend = ReferenceRelationBackend(
         backend_id="tests.no-sort",
@@ -1347,35 +1333,6 @@ def test_backend_selection_retains_the_certified_contract() -> None:
 
     assert selected.certified_type == INT
     assert selected.required_operations == (RelationOperation.SCALAR_LITERAL,)
-
-
-def test_selected_plan_rechecks_capabilities_when_backend_identity_is_reused() -> None:
-    verified = verify_relation_plan(literal_rows([{"value": 1}]).sort("value"))
-    selected = relation_backend.select_relation_plan(
-        ReferenceRelationBackend(backend_id="shared"),
-        verified,
-    )
-    replacement = ReferenceRelationBackend(
-        backend_id="shared",
-        supported_operations=(
-            frozenset(RelationOperation) - {RelationOperation.RELATION_SORT}
-        ),
-    )
-
-    with pytest.raises(RelationBackendCapabilityError):
-        selected._unwrap_for_backend(  # pyright: ignore[reportPrivateUsage]
-            replacement
-        )
-
-
-def test_backend_selected_plan_cannot_be_forged_through_its_constructor() -> None:
-    verified = verify_relation_plan(lit(1))
-
-    with pytest.raises(TypeError):
-        relation_backend.SelectedRelationPlan(
-            ReferenceRelationBackend().backend_id,
-            verified,
-        )
 
 
 def test_backend_selection_rejects_a_raw_plan_instead_of_implicitly_verifying() -> None:
@@ -1509,25 +1466,6 @@ def test_backend_acceptance_checks_every_intermediate_type_fact() -> None:
     assert [(issue.code, issue.path) for issue in caught.value.issues] == [
         ("unbounded_table", ("source",)),
     ]
-
-
-def test_selected_plan_reassesses_type_policy_for_same_backend_identity() -> None:
-    unbounded = Table(columns=(TableColumn("value", INT),))
-    verified = verify_relation_plan(
-        input_table("rows").limit(2),
-        bindings=RelationTypeBindings(inputs={"rows": unbounded}),
-    )
-    selected = relation_backend.select_relation_plan(
-        ReferenceRelationBackend(backend_id="shared-policy"),
-        verified,
-    )
-
-    with pytest.raises(RelationBackendCapabilityError) as caught:
-        selected._unwrap_for_backend(  # pyright: ignore[reportPrivateUsage]
-            _FiniteTableFactsBackend(backend_id="shared-policy")
-        )
-
-    assert [issue.code for issue in caught.value.issues] == ["unbounded_table"]
 
 
 def test_backend_acceptance_requires_runtime_obligation_discharge() -> None:

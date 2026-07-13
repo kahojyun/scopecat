@@ -18,7 +18,11 @@ from scopecat._workflows.preview import build_experiment_preview
 from scopecat._workflows.runs import load_run_plan, load_run_request, start_run
 from scopecat.authoring._resolution import compile_prepared_invocation
 from scopecat.errors import DataIntegrityError
-from scopecat.models.run_plan import RunPlanRecord
+from scopecat.execution_backend import PointInstrumentBackend
+from scopecat.models.run_plan import (
+    RunPlanPointInstrumentExecution,
+    RunPlanRecord,
+)
 from scopecat.models.run_request import RunRequest
 from scopecat.preview import ExperimentPreview
 from scopecat.runs import open_run_store
@@ -26,6 +30,14 @@ from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import load_config, load_prepared_invocation
 
 FIXTURE_DIR = Path(__file__).with_name("fixtures")
+
+
+def _point_execution() -> RunPlanPointInstrumentExecution:
+    return RunPlanPointInstrumentExecution(
+        unit_id="point-instrument",
+        backend_id="scopecat.point-instrument.v1",
+        provider_id="tests.signal_instrument_provider",
+    )
 
 
 def _golden(name: str) -> dict[str, Any]:
@@ -79,7 +91,10 @@ def _canonical_projections(workspace: Path) -> tuple[RunRequest, RunPlanRecord]:
     assert compiled_experiment.valid, compiled_experiment.problems
     return (
         compiled_experiment.request,
-        build_run_plan_record(compiled_experiment.plan),
+        build_run_plan_record(
+            compiled_experiment.plan,
+            execution=_point_execution(),
+        ),
     )
 
 
@@ -96,17 +111,19 @@ def test_run_request_v4_projector_matches_golden_and_round_trips(
     assert restored == request
 
 
-def test_run_plan_v4_projector_matches_golden_and_round_trips(
+def test_run_plan_v6_projector_matches_golden_and_round_trips(
     tmp_path: Path,
 ) -> None:
-    golden = _golden("run-plan-v4.json")
+    golden = _golden("run-plan-v6.json")
     _request, plan = _canonical_projections(tmp_path)
 
     restored = RunPlanRecord.model_validate_json(json.dumps(golden))
 
-    assert plan.schema_version == "scopecat.run_plan_record.v4"
+    assert plan.schema_version == "scopecat.run_plan_record.v6"
     assert plan.model_dump(mode="json") == golden
     assert restored == plan
+    assert plan.execution_units == [_point_execution()]
+    assert plan.records[0].producer_unit_id == "point-instrument"
     assert plan.state_changes[0].capability_id == "set_frequency"
     assert plan.state_changes[0].field_path == "frequency"
     assert plan.state_changes[0].resource_id == "source-0"
@@ -142,8 +159,14 @@ def test_preview_and_run_plan_resource_projections_are_repeatable_and_plain(
         build_experiment_preview(compiled_second.plan),
         mode="json",
     )
-    plan_first = build_run_plan_record(compiled_first.plan).model_dump(mode="json")
-    plan_second = build_run_plan_record(compiled_second.plan).model_dump(mode="json")
+    plan_first = build_run_plan_record(
+        compiled_first.plan,
+        execution=_point_execution(),
+    ).model_dump(mode="json")
+    plan_second = build_run_plan_record(
+        compiled_second.plan,
+        execution=_point_execution(),
+    ).model_dump(mode="json")
 
     assert preview_first == preview_second
     assert plan_first == plan_second
@@ -194,7 +217,7 @@ def test_durable_goldens_exclude_transient_compiler_identity() -> None:
     }
 
     request_keys = _all_mapping_keys(_golden("run-request-v4.json"))
-    plan_keys = _all_mapping_keys(_golden("run-plan-v4.json"))
+    plan_keys = _all_mapping_keys(_golden("run-plan-v6.json"))
 
     assert request_keys.isdisjoint(forbidden_keys)
     assert plan_keys.isdisjoint(forbidden_keys)
@@ -240,13 +263,14 @@ def test_corrupt_run_request_is_rejected(
         "legacy_state_field",
         "ambiguous_record_target",
         "deferred_node_identity",
+        "missing_execution_units",
         "out_of_range_state",
     ],
 )
 def test_corrupt_run_plan_is_rejected(
     corruption: str,
 ) -> None:
-    plan = deepcopy(_golden("run-plan-v4.json"))
+    plan = deepcopy(_golden("run-plan-v6.json"))
     if corruption == "legacy_schema":
         plan["schema_version"] = "scopecat.run_plan_record.v3"
     elif corruption == "compiler_root":
@@ -263,6 +287,8 @@ def test_corrupt_run_plan_is_rejected(
             "kind": "deferred",
             "node_id": "produce",
         }
+    elif corruption == "missing_execution_units":
+        del plan["execution_units"]
     elif corruption == "out_of_range_state":
         plan["state_changes"][0]["point_index"] = plan["point_count"]
     else:  # pragma: no cover - parametrization is closed above
@@ -276,7 +302,7 @@ def test_stored_plan_remains_readable_when_stored_request_is_corrupt(
     tmp_path: Path,
 ) -> None:
     run = start_run(
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
         workspace=tmp_path,
@@ -291,14 +317,14 @@ def test_stored_plan_remains_readable_when_stored_request_is_corrupt(
         load_run_request(run_id=run.run_id, workspace=tmp_path)
 
     plan = load_run_plan(run_id=run.run_id, workspace=tmp_path)
-    assert plan.model_dump(mode="json") == _golden("run-plan-v4.json")
+    assert plan.model_dump(mode="json") == _golden("run-plan-v6.json")
 
 
 def test_stored_request_remains_readable_when_stored_plan_is_corrupt(
     tmp_path: Path,
 ) -> None:
     run = start_run(
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
         workspace=tmp_path,

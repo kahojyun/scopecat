@@ -32,7 +32,6 @@ from scopecat_quantum.circuits import (
     Measure,
     Parallel,
     Sequence,
-    VerifiedCircuitProgram,
     iter_circuit_operations,
     verify_circuit_program,
 )
@@ -597,16 +596,6 @@ def test_generated_parallel_branches_with_distinct_qubits_verify(
     )
 
     assert tuple(verified.operations) == branches
-
-
-def test_verified_circuit_program_cannot_be_forged() -> None:
-    program = CircuitProgram(
-        CircuitId("unverified"),
-        Sequence(()),
-    )
-
-    with pytest.raises(TypeError, match="only be created by circuit verification"):
-        VerifiedCircuitProgram(program, (), ())
 
 
 def test_verifier_reports_invalid_node_shape_without_masking_other_issues() -> None:

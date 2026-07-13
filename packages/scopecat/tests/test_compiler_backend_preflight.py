@@ -25,7 +25,6 @@ from scopecat._compiler.state import PhysicalStateResourceTarget, StateSpec
 from scopecat._compiler.verification import (
     SelectedProgramRelation,
     SelectedTypedProgram,
-    VerifiedTypedProgram,
     seal_typed_program,
     select_typed_program,
 )
@@ -567,8 +566,6 @@ def test_same_plan_can_back_distinct_relation_use_occurrences() -> None:
 
 
 def test_changing_a_relation_use_plan_requires_fresh_selection() -> None:
-    import scopecat._compiler.verification as verification_module
-
     original_use = relation_use(scalar_value_expr("before", expected_type=_STRING))
     program = TypedProgram(
         id="relation-use-plan-change",
@@ -609,7 +606,6 @@ def test_changing_a_relation_use_plan_requires_fresh_selection() -> None:
             changed.backend_id,
             original.relation_selections,
             changed.point_domain,
-            _token=verification_module._SELECTED_TYPED_PROGRAM_TOKEN,  # pyright: ignore[reportPrivateUsage]
         )
 
     assert changed.relation_selections[0].consumer.value == changed_use.value
@@ -653,19 +649,15 @@ def test_relation_use_wrappers_revalidate_value_shape_at_ir_boundaries() -> None
     assert route.entity_uses[0].id == scalar_use.id
 
 
-def test_selected_program_seals_exact_owners_backend_and_proofs() -> None:
-    import scopecat._compiler.verification as verification_module
-
+def test_selected_program_binds_exact_owners_backend_and_proofs() -> None:
     verified = seal_typed_program(_inventory_program())
     selected = select_typed_program(REFERENCE_RELATION_BACKEND, verified)
-    token = verification_module._SELECTED_TYPED_PROGRAM_TOKEN  # pyright: ignore[reportPrivateUsage]
 
     reordered = SelectedTypedProgram(
         verified,
         selected.backend_id,
         tuple(reversed(selected.relation_selections)),
         selected.point_domain,
-        _token=token,
     )
     assert reordered.relation_selections == selected.relation_selections
 
@@ -675,7 +667,6 @@ def test_selected_program_seals_exact_owners_backend_and_proofs() -> None:
             selected.backend_id,
             selected.relation_selections[:-1],
             selected.point_domain,
-            _token=token,
         )
 
     first, second, *rest = selected.relation_selections
@@ -685,7 +676,6 @@ def test_selected_program_seals_exact_owners_backend_and_proofs() -> None:
             selected.backend_id,
             (first, first, *rest),
             selected.point_domain,
-            _token=token,
         )
 
     extra_consumer = replace(first.consumer, id=RelationUseId.fresh())
@@ -701,7 +691,6 @@ def test_selected_program_seals_exact_owners_backend_and_proofs() -> None:
                 ),
             ),
             selected.point_domain,
-            _token=token,
         )
 
     wrong_owner = SelectedProgramRelation(
@@ -714,7 +703,6 @@ def test_selected_program_seals_exact_owners_backend_and_proofs() -> None:
             selected.backend_id,
             (wrong_owner, second, *rest),
             selected.point_domain,
-            _token=token,
         )
 
     point_relation = verified.point_domain.relation_leaves[0]
@@ -737,7 +725,6 @@ def test_selected_program_seals_exact_owners_backend_and_proofs() -> None:
             selected.backend_id,
             selected.relation_selections,
             alternate_point_domain,
-            _token=token,
         )
 
     wrong_proof = replace(first, selected_plan=second.selected_plan)
@@ -747,7 +734,6 @@ def test_selected_program_seals_exact_owners_backend_and_proofs() -> None:
             selected.backend_id,
             (wrong_proof, second, *rest),
             selected.point_domain,
-            _token=token,
         )
 
     other_backend = ReferenceRelationBackend(backend_id="tests.other-program-backend")
@@ -764,20 +750,7 @@ def test_selected_program_seals_exact_owners_backend_and_proofs() -> None:
             selected.backend_id,
             (wrong_backend, second, *rest),
             selected.point_domain,
-            _token=token,
         )
-
-
-def test_program_proof_and_backend_artifacts_have_sealed_construction() -> None:
-    program = _inventory_program()
-    verified = seal_typed_program(program)
-
-    with pytest.raises(TypeError, match="seal_typed_program"):
-        VerifiedTypedProgram(program, ())
-    with pytest.raises(TypeError, match="select_typed_program"):
-        SelectedTypedProgram(verified, "tests", ())
-    with pytest.raises(TypeError, match="VerifiedTypedProgram"):
-        select_typed_program(REFERENCE_RELATION_BACKEND, program)  # type: ignore[arg-type]
 
 
 def test_program_backend_selection_selects_every_consumer_once() -> None:

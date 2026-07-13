@@ -154,9 +154,6 @@ class PointDomainValueError(ValueError):
         super().__init__(str(error))
 
 
-_VERIFIED_POINT_DOMAIN_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True)
 class VerifiedPointDomainRelation:
     """One nominal relation use and its diagnostic structural location."""
@@ -182,12 +179,7 @@ class VerifiedPointDomain:
         domain: PointDomain,
         analysis: PointDomainAnalysis,
         relation_leaves: Sequence[VerifiedPointDomainRelation],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _VERIFIED_POINT_DOMAIN_TOKEN:
-            msg = "VerifiedPointDomain can only be created by verify_point_domain"
-            raise TypeError(msg)
         object.__setattr__(self, "_id", domain_id)
         object.__setattr__(self, "_domain", _copy_domain(domain))
         object.__setattr__(self, "_analysis", analysis)
@@ -223,9 +215,6 @@ class VerifiedPointDomain:
         return self._domain.coordinate_columns
 
 
-_SELECTED_POINT_DOMAIN_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True)
 class SelectedPointDomainRelation:
     """One verified domain leaf paired with a backend-selected plan."""
@@ -249,12 +238,7 @@ class SelectedPointDomain:
         verified: VerifiedPointDomain,
         backend_id: str,
         selections: Sequence[SelectedPointDomainRelation],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SELECTED_POINT_DOMAIN_TOKEN:
-            msg = "SelectedPointDomain can only be created by point-domain selection"
-            raise TypeError(msg)
         if not backend_id:
             msg = "selected point-domain backend id must be non-empty"
             raise ValueError(msg)
@@ -349,9 +333,6 @@ class LogicalPointId:
         )
 
 
-_MATERIALIZED_POINT_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class MaterializedPoint:
     """One concrete point retaining its canonical logical identity."""
@@ -365,14 +346,7 @@ class MaterializedPoint:
         logical_id: LogicalPointId,
         row: Mapping[str, CellValue],
         row_key: str | None,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _MATERIALIZED_POINT_TOKEN:
-            msg = (
-                "MaterializedPoint can only be created by point-domain materialization"
-            )
-            raise TypeError(msg)
         object.__setattr__(self, "logical_id", logical_id)
         object.__setattr__(self, "_row", _snapshot_row(row))
         object.__setattr__(self, "row_key", row_key)
@@ -384,9 +358,6 @@ class MaterializedPoint:
     @property
     def logical_ordinal(self) -> int:
         return self.logical_id.logical_ordinal
-
-
-_MATERIALIZED_POINT_DOMAIN_TOKEN = object()
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -403,15 +374,7 @@ class MaterializedPointDomain:
         domain_id: PointDomainId,
         points: Sequence[MaterializedPoint],
         declared_cardinality: PointCardinality,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _MATERIALIZED_POINT_DOMAIN_TOKEN:
-            msg = (
-                "MaterializedPointDomain can only be created by point-domain "
-                "materialization"
-            )
-            raise TypeError(msg)
         selected = tuple(points)
         if any(point.logical_id.domain_id != domain_id for point in selected):
             msg = "materialized point identities must belong to their domain"
@@ -474,7 +437,6 @@ def verify_point_domain(
         domain,
         analysis,
         relations,
-        _token=_VERIFIED_POINT_DOMAIN_TOKEN,
     )
 
 
@@ -528,7 +490,6 @@ def bind_selected_point_domain(
         verified,
         backend_id,
         bound,
-        _token=_SELECTED_POINT_DOMAIN_TOKEN,
     )
 
 
@@ -577,7 +538,6 @@ def materialize_point_domain(
             LogicalPointId(selected.id, ordinal),
             cast("Mapping[str, CellValue]", row),
             _best_effort_row_key(row),
-            _token=_MATERIALIZED_POINT_TOKEN,
         )
         for ordinal, row in enumerate(typed_rows)
     )
@@ -585,7 +545,6 @@ def materialize_point_domain(
         selected.id,
         points,
         selected.cardinality,
-        _token=_MATERIALIZED_POINT_DOMAIN_TOKEN,
     )
 
 

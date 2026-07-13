@@ -6,6 +6,7 @@ import pytest
 
 from scopecat._workflows.runs import read_run_record_json, start_run
 from scopecat.errors import CheckFailed
+from scopecat.execution_backend import PointInstrumentBackend
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import (
     config_with_instrument_id,
@@ -21,7 +22,7 @@ def test_start_run_uses_provider_selected_config_instrument(
         config=config_with_instrument_id("source-a"),
         experiment=load_prepared_invocation(),
         workspace=tmp_path,
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     snapshot = read_run_record_json(
         run_id=manifest.run_id,
@@ -34,7 +35,7 @@ def test_start_run_uses_provider_selected_config_instrument(
     assert snapshot.content["instrument_ids"] == ["source-a"]
 
 
-def test_start_run_requires_explicit_instrument_provider(
+def test_start_run_requires_explicit_execution_backend(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(CheckFailed) as error:
@@ -44,4 +45,4 @@ def test_start_run_requires_explicit_instrument_provider(
             workspace=tmp_path,
         )
 
-    assert error.value.problems[0].code == "execution.instrument_provider_missing"
+    assert error.value.problems[0].code == "execution.execution_backend_missing"

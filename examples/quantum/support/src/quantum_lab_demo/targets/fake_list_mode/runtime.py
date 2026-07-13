@@ -24,7 +24,6 @@ from quantum_lab_demo.targets.fake_list_mode.model import (
     FakeListEntry,
     acquisition_slot_identity_payload,
     canonical_fingerprint,
-    pulse_event_identity_payload,
     signal_key,
 )
 
@@ -518,12 +517,9 @@ def _capture_value(
     window: FakeAcquisitionWindow,
 ) -> FakeDigitizerValue:
     address = {
-        "schema": "quantum_lab_demo.fake_digitizer_address.v1",
+        "schema": "quantum_lab_demo.fake_digitizer_address.v2",
         "shot_index": playback.shot_index,
-        "entry_id": playback.entry_id.value,
         "waveform_fingerprint": playback.waveform_fingerprint,
-        "event_id": pulse_event_identity_payload(window.event_id),
-        "slot_id": acquisition_slot_identity_payload(window.slot_id),
         "signal": signal_key(window.signal),
         "channel_id": window.channel_id.value,
         "start_sample": window.start_sample,

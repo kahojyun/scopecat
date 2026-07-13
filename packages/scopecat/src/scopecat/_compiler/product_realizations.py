@@ -26,8 +26,6 @@ from scopecat.problems import (
 )
 from scopecat.routing import RoutingError, RoutingView
 
-_SELECTION_TOKEN = object()
-
 
 @dataclass(frozen=True, slots=True)
 class SelectedLocalProductRealization:
@@ -70,15 +68,7 @@ class SelectedLocalProductRealizations:
     def __init__(
         self,
         entries: tuple[SelectedLocalProductRealization, ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SELECTION_TOKEN:
-            msg = (
-                "SelectedLocalProductRealizations can only be created by "
-                "select_local_product_realizations"
-            )
-            raise TypeError(msg)
         by_use = {entry.product_use_id: entry for entry in entries}
         if len(by_use) != len(entries):
             msg = "selected local product realizations require unique product uses"
@@ -284,7 +274,6 @@ def select_local_product_realizations(
     return (
         SelectedLocalProductRealizations(
             tuple(selected),
-            _token=_SELECTION_TOKEN,
         ),
         (),
     )

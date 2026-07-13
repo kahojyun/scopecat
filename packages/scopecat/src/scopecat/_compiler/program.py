@@ -7,7 +7,7 @@ and deliberately has no schema version or round-trip compatibility promise.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Any, Literal, cast
 
 from pydantic import (
@@ -16,6 +16,7 @@ from pydantic import (
     Field,
 )
 
+from scopecat._compiler.action import ActionFieldSpec, ActionSpec
 from scopecat._compiler.parameter_overlays import PointParameterOverlay
 from scopecat._compiler.point_domain import PointDomain
 from scopecat._compiler.products import (
@@ -50,6 +51,7 @@ from scopecat._resource_identity import (
     logical_resource_port_id,
 )
 from scopecat._semantic_graph import (
+    ActionId,
     ImplementationCatalog,
     OperationId,
     SourceMap,
@@ -196,6 +198,7 @@ class TypedProgram(BaseModel):
     )
     source_map: SourceMap = Field(default_factory=SourceMap, exclude=True)
     state: tuple[StateSpec, ...] = ()
+    actions: tuple[ActionSpec, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     instrument_product_producers: tuple[InstrumentProductProducer, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
@@ -300,6 +303,33 @@ def bind_each(
         relation_use=relation_use(relation),
         row_scope_id=row_scope_id,
         state=list(state),
+    )
+
+
+def invoke_action(
+    id: ActionId,  # noqa: A002
+    *,
+    resource_port_id: LogicalResourcePortId,
+    capability_id: str,
+    fields: Mapping[str, ScalarValueExpr | ComputeResultRef] | None = None,
+) -> ActionSpec:
+    """Build one ordered instrument action invoked for every point."""
+
+    return ActionSpec(
+        id=id,
+        resource_port_id=resource_port_id,
+        capability_id=capability_id,
+        fields=tuple(
+            ActionFieldSpec(
+                id=field_id,
+                value_use=(
+                    value
+                    if isinstance(value, ComputeResultRef)
+                    else relation_use(value)
+                ),
+            )
+            for field_id, value in (fields or {}).items()
+        ),
     )
 
 
@@ -449,6 +479,7 @@ def typed_program(
     implementation_catalog: ImplementationCatalog | None = None,
     source_map: SourceMap | None = None,
     state: Sequence[StateSpec] = (),
+    actions: Sequence[ActionSpec] = (),
     product_defs: Sequence[ProductDef] = (),
     instrument_product_producers: Sequence[InstrumentProductProducer] = (),
     product_uses: Sequence[ProductUse] = (),
@@ -469,6 +500,7 @@ def typed_program(
         implementation_catalog=implementation_catalog or ImplementationCatalog(),
         source_map=source_map or SourceMap(),
         state=tuple(state),
+        actions=tuple(actions),
         product_defs=tuple(product_defs),
         instrument_product_producers=tuple(instrument_product_producers),
         product_uses=tuple(product_uses),
@@ -489,6 +521,7 @@ __all__ = [
     "bind_each",
     "compute_result",
     "instrument_product_producer",
+    "invoke_action",
     "observable_product",
     "overlay_parameter_cell",
     "product_axis",

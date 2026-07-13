@@ -27,6 +27,7 @@ from scopecat.authoring._handles import replace_handle
 from scopecat.authoring._intents import (
     ComputeNodeInputValue,
     ExperimentStateIntent,
+    ModuleActionDecl,
     ModuleInputPort,
     ModuleOperationDecl,
     ParameterScanOverlayIntent,
@@ -118,6 +119,7 @@ class _ModuleFragment(_ExperimentEnvelope):
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ScopedPythonImplementation, ...] = ()
     state_intents: tuple[ExperimentStateIntent, ...] = ()
+    actions: tuple[ModuleActionDecl, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -238,6 +240,7 @@ def _merge_module_fragments(
         state_intents=tuple(
             item for fragment in fragments for item in fragment.state_intents
         ),
+        actions=tuple(item for fragment in fragments for item in fragment.actions),
         parameter_overlays=tuple(
             item for fragment in fragments for item in fragment.parameter_overlays
         ),
@@ -273,6 +276,7 @@ def elaborate_module(
     semantic = elaborate_semantic_graph(
         fragment.operations,
         fragment.python_implementations,
+        actions=fragment.actions,
         value_roots=_module_fragment_semantic_value_roots(fragment),
         state_regions=fragment.state_intents,
         input_types={port.id: port.value_type for port in fragment.input_ports},
@@ -331,6 +335,9 @@ def _elaborate_module_ir(
         ),
         state_intents=tuple(
             _resolve_state(state, resolver=resolver) for state in module.body.state
+        ),
+        actions=tuple(
+            _resolve_action(action, resolver=resolver) for action in module.body.actions
         ),
         operations=tuple(
             _resolve_operation(operation, resolver=resolver)
@@ -450,6 +457,9 @@ def _module_value_roots(module: ModuleIR) -> tuple[object, ...]:
                 *intent.route_entities,
             )
         )
+    values.extend(
+        value for action in module.body.actions for _name, value in action.fields
+    )
     values.extend(
         value
         for operation in module.body.operations
@@ -697,6 +707,23 @@ def _resolve_operation(
     )
 
 
+def _resolve_action(
+    action: ModuleActionDecl,
+    *,
+    resolver: _ModuleValueResolver,
+) -> ModuleActionDecl:
+    return replace(
+        action,
+        fields=tuple(
+            (
+                name,
+                resolver.resolve(value) if isinstance(value, ValueRef) else value,
+            )
+            for name, value in action.fields
+        ),
+    )
+
+
 def _resolve_record(
     record: RecordIntent,
     *,
@@ -750,6 +777,9 @@ def _module_fragment_consumed_value_roots(
         values.extend(
             (intent.relation, intent.resource, intent.value, *intent.route_entities)
         )
+    values.extend(
+        value for action in fragment.actions for _name, value in action.fields
+    )
     values.extend(
         value for operation in fragment.operations for _name, value in operation.inputs
     )
@@ -853,6 +883,16 @@ def _scope_instance_graph(
                 resource_ids=resource_ids,
             )
             for intent in fragment.state_intents
+        ),
+        actions=tuple(
+            _scope_action(
+                action,
+                local_inputs,
+                scope=scope,
+                origin=origin,
+                resource_ids=resource_ids,
+            )
+            for action in fragment.actions
         ),
         operations=tuple(
             _scope_operation(
@@ -1120,6 +1160,38 @@ def _scope_operation(
                 ),
             )
             for name, value in operation.inputs
+        ),
+    )
+
+
+def _scope_action(
+    action: ModuleActionDecl,
+    inputs: Mapping[str, object],
+    *,
+    scope: tuple[str, ...],
+    origin: tuple[object, ...],
+    resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
+) -> ModuleActionDecl:
+    return replace(
+        action,
+        scope=(*scope, *action.scope),
+        resource_port_id=resource_ids.get(
+            action.resource_port_id,
+            action.resource_port_id,
+        ),
+        fields=tuple(
+            (
+                name,
+                _scope_value_ref(
+                    value,
+                    inputs,
+                    scope=scope,
+                    origin=origin,
+                )
+                if isinstance(value, ValueRef)
+                else value,
+            )
+            for name, value in action.fields
         ),
     )
 

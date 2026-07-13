@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import cast
 
+from scopecat._execution.events import RuntimeTransitionProjector
 from scopecat._execution.journal import ExecutionJournal, ExecutionTransition
 from scopecat._execution.problems import problem_from_exception, runtime_problem
 from scopecat.instruments.sdk import (
@@ -150,8 +151,9 @@ def cleanup_after_setup_failure(
     *,
     run_id: str,
     journal: ExecutionJournal,
+    transition_observer: RuntimeTransitionProjector,
 ) -> tuple[list[InstrumentStateSnapshot], BaseException | None]:
-    """Journal, release provisioned drivers, and capture their terminal state."""
+    """Release provisioned drivers and capture their terminal state."""
 
     interruption: BaseException | None = None
     managed: list[tuple[str, bool, InstrumentDriver]] = []
@@ -176,7 +178,12 @@ def cleanup_after_setup_failure(
         )
         interruption = _first_interruption(
             interruption,
-            _append_setup_transition(journal, entry, problems),
+            _commit_setup_transition(
+                journal,
+                transition_observer,
+                entry,
+                problems,
+            ),
         )
         try:
             instrument.cleanup()
@@ -192,8 +199,9 @@ def cleanup_after_setup_failure(
             problems.append(problem)
             interruption = _first_interruption(
                 interruption,
-                _append_setup_transition(
+                _commit_setup_transition(
                     journal,
+                    transition_observer,
                     entry.model_copy(
                         update={"state": "failed", "problems": (problem,)}
                     ),
@@ -212,8 +220,9 @@ def cleanup_after_setup_failure(
             problems.append(problem)
             interruption = _first_interruption(
                 interruption,
-                _append_setup_transition(
+                _commit_setup_transition(
                     journal,
+                    transition_observer,
                     entry.model_copy(
                         update={"state": "failed", "problems": (problem,)}
                     ),
@@ -223,8 +232,9 @@ def cleanup_after_setup_failure(
             continue
         interruption = _first_interruption(
             interruption,
-            _append_setup_transition(
+            _commit_setup_transition(
                 journal,
+                transition_observer,
                 entry.model_copy(update={"state": "completed"}),
                 problems,
             ),
@@ -241,10 +251,7 @@ def cleanup_after_setup_failure(
             state="started",
             instrument_id=instrument_id,
         )
-        interruption = _first_interruption(
-            interruption,
-            _append_setup_transition(journal, entry, problems),
-        )
+        transition_observer.observe(entry)
         try:
             state = instrument.read_state().model_copy(deep=True)
             if identity_known and state.instrument_id != instrument_id:
@@ -259,15 +266,8 @@ def cleanup_after_setup_failure(
                 error=error,
             )
             problems.append(problem)
-            interruption = _first_interruption(
-                interruption,
-                _append_setup_transition(
-                    journal,
-                    entry.model_copy(
-                        update={"state": "failed", "problems": (problem,)}
-                    ),
-                    problems,
-                ),
+            transition_observer.observe(
+                entry.model_copy(update={"state": "failed", "problems": (problem,)})
             )
             continue
         except BaseException as error:
@@ -279,36 +279,24 @@ def cleanup_after_setup_failure(
                 instrument_id=instrument_id,
             )
             problems.append(problem)
-            interruption = _first_interruption(
-                interruption,
-                _append_setup_transition(
-                    journal,
-                    entry.model_copy(
-                        update={"state": "failed", "problems": (problem,)}
-                    ),
-                    problems,
-                ),
+            transition_observer.observe(
+                entry.model_copy(update={"state": "failed", "problems": (problem,)})
             )
             continue
         states.append(state)
-        interruption = _first_interruption(
-            interruption,
-            _append_setup_transition(
-                journal,
-                entry.model_copy(update={"state": "completed"}),
-                problems,
-            ),
-        )
+        transition_observer.observe(entry.model_copy(update={"state": "completed"}))
     return states, interruption
 
 
-def _append_setup_transition(
+def _commit_setup_transition(
     journal: ExecutionJournal,
+    transition_observer: RuntimeTransitionProjector,
     entry: ExecutionTransition,
     problems: list[Problem],
 ) -> BaseException | None:
     try:
-        journal.append(entry)
+        committed = journal.append(entry)
+        transition_observer.observe(committed)
     except Exception as error:
         problems.append(
             problem_from_exception(

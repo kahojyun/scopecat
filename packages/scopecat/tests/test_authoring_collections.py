@@ -15,6 +15,8 @@ from scopecat._compiler.program import (
 from scopecat._compiler.state import evaluate_state_spec
 from scopecat._compiler.verification import seal_typed_program, select_typed_program
 from scopecat._compute_result import ComputeResultRef
+from scopecat._execution.lowering import build_execution_program
+from scopecat._execution.program import ActionStage
 from scopecat._relation_analysis import PlanNode
 from scopecat._relation_backend import (
     REFERENCE_RELATION_BACKEND,
@@ -45,6 +47,7 @@ from scopecat.authoring._value_refs import (
 )
 from scopecat.errors import CheckFailed
 from scopecat.models.entity import EntityRef
+from scopecat.models.parameter import Quantity
 from scopecat.problems import model_location
 from scopecat.value_validation import ValueValidationError
 from tests.support.authoring import load_config
@@ -58,6 +61,36 @@ from tests.support.relation_plans import (
 )
 
 _BACKEND = REFERENCE_RELATION_BACKEND
+
+
+def test_action_lowers_as_a_distinct_point_effect() -> None:
+    module = (
+        authoring.module("test.action")
+        .resource("source", requires=("set_frequency",))
+        .action(
+            "trigger",
+            resource="source",
+            capability="set_frequency",
+            fields={"frequency": Quantity(value=5.0, unit="GHz")},
+        )
+        .build()
+    )
+    template = module.template("test.action", kind="action").build()
+    resolved = resolve_experiment(
+        template.bind(),
+        workspace=Path("/tmp/scopecat-action-test"),
+        config_profile=load_config(),
+    )
+
+    assert len(resolved.experiment.actions) == 1
+    bound = bind_program(resolved.experiment, resolved.environment)
+    assert not bound.problems
+    assert len(bound.points[0].actions) == 1
+    execution = build_execution_program(bound)
+    action_stage = next(
+        stage for stage in execution.points[0].stages if isinstance(stage, ActionStage)
+    )
+    assert action_stage.operations[0].capability_id == "set_frequency"
 
 
 def _echo_rows_offsets(*, rows: object, offsets: object) -> dict[str, object]:

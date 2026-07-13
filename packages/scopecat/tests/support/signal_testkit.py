@@ -283,7 +283,7 @@ def execute_signal_run(
         config=config,
         experiment=prepare_invocation(experiment),
         workspace=workspace,
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
         config_source=config_source,
     )
     summary_record = next(

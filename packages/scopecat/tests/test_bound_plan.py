@@ -45,8 +45,10 @@ from scopecat.models.parameter import Quantity
 from scopecat.models.state import PayloadRef
 from scopecat.models.value import PayloadValue
 from scopecat.value_types import (
+    Bool,
     Entity,
     Float,
+    Int,
     Payload,
     Scalar,
     String,
@@ -137,6 +139,45 @@ def test_content_fingerprint_preserves_primitive_enum_types() -> None:
     assert first != content_fingerprint(1)
     assert first != content_fingerprint(_SecondIntegerToken.ONE)
     assert content_fingerprint(_TextToken.ONE) != content_fingerprint("one")
+
+
+@pytest.mark.parametrize(
+    ("value", "value_type"),
+    [
+        (True, Scalar(Bool())),
+        (3, Scalar(Int())),
+        ("operate", Scalar(String())),
+    ],
+)
+def test_bound_state_preserves_primitive_field_types(
+    value: str | int | bool,
+    value_type: Scalar,
+) -> None:
+    program = typed_program(
+        id="primitive-state",
+        kind="compiler_test",
+        point_domain=_point_domain(
+            literal_rows([{}]),
+            Table(columns=(), min_rows=1, max_rows=1),
+        ),
+        state=(
+            set_state_field(
+                _resource("source-0"),
+                capability_id="configure",
+                field_path="value",
+                value=scalar_value_expr(lit(value), expected_type=value_type),
+            ),
+        ),
+    )
+    environment = validate_config_environment(
+        config_with_physical_resources({"source-0": ("configure",)})
+    )
+
+    plan = bind_program(program, environment)
+
+    assert plan.valid
+    assert plan.points[0].desired_state[0].fields[0].value.root == value
+    assert type(plan.points[0].desired_state[0].fields[0].value.root) is type(value)
 
 
 def test_bind_program_returns_diagnostic_plan_for_duplicate_compute_operations() -> (

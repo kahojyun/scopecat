@@ -66,7 +66,7 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
 
     run = lab.prepare(load_invocation()).run()
@@ -135,7 +135,7 @@ def test_data_selectors_report_structured_problems(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
     data = run.data()
@@ -155,7 +155,7 @@ def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
 
@@ -192,7 +192,7 @@ def test_workspace_experiment_wraps_existing_module_source(tmp_path: Path) -> No
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     readout = _workspace_readout_instance("readout")
     experiment = (
@@ -221,7 +221,11 @@ def test_workspace_experiment_composes_module_source_with_fragments(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(
+            TestSignalInstrumentProvider(
+                additional_product_keys=("manual_signal",),
+            )
+        ),
     )
     readout = _workspace_readout_instance("readout")
     experiment = (
@@ -236,11 +240,16 @@ def test_workspace_experiment_composes_module_source_with_fragments(
             ],
         )
         .record_product(readout.products.signal, record_id="signal")
-        .record("manual_signal", unit="ratio")
+        .record(
+            "manual_signal",
+            product_key="manual_signal",
+            unit="ratio",
+        )
     )
 
     preview = experiment.preview()
 
+    assert preview.point_count == 3
     assert set(preview.primary_observables) == {"signal", "manual_signal"}
 
 
@@ -349,7 +358,7 @@ def test_workspace_experiment_lowers_to_runnable_spec(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     experiment = (
         lab.experiment("manual signal scan")
@@ -403,7 +412,7 @@ def test_workspace_run_options_materialize_internal_run_request(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
 
     run = (
@@ -481,7 +490,7 @@ def test_prepared_template_builder_preview_and_run_terminals(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     template = (
         SIMPLE_MODULE.template("test.prepared_builder", kind="simple_scan")
@@ -526,7 +535,7 @@ def test_workspace_experiment_preview_and_run_terminals(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     experiment = (
         lab.experiment("terminal signal scan")
@@ -546,7 +555,7 @@ def test_workspace_extra_scans_can_zip_axes(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
 
     run = (
@@ -594,6 +603,7 @@ def test_invocation_scan_overrides_axis_inside_default_zip_group(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     template = (
         SIMPLE_MODULE.template("test.default_zip_override", kind="default_zip_override")
@@ -635,6 +645,7 @@ def test_implicit_around_override_of_values_default_uses_active_center(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     template = (
         SIMPLE_MODULE.template(
@@ -666,6 +677,7 @@ def test_invocation_scan_group_rejects_mixed_default_override(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     template = (
         SIMPLE_MODULE.template("test.mixed_scan_override", kind="mixed_scan_override")
@@ -696,6 +708,7 @@ def test_workspace_experiment_supports_active_center_scan(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     experiment = (
         lab.experiment("active centered scan")
@@ -721,7 +734,7 @@ def test_workspace_experiment_defines_complete_experiment(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     experiment = (
         lab.experiment("complete scripted scan")
@@ -757,7 +770,7 @@ def test_workspace_module_can_be_composed(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     drive_frequency = sc.input(
         "drive_frequency",
@@ -828,7 +841,7 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
     raw = run.data().measurements()
@@ -881,7 +894,7 @@ def test_run_analysis_persists_output_artifacts(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
     source_report = tmp_path / "fit-report.html"
@@ -948,7 +961,7 @@ def test_run_analysis_persists_owned_artifacts(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
     source = tmp_path / "source-report.html"
@@ -1012,7 +1025,7 @@ def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
 
@@ -1064,7 +1077,7 @@ def test_analysis_artifacts_dedupe_sources_and_feed_overview(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
 
@@ -1102,7 +1115,7 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     experiment = load_invocation()
     baseline = lab.prepare(experiment).run()
@@ -1134,7 +1147,7 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     reopened = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     gui_runs = reopened.runs()
     gui_run = reopened.get_run(baseline.id)
@@ -1176,7 +1189,7 @@ def test_analysis_rejects_invalid_notebook_payloads(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
 
@@ -1212,7 +1225,7 @@ def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
     step: sc.AnalysisStep = ReadoutFit()

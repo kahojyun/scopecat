@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.instruments import (
+    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
+    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -37,6 +39,7 @@ class TestSignalInstrumentProvider:
     __test__ = False
 
     instrument_id: str | None = None
+    additional_product_keys: tuple[str, ...] = ()
     provider_id: str = "tests.signal_instrument_provider"
 
     def describe(
@@ -46,7 +49,12 @@ class TestSignalInstrumentProvider:
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=(
-                (TestSignalInstrument(instrument_id=instrument_id).describe(),)
+                (
+                    TestSignalInstrument(
+                        instrument_id=instrument_id,
+                        additional_product_keys=self.additional_product_keys,
+                    ).describe(),
+                )
                 if not problems
                 else ()
             ),
@@ -79,7 +87,12 @@ class TestSignalInstrumentProvider:
                 metadata={"provider_id": self.provider_id},
             )
         return InstrumentProviderResult(
-            drivers=(TestSignalInstrument(instrument_id=instrument_id),),
+            drivers=(
+                TestSignalInstrument(
+                    instrument_id=instrument_id,
+                    additional_product_keys=self.additional_product_keys,
+                ),
+            ),
             metadata={
                 "provider_id": self.provider_id,
                 "instrument_id": instrument_id,
@@ -151,8 +164,14 @@ class TestSignalInstrument:
     implementation_id = "tests.signal_instrument"
     implementation_version = "v0"
 
-    def __init__(self, *, instrument_id: str = "source-0") -> None:
+    def __init__(
+        self,
+        *,
+        instrument_id: str = "source-0",
+        additional_product_keys: tuple[str, ...] = (),
+    ) -> None:
         self.instrument_id = instrument_id
+        self.product_keys = ("signal", *additional_product_keys)
         self._state: dict[tuple[str, str], StateValue] = {}
         self.applied_commands: list[InstrumentStateCommand] = []
         self.collect_commands: list[CollectCommand] = []
@@ -169,7 +188,10 @@ class TestSignalInstrument:
                 ),
                 capability(
                     "scalar_signal",
-                    products=[product("signal", unit="ratio")],
+                    products=[
+                        product(product_key, unit="ratio")
+                        for product_key in self.product_keys
+                    ],
                     metadata={"observable": "signal"},
                 ),
             ],
@@ -196,21 +218,29 @@ class TestSignalInstrument:
             self._state[(field.capability_id, field.field_path)] = field.value
         return ApplyReceipt(status="applied")
 
+    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
+        del command
+        return ActionReceipt(status="performed")
+
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
-        if "signal" not in {request.id for request in command.requests}:
+        requested_product_keys = tuple(
+            request.id
+            for request in command.requests
+            if request.id in self.product_keys
+        )
+        if not requested_product_keys:
             return CollectReceipt(readback=InstrumentReadback())
+        value = Quantity(
+            value=_test_signal(
+                command.point_index,
+                command.point_count,
+            ),
+            unit="ratio",
+        )
         return CollectReceipt(
             readback=InstrumentReadback(
-                values={
-                    "signal": Quantity(
-                        value=_test_signal(
-                            command.point_index,
-                            command.point_count,
-                        ),
-                        unit="ratio",
-                    )
-                },
+                values=dict.fromkeys(requested_product_keys, value),
                 metadata={
                     "instrument": self.instrument_id,
                     "implementation": self.implementation_id,

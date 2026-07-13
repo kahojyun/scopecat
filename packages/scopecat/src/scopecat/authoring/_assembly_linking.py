@@ -16,6 +16,7 @@ from scopecat._relation_verification import (
 from scopecat.authoring._assembly_lowering import (
     coerce_assembly_inputs,
     input_row,
+    lower_action_effect,
     lower_parameter_overlay_intent,
     lower_point_domain,
     lower_semantic_compute_graph,
@@ -189,6 +190,17 @@ def _link_experiment_assembly(
                 )
                 for region in verified_graph.semantic_graph.graph.row_regions
             ),
+        ),
+        actions=tuple(
+            lower_action_effect(
+                ctx,
+                action,
+                verified_graph.semantic_graph,
+                resource_ports,
+                inputs,
+                type_bindings=type_bindings,
+            )
+            for action in verified_graph.semantic_graph.graph.actions
         ),
         product_defs=(*inline_products.product_defs, *declared_products.product_defs),
         instrument_product_producers=(

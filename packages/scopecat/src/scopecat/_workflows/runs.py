@@ -3,21 +3,26 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from scopecat._compiler.environment import validate_config_environment
-from scopecat._execution.executor import execute_run
+from scopecat._compiler.linked import LinkedPlan
+from scopecat._execution.composite_executor import execute_execution_plan
 from scopecat._storage.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
     RUN_PLAN_REF,
     RUN_REQUEST_REF,
 )
-from scopecat._workflows.compilation import compile_experiment
+from scopecat._workflows.compilation import link_experiment
 from scopecat._workflows.config import (
     ConfigProfileInput,
     ResolvedConfig,
     resolve_config_source,
 )
-from scopecat._workflows.preview import build_experiment_preview
+from scopecat._workflows.preview import (
+    build_domain_experiment_preview,
+    build_experiment_preview,
+)
 from scopecat.authoring._invocation_plan import PreparedInvocation
 from scopecat.authoring._resolution import (
     CompiledInvocation,
@@ -35,13 +40,17 @@ from scopecat.checks import (
     ExperimentCheckReport,
 )
 from scopecat.errors import CheckFailed, DataIntegrityError, ProblemFailure
-from scopecat.instruments.sdk import InstrumentProvider
+from scopecat.execution_backend import ExecutionBackend, PreparedExecutionPlan
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunConfigSource, RunManifest
 from scopecat.models.run_plan import RunPlanRecord
 from scopecat.models.run_request import RunRequest
-from scopecat.preview import PreviewExperimentResult, ValidateExperimentResult
+from scopecat.preview import (
+    ExperimentPreview,
+    PreviewExperimentResult,
+    ValidateExperimentResult,
+)
 from scopecat.problems import (
     Problem,
     ProblemCategory,
@@ -349,7 +358,7 @@ def start_run(
     config: ConfigProfileSnapshot,
     experiment: PreparedInvocation,
     workspace: str | Path,
-    instrument_provider: InstrumentProvider | None = None,
+    execution_backend: ExecutionBackend | None = None,
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
@@ -359,7 +368,7 @@ def start_run(
         config=config,
         experiment=compiled_invocation,
         workspace=workspace,
-        instrument_provider=instrument_provider,
+        execution_backend=execution_backend,
         config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -371,7 +380,7 @@ def _start_compiled_run(
     config: ConfigProfileSnapshot,
     experiment: CompiledInvocation,
     workspace: str | Path,
-    instrument_provider: InstrumentProvider | None,
+    execution_backend: ExecutionBackend | None,
     config_source: RunConfigSource | None,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
@@ -379,31 +388,23 @@ def _start_compiled_run(
     environment = validate_config_environment(config)
     if not environment.valid:
         raise CheckFailed(environment.problems)
-    compiled = compile_experiment(
+    linked = link_experiment(
         experiment,
         environment=environment,
         workspace=workspace,
         config_source=config_source,
     )
-    if not compiled.valid:
-        raise CheckFailed(compiled.problems)
-    if instrument_provider is None:
-        raise CheckFailed(
-            [
-                blocking_problem(
-                    "execution.instrument_provider_missing",
-                    "run execution requires an explicit instrument provider",
-                    category=ProblemCategory.INVALID_INPUT,
-                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
-                    location=model_location("run_options", "instrument_provider"),
-                )
-            ]
-        )
-    manifest, _ = execute_run(
+    if has_blocking_problems(linked.problems):
+        raise CheckFailed(linked.problems)
+    prepared = _prepare_execution_backend(
+        execution_backend,
         config=config,
-        plan=compiled.plan,
-        request=compiled.request,
-        instrument_provider=instrument_provider,
+        linked=linked.plan,
+    )
+    manifest, _ = execute_execution_plan(
+        config=config,
+        prepared=prepared,
+        request=linked.request,
         workspace=workspace,
         config_source=config_source,
         event_sink=event_sink,
@@ -418,7 +419,7 @@ def run_experiment(
     workspace: str | Path,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
-    instrument_provider: InstrumentProvider | None = None,
+    execution_backend: ExecutionBackend | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
@@ -432,7 +433,7 @@ def run_experiment(
         config=config_result.config,
         experiment=compiled_invocation,
         workspace=workspace,
-        instrument_provider=instrument_provider,
+        execution_backend=execution_backend,
         config_source=config_result.config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -445,6 +446,7 @@ def check_experiment(
     workspace: str | Path,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
+    execution_backend: ExecutionBackend | None = None,
 ) -> ExperimentCheckReport:
     """Check an invocation once through each compiler phase.
 
@@ -466,6 +468,7 @@ def check_experiment(
         workspace=workspace,
         config=config,
         config_profile=config_profile,
+        execution_backend=execution_backend,
     )
 
 
@@ -476,6 +479,7 @@ def _check_compiled_experiment(
     workspace: str | Path,
     config: str | ConfigProfileSnapshot | CandidateConfig,
     config_profile: ConfigProfileInput | None,
+    execution_backend: ExecutionBackend | None,
 ) -> ExperimentCheckReport:
     try:
         config_result = _resolve_config_read_only(
@@ -521,25 +525,29 @@ def _check_compiled_experiment(
         )
 
     try:
-        compiled = compile_experiment(
+        linked = link_experiment(
             experiment,
             environment=environment,
             workspace=workspace,
             config_source=config_result.config_source,
         )
         planning_problems = _new_problems(
-            compiled.problems,
+            linked.problems,
             excluding=environment.problems,
         )
+        if has_blocking_problems(planning_problems):
+            summary = None
+        else:
+            prepared = _prepare_execution_backend(
+                execution_backend,
+                config=config_result.config,
+                linked=linked.plan,
+            )
+            summary = _build_execution_plan_preview(prepared)
         planning_status = (
             CheckStatus.FAILED
             if has_blocking_problems(planning_problems)
             else CheckStatus.PASSED
-        )
-        summary = (
-            build_experiment_preview(compiled.plan)
-            if planning_status is CheckStatus.PASSED
-            else None
         )
     except ProblemFailure as error:
         if not _problems_match_phase(error.problems, CheckPhase.PLANNING):
@@ -547,7 +555,7 @@ def _check_compiled_experiment(
         planning_problems = error.problems
         planning_status = CheckStatus.FAILED
         summary = None
-        compiled = None
+        linked = None
 
     return ExperimentCheckReport(
         phases=(
@@ -561,17 +569,11 @@ def _check_compiled_experiment(
         ),
         summary=summary,
         template_id=(
-            compiled.template_id
-            if compiled is not None
-            else experiment.request.template_id
+            linked.template_id if linked is not None else experiment.request.template_id
         ),
-        inputs=(
-            dict(compiled.inputs) if compiled is not None else dict(experiment.inputs)
-        ),
+        inputs=(dict(linked.inputs) if linked is not None else dict(experiment.inputs)),
         config_source=(
-            compiled.config_source
-            if compiled is not None
-            else config_result.config_source
+            linked.config_source if linked is not None else config_result.config_source
         ),
     )
 
@@ -608,6 +610,88 @@ def _new_problems(
     return tuple(problem for problem in problems if id(problem) not in excluded)
 
 
+def _prepare_execution_backend(
+    backend: ExecutionBackend | None,
+    *,
+    config: ConfigProfileSnapshot,
+    linked: LinkedPlan,
+) -> PreparedExecutionPlan:
+    """Normalize one execution-backend boundary into planning findings."""
+
+    if backend is None:
+        raise CheckFailed(
+            (
+                blocking_problem(
+                    "execution.execution_backend_missing",
+                    "experiment planning requires an explicit execution backend",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.PLANNING,
+                    location=model_location("run_options", "execution_backend"),
+                ),
+            )
+        )
+
+    try:
+        backend_id = backend.backend_id
+        if type(backend_id) is not str or not backend_id:
+            msg = "execution backend identity must be a non-empty string"
+            raise TypeError(msg)
+        prepared_candidate = cast("object", backend.prepare(linked, config=config))
+        if not isinstance(prepared_candidate, PreparedExecutionPlan):
+            msg = "execution backend must return PreparedExecutionPlan"
+            raise TypeError(msg)
+        prepared = prepared_candidate
+        if prepared.backend_id != backend_id:
+            msg = "prepared execution plan does not retain its backend identity"
+            raise ValueError(msg)
+        if prepared.linked_points.linked_plan.verified_program is not (
+            linked.verified_program
+        ):
+            msg = "prepared execution plan belongs to a different linked program"
+            raise ValueError(msg)
+        return prepared
+    except ProblemFailure as error:
+        raise CheckFailed(
+            tuple(
+                problem.model_copy(update={"phase": ProblemPhase.PLANNING})
+                for problem in error.problems
+            )
+        ) from error
+    except Exception as error:
+        raise CheckFailed(
+            (
+                blocking_problem(
+                    "execution_backend_prepare_failed",
+                    "execution backend could not prepare the linked program",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.PLANNING,
+                    location=model_location("execution_backend"),
+                    details={
+                        "backend_id": _safe_execution_backend_id(backend),
+                        "error_type": type(error).__qualname__,
+                    },
+                ),
+            )
+        ) from error
+
+
+def _safe_execution_backend_id(backend: ExecutionBackend) -> str | None:
+    try:
+        backend_id = backend.backend_id
+    except Exception:
+        return None
+    return backend_id if type(backend_id) is str and backend_id else None
+
+
+def _build_execution_plan_preview(
+    prepared: PreparedExecutionPlan,
+) -> ExperimentPreview:
+    point = prepared.point_unit
+    if point is not None and not prepared.domain_units:
+        return build_experiment_preview(point.bound_plan)
+    return build_domain_experiment_preview(prepared.run_plan_record())
+
+
 def _problems_match_phase(
     problems: tuple[Problem, ...],
     phase: CheckPhase,
@@ -621,12 +705,14 @@ def validate_experiment(
     workspace: str | Path,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
+    execution_backend: ExecutionBackend | None = None,
 ) -> ValidateExperimentResult:
     report = check_experiment(
         experiment,
         workspace=workspace,
         config=config,
         config_profile=config_profile,
+        execution_backend=execution_backend,
     )
     planning_ran = (
         report.for_phase(CheckPhase.PLANNING).status is not CheckStatus.SKIPPED
@@ -646,12 +732,14 @@ def preview_experiment(
     workspace: str | Path,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
+    execution_backend: ExecutionBackend | None = None,
 ) -> PreviewExperimentResult:
     validation = validate_experiment(
         experiment,
         workspace=workspace,
         config=config,
         config_profile=config_profile,
+        execution_backend=execution_backend,
     )
     if not validation.ok:
         raise CheckFailed(validation.problems)

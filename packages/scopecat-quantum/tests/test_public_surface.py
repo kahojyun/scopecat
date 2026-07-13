@@ -25,6 +25,7 @@ def test_public_facade_covers_module_exports_except_disambiguated_composition() 
     assert set(sq.circuit_targets.__all__) <= facade_names
     assert set(sq.gates.__all__) <= facade_names
     assert set(sq.measurement_calibrations.__all__) <= facade_names
+    assert set(sq.measurement_transforms.__all__) <= facade_names
     assert set(sq.targets.__all__) <= facade_names
 
 

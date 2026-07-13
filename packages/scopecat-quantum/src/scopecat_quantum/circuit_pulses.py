@@ -40,11 +40,7 @@ from scopecat_quantum.measurement_calibrations import (
 from scopecat_quantum.pulses import (
     Acquire,
     AcquisitionSlot,
-    Barrier,
-    Delay,
-    Play,
     PulseInstruction,
-    PulseLeaf,
     PulseProgram,
     iter_pulse_leaves,
 )
@@ -163,9 +159,6 @@ class CircuitPulseAcquisitionProvenance:
     acquire_event_id: PulseEventId
 
 
-_LOWERED_CIRCUIT_PULSE_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class LoweredCircuitPulseProgram:
     """Sealed proof of hygienic calibrated-circuit instantiation.
@@ -189,15 +182,7 @@ class LoweredCircuitPulseProgram:
         instantiations: tuple[CircuitPulseInstantiation, ...],
         event_provenance: tuple[CircuitPulseEventProvenance, ...],
         acquisition_provenance: tuple[CircuitPulseAcquisitionProvenance, ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _LOWERED_CIRCUIT_PULSE_TOKEN:
-            msg = (
-                "LoweredCircuitPulseProgram can only be created by "
-                "lower_circuit_to_pulses"
-            )
-            raise TypeError(msg)
         selected_instantiations = tuple(instantiations)
         selected_event_provenance = tuple(event_provenance)
         selected_acquisition_provenance = tuple(acquisition_provenance)
@@ -329,12 +314,6 @@ class LoweredCircuitPulseProgram:
         raise KeyError(msg)
 
 
-@dataclass(frozen=True, slots=True)
-class _TemplateLeafEntry:
-    leaf: PulseLeaf
-    path: tuple[int, ...]
-
-
 def lower_circuit_to_pulses(
     program: VerifiedCircuitProgram,
     selection: CalibrationSelection,
@@ -409,26 +388,10 @@ def lower_circuit_to_pulses(
         )
     }
     bindings_by_operation: dict[CircuitOperationId, CalibrationBinding] = {}
-    for index, binding in enumerate(selection.gates.bindings):
+    for binding in selection.gates.bindings:
         bindings_by_operation.setdefault(binding.call_id, binding)
-        _validate_template_binding(
-            binding,
-            path=("selection", "gates", "bindings", index, "pulse_template"),
-            issues=issues,
-        )
-    for index, binding in enumerate(selection.measurements.bindings):
+    for binding in selection.measurements.bindings:
         bindings_by_operation.setdefault(binding.measurement_id, binding)
-        _validate_measurement_template_binding(
-            binding,
-            path=(
-                "selection",
-                "measurements",
-                "bindings",
-                index,
-                "pulse_template",
-            ),
-            issues=issues,
-        )
 
     for operation in program.operations:
         binding = bindings_by_operation.get(operation.id)
@@ -487,7 +450,6 @@ def lower_circuit_to_pulses(
         instantiations=tuple(instantiations),
         event_provenance=tuple(provenance),
         acquisition_provenance=tuple(acquisition_provenance),
-        _token=_LOWERED_CIRCUIT_PULSE_TOKEN,
     )
 
 
@@ -509,181 +471,6 @@ def _iter_circuit_operations_with_paths(
         yield from _iter_circuit_operations_with_paths(
             branch,
             (*path, "branches", index),
-        )
-
-
-def _iter_template_leaf_entries(
-    instruction: PulseInstruction,
-    path: tuple[int, ...] = (),
-) -> Iterator[_TemplateLeafEntry]:
-    raw_instruction = cast("object", instruction)
-    if isinstance(raw_instruction, Play | Acquire | Delay | Barrier):
-        yield _TemplateLeafEntry(raw_instruction, path)
-        return
-    if isinstance(raw_instruction, PulseSequence):
-        children = raw_instruction.instructions
-    elif isinstance(raw_instruction, PulseParallel):
-        children = raw_instruction.branches
-    else:
-        msg = "pulse template contains an unsupported instruction node"
-        raise TypeError(msg)
-    for index, child in enumerate(children):
-        yield from _iter_template_leaf_entries(child, (*path, index))
-
-
-def _valid_event_id(value: object) -> bool:
-    if not isinstance(value, PulseEventId):
-        return False
-    local_id = cast("object", value.local_id)
-    scope = cast("object", value.scope)
-    if not isinstance(local_id, str) or not local_id.strip():
-        return False
-    if not isinstance(scope, tuple):
-        return False
-    scope_values = cast("tuple[object, ...]", scope)
-    if not all(
-        isinstance(segment, str) and bool(segment.strip()) for segment in scope_values
-    ):
-        return False
-    try:
-        _ = value.qualified_name
-    except UnicodeEncodeError:
-        return False
-    return True
-
-
-def _validate_template_binding(
-    binding: GateCalibrationBinding,
-    *,
-    path: tuple[CircuitIssuePathItem, ...],
-    issues: list[CircuitPulseLoweringIssue],
-) -> None:
-    raw_template = cast("object", binding.pulse_template)
-    if not isinstance(raw_template, PulseProgram):
-        issues.append(
-            CircuitPulseLoweringIssue(
-                code=CircuitPulseLoweringIssueCode.TEMPLATE_STRUCTURE_INVALID,
-                message=(
-                    f"calibration {binding.calibration_id.value!r} does not "
-                    "reference a pulse template"
-                ),
-                path=path,
-                operation_id=binding.call_id,
-                calibration_id=binding.calibration_id,
-            )
-        )
-        return
-    template = raw_template
-    if not isinstance(cast("object", template.id), PulseProgramId):
-        issues.append(
-            CircuitPulseLoweringIssue(
-                code=CircuitPulseLoweringIssueCode.TEMPLATE_PROGRAM_ID_INVALID,
-                message=(
-                    f"calibration {binding.calibration_id.value!r} has an invalid "
-                    "pulse template program identity"
-                ),
-                path=(*path, "id"),
-                operation_id=binding.call_id,
-                calibration_id=binding.calibration_id,
-            )
-        )
-    try:
-        entries = tuple(_iter_template_leaf_entries(template.body))
-    except (AttributeError, TypeError):
-        issues.append(
-            CircuitPulseLoweringIssue(
-                code=CircuitPulseLoweringIssueCode.TEMPLATE_STRUCTURE_INVALID,
-                message=(
-                    f"calibration {binding.calibration_id.value!r} has an invalid "
-                    "pulse template tree"
-                ),
-                path=path,
-                operation_id=binding.call_id,
-                calibration_id=binding.calibration_id,
-            )
-        )
-        return
-
-    if template.acquisition_slots or any(
-        isinstance(entry.leaf, Acquire) for entry in entries
-    ):
-        issues.append(
-            CircuitPulseLoweringIssue(
-                code=(CircuitPulseLoweringIssueCode.TEMPLATE_ACQUISITION_UNSUPPORTED),
-                message=(
-                    f"gate calibration {binding.calibration_id.value!r} cannot "
-                    "instantiate acquisition declarations or events"
-                ),
-                path=path,
-                operation_id=binding.call_id,
-                calibration_id=binding.calibration_id,
-            )
-        )
-
-    valid_event_ids: list[tuple[PulseEventId, tuple[int, ...]]] = []
-    for entry in entries:
-        raw_event_id = cast("object", entry.leaf.id)
-        if not _valid_event_id(raw_event_id):
-            issues.append(
-                CircuitPulseLoweringIssue(
-                    code=CircuitPulseLoweringIssueCode.TEMPLATE_EVENT_ID_INVALID,
-                    message=(
-                        f"gate calibration {binding.calibration_id.value!r} "
-                        "contains an invalid pulse event identity"
-                    ),
-                    path=(*path, "body", *entry.path, "id"),
-                    operation_id=binding.call_id,
-                    calibration_id=binding.calibration_id,
-                )
-            )
-            continue
-        assert isinstance(raw_event_id, PulseEventId)
-        valid_event_ids.append((raw_event_id, entry.path))
-
-    first_paths: dict[PulseEventId, tuple[int, ...]] = {}
-    for event_id, event_path in valid_event_ids:
-        first_path = first_paths.setdefault(event_id, event_path)
-        if first_path != event_path:
-            issues.append(
-                CircuitPulseLoweringIssue(
-                    code=CircuitPulseLoweringIssueCode.TEMPLATE_EVENT_DUPLICATE,
-                    message=(
-                        f"gate calibration {binding.calibration_id.value!r} uses "
-                        f"template event {event_id.value!r} more than once"
-                    ),
-                    path=(*path, "body", *event_path, "id"),
-                    operation_id=binding.call_id,
-                    calibration_id=binding.calibration_id,
-                    template_event_id=event_id,
-                )
-            )
-
-
-def _validate_measurement_template_binding(
-    binding: MeasurementCalibrationBinding,
-    *,
-    path: tuple[CircuitIssuePathItem, ...],
-    issues: list[CircuitPulseLoweringIssue],
-) -> None:
-    try:
-        MeasurementCalibrationBinding(
-            measurement_id=binding.measurement_id,
-            key=binding.key,
-            calibration_id=binding.calibration_id,
-            pulse_template=binding.pulse_template,
-        )
-    except (TypeError, ValueError) as error:
-        issues.append(
-            CircuitPulseLoweringIssue(
-                code=CircuitPulseLoweringIssueCode.MEASUREMENT_TEMPLATE_INVALID,
-                message=(
-                    f"measurement calibration {binding.calibration_id.value!r} "
-                    f"has an invalid pulse template: {error}"
-                ),
-                path=path,
-                operation_id=binding.measurement_id,
-                calibration_id=binding.calibration_id,
-            )
         )
 
 

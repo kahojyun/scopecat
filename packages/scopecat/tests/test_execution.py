@@ -48,7 +48,7 @@ from scopecat._semantic_graph import (
     OperationId,
     operation_result_id,
 )
-from scopecat._storage.local import LocalRunStore
+from scopecat._storage.local import LocalExecutionJournal, LocalRunStore
 from scopecat._symbols import SymbolId
 from scopecat._value_availability import ValueAvailability, ValueRate, ValueStage
 from scopecat.errors import ProviderContractError, RunFailed, RunPersistenceError
@@ -83,7 +83,7 @@ from scopecat.problems import (
     ProblemPhase,
     model_location,
 )
-from scopecat.runs import dataset_storage_ref, open_run_store
+from scopecat.runs import dataset_storage_ref, inspect_run_execution, open_run_store
 from scopecat.runtime import (
     RunFinishedEvent,
     RuntimeEvent,
@@ -228,7 +228,7 @@ def test_execute_run_persists_measurements_and_run_files(
     assert persisted_manifest == manifest
     assert persisted_config == config
     assert persisted_plan.experiment_id == summary.experiment_id
-    assert persisted_plan.schema_version == "scopecat.run_plan_record.v4"
+    assert persisted_plan.schema_version == "scopecat.run_plan_record.v6"
     assert persisted_plan.point_count == summary.point_count
     assert not (run_dir / "experiment-spec.json").exists()
     assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v3"
@@ -1230,11 +1230,27 @@ def test_execute_run_emits_transient_runtime_events(tmp_path: Path) -> None:
     committed_records = [
         event
         for event in transitions
-        if event.stage == "commit_point" and event.state == "completed"
+        if event.stage == "record_measurement" and event.state == "completed"
     ]
     assert len(point_started) == 3
     assert len(point_finished) == 3
     assert len(committed_records) == 3
+    assert all(event.sequence is None for event in (*point_started, *point_finished))
+    durable_transitions = LocalExecutionJournal(
+        tmp_path,
+        run_id=manifest.run_id,
+    ).entries()
+    assert not {
+        "point",
+        "compute",
+        "initial_readback",
+        "terminal_readback",
+        "setup_terminal_readback",
+    } & {transition.stage for transition in durable_transitions}
+    assert all(event.sequence is not None for event in committed_records)
+    inspection = inspect_run_execution(run_id=manifest.run_id, workspace=tmp_path)
+    assert inspection.transitions == durable_transitions
+    assert not inspection.reconciliation_required
     assert [event.metrics["compute_step_count"] for event in point_started] == [
         0,
         0,
@@ -1248,6 +1264,40 @@ def test_execute_run_emits_transient_runtime_events(tmp_path: Path) -> None:
     assert finished.certainty == "known"
     assert finished.progress.completed_points == 3
     assert finished.progress.total_points == 3
+
+
+def test_runtime_event_sink_failure_does_not_change_durable_execution(
+    tmp_path: Path,
+) -> None:
+    def reject_event(_event: RuntimeEvent) -> None:
+        raise RuntimeError("observer unavailable")
+
+    manifest, summary = execute_bound_run(
+        config=load_config(),
+        experiment=load_experiment(),
+        instruments=[TestSignalInstrument()],
+        workspace=tmp_path,
+        event_sink=reject_event,
+    )
+
+    assert manifest.status == "completed"
+    assert summary.completed_point_count == 3
+    durable_transitions = LocalExecutionJournal(
+        tmp_path,
+        run_id=manifest.run_id,
+    ).entries()
+    assert any(
+        transition.stage == "collect" and transition.state == "completed"
+        for transition in durable_transitions
+    )
+    assert any(
+        transition.stage == "record_measurement" and transition.state == "completed"
+        for transition in durable_transitions
+    )
+    assert all(
+        problem.code != "execution_journal_commit_failed"
+        for problem in summary.problems
+    )
 
 
 def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
@@ -1389,6 +1439,14 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
         "reused",
         "evaluated",
     ]
+    assert all(event.sequence is None for event in compute_events)
+    assert all(
+        transition.stage != "compute"
+        for transition in LocalExecutionJournal(
+            tmp_path,
+            run_id=manifest.run_id,
+        ).entries()
+    )
     payload_ids = cast(
         "list[str]",
         [event.metrics["payload_id"] for event in compute_events],

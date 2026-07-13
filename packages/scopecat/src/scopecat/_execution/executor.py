@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from scopecat._execution.drivers import (
 )
 from scopecat._execution.engine import ExecutionEngine, ExecutionEngineResult
 from scopecat._execution.events import (
-    ObservedExecutionJournal,
+    RuntimeTransitionProjector,
     emit_run_finished,
     emit_run_started,
     observe_payload,
@@ -28,13 +29,9 @@ from scopecat._execution.evidence import (
     build_execution_manifest,
     build_execution_summary,
     build_instrument_state_evidence,
-    execution_summary_ref,
-    instrument_state_evidence_ref,
     raw_measurement_schema,
-    raw_measurements_ref,
-    run_outcome_ref,
 )
-from scopecat._execution.journal import ExecutionTransition
+from scopecat._execution.journal import ExecutionJournal, ExecutionTransition
 from scopecat._execution.lowering import build_execution_program
 from scopecat._execution.persistence import (
     validate_measurement_index_shape,
@@ -46,24 +43,21 @@ from scopecat._execution.problems import (
     runtime_problem,
 )
 from scopecat._execution.program import ExecutionProgram
+from scopecat._execution.run_lifecycle import commit_terminal_evidence
 from scopecat._execution.validation import validate_execution_program_instruments
-from scopecat._measurement_storage import write_measurement_records_path
 from scopecat._storage.local import (
-    LocalCollectionCommitter,
+    LocalCollectionRepository,
     LocalExecutionJournal,
-    LocalMeasurementCommitter,
+    LocalMeasurementRecordCommitter,
     LocalPayloadEvidenceCommitter,
     LocalResourceLeaseManager,
     LocalRunStore,
 )
-from scopecat._storage.refs import MANIFEST_REF
 from scopecat.errors import (
     CheckFailed,
-    ProblemFailure,
     ProviderContractError,
     RunFailed,
     RunIndeterminate,
-    RunPersistenceError,
 )
 from scopecat.ids import new_run_id
 from scopecat.instruments.sdk import (
@@ -76,9 +70,10 @@ from scopecat.instruments.sdk import (
     InstrumentStateSnapshot,
 )
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.execution import ExecutionSummary, InstrumentStateEvidence
+from scopecat.models.execution import ExecutionSummary
 from scopecat.models.measurement import MeasurementDatasetSchema
 from scopecat.models.run import RunConfigSource, RunManifest, RunOutcome
+from scopecat.models.run_plan import RunPlanPointInstrumentExecution
 from scopecat.models.run_request import RunRequest
 from scopecat.problems import (
     LocationPathItem,
@@ -89,7 +84,6 @@ from scopecat.problems import (
     has_blocking_problems,
     model_location,
 )
-from scopecat.results import MeasurementRecord
 from scopecat.runtime import RuntimeEventSink, RuntimePayloadObserver
 
 _PROVIDER_METADATA_ADAPTER = TypeAdapter(dict[str, JsonValue])
@@ -221,6 +215,7 @@ def execute_run(
     plan: BoundPlan,
     request: RunRequest | None,
     instrument_provider: InstrumentProvider,
+    execution: RunPlanPointInstrumentExecution | None = None,
     workspace: str | Path,
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
@@ -233,22 +228,23 @@ def execute_run(
         plan=plan,
         instrument_provider=instrument_provider,
     )
-    context = prepared.context
     provider_id = prepared.provider_id
     instrument_order = prepared.instrument_order
-    advertised_descriptions = prepared.advertised_descriptions
-    program = prepared.program
 
     run_id = new_run_id()
-    preflight_problems = list(
-        contextualize_problems(
-            prepared.problems,
-            run_id=run_id,
-            operation_id="provider.preflight",
-        )
-    )
     storage = LocalRunStore(Path(workspace))
-    plan_record = build_run_plan_record(plan)
+    plan_record = build_run_plan_record(
+        plan,
+        execution=(
+            RunPlanPointInstrumentExecution(
+                unit_id="point-instrument",
+                backend_id="scopecat.point-instrument.v1",
+                provider_id=provider_id,
+            )
+            if execution is None
+            else execution
+        ),
+    )
     planned_manifest = RunManifest(
         run_id=run_id,
         lifecycle="accepted",
@@ -261,13 +257,10 @@ def execute_run(
         config=config,
     )
 
-    local_journal = LocalExecutionJournal(workspace, run_id=run_id)
-    journal = ObservedExecutionJournal(
-        local_journal,
-        event_sink=event_sink,
-        experiment_id=plan.experiment_id,
-        point_count=plan.point_count,
-    )
+    journal = LocalExecutionJournal(workspace, run_id=run_id)
+    measurements = LocalMeasurementRecordCommitter(workspace, run_id=run_id)
+    readbacks = LocalCollectionRepository(workspace, run_id=run_id)
+    payloads = LocalPayloadEvidenceCommitter(workspace, run_id=run_id)
     # A run becomes active before any provider lifecycle effect can begin.
     storage.write_manifest(planned_manifest.model_copy(update={"lifecycle": "running"}))
     emit_run_started(
@@ -279,67 +272,19 @@ def execute_run(
         output_ids=sorted(plan.expected_output_ids),
     )
 
-    setup_problems = list(preflight_problems)
-    result: ExecutionEngineResult | None = None
-    lease_manager = LocalResourceLeaseManager(workspace)
-    try:
-        lease = lease_manager.acquire(program.resource_claims)
-        with lease:
-            result = _provision_and_execute(
-                run_id=run_id,
-                experiment_id=plan.experiment_id,
-                config=config,
-                context=context,
-                provider=instrument_provider,
-                provider_id=provider_id,
-                advertised_descriptions=advertised_descriptions,
-                program=program,
-                setup_problems=setup_problems,
-                journal=journal,
-                workspace=workspace,
-                payload_observer=payload_observer,
-            )
-    except Exception as error:
-        setup_problems.append(
-            problem_from_exception(
-                "resource_lease_failed",
-                "failed to acquire or release execution resources",
-                run_id=run_id,
-                operation_id="execution.resources",
-                error=error,
-            )
-        )
-        if result is None:
-            result = _setup_result(
-                run_id=run_id,
-                experiment_id=plan.experiment_id,
-                problems=setup_problems,
-            )
-    except BaseException as error:
-        problem = _interruption_problem(
-            error,
-            run_id=run_id,
-            operation_id="execution.resources",
-        )
-        setup_problems.append(problem)
-        if result is None:
-            result = _setup_result(
-                run_id=run_id,
-                experiment_id=plan.experiment_id,
-                problems=setup_problems,
-                interruption=error,
-            )
-        else:
-            result = replace(
-                result,
-                result="cancelled",
-                certainty=("indeterminate" if result.uncertain else result.certainty),
-                termination_reason="interrupted",
-                problems=(*result.problems, problem),
-                interruption=result.interruption or error,
-            )
-
-    assert result is not None
+    result, setup_problems = execute_prepared_local_effects(
+        config=config,
+        prepared=prepared,
+        provider=instrument_provider,
+        run_id=run_id,
+        workspace=workspace,
+        journal=journal,
+        measurements=measurements,
+        readbacks=readbacks,
+        payloads=payloads,
+        event_sink=event_sink,
+        payload_observer=payload_observer,
+    )
 
     problems = _execution_problems(
         setup_problems=setup_problems,
@@ -384,7 +329,7 @@ def execute_run(
         config_source=config_source,
     ).model_copy(update={"created_at": planned_manifest.created_at})
 
-    _commit_terminal_evidence(
+    commit_terminal_evidence(
         storage=storage,
         run_id=run_id,
         outcome=outcome,
@@ -416,84 +361,105 @@ def execute_run(
     return manifest, summary
 
 
-def _commit_terminal_evidence(
+def execute_prepared_local_effects(
     *,
-    storage: LocalRunStore,
+    config: ConfigProfileSnapshot,
+    prepared: PreparedExecution,
+    provider: InstrumentProvider,
     run_id: str,
-    outcome: RunOutcome,
-    summary: ExecutionSummary,
-    instrument_state: InstrumentStateEvidence,
-    measurements: list[MeasurementRecord],
-    manifest: RunManifest,
-) -> None:
-    """Commit terminal content before publishing the terminal manifest marker."""
+    workspace: str | Path,
+    journal: ExecutionJournal,
+    measurements: LocalMeasurementRecordCommitter,
+    readbacks: LocalCollectionRepository,
+    payloads: LocalPayloadEvidenceCommitter,
+    event_sink: RuntimeEventSink | None = None,
+    payload_observer: RuntimePayloadObserver | None = None,
+    engine_runner: Callable[[ExecutionEngine], ExecutionEngineResult] | None = None,
+    acquire_resources: bool = True,
+) -> tuple[ExecutionEngineResult, list[Problem]]:
+    """Provision and execute a prepared local unit inside a caller-owned Run."""
 
-    committed_refs: list[str] = []
-    phase = "run_outcome"
-    pending_ref = run_outcome_ref()
+    program = prepared.program
+    setup_problems = list(
+        contextualize_problems(
+            prepared.problems,
+            run_id=run_id,
+            operation_id="provider.preflight",
+        )
+    )
+    transition_observer = RuntimeTransitionProjector(
+        event_sink=event_sink,
+        experiment_id=program.experiment_id,
+        point_count=program.point_count,
+    )
+    result: ExecutionEngineResult | None = None
+    lease_manager = LocalResourceLeaseManager(workspace)
     try:
-        storage.write_model_atomic(run_id, pending_ref, outcome)
-        committed_refs.append(pending_ref)
-        phase = "execution_summary"
-        pending_ref = execution_summary_ref()
-        storage.write_model_atomic(run_id, pending_ref, summary)
-        committed_refs.append(pending_ref)
-        phase = "instrument_state_evidence"
-        pending_ref = instrument_state_evidence_ref()
-        storage.write_model_atomic(
-            run_id,
-            pending_ref,
-            instrument_state,
+        lease = (
+            lease_manager.acquire(program.resource_claims)
+            if acquire_resources
+            else nullcontext()
         )
-        committed_refs.append(pending_ref)
-        if measurements:
-            phase = "measurement_dataset"
-            pending_ref = raw_measurements_ref()
-            write_measurement_records_path(
-                path=storage.ref_path(run_id, pending_ref),
-                records=measurements,
+        with lease:
+            result = _provision_and_execute(
+                run_id=run_id,
+                experiment_id=program.experiment_id,
+                config=config,
+                context=prepared.context,
+                provider=provider,
+                provider_id=prepared.provider_id,
+                advertised_descriptions=prepared.advertised_descriptions,
+                program=program,
+                setup_problems=setup_problems,
+                journal=journal,
+                transition_observer=transition_observer,
+                measurements=measurements,
+                readbacks=readbacks,
+                payloads=payloads,
+                payload_observer=payload_observer,
+                engine_runner=engine_runner,
             )
-            committed_refs.append(pending_ref)
-        phase = "terminal_manifest"
-        pending_ref = MANIFEST_REF
-        storage.write_manifest(manifest)
-        committed_refs.append(pending_ref)
-    except ProblemFailure as error:
-        problems = contextualize_problems(
-            error.problems,
-            run_id=run_id,
-            operation_id=f"terminalize.{phase}",
-        )
-        raise RunPersistenceError(
-            problems,
-            run_id=run_id,
-            phase=phase,
-            reconciliation="inspect_run_execution before retrying terminalization",
-            retry="after_reconciliation",
-            certainty=outcome.certainty,
-            committed_refs=committed_refs,
-            pending_ref=pending_ref,
-        ) from error
     except Exception as error:
-        problem = problem_from_exception(
-            "run_terminal_persistence_failed",
-            f"terminal run evidence could not be committed during {phase}",
-            run_id=run_id,
-            operation_id=f"terminalize.{phase}",
-            error=error,
-            phase=ProblemPhase.PERSISTENCE,
-            category=ProblemCategory.STORAGE,
+        setup_problems.append(
+            problem_from_exception(
+                "resource_lease_failed",
+                "failed to acquire or release execution resources",
+                run_id=run_id,
+                operation_id="execution.resources",
+                error=error,
+            )
         )
-        raise RunPersistenceError(
-            (problem,),
+        if result is None:
+            result = _setup_result(
+                run_id=run_id,
+                experiment_id=program.experiment_id,
+                problems=setup_problems,
+            )
+    except BaseException as error:
+        problem = _interruption_problem(
+            error,
             run_id=run_id,
-            phase=phase,
-            reconciliation="inspect_run_execution before retrying terminalization",
-            retry="after_reconciliation",
-            certainty=outcome.certainty,
-            committed_refs=committed_refs,
-            pending_ref=pending_ref,
-        ) from error
+            operation_id="execution.resources",
+        )
+        setup_problems.append(problem)
+        if result is None:
+            result = _setup_result(
+                run_id=run_id,
+                experiment_id=program.experiment_id,
+                problems=setup_problems,
+                interruption=error,
+            )
+        else:
+            result = replace(
+                result,
+                result="cancelled",
+                certainty=("indeterminate" if result.uncertain else result.certainty),
+                termination_reason="interrupted",
+                problems=(*result.problems, problem),
+                interruption=result.interruption or error,
+            )
+    assert result is not None
+    return result, setup_problems
 
 
 def _provision_and_execute(
@@ -507,9 +473,13 @@ def _provision_and_execute(
     advertised_descriptions: dict[str, InstrumentDescription],
     program: ExecutionProgram,
     setup_problems: list[Problem],
-    journal: ObservedExecutionJournal,
-    workspace: str | Path,
+    journal: ExecutionJournal,
+    transition_observer: RuntimeTransitionProjector,
+    measurements: LocalMeasurementRecordCommitter,
+    readbacks: LocalCollectionRepository,
+    payloads: LocalPayloadEvidenceCommitter,
     payload_observer: RuntimePayloadObserver | None,
+    engine_runner: Callable[[ExecutionEngine], ExecutionEngineResult] | None,
 ) -> ExecutionEngineResult:
     """Provision, verify, execute, and finalize while the caller holds leases."""
 
@@ -524,8 +494,9 @@ def _provision_and_execute(
             "advertised_instrument_ids": list(advertised_descriptions),
         },
     )
-    provider_intent_committed, journal_interruption = _append_provider_transition(
+    provider_intent_committed, journal_interruption = _commit_provider_transition(
         journal,
+        transition_observer,
         provider_entry,
         setup_problems,
     )
@@ -548,8 +519,9 @@ def _provision_and_execute(
             error=error,
         )
         setup_problems.append(problem)
-        _, journal_interruption = _append_provider_transition(
+        _, journal_interruption = _commit_provider_transition(
             journal,
+            transition_observer,
             provider_entry.model_copy(
                 update={"state": "unknown", "problems": (problem,)}
             ),
@@ -569,8 +541,9 @@ def _provision_and_execute(
             operation_id=provider_entry.operation_id,
         )
         setup_problems.append(problem)
-        _, journal_interruption = _append_provider_transition(
+        _, journal_interruption = _commit_provider_transition(
             journal,
+            transition_observer,
             provider_entry.model_copy(
                 update={"state": "unknown", "problems": (problem,)}
             ),
@@ -595,8 +568,12 @@ def _provision_and_execute(
         program=program,
         setup_problems=setup_problems,
         journal=journal,
-        workspace=workspace,
+        transition_observer=transition_observer,
+        measurements=measurements,
+        readbacks=readbacks,
+        payloads=payloads,
         payload_observer=payload_observer,
+        engine_runner=engine_runner,
     )
 
 
@@ -611,9 +588,13 @@ def _execute_provider_result(
     advertised_descriptions: dict[str, InstrumentDescription],
     program: ExecutionProgram,
     setup_problems: list[Problem],
-    journal: ObservedExecutionJournal,
-    workspace: str | Path,
+    journal: ExecutionJournal,
+    transition_observer: RuntimeTransitionProjector,
+    measurements: LocalMeasurementRecordCommitter,
+    readbacks: LocalCollectionRepository,
+    payloads: LocalPayloadEvidenceCommitter,
     payload_observer: RuntimePayloadObserver | None,
+    engine_runner: Callable[[ExecutionEngine], ExecutionEngineResult] | None,
 ) -> ExecutionEngineResult:
     """Own every returned driver until a fully constructed engine takes over."""
 
@@ -646,8 +627,9 @@ def _execute_provider_result(
             ),
         }
         provider_transition_attempted = True
-        transition_committed, journal_interruption = _append_provider_transition(
+        transition_committed, journal_interruption = _commit_provider_transition(
             journal,
+            transition_observer,
             provider_entry.model_copy(
                 update={
                     "state": (
@@ -702,12 +684,10 @@ def _execute_provider_result(
                         item.instrument_id: item for item in actual_descriptions
                     },
                     journal=journal,
-                    measurements=LocalMeasurementCommitter(workspace, run_id=run_id),
-                    readbacks=LocalCollectionCommitter(workspace, run_id=run_id),
-                    payloads=LocalPayloadEvidenceCommitter(
-                        workspace,
-                        run_id=run_id,
-                    ),
+                    transition_observer=transition_observer,
+                    measurements=measurements,
+                    readbacks=readbacks,
+                    payloads=payloads,
                     payload_observer=lambda payload: observe_payload(
                         observer=payload_observer,
                         run_id=run_id,
@@ -725,8 +705,9 @@ def _execute_provider_result(
         )
         setup_problems.append(problem)
         if not provider_transition_attempted:
-            _append_provider_transition(
+            _commit_provider_transition(
                 journal,
+                transition_observer,
                 provider_entry.model_copy(
                     update={"state": "failed", "problems": (problem,)}
                 ),
@@ -740,8 +721,9 @@ def _execute_provider_result(
         )
         setup_problems.append(problem)
         if not provider_transition_attempted:
-            _append_provider_transition(
+            _commit_provider_transition(
                 journal,
+                transition_observer,
                 provider_entry.model_copy(
                     update={"state": "unknown", "problems": (problem,)}
                 ),
@@ -753,13 +735,14 @@ def _execute_provider_result(
     if engine is not None:
         # Engine construction is the ownership hand-off.  Its run boundary is
         # responsible for abort/cleanup and terminal state capture after effects.
-        return engine.run()
+        return engine.run() if engine_runner is None else engine_runner(engine)
     return _finalize_owned_setup(
         run_id=run_id,
         experiment_id=experiment_id,
         instruments=instruments,
         problems=setup_problems,
         journal=journal,
+        transition_observer=transition_observer,
         indeterminate=indeterminate,
         interruption=interruption,
     )
@@ -771,7 +754,8 @@ def _finalize_owned_setup(
     experiment_id: str,
     instruments: list[InstrumentDriver],
     problems: list[Problem],
-    journal: ObservedExecutionJournal,
+    journal: ExecutionJournal,
+    transition_observer: RuntimeTransitionProjector,
     indeterminate: bool = False,
     interruption: BaseException | None = None,
 ) -> ExecutionEngineResult:
@@ -780,6 +764,7 @@ def _finalize_owned_setup(
         problems,
         run_id=run_id,
         journal=journal,
+        transition_observer=transition_observer,
     )
     return _setup_result(
         run_id=run_id,
@@ -1014,13 +999,15 @@ def _planned_instrument_ids(plan: BoundPlan) -> list[str]:
     )
 
 
-def _append_provider_transition(
-    journal: ObservedExecutionJournal,
+def _commit_provider_transition(
+    journal: ExecutionJournal,
+    transition_observer: RuntimeTransitionProjector,
     entry: ExecutionTransition,
     problems: list[Problem],
 ) -> tuple[bool, BaseException | None]:
     try:
-        journal.append(entry)
+        committed = journal.append(entry)
+        transition_observer.observe(committed)
     except Exception as error:
         problems.append(
             problem_from_exception(
@@ -1089,4 +1076,9 @@ def _normalize_provider_description(value: object) -> InstrumentProviderDescript
     return _PROVIDER_DESCRIPTION_ADAPTER.validate_python(wire)
 
 
-__all__ = ["PreparedExecution", "execute_run", "prepare_execution"]
+__all__ = [
+    "PreparedExecution",
+    "execute_prepared_local_effects",
+    "execute_run",
+    "prepare_execution",
+]

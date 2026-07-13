@@ -211,15 +211,12 @@ class ScheduledPulseEvent:
     instruction: PulseLeaf
 
 
-_SCHEDULED_PROGRAM_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class ScheduledPulseProgram:
     """Canonical, validated pulse IR accepted by target compilers.
 
-    Construction is sealed behind :func:`schedule`; merely assembling objects
-    with scheduled-looking fields is not a proof of the pulse invariants.
+    :func:`schedule` establishes the pulse invariants before constructing this
+    trusted, immutable internal-stage value.
     """
 
     id: PulseProgramId
@@ -233,12 +230,7 @@ class ScheduledPulseProgram:
         duration_seconds: Decimal,
         events: tuple[ScheduledPulseEvent, ...],
         acquisition_slots: tuple[AcquisitionSlot, ...] = (),
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SCHEDULED_PROGRAM_TOKEN:
-            msg = "ScheduledPulseProgram can only be created by schedule"
-            raise TypeError(msg)
         object.__setattr__(self, "id", id)
         object.__setattr__(self, "duration_seconds", duration_seconds)
         object.__setattr__(self, "events", tuple(events))
@@ -1385,7 +1377,6 @@ def schedule(program: PulseProgram) -> ScheduledPulseProgram:
         duration_seconds=duration,
         events=events,
         acquisition_slots=slots,
-        _token=_SCHEDULED_PROGRAM_TOKEN,
     )
 
 

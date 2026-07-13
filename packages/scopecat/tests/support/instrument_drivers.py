@@ -4,10 +4,12 @@ from pathlib import Path
 
 from scopecat.config_profiles import load_config_profile
 from scopecat.instruments import (
+    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
     DriverFault,
+    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentReadback,
     InstrumentStateCommand,
@@ -39,6 +41,7 @@ class SignalInstrumentDriver:
         self.implementation_version = "v0"
         self._state: dict[tuple[str, str], StateValue] = {}
         self.applied: list[InstrumentStateCommand] = []
+        self.action_commands: list[InstrumentActionCommand] = []
         self.collect_commands: list[CollectCommand] = []
 
     def describe(self) -> InstrumentDescription:
@@ -83,6 +86,10 @@ class SignalInstrumentDriver:
         for field in command.fields:
             self._state[(field.capability_id, field.field_path)] = field.value
         return ApplyReceipt(status="applied")
+
+    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
+        self.action_commands.append(command)
+        return ActionReceipt(status="performed")
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)

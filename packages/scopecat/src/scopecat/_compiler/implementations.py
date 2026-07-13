@@ -27,8 +27,6 @@ from scopecat._value_availability import ValueRate, ValueStage
 from scopecat.problems import Problem, ProblemCategory, ProblemPhase, model_location
 from scopecat.value_types import Route, ValueType
 
-_SELECTION_TOKEN = object()
-
 
 @dataclass(frozen=True, slots=True)
 class ComputeInterface:
@@ -68,15 +66,7 @@ class SelectedLocalImplementation:
         operation_contract: OperationContract,
         interface: ComputeInterface,
         kernel: Callable[..., object],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SELECTION_TOKEN:
-            msg = (
-                "SelectedLocalImplementation can only be created by "
-                "select_local_implementations"
-            )
-            raise TypeError(msg)
         object.__setattr__(self, "operation_id", operation_id)
         object.__setattr__(self, "implementation_id", implementation_id)
         object.__setattr__(self, "operation_contract", operation_contract)
@@ -107,15 +97,7 @@ class SelectedLocalImplementations:
     def __init__(
         self,
         entries: tuple[SelectedLocalImplementation, ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SELECTION_TOKEN:
-            msg = (
-                "SelectedLocalImplementations can only be created by "
-                "select_local_implementations"
-            )
-            raise TypeError(msg)
         by_operation = {entry.operation_id: entry for entry in entries}
         if len(by_operation) != len(entries):
             msg = "selected local implementations must have unique operation owners"
@@ -213,7 +195,6 @@ def select_local_implementations(
                 operation_contract=node.contract,
                 interface=ComputeInterface.from_node(node),
                 kernel=implementation.kernel,
-                _token=_SELECTION_TOKEN,
             )
         )
     if problems:
@@ -221,7 +202,7 @@ def select_local_implementations(
     if len(selected) != len(nodes):
         raise AssertionError("successful local selection lost compute coverage")
     return (
-        SelectedLocalImplementations(tuple(selected), _token=_SELECTION_TOKEN),
+        SelectedLocalImplementations(tuple(selected)),
         (),
     )
 

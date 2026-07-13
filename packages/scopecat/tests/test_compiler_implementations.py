@@ -12,9 +12,6 @@ from scopecat._compiler.binding import bind_program, materialize_local_plan
 from scopecat._compiler.bound import BoundValue
 from scopecat._compiler.environment import validate_config_environment
 from scopecat._compiler.implementations import (
-    ComputeInterface,
-    SelectedLocalImplementation,
-    SelectedLocalImplementations,
     select_local_implementations,
 )
 from scopecat._compiler.linked import link_program
@@ -170,21 +167,6 @@ def test_typed_program_keeps_implementation_and_source_as_sidecars() -> None:
     assert "implementation_catalog" not in program.model_dump()
     assert "source_map" not in program.model_dump()
     assert "fn" not in TypedComputeNode.model_fields
-
-
-def test_selected_implementation_proofs_are_sealed() -> None:
-    operation_id = _operation_id()
-
-    with pytest.raises(TypeError, match="can only be created"):
-        SelectedLocalImplementation(
-            operation_id=operation_id,
-            implementation_id=ImplementationId("python-v1"),
-            operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-            interface=ComputeInterface(inputs=(), output_type=Scalar(Float())),
-            kernel=lambda: 1.0,
-        )
-    with pytest.raises(TypeError, match="can only be created"):
-        SelectedLocalImplementations(())
 
 
 def test_declared_implementation_contract_must_match_typed_operation() -> None:

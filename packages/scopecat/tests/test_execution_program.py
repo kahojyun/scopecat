@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import cast
+
 import pytest
 
 from scopecat._compiler.bound import (
@@ -29,16 +32,20 @@ from scopecat._compiler.records import RecordUse
 from scopecat._execution.lowering import build_execution_program
 from scopecat._execution.program import (
     ApplyStateStage,
+    CollectionResultBinding,
+    CollectOperation,
     CollectStage,
     ComputeOperation,
     ComputeResultSlot,
     ComputeStage,
+    ExecutionProgram,
     OutputInput,
     PointProgram,
+    RecordProjection,
     ResourceClaim,
 )
 from scopecat._operation_contract import LOCAL_OPAQUE_OPERATION_CONTRACT
-from scopecat._product_identity import product_id, product_use
+from scopecat._product_identity import ProductUseId, product_id, product_use
 from scopecat._relation_backend import REFERENCE_RELATION_BACKEND, ParameterRelationData
 from scopecat._resource_identity import physical_resource_id
 from scopecat._semantic_graph import (
@@ -51,6 +58,7 @@ from scopecat._semantic_graph import (
 )
 from scopecat._symbols import SymbolId
 from scopecat._value_availability import ValueAvailability, ValueRate, ValueStage
+from scopecat.instruments.sdk import CollectCommand, CollectProductRequest
 from scopecat.models.config import RoutingResource
 from scopecat.models.state import StateValue
 from scopecat.problems import ProblemPhase
@@ -320,6 +328,10 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         "source-b",
         "source-a",
     ]
+    assert program.collection_product_use_ids == (
+        source_a_signal.id,
+        source_b_signal.id,
+    )
     assert all(
         operation.command.operation_id == operation.operation_id
         for operation in collect.operations
@@ -329,6 +341,105 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         "source-b",
         "source-a",
     ]
+
+
+def test_collection_inventory_is_a_subset_of_complete_logical_uses() -> None:
+    program = _source_and_derived_execution_program()
+    source_use, derived_use = program.product_uses
+
+    assert program.collection_product_use_ids == (source_use.id,)
+    assert derived_use.id not in program.collection_product_use_ids
+
+
+def test_current_local_record_projection_rejects_unproduced_derived_use() -> None:
+    program = _source_and_derived_execution_program()
+    derived_use = program.product_uses[1]
+
+    with pytest.raises(ValueError, match="require a collected product use"):
+        replace(
+            program,
+            record_projections=(
+                RecordProjection(
+                    record_id="derived",
+                    product_use_id=derived_use.id,
+                    product_id=derived_use.product_id,
+                ),
+            ),
+        )
+
+
+def test_execution_collection_inventory_snapshots_runtime_sequence() -> None:
+    program = _source_and_derived_execution_program()
+    supplied = list(program.collection_product_use_ids)
+
+    snapshotted = replace(
+        program,
+        collection_product_use_ids=cast("tuple[ProductUseId, ...]", supplied),
+    )
+    supplied.clear()
+
+    assert snapshotted.collection_product_use_ids == (program.product_uses[0].id,)
+
+
+def test_execution_collection_inventory_rejects_invalid_runtime_id() -> None:
+    program = _source_and_derived_execution_program()
+
+    with pytest.raises(TypeError, match="ProductUseId"):
+        replace(
+            program,
+            collection_product_use_ids=cast(
+                "tuple[ProductUseId, ...]",
+                ("not-a-product-use-id",),
+            ),
+        )
+
+
+def test_zero_point_execution_retains_nonempty_collection_inventory() -> None:
+    source_use = product_use(product_id("source"))
+
+    program = ExecutionProgram(
+        experiment_id="zero-point-collection-contract",
+        points=(),
+        product_uses=(source_use,),
+        collection_product_use_ids=(source_use.id,),
+        record_projections=(),
+    )
+
+    assert program.collection_product_use_ids == (source_use.id,)
+
+
+@pytest.mark.parametrize("mutation", ["duplicate", "unknown", "noncanonical"])
+def test_execution_collection_inventory_rejects_invalid_identity_set(
+    mutation: str,
+) -> None:
+    first = product_use(product_id("first"))
+    second = product_use(product_id("second"))
+    foreign = product_use(product_id("foreign"))
+    selected = {
+        "duplicate": (first.id, first.id),
+        "unknown": (first.id, foreign.id),
+        "noncanonical": (second.id, first.id),
+    }[mutation]
+
+    with pytest.raises(ValueError):
+        ExecutionProgram(
+            experiment_id="invalid-collection-contract",
+            points=(),
+            product_uses=(first, second),
+            collection_product_use_ids=selected,
+            record_projections=(),
+        )
+
+
+def test_each_point_must_exactly_cover_collection_inventory() -> None:
+    program = _source_and_derived_execution_program()
+
+    with pytest.raises(ValueError, match="collection product-use inventory"):
+        replace(
+            program,
+            collection_product_use_ids=(),
+            record_projections=(),
+        )
 
 
 def test_point_program_rejects_non_topological_compute_order() -> None:
@@ -414,6 +525,73 @@ def test_resource_claims_are_unconditionally_exclusive() -> None:
 
     assert claim.kind == "instrument"
     assert not hasattr(claim, "exclusive")
+
+
+def test_collect_command_attempt_is_rejected_before_execution() -> None:
+    program = _source_and_derived_execution_program()
+    stage = cast("CollectStage", program.points[0].stages[0])
+    operation = stage.operations[0]
+
+    with pytest.raises(ValueError, match="runtime-owned and must start at one"):
+        replace(
+            operation,
+            command=operation.command.model_copy(update={"attempt": 2}),
+        )
+
+
+def test_collect_operation_snapshots_supplied_command() -> None:
+    program = _source_and_derived_execution_program()
+    stage = cast("CollectStage", program.points[0].stages[0])
+    supplied = stage.operations[0].command
+    operation = replace(stage.operations[0], command=supplied)
+
+    supplied.metadata["mutated-after-construction"] = True
+
+    assert operation.command.metadata == {}
+
+
+def _source_and_derived_execution_program() -> ExecutionProgram:
+    source_use = product_use(product_id("source"))
+    derived_use = product_use(product_id("derived"))
+    operation_id = "point-0.collect.source-0"
+    collect = CollectOperation(
+        operation_id=operation_id,
+        instrument_id="source-0",
+        command=CollectCommand(
+            operation_id=operation_id,
+            instrument_id="source-0",
+            point_index=0,
+            point_count=1,
+            requests=[CollectProductRequest(id="source")],
+        ),
+        result_bindings=(
+            CollectionResultBinding(
+                provider_key="source",
+                product_use_id=source_use.id,
+                product_id=source_use.product_id,
+            ),
+        ),
+    )
+    return ExecutionProgram(
+        experiment_id="source-and-derived",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid="point-0",
+                coordinates={},
+                stages=(CollectStage(operations=(collect,)),),
+            ),
+        ),
+        product_uses=(source_use, derived_use),
+        collection_product_use_ids=(source_use.id,),
+        record_projections=(
+            RecordProjection(
+                record_id="source",
+                product_use_id=source_use.id,
+                product_id=source_use.product_id,
+            ),
+        ),
+    )
 
 
 def _gain_state(instrument_id: str, value: float) -> BoundResourceState:

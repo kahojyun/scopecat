@@ -169,6 +169,61 @@ def verify_typed_program(program: TypedProgram) -> TypedProgram:
                 )
 
     compute_outputs = {node.result.id: node.result for node in compute_nodes}
+    action_ids = tuple(action.id for action in program.actions)
+    if len(action_ids) != len(set(action_ids)):
+        problems.append(
+            _problem(
+                "instrument_action_duplicate",
+                "instrument action ids must be unique",
+                model_location("actions"),
+            )
+        )
+    for action_index, action in enumerate(program.actions):
+        problems.extend(
+            _logical_resource_port_problems(
+                action.resource_port_id,
+                required_capability=action.capability_id,
+                route_capabilities=route_capabilities,
+                location=model_location(
+                    "actions",
+                    action_index,
+                    "resource_port_id",
+                ),
+                missing_code="action_resource_port_missing",
+                capability_code="action_resource_port_capability_missing",
+                consumer="action",
+            )
+        )
+        for field_index, field in enumerate(action.fields):
+            value = field.value_use
+            if not isinstance(value, ComputeResultRef):
+                continue
+            output = compute_outputs.get(value.value_id)
+            location = model_location(
+                "actions",
+                action_index,
+                "fields",
+                field_index,
+                "value",
+            )
+            if output is None:
+                problems.append(
+                    _problem(
+                        "compute_payload_unknown_output",
+                        "action references unknown compute output "
+                        f"{value.value_id.qualified_name!r}",
+                        location,
+                    )
+                )
+            elif not _is_payload_type(output.value_type):
+                problems.append(
+                    _problem(
+                        "compute_payload_unavailable",
+                        "action compute output is not an available payload: "
+                        f"{value.value_id.qualified_name!r}",
+                        location,
+                    )
+                )
     for location, state in _state_specs(program.state):
         if state.kind == "set" and (not state.capability_id or not state.field_path):
             problems.append(
@@ -402,9 +457,6 @@ class ProgramRelationConsumer:
     location: ModelLocation
 
 
-_VERIFIED_TYPED_PROGRAM_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class VerifiedTypedProgram:
     """A normalized TypedProgram whose complete executable surface was checked."""
@@ -418,12 +470,7 @@ class VerifiedTypedProgram:
         program: TypedProgram,
         relation_consumers: Sequence[ProgramRelationConsumer],
         point_domain: VerifiedPointDomain | None = None,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _VERIFIED_TYPED_PROGRAM_TOKEN:
-            msg = "VerifiedTypedProgram can only be created by seal_typed_program"
-            raise TypeError(msg)
         if point_domain is None:
             raise AssertionError("verified typed program point domain is missing")
         object.__setattr__(self, "_program", program)
@@ -475,9 +522,6 @@ class SelectedProgramRelation:
     selected_plan: SelectedRelationPlan[PlanNode]
 
 
-_SELECTED_TYPED_PROGRAM_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class SelectedTypedProgram:
     """A verified program whose every executable relation targets one backend."""
@@ -497,12 +541,7 @@ class SelectedTypedProgram:
         backend_id: str,
         relation_selections: Sequence[SelectedProgramRelation],
         point_domain: SelectedPointDomain | None = None,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SELECTED_TYPED_PROGRAM_TOKEN:
-            msg = "SelectedTypedProgram can only be created by select_typed_program"
-            raise TypeError(msg)
         if point_domain is None:
             raise AssertionError("selected typed program point domain is missing")
         if not backend_id:
@@ -613,7 +652,6 @@ def seal_typed_program(
         snapshot,
         consumers,
         point_domain,
-        _token=_VERIFIED_TYPED_PROGRAM_TOKEN,
     )
 
 
@@ -663,7 +701,6 @@ def select_typed_program(
         backend.backend_id,
         selections,
         selected_point_domain,
-        _token=_SELECTED_TYPED_PROGRAM_TOKEN,
     )
 
 
@@ -821,6 +858,25 @@ def _program_relation_consumers_with_roles(
             role=point_role,
             location=model_location("state", state_index),
         )
+    for action_index, action in enumerate(program.actions):
+        for field_index, field in enumerate(action.fields):
+            if isinstance(field.value_use, ComputeResultRef):
+                continue
+            yield (
+                _consumer(
+                    field.value_use.id,
+                    ProgramRelationConsumerKind.ACTION_VALUE,
+                    field.value_use.value,
+                    model_location(
+                        "actions",
+                        action_index,
+                        "fields",
+                        field_index,
+                        "value",
+                    ),
+                ),
+                point_role,
+            )
 
 
 def _verify_plan_role[NodeT: PlanNode](

@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from typing import Any, cast
 
+from scopecat._compiler.action import ActionRecord, evaluate_action_spec
 from scopecat._compiler.bound import (
+    BoundAction,
+    BoundActionField,
     BoundAxis,
     BoundCollect,
     BoundComputeCall,
@@ -76,6 +80,7 @@ from scopecat._compiler.verification import (
 )
 from scopecat._compute_result import ComputeResultRef
 from scopecat._content_identity import content_fingerprint, stable_content_hash
+from scopecat._product_identity import ProductUseId
 from scopecat._relation_analysis import PlanNode
 from scopecat._relation_backend import (
     REFERENCE_RELATION_BACKEND,
@@ -102,6 +107,7 @@ from scopecat._value_expressions import (
 )
 from scopecat.compute_values import ResolvedRoute
 from scopecat.errors import CheckFailed
+from scopecat.execution_coverage import ExecutionCoverage
 from scopecat.models.config import RoutingChannelBinding
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
@@ -161,10 +167,79 @@ def materialize_local_plan(
     linked: LinkedPlan,
     *,
     relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
+    product_use_ids: AbstractSet[ProductUseId] | None = None,
+    task_coverage: ExecutionCoverage | None = None,
 ) -> BoundPlan:
-    """Lower a linked symbolic plan to the current local per-point plan."""
+    """Lower one selected semantic-task fragment to a point-local plan."""
 
     program = linked.program
+    if task_coverage is not None:
+        selected_tasks = tuple(task_coverage.tasks)
+        if any(task.kind == "product" for task in selected_tasks):
+            msg = "local non-product task coverage cannot contain product tasks"
+            raise ValueError(msg)
+        selected_ids = {
+            kind: {task.id for task in selected_tasks if task.kind == kind}
+            for kind in (
+                "parameter_overlay",
+                "route",
+                "compute",
+                "state",
+                "action",
+            )
+        }
+        program = program.model_copy(
+            update={
+                "parameter_overlays": tuple(
+                    overlay
+                    for index, overlay in enumerate(program.parameter_overlays)
+                    if str(index) in selected_ids["parameter_overlay"]
+                ),
+                "route_intents": tuple(
+                    route
+                    for route in program.route_intents
+                    if route.port_id.qualified_name in selected_ids["route"]
+                ),
+                "compute_nodes": tuple(
+                    node
+                    for node in program.compute_nodes
+                    if node.id.qualified_name in selected_ids["compute"]
+                ),
+                "state": tuple(
+                    state
+                    for index, state in enumerate(program.state)
+                    if str(index) in selected_ids["state"]
+                ),
+                "actions": tuple(
+                    action
+                    for action in program.actions
+                    if action.id.qualified_name in selected_ids["action"]
+                ),
+            }
+        )
+    if product_use_ids is not None:
+        requested = frozenset(product_use_ids)
+        available = {use.id for use in program.product_uses}
+        unknown = sorted(
+            (use_id.value for use_id in requested - available),
+        )
+        if unknown:
+            msg = "local product selection contains unknown uses: " + ", ".join(unknown)
+            raise ValueError(msg)
+        selected_uses = tuple(
+            use for use in program.product_uses if use.id in requested
+        )
+        selected_record_uses = tuple(
+            record
+            for record in program.record_uses
+            if record.product_use_id in requested
+        )
+        program = program.model_copy(
+            update={
+                "product_uses": selected_uses,
+                "record_uses": selected_record_uses,
+            }
+        )
     environment = linked.environment
     routing = environment.routing
     if routing is None:
@@ -251,6 +326,7 @@ def materialize_local_plan(
     problems.extend(record_problems)
 
     state_records: list[StateRecord] = []
+    action_records: list[ActionRecord] = []
     point_parameters: dict[int, ParameterRelationData] = {}
     compute_dependencies = analyze_compute_dependencies(program.compute_nodes)
 
@@ -288,6 +364,26 @@ def materialize_local_plan(
                         model_location("state", state_index),
                     )
                 )
+        for action_index, action in enumerate(program.actions):
+            try:
+                action_records.append(
+                    evaluate_action_spec(
+                        action,
+                        point_index=point.logical_ordinal,
+                        ctx=ctx,
+                        backend=relation_backend,
+                        selected_plan=selected_program.selected_plan,
+                    )
+                )
+            except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+                problems.append(
+                    _problem(
+                        "experiment_action_evaluation_failed",
+                        "action binding failed for point "
+                        f"{point.logical_ordinal}: {error}",
+                        model_location("actions", action_index),
+                    )
+                )
     if len(point_parameters) != len(planner_points):
         return _empty_plan(
             program,
@@ -308,6 +404,9 @@ def materialize_local_plan(
     state_by_point: dict[int, list[StateRecord]] = {}
     for record in state_records:
         state_by_point.setdefault(record.point_index, []).append(record)
+    actions_by_point: dict[int, list[ActionRecord]] = {}
+    for record in action_records:
+        actions_by_point.setdefault(record.point_index, []).append(record)
 
     schema = None
     if coordinate_schema_valid and not has_blocking_problems(record_problems):
@@ -339,10 +438,16 @@ def materialize_local_plan(
             continue
         routes = tuple(routes_by_point.get(point.logical_ordinal, ()))
         point_state_records = tuple(state_by_point.get(point.logical_ordinal, ()))
+        point_action_records = tuple(actions_by_point.get(point.logical_ordinal, ()))
         demanded_payload_results = {
             value.value_id
             for state in point_state_records
             if isinstance((value := state.value), ComputeResultRef)
+        } | {
+            field.value.value_id
+            for action in point_action_records
+            for field in action.fields
+            if isinstance(field.value, ComputeResultRef)
         }
         compute, payload_ids = _bind_compute_calls(
             program.compute_nodes,
@@ -358,6 +463,15 @@ def materialize_local_plan(
         )
         desired = _bind_desired_state(
             point_state_records,
+            routes=routes,
+            routing=environment.routing,
+            payload_ids=payload_ids,
+            known_compute_results={node.result.id for node in program.compute_nodes},
+            point_index=point.logical_ordinal,
+            problems=problems,
+        )
+        actions = _bind_actions(
+            point_action_records,
             routes=routes,
             routing=environment.routing,
             payload_ids=payload_ids,
@@ -430,6 +544,7 @@ def materialize_local_plan(
                 compute=compute,
                 routes=routes,
                 desired_state=desired,
+                actions=actions,
                 collect=collect,
             )
         )
@@ -799,6 +914,128 @@ def _payload_schema(value_type: object) -> str | None:
     return None
 
 
+def _bind_actions(
+    records: Sequence[ActionRecord],
+    *,
+    routes: Sequence[BoundRoute],
+    routing: RoutingView,
+    payload_ids: Mapping[ValueId, str],
+    known_compute_results: set[ValueId],
+    point_index: int,
+    problems: list[Problem],
+) -> tuple[BoundAction, ...]:
+    bound: list[BoundAction] = []
+    for record in records:
+        try:
+            resource_id, entity_ids, channel_bindings, unbound = _bind_state_resource(
+                record.resource_port_id,
+                capability_id=record.capability_id,
+                route_entities=(),
+                routes=routes,
+                routing=routing,
+            )
+        except RoutingError as error:
+            problems.append(
+                _problem(
+                    error.code,
+                    str(error),
+                    model_location(
+                        "points",
+                        point_index,
+                        "actions",
+                        record.id.qualified_name,
+                        "resource",
+                    ),
+                    category=ProblemCategory.UNAVAILABLE,
+                )
+            )
+            continue
+        if unbound:
+            problems.append(
+                _problem(
+                    "action_route_entity_unbound",
+                    "action route entities are not bound: " + ", ".join(unbound),
+                    model_location(
+                        "points",
+                        point_index,
+                        "actions",
+                        record.id.qualified_name,
+                        "resource",
+                    ),
+                    category=ProblemCategory.UNAVAILABLE,
+                )
+            )
+            continue
+        fields: list[BoundActionField] = []
+        for field in record.fields:
+            if isinstance(field.value, ComputeResultRef):
+                if field.value.value_id not in known_compute_results:
+                    problems.append(
+                        _problem(
+                            "compute_payload_unknown_output",
+                            "action references unknown compute result "
+                            f"{field.value.value_id.qualified_name!r}",
+                            model_location(
+                                "actions",
+                                record.id.qualified_name,
+                                "fields",
+                                field.id,
+                            ),
+                            category=ProblemCategory.NOT_FOUND,
+                        )
+                    )
+                    continue
+                if field.value.value_id not in payload_ids:
+                    problems.append(
+                        _problem(
+                            "compute_payload_unavailable",
+                            "action compute output is not an available payload: "
+                            f"{field.value.value_id.qualified_name!r}",
+                            model_location(
+                                "actions",
+                                record.id.qualified_name,
+                                "fields",
+                                field.id,
+                            ),
+                        )
+                    )
+                    continue
+            value = _state_value(field.value, payload_ids=payload_ids)
+            if value is None:
+                problems.append(
+                    _problem(
+                        "action_value_unsupported",
+                        "action values must be primitive scalars, finite quantities, "
+                        "or payload outputs",
+                        model_location(
+                            "actions",
+                            record.id.qualified_name,
+                            "fields",
+                            field.id,
+                        ),
+                    )
+                )
+                continue
+            fields.append(
+                BoundActionField(
+                    id=field.id,
+                    value=value,
+                    entity_ids=entity_ids,
+                    channel_bindings=channel_bindings,
+                )
+            )
+        bound.append(
+            BoundAction(
+                id=record.id,
+                resource_id=resource_id,
+                resource_port_id=record.resource_port_id,
+                capability_id=record.capability_id,
+                fields=tuple(fields),
+            )
+        )
+    return tuple(bound)
+
+
 def _bind_desired_state(
     records: Sequence[StateRecord],
     *,
@@ -973,11 +1210,10 @@ def _state_value(
         return StateValue(PayloadRef(payload_id=payload_id)) if payload_id else None
     if isinstance(value, Quantity):
         return StateValue(value) if math.isfinite(value.value) else None
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        try:
-            return StateValue(float(value))
-        except (OverflowError, ValueError):
-            return None
+    if isinstance(value, bool | int | str):
+        return StateValue(value)
+    if isinstance(value, float):
+        return StateValue(value) if math.isfinite(value) else None
     return None
 
 

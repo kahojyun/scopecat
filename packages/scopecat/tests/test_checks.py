@@ -21,9 +21,23 @@ from scopecat.authoring._resolution import (
 )
 from scopecat.candidate_configs import CandidateConfig
 from scopecat.errors import CheckFailed
+from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.problems import Problem, ProblemCategory, ProblemImpact, ProblemPhase
 from tests.support.authoring import SIMPLE_MODULE, simple_template
+from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import load_config, load_invocation
+
+
+def _workspace(
+    tmp_path: Path,
+    *,
+    config: ConfigProfileSnapshot | None = None,
+) -> sc.Workspace:
+    return sc.open(
+        tmp_path,
+        config=load_config() if config is None else config,
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+    )
 
 
 def test_template_check_is_explicitly_definition_only() -> None:
@@ -75,7 +89,7 @@ def test_invocation_check_compiles_the_complete_config_free_graph() -> None:
 
 
 def test_prepared_check_reports_each_phase_and_summary(tmp_path: Path) -> None:
-    lab = sc.open(tmp_path, config=load_config())
+    lab = _workspace(tmp_path)
 
     report = lab.prepare(load_invocation()).check()
 
@@ -102,7 +116,7 @@ def test_prepared_check_skips_planning_after_configuration_failure(
             )
         }
     )
-    lab = sc.open(tmp_path, config=invalid_config)
+    lab = _workspace(tmp_path, config=invalid_config)
 
     report = lab.prepare(load_invocation()).check()
 
@@ -128,7 +142,7 @@ def test_prepared_check_compiles_authoring_once(
         "compile_prepared_invocation",
         counted_compile,
     )
-    lab = sc.open(tmp_path, config=load_config())
+    lab = _workspace(tmp_path)
 
     report = lab.prepare(load_invocation()).check()
 
@@ -137,14 +151,14 @@ def test_prepared_check_compiles_authoring_once(
 
 
 def test_check_report_inputs_are_read_only(tmp_path: Path) -> None:
-    report = sc.open(tmp_path, config=load_config()).prepare(load_invocation()).check()
+    report = _workspace(tmp_path).prepare(load_invocation()).check()
 
     with pytest.raises(TypeError):
         cast("dict[str, object]", report.inputs)["subject"] = "mutated"
 
 
 def test_preview_and_validation_problem_results_are_frozen(tmp_path: Path) -> None:
-    prepared = sc.open(tmp_path, config=load_config()).prepare(load_invocation())
+    prepared = _workspace(tmp_path).prepare(load_invocation())
     validation = prepared.validate()
     preview = prepared.preview()
 
@@ -207,7 +221,7 @@ def test_check_does_not_hide_internal_programming_errors(
         "validate_config_environment",
         fail_validation,
     )
-    prepared = sc.open(tmp_path, config=load_config()).prepare(load_invocation())
+    prepared = _workspace(tmp_path).prepare(load_invocation())
 
     with pytest.raises(AssertionError, match="internal bug"):
         prepared.check()
@@ -244,7 +258,7 @@ def test_session_candidate_config_is_not_read_before_authoring(
         analysis_key="ordering",
         parameter_proposals=(),
     )
-    lab = sc.open(tmp_path, config=load_config())
+    lab = _workspace(tmp_path)
     prepared = lab.prepare(simple_template().bind(), config=candidate)
 
     if terminal == "check":

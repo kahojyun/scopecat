@@ -8,6 +8,7 @@ from scopecat._compiler.bound import BoundComputeCall, BoundPlan, BoundRecord
 from scopecat._compiler.product_realizations import SelectedLocalProductRealization
 from scopecat._resource_identity import LogicalResourcePortId, PhysicalResourceId
 from scopecat.models.config import RoutingChannelBinding
+from scopecat.models.run_plan import RunPlanRecord
 from scopecat.models.state import PayloadRef, StateValue
 from scopecat.preview import (
     ExperimentPreview,
@@ -166,6 +167,55 @@ def build_experiment_preview(plan: BoundPlan) -> ExperimentPreview:
     )
 
 
+def build_domain_experiment_preview(plan: RunPlanRecord) -> ExperimentPreview:
+    """Project domain accepted-plan evidence into the common user preview."""
+
+    return ExperimentPreview(
+        experiment_id=plan.experiment_id,
+        experiment_kind=plan.experiment_kind,
+        point_count=plan.point_count,
+        schema=plan.expected_dataset_schema,
+        coordinate_ids=tuple(plan.coordinate_ids),
+        points=tuple(
+            ExperimentPreviewPoint(
+                point_index=point.point_index,
+                point_uid=point.point_uid,
+                coordinates=dict(point.coordinates),
+            )
+            for point in plan.points
+        ),
+        records=tuple(
+            ExperimentPreviewRecord(
+                id=record.id,
+                kind=record.kind,
+                producer_kind=record.producer_kind,
+                resource_port_id=record.resource_port_id,
+                physical_resource_id=record.physical_resource_id,
+                capability=record.capability,
+                unit=record.unit,
+                dtype=record.dtype,
+                dims=tuple(record.dims),
+                shape=tuple(record.shape),
+            )
+            for record in plan.records
+        ),
+        state_changes=(),
+        routes=(),
+        state_fields=(),
+        payloads=(),
+        compute_steps=(),
+        runtime=ExperimentPreviewRuntimeSummary(
+            route_count=0,
+            state_field_count=0,
+            compute_operation_count=0,
+            compute_step_count=0,
+            payload_count=0,
+        ),
+        dataset_dimensions=dict(plan.dataset_dimensions),
+        primary_observables=tuple(plan.primary_observables),
+    )
+
+
 def _preview_record(
     record: BoundRecord,
     realization: SelectedLocalProductRealization,
@@ -299,4 +349,4 @@ def _preview_channel_bindings(
     )
 
 
-__all__ = ["build_experiment_preview"]
+__all__ = ["build_domain_experiment_preview", "build_experiment_preview"]

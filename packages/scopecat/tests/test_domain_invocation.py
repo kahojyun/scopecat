@@ -22,10 +22,6 @@ from scopecat._point_domain_algebra import point_rows
 from scopecat._relations import literal_rows
 from scopecat.domain_invocation import (
     AdapterEntryResults,
-    ClosedDomainEntry,
-    ClosedDomainOutputValue,
-    ClosedDomainOutputValues,
-    ClosedDomainResult,
     ClosedDomainResultMapping,
     DomainOutputValue,
     EntryPointBinding,
@@ -33,6 +29,7 @@ from scopecat.domain_invocation import (
     ProductUseId,
     ResultUseBinding,
     SelectedDomainMeasurementOutputs,
+    close_domain_invocation,
     materialize_linked_points,
     seal_domain_output_values,
     seal_domain_result_mapping,
@@ -166,6 +163,12 @@ def _valid_mapping_inputs(
     return entries, entry_bindings, result_bindings
 
 
+def _all_product_use_ids(
+    linked_points: MaterializedLinkedPoints,
+) -> tuple[ProductUseId, ...]:
+    return tuple(use.id for use in linked_points.linked_plan.product_uses)
+
+
 def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> None:
     linked_points = _linked_points()
     adapter_entries, entry_bindings, result_bindings = _valid_mapping_inputs(
@@ -174,6 +177,7 @@ def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> No
 
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         adapter_entries,
         entry_bindings,
         result_bindings,
@@ -181,6 +185,7 @@ def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> No
 
     points = linked_points.point_domain.points
     uses = linked_points.linked_plan.product_uses
+    assert mapping.selected_product_use_ids == tuple(use.id for use in uses)
     assert tuple(entry.entry_address for entry in mapping.adapter_entries) == (
         "entry-2",
         "entry-0",
@@ -209,6 +214,229 @@ def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> No
     exposed_product.metadata["mutated"] = True
     assert "mutated" not in selected.product.metadata
 
+    with pytest.raises(ValueError, match="exactly cover adapter entries"):
+        ClosedDomainResultMapping(
+            mapping.linked_points,
+            mapping.selected_product_use_ids,
+            (),
+            mapping.entries,
+            mapping.results,
+        )
+
+
+def test_result_mapping_canonicalizes_an_explicit_product_use_subset() -> None:
+    linked_points = _linked_points(point_count=3, product_count=3)
+    uses = linked_points.linked_plan.product_uses
+    entries, entry_bindings, result_bindings = _valid_mapping_inputs(linked_points)
+    selected_ids = (uses[2].id, uses[0].id)
+    selected_set = set(selected_ids)
+    selected_bindings = tuple(
+        binding for binding in result_bindings if binding.product_use_id in selected_set
+    )
+    selected_addresses = {binding.result_address for binding in selected_bindings}
+    selected_entries = tuple(
+        AdapterEntryResults(
+            entry.entry_address,
+            tuple(
+                result_address
+                for result_address in entry.result_addresses
+                if result_address in selected_addresses
+            ),
+        )
+        for entry in entries
+    )
+
+    mapping = seal_domain_result_mapping(
+        linked_points,
+        selected_ids,
+        selected_entries,
+        entry_bindings,
+        selected_bindings,
+    )
+
+    canonical_ids = (uses[0].id, uses[2].id)
+    assert mapping.selected_product_use_ids == canonical_ids
+    assert tuple(
+        (result.logical_point_id, result.product_use_id) for result in mapping.results
+    ) == tuple(
+        (point.logical_id, product_use_id)
+        for point in linked_points.point_domain.points
+        for product_use_id in canonical_ids
+    )
+    assert all(
+        tuple(result.product_use_id for result in entry.results) == canonical_ids
+        for entry in mapping.entries
+    )
+    with pytest.raises(KeyError, match="not in this mapping"):
+        mapping.result_for_output(
+            linked_points.point_domain.points[0].logical_id,
+            uses[1].id,
+        )
+
+
+@pytest.mark.parametrize("selection", ["duplicate", "foreign", "wrong_type"])
+def test_result_mapping_rejects_invalid_selected_product_uses(
+    selection: str,
+) -> None:
+    linked_points = _linked_points()
+    uses = linked_points.linked_plan.product_uses
+    entries, entry_bindings, result_bindings = _valid_mapping_inputs(linked_points)
+    if selection == "duplicate":
+        selected_ids = (uses[0].id, uses[0].id)
+        error_type = ValueError
+        message = "must be unique"
+    elif selection == "foreign":
+        selected_ids = (uses[0].id, ProductUseId("foreign-use"))
+        error_type = ValueError
+        message = "not in the linked plan"
+    else:
+        selected_ids = cast(
+            "tuple[ProductUseId, ...]",
+            (uses[0].id, "not-a-product-use-id"),
+        )
+        error_type = TypeError
+        message = "ProductUseId"
+
+    with pytest.raises(error_type, match=message):
+        seal_domain_result_mapping(
+            linked_points,
+            selected_ids,
+            entries,
+            entry_bindings,
+            result_bindings,
+        )
+
+
+def test_result_mapping_rejects_results_for_unselected_product_uses() -> None:
+    linked_points = _linked_points()
+    uses = linked_points.linked_plan.product_uses
+
+    with pytest.raises(ValueError, match="unselected product use"):
+        seal_domain_result_mapping(
+            linked_points,
+            (uses[0].id,),
+            *_valid_mapping_inputs(linked_points),
+        )
+
+
+def test_zero_point_mapping_retains_and_checks_selected_product_contracts() -> None:
+    linked_points = _linked_points(
+        point_count=0,
+        product_count=1,
+        product_kind="readback",
+    )
+    use = linked_points.linked_plan.product_uses[0]
+    mapping = seal_domain_result_mapping(
+        linked_points,
+        (use.id,),
+        (),
+        (),
+        (),
+    )
+
+    assert mapping.selected_product_use_ids == (use.id,)
+    assert mapping.entries == ()
+    assert mapping.results == ()
+    with pytest.raises(CheckFailed) as captured:
+        select_domain_measurement_outputs(mapping)
+    assert {problem.code for problem in captured.value.problems} == {
+        "domain_output_product_kind_unsupported"
+    }
+    with pytest.raises(CheckFailed) as direct:
+        SelectedDomainMeasurementOutputs(mapping)
+    assert {problem.code for problem in direct.value.problems} == {
+        "domain_output_product_kind_unsupported"
+    }
+
+
+def test_empty_result_contract_fingerprint_covers_use_subset_and_entry_mapping() -> (
+    None
+):
+    zero_points = _linked_points(point_count=0, product_count=2)
+    uses = zero_points.linked_plan.product_uses
+    first_mapping = seal_domain_result_mapping(
+        zero_points,
+        (uses[0].id,),
+        (),
+        (),
+        (),
+    )
+    second_mapping = seal_domain_result_mapping(
+        zero_points,
+        (uses[1].id,),
+        (),
+        (),
+        (),
+    )
+
+    def fingerprint(mapping: ClosedDomainResultMapping[str, str]) -> str:
+        return close_domain_invocation(
+            mapping,
+            invocation_id="empty-contract",
+            target_id="target",
+            compiler_id="compiler",
+            capability_fingerprint="capability",
+            artifact_id="artifact",
+            artifact_fingerprint="artifact-fingerprint",
+            adapter_intent={"kind": "empty"},
+            payload=None,
+        ).intent.result_contract_fingerprint
+
+    assert fingerprint(first_mapping) != fingerprint(second_mapping)
+
+    points = _linked_points(point_count=1, product_count=1)
+    point = points.point_domain.points[0]
+    mapping_a = seal_domain_result_mapping(
+        points,
+        (),
+        (AdapterEntryResults("entry-a"),),
+        (EntryPointBinding("entry-a", point.logical_id),),
+        (),
+    )
+    mapping_b = seal_domain_result_mapping(
+        points,
+        (),
+        (AdapterEntryResults("entry-b"),),
+        (EntryPointBinding("entry-b", point.logical_id),),
+        (),
+    )
+    assert fingerprint(mapping_a) != fingerprint(mapping_b)
+
+
+def test_mapping_snapshots_selected_product_contracts_for_invocation_identity() -> None:
+    linked_points = _linked_points(point_count=0, product_count=1)
+    use = linked_points.linked_plan.product_uses[0]
+    mapping = seal_domain_result_mapping(
+        linked_points,
+        (use.id,),
+        (),
+        (),
+        (),
+    )
+
+    def fingerprint() -> str:
+        return close_domain_invocation(
+            mapping,
+            invocation_id="snapshotted-contract",
+            target_id="target",
+            compiler_id="compiler",
+            capability_fingerprint="capability",
+            artifact_id="artifact",
+            artifact_fingerprint="artifact-fingerprint",
+            adapter_intent={"kind": "empty"},
+            payload=None,
+        ).intent.result_contract_fingerprint
+
+    before = fingerprint()
+    linked_points.linked_plan.program.product_defs[0].metadata["mutated"] = True
+    exposed = mapping.product_for_use(use.id)
+    exposed.metadata["also-mutated"] = True
+
+    assert fingerprint() == before
+    retained = mapping.product_for_use(use.id)
+    assert "mutated" not in retained.metadata
+    assert "also-mutated" not in retained.metadata
+
 
 @given(
     adapter_point_order=st.permutations((0, 1, 2)),
@@ -235,6 +463,7 @@ def test_adapter_and_binding_order_do_not_change_logical_output_order(
 
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         entries,
         selected_entry_bindings,
         selected_result_bindings,
@@ -251,6 +480,7 @@ def test_output_values_close_reordered_candidates_to_exact_logical_results() -> 
     linked_points = _linked_points()
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points),
     )
     candidates = tuple(
@@ -291,6 +521,7 @@ def test_output_candidate_order_does_not_change_logical_value_order(
     linked_points = _linked_points()
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points),
     )
     candidates = tuple(
@@ -324,6 +555,7 @@ def test_closed_output_values_snapshot_mutable_measurement_arrays() -> None:
     )
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points, adapter_point_order=(0,)),
     )
     source = MeasurementArray(
@@ -368,6 +600,7 @@ def test_output_value_sealing_rejects_inexact_result_coverage(
     linked_points = _linked_points(point_count=1, product_count=1)
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points, adapter_point_order=(0,)),
     )
     candidate = DomainOutputValue(
@@ -461,6 +694,7 @@ def test_output_value_sealing_rejects_product_contract_mismatches(
     )
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points, adapter_point_order=(0,)),
     )
     selection = select_domain_measurement_outputs(mapping)
@@ -482,6 +716,7 @@ def test_output_value_sealing_revalidates_mutated_measurement_models() -> None:
     )
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points, adapter_point_order=(0,)),
     )
     value = ComplexQuantity(real=1.0, imag=2.0, unit="ratio")
@@ -540,6 +775,7 @@ def test_output_value_selection_rejects_unsupported_measurement_carriers(
     )
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points, adapter_point_order=(0,)),
     )
 
@@ -560,6 +796,7 @@ def test_output_value_sealing_accepts_axis_bearing_bool_arrays() -> None:
     )
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points, adapter_point_order=(0,)),
     )
     selection = select_domain_measurement_outputs(mapping)
@@ -582,11 +819,12 @@ def test_output_value_sealing_accepts_axis_bearing_bool_arrays() -> None:
 
 
 def test_mapping_supports_control_only_entries_without_fabricated_results() -> None:
-    linked_points = _linked_points(point_count=2, product_count=0)
+    linked_points = _linked_points(point_count=2, product_count=2)
     points = linked_points.point_domain.points
 
     mapping = seal_domain_result_mapping(
         linked_points,
+        (),
         (
             AdapterEntryResults("second"),
             AdapterEntryResults("first"),
@@ -602,7 +840,11 @@ def test_mapping_supports_control_only_entries_without_fabricated_results() -> N
         "first",
         "second",
     )
+    assert mapping.selected_product_use_ids == ()
+    assert all(entry.results == () for entry in mapping.entries)
     assert mapping.results == ()
+    selection = select_domain_measurement_outputs(mapping)
+    assert seal_domain_output_values(selection, ()).outputs == ()
 
 
 def test_distinct_uses_of_one_product_remain_distinct_domain_outputs() -> None:
@@ -617,6 +859,7 @@ def test_distinct_uses_of_one_product_remain_distinct_domain_outputs() -> None:
 
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points, adapter_point_order=(1, 0)),
     )
 
@@ -707,6 +950,7 @@ def test_mapping_rejects_incomplete_or_foreign_edges_before_any_effect(
     with pytest.raises(ValueError, match=message):
         seal_domain_result_mapping(
             linked_points,
+            _all_product_use_ids(linked_points),
             entries,
             entry_bindings,
             result_bindings,
@@ -720,6 +964,7 @@ def test_mapping_rejects_duplicate_adapter_identity_inventory() -> None:
     with pytest.raises(ValueError, match="entry addresses must be unique"):
         seal_domain_result_mapping(
             linked_points,
+            _all_product_use_ids(linked_points),
             (entries[0], entries[0], entries[2]),
             entry_bindings,
             result_bindings,
@@ -736,6 +981,7 @@ def test_mapping_rejects_duplicate_adapter_identity_inventory() -> None:
     with pytest.raises(ValueError, match="result addresses must be globally unique"):
         seal_domain_result_mapping(
             linked_points,
+            _all_product_use_ids(linked_points),
             duplicated_result_entries,
             entry_bindings,
             result_bindings,
@@ -749,32 +995,6 @@ def test_mapping_inputs_require_hashable_nominal_addresses() -> None:
         AdapterEntryResults("entry", cast("tuple[str, ...]", ([],)))
 
 
-def test_closed_mapping_and_entries_cannot_be_forged() -> None:
-    linked_points = _linked_points(point_count=1, product_count=1)
-    point = linked_points.point_domain.points[0]
-    use = linked_points.linked_plan.product_uses[0]
-    product = linked_points.linked_plan.product_defs[0]
-    mapping = seal_domain_result_mapping(
-        linked_points,
-        *_valid_mapping_inputs(linked_points, adapter_point_order=(0,)),
-    )
-    selection = select_domain_measurement_outputs(mapping)
-    value = Quantity(value=1.0, unit="ratio")
-
-    with pytest.raises(TypeError, match="only be created"):
-        ClosedDomainResult("entry", "result", point, use, product)
-    with pytest.raises(TypeError, match="only be created"):
-        ClosedDomainEntry("entry", point, ())
-    with pytest.raises(TypeError, match="only be created"):
-        ClosedDomainResultMapping(linked_points, (), (), ())
-    with pytest.raises(TypeError, match="only be created"):
-        ClosedDomainOutputValue(mapping.results[0], value)
-    with pytest.raises(TypeError, match="only be created"):
-        SelectedDomainMeasurementOutputs(mapping)
-    with pytest.raises(TypeError, match="only be created"):
-        ClosedDomainOutputValues(selection, ())
-
-
 def test_domain_output_candidates_require_typed_values_and_hashable_addresses() -> None:
     with pytest.raises(TypeError, match="result address must be hashable"):
         DomainOutputValue(cast("str", []), Quantity(value=1.0, unit="ratio"))
@@ -786,6 +1006,7 @@ def test_mapping_lookups_reject_foreign_addresses_and_outputs() -> None:
     linked_points = _linked_points()
     mapping = seal_domain_result_mapping(
         linked_points,
+        _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points),
     )
     foreign_points = _linked_points(point_count=4)

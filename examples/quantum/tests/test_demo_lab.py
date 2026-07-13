@@ -24,6 +24,8 @@ def test_notebook_style_examples_execute_user_workflows(
     gate_family = _run_notebook("07_gate_calibration_family.py")
     readout_family = _run_notebook("08_readout_family.py")
     system_scale = _run_notebook("09_system_scale_cases.py")
+    fake_template = _run_notebook("10_fake_awg_template.py")
+    fake_scratch = _run_notebook("11_fake_awg_scratch.py")
 
     assert review_rerun["baseline"].manifest.status == "completed"
     assert review_rerun["follow_up"].manifest.status == "completed"
@@ -119,6 +121,19 @@ def test_notebook_style_examples_execute_user_workflows(
         "backend_batch_payloads": ["batch/build-backend-batch-job"],
         "backend_batch_records": ["backend_probabilities"],
     }
+    expected_fake_summary = {
+        "status": "completed",
+        "points": 4,
+        "record_producers": {
+            "integrated_iq_shots": "domain",
+            "probability_0": "host_transform",
+            "probability_1": "host_transform",
+        },
+        "physical_executions": 1,
+        "measurement_count": 4,
+    }
+    assert fake_template["template_summary"] == expected_fake_summary
+    assert fake_scratch["scratch_summary"] == expected_fake_summary
 
 
 def _run_notebook(name: str) -> dict[str, Any]:

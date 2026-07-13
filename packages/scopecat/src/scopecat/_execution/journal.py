@@ -1,4 +1,4 @@
-"""Required operation journal boundary for structured execution."""
+"""Durable effect and recovery journal boundary for structured execution."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from scopecat._content_identity import model_wire_content_hash
 from scopecat.instruments.sdk import InstrumentReadback
 from scopecat.problems import Problem
-from scopecat.results import MeasurementRecord
 
 type ExecutionEffect = Literal[
+    "action",
     "pure",
     "read",
     "state_write",
@@ -36,17 +36,20 @@ type ExecutionStage = Literal[
     "point",
     "compute",
     "apply_state",
+    "action",
     "collect",
-    "commit_point",
+    "record_measurement",
     "abort",
     "cleanup",
     "terminal_readback",
-    "terminalize",
+    "domain_submit",
+    "domain_fetch",
+    "domain_reconcile",
 ]
 
 
 class ExecutionTransition(BaseModel):
-    """Immutable evidence for one execution operation transition."""
+    """Immutable carrier shared by effect evidence and live observation."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -54,8 +57,8 @@ class ExecutionTransition(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.execution_transition.v2"] = (
-        "scopecat.execution_transition.v2"
+    schema_version: Literal["scopecat.execution_transition.v3"] = (
+        "scopecat.execution_transition.v3"
     )
     sequence: int | None = Field(default=None, ge=0)
     run_id: str
@@ -86,25 +89,20 @@ class ExecutionJournalError(RuntimeError):
     """Raised when operation intent or receipt evidence cannot be committed."""
 
 
-class MeasurementCommitter(Protocol):
-    """Durably commit one point result before the engine advances."""
-
-    def commit(self, measurement: MeasurementRecord) -> None: ...
-
-
 class CollectionChunk(BaseModel):
-    """Immutable durable receipt for one successful driver collection call."""
+    """Durable payload for one successful driver collection call."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.collection_chunk.v1"] = (
-        "scopecat.collection_chunk.v1"
+    schema_version: Literal["scopecat.collection_chunk.v2"] = (
+        "scopecat.collection_chunk.v2"
     )
-    run_id: str
-    operation_id: str
+    run_id: str = Field(min_length=1)
+    operation_id: str = Field(min_length=1)
+    command_content_hash: str = Field(min_length=1)
     attempt: int = Field(default=1, ge=1)
     point_index: int = Field(ge=0)
-    instrument_id: str
+    instrument_id: str = Field(min_length=1)
     readback: InstrumentReadback
 
     @property
@@ -112,19 +110,26 @@ class CollectionChunk(BaseModel):
         return model_wire_content_hash(self)
 
 
-class CommittedCollectionChunk(BaseModel):
-    """Reference returned only after a collection chunk is durably committed."""
+class CollectionChunkReceipt(BaseModel):
+    """Immutable reference to a chunk resolvable by its collection repository."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        revalidate_instances="always",
+    )
 
-    ref: str
-    content_hash: str
+    operation_id: str = Field(min_length=1)
+    ref: str = Field(min_length=1)
+    content_hash: str = Field(min_length=1)
 
 
-class CollectionCommitter(Protocol):
-    """Persist a readback before its collection operation can complete."""
+class CollectionRepository(Protocol):
+    """Persist readbacks and resolve them later for ingress or recovery."""
 
-    def commit(self, chunk: CollectionChunk) -> CommittedCollectionChunk: ...
+    def commit(self, chunk: CollectionChunk) -> CollectionChunkReceipt: ...
+
+    def resolve(self, receipt: CollectionChunkReceipt) -> CollectionChunk: ...
 
 
 class PayloadEvidence(BaseModel):
@@ -180,71 +185,64 @@ class MemoryExecutionJournal:
             return committed
 
 
-class NullExecutionJournal:
-    """Explicit opt-out intended only for pure engine unit tests."""
-
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        return entry
-
-
-class MemoryMeasurementCommitter:
-    """In-memory point committer used by engine unit tests."""
-
-    def __init__(self) -> None:
-        self._measurements: list[MeasurementRecord] = []
-
-    @property
-    def measurements(self) -> tuple[MeasurementRecord, ...]:
-        return tuple(self._measurements)
-
-    def commit(self, measurement: MeasurementRecord) -> None:
-        durable_measurement = MeasurementRecord.model_validate(
-            measurement.model_dump(mode="json")
-        )
-        existing = next(
-            (
-                item
-                for item in self._measurements
-                if item.point_index == durable_measurement.point_index
-            ),
-            None,
-        )
-        if existing is not None and model_wire_content_hash(
-            existing
-        ) != model_wire_content_hash(durable_measurement):
-            msg = (
-                f"measurement for point {durable_measurement.point_index} "
-                "is already committed"
-            )
-            raise ExecutionJournalError(msg)
-        if existing is None:
-            self._measurements.append(durable_measurement)
-
-
-class MemoryCollectionCommitter:
-    """In-memory collection receipt store for interpreter tests."""
+class MemoryCollectionRepository:
+    """In-memory collection repository for interpreter tests."""
 
     def __init__(self) -> None:
         self._chunks: dict[str, CollectionChunk] = {}
+        self._receipts: dict[str, CollectionChunkReceipt] = {}
+        self._lock = Lock()
 
     @property
     def chunks(self) -> tuple[CollectionChunk, ...]:
-        return tuple(self._chunks.values())
+        with self._lock:
+            return tuple(
+                CollectionChunk.model_validate(chunk.model_dump(mode="json"))
+                for chunk in self._chunks.values()
+            )
 
-    def commit(self, chunk: CollectionChunk) -> CommittedCollectionChunk:
+    @property
+    def receipts(self) -> tuple[CollectionChunkReceipt, ...]:
+        with self._lock:
+            return tuple(
+                CollectionChunkReceipt.model_validate(receipt.model_dump(mode="json"))
+                for receipt in self._receipts.values()
+            )
+
+    def commit(self, chunk: CollectionChunk) -> CollectionChunkReceipt:
         durable_chunk = CollectionChunk.model_validate(chunk.model_dump(mode="json"))
         digest = durable_chunk.content_hash
-        existing = self._chunks.get(durable_chunk.operation_id)
-        if existing is not None and existing.content_hash != digest:
-            msg = (
-                f"collection operation {durable_chunk.operation_id} already has a chunk"
+        with self._lock:
+            existing = self._chunks.get(durable_chunk.operation_id)
+            if existing is not None and existing.content_hash != digest:
+                msg = (
+                    f"collection operation {durable_chunk.operation_id} already "
+                    "has a chunk"
+                )
+                raise ExecutionJournalError(msg)
+            if existing is None:
+                receipt = CollectionChunkReceipt(
+                    operation_id=durable_chunk.operation_id,
+                    ref=f"memory/collection/{digest}.json",
+                    content_hash=digest,
+                )
+                self._chunks[durable_chunk.operation_id] = durable_chunk
+                self._receipts[durable_chunk.operation_id] = receipt
+            return CollectionChunkReceipt.model_validate(
+                self._receipts[durable_chunk.operation_id].model_dump(mode="json")
             )
-            raise ExecutionJournalError(msg)
-        self._chunks[durable_chunk.operation_id] = durable_chunk
-        return CommittedCollectionChunk(
-            ref=f"memory/collection/{digest}.json",
-            content_hash=digest,
+
+    def resolve(self, receipt: CollectionChunkReceipt) -> CollectionChunk:
+        durable_receipt = CollectionChunkReceipt.model_validate(
+            receipt.model_dump(mode="json")
         )
+        with self._lock:
+            stored_receipt = self._receipts.get(durable_receipt.operation_id)
+            stored_chunk = self._chunks.get(durable_receipt.operation_id)
+            if stored_receipt != durable_receipt or stored_chunk is None:
+                msg = "collection receipt is not backed by this repository"
+                raise ExecutionJournalError(msg)
+            return CollectionChunk.model_validate(stored_chunk.model_dump(mode="json"))
 
 
 class MemoryPayloadEvidenceCommitter:
@@ -271,8 +269,8 @@ class MemoryPayloadEvidenceCommitter:
 
 __all__ = [
     "CollectionChunk",
-    "CollectionCommitter",
-    "CommittedCollectionChunk",
+    "CollectionChunkReceipt",
+    "CollectionRepository",
     "CommittedPayloadEvidence",
     "ExecutionEffect",
     "ExecutionJournal",
@@ -281,12 +279,9 @@ __all__ = [
     "ExecutionStage",
     "ExecutionTransition",
     "JournalEntryState",
-    "MeasurementCommitter",
-    "MemoryCollectionCommitter",
+    "MemoryCollectionRepository",
     "MemoryExecutionJournal",
-    "MemoryMeasurementCommitter",
     "MemoryPayloadEvidenceCommitter",
-    "NullExecutionJournal",
     "PayloadEvidence",
     "PayloadEvidenceCommitter",
 ]

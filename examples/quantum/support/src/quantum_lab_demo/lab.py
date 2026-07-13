@@ -27,7 +27,9 @@ def quantum_lab(
     return sc.open(
         workspace,
         config_profile=config_profile or quantum_wiring_config_profile(),
-        instrument_provider=QuantumLabVirtualProvider(profile=virtual_lab_profile),
+        execution_backend=sc.PointInstrumentBackend(
+            QuantumLabVirtualProvider(profile=virtual_lab_profile)
+        ),
     )
 
 

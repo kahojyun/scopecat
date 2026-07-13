@@ -19,6 +19,7 @@ from scopecat.authoring._resolution import (
     compile_prepared_invocation,
 )
 from scopecat.errors import CheckFailed
+from scopecat.execution_backend import PointInstrumentBackend
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from tests.support.authoring import (
@@ -38,11 +39,12 @@ def test_preview_and_start_run_use_separate_paths(
 
     preview = preview_experiment(
         config=config,
+        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
         experiment=experiment,
         workspace=tmp_path / "preview",
     )
     provider_run = start_run(
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
         workspace=tmp_path / "provider",
@@ -74,11 +76,12 @@ def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> Non
 
     preview = preview_experiment(
         config=config,
+        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
         experiment=invocation,
         workspace=tmp_path / "preview",
     )
     provider_run = start_run(
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
         config=config,
         experiment=invocation,
         workspace=tmp_path / "provider",
@@ -115,7 +118,13 @@ def test_public_workflow_compiles_authoring_before_config_source_io(
     else:
         terminal = run_experiment if workflow == "run" else preview_experiment
         with pytest.raises(CheckFailed) as error:
-            terminal(invalid, workspace=tmp_path)
+            terminal(
+                invalid,
+                execution_backend=PointInstrumentBackend(
+                    TestSignalInstrumentProvider()
+                ),
+                workspace=tmp_path,
+            )
         problem = error.value.problems[0]
 
     assert problem.code == "experiment_template_missing_input"
@@ -202,6 +211,9 @@ def test_public_workflow_compiles_authoring_once(
             "preview": lambda: preview_experiment(
                 experiment,
                 config=invalid_config,
+                execution_backend=PointInstrumentBackend(
+                    TestSignalInstrumentProvider()
+                ),
                 workspace=tmp_path,
             ),
         }[workflow]

@@ -41,13 +41,13 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
     config = load_config()
     experiment = load_prepared_invocation()
     baseline = start_run(
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
         workspace=tmp_path,
     )
     candidate = start_run(
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
         workspace=tmp_path,
@@ -163,7 +163,7 @@ def test_run_inputs_are_loaded_independently_for_capture_runs(tmp_path: Path) ->
 
 def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
     run = start_run(
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
         workspace=tmp_path,
@@ -201,7 +201,7 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
     tmp_path: Path,
 ) -> None:
     run = start_run(
-        instrument_provider=TestSignalInstrumentProvider(),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
         workspace=tmp_path,

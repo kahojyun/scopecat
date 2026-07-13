@@ -29,6 +29,7 @@ from scopecat.authoring._handles import create_handle, replace_handle
 from scopecat.authoring._intents import (
     ClosedScalarValue,
     ExperimentStateIntent,
+    ModuleActionDecl,
     ModuleInputPort,
     ModuleOperationDecl,
     StateEachIntent,
@@ -140,6 +141,7 @@ class ModuleBuilder:
     resources: tuple[ResourcePort, ...] = ()
     bindings: tuple[ExperimentBindingIntent, ...] = ()
     state_intents: tuple[ExperimentStateIntent, ...] = ()
+    actions: tuple[ModuleActionDecl, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
     records: tuple[RecordIntent, ...] = ()
@@ -164,6 +166,7 @@ class ModuleBuilder:
                 self.output_ports,
                 self.bindings,
                 self.state_intents,
+                self.actions,
                 self.operations,
                 self.python_implementations,
                 self.records,
@@ -364,6 +367,51 @@ class ModuleBuilder:
                         logical_resource_port_id(resource_port)
                         if resource_port is not None
                         else None
+                    ),
+                ),
+            ),
+        )
+
+    def action(
+        self,
+        id: str,  # noqa: A002
+        *,
+        resource: str,
+        capability: str,
+        fields: Mapping[str, BindingInput] | None = None,
+    ) -> ModuleBuilder:
+        """Invoke one receipt-bearing instrument action for every point.
+
+        Actions are ordered effects, not desired state: identical invocations
+        at adjacent points are both delivered to the driver.
+        """
+
+        if not id or not resource or not capability:
+            msg = "action, resource, and capability ids must be non-empty"
+            raise ValueError(msg)
+        if id in {action.id for action in self.actions}:
+            msg = f"module action {id!r} is already declared"
+            raise ValueError(msg)
+        selected_fields = dict(fields or {})
+        invalid = sorted(
+            name
+            for name, value in selected_fields.items()
+            if not name or not _is_public_binding_input(value)
+        )
+        if invalid:
+            msg = "action fields require non-empty ids and typed or scalar values"
+            raise TypeError(msg)
+        return replace_handle(
+            self,
+            actions=(
+                *self.actions,
+                ModuleActionDecl(
+                    id=id,
+                    resource_port_id=logical_resource_port_id(resource),
+                    capability_id=capability,
+                    fields=tuple(
+                        (name, cast("BindingInput", _capture_state_literal(value)))
+                        for name, value in selected_fields.items()
                     ),
                 ),
             ),
@@ -684,6 +732,10 @@ class ExperimentModule:
     @property
     def state_intents(self) -> tuple[ExperimentStateIntent, ...]:
         return self._ir.body.state
+
+    @property
+    def actions(self) -> tuple[ModuleActionDecl, ...]:
+        return self._ir.body.actions
 
     @property
     def operations(self) -> tuple[ModuleOperationDecl, ...]:

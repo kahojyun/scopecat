@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Set as AbstractSet
 from typing import cast
 
 from scopecat._compiler.bound import BoundPlan, BoundRecord
+from scopecat._compiler.linked import MaterializedLinkedPoints
 from scopecat._compiler.product_realizations import SelectedLocalProductRealization
+from scopecat._product_identity import ProductUseId
 from scopecat._resource_identity import LogicalResourcePortId, PhysicalResourceId
+from scopecat.measurement_projection import BoundMeasurementProjection
 from scopecat.models.config import RoutingChannelBinding
+from scopecat.models.measurement import CoordinateValue
 from scopecat.models.run_plan import (
     RunPlanChannelBinding,
     RunPlanDeferredValue,
+    RunPlanDomainExecution,
     RunPlanOutput,
     RunPlanPoint,
+    RunPlanPointInstrumentExecution,
     RunPlanRecord,
     RunPlanResolvedRoute,
     RunPlanRoute,
@@ -22,7 +29,11 @@ from scopecat.models.run_plan import (
 from scopecat.models.state import PayloadRef, StateValue
 
 
-def build_run_plan_record(plan: BoundPlan) -> RunPlanRecord:
+def build_run_plan_record(
+    plan: BoundPlan,
+    *,
+    execution: RunPlanPointInstrumentExecution,
+) -> RunPlanRecord:
     """Project transient compiler output into durable accepted-plan evidence."""
 
     if not plan.valid:
@@ -54,6 +65,7 @@ def build_run_plan_record(plan: BoundPlan) -> RunPlanRecord:
     return RunPlanRecord(
         experiment_id=plan.experiment_id,
         experiment_kind=plan.experiment_kind,
+        execution_units=[execution],
         point_count=plan.point_count,
         expected_dataset_schema=plan.expected_dataset_schema,
         coordinate_ids=list(coordinate_ids),
@@ -69,7 +81,11 @@ def build_run_plan_record(plan: BoundPlan) -> RunPlanRecord:
             for point in plan.points
         ],
         records=[
-            _run_plan_output(record, realizations_by_use[record.product_use_id])
+            _run_plan_output(
+                record,
+                realizations_by_use[record.product_use_id],
+                producer_unit_id=execution.unit_id,
+            )
             for record in plan.records
         ],
         state_changes=[
@@ -129,15 +145,92 @@ def build_run_plan_record(plan: BoundPlan) -> RunPlanRecord:
     )
 
 
+def build_domain_run_plan_record(
+    linked_points: MaterializedLinkedPoints,
+    projection: BoundMeasurementProjection,
+    *,
+    execution: RunPlanDomainExecution,
+    domain_product_use_ids: AbstractSet[ProductUseId],
+) -> RunPlanRecord:
+    """Project a target-selected domain plan into durable accepted evidence."""
+
+    selected = projection.projection
+    if selected.linked_points is not linked_points:
+        msg = "domain run plan projection must retain its linked points"
+        raise ValueError(msg)
+    points = linked_points.point_domain.points
+    coordinate_ids = selected.coordinate_ids
+    schema = selected.schema
+    dataset_dimensions = (
+        {
+            dimension.id: dimension.size
+            for dimension in schema.dimensions
+            if dimension.size is not None
+        }
+        if schema is not None
+        else {}
+    )
+    return RunPlanRecord(
+        experiment_id=linked_points.linked_plan.program.id,
+        experiment_kind=linked_points.linked_plan.program.kind,
+        execution_units=[execution],
+        point_count=len(points),
+        expected_dataset_schema=schema,
+        coordinate_ids=list(coordinate_ids),
+        points=[
+            RunPlanPoint(
+                point_index=point.logical_ordinal,
+                point_uid=point.logical_id.value,
+                coordinates=cast(
+                    "dict[str, CoordinateValue]",
+                    {
+                        coordinate_id: point.row[coordinate_id]
+                        for coordinate_id in coordinate_ids
+                    },
+                ),
+            )
+            for point in points
+        ],
+        records=[
+            RunPlanOutput(
+                id=record.id,
+                kind=record.kind,
+                producer_kind=(
+                    "domain"
+                    if record.product_use_id in domain_product_use_ids
+                    else "host_transform"
+                ),
+                producer_unit_id=execution.unit_id,
+                unit=record.unit,
+                dtype=record.dtype,
+                dims=list(record.dims),
+                shape=list(record.shape),
+            )
+            for record in selected.records
+        ],
+        dataset_dimensions=dataset_dimensions,
+        primary_observables=(
+            list(schema.primary_observables)
+            if schema is not None
+            else [
+                record.id for record in selected.records if record.kind == "observable"
+            ]
+        ),
+    )
+
+
 def _run_plan_output(
     record: BoundRecord,
     realization: SelectedLocalProductRealization,
+    *,
+    producer_unit_id: str,
 ) -> RunPlanOutput:
     producer = realization.producer
     return RunPlanOutput(
         id=record.id,
         kind=record.kind,
         producer_kind="instrument",
+        producer_unit_id=producer_unit_id,
         resource_port_id=(
             producer.resource_target.qualified_name
             if isinstance(producer.resource_target, LogicalResourcePortId)
@@ -185,4 +278,4 @@ def _run_plan_channel_binding(
     )
 
 
-__all__ = ["build_run_plan_record"]
+__all__ = ["build_domain_run_plan_record", "build_run_plan_record"]

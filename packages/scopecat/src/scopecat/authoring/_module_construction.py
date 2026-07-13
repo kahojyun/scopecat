@@ -12,6 +12,7 @@ from scopecat.authoring._binding_intents import (
 from scopecat.authoring._handles import create_handle
 from scopecat.authoring._intents import (
     ExperimentStateIntent,
+    ModuleActionDecl,
     ModuleInputPort,
     ModuleOperationDecl,
 )
@@ -47,6 +48,7 @@ def module_from_parts_internal(
     resources: Sequence[ResourcePort] = (),
     bindings: Sequence[ExperimentBindingIntent] = (),
     state_intents: Sequence[ExperimentStateIntent] = (),
+    actions: Sequence[ModuleActionDecl] = (),
     operations: Sequence[ModuleOperationDecl] = (),
     python_implementations: Sequence[ModulePythonImplementation] = (),
     records: Sequence[RecordIntent] = (),
@@ -74,6 +76,7 @@ def module_from_parts_internal(
             instances=instances,
             bindings=tuple(bindings),
             state=tuple(state_intents),
+            actions=tuple(actions),
             operations=tuple(operations),
             records=tuple(records),
             products=tuple(product_ports),
@@ -137,6 +140,7 @@ def build_module_from_builder(
         resources=builder.resources,
         bindings=builder.bindings,
         state_intents=builder.state_intents,
+        actions=builder.actions,
         operations=builder.operations,
         python_implementations=builder.python_implementations,
         records=builder.records,

@@ -34,7 +34,7 @@ import scopecat as sc
 lab = sc.open(
     ".scopecat",
     config="active",
-    instrument_provider=provider,
+    execution_backend=sc.PointInstrumentBackend(provider),
 )
 readout_frequency = sc.point(
     "readout_frequency",
@@ -213,6 +213,42 @@ report exposes structured phase status and problems; `.explain()` renders
 the same report as deterministic text for notebooks and logs. Candidate configs
 are resolved read-only for system summaries, checks, validation, and previews;
 only a run or an explicit activation materializes candidate evidence.
+
+## Measurement Transformation Boundary
+
+Core also has a lower-level typed graph for pure measurement postprocessing
+between producer-neutral value ingress and durable record projection. Semantic
+transform declarations retain exact logical input and output product contracts.
+Port ids are transform-local semantic roles, while `ProductUseId` values are
+graph wiring. Recursively immutable semantic parameters, explicit per-transform
+implementation bindings, and pure typed capability validators keep transient
+host callables outside the graph while rejecting unsupported interfaces before
+effects. The first executable rate is point-local `POINT`, whose kernels run
+once per canonical logical point and return checked values through the same
+fragment assembly used by domain outputs.
+
+This is currently an architecture and adapter boundary, not a notebook-facing
+authoring DSL. Local instrument collection now has a narrow ingress seam: an
+exact pre-effect binding maps the current local execution program's selected
+collection subset to one value fragment. This first seam accepts only
+collection-only point programs: the binding gates collected-value ingress, not
+engine effect authorization, and does not yet prove state or compute context.
+Although the transient program can represent a proper collection subset, the
+current compiler lowering still makes that subset equal the complete logical
+use inventory because `BoundPlan` requires local realization coverage for every
+use. Only receipts that a trusted collection repository can resolve back to
+their persisted chunks may close that fragment: operation identity, bound
+command hash, and reloaded chunk content hash must all correlate before
+accepted value entries enter the neutral data plane. Runtime collection
+addresses are not copied into those entries; their retained selection remains
+a control-plane proof over the linked plan and routing. This seam does not
+replace the existing engine's point-by-point recording or crash-visible
+persistence.
+`POINT_SET` and cross-point execution, point-scoped neutral closure, aggregate
+local/domain/transform ownership and lowering, full state/context proofs, full
+engine integration, one run-provenance token carried through projection, and
+proofs that a domain target implements an equivalent offloaded transform remain
+later work.
 
 ## Persistence Boundary
 

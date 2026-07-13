@@ -3,6 +3,7 @@
 from quantum_lab_demo.targets.fake_list_mode import (
     CorrelatedFakeListFrame,
     CorrelatedFakeListRun,
+    ExecutableFakeMeasurementInvocation,
     FakeAcquisitionBinding,
     FakeAcquisitionWindow,
     FakeAwgChannelId,
@@ -13,6 +14,7 @@ from quantum_lab_demo.targets.fake_list_mode import (
     FakeDigitizerValue,
     FakeListArtifact,
     FakeListAwg,
+    FakeListDomainRuntime,
     FakeListEntry,
     FakeListRun,
     FakeListRuntime,
@@ -26,6 +28,7 @@ from quantum_lab_demo.targets.fake_list_mode import (
     RealizedFakeMeasurementRun,
     SelectedFakeMeasurementOutput,
     SelectedFakeMeasurementRealization,
+    close_fake_measurement_invocation,
     correlate_fake_list_run,
     default_fake_list_target,
     execute_correlated_fake_list,
@@ -33,12 +36,14 @@ from quantum_lab_demo.targets.fake_list_mode import (
     integrated_iq_shots,
     raw_trace_shots,
     realize_fake_measurements,
+    realize_fetched_fake_measurements,
     select_fake_measurement_realization,
 )
 
 __all__ = [
     "CorrelatedFakeListFrame",
     "CorrelatedFakeListRun",
+    "ExecutableFakeMeasurementInvocation",
     "FakeAcquisitionBinding",
     "FakeAcquisitionWindow",
     "FakeAwgChannelId",
@@ -49,6 +54,7 @@ __all__ = [
     "FakeDigitizerValue",
     "FakeListArtifact",
     "FakeListAwg",
+    "FakeListDomainRuntime",
     "FakeListEntry",
     "FakeListRun",
     "FakeListRuntime",
@@ -62,6 +68,7 @@ __all__ = [
     "RealizedFakeMeasurementRun",
     "SelectedFakeMeasurementOutput",
     "SelectedFakeMeasurementRealization",
+    "close_fake_measurement_invocation",
     "correlate_fake_list_run",
     "default_fake_list_target",
     "execute_correlated_fake_list",
@@ -69,5 +76,6 @@ __all__ = [
     "integrated_iq_shots",
     "raw_trace_shots",
     "realize_fake_measurements",
+    "realize_fetched_fake_measurements",
     "select_fake_measurement_realization",
 ]

@@ -22,11 +22,11 @@ class PayloadRef(BaseModel):
     payload_id: str = Field(min_length=1)
 
 
-type StateLiteral = float | Quantity | PayloadRef
+type StateLiteral = bool | int | float | str | Quantity | PayloadRef
 
 
 class StateValue(RootModel[StateLiteral]):
-    """A finite float, finite quantity, or command-local payload reference."""
+    """A concrete primitive, finite quantity, or command-local payload reference."""
 
     model_config = ConfigDict(frozen=True, revalidate_instances="always")
 
@@ -34,18 +34,16 @@ class StateValue(RootModel[StateLiteral]):
     @classmethod
     def validate_input(cls, value: object) -> object:
         if isinstance(value, bool):
-            msg = "instrument state value must not be a bool"
-            raise ValueError(msg)
-        if isinstance(value, int | float):
-            try:
-                numeric_value = float(value)
-            except OverflowError as error:
-                msg = "instrument state number must be finite and representable"
-                raise ValueError(msg) from error
-            if not math.isfinite(numeric_value):
+            return value
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            if not math.isfinite(value):
                 msg = "instrument state number must be finite"
                 raise ValueError(msg)
-            return numeric_value
+            return value
+        if isinstance(value, str):
+            return value
         if isinstance(value, Quantity):
             if not math.isfinite(value.value):
                 msg = "instrument state quantity must be finite"
@@ -53,7 +51,10 @@ class StateValue(RootModel[StateLiteral]):
             return value
         if isinstance(value, PayloadRef | dict):
             return cast("object", value)
-        msg = "instrument state value must be a number, quantity, or payload reference"
+        msg = (
+            "instrument state value must be a bool, int, float, string, quantity, "
+            "or payload reference"
+        )
         raise ValueError(msg)
 
     @model_validator(mode="after")

@@ -19,6 +19,7 @@ code used to validate Scopecat's notebook-first UX.
   analysis;
 - domain calculation and plotting helpers behind that promoted analysis step;
 - a unified virtual lab provider;
+- a runnable fake AWG + digitizer domain adapter and reusable X-count reference;
 - support-package unit tests.
 
 ## Where Users Customize
@@ -32,6 +33,7 @@ code used to validate Scopecat's notebook-first UX.
 | Edit lab wiring with qubit/coupler/line vocabulary | `quantum_wiring()`, `default_quantum_wiring()`, and `quantum_wiring_config_profile()` in `src/quantum_lab_demo/virtual_lab/wiring.py` |
 | Inspect related readout cases | `../notebooks/08_readout_family.py` |
 | Inspect surface-code-shaped and backend-batch cases | `../notebooks/09_system_scale_cases.py` |
+| Compare reusable and scratch fake-hardware authoring | `../notebooks/10_fake_awg_template.py` and `../notebooks/11_fake_awg_scratch.py` |
 | Inspect route-aware waveform compute | `../notebooks/07_gate_calibration_family.py` |
 | Change workspace, config profile, or virtual profile paths | `src/quantum_lab_demo/lab.py` and `src/quantum_lab_demo/fixtures.py` |
 | Replace virtual hardware with a real adapter | `src/quantum_lab_demo/virtual_lab/provider.py` |
@@ -51,9 +53,10 @@ prepare or run them with fluent terminal calls such as
 `Run.data()`, save `Analysis`, try candidate configs, and review candidate run
 comparisons.
 
-Keep reusable declarations in module/template definitions. Scratch workspace
-experiments are only for notebook exploration; promote them by editing those
-definitions when the shape becomes a reference case.
+Keep reusable declarations in module/template definitions when several users or
+experiments share them. Scratch workspace experiments remain a supported way to
+define one-off or locally composed work; the fake-hardware pair deliberately
+keeps both forms executable and checks that they converge on one execution path.
 
 The Rabi and CZ chevron modules intentionally return generated gate-sequence
 and waveform payloads as ordinary in-memory Python objects. The CZ chevron
@@ -113,7 +116,15 @@ reported as unsupported target capabilities until their portable sampling
 semantics are specified.
 
 This runtime remains intentionally separate from the existing point-local
-instrument provider and core executor. Correlated frames remain raw evidence.
+instrument provider. An explicit core domain-execution boundary now accepts its
+prepared proof and publishes the result through the standard Run lifecycle.
+The adapter is selected on each `Workspace.prepare(...)` call rather than on the
+workspace, allowing local-provider and whole-program domain runs to share one
+workspace without hidden target inheritance. Correlated frames remain raw evidence.
+The v1 adapter contract is synchronous and whole-program: its first fetch must
+be terminal. Pending or submit-uncertain outcomes are terminalized as
+indeterminate Runs with durable target/artifact and reconciliation context;
+automatic polling and resume are not claimed by this slice.
 Callers explicitly bind every mapped result address with
 `integrated_iq_shots(address)` or `raw_trace_shots(address)`; the two policies
 may be freely mixed within one batch. `select_fake_measurement_realization`
@@ -133,10 +144,40 @@ canonical `[shot]` shape. Raw-trace bindings require canonical
 result's checked acquisition window. `execute_realized_fake_measurements`
 executes the mixed target batch once, realizes each address under its selected
 policy, and closes the heterogeneous values together while retaining the raw
-frames. Unit conversion, reduction, record projection, dataset persistence,
-and runtime journal integration remain absent. The next vertical slice is an
-executable closed domain invocation with correlated submit, fetch, and
-reconciliation effects.
+frames.
+
+For host-visible execution, `close_fake_measurement_invocation` closes the same
+selection against target/compiler/capability/artifact evidence.
+`FakeListDomainRuntime` gives an idempotent submission key one job identity,
+registers that job before calling the device primitive, and makes fetch and
+reconcile read-only. Core helpers journal submit as an
+acquisition effect and fetch/reconcile as read effects; every receipt is
+correlated to the complete closed intent. Callers pass sealed Known, Uncertain,
+and Absent states rather than raw receipts; only a core-correlated
+`CorrelatedDomainFetch` reaches adapter validation. Fetched raw runs still pass
+through the existing correlation and realization proofs before values are
+accepted. A device exception without a returned run remains an explicit
+blocking unknown state rather than being reported as ordinary pending.
+After lab-owned payload validation, closed domain values enter core's
+producer-neutral fragment assembly through a result/carrier proof bound before
+submit. An independent end-to-end fixture keeps integrated-IQ shots in that
+domain-owned fragment, applies the hardware-independent binary-IQ transform as
+one pure host `POINT` kernel call per logical point, and places
+`probability_0`/`probability_1` only in a transform-owned fragment. Final exact
+assembly then feeds template-owned projection and receipt-bearing point-record
+commits. Aliases increase neither kernel calls nor physical record writes, and
+journal evidence retains no target result addresses or raw frames.
+The nearest-centroid reference remains host-only because numeric precision and
+rounding are not yet part of its semantic contract.
+
+The notebook-facing virtual provider still returns synthetic probability
+products directly. That path predates typed measurement transforms and remains
+legacy demo debt so the broader experiment catalog stays runnable during
+migration. The X-count Template and scratch examples use the domain path and
+produce standard durable Runs. `POINT_SET`, cross-point analysis, transform
+authoring DSL, hidden intermediate products, local instrument-source migration,
+offload equivalence, dataset compaction, polling, chunking, cancellation, and a
+cross-process job store remain later work.
 
 ## Checks
 

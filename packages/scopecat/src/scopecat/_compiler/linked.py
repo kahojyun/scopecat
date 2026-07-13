@@ -56,9 +56,6 @@ from scopecat.routing import RoutingError, RoutingView
 from scopecat.value_types import TableColumn
 from scopecat.value_validation import ValueValidationError
 
-_LINKED_PLAN_TOKEN = object()
-_MATERIALIZED_LINKED_POINTS_TOKEN = object()
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class LinkedPlan:
@@ -76,12 +73,7 @@ class LinkedPlan:
         self,
         verified_program: VerifiedTypedProgram,
         environment: ValidatedConfigEnvironment,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _LINKED_PLAN_TOKEN:
-            msg = "LinkedPlan can only be created by link_program"
-            raise TypeError(msg)
         if not environment.valid:
             msg = "linked plans require a valid configuration environment"
             raise ValueError(msg)
@@ -167,15 +159,7 @@ class MaterializedLinkedPoints:
         selected_program: SelectedTypedProgram,
         point_domain: MaterializedPointDomain,
         relation_backend_id: str,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _MATERIALIZED_LINKED_POINTS_TOKEN:
-            msg = (
-                "MaterializedLinkedPoints can only be created by "
-                "materialize_linked_points"
-            )
-            raise TypeError(msg)
         if selected_program.verified_program is not linked_plan.verified_program:
             msg = "selected program must belong to the linked plan"
             raise ValueError(msg)
@@ -296,7 +280,6 @@ def materialize_selected_linked_points(
         selected_program,
         point_domain,
         relation_backend.backend_id,
-        _token=_MATERIALIZED_LINKED_POINTS_TOKEN,
     )
 
 
@@ -348,7 +331,6 @@ def link_program(
     return LinkedPlan(
         verified_program,
         environment,
-        _token=_LINKED_PLAN_TOKEN,
     )
 
 
@@ -420,6 +402,7 @@ def _instrument_resource_port_ids(
 
     for state in program.state:
         visit(state)
+    selected.update(action.resource_port_id for action in program.actions)
     return frozenset(selected)
 
 

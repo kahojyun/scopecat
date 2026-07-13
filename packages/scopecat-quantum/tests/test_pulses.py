@@ -33,7 +33,6 @@ from scopecat_quantum.pulses import (
     PulseProgram,
     PulseValidationError,
     ReadoutSignal,
-    ScheduledPulseProgram,
     Sequence,
     schedule,
 )
@@ -476,15 +475,6 @@ def test_authoring_and_scheduled_ir_are_immutable() -> None:
         play.signal = DRIVE_Q1  # type: ignore[misc]
     with pytest.raises(FrozenInstanceError):
         scheduled.duration_seconds = 0  # type: ignore[misc]
-
-
-def test_scheduled_program_construction_is_sealed() -> None:
-    with pytest.raises(TypeError, match="only be created by schedule"):
-        ScheduledPulseProgram(
-            id=PulseProgramId("forged"),
-            duration_seconds=Decimal(0),
-            events=(),
-        )
 
 
 def test_schedule_rejects_non_program_without_leaking_attribute_errors() -> None:

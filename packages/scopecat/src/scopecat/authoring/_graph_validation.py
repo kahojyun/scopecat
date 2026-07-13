@@ -229,6 +229,15 @@ def _verify_state_resource_ports(
             location=model_location("state", index, "resource_port"),
             problems=problems,
         )
+    for index, action in enumerate(assembly.semantic_graph.actions):
+        _verify_state_resource_port(
+            action.resource_port_id,
+            action.capability_id,
+            ports,
+            context="action",
+            location=model_location("actions", index, "resource_port"),
+            problems=problems,
+        )
 
 
 def _verify_state_resource_port(
@@ -411,6 +420,48 @@ def _verify_state_compute_values(
                     location,
                 )
             )
+    for action_index, action in enumerate(graph.graph.actions):
+        for field_name, use in action.fields:
+            definition = graph.value_defs.get(use.value_id)
+            if definition is None:
+                continue
+            location = model_location(
+                "actions",
+                action_index,
+                "fields",
+                field_name,
+            )
+            try:
+                require_value_availability(
+                    definition.availability,
+                    stages=(ValueStage.PLAN, ValueStage.EXECUTE),
+                    rates=(ValueRate.RUN, ValueRate.POINT),
+                    context="action field",
+                    location=location,
+                )
+            except ValueAvailabilityError as error:
+                problems.append(_availability_problem(error))
+                continue
+            if definition.availability.stage is ValueStage.PLAN:
+                continue
+            if not isinstance(definition.source, OperationOutputSource):
+                problems.append(
+                    _problem(
+                        "compute_payload_unknown_output",
+                        "action references an execute value without a compute output: "
+                        f"{definition.id.qualified_name!r}",
+                        location,
+                    )
+                )
+            elif not _is_payload_type(definition.value_type):
+                problems.append(
+                    _problem(
+                        "compute_payload_unavailable",
+                        "action compute output is not an available payload: "
+                        f"{definition.id.qualified_name!r}",
+                        location,
+                    )
+                )
 
 
 def _is_payload_type(value_type: object) -> bool:

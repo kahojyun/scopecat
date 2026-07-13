@@ -11,10 +11,10 @@ from io import BufferedRandom
 from pathlib import Path
 from threading import Lock
 
-from scopecat._content_identity import model_wire_content_hash
+from scopecat._content_identity import stable_content_hash
 from scopecat._execution.journal import (
     CollectionChunk,
-    CommittedCollectionChunk,
+    CollectionChunkReceipt,
     CommittedPayloadEvidence,
     ExecutionJournalEntry,
     ExecutionJournalError,
@@ -33,6 +33,10 @@ from scopecat._storage.refs import (
     EXECUTION_MEASUREMENTS_DIR,
     EXECUTION_PAYLOADS_DIR,
     EXECUTION_READBACKS_DIR,
+)
+from scopecat.measurement_recording import (
+    MeasurementRecordChunk,
+    MeasurementRecordReceipt,
 )
 from scopecat.results import MeasurementRecord
 
@@ -94,7 +98,7 @@ class LocalExecutionJournal:
             raise ExecutionJournalError(msg) from error
 
 
-class LocalMeasurementCommitter:
+class LocalMeasurementRecordCommitter:
     """Commit one immutable measurement file before advancing to another point."""
 
     def __init__(self, workspace: str | Path, *, run_id: str) -> None:
@@ -103,27 +107,34 @@ class LocalMeasurementCommitter:
         self._directory = layout.run_dir(run_id) / EXECUTION_MEASUREMENTS_DIR
         self._thread_lock = Lock()
 
-    def commit(self, measurement: MeasurementRecord) -> None:
-        if measurement.run_id != self._run_id:
+    def commit(self, chunk: MeasurementRecordChunk) -> MeasurementRecordReceipt:
+        durable_chunk = MeasurementRecordChunk.model_validate(
+            chunk.model_dump(mode="python")
+        )
+        if durable_chunk.run_id != self._run_id:
             msg = "measurement run_id does not match its execution committer"
             raise ExecutionJournalError(msg)
-        durable_measurement = MeasurementRecord.model_validate(
-            measurement.model_dump(mode="json")
-        )
-        content_hash = model_wire_content_hash(durable_measurement)
         ensure_durable_directory(self._directory)
-        path = self._measurement_path(durable_measurement.point_index)
+        path = self._measurement_path(durable_chunk)
         with self._thread_lock:
             try:
-                if write_model_if_absent(path, durable_measurement):
-                    return
-                existing = read_model(path, MeasurementRecord)
-                if model_wire_content_hash(existing) != content_hash:
-                    msg = (
-                        f"point {durable_measurement.point_index} has a different "
-                        "committed measurement"
-                    )
-                    raise ExecutionJournalError(msg)
+                if not write_model_if_absent(path, durable_chunk):
+                    existing = read_model(path, MeasurementRecordChunk)
+                    if (
+                        existing.operation_id != durable_chunk.operation_id
+                        or existing.content_hash != durable_chunk.content_hash
+                    ):
+                        msg = (
+                            f"point {durable_chunk.point_index} has a different "
+                            "committed measurement chunk"
+                        )
+                        raise ExecutionJournalError(msg)
+                record_ref = f"{EXECUTION_MEASUREMENTS_DIR}/{path.name}"
+                return MeasurementRecordReceipt(
+                    operation_id=durable_chunk.operation_id,
+                    chunk_content_hash=durable_chunk.content_hash,
+                    record_ref=record_ref,
+                )
             except Exception as error:
                 if isinstance(error, ExecutionJournalError):
                     raise
@@ -133,17 +144,37 @@ class LocalMeasurementCommitter:
     def measurements(self) -> tuple[MeasurementRecord, ...]:
         if not self._directory.is_dir():
             return ()
+        chunks = tuple(
+            sorted(
+                (
+                    read_model(path, MeasurementRecordChunk)
+                    for path in self._directory.glob("[0-9a-f]*.json")
+                ),
+                key=lambda chunk: (
+                    chunk.point_index,
+                    chunk.dataset_id,
+                    chunk.operation_id,
+                ),
+            )
+        )
         return tuple(
-            read_model(path, MeasurementRecord)
-            for path in sorted(self._directory.glob("point-*.json"))
+            MeasurementRecord.model_validate(chunk.record.model_dump(mode="python"))
+            for chunk in chunks
         )
 
-    def _measurement_path(self, point_index: int) -> Path:
-        return self._directory / f"point-{point_index:08d}.json"
+    def _measurement_path(self, chunk: MeasurementRecordChunk) -> Path:
+        digest = stable_content_hash(
+            {
+                "dataset_id": chunk.dataset_id,
+                "logical_point_id": chunk.logical_point_id,
+                "point_index": chunk.point_index,
+            }
+        )
+        return self._directory / f"{digest}.json"
 
 
-class LocalCollectionCommitter:
-    """Commit immutable per-operation readbacks before journal completion."""
+class LocalCollectionRepository:
+    """Commit readbacks and resolve them later for ingress or recovery."""
 
     def __init__(self, workspace: str | Path, *, run_id: str) -> None:
         self._run_id = run_id
@@ -151,16 +182,13 @@ class LocalCollectionCommitter:
         self._directory = layout.run_dir(run_id) / EXECUTION_READBACKS_DIR
         self._thread_lock = Lock()
 
-    def commit(self, chunk: CollectionChunk) -> CommittedCollectionChunk:
+    def commit(self, chunk: CollectionChunk) -> CollectionChunkReceipt:
         if chunk.run_id != self._run_id:
-            msg = "collection chunk run_id does not match its committer"
+            msg = "collection chunk run_id does not match its repository"
             raise ExecutionJournalError(msg)
         durable_chunk = CollectionChunk.model_validate(chunk.model_dump(mode="json"))
         content_hash = durable_chunk.content_hash
-        operation_digest = sha256(
-            durable_chunk.operation_id.encode("utf-8")
-        ).hexdigest()
-        path = self._directory / f"{operation_digest}.json"
+        path = self._collection_path(durable_chunk.operation_id)
         with self._thread_lock:
             try:
                 if not write_model_if_absent(path, durable_chunk):
@@ -177,10 +205,66 @@ class LocalCollectionCommitter:
                     raise
                 msg = f"failed to commit collection readback: {error}"
                 raise ExecutionJournalError(msg) from error
-        return CommittedCollectionChunk(
+        return CollectionChunkReceipt(
+            operation_id=durable_chunk.operation_id,
             ref=f"{EXECUTION_READBACKS_DIR}/{path.name}",
             content_hash=content_hash,
         )
+
+    def resolve(self, receipt: CollectionChunkReceipt) -> CollectionChunk:
+        durable_receipt = CollectionChunkReceipt.model_validate(
+            receipt.model_dump(mode="json")
+        )
+        path = self._collection_path(durable_receipt.operation_id)
+        expected_ref = f"{EXECUTION_READBACKS_DIR}/{path.name}"
+        if durable_receipt.ref != expected_ref:
+            msg = "collection receipt ref does not match its operation path"
+            raise ExecutionJournalError(msg)
+        with self._thread_lock:
+            try:
+                chunk = read_model(path, CollectionChunk)
+            except Exception as error:
+                msg = f"failed to resolve collection readback: {error}"
+                raise ExecutionJournalError(msg) from error
+        if (
+            chunk.run_id != self._run_id
+            or chunk.operation_id != durable_receipt.operation_id
+            or chunk.content_hash != durable_receipt.content_hash
+        ):
+            msg = "collection receipt does not resolve to its exact committed chunk"
+            raise ExecutionJournalError(msg)
+        return CollectionChunk.model_validate(chunk.model_dump(mode="json"))
+
+    def receipts(self) -> tuple[CollectionChunkReceipt, ...]:
+        """Return canonical receipts for every committed local readback."""
+
+        if not self._directory.is_dir():
+            return ()
+        with self._thread_lock:
+            chunks = tuple(
+                sorted(
+                    (
+                        read_model(path, CollectionChunk)
+                        for path in self._directory.glob("*.json")
+                    ),
+                    key=lambda chunk: chunk.operation_id,
+                )
+            )
+        return tuple(
+            CollectionChunkReceipt(
+                operation_id=chunk.operation_id,
+                ref=(
+                    f"{EXECUTION_READBACKS_DIR}/"
+                    f"{self._collection_path(chunk.operation_id).name}"
+                ),
+                content_hash=chunk.content_hash,
+            )
+            for chunk in chunks
+        )
+
+    def _collection_path(self, operation_id: str) -> Path:
+        operation_digest = sha256(operation_id.encode("utf-8")).hexdigest()
+        return self._directory / f"{operation_digest}.json"
 
 
 class LocalPayloadEvidenceCommitter:
@@ -239,9 +323,9 @@ class LocalResourceLeaseManager:
 
 
 __all__ = [
-    "LocalCollectionCommitter",
+    "LocalCollectionRepository",
     "LocalExecutionJournal",
-    "LocalMeasurementCommitter",
+    "LocalMeasurementRecordCommitter",
     "LocalPayloadEvidenceCommitter",
     "LocalResourceLeaseManager",
 ]

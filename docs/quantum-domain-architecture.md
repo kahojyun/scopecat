@@ -147,7 +147,7 @@ Python object identity.
 - target compilation cannot consume unscheduled Pulse IR;
 - target-batch event and result addresses are `(entry_id, event_id)` and
   `(entry_id, acquisition_slot_id)`, never physical list or segment indexes;
-- one sealed result mapping binds each target entry to one materialized logical
+- one closed result mapping binds each target entry to one materialized logical
   point and each acquisition address to one exact product-use occurrence;
 - one compiled-circuit proof binds an artifact to that exact batch and mapping;
 - repeated target frames are correlated by explicit shot identity and remain
@@ -180,11 +180,15 @@ calibration, template-event, and template-slot identities remain in the
 lowering provenance sidecar instead of coupling lower Pulse IR back to the
 higher Circuit IR.
 
-Construction-controlled verified/scheduled/selected/compiled wrappers are
-trusted-process refinement values. Their private constructors prevent ordinary
-API misuse; they are not anti-tamper or serialization security boundaries in
-Python. Plugins, deserialized values, and process-boundary inputs must be
-validated again before a new refinement value is issued.
+Verified, selected, lowered, scheduled, prepared, mapped, and compiled wrappers
+are immutable trusted-process stage values. The corresponding
+verify/select/lower/schedule/prepare/compile/bind operation establishes each
+stage's invariants once; later pure stages rely on its nominal type and frozen
+state instead of construction secrets, same-process tamper detection, or
+rerunning earlier transformations. A bind still checks independent facts such
+as mapping-to-request correlation. Plugins, deserialized values, provider
+responses, and process-boundary inputs remain validation boundaries and must be
+checked before a new trusted stage value or accepted runtime result is issued.
 
 ## Laboratory Boundary
 
@@ -234,7 +238,7 @@ repetitions and its sample extent equals the checked artifact window.
 selection, executes the compiled batch exactly once, and then realizes every
 address under its own selected policy before closing all values together
 through the core contract. It does not perform reduction, unit conversion,
-record projection, dataset assembly, or journal integration.
+dataset assembly, durable recording, or journal integration.
 
 ## Core Integration Boundary
 
@@ -250,32 +254,76 @@ canonical point/product-use order. This first measurement carrier accepts
 observable products only and rejects axis-free `bool`/`string` products, which
 have no `MeasurementValue` scalar representation; artifact and other payload
 kinds require distinct closures. It does not inspect a quantum circuit, pulse
-schedule, acquisition kind, or shot policy. The first version deliberately
-requires one adapter entry per
-materialized logical point and complete coverage of every product-use
-occurrence at every point; partial local/domain ownership, aggregation, and
-dynamic batching require later explicit selection proofs.
+schedule, acquisition kind, or shot policy. The first version requires one
+adapter entry per materialized logical point and exact coverage of an explicit
+selected product-use subset at every point. The subset is canonicalized to
+linked-plan use order; empty subsets and zero-point plans still retain and check
+their selected product contracts. Aggregate local/domain coverage, aggregation,
+and dynamic point batching remain later host work.
 
-The complete domain-program boundary remains future work: closed program and
-invocation declarations, typed value inputs, logical resource claims, domain
-output producers, target-capability evidence, and correlated
-prepare/submit/inspect/fetch/cancel/reconcile effects. Until those concrete
-contracts exist, neither the mapping nor value proof is an executable
-invocation and neither is passed to the current executor. Quantum code imports
-only the public adapter SPI, never Scopecat private compiler or execution
-modules, and the current point-local `compute -> apply_state -> collect`
-program remains free of quantum internal control steps.
+Core now also closes one executable invocation independently of its output
+carrier. `ClosedDomainInvocation` retains the exact result mapping plus an
+adapter-owned transient payload, while its payload-free intent fingerprints
+target, compiler, capability, artifact, logical result contract, and adapter
+policy. Run identity and idempotency-key generation remain separate runtime
+values. Resource claims are absent until host orchestration can acquire a typed
+lease and hold it for the complete target-job lifetime; a string in an intent
+fingerprint would not establish ownership. This keeps a future
+artifact carrier or offloaded postprocessor from inheriting measurement-array
+semantics merely because the first target returns measurements.
 
-The demo's synchronous selection and realization proofs do not change that
-boundary. They have
-no durable job identity, submission/fetch/cancel/reconcile lifecycle, retry or
-uncertainty policy, partial chunks, resource claims, dataset persistence, or
-record assembly. Its accepted values are transient and remain traceable to the
-correlated raw frames. Those missing contracts require a real host-visible
-effect and recording workflow rather than fields copied from the fake runtime.
-The next vertical slice is therefore one executable closed domain invocation
-with correlated host-side submission, fetch, and reconciliation evidence; a
-third output shape is not a substitute for that effect boundary.
+The host runtime ABI has explicit submit, fetch, and reconcile receipts, but
+callers pass sealed states rather than trusting those candidates directly.
+Submit returns Known; indeterminate errors carry Uncertain; definitive negative
+evidence produces Absent. Fetch accepts only Known, reconcile accepts only
+Uncertain, and a new submission-key generation requires Absent. Adapter fetch
+payloads reach the adapter only after core returns `CorrelatedDomainFetch`.
+That token proves receipt/job correlation; the adapter still verifies the
+provider-specific result fingerprint, count, and shape. Submission
+is an `acquisition` effect; fetch/reconciliation are repeatable `read` effects.
+A known reconcile result closes the original unknown submit transition. Journal
+evidence contains intent, keys, job identity, receipt hashes, status, and
+counts—not raw frames or accepted values.
+
+The laboratory demo supplies the concrete first adapter. It submits an already
+selected mixed realization, registers a job before calling the device primitive
+so a lost response cannot replay the same idempotency key, and retains the raw
+`FakeListRun` behind a job identity, and makes fetch/reconcile read-only. A
+device exception that returns no run is retained as blocking unavailable
+evidence and reconciles as unknown rather than permanent pending. Only
+after a correlated fetch does it reuse the existing correlation and value
+closure to produce canonical `ClosedDomainOutputValues`. The fake job store
+and accepted values remain in memory. Core then strips target addresses into a
+producer-neutral fragment whose real domain result mapping was bound before
+submit. A typed pure host-transform graph now sits before record projection.
+The first executable slice is `POINT`: the demo sends only integrated-IQ shots
+through the domain-owned fragment, applies the hardware-independent binary-IQ
+semantic transform once per canonical logical point on the host, and seals
+`probability_0` and `probability_1` in a distinct transform-owned fragment.
+The current nearest-centroid realization is explicitly host-only: numerical
+precision and rounding are not yet semantic, so no offload equivalence is
+claimed. Final assembly feeds template-owned record aliases through independent
+projection. Projected records then cross a receipt-bearing per-point committer:
+each accepted receipt echoes the deterministic run/point operation and exact
+chunk hash with a non-empty storage reference, while journal evidence omits
+quantum result addresses, raw frames, and accepted values. Aliases remain fields
+of one point record and do not cause additional writes. The demo uses the memory
+committer to exercise this contract; dataset compaction and publication are
+separate storage work. Trusted
+reconstruction of sealed recovery states from durable journal evidence is not
+yet implemented. There is no polling scheduler, chunking, cancellation,
+cross-process target job store, dataset manifest publication, or terminal
+`RunOutcome` integration. `POINT_SET` execution, authoring DSL integration,
+aggregate local/domain/transform ownership and local-engine integration,
+point-scoped neutral closure, cross-point analysis, and adapter proofs that
+eligible transforms have equivalent domain realizations remain later work.
+Core's local collector now has an isolated, repository-resolved,
+command-correlated receipt-to-fragment ingress seam, but it is not used by this
+domain-target vertical path and does not claim those orchestration properties.
+The notebook-facing virtual provider still
+synthesizes probability products directly; that is legacy demo debt, not the
+new transform contract, and remains while the current learning path depends on
+it.
 
 ## Initial Non-Goals
 

@@ -28,7 +28,6 @@ from scopecat_quantum.pulses import (
     schedule,
 )
 from scopecat_quantum.targets import (
-    CompiledTargetArtifact,
     TargetAcquisitionAddress,
     TargetArtifact,
     TargetCompilationError,
@@ -536,18 +535,13 @@ def test_compile_target_rejects_string_impersonation_of_nominal_artifact_ids() -
     }
 
 
-def test_compiled_target_artifact_cannot_be_forged() -> None:
+def test_compiled_target_artifact_is_immutable() -> None:
     request = _request()
     compiler = _Compiler(
         id=request.compiler_id,
         target_id=request.target_id,
         capability_fingerprint=request.capability_fingerprint,
     )
-    artifact = compiler.compile(request)
-
-    with pytest.raises(TypeError, match="only be created by compile_target"):
-        CompiledTargetArtifact(request, artifact)
-
     compiled = compile_target(compiler, request)
     attribute = "_artifact_fingerprint"
     with pytest.raises(FrozenInstanceError):

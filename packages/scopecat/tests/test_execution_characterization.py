@@ -3,17 +3,23 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 import scopecat as sc
 from scopecat._content_identity import model_wire_content_hash
 from scopecat._execution.engine import ExecutionEngine
 from scopecat._execution.journal import (
+    CollectionChunk,
+    CollectionChunkReceipt,
+    ExecutionJournalError,
     ExecutionTransition,
-    MemoryCollectionCommitter,
+    MemoryCollectionRepository,
     MemoryExecutionJournal,
-    MemoryMeasurementCommitter,
     MemoryPayloadEvidenceCommitter,
 )
 from scopecat._execution.program import (
+    ActionField,
+    ActionStage,
     ApplyStateOperation,
     ApplyStateStage,
     CollectionResultBinding,
@@ -23,6 +29,7 @@ from scopecat._execution.program import (
     ComputeResultSlot,
     ComputeStage,
     ExecutionProgram,
+    InstrumentActionOperation,
     OutputInput,
     PointProgram,
     RecordProjection,
@@ -33,16 +40,23 @@ from scopecat._product_identity import ProductUse, ProductUseId, product_id
 from scopecat._semantic_graph import OperationId, operation_result_id
 from scopecat._symbols import SymbolId
 from scopecat.instruments import (
+    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectProductRequest,
     CollectReceipt,
+    InstrumentActionCommand,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentReadback,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+)
+from scopecat.measurement_recording import (
+    MeasurementRecordChunk,
+    MeasurementRecordReceipt,
+    MemoryMeasurementRecordCommitter,
 )
 from scopecat.models.parameter import Quantity
 from scopecat.models.state import PayloadRef, StateValue
@@ -151,7 +165,7 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
     lab = sc.open(
         tmp_path,
         config=config_with_physical_resources({"source-0": ("play_program",)}),
-        instrument_provider=_SingleDriverProvider(driver),
+        execution_backend=sc.PointInstrumentBackend(_SingleDriverProvider(driver)),
     )
 
     run = lab.prepare(template).run()
@@ -227,6 +241,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
             ),
         ),
         product_uses=(),
+        collection_product_use_ids=(),
         record_projections=(),
     )
 
@@ -235,8 +250,8 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         program=program,
         drivers={},
         journal=MemoryExecutionJournal(),
-        measurements=MemoryMeasurementCommitter(),
-        readbacks=MemoryCollectionCommitter(),
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run()
 
@@ -301,6 +316,7 @@ def test_compute_cache_is_partitioned_by_implementation_identity() -> None:
             ),
         ),
         product_uses=(),
+        collection_product_use_ids=(),
         record_projections=(),
     )
 
@@ -309,8 +325,8 @@ def test_compute_cache_is_partitioned_by_implementation_identity() -> None:
         program=program,
         drivers={},
         journal=MemoryExecutionJournal(),
-        measurements=MemoryMeasurementCommitter(),
-        readbacks=MemoryCollectionCommitter(),
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run()
 
@@ -390,9 +406,126 @@ class _MalformedCollectDriver(SignalInstrumentDriver):
         return cast("CollectReceipt", object())
 
 
+class _UnknownActionDriver(SignalInstrumentDriver):
+    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
+        self.action_commands.append(command)
+        return ActionReceipt(
+            status="unknown",
+            problems=(
+                blocking_problem(
+                    code="instrument_action_response_lost",
+                    message="action response was lost",
+                    category=ProblemCategory.EXTERNAL_FAILURE,
+                    phase=ProblemPhase.EXECUTION,
+                    location=model_location("driver", "action"),
+                ),
+            ),
+        )
+
+
+def _action_operation(point_uid: str, instrument_id: str) -> InstrumentActionOperation:
+    return InstrumentActionOperation(
+        operation_id=f"{point_uid}.action.trigger",
+        instrument_id=instrument_id,
+        capability_id="set_gain",
+        fields=(ActionField(id="gain", value=StateValue(1.0)),),
+    )
+
+
+def test_identical_actions_are_delivered_at_every_point() -> None:
+    driver = SignalInstrumentDriver()
+    points = tuple(
+        PointProgram(
+            point_index=index,
+            point_uid=f"action-point-{index}",
+            coordinates={},
+            stages=(
+                ActionStage(
+                    operations=(
+                        _action_operation(
+                            f"action-point-{index}",
+                            driver.instrument_id,
+                        ),
+                    )
+                ),
+            ),
+        )
+        for index in range(2)
+    )
+    result = ExecutionEngine(
+        run_id="action-run",
+        program=ExecutionProgram(
+            experiment_id="action",
+            points=points,
+            product_uses=(),
+            collection_product_use_ids=(),
+            record_projections=(),
+            resource_order=(driver.instrument_id,),
+        ),
+        drivers={driver.instrument_id: driver},
+        journal=MemoryExecutionJournal(),
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=MemoryCollectionRepository(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.success
+    assert result.action_command_count == 2
+    assert len(driver.action_commands) == 2
+
+
+def test_unknown_action_is_not_retried_and_makes_run_indeterminate() -> None:
+    driver = _UnknownActionDriver()
+    point_uid = "unknown-action-point"
+    operation = _action_operation(point_uid, driver.instrument_id)
+    journal = MemoryExecutionJournal()
+    result = ExecutionEngine(
+        run_id="unknown-action-run",
+        program=ExecutionProgram(
+            experiment_id="unknown-action",
+            points=(
+                PointProgram(
+                    point_index=0,
+                    point_uid=point_uid,
+                    coordinates={},
+                    stages=(ActionStage(operations=(operation,)),),
+                ),
+            ),
+            product_uses=(),
+            collection_product_use_ids=(),
+            record_projections=(),
+            resource_order=(driver.instrument_id,),
+        ),
+        drivers={driver.instrument_id: driver},
+        journal=journal,
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=MemoryCollectionRepository(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "unknown"
+    assert result.uncertain
+    assert len(driver.action_commands) == 1
+    assert [
+        entry.state
+        for entry in journal.entries
+        if entry.operation_id == operation.operation_id
+    ] == ["started", "unknown"]
+
+
+class _MismatchedCollectionReceiptRepository(MemoryCollectionRepository):
+    def __init__(self, update: dict[str, str]) -> None:
+        super().__init__()
+        self._update = update
+
+    def commit(self, chunk: CollectionChunk) -> CollectionChunkReceipt:
+        receipt = super().commit(chunk)
+        return receipt.model_copy(update=self._update)
+
+
 class _BrokenFinalizationJournal(MemoryExecutionJournal):
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        if entry.stage in {"abort", "terminal_readback"}:
+        if entry.stage == "abort":
             raise RuntimeError("lifecycle journal unavailable")
         return super().append(entry)
 
@@ -411,6 +544,7 @@ def test_malformed_apply_receipt_is_unknown_and_journaled() -> None:
             ),
         ),
         product_uses=(),
+        collection_product_use_ids=(),
         record_projections=(),
         resource_order=(driver.instrument_id,),
     )
@@ -421,8 +555,8 @@ def test_malformed_apply_receipt_is_unknown_and_journaled() -> None:
         program=program,
         drivers={driver.instrument_id: driver},
         journal=journal,
-        measurements=MemoryMeasurementCommitter(),
-        readbacks=MemoryCollectionCommitter(),
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run()
 
@@ -451,18 +585,19 @@ def test_malformed_collect_readback_is_unknown_and_journaled() -> None:
             ),
         ),
         product_uses=(_collection_product_use("signal"),),
+        collection_product_use_ids=(_collection_product_use("signal").id,),
         record_projections=(_record_projection("signal"),),
         resource_order=(driver.instrument_id,),
     )
     journal = MemoryExecutionJournal()
-    readbacks = MemoryCollectionCommitter()
+    readbacks = MemoryCollectionRepository()
 
     result = ExecutionEngine(
         run_id="malformed-collect-run",
         program=program,
         drivers={driver.instrument_id: driver},
         journal=journal,
-        measurements=MemoryMeasurementCommitter(),
+        measurements=MemoryMeasurementRecordCommitter(),
         readbacks=readbacks,
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run()
@@ -471,6 +606,62 @@ def test_malformed_collect_readback_is_unknown_and_journaled() -> None:
     assert result.uncertain
     assert "instrument_collect_unknown" in {problem.code for problem in result.problems}
     assert readbacks.chunks == ()
+    assert [
+        entry.state
+        for entry in journal.entries
+        if entry.operation_id == operation.operation_id
+    ] == ["started", "unknown"]
+
+
+@pytest.mark.parametrize(
+    "receipt_update",
+    [
+        {"operation_id": "wrong-operation"},
+        {"content_hash": "wrong-chunk-hash"},
+    ],
+)
+def test_mismatched_collection_receipt_is_indeterminate(
+    receipt_update: dict[str, str],
+) -> None:
+    driver = SignalInstrumentDriver()
+    point_uid = "mismatched-collection-receipt-point"
+    operation = _collect_operation(point_uid, driver.instrument_id, "signal")
+    program = ExecutionProgram(
+        experiment_id="mismatched-collection-receipt",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid=point_uid,
+                coordinates={},
+                stages=(CollectStage(operations=(operation,)),),
+            ),
+        ),
+        product_uses=(_collection_product_use("signal"),),
+        collection_product_use_ids=(_collection_product_use("signal").id,),
+        record_projections=(_record_projection("signal"),),
+        resource_order=(driver.instrument_id,),
+    )
+    journal = MemoryExecutionJournal()
+    readbacks = _MismatchedCollectionReceiptRepository(receipt_update)
+
+    result = ExecutionEngine(
+        run_id="mismatched-collection-receipt-run",
+        program=program,
+        drivers={driver.instrument_id: driver},
+        journal=journal,
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=readbacks,
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "unknown"
+    assert result.uncertain
+    assert len(readbacks.chunks) == 1
+    assert len(readbacks.receipts) == 1
+    assert result.measurements == ()
+    assert "collection_readback_commit_failed" in {
+        problem.code for problem in result.problems
+    }
     assert [
         entry.state
         for entry in journal.entries
@@ -499,6 +690,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
             ),
         ),
         product_uses=(),
+        collection_product_use_ids=(),
         record_projections=(),
         resource_order=("source-a", "source-b"),
     )
@@ -508,8 +700,8 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         program=program,
         drivers={"source-a": first, "source-b": second},
         journal=_BrokenFinalizationJournal(),
-        measurements=MemoryMeasurementCommitter(),
-        readbacks=MemoryCollectionCommitter(),
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run()
 
@@ -554,6 +746,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
             ),
         ),
         product_uses=(),
+        collection_product_use_ids=(),
         record_projections=(),
         resource_order=("source-0",),
     )
@@ -564,8 +757,8 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         program=program,
         drivers={driver.instrument_id: driver},
         journal=journal,
-        measurements=MemoryMeasurementCommitter(),
-        readbacks=MemoryCollectionCommitter(),
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run()
 
@@ -608,6 +801,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
             ),
         ),
         product_uses=(),
+        collection_product_use_ids=(),
         record_projections=(),
         resource_order=("source-a", "source-b"),
     )
@@ -620,8 +814,8 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
             second.instrument_id: second,
         },
         journal=journal,
-        measurements=MemoryMeasurementCommitter(),
-        readbacks=MemoryCollectionCommitter(),
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
     )
 
@@ -682,7 +876,9 @@ def test_one_collected_product_projects_to_two_record_aliases() -> None:
     point_uid = "record-alias-point"
     use = _collection_product_use("shared")
     operation = _collect_operation(point_uid, driver.instrument_id, "shared")
-    measurements = MemoryMeasurementCommitter()
+    measurements = MemoryMeasurementRecordCommitter()
+    readbacks = MemoryCollectionRepository()
+    journal = MemoryExecutionJournal()
     program = ExecutionProgram(
         experiment_id="record-alias",
         points=(
@@ -694,6 +890,7 @@ def test_one_collected_product_projects_to_two_record_aliases() -> None:
             ),
         ),
         product_uses=(use,),
+        collection_product_use_ids=(use.id,),
         record_projections=(
             RecordProjection(
                 record_id="primary",
@@ -713,20 +910,246 @@ def test_one_collected_product_projects_to_two_record_aliases() -> None:
         run_id="record-alias-run",
         program=program,
         drivers={driver.instrument_id: driver},
-        journal=MemoryExecutionJournal(),
+        journal=journal,
         measurements=measurements,
-        readbacks=MemoryCollectionCommitter(),
+        readbacks=readbacks,
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run()
 
     assert result.status == "completed"
     assert len(driver.collect_commands) == 1
-    assert len(measurements.measurements) == 1
-    assert set(measurements.measurements[0].observables) == {"primary", "secondary"}
-    assert (
-        measurements.measurements[0].observables["primary"]
-        == measurements.measurements[0].observables["secondary"]
+    assert len(measurements.chunks) == 1
+    recorded = measurements.chunks[0].record
+    assert set(recorded.observables) == {"primary", "secondary"}
+    assert recorded.observables["primary"] == recorded.observables["secondary"]
+    collection_started = next(
+        entry
+        for entry in journal.entries
+        if entry.stage == "collect" and entry.state == "started"
     )
+    collection_completed = next(
+        entry
+        for entry in journal.entries
+        if entry.stage == "collect" and entry.state == "completed"
+    )
+    collection_chunk = readbacks.chunks[0]
+    collection_receipt = readbacks.receipts[0]
+    assert collection_chunk.operation_id == collection_receipt.operation_id
+    assert (
+        collection_started.evidence["command_content_hash"]
+        == collection_chunk.command_content_hash
+    )
+    assert (
+        collection_completed.evidence["readback_content_hash"]
+        == collection_chunk.content_hash
+        == collection_receipt.content_hash
+    )
+    assert collection_completed.evidence["receipt_status"] == "collected"
+    assert "receipt" not in collection_completed.evidence
+    completed = next(
+        entry
+        for entry in journal.entries
+        if entry.stage == "record_measurement" and entry.state == "completed"
+    )
+    receipt = measurements.receipts[0]
+    assert completed.operation_id == receipt.operation_id
+    assert completed.evidence["record_ref"] == receipt.record_ref
+    assert completed.evidence["chunk_content_hash"] == receipt.chunk_content_hash
+    assert completed.evidence["receipt_content_hash"] == receipt.content_hash
+
+
+class _FailMeasurementCompletionJournal(MemoryExecutionJournal):
+    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
+        if entry.stage == "record_measurement" and entry.state == "completed":
+            raise ExecutionJournalError("measurement completion journal unavailable")
+        return super().append(entry)
+
+
+class _NoSequenceMeasurementJournal(MemoryExecutionJournal):
+    def __init__(self) -> None:
+        super().__init__()
+        self.recording_attempts: list[ExecutionTransition] = []
+
+    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
+        if entry.stage == "record_measurement":
+            self.recording_attempts.append(entry.model_copy(deep=True))
+            return entry.model_copy(deep=True)
+        return super().append(entry)
+
+
+class _MutatingMeasurementJournal(MemoryExecutionJournal):
+    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
+        if entry.stage == "record_measurement":
+            return super().append(
+                entry.model_copy(update={"evidence": {"mutated": True}})
+            )
+        return super().append(entry)
+
+
+@pytest.mark.parametrize(
+    "journal_type",
+    (_NoSequenceMeasurementJournal, _MutatingMeasurementJournal),
+)
+def test_invalid_measurement_started_commit_prevents_record_write(
+    journal_type: type[MemoryExecutionJournal],
+) -> None:
+    driver = SignalInstrumentDriver()
+    point_uid = "invalid-measurement-started-point"
+    use = _collection_product_use("signal")
+    operation = _collect_operation(point_uid, driver.instrument_id, "signal")
+    measurements = MemoryMeasurementRecordCommitter()
+    journal = journal_type()
+    program = ExecutionProgram(
+        experiment_id="invalid-measurement-started",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid=point_uid,
+                coordinates={},
+                stages=(CollectStage(operations=(operation,)),),
+            ),
+        ),
+        product_uses=(use,),
+        collection_product_use_ids=(use.id,),
+        record_projections=(
+            RecordProjection(
+                record_id="signal",
+                product_use_id=use.id,
+                product_id=use.product_id,
+            ),
+        ),
+        resource_order=(driver.instrument_id,),
+    )
+
+    result = ExecutionEngine(
+        run_id="invalid-measurement-started-run",
+        program=program,
+        drivers={driver.instrument_id: driver},
+        journal=journal,
+        measurements=measurements,
+        readbacks=MemoryCollectionRepository(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    attempted = tuple(
+        entry
+        for entry in (
+            *journal.entries,
+            *getattr(journal, "recording_attempts", ()),
+        )
+        if entry.stage == "record_measurement"
+    )
+    assert result.status == "failed"
+    assert not result.uncertain
+    assert measurements.chunks == ()
+    assert attempted
+    assert all(entry.state != "completed" for entry in attempted)
+
+
+def test_measurement_receipt_followed_by_journal_failure_is_indeterminate() -> None:
+    driver = SignalInstrumentDriver()
+    point_uid = "measurement-journal-failure-point"
+    use = _collection_product_use("signal")
+    operation = _collect_operation(point_uid, driver.instrument_id, "signal")
+    measurements = MemoryMeasurementRecordCommitter()
+    journal = _FailMeasurementCompletionJournal()
+    program = ExecutionProgram(
+        experiment_id="measurement-journal-failure",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid=point_uid,
+                coordinates={},
+                stages=(CollectStage(operations=(operation,)),),
+            ),
+        ),
+        product_uses=(use,),
+        collection_product_use_ids=(use.id,),
+        record_projections=(
+            RecordProjection(
+                record_id="signal",
+                product_use_id=use.id,
+                product_id=use.product_id,
+            ),
+        ),
+        resource_order=(driver.instrument_id,),
+    )
+
+    result = ExecutionEngine(
+        run_id="measurement-journal-failure-run",
+        program=program,
+        drivers={driver.instrument_id: driver},
+        journal=journal,
+        measurements=measurements,
+        readbacks=MemoryCollectionRepository(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "unknown"
+    assert result.uncertain
+    assert len(measurements.receipts) == 1
+    assert len(result.measurements) == 1
+    assert "execution_journal_commit_failed" in {
+        problem.code for problem in result.problems
+    }
+    assert [
+        entry.state for entry in journal.entries if entry.stage == "record_measurement"
+    ] == ["started"]
+
+
+class _MismatchedMeasurementReceiptCommitter(MemoryMeasurementRecordCommitter):
+    def commit(self, chunk: MeasurementRecordChunk) -> MeasurementRecordReceipt:
+        receipt = super().commit(chunk)
+        return receipt.model_copy(update={"chunk_content_hash": "wrong-chunk-hash"})
+
+
+def test_mismatched_measurement_receipt_is_indeterminate() -> None:
+    driver = SignalInstrumentDriver()
+    point_uid = "mismatched-measurement-receipt-point"
+    use = _collection_product_use("signal")
+    operation = _collect_operation(point_uid, driver.instrument_id, "signal")
+    measurements = _MismatchedMeasurementReceiptCommitter()
+    journal = MemoryExecutionJournal()
+    program = ExecutionProgram(
+        experiment_id="mismatched-measurement-receipt",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid=point_uid,
+                coordinates={},
+                stages=(CollectStage(operations=(operation,)),),
+            ),
+        ),
+        product_uses=(use,),
+        collection_product_use_ids=(use.id,),
+        record_projections=(
+            RecordProjection(
+                record_id="signal",
+                product_use_id=use.id,
+                product_id=use.product_id,
+            ),
+        ),
+        resource_order=(driver.instrument_id,),
+    )
+
+    result = ExecutionEngine(
+        run_id="mismatched-measurement-receipt-run",
+        program=program,
+        drivers={driver.instrument_id: driver},
+        journal=journal,
+        measurements=measurements,
+        readbacks=MemoryCollectionRepository(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "unknown"
+    assert result.uncertain
+    assert len(measurements.receipts) == 1
+    assert result.measurements == ()
+    assert "measurement_commit_failed" in {problem.code for problem in result.problems}
+    assert [
+        entry.state for entry in journal.entries if entry.stage == "record_measurement"
+    ] == ["started", "unknown"]
 
 
 def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> None:
@@ -749,6 +1172,10 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
             _collection_product_use("first"),
             _collection_product_use("second"),
         ),
+        collection_product_use_ids=(
+            _collection_product_use("first").id,
+            _collection_product_use("second").id,
+        ),
         record_projections=(
             _record_projection("first"),
             _record_projection("second"),
@@ -756,8 +1183,8 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
         resource_order=("source-a", "source-b"),
     )
     journal = MemoryExecutionJournal()
-    measurements = MemoryMeasurementCommitter()
-    readbacks = MemoryCollectionCommitter()
+    measurements = MemoryMeasurementRecordCommitter()
+    readbacks = MemoryCollectionRepository()
     result = ExecutionEngine(
         run_id="blocking-collect-run",
         program=program,
@@ -777,7 +1204,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
     ]
     assert len(first.collect_commands) == 1
     assert second.collect_commands == []
-    assert measurements.measurements == ()
+    assert measurements.chunks == ()
     assert len(readbacks.chunks) == 1
     assert set(readbacks.chunks[0].readback.values) == {"signal", "unexpected"}
     assert [
@@ -843,6 +1270,7 @@ def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
             ),
         ),
         product_uses=(),
+        collection_product_use_ids=(),
         record_projections=(),
         resource_order=("source-a", "source-b"),
     )
@@ -855,8 +1283,8 @@ def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
             second.instrument_id: second,
         },
         journal=journal,
-        measurements=MemoryMeasurementCommitter(),
-        readbacks=MemoryCollectionCommitter(),
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
     )
 

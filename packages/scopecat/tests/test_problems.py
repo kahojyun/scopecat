@@ -5,7 +5,14 @@ from typing import cast
 import pytest
 from pydantic import ValidationError
 
-from scopecat.errors import CheckFailed, Conflict, ProblemFailure
+from scopecat.errors import (
+    CheckFailed,
+    Conflict,
+    MeasurementTransformExecutionError,
+    OperationFailure,
+    ProblemFailure,
+    ProviderContractError,
+)
 from scopecat.problems import (
     ExternalLocation,
     ModelLocation,
@@ -112,3 +119,18 @@ def test_problem_failure_requires_nonempty_blocking_problems() -> None:
         "authoring.deprecated_shape: shape is accepted but discouraged; "
         "authoring.invalid_shape: shape is invalid"
     )
+
+
+def test_measurement_transform_execution_has_its_own_operation_failure_type() -> None:
+    problem = blocking_problem(
+        "measurement_transform_host_kernel_failed",
+        "host measurement transform failed",
+        category=ProblemCategory.EXTERNAL_FAILURE,
+        phase=ProblemPhase.EXECUTION,
+    )
+
+    error = MeasurementTransformExecutionError((problem,))
+
+    assert isinstance(error, OperationFailure)
+    assert not isinstance(error, ProviderContractError)
+    assert error.problems == (problem,)

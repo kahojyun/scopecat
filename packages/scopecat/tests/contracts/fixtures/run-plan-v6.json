@@ -1,7 +1,18 @@
 {
-  "schema_version": "scopecat.run_plan_record.v4",
+  "schema_version": "scopecat.run_plan_record.v6",
   "experiment_id": "simple-scan",
   "experiment_kind": "simple_scan",
+  "execution_units": [
+    {
+      "kind": "point_instrument",
+      "unit_id": "point-instrument",
+      "backend_id": "scopecat.point-instrument.v1",
+      "provider_id": "tests.signal_instrument_provider",
+      "submission_scope": "point",
+      "compute_placement": "host",
+      "automatic_fusion": "none"
+    }
+  ],
   "point_count": 3,
   "expected_dataset_schema": {
     "schema_version": "scopecat.measurement_dataset_schema.v0",
@@ -104,6 +115,7 @@
       "id": "signal",
       "kind": "observable",
       "producer_kind": "instrument",
+      "producer_unit_id": "point-instrument",
       "resource_port_id": "source",
       "physical_resource_id": null,
       "capability": null,

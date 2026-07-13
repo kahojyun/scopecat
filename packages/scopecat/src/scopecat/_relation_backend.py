@@ -20,7 +20,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scopecat._relation_analysis import (
     PlanNode,
     RelationOperation,
-    verify_plan_scopes,
 )
 from scopecat._relation_scalar_eval import eval_binary, is_cell_value, read_path
 from scopecat._relation_verification import (
@@ -258,16 +257,13 @@ class RelationBackend(Protocol):
     ) -> list[Row]: ...
 
 
-_SELECTED_PLAN_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class SelectedRelationPlan[NodeT: PlanNode]:
     """A verified plan whose operations are supported by one backend.
 
-    Construction is sealed behind :func:`select_relation_plan`.  The selected
-    backend is represented by its stable public identity; the enclosed proof
-    retains the defensive-copy guarantees of :class:`VerifiedRelationPlan`.
+    The selected backend is represented by its stable public identity; the
+    enclosed proof retains the defensive-copy guarantees of
+    :class:`VerifiedRelationPlan`.
     """
 
     backend_id: str
@@ -277,12 +273,7 @@ class SelectedRelationPlan[NodeT: PlanNode]:
         self,
         backend_id: str,
         verified_plan: VerifiedRelationPlan[NodeT],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SELECTED_PLAN_TOKEN:
-            msg = "SelectedRelationPlan can only be created by select_relation_plan"
-            raise TypeError(msg)
         object.__setattr__(self, "backend_id", backend_id)
         object.__setattr__(self, "_verified_plan", verified_plan)
 
@@ -314,9 +305,6 @@ class SelectedRelationPlan[NodeT: PlanNode]:
         return _unwrap_selected_plan(backend, self)
 
 
-_PREPARED_EVALUATION_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class PreparedRelationEvaluation[NodeT: PlanNode]:
     """A selected plan paired with a context validated against its proof."""
@@ -328,15 +316,7 @@ class PreparedRelationEvaluation[NodeT: PlanNode]:
         self,
         selected_plan: SelectedRelationPlan[NodeT],
         context: EvalContext,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _PREPARED_EVALUATION_TOKEN:
-            msg = (
-                "PreparedRelationEvaluation can only be created by the "
-                "validated evaluation boundary"
-            )
-            raise TypeError(msg)
         object.__setattr__(self, "_selected_plan", selected_plan)
         object.__setattr__(self, "context", context)
 
@@ -364,7 +344,6 @@ def select_relation_plan[NodeT: PlanNode](
     return SelectedRelationPlan[NodeT](
         backend.backend_id,
         verified_plan,
-        _token=_SELECTED_PLAN_TOKEN,
     )
 
 
@@ -383,9 +362,6 @@ def _unwrap_selected_plan[NodeT: PlanNode](
             f"cannot be evaluated by backend {backend.backend_id!r}"
         )
         raise ValueError(msg)
-    issues = assess_relation_plan(backend, selected_plan.verified_plan)
-    if issues:
-        raise RelationBackendCapabilityError(backend.backend_id, issues)
     return selected_plan.root
 
 
@@ -509,13 +485,7 @@ def _validate_evaluation_context[NodeT: PlanNode](
 ) -> None:
     """Validate the dynamic lexical environment before backend dispatch."""
 
-    expression = _unwrap_selected_plan(backend, selected_plan)
-    verify_plan_scopes(
-        expression,
-        current_row_available=ctx.row is not None,
-        outer_row_available=ctx.outer_row is not None,
-        active_row_scopes=ctx.row_scopes,
-    )
+    _unwrap_selected_plan(backend, selected_plan)
     _validate_used_imports(selected_plan.verified_plan, ctx)
     _validate_used_row_roles(selected_plan.verified_plan, ctx)
 
@@ -533,7 +503,6 @@ def _prepare_evaluation[NodeT: PlanNode](
     return PreparedRelationEvaluation(
         selected_plan,
         normalized_context,
-        _token=_PREPARED_EVALUATION_TOKEN,
     )
 
 

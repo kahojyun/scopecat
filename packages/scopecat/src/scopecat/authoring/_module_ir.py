@@ -24,6 +24,7 @@ from scopecat.authoring._binding_intents import (
 from scopecat.authoring._frozen_values import empty_frozen_mapping
 from scopecat.authoring._intents import (
     ExperimentStateIntent,
+    ModuleActionDecl,
     ModuleInputPort,
     ModuleOperationDecl,
 )
@@ -231,6 +232,7 @@ class ModuleBodyIR:
     instances: tuple[ModuleInstanceIR, ...] = ()
     bindings: tuple[ExperimentBindingIntent, ...] = ()
     state: tuple[ExperimentStateIntent, ...] = ()
+    actions: tuple[ModuleActionDecl, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     records: tuple[RecordIntent, ...] = ()
     products: tuple[ModuleProductPort, ...] = ()
@@ -252,6 +254,7 @@ class ModuleBodyIR:
             "module operation declaration",
             tuple(item.declaration_key for item in self.operations),
         )
+        _require_unique("module action", tuple(item.action_id for item in self.actions))
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,6 +467,9 @@ def _module_lexical_value_refs(module: ModuleIR) -> tuple[ValueRef, ...]:
             (intent.relation, intent.resource, intent.value, *intent.route_entities)
         )
     roots.extend(
+        value for action in module.body.actions for _name, value in action.fields
+    )
+    roots.extend(
         value
         for operation in module.body.operations
         for _name, value in operation.inputs
@@ -515,6 +521,7 @@ def _module_resource_uses(module: ModuleIR) -> tuple[LogicalResourcePortId, ...]
         for intent in module.body.state
         if intent.resource_port is not None
     )
+    selected.extend(action.resource_port_id for action in module.body.actions)
     selected.extend(
         value.port_id
         for operation in module.body.operations

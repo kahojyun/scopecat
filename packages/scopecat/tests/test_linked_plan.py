@@ -11,8 +11,6 @@ from scopecat._compiler.environment import (
     validate_config_environment,
 )
 from scopecat._compiler.linked import (
-    LinkedPlan,
-    MaterializedLinkedPoints,
     link_program,
     materialize_linked_points,
 )
@@ -25,7 +23,6 @@ from scopecat._compiler.program import (
     record_product,
     set_state_field,
 )
-from scopecat._compiler.verification import seal_typed_program
 from scopecat._point_domain_algebra import (
     POINT_UNIT,
     PointDependentProduct,
@@ -948,20 +945,6 @@ def test_linked_points_aggregate_entity_and_normalized_value_problems() -> None:
     ]
 
 
-def test_materialized_linked_points_construction_is_sealed() -> None:
-    materialized = materialize_linked_points(
-        link_program(_symbolic_program(), _environment())
-    )
-
-    with pytest.raises(TypeError, match="materialize_linked_points"):
-        MaterializedLinkedPoints(
-            materialized.linked_plan,
-            materialized.selected_program,
-            materialized.point_domain,
-            materialized.relation_backend_id,
-        )
-
-
 def test_local_materialization_selects_the_complete_backend_before_evaluation() -> None:
     program = _symbolic_program()
     environment = _environment()
@@ -1016,12 +999,3 @@ def test_backend_selection_failure_does_not_poison_linked_plan() -> None:
     assert accepted.valid, accepted.problems
     assert accepted.relation_backend_id == "tests.accepted"
     assert accepted.point_count == 4
-
-
-def test_linked_plan_construction_is_sealed() -> None:
-    program = _symbolic_program()
-    environment = _environment()
-    verified = seal_typed_program(program)
-
-    with pytest.raises(TypeError, match="link_program"):
-        LinkedPlan(verified, environment)

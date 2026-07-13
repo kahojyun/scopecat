@@ -48,6 +48,35 @@ type ComputeNodeInputValue = (
     | PayloadValue
 )
 
+type ActionFieldValue = ValueRef | ClosedScalarValue
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleActionDecl:
+    """One ordered, receipt-bearing instrument action invoked per point."""
+
+    id: str
+    resource_port_id: LogicalResourcePortId
+    capability_id: str
+    fields: tuple[tuple[str, ActionFieldValue], ...] = ()
+    scope: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.id or not self.capability_id:
+            msg = "action and capability ids must be non-empty"
+            raise ValueError(msg)
+        field_names = tuple(name for name, _value in self.fields)
+        if any(not name for name in field_names):
+            msg = "action field ids must be non-empty"
+            raise ValueError(msg)
+        if len(field_names) != len(set(field_names)):
+            msg = f"action {self.id!r} field ids must be unique"
+            raise ValueError(msg)
+
+    @property
+    def action_id(self) -> SymbolId:
+        return SymbolId(scope=(*self.scope, "actions"), local_id=self.id)
+
 
 @dataclass(frozen=True)
 class StateEachIntent:
@@ -113,9 +142,11 @@ class ParameterScanOverlayIntent:
 
 
 __all__ = [
+    "ActionFieldValue",
     "ClosedScalarValue",
     "ComputeNodeInputValue",
     "ExperimentStateIntent",
+    "ModuleActionDecl",
     "ModuleInputPort",
     "ModuleOperationDecl",
     "ParameterScanOverlayIntent",

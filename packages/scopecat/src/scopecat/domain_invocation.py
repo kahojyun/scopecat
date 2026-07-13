@@ -1,10 +1,10 @@
-"""Pure adapter proofs for domain-program result identity and values.
+"""Pure adapter proofs for one closed domain-program invocation.
 
 This public module is the narrow target-integration seam between Scopecat's
 transient compiler and a domain package. It closes logical identity mappings
-before target effects and can accept exact correlated measurement values
-afterward, but deliberately does not define a runtime protocol, resource
-claims, retries, persistence, or a general domain-program representation.
+and target-owned realization policy before effects, then accepts exact
+correlated measurement values afterward.  Runtime submission, fetch, and
+reconciliation are defined separately in :mod:`scopecat.domain_runtime`.
 """
 
 from __future__ import annotations
@@ -12,7 +12,9 @@ from __future__ import annotations
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import cast
+from typing import Literal, cast
+
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from scopecat._compiler.linked import (
     LinkedPlan,
@@ -25,6 +27,7 @@ from scopecat._compiler.point_domain import (
     MaterializedPointDomain,
 )
 from scopecat._compiler.products import ProductDef
+from scopecat._content_identity import content_fingerprint, stable_content_hash
 from scopecat._measurement_value_contract import (
     measurement_value_contract_issues,
     validated_measurement_value_copy,
@@ -48,13 +51,6 @@ from scopecat.problems import (
     blocking_problem,
     model_location,
 )
-
-_CLOSED_DOMAIN_RESULT_MAPPING_TOKEN = object()
-_CLOSED_DOMAIN_RESULT_TOKEN = object()
-_CLOSED_DOMAIN_ENTRY_TOKEN = object()
-_CLOSED_DOMAIN_OUTPUT_VALUE_TOKEN = object()
-_CLOSED_DOMAIN_OUTPUT_VALUES_TOKEN = object()
-_SELECTED_DOMAIN_MEASUREMENT_OUTPUTS_TOKEN = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +106,7 @@ class DomainOutputValue[ResultAddressT: Hashable]:
     """Adapter candidate relating one opaque result address to one value.
 
     Logical point, product-use, and product identity are deliberately absent.
-    They are recovered from a sealed result mapping when the complete output
+    They are recovered from a closed result mapping when the complete output
     inventory is accepted.
     """
 
@@ -141,12 +137,7 @@ class ClosedDomainResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
         point: MaterializedPoint,
         product_use: ProductUse,
         product: ProductDef,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _CLOSED_DOMAIN_RESULT_TOKEN:
-            msg = "ClosedDomainResult can only be created by result mapping sealing"
-            raise TypeError(msg)
         if product_use.product_id != product.id:
             msg = "closed domain results must retain their exact product contract"
             raise ValueError(msg)
@@ -186,15 +177,7 @@ class ClosedDomainOutputValue[EntryAddressT: Hashable, ResultAddressT: Hashable]
         self,
         result: ClosedDomainResult[EntryAddressT, ResultAddressT],
         value: MeasurementValue,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _CLOSED_DOMAIN_OUTPUT_VALUE_TOKEN:
-            msg = (
-                "ClosedDomainOutputValue can only be created by "
-                "seal_domain_output_values"
-            )
-            raise TypeError(msg)
         if not isinstance(cast("object", result), ClosedDomainResult):
             msg = "closed domain output values require a ClosedDomainResult"
             raise TypeError(msg)
@@ -248,12 +231,7 @@ class ClosedDomainEntry[EntryAddressT: Hashable, ResultAddressT: Hashable]:
         entry_address: EntryAddressT,
         point: MaterializedPoint,
         results: tuple[ClosedDomainResult[EntryAddressT, ResultAddressT], ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _CLOSED_DOMAIN_ENTRY_TOKEN:
-            msg = "ClosedDomainEntry can only be created by result mapping sealing"
-            raise TypeError(msg)
         if any(
             result.entry_address != entry_address
             or result.logical_point_id != point.logical_id
@@ -272,14 +250,17 @@ class ClosedDomainEntry[EntryAddressT: Hashable, ResultAddressT: Hashable]:
 
 @dataclass(frozen=True, slots=True, init=False)
 class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashable]:
-    """Exact, construction-controlled mapping of adapter work to core outputs.
+    """Exact canonical mapping of adapter work to core outputs.
 
     Entries and results are exposed in canonical ``point x product-use`` order;
     ``adapter_entries`` separately preserves the adapter's own ordering.  The
-    proof covers the linked plan's complete logical product-use inventory.
+    proof covers an explicit subset of the linked plan's logical product-use
+    inventory.  The selected subset is canonicalized to linked-program order.
     """
 
     linked_points: MaterializedLinkedPoints
+    selected_product_use_ids: tuple[ProductUseId, ...]
+    selected_product_uses: tuple[ProductUse, ...] = field(repr=False)
     adapter_entries: tuple[AdapterEntryResults[EntryAddressT, ResultAddressT], ...]
     entries: tuple[ClosedDomainEntry[EntryAddressT, ResultAddressT], ...]
     results: tuple[ClosedDomainResult[EntryAddressT, ResultAddressT], ...]
@@ -296,22 +277,110 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
         tuple[LogicalPointId, ProductUseId],
         ClosedDomainResult[EntryAddressT, ResultAddressT],
     ] = field(repr=False, compare=False, hash=False)
+    _product_by_id: Mapping[ProductId, ProductDef] = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
 
     def __init__(
         self,
         linked_points: MaterializedLinkedPoints,
+        selected_product_use_ids: tuple[ProductUseId, ...],
         adapter_entries: tuple[AdapterEntryResults[EntryAddressT, ResultAddressT], ...],
         entries: tuple[ClosedDomainEntry[EntryAddressT, ResultAddressT], ...],
         results: tuple[ClosedDomainResult[EntryAddressT, ResultAddressT], ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _CLOSED_DOMAIN_RESULT_MAPPING_TOKEN:
-            msg = (
-                "ClosedDomainResultMapping can only be created by "
-                "seal_domain_result_mapping"
-            )
+        if not isinstance(cast("object", linked_points), MaterializedLinkedPoints):
+            msg = "closed domain result mappings require MaterializedLinkedPoints"
             raise TypeError(msg)
+        if any(
+            not isinstance(cast("object", entry), AdapterEntryResults)
+            for entry in adapter_entries
+        ):
+            msg = "closed domain result mappings require adapter entry values"
+            raise TypeError(msg)
+        if any(
+            not isinstance(cast("object", entry), ClosedDomainEntry)
+            for entry in entries
+        ):
+            msg = "closed domain result mappings require closed entry values"
+            raise TypeError(msg)
+        if any(
+            not isinstance(cast("object", result), ClosedDomainResult)
+            for result in results
+        ):
+            msg = "closed domain result mappings require closed result values"
+            raise TypeError(msg)
+        all_uses, products_by_id = _closed_product_inventory(linked_points)
+        selected_uses = _canonical_selected_product_uses(
+            all_uses,
+            selected_product_use_ids,
+        )
+        canonical_use_ids = tuple(use.id for use in selected_uses)
+        if selected_product_use_ids != canonical_use_ids:
+            msg = "closed domain result mappings require canonical product-use order"
+            raise ValueError(msg)
+        expected_points = tuple(
+            point.logical_id for point in linked_points.point_domain.points
+        )
+        if tuple(entry.logical_point_id for entry in entries) != expected_points:
+            msg = "closed domain result mappings require canonical point order"
+            raise ValueError(msg)
+        if any(
+            entry.point != point
+            for entry, point in zip(
+                entries,
+                linked_points.point_domain.points,
+                strict=True,
+            )
+        ):
+            msg = "closed domain entries must retain their materialized points"
+            raise ValueError(msg)
+        expected_outputs = tuple(
+            (point_id, product_use_id)
+            for point_id in expected_points
+            for product_use_id in canonical_use_ids
+        )
+        if (
+            tuple(
+                (result.logical_point_id, result.product_use_id) for result in results
+            )
+            != expected_outputs
+        ):
+            msg = (
+                "closed domain results must exactly follow canonical "
+                "point/product-use order"
+            )
+            raise ValueError(msg)
+        expected_result_contracts = tuple(
+            (point, use, products_by_id[use.product_id])
+            for point in linked_points.point_domain.points
+            for use in selected_uses
+        )
+        if any(
+            result.point != point
+            or result.product_use != use
+            or result.product != product
+            for result, (point, use, product) in zip(
+                results,
+                expected_result_contracts,
+                strict=True,
+            )
+        ):
+            msg = "closed domain results must retain their linked output contracts"
+            raise ValueError(msg)
+        if any(
+            tuple(result.product_use_id for result in entry.results)
+            != canonical_use_ids
+            for entry in entries
+        ):
+            msg = "closed domain entries must retain every selected product use"
+            raise ValueError(msg)
+        if tuple(result for entry in entries for result in entry.results) != results:
+            msg = "closed domain entries and result inventory must agree exactly"
+            raise ValueError(msg)
+        adapter_entries_by_address = _index_adapter_entries(adapter_entries)
         entry_by_address = {entry.entry_address: entry for entry in entries}
         entry_by_point = {entry.logical_point_id: entry for entry in entries}
         result_by_address = {result.result_address: result for result in results}
@@ -327,7 +396,27 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
         ):
             msg = "closed domain result mappings require unique identities"
             raise ValueError(msg)
+        if set(adapter_entries_by_address) != set(entry_by_address):
+            msg = "closed domain entries must exactly cover adapter entries"
+            raise ValueError(msg)
+        expected_parent_by_result = {
+            result_address: adapter_entry.entry_address
+            for adapter_entry in adapter_entries
+            for result_address in adapter_entry.result_addresses
+        }
+        if set(expected_parent_by_result) != set(result_by_address) or any(
+            result.entry_address != expected_parent_by_result[result_address]
+            for result_address, result in result_by_address.items()
+        ):
+            msg = "closed domain results must exactly cover adapter result addresses"
+            raise ValueError(msg)
         object.__setattr__(self, "linked_points", linked_points)
+        object.__setattr__(
+            self,
+            "selected_product_use_ids",
+            canonical_use_ids,
+        )
+        object.__setattr__(self, "selected_product_uses", selected_uses)
         object.__setattr__(self, "adapter_entries", adapter_entries)
         object.__setattr__(self, "entries", entries)
         object.__setattr__(self, "results", results)
@@ -341,6 +430,28 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
         object.__setattr__(
             self, "_result_by_output", MappingProxyType(result_by_output)
         )
+        object.__setattr__(
+            self,
+            "_product_by_id",
+            MappingProxyType(
+                {
+                    use.product_id: products_by_id[use.product_id].model_copy(deep=True)
+                    for use in selected_uses
+                }
+            ),
+        )
+
+    def product_for_use(self, product_use_id: ProductUseId) -> ProductDef:
+        """Return the snapshotted product contract of one selected use."""
+
+        selected = next(
+            (use for use in self.selected_product_uses if use.id == product_use_id),
+            None,
+        )
+        if selected is None:
+            msg = f"product use {product_use_id.value!r} is not selected"
+            raise KeyError(msg)
+        return self._product_by_id[selected.product_id].model_copy(deep=True)
 
     def entry_for_address(
         self,
@@ -351,6 +462,12 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
         except KeyError as error:
             msg = f"adapter entry address {entry_address!r} is not in this mapping"
             raise KeyError(msg) from error
+
+    @property
+    def contract_fingerprint(self) -> str:
+        """Return the stable transient identity of this complete result contract."""
+
+        return _domain_result_contract_fingerprint(self)
 
     def entry_for_point(
         self,
@@ -401,19 +518,117 @@ class SelectedDomainMeasurementOutputs[
     def __init__(
         self,
         mapping: ClosedDomainResultMapping[EntryAddressT, ResultAddressT],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SELECTED_DOMAIN_MEASUREMENT_OUTPUTS_TOKEN:
-            msg = (
-                "SelectedDomainMeasurementOutputs can only be created by "
-                "select_domain_measurement_outputs"
-            )
-            raise TypeError(msg)
         if not isinstance(cast("object", mapping), ClosedDomainResultMapping):
             msg = "domain measurement output selection requires a result mapping"
             raise TypeError(msg)
+        problems = _domain_measurement_output_selection_problems(mapping)
+        if problems:
+            raise CheckFailed(problems)
         object.__setattr__(self, "mapping", mapping)
+
+
+class DomainInvocationIntent(BaseModel):
+    """Durable, payload-free identity of one executable domain invocation."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        revalidate_instances="always",
+    )
+
+    schema_version: Literal["scopecat.domain_invocation_intent.v1"] = (
+        "scopecat.domain_invocation_intent.v1"
+    )
+    invocation_id: str
+    target_id: str
+    compiler_id: str
+    capability_fingerprint: str
+    artifact_id: str
+    artifact_fingerprint: str
+    result_contract_fingerprint: str
+    adapter_intent_fingerprint: str
+    intent_fingerprint: str
+
+    @field_validator(
+        "invocation_id",
+        "target_id",
+        "compiler_id",
+        "capability_fingerprint",
+        "artifact_id",
+        "artifact_fingerprint",
+        "result_contract_fingerprint",
+        "adapter_intent_fingerprint",
+        "intent_fingerprint",
+    )
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        if not value:
+            msg = "domain invocation identity fields must be non-empty"
+            raise ValueError(msg)
+        return value
+
+    @model_validator(mode="after")
+    def validate_intent_fingerprint(self) -> DomainInvocationIntent:
+        expected = _domain_invocation_intent_fingerprint(
+            invocation_id=self.invocation_id,
+            target_id=self.target_id,
+            compiler_id=self.compiler_id,
+            capability_fingerprint=self.capability_fingerprint,
+            artifact_id=self.artifact_id,
+            artifact_fingerprint=self.artifact_fingerprint,
+            result_contract_fingerprint=self.result_contract_fingerprint,
+            adapter_intent_fingerprint=self.adapter_intent_fingerprint,
+        )
+        if self.intent_fingerprint != expected:
+            msg = "domain invocation fingerprint does not cover its complete intent"
+            raise ValueError(msg)
+        return self
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ClosedDomainInvocation[
+    EntryAddressT: Hashable,
+    ResultAddressT: Hashable,
+    PayloadT,
+]:
+    """One target-selected invocation ready for effects.
+
+    ``payload`` is deliberately transient and adapter-owned.  Durable host
+    evidence uses only :attr:`intent`; the adapter payload owns any selected
+    carrier or value policy independently of the exact retained result mapping.
+    """
+
+    intent: DomainInvocationIntent
+    result_mapping: ClosedDomainResultMapping[
+        EntryAddressT,
+        ResultAddressT,
+    ] = field(repr=False)
+    payload: PayloadT = field(repr=False)
+
+    def __init__(
+        self,
+        intent: DomainInvocationIntent,
+        result_mapping: ClosedDomainResultMapping[
+            EntryAddressT,
+            ResultAddressT,
+        ],
+        payload: PayloadT,
+    ) -> None:
+        if not isinstance(cast("object", intent), DomainInvocationIntent):
+            msg = "closed domain invocations require a DomainInvocationIntent"
+            raise TypeError(msg)
+        if not isinstance(cast("object", result_mapping), ClosedDomainResultMapping):
+            msg = "closed domain invocations require a closed result mapping"
+            raise TypeError(msg)
+        if intent.result_contract_fingerprint != _domain_result_contract_fingerprint(
+            result_mapping
+        ):
+            msg = "domain invocation intent does not cover its output contract"
+            raise ValueError(msg)
+        object.__setattr__(self, "intent", intent)
+        object.__setattr__(self, "result_mapping", result_mapping)
+        object.__setattr__(self, "payload", payload)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -437,15 +652,7 @@ class ClosedDomainOutputValues[EntryAddressT: Hashable, ResultAddressT: Hashable
         self,
         selection: SelectedDomainMeasurementOutputs[EntryAddressT, ResultAddressT],
         outputs: tuple[ClosedDomainOutputValue[EntryAddressT, ResultAddressT], ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _CLOSED_DOMAIN_OUTPUT_VALUES_TOKEN:
-            msg = (
-                "ClosedDomainOutputValues can only be created by "
-                "seal_domain_output_values"
-            )
-            raise TypeError(msg)
         if not isinstance(cast("object", selection), SelectedDomainMeasurementOutputs):
             msg = "closed domain output values require a selected measurement carrier"
             raise TypeError(msg)
@@ -501,20 +708,88 @@ class ClosedDomainOutputValues[EntryAddressT: Hashable, ResultAddressT: Hashable
             raise KeyError(msg) from error
 
 
+def close_domain_invocation[
+    EntryAddressT: Hashable,
+    ResultAddressT: Hashable,
+    PayloadT,
+](
+    result_mapping: ClosedDomainResultMapping[
+        EntryAddressT,
+        ResultAddressT,
+    ],
+    *,
+    invocation_id: str,
+    target_id: str,
+    compiler_id: str,
+    capability_fingerprint: str,
+    artifact_id: str,
+    artifact_fingerprint: str,
+    adapter_intent: object,
+    payload: PayloadT,
+) -> ClosedDomainInvocation[EntryAddressT, ResultAddressT, PayloadT]:
+    """Close stable target and output facts around an opaque adapter payload."""
+
+    if not isinstance(cast("object", result_mapping), ClosedDomainResultMapping):
+        msg = "domain invocation closure requires a closed result mapping"
+        raise TypeError(msg)
+    result_contract_fingerprint = _domain_result_contract_fingerprint(result_mapping)
+    adapter_intent_fingerprint = stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "scopecat.domain_adapter_intent.v1",
+                "value": adapter_intent,
+            }
+        )
+    )
+    intent_fingerprint = _domain_invocation_intent_fingerprint(
+        invocation_id=invocation_id,
+        target_id=target_id,
+        compiler_id=compiler_id,
+        capability_fingerprint=capability_fingerprint,
+        artifact_id=artifact_id,
+        artifact_fingerprint=artifact_fingerprint,
+        result_contract_fingerprint=result_contract_fingerprint,
+        adapter_intent_fingerprint=adapter_intent_fingerprint,
+    )
+    intent = DomainInvocationIntent(
+        invocation_id=invocation_id,
+        target_id=target_id,
+        compiler_id=compiler_id,
+        capability_fingerprint=capability_fingerprint,
+        artifact_id=artifact_id,
+        artifact_fingerprint=artifact_fingerprint,
+        result_contract_fingerprint=result_contract_fingerprint,
+        adapter_intent_fingerprint=adapter_intent_fingerprint,
+        intent_fingerprint=intent_fingerprint,
+    )
+    return ClosedDomainInvocation(
+        intent,
+        result_mapping,
+        payload,
+    )
+
+
 def seal_domain_result_mapping[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
     linked_points: MaterializedLinkedPoints,
+    selected_product_use_ids: Sequence[ProductUseId],
     adapter_entries: Sequence[AdapterEntryResults[EntryAddressT, ResultAddressT]],
     entry_bindings: Sequence[EntryPointBinding[EntryAddressT]],
     result_bindings: Sequence[ResultUseBinding[EntryAddressT, ResultAddressT]],
 ) -> ClosedDomainResultMapping[EntryAddressT, ResultAddressT]:
-    """Close exact adapter entry/result coverage against one linked point plan."""
+    """Close exact adapter coverage for selected uses of one linked point plan."""
 
     if not isinstance(cast("object", linked_points), MaterializedLinkedPoints):
         msg = "domain result mapping requires MaterializedLinkedPoints"
         raise TypeError(msg)
+    all_uses, products_by_id = _closed_product_inventory(linked_points)
+    selected_uses = _canonical_selected_product_uses(
+        all_uses,
+        tuple(selected_product_use_ids),
+    )
+    canonical_product_use_ids = tuple(use.id for use in selected_uses)
     selected_adapter_entries = tuple(adapter_entries)
     if any(
         not isinstance(cast("object", entry), AdapterEntryResults)
@@ -547,8 +822,8 @@ def seal_domain_result_mapping[
         adapter_entries_by_address,
         selected_result_bindings,
     )
-    uses, products_by_id = _closed_product_inventory(linked_points)
-    use_by_id = {use.id: use for use in uses}
+    all_use_by_id = {use.id: use for use in all_uses}
+    selected_use_ids = set(canonical_product_use_ids)
     point_by_id = {
         point.logical_id: point for point in linked_points.point_domain.points
     }
@@ -560,7 +835,7 @@ def seal_domain_result_mapping[
     expected_outputs = {
         (point.logical_id, use.id)
         for point in linked_points.point_domain.points
-        for use in uses
+        for use in selected_uses
     }
     bindings_by_output: dict[
         tuple[LogicalPointId, ProductUseId],
@@ -569,9 +844,15 @@ def seal_domain_result_mapping[
     for binding in binding_by_result.values():
         point_binding = point_bindings_by_entry[binding.entry_address]
         output_address = (point_binding.logical_point_id, binding.product_use_id)
-        if binding.product_use_id not in use_by_id:
+        if binding.product_use_id not in all_use_by_id:
             msg = (
                 "adapter result references unknown product use "
+                f"{binding.product_use_id.value!r}"
+            )
+            raise ValueError(msg)
+        if binding.product_use_id not in selected_use_ids:
+            msg = (
+                "adapter result references unselected product use "
                 f"{binding.product_use_id.value!r}"
             )
             raise ValueError(msg)
@@ -580,7 +861,10 @@ def seal_domain_result_mapping[
             raise ValueError(msg)
         bindings_by_output[output_address] = binding
     if set(bindings_by_output) != expected_outputs:
-        msg = "adapter results must exactly cover every logical point/product use"
+        msg = (
+            "adapter results must exactly cover every logical point and selected "
+            "product use"
+        )
         raise ValueError(msg)
 
     closed_results: list[ClosedDomainResult[EntryAddressT, ResultAddressT]] = []
@@ -588,7 +872,7 @@ def seal_domain_result_mapping[
     for point in linked_points.point_domain.points:
         entry_address = entry_by_point[point.logical_id]
         entry_results: list[ClosedDomainResult[EntryAddressT, ResultAddressT]] = []
-        for use in uses:
+        for use in selected_uses:
             binding = bindings_by_output[(point.logical_id, use.id)]
             result = ClosedDomainResult(
                 entry_address=entry_address,
@@ -596,7 +880,6 @@ def seal_domain_result_mapping[
                 point=point_by_id[point.logical_id],
                 product_use=use,
                 product=products_by_id[use.product_id],
-                _token=_CLOSED_DOMAIN_RESULT_TOKEN,
             )
             entry_results.append(result)
             closed_results.append(result)
@@ -605,15 +888,14 @@ def seal_domain_result_mapping[
                 entry_address=entry_address,
                 point=point,
                 results=tuple(entry_results),
-                _token=_CLOSED_DOMAIN_ENTRY_TOKEN,
             )
         )
     return ClosedDomainResultMapping(
         linked_points,
+        canonical_product_use_ids,
         selected_adapter_entries,
         tuple(closed_entries),
         tuple(closed_results),
-        _token=_CLOSED_DOMAIN_RESULT_MAPPING_TOKEN,
     )
 
 
@@ -625,20 +907,29 @@ def select_domain_measurement_outputs[
 ) -> SelectedDomainMeasurementOutputs[EntryAddressT, ResultAddressT]:
     """Select representable observable carriers before any adapter effect."""
 
-    if not isinstance(cast("object", mapping), ClosedDomainResultMapping):
-        msg = "domain measurement output selection requires a result mapping"
-        raise TypeError(msg)
+    return SelectedDomainMeasurementOutputs(mapping)
+
+
+def _domain_measurement_output_selection_problems[
+    EntryAddressT: Hashable,
+    ResultAddressT: Hashable,
+](
+    mapping: ClosedDomainResultMapping[EntryAddressT, ResultAddressT],
+) -> tuple[Problem, ...]:
     problems: list[Problem] = []
-    for result_index, result in enumerate(mapping.results):
-        product = result.product
-        identity_details = _domain_output_identity_details(result)
+    for use_index, product_use in enumerate(mapping.selected_product_uses):
+        product = mapping.product_for_use(product_use.id)
+        identity_details = {
+            "product_use_id": product_use.id.value,
+            "product_id": product.id.qualified_name,
+        }
         if product.kind != "observable":
             problems.append(
                 _domain_output_selection_problem(
                     "domain_output_product_kind_unsupported",
                     "domain measurement output closure supports observable "
                     f"products only, got {product.kind!r}",
-                    path=("results", result_index, "product", "kind"),
+                    path=("product_uses", use_index, "product", "kind"),
                     details={
                         **identity_details,
                         "expected": "observable",
@@ -652,7 +943,7 @@ def select_domain_measurement_outputs[
                     "domain_output_scalar_dtype_unsupported",
                     "domain measurement output closure has no scalar carrier for "
                     f"dtype {product.dtype!r}",
-                    path=("results", result_index, "product", "dtype"),
+                    path=("product_uses", use_index, "product", "dtype"),
                     details={
                         **identity_details,
                         "actual": product.dtype,
@@ -664,12 +955,7 @@ def select_domain_measurement_outputs[
                     },
                 )
             )
-    if problems:
-        raise CheckFailed(problems)
-    return SelectedDomainMeasurementOutputs(
-        mapping,
-        _token=_SELECTED_DOMAIN_MEASUREMENT_OUTPUTS_TOKEN,
-    )
+    return tuple(problems)
 
 
 def seal_domain_output_values[
@@ -797,14 +1083,12 @@ def seal_domain_output_values[
         ClosedDomainOutputValue(
             result,
             by_address[result.result_address].value,
-            _token=_CLOSED_DOMAIN_OUTPUT_VALUE_TOKEN,
         )
         for result in mapping.results
     )
     return ClosedDomainOutputValues(
         selection,
         outputs,
-        _token=_CLOSED_DOMAIN_OUTPUT_VALUES_TOKEN,
     )
 
 
@@ -901,6 +1185,35 @@ def _closed_product_inventory(
     return program.product_uses, products_by_id
 
 
+def _canonical_selected_product_uses(
+    all_uses: tuple[ProductUse, ...],
+    selected_product_use_ids: tuple[ProductUseId, ...],
+) -> tuple[ProductUse, ...]:
+    if any(
+        not isinstance(cast("object", product_use_id), ProductUseId)
+        for product_use_id in selected_product_use_ids
+    ):
+        msg = "selected product uses require ProductUseId values"
+        raise TypeError(msg)
+    if len(set(selected_product_use_ids)) != len(selected_product_use_ids):
+        msg = "selected product use IDs must be unique"
+        raise ValueError(msg)
+    known_ids = {use.id for use in all_uses}
+    unknown_ids = tuple(
+        product_use_id
+        for product_use_id in selected_product_use_ids
+        if product_use_id not in known_ids
+    )
+    if unknown_ids:
+        rendered = ", ".join(
+            repr(product_use_id.value) for product_use_id in unknown_ids
+        )
+        msg = f"selected product uses are not in the linked plan: {rendered}"
+        raise ValueError(msg)
+    selected_ids = set(selected_product_use_ids)
+    return tuple(use for use in all_uses if use.id in selected_ids)
+
+
 def _require_hashable(value: object, *, label: str) -> None:
     try:
         hash(value)
@@ -928,6 +1241,71 @@ def _is_measurement_value(value: object) -> bool:
 
 def _copy_measurement_value(value: MeasurementValue) -> MeasurementValue:
     return validated_measurement_value_copy(value)
+
+
+def _domain_result_contract_fingerprint[
+    EntryAddressT: Hashable,
+    ResultAddressT: Hashable,
+](
+    mapping: ClosedDomainResultMapping[EntryAddressT, ResultAddressT],
+) -> str:
+    return stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "scopecat.domain_result_contract.v3",
+                "entries": [
+                    {
+                        "entry_address": entry.entry_address,
+                        "logical_point_id": entry.logical_point_id.value,
+                    }
+                    for entry in mapping.entries
+                ],
+                "selected_product_uses": [
+                    {
+                        "product_use_id": use.id.value,
+                        "product": mapping.product_for_use(use.id),
+                    }
+                    for use in mapping.selected_product_uses
+                ],
+                "results": [
+                    {
+                        "entry_address": result.entry_address,
+                        "result_address": result.result_address,
+                        "logical_point_id": result.logical_point_id.value,
+                        "product_use_id": result.product_use_id.value,
+                        "product": result.product,
+                    }
+                    for result in mapping.results
+                ],
+            }
+        )
+    )
+
+
+def _domain_invocation_intent_fingerprint(
+    *,
+    invocation_id: str,
+    target_id: str,
+    compiler_id: str,
+    capability_fingerprint: str,
+    artifact_id: str,
+    artifact_fingerprint: str,
+    result_contract_fingerprint: str,
+    adapter_intent_fingerprint: str,
+) -> str:
+    return stable_content_hash(
+        {
+            "schema": "scopecat.domain_invocation_intent_identity.v1",
+            "invocation_id": invocation_id,
+            "target_id": target_id,
+            "compiler_id": compiler_id,
+            "capability_fingerprint": capability_fingerprint,
+            "artifact_id": artifact_id,
+            "artifact_fingerprint": artifact_fingerprint,
+            "result_contract_fingerprint": result_contract_fingerprint,
+            "adapter_intent_fingerprint": adapter_intent_fingerprint,
+        }
+    )
 
 
 def _domain_output_identity_details[
@@ -994,10 +1372,12 @@ def _problem_detail(value: object) -> object:
 __all__ = [
     "AdapterEntryResults",
     "ClosedDomainEntry",
+    "ClosedDomainInvocation",
     "ClosedDomainOutputValue",
     "ClosedDomainOutputValues",
     "ClosedDomainResult",
     "ClosedDomainResultMapping",
+    "DomainInvocationIntent",
     "DomainOutputValue",
     "EntryPointBinding",
     "LinkedPlan",
@@ -1011,6 +1391,7 @@ __all__ = [
     "ProductUseId",
     "ResultUseBinding",
     "SelectedDomainMeasurementOutputs",
+    "close_domain_invocation",
     "materialize_linked_points",
     "seal_domain_output_values",
     "seal_domain_result_mapping",

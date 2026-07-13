@@ -1,9 +1,9 @@
 """Internal local run repository."""
 
 from scopecat._storage.local.execution import (
-    LocalCollectionCommitter,
+    LocalCollectionRepository,
     LocalExecutionJournal,
-    LocalMeasurementCommitter,
+    LocalMeasurementRecordCommitter,
     LocalPayloadEvidenceCommitter,
     LocalResourceLeaseManager,
 )
@@ -11,9 +11,9 @@ from scopecat._storage.local.layout import LocalRunLayout
 from scopecat._storage.local.run_repository import LocalRunStore
 
 __all__ = [
-    "LocalCollectionCommitter",
+    "LocalCollectionRepository",
     "LocalExecutionJournal",
-    "LocalMeasurementCommitter",
+    "LocalMeasurementRecordCommitter",
     "LocalPayloadEvidenceCommitter",
     "LocalResourceLeaseManager",
     "LocalRunLayout",

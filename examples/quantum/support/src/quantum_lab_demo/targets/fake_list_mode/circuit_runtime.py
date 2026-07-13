@@ -66,11 +66,6 @@ from quantum_lab_demo.targets.fake_list_mode.runtime import (
     FakeListRuntime,
 )
 
-_CORRELATED_FRAME_TOKEN = object()
-_CORRELATED_RUN_TOKEN = object()
-_SELECTED_MEASUREMENT_OUTPUT_TOKEN = object()
-_SELECTED_MEASUREMENT_REALIZATION_TOKEN = object()
-_REALIZED_MEASUREMENT_RUN_TOKEN = object()
 _FAKE_RESPONSE_UNIT = "ratio"
 
 
@@ -91,15 +86,7 @@ class CorrelatedFakeListFrame:
             TargetCompileEntryId, TargetAcquisitionAddress
         ],
         acquisition_origin: CircuitTargetAcquisitionOrigin,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _CORRELATED_FRAME_TOKEN:
-            msg = (
-                "CorrelatedFakeListFrame can only be created by fake-list run "
-                "correlation"
-            )
-            raise TypeError(msg)
         if logical_result.result_address != frame.address:
             msg = "fake frame address does not identify its logical result"
             raise ValueError(msg)
@@ -136,7 +123,7 @@ class CorrelatedFakeListFrame:
 
 @dataclass(frozen=True, slots=True, init=False)
 class CorrelatedFakeListRun:
-    """Construction-controlled, canonically ordered fake target evidence."""
+    """Checked, canonically ordered fake target evidence."""
 
     compiled_target: CompiledCircuitTarget[FakeListArtifact]
     target_run: FakeListRun
@@ -151,14 +138,7 @@ class CorrelatedFakeListRun:
         compiled_target: CompiledCircuitTarget[FakeListArtifact],
         target_run: FakeListRun,
         frames: tuple[CorrelatedFakeListFrame, ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _CORRELATED_RUN_TOKEN:
-            msg = (
-                "CorrelatedFakeListRun can only be created by fake-list run correlation"
-            )
-            raise TypeError(msg)
         mapping = compiled_target.mapping
         compiled = compiled_target.compiled
         artifact = cast("object", compiled.artifact)
@@ -340,15 +320,7 @@ class SelectedFakeMeasurementOutput:
         acquisition_origin: CircuitTargetAcquisitionOrigin,
         acquisition_window: FakeAcquisitionWindow,
         kind: FakeMeasurementRealizationKind,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SELECTED_MEASUREMENT_OUTPUT_TOKEN:
-            msg = (
-                "SelectedFakeMeasurementOutput can only be created by "
-                "select_fake_measurement_realization"
-            )
-            raise TypeError(msg)
         if acquisition_origin.address != result.result_address:
             msg = "selected fake output origin must identify its logical result"
             raise ValueError(msg)
@@ -402,15 +374,7 @@ class SelectedFakeMeasurementRealization:
             TargetAcquisitionAddress,
         ],
         outputs: tuple[SelectedFakeMeasurementOutput, ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SELECTED_MEASUREMENT_REALIZATION_TOKEN:
-            msg = (
-                "SelectedFakeMeasurementRealization can only be created by "
-                "select_fake_measurement_realization"
-            )
-            raise TypeError(msg)
         if not isinstance(cast("object", compiled_target), CompiledCircuitTarget):
             msg = "fake measurement selection requires a CompiledCircuitTarget"
             raise TypeError(msg)
@@ -498,15 +462,7 @@ class RealizedFakeMeasurementRun:
             TargetCompileEntryId,
             TargetAcquisitionAddress,
         ],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _REALIZED_MEASUREMENT_RUN_TOKEN:
-            msg = (
-                "RealizedFakeMeasurementRun can only be created by "
-                "realize_fake_measurements"
-            )
-            raise TypeError(msg)
         if not isinstance(
             cast("object", selection), SelectedFakeMeasurementRealization
         ):
@@ -637,7 +593,6 @@ def select_fake_measurement_realization(
         target,
         core_outputs,
         selected_outputs,
-        _token=_SELECTED_MEASUREMENT_REALIZATION_TOKEN,
     )
 
 
@@ -694,7 +649,6 @@ def correlate_fake_list_run(
             acquisition_origin=mapping.batch.acquisition_origin_for(
                 result.result_address
             ),
-            _token=_CORRELATED_FRAME_TOKEN,
         )
         for result in mapping.results
         for shot_index in range(compiled.repetitions)
@@ -703,7 +657,6 @@ def correlate_fake_list_run(
         compiled_target,
         validated_run,
         correlated_frames,
-        _token=_CORRELATED_RUN_TOKEN,
     )
 
 
@@ -773,7 +726,6 @@ def realize_fake_measurements(
         selection,
         correlated_run,
         output_values,
-        _token=_REALIZED_MEASUREMENT_RUN_TOKEN,
     )
 
 
@@ -1152,7 +1104,6 @@ def _select_fake_measurement_outputs(
                     mapping.batch.acquisition_origin_for(address),
                     artifact_acquisition.window,
                     binding.kind,
-                    _token=_SELECTED_MEASUREMENT_OUTPUT_TOKEN,
                 )
             )
     if problems:

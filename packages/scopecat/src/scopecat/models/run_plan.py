@@ -12,8 +12,9 @@ from scopecat.models.entity import EntityRef
 from scopecat.models.measurement import CoordinateValue, MeasurementDatasetSchema
 from scopecat.models.parameter import Quantity
 
-RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v4"
+RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v6"
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
+type RunPlanProducerKind = Literal["instrument", "domain", "host_transform"]
 
 
 class _RunPlanModel(BaseModel):
@@ -118,7 +119,8 @@ class RunPlanPoint(_RunPlanModel):
 class RunPlanOutput(_RunPlanModel):
     id: str
     kind: str
-    producer_kind: Literal["instrument"]
+    producer_kind: RunPlanProducerKind
+    producer_unit_id: _NonEmptyId
     resource_port_id: _NonEmptyId | None = None
     physical_resource_id: _NonEmptyId | None = None
     capability: str | None = None
@@ -247,14 +249,50 @@ class RunPlanRoute(_RunPlanModel):
     resolved: list[RunPlanResolvedRoute] = Field(default_factory=list)
 
 
+class RunPlanDomainExecution(_RunPlanModel):
+    """Payload-free target identity accepted for one domain execution."""
+
+    kind: Literal["domain_job"] = "domain_job"
+    unit_id: _NonEmptyId
+    adapter_id: _NonEmptyId
+    semantic_operation_id: _NonEmptyId
+    completion_contract: Literal["synchronous"]
+    invocation_id: _NonEmptyId
+    intent_fingerprint: _NonEmptyId
+    target_id: _NonEmptyId
+    compiler_id: _NonEmptyId
+    capability_fingerprint: _NonEmptyId
+    artifact_id: _NonEmptyId
+    artifact_fingerprint: _NonEmptyId
+
+
+class RunPlanPointInstrumentExecution(_RunPlanModel):
+    """Accepted identity of the built-in point-at-a-time execution unit."""
+
+    kind: Literal["point_instrument"] = "point_instrument"
+    unit_id: _NonEmptyId
+    backend_id: _NonEmptyId
+    provider_id: _NonEmptyId
+    submission_scope: Literal["point"] = "point"
+    compute_placement: Literal["host"] = "host"
+    automatic_fusion: Literal["none"] = "none"
+
+
+type RunPlanExecutionUnit = Annotated[
+    RunPlanPointInstrumentExecution | RunPlanDomainExecution,
+    Field(discriminator="kind"),
+]
+
+
 class RunPlanRecord(_RunPlanModel):
     """Stable projection of the plan accepted for one execution."""
 
-    schema_version: Literal["scopecat.run_plan_record.v4"] = (
+    schema_version: Literal["scopecat.run_plan_record.v6"] = (
         RUN_PLAN_RECORD_SCHEMA_VERSION
     )
     experiment_id: str
     experiment_kind: str
+    execution_units: list[RunPlanExecutionUnit] = Field(default_factory=list)
     point_count: int = Field(ge=0)
     expected_dataset_schema: MeasurementDatasetSchema | None = None
     coordinate_ids: list[str] = Field(default_factory=list)
@@ -269,6 +307,7 @@ class RunPlanRecord(_RunPlanModel):
 
     @model_validator(mode="after")
     def validate_record_invariants(self) -> RunPlanRecord:
+        self._validate_execution_units()
         self._validate_points()
         self._validate_point_references()
         self._validate_resource_references()
@@ -276,6 +315,33 @@ class RunPlanRecord(_RunPlanModel):
         self._validate_expected_dataset_schema()
         self._validate_dataset_dimensions()
         return self
+
+    def _validate_execution_units(self) -> None:
+        units_by_id = {unit.unit_id: unit for unit in self.execution_units}
+        if len(units_by_id) != len(self.execution_units):
+            msg = "run plan execution unit IDs must be unique"
+            raise ValueError(msg)
+        if not self.execution_units:
+            msg = "run plans require at least one execution unit"
+            raise ValueError(msg)
+        for record in self.records:
+            unit = units_by_id.get(record.producer_unit_id)
+            if unit is None:
+                msg = (
+                    f"run plan output {record.id!r} references unknown producer unit "
+                    f"{record.producer_unit_id!r}"
+                )
+                raise ValueError(msg)
+            if record.producer_kind == "instrument" and not isinstance(
+                unit, RunPlanPointInstrumentExecution
+            ):
+                msg = "instrument outputs require a point-instrument producer unit"
+                raise ValueError(msg)
+            if record.producer_kind != "instrument" and not isinstance(
+                unit, RunPlanDomainExecution
+            ):
+                msg = "domain or host-transform outputs require a domain-job unit"
+                raise ValueError(msg)
 
     def _validate_points(self) -> None:
         if len(self.points) != self.point_count:
@@ -640,9 +706,13 @@ __all__ = [
     "RUN_PLAN_RECORD_SCHEMA_VERSION",
     "RunPlanChannelBinding",
     "RunPlanDeferredValue",
+    "RunPlanDomainExecution",
+    "RunPlanExecutionUnit",
     "RunPlanOutput",
     "RunPlanPayloadValue",
     "RunPlanPoint",
+    "RunPlanPointInstrumentExecution",
+    "RunPlanProducerKind",
     "RunPlanRecord",
     "RunPlanResolvedRoute",
     "RunPlanRoute",

@@ -69,6 +69,17 @@ from scopecat.checks import (
     CheckStatus,
     ExperimentCheckReport,
 )
+from scopecat.domain_execution import (
+    DomainExecutionAdapter,
+    PreparedDomainExecution,
+    erase_prepared_domain_execution,
+)
+from scopecat.execution_backend import (
+    CompositeExecutionBackend,
+    DomainProgramBackend,
+    ExecutionBackend,
+    PointInstrumentBackend,
+)
 from scopecat.models.entity import EntityRef, entity_ref
 from scopecat.parameters import (
     delete_parameter_rows,
@@ -151,14 +162,18 @@ __all__ = [
     "CheckPhaseReport",
     "CheckStatus",
     "ComparisonHandle",
+    "CompositeExecutionBackend",
     "Compute",
     "ComputeInput",
     "Data",
     "DataDatasetSummary",
     "DataSummary",
+    "DomainExecutionAdapter",
+    "DomainProgramBackend",
     "EarlyStopDecision",
     "EntityRef",
     "EntityType",
+    "ExecutionBackend",
     "Experiment",
     "ExperimentCheckReport",
     "ExperimentInvocation",
@@ -180,6 +195,8 @@ __all__ = [
     "ParameterKeyInput",
     "ParameterRow",
     "PayloadType",
+    "PointInstrumentBackend",
+    "PreparedDomainExecution",
     "PreparedExperiment",
     "PreviewExperimentResult",
     "Problem",
@@ -239,6 +256,7 @@ __all__ = [
     "delete_parameter_rows",
     "entity_axis",
     "entity_ref",
+    "erase_prepared_domain_execution",
     "input",
     "insert_parameter_rows",
     "model_location",

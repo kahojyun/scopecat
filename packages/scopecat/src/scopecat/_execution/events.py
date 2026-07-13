@@ -1,4 +1,4 @@
-"""Best-effort observation adapters for durable execution transitions."""
+"""Best-effort observation of transient and durable execution transitions."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import is_dataclass
 
 from pydantic import JsonValue
 
-from scopecat._execution.journal import ExecutionJournal, ExecutionTransition
+from scopecat._execution.journal import ExecutionTransition
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.run import RunOutcome
 from scopecat.runtime import (
@@ -61,29 +61,30 @@ _OBSERVATION_METRIC_KEYS = frozenset(
 )
 
 
-class ObservedExecutionJournal:
-    """Decorate the required journal with a lossy, non-authoritative stream."""
+class RuntimeTransitionProjector:
+    """Project operation transitions into a lossy, non-authoritative stream.
+
+    Callers decide separately whether a transition belongs in the durable
+    effect ledger.  Durable transitions should be observed only after their
+    journal append succeeds; transient progress may be observed directly and
+    therefore has no journal sequence.
+    """
 
     def __init__(
         self,
-        journal: ExecutionJournal,
         *,
         event_sink: RuntimeEventSink | None,
         experiment_id: str,
         point_count: int,
     ) -> None:
-        self._journal = journal
         self._event_sink = event_sink
         self._experiment_id = experiment_id
         self._point_count = point_count
         self._completed_points: set[int] = set()
 
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        committed = self._journal.append(entry)
-        self._observe(committed)
-        return committed
+    def observe(self, transition: ExecutionTransition) -> None:
+        """Emit one transition without changing execution semantics."""
 
-    def _observe(self, transition: ExecutionTransition) -> None:
         if (
             transition.stage == "point"
             and transition.state == "completed"
@@ -296,7 +297,7 @@ def _log_observer_failure(
 
 
 __all__ = [
-    "ObservedExecutionJournal",
+    "RuntimeTransitionProjector",
     "emit_run_finished",
     "emit_run_started",
     "observe_payload",

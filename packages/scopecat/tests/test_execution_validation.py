@@ -213,6 +213,7 @@ def _collect_program(
             ),
         ),
         product_uses=(signal_use,),
+        collection_product_use_ids=(signal_use.id,),
         record_projections=(
             RecordProjection(
                 record_id="record.signal",

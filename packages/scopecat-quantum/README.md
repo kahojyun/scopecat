@@ -33,11 +33,28 @@ match each compiled window. The remaining pre-effect proof checks the prepared
 acquisition against that window, including entry, program, event, signal, kind,
 start, and sample-count facts, before accepting `[shot]` or `[shot, sample]`
 product shapes through core's quantum-neutral value closure. It does not reduce,
-record, persist, or journal accepted values. The next integration step is an
-executable closed domain invocation with correlated submission, fetch, and
-reconciliation effects, not another quantum-package runtime abstraction.
-Joint or variable-cardinality readout, a complete domain runtime protocol, and
-a complete gate set are not yet provided.
+record, or persist accepted values. Core now provides a quantum-neutral closed
+invocation and correlated submit/fetch/reconcile ABI; the laboratory demo—not
+this package—adapts the fake hardware primitive to that boundary, including
+idempotent job identity, sealed submission states, and journaled host effects.
+This package remains free of laboratory runtime and job-store policy. Core and
+the laboratory demo now carry accepted domain values through producer-neutral
+assembly and independent record projection, then commit one receipt-bearing
+record per logical point. Recording receipts and journal evidence retain hashes,
+references, and logical point identity without importing quantum addresses or
+raw frames. Dataset compaction, manifest publication, and terminal run outcomes
+remain core/laboratory integration work rather than quantum-package concerns.
+The package now also supplies a host-only binary integrated-IQ discriminator
+semantic contract, a typed point-local IQ-shot-to-probability transform builder,
+and a pure reference host implementation. Its two finite, distinct centroids and
+explicit nearest-centroid tie policy are semantic parameters. Numerical
+precision and rounding are not yet specified, so this contract does not claim
+cross-realization or offloaded equivalence. Joint or variable-cardinality
+readout, offloaded transform proofs, `POINT_SET` execution, authoring DSL
+integration, local-source binding and engine migration, cross-point analysis,
+polling, chunking, cancellation, a cross-process job store, and a complete gate
+set are not yet provided. The initial reference implementation executes
+point-local transforms on the host only.
 
 See [`../../docs/quantum-domain-architecture.md`](../../docs/quantum-domain-architecture.md)
 for the architectural boundary.

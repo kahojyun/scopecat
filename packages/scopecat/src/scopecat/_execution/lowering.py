@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 from scopecat._compiler.bound import (
+    BoundAction,
     BoundPlan,
     BoundPoint,
     BoundResourceState,
@@ -15,6 +16,8 @@ from scopecat._compiler.bound import (
     BoundValue as CompilerBoundValue,
 )
 from scopecat._execution.program import (
+    ActionField,
+    ActionStage,
     ApplyStateOperation,
     ApplyStateStage,
     BoundInput,
@@ -25,6 +28,7 @@ from scopecat._execution.program import (
     ComputeResultSlot,
     ComputeStage,
     ExecutionProgram,
+    InstrumentActionOperation,
     OutputInput,
     PayloadSlot,
     PointProgram,
@@ -74,7 +78,7 @@ def build_execution_program(
         operation.instrument_id
         for point in points
         for stage in point.stages
-        if isinstance(stage, ApplyStateStage | CollectStage)
+        if isinstance(stage, ApplyStateStage | ActionStage | CollectStage)
         for operation in stage.operations
     }
     resource_order = tuple(
@@ -83,10 +87,17 @@ def build_execution_program(
         if instrument_id in used_instruments
     )
     claims = _resource_claims(plan, instrument_order=resource_order)
+    local_product_realizations = plan.local_product_realizations
+    if local_product_realizations is None:
+        raise AssertionError("valid local plan lost its product realization selection")
     return ExecutionProgram(
         experiment_id=plan.experiment_id,
         points=points,
         product_uses=plan.product_uses,
+        collection_product_use_ids=tuple(
+            realization.product_use_id
+            for realization in local_product_realizations.entries
+        ),
         record_projections=tuple(
             RecordProjection(
                 record_id=record.id,
@@ -110,6 +121,7 @@ def _point_program(
 ) -> PointProgram:
     compute = _compute_stage(point)
     state = _state_stage(point, instrument_order=instrument_order)
+    actions = _action_stage(point)
     collect = _collect_stage(
         point,
         point_count=point_count,
@@ -119,7 +131,9 @@ def _point_program(
         point_index=point.point_index,
         point_uid=point.logical_id.value,
         coordinates=dict(point.coordinates),
-        stages=tuple(stage for stage in (compute, state, collect) if stage.operations),
+        stages=tuple(
+            stage for stage in (compute, state, actions, collect) if stage.operations
+        ),
     )
 
 
@@ -268,6 +282,35 @@ def _collect_stage(
     return CollectStage(operations=tuple(operations))
 
 
+def _action_stage(point: BoundPoint) -> ActionStage:
+    return ActionStage(
+        operations=tuple(_action_operation(point, action) for action in point.actions)
+    )
+
+
+def _action_operation(
+    point: BoundPoint,
+    action: BoundAction,
+) -> InstrumentActionOperation:
+    return InstrumentActionOperation(
+        operation_id=(f"{point.logical_id.value}.action.{action.id.qualified_name}"),
+        instrument_id=action.resource_id.value,
+        capability_id=action.capability_id,
+        fields=tuple(
+            ActionField(
+                id=field.id,
+                value=field.value,
+                entity_ids=field.entity_ids,
+                channel_bindings=tuple(
+                    _command_channel_binding(binding)
+                    for binding in field.channel_bindings
+                ),
+            )
+            for field in action.fields
+        ),
+    )
+
+
 def _explicit_instrument_order(
     plan: BoundPlan,
     *,
@@ -277,13 +320,23 @@ def _explicit_instrument_order(
     if len(selected) != len(set(selected)) or any(not item for item in selected):
         msg = "instrument_order must contain unique non-empty ids"
         raise ValueError(msg)
-    fixed: set[str] = {
-        state.resource_id.value
-        for point in plan.points
-        for state in point.desired_state
-    } | {
-        collect.resource_id.value for point in plan.points for collect in point.collect
-    }
+    fixed: set[str] = (
+        {
+            state.resource_id.value
+            for point in plan.points
+            for state in point.desired_state
+        }
+        | {
+            collect.resource_id.value
+            for point in plan.points
+            for collect in point.collect
+        }
+        | {
+            action.resource_id.value
+            for point in plan.points
+            for action in point.actions
+        }
+    )
     missing = sorted(fixed - set(selected))
     if selected and missing:
         msg = "instrument_order is missing bound resources: " + ", ".join(missing)
@@ -318,7 +371,18 @@ def _resource_claims(
             for request in collect.requests
             for binding in request.channel_bindings
         )
-        for binding in (*channel_bindings, *state_bindings, *collect_bindings):
+        action_bindings = (
+            binding
+            for action in point.actions
+            for field in action.fields
+            for binding in field.channel_bindings
+        )
+        for binding in (
+            *channel_bindings,
+            *state_bindings,
+            *action_bindings,
+            *collect_bindings,
+        ):
             candidates: tuple[tuple[Literal["channel", "group"], str], ...] = (
                 ("channel", binding.channel_id),
                 *(("group", group_id) for group_id in binding.group_ids),

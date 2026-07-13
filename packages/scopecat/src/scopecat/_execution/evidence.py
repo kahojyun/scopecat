@@ -68,6 +68,7 @@ def build_execution_manifest(
     measurements: list[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
     config_source: RunConfigSource | None,
+    include_instrument_state: bool = True,
 ) -> RunManifest:
     incomplete_run = outcome.result != "succeeded"
     expected_record_count = (
@@ -104,7 +105,7 @@ def build_execution_manifest(
         lifecycle="terminal",
         outcome=outcome,
         config_source=config_source,
-        records=_records(),
+        records=_records(include_instrument_state=include_instrument_state),
         datasets=datasets,
     )
 
@@ -158,8 +159,8 @@ def build_instrument_state_evidence(
     )
 
 
-def _records() -> list[RunRecordEntry]:
-    return [
+def _records(*, include_instrument_state: bool) -> list[RunRecordEntry]:
+    records = [
         RunRecordEntry(
             id=RUN_OUTCOME_ID,
             kind=RUN_OUTCOME_KIND,
@@ -170,12 +171,16 @@ def _records() -> list[RunRecordEntry]:
             kind=EXECUTION_SUMMARY_KIND,
             media_type="application/json",
         ),
-        RunRecordEntry(
-            id=INSTRUMENT_STATE_EVIDENCE_ID,
-            kind=INSTRUMENT_STATE_EVIDENCE_KIND,
-            media_type="application/json",
-        ),
     ]
+    if include_instrument_state:
+        records.append(
+            RunRecordEntry(
+                id=INSTRUMENT_STATE_EVIDENCE_ID,
+                kind=INSTRUMENT_STATE_EVIDENCE_KIND,
+                media_type="application/json",
+            )
+        )
+    return records
 
 
 __all__ = [

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 from typing import cast
 
 import pytest
@@ -27,8 +26,6 @@ from scopecat_quantum.calibrations import (
     select_calibrations,
 )
 from scopecat_quantum.circuit_targets import (
-    CircuitTargetAcquisitionOrigin,
-    CircuitTargetEventOrigin,
     PreparedCircuitTargetBatch,
     PreparedCircuitTargetEntry,
     prepare_circuit_target_batch,
@@ -278,25 +275,6 @@ def test_batch_request_and_origins_have_exact_ordered_coverage() -> None:
     )
 
 
-def test_origin_wrappers_cannot_be_forged_independently() -> None:
-    prepared = _prepared("entry")
-    event_provenance = prepared.event_origins[0].provenance
-    acquisition_provenance = prepared.acquisition_origins[0].provenance
-
-    with pytest.raises(TypeError, match="only be created"):
-        CircuitTargetEventOrigin(
-            prepared.source_circuit_id,
-            prepared.event_addresses[0],
-            event_provenance,
-        )
-    with pytest.raises(TypeError, match="only be created"):
-        CircuitTargetAcquisitionOrigin(
-            prepared.source_circuit_id,
-            prepared.acquisition_addresses[0],
-            acquisition_provenance,
-        )
-
-
 def test_factories_reject_wrong_runtime_identity_spaces_and_shapes() -> None:
     circuit, selection = _verified_and_selection()
     with pytest.raises(TypeError, match="TargetCompileEntryId"):
@@ -329,45 +307,6 @@ def test_factories_reject_wrong_runtime_identity_spaces_and_shapes() -> None:
         )
     with pytest.raises(TypeError, match="at least one"):
         _batch(cast("tuple[PreparedCircuitTargetEntry, ...]", (object(),)))
-
-
-def test_sealed_constructors_cannot_be_used_as_proof_shortcuts() -> None:
-    prepared = _prepared("entry")
-    with pytest.raises(TypeError, match="can only be created"):
-        PreparedCircuitTargetEntry(
-            prepared.circuit,
-            prepared.selection,
-            prepared.lowered,
-            prepared.scheduled,
-            prepared.target_entry,
-            prepared.event_origins,
-            prepared.acquisition_origins,
-        )
-    with pytest.raises(TypeError, match="can only be created"):
-        PreparedCircuitTargetBatch(
-            (prepared,),
-            _batch((prepared,)).request,
-            prepared.event_origins,
-            prepared.acquisition_origins,
-        )
-
-
-def test_batch_defensively_revalidates_retained_entry_congruence() -> None:
-    prepared = copy.copy(_prepared("entry"))
-    object.__setattr__(prepared, "event_origins", ())
-
-    with pytest.raises(ValueError, match="exactly cover scheduled events"):
-        _batch((prepared,))
-
-
-def test_batch_rejects_a_mutated_origin_claim() -> None:
-    prepared = copy.copy(_prepared("entry"))
-    origin = copy.copy(prepared.acquisition_origins[0])
-    object.__setattr__(origin, "source_circuit_id", CircuitId("foreign"))
-    object.__setattr__(prepared, "acquisition_origins", (origin,))
-
-    with pytest.raises(ValueError, match="exactly cover scheduled slots"):
-        _batch((prepared,))
 
 
 def test_duplicate_entry_addresses_fail_before_a_batch_is_returned() -> None:

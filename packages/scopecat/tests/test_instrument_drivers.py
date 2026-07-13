@@ -17,17 +17,21 @@ from scopecat.instruments import (
     InstrumentStateCommandField,
     InstrumentStateSnapshot,
     apply_state_command_to_snapshot,
+    bool_field,
     capability,
+    enum_field,
     float_field,
+    int_field,
     payload_field,
     quantity_field,
+    string_field,
     validate_state_command,
 )
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.execution import InstrumentStateEvidence
 from scopecat.models.parameter import Quantity
 from scopecat.models.state import PayloadRef, StateValue
-from scopecat.value_types import Bool, Float, Payload, Scalar
+from scopecat.value_types import Entity, Float, Payload, Scalar
 from scopecat.value_types import Quantity as QuantityType
 from tests.support.execution import execute_bound_run
 from tests.support.instrument_drivers import (
@@ -44,7 +48,32 @@ from tests.support.workflow_fixtures import load_experiment
 @pytest.mark.parametrize(
     ("field", "expected"),
     [
+        (bool_field("enabled"), {"id": "enabled", "value_type": {"type": "bool"}}),
+        (
+            int_field("averages", minimum=1, maximum=16),
+            {
+                "id": "averages",
+                "value_type": {"type": "int", "minimum": 1, "maximum": 16},
+            },
+        ),
         (float_field("gain"), {"id": "gain", "value_type": {"type": "float"}}),
+        (
+            string_field("label", min_length=1),
+            {
+                "id": "label",
+                "value_type": {"type": "string", "min_length": 1},
+            },
+        ),
+        (
+            enum_field("mode", choices=("standby", "operate")),
+            {
+                "id": "mode",
+                "value_type": {
+                    "type": "string",
+                    "choices": ["standby", "operate"],
+                },
+            },
+        ),
         (
             quantity_field("frequency", unit="GHz"),
             {
@@ -84,7 +113,10 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
     variants = schema["$defs"][definition_name]["oneOf"]
 
     assert [variant["properties"]["type"]["const"] for variant in variants] == [
+        "bool",
+        "int",
         "float",
+        "string",
         "quantity",
         "payload",
     ]
@@ -92,10 +124,9 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
     assert all(
         variant["properties"]["nullable"]["const"] is False for variant in variants
     )
-    assert all(
-        variant["properties"]["finite"]["const"] is True for variant in variants[:2]
-    )
-    assert variants[1]["dependentRequired"] == {
+    assert variants[2]["properties"]["finite"]["const"] is True
+    assert variants[4]["properties"]["finite"]["const"] is True
+    assert variants[4]["dependentRequired"] == {
         "minimum": ["unit"],
         "maximum": ["unit"],
     }
@@ -108,7 +139,7 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
 @pytest.mark.parametrize(
     "value_type",
     [
-        Scalar(Bool()),
+        Scalar(Entity()),
         Scalar(Float(), nullable=True),
         Scalar(Float(finite=False)),
         Scalar(Payload("pulse_program", python_type=dict)),
@@ -168,7 +199,10 @@ def test_instrument_state_models_reject_legacy_schema_versions() -> None:
 @pytest.mark.parametrize(
     ("state_value", "wire"),
     [
-        (StateValue(1), 1.0),
+        (StateValue(True), True),
+        (StateValue(1), 1),
+        (StateValue(1.0), 1.0),
+        (StateValue("operate"), "operate"),
         (
             StateValue(Quantity(value=5.0, unit="GHz")),
             {"value": 5.0, "unit": "GHz"},
@@ -189,12 +223,15 @@ def test_state_value_has_stable_structural_wire_format(
     assert not hasattr(state_value, "kind")
 
 
-def test_state_value_schema_exposes_three_structural_scalar_branches() -> None:
+def test_state_value_schema_exposes_six_structural_scalar_branches() -> None:
     schema = StateValue.model_json_schema(mode="validation")
     state_schema = schema["$defs"]["StateLiteral"]
 
     assert state_schema["anyOf"] == [
+        {"type": "boolean"},
+        {"type": "integer"},
         {"type": "number"},
+        {"type": "string"},
         {"$ref": "#/$defs/Quantity"},
         {"$ref": "#/$defs/PayloadRef"},
     ]
@@ -219,24 +256,23 @@ def test_state_value_rejects_legacy_kind_wire(legacy_wire: object) -> None:
 
 
 def test_concrete_state_values_reject_coercive_and_non_finite_numbers() -> None:
-    invalid_values = (
-        True,
-        "0.5",
-        Decimal("0.5"),
-        Fraction(1, 2),
-        float("nan"),
-        float("inf"),
-        10**1000,
-    )
-    for value in invalid_values:
+    for value in (Decimal("0.5"), Fraction(1, 2)):
         with pytest.raises(ValidationError):
             StateValue.model_validate(value)
+    for value in (float("nan"), float("inf")):
+        with pytest.raises(ValidationError):
+            StateValue.model_validate(value)
+        with pytest.raises(ValidationError):
+            StateValue.model_validate({"value": value, "unit": "GHz"})
+    for value in (True, "0.5", Decimal("0.5"), Fraction(1, 2)):
         with pytest.raises(ValidationError):
             StateValue.model_validate({"value": value, "unit": "GHz"})
     with pytest.raises(ValidationError):
         StateValue.model_validate({"payload_id": ""})
 
-    assert StateValue.model_validate(1).root == 1.0
+    assert StateValue.model_validate(True).root is True
+    assert StateValue.model_validate(1).root == 1
+    assert StateValue.model_validate("0.5").root == "0.5"
 
 
 def test_instrument_driver_generates_description_and_applies_state() -> None:

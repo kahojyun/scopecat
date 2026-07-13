@@ -36,8 +36,6 @@ from scopecat_quantum.targets import (
     TargetEventAddress,
 )
 
-_CIRCUIT_TARGET_ORIGIN_TOKEN = object()
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class CircuitTargetEventOrigin:
@@ -52,15 +50,7 @@ class CircuitTargetEventOrigin:
         source_circuit_id: CircuitId,
         address: TargetEventAddress,
         provenance: CircuitPulseEventProvenance,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _CIRCUIT_TARGET_ORIGIN_TOKEN:
-            msg = (
-                "CircuitTargetEventOrigin can only be created by circuit target "
-                "preparation"
-            )
-            raise TypeError(msg)
         if not isinstance(cast("object", source_circuit_id), CircuitId):
             msg = "circuit target event origins require a CircuitId"
             raise TypeError(msg)
@@ -91,15 +81,7 @@ class CircuitTargetAcquisitionOrigin:
         source_circuit_id: CircuitId,
         address: TargetAcquisitionAddress,
         provenance: CircuitPulseAcquisitionProvenance,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _CIRCUIT_TARGET_ORIGIN_TOKEN:
-            msg = (
-                "CircuitTargetAcquisitionOrigin can only be created by circuit "
-                "target preparation"
-            )
-            raise TypeError(msg)
         if not isinstance(cast("object", source_circuit_id), CircuitId):
             msg = "circuit target acquisition origins require a CircuitId"
             raise TypeError(msg)
@@ -124,9 +106,6 @@ class CircuitTargetAcquisitionOrigin:
         object.__setattr__(self, "provenance", provenance)
 
 
-_PREPARED_ENTRY_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class PreparedCircuitTargetEntry:
     """Sealed circuit, calibration, pulse, schedule, and target-entry proof."""
@@ -148,15 +127,7 @@ class PreparedCircuitTargetEntry:
         target_entry: TargetCompileEntry,
         event_origins: tuple[CircuitTargetEventOrigin, ...],
         acquisition_origins: tuple[CircuitTargetAcquisitionOrigin, ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _PREPARED_ENTRY_TOKEN:
-            msg = (
-                "PreparedCircuitTargetEntry can only be created by "
-                "prepare_circuit_target_entry"
-            )
-            raise TypeError(msg)
         selected_event_origins = tuple(event_origins)
         selected_acquisition_origins = tuple(acquisition_origins)
         _validate_entry_congruence(
@@ -262,11 +233,7 @@ def prepare_circuit_target_entry(
         target_entry,
         event_origins,
         acquisition_origins,
-        _token=_PREPARED_ENTRY_TOKEN,
     )
-
-
-_PREPARED_BATCH_TOKEN = object()
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -293,15 +260,7 @@ class PreparedCircuitTargetBatch:
         request: TargetCompileRequest,
         event_origins: tuple[CircuitTargetEventOrigin, ...],
         acquisition_origins: tuple[CircuitTargetAcquisitionOrigin, ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _PREPARED_BATCH_TOKEN:
-            msg = (
-                "PreparedCircuitTargetBatch can only be created by "
-                "prepare_circuit_target_batch"
-            )
-            raise TypeError(msg)
         selected_entries = tuple(entries)
         selected_event_origins = tuple(event_origins)
         selected_acquisition_origins = tuple(acquisition_origins)
@@ -317,16 +276,6 @@ class PreparedCircuitTargetBatch:
                 "values"
             )
             raise TypeError(msg)
-        for entry in selected_entries:
-            _validate_entry_congruence(
-                circuit=entry.circuit,
-                selection=entry.selection,
-                lowered=entry.lowered,
-                scheduled=entry.scheduled,
-                target_entry=entry.target_entry,
-                event_origins=entry.event_origins,
-                acquisition_origins=entry.acquisition_origins,
-            )
         expected_target_entries = tuple(
             entry.target_entry for entry in selected_entries
         )
@@ -475,7 +424,6 @@ def prepare_circuit_target_batch(
         request,
         event_origins,
         acquisition_origins,
-        _token=_PREPARED_BATCH_TOKEN,
     )
 
 
@@ -489,7 +437,6 @@ def _event_origins(
             source_circuit_id=source_circuit_id,
             address=address,
             provenance=lowered.provenance_for(address.event_id),
-            _token=_CIRCUIT_TARGET_ORIGIN_TOKEN,
         )
         for address in target_entry.event_addresses
     )
@@ -505,7 +452,6 @@ def _acquisition_origins(
             source_circuit_id=source_circuit_id,
             address=address,
             provenance=lowered.acquisition_provenance_for(address.slot_id),
-            _token=_CIRCUIT_TARGET_ORIGIN_TOKEN,
         )
         for address in target_entry.acquisition_addresses
     )
@@ -561,18 +507,6 @@ def _validate_entry_congruence(
         raise ValueError(msg)
     if lowered.source_circuit_id != source_circuit_id:
         msg = "lowered pulse proof must belong to the prepared circuit"
-        raise ValueError(msg)
-    expected_lowered = lower_circuit_to_pulses(
-        circuit,
-        selection,
-        output_id=lowered.program.id,
-    )
-    if lowered != expected_lowered:
-        msg = "lowered pulse proof is not congruent with circuit and selection"
-        raise ValueError(msg)
-    expected_scheduled = schedule(lowered.program)
-    if scheduled != expected_scheduled:
-        msg = "scheduled pulse proof is not congruent with the lowered program"
         raise ValueError(msg)
     if target_entry.program != scheduled:
         msg = "target compile entry must retain the exact scheduled pulse program"

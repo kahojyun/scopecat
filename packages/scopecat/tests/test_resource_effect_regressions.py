@@ -19,9 +19,8 @@ from scopecat._compiler.program import (
 from scopecat._compiler.run_plan import build_run_plan_record
 from scopecat._execution.engine import ExecutionEngine
 from scopecat._execution.journal import (
-    MemoryCollectionCommitter,
+    MemoryCollectionRepository,
     MemoryExecutionJournal,
-    MemoryMeasurementCommitter,
     MemoryPayloadEvidenceCommitter,
 )
 from scopecat._execution.lowering import build_execution_program
@@ -42,10 +41,12 @@ from scopecat._resource_identity import (
 )
 from scopecat._value_expressions import ScalarValueExpr
 from scopecat.instruments import (
+    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
     CommandChannelBinding,
+    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentReadback,
     InstrumentStateCommand,
@@ -55,6 +56,7 @@ from scopecat.instruments import (
     capability,
     float_field,
 )
+from scopecat.measurement_recording import MemoryMeasurementRecordCommitter
 from scopecat.models.config import (
     ConfigProfileSnapshot,
     RoutingChannelBinding,
@@ -64,7 +66,14 @@ from scopecat.models.config import (
     SharedResourceGroup,
 )
 from scopecat.models.entity import EntityRef
+from scopecat.models.run_plan import RunPlanPointInstrumentExecution
 from scopecat.models.state import StateValue
+from scopecat.problems import (
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 from scopecat.value_types import Entity, Float, Scalar, String
 from tests.support.authoring import load_config, parameters
 from tests.support.experiment_preview import config_with_physical_resources
@@ -468,7 +477,14 @@ def test_mixed_explicit_and_fallback_route_topology_closes_durably() -> None:
     )
 
     plan = _bind(program, config=config)
-    durable = build_run_plan_record(plan)
+    durable = build_run_plan_record(
+        plan,
+        execution=RunPlanPointInstrumentExecution(
+            unit_id="point-instrument",
+            backend_id="scopecat.point-instrument.v1",
+            provider_id="tests.resource-effects",
+        ),
+    )
 
     assert plan.valid, plan.problems
     assert [
@@ -691,6 +707,7 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
             ),
         ),
         product_uses=(),
+        collection_product_use_ids=(),
         record_projections=(),
         resource_order=("source-0",),
     )
@@ -701,8 +718,8 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         drivers={driver.instrument_id: driver},
         descriptions={driver.instrument_id: driver.describe()},
         journal=MemoryExecutionJournal(),
-        measurements=MemoryMeasurementCommitter(),
-        readbacks=MemoryCollectionCommitter(),
+        measurements=MemoryMeasurementRecordCommitter(),
+        readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run()
 
@@ -905,6 +922,24 @@ class _ScopedStateDriver:
         self.applied.append(command)
         self.state = apply_state_command_to_snapshot(self.state, command)
         return ApplyReceipt(status="applied")
+
+    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
+        return ActionReceipt(
+            status="not_performed",
+            problems=(
+                blocking_problem(
+                    "scoped_state_driver_action_unsupported",
+                    f"{self.instrument_id} does not support one-shot actions",
+                    category=ProblemCategory.PROVIDER_CONTRACT,
+                    phase=ProblemPhase.EXECUTION,
+                    location=model_location(
+                        "scoped_state_driver",
+                        "actions",
+                        command.operation_id,
+                    ),
+                ),
+            ),
+        )
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         del command

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import cast
@@ -50,7 +49,6 @@ from scopecat_quantum.circuit_results import (
     CircuitTargetAcquisitionUseBinding,
     CircuitTargetEntryPointBinding,
     CircuitTargetResultMapping,
-    CompiledCircuitTarget,
     bind_compiled_circuit_target,
     seal_circuit_target_result_mapping,
 )
@@ -94,6 +92,7 @@ _WORKSPACE = Path(__file__).parents[3]
 def _linked_points(
     *,
     program_id: str = "domain-result-mapping",
+    product_count: int = 2,
 ) -> MaterializedLinkedPoints:
     point_type = Table(
         columns=(TableColumn("coordinate", Scalar(Float())),),
@@ -114,17 +113,18 @@ def _linked_points(
             )
         )
     )
-    first_product = product_output("first-result", dtype="complex128")
-    second_product = product_output("second-result", dtype="complex128")
-    first_use, first_record = record_product(first_product)
-    second_use, second_record = record_product(second_product)
+    products = tuple(
+        product_output(f"result-{index}", dtype="complex128")
+        for index in range(product_count)
+    )
+    selections = tuple(record_product(product) for product in products)
     program = TypedProgram(
         id=program_id,
         kind="domain_mapping_test",
         point_domain=point_domain,
-        product_defs=(first_product, second_product),
-        product_uses=(first_use, second_use),
-        record_uses=(first_record, second_record),
+        product_defs=products,
+        product_uses=tuple(use for use, _record in selections),
+        record_uses=tuple(record for _use, record in selections),
     )
     environment = validate_config_environment(
         load_config_profile(
@@ -210,13 +210,16 @@ def _prepared_batch() -> PreparedCircuitTargetBatch:
     )
 
 
-def _valid_inputs() -> tuple[
+def _valid_inputs(
+    *,
+    product_count: int = 2,
+) -> tuple[
     MaterializedLinkedPoints,
     PreparedCircuitTargetBatch,
     tuple[CircuitTargetEntryPointBinding, ...],
     tuple[CircuitTargetAcquisitionUseBinding, ...],
 ]:
-    linked_points = _linked_points()
+    linked_points = _linked_points(product_count=product_count)
     batch = _prepared_batch()
     points = linked_points.point_domain.points
     uses = linked_points.linked_plan.product_uses
@@ -330,6 +333,34 @@ def test_circuit_target_mapping_retains_batch_and_exact_core_proof() -> None:
         assert mapping.entry_for_id(entry.entry_address) is entry
 
 
+def test_circuit_mapping_derives_and_canonicalizes_selected_product_uses() -> None:
+    linked_points, batch, entry_bindings, acquisition_bindings = _valid_inputs(
+        product_count=3
+    )
+    uses = linked_points.linked_plan.product_uses
+
+    mapping = _seal(
+        linked_points,
+        batch,
+        entry_bindings,
+        tuple(reversed(acquisition_bindings)),
+    )
+
+    assert mapping.selected_product_use_ids == (uses[0].id, uses[1].id)
+    assert mapping.core_mapping.selected_product_use_ids == (
+        uses[0].id,
+        uses[1].id,
+    )
+    assert tuple(result.product_use_id for result in mapping.results) == tuple(
+        use.id for _point in linked_points.point_domain.points for use in uses[:2]
+    )
+    with pytest.raises(KeyError, match="not in this mapping"):
+        mapping.result_for_output(
+            linked_points.point_domain.points[0].logical_id,
+            uses[2].id,
+        )
+
+
 def test_compiled_circuit_target_binds_exact_mapping_request_and_artifact() -> None:
     linked_points, batch, entry_bindings, acquisition_bindings = _valid_inputs()
     mapping = _seal(
@@ -365,27 +396,7 @@ def test_compiled_circuit_target_rejects_another_batch_request() -> None:
         bind_compiled_circuit_target(mapping, compiled)
 
 
-def test_compiled_circuit_target_rechecks_artifact_provenance_snapshot() -> None:
-    linked_points, batch, entry_bindings, acquisition_bindings = _valid_inputs()
-    mapping = _seal(
-        linked_points,
-        batch,
-        entry_bindings,
-        acquisition_bindings,
-    )
-    compiled = _compile(batch.request)
-    tampered = copy.copy(compiled)
-    object.__setattr__(
-        tampered,
-        "_artifact",
-        replace(compiled.artifact, artifact_fingerprint="artifact-content:changed"),
-    )
-
-    with pytest.raises(ValueError, match="checked provenance"):
-        bind_compiled_circuit_target(mapping, tampered)
-
-
-def test_compiled_circuit_target_is_construction_controlled_and_typed() -> None:
+def test_compiled_circuit_target_binding_is_typed() -> None:
     linked_points, batch, entry_bindings, acquisition_bindings = _valid_inputs()
     mapping = _seal(
         linked_points,
@@ -395,8 +406,6 @@ def test_compiled_circuit_target_is_construction_controlled_and_typed() -> None:
     )
     compiled = _compile(batch.request)
 
-    with pytest.raises(TypeError, match="can only be created"):
-        CompiledCircuitTarget(mapping, compiled)
     with pytest.raises(TypeError, match="CircuitTargetResultMapping"):
         bind_compiled_circuit_target(
             cast("CircuitTargetResultMapping", object()), compiled
@@ -498,17 +507,8 @@ def test_foreign_address_parent_is_derived_and_rejected() -> None:
         _seal(linked_points, batch, entry_bindings, selected)
 
 
-def test_mapping_revalidates_exact_prepared_batch_coverage() -> None:
-    linked_points, batch, entry_bindings, acquisition_bindings = _valid_inputs()
-    tampered = copy.copy(batch)
-    object.__setattr__(tampered, "acquisition_origins", ())
-
-    with pytest.raises(ValueError, match="coverage is not exact"):
-        _seal(linked_points, tampered, entry_bindings, acquisition_bindings)
-
-
 def test_quantum_mapping_types_close_runtime_identity_spaces() -> None:
-    linked_points, batch, entry_bindings, acquisition_bindings = _valid_inputs()
+    _, _, entry_bindings, acquisition_bindings = _valid_inputs()
     with pytest.raises(TypeError, match="TargetCompileEntryId"):
         CircuitTargetEntryPointBinding(
             cast("TargetCompileEntryId", TargetId("wrong-space")),
@@ -528,14 +528,4 @@ def test_quantum_mapping_types_close_runtime_identity_spaces() -> None:
         CircuitTargetAcquisitionUseBinding(
             acquisition_bindings[0].address,
             cast("ProductUseId", TargetCompileEntryId("wrong-space")),
-        )
-    with pytest.raises(TypeError, match="can only be created"):
-        CircuitTargetResultMapping(
-            batch,
-            _seal(
-                linked_points,
-                batch,
-                entry_bindings,
-                acquisition_bindings,
-            ).core_mapping,
         )

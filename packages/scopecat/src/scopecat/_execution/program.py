@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 from scopecat._operation_contract import OperationContract, operation_contract_issues
 from scopecat._product_identity import ProductId, ProductUse, ProductUseId
@@ -18,6 +18,7 @@ from scopecat._semantic_graph import ValueId
 from scopecat.instruments.sdk import (
     CollectCommand,
     CommandChannelBinding,
+    InstrumentActionCommandField,
     InstrumentStateCommandField,
 )
 from scopecat.models.state import StateValue
@@ -181,6 +182,68 @@ class ApplyStateStage:
 
 
 @dataclass(frozen=True, slots=True)
+class ActionField:
+    """One concrete field supplied to a one-shot action."""
+
+    id: str
+    value: StateValue
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "action field ids must be non-empty"
+            raise ValueError(msg)
+        if any(not entity_id for entity_id in self.entity_ids):
+            msg = "action field entity ids must be non-empty"
+            raise ValueError(msg)
+        if len(self.entity_ids) != len(set(self.entity_ids)):
+            msg = "action field entity ids must be unique"
+            raise ValueError(msg)
+        if any(
+            binding.entity_id not in self.entity_ids
+            for binding in self.channel_bindings
+        ):
+            msg = "action field channel bindings must reference targeted entities"
+            raise ValueError(msg)
+
+    def command_field(self) -> InstrumentActionCommandField:
+        return InstrumentActionCommandField(
+            field_path=self.id,
+            value=self.value.model_copy(deep=True),
+            entity_ids=list(self.entity_ids),
+            channel_bindings=list(self.channel_bindings),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class InstrumentActionOperation:
+    """One action attempt that is always delivered when its stage executes."""
+
+    operation_id: str
+    instrument_id: str
+    capability_id: str
+    fields: tuple[ActionField, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.operation_id or not self.instrument_id or not self.capability_id:
+            msg = "action operation, instrument, and capability ids must be non-empty"
+            raise ValueError(msg)
+        field_ids = tuple(field.id for field in self.fields)
+        if len(field_ids) != len(set(field_ids)):
+            msg = "action operation field ids must be unique"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
+class ActionStage:
+    """Explicitly ordered one-shot instrument effects."""
+
+    operations: tuple[InstrumentActionOperation, ...]
+    kind: Literal["action"] = field(default="action", init=False)
+
+
+@dataclass(frozen=True, slots=True)
 class CollectionResultBinding:
     """Map one provider response key to one logical product-use occurrence."""
 
@@ -204,23 +267,39 @@ class CollectOperation:
     result_bindings: tuple[CollectionResultBinding, ...]
 
     def __post_init__(self) -> None:
+        if not isinstance(cast("object", self.command), CollectCommand):
+            msg = "collect operations require CollectCommand"
+            raise TypeError(msg)
+        command = self.command.model_copy(deep=True)
+        bindings = tuple(self.result_bindings)
+        if any(
+            not isinstance(cast("object", binding), CollectionResultBinding)
+            for binding in bindings
+        ):
+            msg = "collect operations require CollectionResultBinding values"
+            raise TypeError(msg)
+        object.__setattr__(self, "command", command)
+        object.__setattr__(self, "result_bindings", bindings)
         if not self.operation_id or not self.instrument_id:
             msg = "collect operation and instrument ids must be non-empty"
             raise ValueError(msg)
-        if self.command.instrument_id != self.instrument_id:
+        if command.instrument_id != self.instrument_id:
             msg = "collect command instrument must match its operation"
             raise ValueError(msg)
-        if self.command.operation_id != self.operation_id:
+        if command.operation_id != self.operation_id:
             msg = "collect command identity must match its operation"
             raise ValueError(msg)
-        request_ids = [request.id for request in self.command.requests]
+        if command.attempt != 1:
+            msg = "collect command attempt is runtime-owned and must start at one"
+            raise ValueError(msg)
+        request_ids = [request.id for request in command.requests]
         if any(not request_id for request_id in request_ids):
             msg = "collect command product request ids must be non-empty"
             raise ValueError(msg)
         if len(request_ids) != len(set(request_ids)):
             msg = "collect command product request ids must be unique"
             raise ValueError(msg)
-        binding_keys = tuple(binding.provider_key for binding in self.result_bindings)
+        binding_keys = tuple(binding.provider_key for binding in bindings)
         if tuple(request_ids) != binding_keys:
             msg = "collect result bindings must match ordered command product requests"
             raise ValueError(msg)
@@ -234,7 +313,7 @@ class CollectStage:
     kind: Literal["collect"] = field(default="collect", init=False)
 
 
-type ExecutionStage = ComputeStage | ApplyStateStage | CollectStage
+type ExecutionStage = ComputeStage | ApplyStateStage | ActionStage | CollectStage
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,7 +341,7 @@ class ResourceClaim:
     """Run-level exclusive resource claim acquired before hardware effects."""
 
     id: str
-    kind: Literal["instrument", "channel", "group"] = "instrument"
+    kind: Literal["target", "instrument", "channel", "group"] = "instrument"
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -286,11 +365,12 @@ class RecordProjection:
 
 @dataclass(frozen=True, slots=True)
 class ExecutionProgram:
-    """Closed executable program produced from a config-bound plan."""
+    """Concrete local program with an explicit instrument-collected subset."""
 
     experiment_id: str
     points: tuple[PointProgram, ...]
     product_uses: tuple[ProductUse, ...]
+    collection_product_use_ids: tuple[ProductUseId, ...]
     record_projections: tuple[RecordProjection, ...]
     resource_order: tuple[str, ...] = ()
     resource_claims: tuple[ResourceClaim, ...] = ()
@@ -320,6 +400,35 @@ class ExecutionProgram:
         if len(uses_by_id) != len(self.product_uses):
             msg = "execution program product-use identities must be unique"
             raise ValueError(msg)
+        collection_use_ids = tuple(self.collection_product_use_ids)
+        if any(
+            not isinstance(cast("object", use_id), ProductUseId)
+            for use_id in collection_use_ids
+        ):
+            msg = "execution collection inventory requires ProductUseId values"
+            raise TypeError(msg)
+        if len(collection_use_ids) != len(set(collection_use_ids)):
+            msg = "execution collection product-use identities must be unique"
+            raise ValueError(msg)
+        unknown_collection_use_ids = tuple(
+            use_id for use_id in collection_use_ids if use_id not in uses_by_id
+        )
+        if unknown_collection_use_ids:
+            msg = (
+                "execution collection inventory references unknown logical product uses"
+            )
+            raise ValueError(msg)
+        canonical_collection_use_ids = tuple(
+            use.id for use in self.product_uses if use.id in set(collection_use_ids)
+        )
+        if collection_use_ids != canonical_collection_use_ids:
+            msg = "execution collection inventory must follow logical product-use order"
+            raise ValueError(msg)
+        object.__setattr__(
+            self,
+            "collection_product_use_ids",
+            collection_use_ids,
+        )
         record_ids = [projection.record_id for projection in self.record_projections]
         if len(record_ids) != len(set(record_ids)):
             msg = "execution program record projection ids must be unique"
@@ -329,7 +438,13 @@ class ExecutionProgram:
             if use is None or use.product_id != projection.product_id:
                 msg = "record projections must reference retained logical product uses"
                 raise ValueError(msg)
-        expected_use_ids = set(uses_by_id)
+            if projection.product_use_id not in set(collection_use_ids):
+                msg = (
+                    "current local execution record projections require a "
+                    "collected product use"
+                )
+                raise ValueError(msg)
+        expected_collection_use_ids = set(collection_use_ids)
         for point in self.points:
             bindings = [
                 binding
@@ -348,11 +463,11 @@ class ExecutionProgram:
                     raise ValueError(msg)
             actual_use_ids = [binding.product_use_id for binding in bindings]
             if len(actual_use_ids) != len(set(actual_use_ids)):
-                msg = "each point requires one producer per logical product use"
+                msg = "each point requires one producer per collected product use"
                 raise ValueError(msg)
-            if set(actual_use_ids) != expected_use_ids:
+            if set(actual_use_ids) != expected_collection_use_ids:
                 msg = (
-                    "each point must exactly realize the execution "
+                    "each point must exactly realize the execution collection "
                     "product-use inventory"
                 )
                 raise ValueError(msg)
@@ -374,7 +489,7 @@ class ExecutionProgram:
                 operation.instrument_id
                 for point in self.points
                 for stage in point.stages
-                if isinstance(stage, ApplyStateStage | CollectStage)
+                if isinstance(stage, ApplyStateStage | ActionStage | CollectStage)
                 for operation in stage.operations
             )
         )
@@ -447,7 +562,7 @@ def _validate_point_compute_order(point: PointProgram) -> None:
 
 
 def _validate_point_stage_order(point: PointProgram) -> None:
-    order = {"compute": 0, "apply_state": 1, "collect": 2}
+    order = {"compute": 0, "apply_state": 1, "action": 2, "collect": 3}
     stage_kinds = [stage.kind for stage in point.stages]
     if len(stage_kinds) != len(set(stage_kinds)):
         msg = "point execution stages must not repeat a stage kind"
@@ -455,7 +570,10 @@ def _validate_point_stage_order(point: PointProgram) -> None:
     if [order[kind] for kind in stage_kinds] != sorted(
         order[kind] for kind in stage_kinds
     ):
-        msg = "point execution stages must follow compute, apply_state, collect order"
+        msg = (
+            "point execution stages must follow compute, apply_state, action, "
+            "collect order"
+        )
         raise ValueError(msg)
 
 
@@ -474,6 +592,8 @@ def _validate_resource_claims(program: ExecutionProgram) -> None:
 
 
 __all__ = [
+    "ActionField",
+    "ActionStage",
     "ApplyStateOperation",
     "ApplyStateStage",
     "BoundInput",
@@ -487,6 +607,7 @@ __all__ = [
     "ComputeStage",
     "ExecutionProgram",
     "ExecutionStage",
+    "InstrumentActionOperation",
     "OutputInput",
     "PayloadSlot",
     "PointProgram",

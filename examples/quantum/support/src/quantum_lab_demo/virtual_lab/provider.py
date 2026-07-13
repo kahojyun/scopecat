@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from scopecat.instruments import (
+    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
     DriverFault,
+    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -85,6 +87,10 @@ class _VirtualInstrumentDriver:
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self._device.apply(command)
         return ApplyReceipt(status="applied")
+
+    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
+        del command
+        return ActionReceipt(status="performed")
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         del command

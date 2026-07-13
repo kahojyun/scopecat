@@ -116,9 +116,6 @@ class CircuitVerificationError(ValueError):
         super().__init__(summary)
 
 
-_VERIFIED_CIRCUIT_SEAL = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class VerifiedCircuitProgram:
     """Circuit and catalog facts safe for later domain lowering.
@@ -137,12 +134,7 @@ class VerifiedCircuitProgram:
         program: CircuitProgram,
         gate_definitions: tuple[GateDefinition, ...],
         operations: tuple[CircuitOperation, ...],
-        *,
-        _seal: object | None = None,
     ) -> None:
-        if _seal is not _VERIFIED_CIRCUIT_SEAL:
-            msg = "VerifiedCircuitProgram can only be created by circuit verification"
-            raise TypeError(msg)
         object.__setattr__(self, "program", program)
         object.__setattr__(self, "gate_definitions", gate_definitions)
         object.__setattr__(self, "operations", operations)
@@ -257,7 +249,6 @@ def verify_circuit_program(
             sorted(gate_definitions, key=lambda definition: definition.id.value)
         ),
         operations=tuple(canonical_operations),
-        _seal=_VERIFIED_CIRCUIT_SEAL,
     )
 
 

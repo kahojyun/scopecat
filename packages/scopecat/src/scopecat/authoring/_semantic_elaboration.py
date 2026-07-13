@@ -20,8 +20,10 @@ from scopecat._relation_verification import (
 from scopecat._relations import RelationExpr, RowScopeId, ScalarExpr, SeriesExpr, values
 from scopecat._semantic_graph import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
+    ActionId,
     ImplementationCatalog,
     ImplementationId,
+    InstrumentActionEffect,
     LiteralValueSource,
     LocalPythonImplementation,
     OperationId,
@@ -54,6 +56,7 @@ from scopecat._value_availability import (
 from scopecat._value_type_compatibility import literal_scalar_type
 from scopecat.authoring._intents import (
     ComputeNodeInputValue,
+    ModuleActionDecl,
     ModuleOperationDecl,
     StateEachIntent,
 )
@@ -122,6 +125,7 @@ def elaborate_semantic_graph(
     operations: Sequence[ModuleOperationDecl],
     implementations: Sequence[ScopedPythonImplementation],
     *,
+    actions: Sequence[ModuleActionDecl] = (),
     value_roots: Sequence[object] = (),
     state_regions: Sequence[StateEachIntent] = (),
     input_types: Mapping[str, ValueType] | None = None,
@@ -139,6 +143,8 @@ def elaborate_semantic_graph(
     builder.declare_state_regions(state_regions)
     for operation in operations:
         builder.add_authored_operation(operation)
+    for action in actions:
+        builder.add_action(action)
     for root in value_roots:
         if isinstance(root, ValueRef):
             builder.add_value_root(root)
@@ -198,8 +204,10 @@ class _SemanticGraphBuilder:
             raise ValueError(msg)
         self._definitions: dict[ValueId, ValueDef] = {}
         self._operations: dict[OperationId, SemanticOperation] = {}
+        self._actions: list[InstrumentActionEffect] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
         self._operation_sources: dict[OperationId, SourceAnchor] = {}
+        self._action_sources: dict[ActionId, SourceAnchor] = {}
         self._value_sources: dict[ValueId, SourceAnchor] = {}
         self._row_regions: list[StateEachRegion] = []
         self._row_region_sources: dict[RowRegionId, SourceAnchor] = {}
@@ -294,6 +302,35 @@ class _SemanticGraphBuilder:
         self._operation_sources[operation_id] = anchor
         self._value_sources[output_id] = anchor
 
+    def add_action(self, declaration: ModuleActionDecl) -> None:
+        action_id = ActionId(declaration.action_id)
+        fields = tuple(
+            (
+                name,
+                ValueUse(
+                    self._add_action_value(
+                        value,
+                        action_id=action_id,
+                        field_name=name,
+                    )
+                ),
+            )
+            for name, value in declaration.fields
+        )
+        self._actions.append(
+            InstrumentActionEffect(
+                id=action_id,
+                resource_port_id=declaration.resource_port_id,
+                capability_id=declaration.capability_id,
+                fields=fields,
+            )
+        )
+        self._action_sources[action_id] = SourceAnchor(
+            kind="instrument_action",
+            declaration_id=action_id.local_id,
+            composition_scope=declaration.scope,
+        )
+
     def add_value_root(self, value: ValueRef) -> ValueId:
         return self._add_value(value, requested_region_id=None)
 
@@ -355,6 +392,7 @@ class _SemanticGraphBuilder:
         graph = SemanticGraphIR(
             value_defs=tuple(self._definitions.values()),
             operations=tuple(self._operations.values()),
+            actions=tuple(self._actions),
             row_regions=tuple(self._row_regions),
         )
         verified = verify_semantic_graph(graph)
@@ -379,6 +417,12 @@ class _SemanticGraphBuilder:
                         key=lambda item: item[0].qualified_name,
                     )
                 ),
+                action_sources=tuple(
+                    sorted(
+                        self._action_sources.items(),
+                        key=lambda item: item[0].qualified_name,
+                    )
+                ),
                 row_region_sources=tuple(
                     sorted(
                         self._row_region_sources.items(),
@@ -392,6 +436,32 @@ class _SemanticGraphBuilder:
             implementations=catalog,
             source_map=source_map,
         )
+
+    def _add_action_value(
+        self,
+        value: object,
+        *,
+        action_id: ActionId,
+        field_name: str,
+    ) -> ValueId:
+        if isinstance(value, ValueRef):
+            return self._add_value(value, requested_region_id=None)
+        value_id = ValueId(
+            SymbolId(
+                scope=(*action_id.scope, action_id.local_id, "fields"),
+                local_id=field_name,
+            )
+        )
+        self._add_literal(
+            value_id,
+            value,
+            anchor=SourceAnchor(
+                kind="action_field_literal",
+                declaration_id=f"{action_id.local_id}:{field_name}",
+                composition_scope=action_id.scope,
+            ),
+        )
+        return value_id
 
     def _add_compute_input(
         self,

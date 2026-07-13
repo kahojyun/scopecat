@@ -47,7 +47,6 @@ from scopecat._semantic_graph import (
     ValueDef,
     ValueId,
     ValueUse,
-    VerifiedSemanticGraph,
     operation_result_id,
     scalar_binary_operation_contract,
     state_each_region_id,
@@ -307,11 +306,6 @@ def test_duplicate_operation_diagnostic_is_declaration_independent() -> None:
         ["semantic_operation_duplicate"],
     ]
     assert errors[0].problems == errors[1].problems
-
-
-def test_verified_graph_cannot_be_constructed_without_verification() -> None:
-    with pytest.raises(TypeError, match="only be created"):
-        VerifiedSemanticGraph()
 
 
 def test_dangling_value_use_is_a_structured_problem() -> None:
@@ -1166,6 +1160,7 @@ def test_callable_and_source_sidecars_do_not_participate_in_graph_equality() -> 
     assert {field.name for field in fields(SemanticGraphIR)} == {
         "value_defs",
         "operations",
+        "actions",
         "row_regions",
     }
     assert graph == SemanticGraphIR(value_defs=(result,), operations=(operation,))

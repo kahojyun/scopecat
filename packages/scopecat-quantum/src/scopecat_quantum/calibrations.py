@@ -294,9 +294,6 @@ class GateCalibrationBinding:
             raise ValueError(msg)
 
 
-_GATE_SELECTION_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class GateCalibrationSelection:
     """Sealed proof that every gate call has exactly one calibration."""
@@ -310,12 +307,7 @@ class GateCalibrationSelection:
         circuit_id: CircuitId,
         gate_call_ids: tuple[CircuitOperationId, ...],
         bindings: tuple[GateCalibrationBinding, ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _GATE_SELECTION_TOKEN:
-            msg = "GateCalibrationSelection can only be created by select_calibrations"
-            raise TypeError(msg)
         if not isinstance(_runtime_object(circuit_id), CircuitId):
             msg = "calibration selection circuit_id must be a CircuitId"
             raise ValueError(msg)
@@ -379,11 +371,7 @@ def _create_gate_calibration_selection(
         circuit_id,
         gate_call_ids,
         bindings,
-        _token=_GATE_SELECTION_TOKEN,
     )
-
-
-_MEASUREMENT_SELECTION_TOKEN = object()
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -399,15 +387,7 @@ class MeasurementCalibrationSelection:
         circuit_id: CircuitId,
         measurement_ids: tuple[CircuitOperationId, ...],
         bindings: tuple[MeasurementCalibrationBinding, ...],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _MEASUREMENT_SELECTION_TOKEN:
-            msg = (
-                "MeasurementCalibrationSelection can only be created by "
-                "select_calibrations"
-            )
-            raise TypeError(msg)
         if not isinstance(_runtime_object(circuit_id), CircuitId):
             msg = "measurement calibration selection circuit_id must be a CircuitId"
             raise ValueError(msg)
@@ -485,7 +465,6 @@ def _create_measurement_calibration_selection(
         circuit_id,
         measurement_ids,
         bindings,
-        _token=_MEASUREMENT_SELECTION_TOKEN,
     )
 
 
@@ -629,9 +608,6 @@ class CalibrationSelectionError(ValueError):
         super().__init__("; ".join(issue.message for issue in self.issues))
 
 
-_SELECTION_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class CalibrationSelection:
     """Sealed proof that every circuit operation has one typed calibration."""
@@ -647,12 +623,7 @@ class CalibrationSelection:
         operation_ids: tuple[CircuitOperationId, ...],
         gates: GateCalibrationSelection,
         measurements: MeasurementCalibrationSelection,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _SELECTION_TOKEN:
-            msg = "CalibrationSelection can only be created by select_calibrations"
-            raise TypeError(msg)
         if not isinstance(_runtime_object(circuit_id), CircuitId):
             msg = "calibration selection circuit_id must be a CircuitId"
             raise ValueError(msg)
@@ -850,7 +821,6 @@ def select_calibrations(
         tuple(operation.id for operation in program.operations),
         gates,
         measurements,
-        _token=_SELECTION_TOKEN,
     )
 
 

@@ -74,6 +74,38 @@ an upper-layer construct, but it must not depend on upper-layer Python handles
 or recover semantics by parsing names. Durable run records are projections of
 accepted intent and execution evidence; they are not another IR layer.
 
+### Trust and validation boundaries
+
+Transient IR produced by Scopecat constructors is trusted immutable program
+state, not an adversarial serialization format. Each invariant is checked once
+at the boundary that owns it:
+
+- authoring and configuration inputs are validated when they enter the
+  compiler;
+- a constructor establishes the local structural invariants of its stage;
+- a binding pass checks compatibility between independently produced
+  artifacts;
+- provider results, effect receipts, persisted bytes, and recovered state are
+  validated whenever they cross back into core code.
+
+After those boundaries, consumers rely on frozen values, nominal stage types,
+strict type checking, and tests. Consumers should not use secret construction
+tokens, self-fingerprints, or whole-object reconstruction merely to detect
+mutation of the same in-process object. Internal invariant violations are
+programming errors. Runtime validation remains mandatory where another
+implementation, process, storage medium, or external effect can produce
+independently mutable data.
+
+Named stage factories such as `verify`, `select`, `bind`, `seal`, `project`,
+and `close` are the supported construction entries. A transient stage class's
+bare Python initializer is an implementation detail, not a second public way
+to establish that stage's invariants.
+
+Repository and adapter implementations satisfy shared contract tests. Those
+tests replace redundant self-attestation within one call path; they do not
+replace content hashes, exact identity checks, corruption detection, or
+uncertainty handling at durable and provider boundaries.
+
 Scopecat is a host orchestration and data-model compiler, not a universal
 control-flow compiler. Its generic core owns declarative outer scans that do
 not participate in real-time feedback, host-visible resource and product
@@ -259,7 +291,7 @@ independently callable lowering. It selects one relation backend for the exact
 whole-program inventory and requires one unique local Python implementation for
 every compute node. It aggregates both selection failure families before any
 relation or point is evaluated. Successful implementation selection produces a
-token-sealed `SelectedLocalImplementations` artifact with complete, unique
+trusted immutable `SelectedLocalImplementations` artifact with complete, unique
 coverage in verified typed-node order. Each entry pins operation identity,
 implementation identity, contract, typed input/output interface, and the exact
 callable. The aggregate survives even for a zero-point plan, while each
@@ -282,10 +314,10 @@ constructing a tuple of local points or satisfying local Python coverage.
 The same linked plan may be consumed by different backend or target lowerings.
 Each lowering must establish complete, non-overlapping implementation ownership
 for the full relation inventory before evaluating the first consumer or
-producing a target artifact. The current local path seals one exact backend.
-Selected-plan dispatch also reassesses that backend's requirements, so a
-backend whose capabilities change after selection cannot bypass the gate or
-partially execute under stale evidence.
+producing a target artifact. The current local path selects one exact backend.
+Dispatch checks that exact backend identity; a backend implementation must keep
+capabilities stable while reusing the same identity, and backend contract tests
+enforce that rule.
 
 Each materialized point receives a nominal `LogicalPointId` from the domain
 namespace and its canonical logical ordinal. A local `point_index` is currently
@@ -438,12 +470,14 @@ state channel targets rather than trusting a structurally valid JSON shape.
 Provider preflight also rejects an unqualified product key that matches more
 than one capability instead of selecting the driver's first declaration.
 
-The remaining resource work belongs to later layers rather than identity
-repair: a domain invocation still needs explicit logical resource claims,
-execution ownership, target capability proofs, and a mapping from target jobs
-back to logical points and products. External configuration, driver ABIs, and
-durable JSON continue to use strings intentionally; those strings are decoded
-or projected at typed boundaries and are not transient IR identities.
+The domain boundary now retains target/capability/artifact proof and maps jobs
+back to selected logical point/product-use occurrences. Resource ownership
+deliberately remains later work: an exclusive claim is meaningful only when a
+host orchestrator acquires a typed lease and holds it from submit until the job
+is completed, cancelled, or otherwise terminal. A string copied into an
+invocation fingerprint is not a lease. External configuration, driver ABIs,
+and durable JSON continue to use strings intentionally; those strings are
+decoded or projected at typed boundaries and are not transient IR identities.
 
 The local effect ABI mirrors this target identity. Scoped state commands,
 snapshots, planned changes, and collection requests retain entity IDs and
@@ -494,30 +528,133 @@ HostOrchestrationPlan
 ```
 
 The current implementation may continue lowering directly to the synchronous
-local execution program. The first concrete integration now stops at a smaller
-pure prerequisite: `MaterializedLinkedPoints` performs whole-program relation
-backend preflight and materializes only the logical point domain, while
+local execution program. The domain integration is a separate coarse boundary:
+`MaterializedLinkedPoints` materializes only logical point identity, while
 `ClosedDomainResultMapping` proves a bijection between opaque adapter entries
-and logical points plus exact result-address coverage for every
-`(LogicalPointId, ProductUseId)`. Adapter order may differ from canonical point
-order; the sealed proof retains both without conflating them. Product identity
-is derived from the linked use and definition inventories, and record aliases
-do not create target work. `SelectedDomainMeasurementOutputs` closes the
-static carrier inventory before effects; the first carrier is explicitly for
-observable measurements, while artifacts and other payload kinds remain
-separate future closures and axis-free `bool`/`string` products are rejected
-because the current `MeasurementValue` has no matching scalar carrier.
-`ClosedDomainOutputValues` then requires candidates to repeat only result
-address and value, exact mapping coverage, dtype, unit, point-local shape,
-nested array structure, array leaf types, and mutable model invariants before
-canonical accepted values are returned. Record projection remains a later
-use-to-record operation.
+and logical points plus exact result-address coverage for an explicit selected
+subset of `ProductUseId` values. Adapter and declaration order may differ from
+canonical point/linked-use order. Empty subsets and zero-point plans retain
+their selected product contracts, so a single invocation no longer pretends to
+own every product in the linked plan. The host measurement-value assembly now
+proves that declared fragments are disjoint and exactly cover its required
+uses. Local collection has a separate ingress adapter for the current execution
+program and its command-correlated durable readback receipts, but aggregate
+producer ownership and a complete orchestration plan remain later.
 
-These proofs are deliberately not a `HostOrchestrationPlan` or an executable
-domain invocation. The next concrete runtime integration should add one closed
-domain invocation plus host-side submission, collection, and reconciliation.
-The domain program owns its loops, branches, feedback, timing, shots, and
-device-local error handling.
+`SelectedDomainMeasurementOutputs` closes the first observable carrier before
+effects, including zero-point selected uses. `ClosedDomainOutputValues` later
+requires exact result coverage and checks dtype, unit, point-local shape,
+nested array structure, leaf types, and mutable-model invariants. The executable
+`ClosedDomainInvocation` is carrier-neutral: it fingerprints the snapshotted
+result contract, target/compiler/capability/artifact evidence, and
+adapter-specific intent while retaining the transient adapter payload
+separately.
+
+The runtime then uses sealed submission states rather than passing raw receipts
+between phases. Submit returns `KnownDomainSubmission`; indeterminate submit
+errors carry `UncertainDomainSubmission`; definitive negative evidence yields
+`AbsentDomainSubmission`. Fetch accepts only Known, reconciliation accepts only
+Uncertain, and a new idempotency-key generation requires Absent. Adapter fetch
+payloads are candidates until core correlates their receipt and job identity into
+`CorrelatedDomainFetch`; the adapter still validates payload-specific integrity.
+These pieces are still not a `HostOrchestrationPlan`. The domain program owns
+its loops, branches, feedback, timing, shots, and device-local error handling.
+
+Accepted measurement values now cross one further producer-neutral boundary.
+`ProductValueFragmentDef` declarations assign disjoint product-use subsets to
+opaque fragment IDs, and `SelectedMeasurementValueAssembly` proves before
+effects that those fragments exactly cover the required uses. A fragment has no
+local/domain/provider tag: after a producer closes exact `point x product-use`
+values, accepted value entries omit adapter addresses and canonicalize only by
+logical point and linked-use order. The selected assembly remains a
+control-plane proof envelope over the linked plan, including its routing;
+neutrality applies to the value data plane, not transitive reachability from
+that proof. Stable logical contract fingerprints, rather than Python object
+identity, permit equivalent rematerializations while still rejecting foreign
+points, uses, products, or value contracts.
+For a domain producer, `bind_domain_output_fragment` additionally seals the
+actual `SelectedDomainMeasurementOutputs` result/carrier proof to its fragment
+before submit; post-effect ingress cannot substitute a hand-written use list or
+a different domain result mapping.
+
+For the existing local collector, `bind_local_collection_fragment` instead
+seals one selected fragment to the execution program's explicit
+`collection_product_use_ids` subset and exact point/operation/provider-key
+mapping before effects. This first adapter deliberately accepts only point
+programs made entirely of collection stages. Its binding gates the later
+acceptance of collected values; it is not engine effect authorization and does
+not prove the state or compute context under which the commands run. The
+transient `ExecutionProgram` supports a proper collection subset, but current
+compiler lowering obtains the subset from `BoundPlan.local_product_realizations`,
+whose coverage invariant still equals the complete ordered logical-use
+inventory. `local_collection_fragment` accepts only an exact receipt inventory
+and requires a trusted collection repository to resolve every receipt back to
+its persisted `CollectionChunk`. It rechecks run/point/operation/instrument
+identity and readback keys, proves both chunk and receipt name the pre-bound
+command hash, and proves each receipt covers the reloaded chunk's exact content
+hash before delegating logical value closure to the same producer-neutral
+fragment validator. Receipt declaration order, instrument IDs, operation IDs,
+provider keys, and readback metadata are not copied into the accepted value
+entries. The fragment's retained selection is still a control-plane proof over
+the linked plan and routing. This is a safe whole-batch value-ingress seam, not
+a replacement for the current engine's point-by-point crash-visible readback
+and record persistence. Run identity is checked while resolving chunks but is
+not yet retained as one provenance token through transform, projection, and
+recording. Point-scoped neutral closure, full state/context and run-provenance
+proofs, and a host plan plus aggregate lowering that prove
+local/domain/transform ownership remain later work.
+
+Record projection is selected independently. A `SelectedMeasurementProjection`
+snapshots observable `RecordUse`/`RecordPlan` contracts and the supported point
+coordinates; binding proves its required uses are present in the value
+assembly before effects. Projection then creates one complete
+`MeasurementRecord` per point. Multiple record aliases copy one checked value
+without expanding producer work, and record-only names or metadata do not
+participate in fragment or assembly identity.
+
+Pure measurement postprocessing has its own typed graph between value ingress
+and record projection. A `MeasurementTransformDef` names one semantic operation
+independently of its products, and its ports retain exact `ProductUseId` plus
+`ProductDef` contracts. A port id is a transform-local semantic role; its
+`ProductUseId` is the graph wiring identity, so rewiring changes the graph
+fingerprint without changing the data-only semantic fingerprint. Verification
+establishes graph closure, unique output ownership, contract preservation,
+explicit rates, and a canonical acyclic order before any implementation or
+producer effect is selected. Semantic parameters are recursively immutable
+data. A Python callable belongs to a
+separately selected `HostMeasurementTransformImplementation` and is not part of
+the data-only graph. Host selection consumes an explicit transform-to-
+implementation binding and invokes that implementation's pure capability
+validator against the complete semantic and typed port contract before effects;
+family/version coincidence alone is not acceptance evidence.
+
+The first executable rate is `POINT`. The host runner invokes each selected
+pure kernel once per canonical logical point, requires an exact named output
+set, rechecks every returned measurement value, seals transform-owned output
+fragments, and only then assembles source and derived fragments together. The
+graph can name `POINT_SET` so its rate boundary is explicit, but host selection
+deliberately rejects that rate until whole-point-set cardinality, failure, and
+persistence semantics are defined. The current fragment binding identifies
+remaining source fragment slots but does not prove their local/domain producer
+realizations; host orchestration must close that ownership separately. The
+local collection adapter proves one local source fragment in isolation, not
+aggregate coverage. The authoring DSL, offloaded realization proofs,
+point-scoped neutral execution, and cross-point analysis remain separate later
+boundaries.
+
+Projected records cross a separate receipt-bearing persistence boundary.
+`commit_projected_measurement_records` consumes the trusted projected stage,
+constructs its durable chunks before effects, and commits exactly one immutable
+record per projected logical point through a
+`MeasurementRecordCommitter`. Every candidate receipt must echo the
+deterministic run/point operation ID and exact chunk content hash, and supply a
+non-empty storage reference, before core accepts it. Each physical write has its
+own `record_measurement` persistence transition; record aliases remain fields
+of the same point record and therefore do not multiply storage writes. Journal
+evidence carries only logical record identity, hashes, and references—not
+adapter addresses, raw target frames, or accepted measurement payloads. Dataset
+compaction and run publication remain later boundaries over these committed
+point receipts.
 
 Offload means that an adapter proves selected pure scans, computations,
 collection setup, or postprocessing can be fused into that invocation while
@@ -531,8 +668,9 @@ lowering, before external effects.
 
 A target compiler is pure: it turns an accepted domain-program invocation and a
 declared target description into a prepared artifact or structured problems.
-The effectful, host-visible runtime boundary is separate and may eventually
-support prepare, submit, inspect, fetch, cancel, and reconcile operations.
+The effectful host boundary now supports submit, repeatable fetch, and read-only
+reconcile for one closed invocation. Prepare, inspect, cancel, chunking, and
+general asynchronous scheduling remain future operations.
 
 Target evidence must relate opaque durable submission/job identities and
 result chunks back to logical point and product identities. Host journal
@@ -543,22 +681,22 @@ The existing local `ExecutionProgram` remains a valid target-specific lowering
 for synchronous execution. It ceases to define all legal execution semantics.
 Nor does Scopecat need a universal replacement for it: a domain adapter may
 keep its internal control IR private and expose only a checked invocation
-boundary. The operation-contract slice does not introduce a hardware placement
-model, target capability description, quantum dialect ABI, compiled-artifact
-format, or runtime submission protocol. Those boundaries remain driven by a
+boundary. The core does not prescribe a hardware placement model, target
+capability description, quantum dialect ABI, compiled-artifact format, or
+provider transport/scheduling protocol. Those boundaries remain driven by a
 concrete offload or domain-integration workflow rather than speculative fields
 on the current contract.
 
-The current synchronous `CollectReceipt` is correlated to its command only by
-the in-process call stack. It does not echo a command digest, operation,
-attempt, or logical point identity, so this trust assumption must not be reused
-for remote, cached, asynchronous, or offloaded results. A future target runtime
-protocol must authenticate or otherwise correlate every receipt/result chunk
-to the submitted artifact and map it explicitly to logical point and product
-use identities before acceptance.
+The current synchronous `CollectReceipt` remains correlated to its command only
+by the in-process call stack and must not be reused for remote/offloaded work.
+The domain runtime ABI instead requires every receipt to echo submission key,
+invocation intent, target/compiler/capability, and artifact identity. Journal
+operation IDs are derived from the submission key rather than the caller's
+semantic operation label. Only a `CorrelatedDomainFetch` may reach adapter
+payload validation; correlation alone does not accept its values.
 
-The fake quantum target now demonstrates the strictly smaller synchronous
-prerequisite. `CompiledCircuitTarget` proves that one checked artifact belongs
+The fake quantum target now demonstrates this complete first synchronous
+vertical slice. `CompiledCircuitTarget` proves that one checked artifact belongs
 to the exact prepared batch and result mapping. After execution, the
 laboratory-owned `CorrelatedFakeListRun` revalidates the artifact and exact
 `(acquisition address, shot)` frame inventory, then projects frames into
@@ -582,14 +720,27 @@ kind, target acquisition channel, sample-grid start, and sample count must all
 agree. Integrated IQ accepts observable `complex128` values in `ratio` with
 `[shot]` shape; raw trace accepts the same carrier with `[shot, sample]` shape,
 using target repetitions and the checked window sample count as exact extents.
-`execute_realized_fake_measurements` executes the compiled mixed batch once,
-applies the selected policy independently to every returned address, and closes
-all candidates together as transient `ClosedDomainOutputValues` while
-preserving access to the exact raw frames. It performs no reduction, record
-projection, dataset assembly, or journal integration and fabricates no durable
-job identity or host effect. The next vertical slice is an executable closed
-domain invocation with correlated submission, fetch, and reconciliation
-evidence.
+For host-visible execution, `FakeListDomainRuntime` registers an idempotent job
+before calling the synchronous device primitive, so a lost response cannot be
+misreported as definitive absence or replay physical work under the same key.
+If the primitive itself raises without returning its captured run, the adapter
+retains blocking result-unavailable evidence and reconciliation stays unknown;
+it does not present that state as ordinary pending.
+Submit is journaled as `acquisition`; fetch and reconcile are `read`. A known
+reconcile result closes the original unknown submit transition. Fetched raw
+runs remain candidates until core correlation and then reuse the existing
+per-result realization/value closure. The in-memory job store does not provide
+cross-process recovery; trusted reconstruction of sealed recovery tokens from
+durable journal evidence remains future work. The demo now passes integrated-IQ
+shots through a domain-owned fragment, applies one typed binary-IQ `POINT`
+transform per canonical logical point, and seals `probability_0` plus
+`probability_1` in a disjoint transform-owned fragment. Final producer-neutral
+assembly feeds independent record projection and receipt-bearing per-point
+recording. Aliases increase neither kernel calls nor record writes. `POINT_SET`,
+authoring DSL integration, aggregate local/domain ownership and local-engine
+integration, offload equivalence, cross-point analysis, dataset compaction and
+manifest publication, polling, cancellation, and terminal run integration are
+still absent.
 
 ## Dialects and Backend Boundaries
 
@@ -673,7 +824,7 @@ consumers receive the final point-row type, and state bodies additionally
 receive their current and nominal row arguments. The compiler no longer repeats
 a weaker raw-AST scope pass after this boundary. Typed Program verification
 rechecks every stored proof under the exact row roles its consumer supplies;
-`seal_typed_program` snapshots that normalized program as an unforgeable
+`seal_typed_program` snapshots that normalized program as a trusted immutable
 `VerifiedTypedProgram`. One recursive consumer inventory is shared by role
 verification and backend planning, covering point-domain rows, overlays, route
 entities, compute value inputs, and every nested state
@@ -691,17 +842,17 @@ remains a separate pre-rewrite provenance edge; it is not reconstructed from
 the final proof imports after inputs become literals or point columns.
 
 Module-level evaluators accept only `SelectedRelationPlan`; backend
-materialization hooks accept a sealed `PreparedRelationEvaluation` created by
-the validated dispatch boundary. The reference backend unwraps that prepared
-proof inside the backend module; there is no generic raw-AST or unchecked
-context dispatch hook. Selection and unwrap both reassess the full
-requirements, so replacing a backend instance with the same identity but
-narrower capabilities cannot bypass the gate. Before dispatch, actual used
-inputs, parameters, point/current/outer rows, and nominal row arguments are
-validated, normalized, and snapshotted against the proof assumptions. Scalar,
-series, and table results are normalized against the certified root type and
-checked for valid runtime carriers, so a backend cannot silently violate the
-contract it accepted.
+materialization hooks consume a trusted `PreparedRelationEvaluation` produced
+by the core dispatch boundary. Public evaluators own dynamic context
+validation; a backend hook relies on that prepared-stage contract rather than
+providing a second raw-plan entry point. Selection assesses the full
+requirements once; dispatch then checks backend identity and relies on the
+backend contract that one identity has stable capabilities. Before dispatch,
+actual used inputs, parameters, point/current/outer rows, and nominal row
+arguments are validated, normalized, and snapshotted against the proof
+assumptions. Scalar, series, and table results are normalized against the
+certified root type and checked for valid runtime carriers, so a backend cannot
+silently violate the contract it accepted.
 
 The proof and selection projection expose an explicit external row interface
 separate from value imports. It distinguishes point, current, outer, and named
@@ -804,9 +955,11 @@ The following rules are architectural constraints:
    reverse.
 7. Problems and source maps can describe every layer, but presentation and
    diagnostics do not participate in semantic identity.
-8. Durable request, configuration, plan projections, outcomes, journal, and
-   artifacts may record stable public identities and fingerprints. They do not
-   serialize transient compiler graphs for replay.
+8. Durable request, configuration, plan projections, outcomes, effect journal,
+   and artifacts may record stable public identities and fingerprints. They do
+   not serialize transient compiler graphs for replay. Pure point progress,
+   host computation, and repeatable state readback remain lossy runtime
+   observations rather than recovery-ledger entries.
 
 ## High-Level Invariants
 
@@ -889,8 +1042,8 @@ The redesign retains these established boundaries:
 - logical resource requirements and provider preflight before run acceptance;
 - normalized run requests, accepted configuration snapshots, user-visible plan
   projections, and execution evidence as separate durable categories;
-- typed apply/collect receipts, transition journals, terminal outcomes, and
-  explicit uncertainty/reconciliation behavior;
+- typed apply/collect receipts, effect transition journals, terminal outcomes,
+  and explicit uncertainty/reconciliation behavior;
 - the current synchronous executor as a host-controlled local lowering and
   implementation.
 
@@ -1035,25 +1188,20 @@ code and tests decisively rather than maintaining parallel legacy IRs.
    current one-result shape remains an explicit local lowering limitation and
    does not prevent Semantic Graph IR or a future target from representing
    named multiple outputs.
-11. **Host orchestration and domain invocation boundary (identity and value
-   prerequisites implemented).** Core now exposes a narrow public adapter SPI
-   for target-neutral point materialization, sealed entry/result identity
-   mapping, pre-effect measurement-carrier selection, and exact value closure.
-   Its first version assigns one
-   opaque adapter entry to each canonical logical point, requires the linked
-   plan's complete product-use inventory exactly once per point, then accepts
-   values only with exact result coverage and matching product contracts.
-   `scopecat-quantum` maps prepared target entry and acquisition addresses
-   through this SPI without importing core private modules or teaching core
-   about quantum slots, pulse events, or physical list indexes. It intentionally
-   does not yet define an executable invocation.
-   Introduce that invocation only with concrete typed inputs, logical resource
-   claims, capability evidence, host-visible effects, and reconciliation data.
-   Keep loops, branches, feedback, shots, and timing inside the domain program,
-   and add adapter-proved offload fusion for specific core subplans rather than
-   a generic fragment partitioner.
-12. **Target runtime protocol (synchronous correlation prerequisite
-   implemented).** The quantum package now binds a checked artifact to its exact
+11. **Domain invocation identity and value boundary (implemented).** Core now
+   exposes a narrow public adapter SPI for target-neutral point materialization,
+   sealed entry/result identity mapping over an explicit product-use subset,
+   carrier-neutral invocation closure, pre-effect measurement-carrier
+   selection, and exact value closure. One opaque adapter entry maps to each
+   logical point; each selected use is covered exactly once per point, while
+   empty subsets and zero-point plans retain their product contracts.
+   `scopecat-quantum` maps prepared target entry/acquisition addresses through
+   this SPI without importing core private modules or teaching core about
+   quantum slots, pulse events, or physical list indexes. Loops, branches,
+   feedback, shots, and timing remain inside the domain program. Resource
+   leasing and aggregate local/domain coverage belong to a later host plan.
+12. **Target runtime protocol (first synchronous slice implemented).** The
+   quantum package now binds a checked artifact to its exact
    circuit result mapping, and the demo fake target correlates complete raw
    frame/shot evidence back to logical outputs. Explicit per-result
    `integrated_iq_shots` and `raw_trace_shots` bindings compose in one exact
@@ -1061,23 +1209,90 @@ code and tests decisively rather than maintaining parallel legacy IRs.
    identity, capability fingerprint, artifact sample rate, and acquisition
    channel checks. The demo then executes one mixed batch and closes the
    heterogeneous `[shot]` and `[shot, sample]` values together through core's
-   value contract. Correlation itself remains policy-free. The next slice
-   should add one executable closed invocation with host-visible submission,
-   fetch, and reconciliation evidence. Inspection, chunking, cancellation,
-   retry, and broader uncertainty policy should extend that concrete ABI rather
-   than introduce a speculative general scheduler.
+   value contract. The demo closes that selection into one executable
+   invocation and adapts the fake target to sealed Known/Uncertain/Absent
+   submission states, idempotency-key generations, correlated accepted fetches,
+   and journaled submit/fetch/reconcile effects. Inspection, chunking,
+   cancellation, trusted cross-process token reconstruction, and broader
+   asynchronous policy should extend this concrete ABI rather than introduce a
+   speculative general scheduler.
+13. **Producer-neutral measurement value assembly and projection
+   (implemented).** Fragment ownership is selected before effects as an exact,
+   disjoint cover of required `ProductUseId` values. Runtime fragments close
+   exact point/use inventories, and assembly canonicalizes them without a
+   local/domain source enum or adapter result addresses. A separate selected
+   projection binds observable `RecordUse` edges to that assembly and produces
+   complete canonical `MeasurementRecord` values. Fragment order, candidate
+   order, and equivalent rematerialization do not change the result; aliases
+   and record metadata cannot duplicate or alter producer values. The fake
+   domain path binds the real result mapping before submit and demonstrates
+   fetch, lab-owned payload validation, domain value closure, neutral assembly,
+   and record projection end to end.
+14. **Receipt-bearing point recording (implemented).** The trusted projected
+   stage is lowered to durable chunks and committed once per logical point
+   through an idempotent public committer boundary. Core accepts only
+   receipts echoing the deterministic run/point operation and exact chunk hash
+   with a non-empty storage reference, and journals every write as a
+   `record_measurement` persistence effect. Multiple aliases remain one
+   point-record write, while durable journal evidence omits provider addresses,
+   raw frames, and value payloads. Dataset compaction, manifest publication, and
+   terminal outcome construction deliberately remain separate later operations.
+15. **Typed `POINT` host measurement transforms (implemented).** A data-only
+   transform DAG binds named ports to exact logical product uses and contracts,
+   proves unique output ownership and canonical acyclic order, and selects host
+   callables as separate transient implementations before effects. The current
+   runner executes pure `POINT` kernels once per canonical logical point,
+   validates exact output names and measurement contracts, and seals derived
+   fragments through the same producer-neutral assembly as source values. The
+   fake quantum vertical path demonstrates integrated-IQ shots owned only by the
+   domain fragment and binary probabilities owned only by the transform
+   fragment; record aliases duplicate neither kernel calls nor point writes.
+   `POINT_SET`, authoring DSL lowering, aggregate source ownership and
+   local-engine migration, cross-point analysis, and domain offload equivalence
+   are explicit later slices.
+16. **Local collection fragment ingress (implemented as a safe seam).** Local
+   execution programs now retain an explicit canonical
+   `collection_product_use_ids` subset, so derived uses may remain in the
+   logical inventory without being falsely assigned to instrument collection.
+   The current compiler does not yet create that split: its sealed `BoundPlan`
+   requires local realizations to cover every ordered logical use, so ordinary
+   local lowering still emits collection subset equal to logical inventory.
+   Until the legacy engine gains a transform stage, its own direct
+   `record_projections` remain restricted to that collected subset; the new
+   neutral pipeline owns derived projection in the vertical path.
+   A pre-effect binding currently accepts only collection-stage-only point
+   programs and proves that one selected local fragment exactly matches that
+   subset and the complete point/operation/provider-key mapping. This gates
+   value ingress; it does not authorize engine effects or prove state/compute
+   context. After collection, a trusted collection repository must resolve the
+   exact receipt inventory and correlate the pre-bound command hash with each
+   reloaded chunk's exact content before closing producer values through the
+   shared neutral fragment contract.
+   Runtime source addresses and readback metadata are excluded from accepted
+   value entries; the retained selection remains a control-plane proof over the
+   linked plan.
+   A three-point vertical test performs real fake instrument collection,
+   applies one typed `POINT` transform, projects a derived value plus alias, and
+   writes one receipt-bearing record per point.
+   This whole-batch adapter deliberately does not replace the existing engine's
+   incremental point recording or establish aggregate local/domain/transform
+   ownership. Point-scoped closure, full state/context and run-provenance proofs,
+   aggregate `BoundPlan`/authoring lowering, lease lifetime, and full
+   local-engine migration remain later work.
 
-The first ten slices now form the compiler baseline. `LinkedPlan` is
+The first sixteen slices now form the compiler/runtime baseline. `LinkedPlan` is
 target-neutral with respect to relation backend, compute meaning, and local
 Python coverage, but it is not a target-selected orchestration plan. The current
 local lowering owns its sealed backend and implementation selections, and
 relation and product selections are keyed by nominal occurrence identity. The
-product/use/record boundary now feeds a checked result-mapping seam for a future
-executable domain invocation; orchestration, offload fusion, partial
-local/domain product ownership, and further output realization policies remain
-later work. The immediate vertical gap is the executable invocation and its
-effectful submission/fetch/reconciliation protocol, driven by the concrete fake
-target workflow rather than speculative generic fragments.
+product/use/record boundary now feeds an executable domain invocation with
+explicit partial use ownership and a producer-neutral host value plane. Typed
+`POINT` transforms occupy the pure boundary before record projection without
+making host callables or quantum vocabulary semantic IR. Full host
+orchestration, lease lifetime, aggregate source ownership and local-engine
+migration, point-scoped neutral closure, `POINT_SET` and cross-point analysis,
+offload equivalence, dataset publication, terminalization, and further output
+carriers remain later work.
 
 ## Consequences
 

@@ -81,7 +81,7 @@ from scopecat.candidate_configs import (
 )
 from scopecat.checks import ExperimentCheckReport
 from scopecat.errors import CheckFailed
-from scopecat.instruments.sdk import InstrumentProvider
+from scopecat.execution_backend import ExecutionBackend
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
@@ -149,7 +149,11 @@ class PreparedExperiment:
     _prepared_invocation: PreparedInvocation
     _config: str | ConfigProfileSnapshot | CandidateConfig | None = None
     _config_profile: ConfigProfileInput | None = None
-    _instrument_provider: InstrumentProvider | None = None
+    _execution_backend: ExecutionBackend | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     _run_options: _RunOptions = field(default_factory=_RunOptions)
 
     def __init__(self) -> None:
@@ -248,6 +252,7 @@ class PreparedExperiment:
             config=self._config,
             config_profile=self._config_profile,
             run_options=run_options,
+            execution_backend=self._execution_backend,
         )
 
     def check(
@@ -275,6 +280,7 @@ class PreparedExperiment:
             config=self._config,
             config_profile=self._config_profile,
             run_options=run_options,
+            execution_backend=self._execution_backend,
         )
 
     def explain(
@@ -319,6 +325,7 @@ class PreparedExperiment:
             config=self._config,
             config_profile=self._config_profile,
             run_options=run_options,
+            execution_backend=self._execution_backend,
         )
 
     def run(
@@ -345,7 +352,7 @@ class PreparedExperiment:
             self._prepared_invocation,
             config=self._config,
             config_profile=self._config_profile,
-            instrument_provider=self._instrument_provider,
+            execution_backend=self._execution_backend,
             run_options=run_options,
             event_sink=event_sink,
             payload_observer=payload_observer,
@@ -377,10 +384,19 @@ class Experiment:
     def observables(self) -> tuple[str, ...]:
         return self.module.observables
 
-    def entity(self, input_id: str, entity: EntityRef | str) -> Experiment:
+    def entity(
+        self,
+        input_id: str,
+        entity: EntityRef | str,
+        *,
+        entity_kind: str | None = None,
+    ) -> Experiment:
         if not input_id or not isinstance(cast("object", entity), EntityRef | str):
             msg = "experiment entity requires a non-empty input id and entity value"
             raise TypeError(msg)
+        if entity_kind == "":
+            msg = "experiment entity kind must be non-empty when provided"
+            raise ValueError(msg)
         entity_inputs = dict(self.entity_inputs)
         entity_inputs[input_id] = cast(
             "EntityRef | str",
@@ -395,7 +411,9 @@ class Experiment:
             module=self.module.inputs(
                 public_authoring.input(
                     input_id,
-                    public_authoring.ScalarType(public_authoring.EntityType()),
+                    public_authoring.ScalarType(
+                        public_authoring.EntityType(entity_kind=entity_kind)
+                    ),
                 )
             ),
         )
@@ -601,7 +619,11 @@ class Workspace:
     _workspace: Path
     config: str | ConfigProfileSnapshot = "active"
     config_profile: ConfigProfileInput | None = None
-    instrument_provider: InstrumentProvider | None = None
+    execution_backend: ExecutionBackend | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     reviewer: str = "operator"
     operator: str = "operator"
 
@@ -654,7 +676,7 @@ class Workspace:
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
-        instrument_provider: InstrumentProvider | None = None,
+        execution_backend: ExecutionBackend | None = None,
     ) -> PreparedExperiment:
         if isinstance(experiment, TemplateBuilder):
             invocation = experiment.build().bind()
@@ -677,7 +699,7 @@ class Workspace:
             _prepared_invocation=prepared_invocation,
             _config=config,
             _config_profile=config_profile,
-            _instrument_provider=instrument_provider,
+            _execution_backend=execution_backend,
         )
 
     def compare(
@@ -760,7 +782,7 @@ def open(  # noqa: A001
     *,
     config: str | ConfigProfileSnapshot = "active",
     config_profile: ConfigProfileInput | None = None,
-    instrument_provider: InstrumentProvider | None = None,
+    execution_backend: ExecutionBackend | None = None,
     reviewer: str = "operator",
     operator: str = "operator",
 ) -> Workspace:
@@ -768,7 +790,7 @@ def open(  # noqa: A001
         _workspace=Path(workspace),
         config=config,
         config_profile=config_profile,
-        instrument_provider=instrument_provider,
+        execution_backend=execution_backend,
         reviewer=reviewer,
         operator=operator,
     )
@@ -820,6 +842,7 @@ def _preview_prepared(
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
+    execution_backend: ExecutionBackend | None,
 ) -> PreviewExperimentResult:
     selected_config, selected_config_profile = _prepared_config_selection(
         session,
@@ -834,6 +857,11 @@ def _preview_prepared(
         workspace=session.workspace,
         config=selected_config,
         config_profile=selected_config_profile,
+        execution_backend=(
+            session.execution_backend
+            if execution_backend is None
+            else execution_backend
+        ),
     )
 
 
@@ -844,6 +872,7 @@ def _check_prepared(
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
+    execution_backend: ExecutionBackend | None,
 ) -> ExperimentCheckReport:
     selected_config, selected_config_profile = _prepared_config_selection(
         session,
@@ -858,6 +887,11 @@ def _check_prepared(
         workspace=session.workspace,
         config=selected_config,
         config_profile=selected_config_profile,
+        execution_backend=(
+            session.execution_backend
+            if execution_backend is None
+            else execution_backend
+        ),
     )
 
 
@@ -868,6 +902,7 @@ def _validate_prepared(
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
+    execution_backend: ExecutionBackend | None,
 ) -> ValidateExperimentResult:
     try:
         selected_config, selected_config_profile = _prepared_config_selection(
@@ -891,6 +926,11 @@ def _validate_prepared(
         workspace=session.workspace,
         config=selected_config,
         config_profile=selected_config_profile,
+        execution_backend=(
+            session.execution_backend
+            if execution_backend is None
+            else execution_backend
+        ),
     )
 
 
@@ -900,7 +940,7 @@ def _run_prepared(
     *,
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
-    instrument_provider: InstrumentProvider | None,
+    execution_backend: ExecutionBackend | None,
     run_options: _RunOptions,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
@@ -910,10 +950,8 @@ def _run_prepared(
         config=config,
         config_profile=config_profile,
     )
-    selected_instrument_provider = (
-        session.instrument_provider
-        if instrument_provider is None
-        else instrument_provider
+    selected_execution_backend = (
+        session.execution_backend if execution_backend is None else execution_backend
     )
     return RunHandle(
         session=session,
@@ -925,7 +963,7 @@ def _run_prepared(
             workspace=session.workspace,
             config=selected_config,
             config_profile=selected_config_profile,
-            instrument_provider=selected_instrument_provider,
+            execution_backend=selected_execution_backend,
             event_sink=event_sink,
             payload_observer=payload_observer,
         ),

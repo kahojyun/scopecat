@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from scopecat._compiler.binding import bind_program
+from scopecat._compiler.binding import materialize_local_plan
 from scopecat._compiler.bound import BoundPlan
 from scopecat._compiler.environment import ValidatedConfigEnvironment
+from scopecat._compiler.linked import LinkedPlan, link_program
 from scopecat._compiler.program import TypedProgram
+from scopecat._product_identity import ProductUseId
 from scopecat._relation_backend import (
     REFERENCE_RELATION_BACKEND,
     RelationBackend,
@@ -42,6 +45,73 @@ class CompiledExperiment:
         return self.plan.valid
 
 
+@dataclass(frozen=True, slots=True)
+class LinkedExperiment:
+    """Target-neutral compiler result shared by all execution backends."""
+
+    program: TypedProgram
+    plan: LinkedPlan
+    request: RunRequest
+    template_id: str | None
+    inputs: dict[str, object]
+    config_source: RunConfigSource | None
+    problems: tuple[Problem, ...] = ()
+
+
+def link_experiment(
+    invocation: CompiledInvocation,
+    *,
+    environment: ValidatedConfigEnvironment,
+    workspace: str | Path,
+    config_source: RunConfigSource | None = None,
+) -> LinkedExperiment:
+    """Resolve config-backed authoring and stop before target selection."""
+
+    resolved = resolve_compiled_invocation(
+        invocation,
+        environment=environment,
+        workspace=workspace,
+        config_source=config_source,
+    )
+    plan = link_program(resolved.experiment, environment)
+    return LinkedExperiment(
+        program=resolved.experiment,
+        plan=plan,
+        request=resolved.request,
+        template_id=resolved.template_id,
+        inputs=dict(resolved.inputs),
+        config_source=resolved.config_source,
+        problems=_merge_problem_references(resolved.problems),
+    )
+
+
+def compile_local_experiment(
+    linked: LinkedExperiment,
+    *,
+    relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
+    product_use_ids: AbstractSet[ProductUseId] | None = None,
+) -> CompiledExperiment:
+    """Select the existing local backend for one already-linked program."""
+
+    plan = materialize_local_plan(
+        linked.plan,
+        relation_backend=relation_backend,
+        product_use_ids=product_use_ids,
+    )
+    plan = replace(
+        plan,
+        problems=_merge_problem_references((*linked.problems, *plan.problems)),
+    )
+    return CompiledExperiment(
+        program=linked.program,
+        plan=plan,
+        request=linked.request,
+        template_id=linked.template_id,
+        inputs=dict(linked.inputs),
+        config_source=linked.config_source,
+    )
+
+
 def compile_experiment(
     invocation: CompiledInvocation,
     *,
@@ -52,28 +122,15 @@ def compile_experiment(
 ) -> CompiledExperiment:
     """Run config linking and current local-plan lowering for an invocation."""
 
-    resolved = resolve_compiled_invocation(
+    linked = link_experiment(
         invocation,
         environment=environment,
         workspace=workspace,
         config_source=config_source,
     )
-    plan = bind_program(
-        resolved.experiment,
-        environment,
+    return compile_local_experiment(
+        linked,
         relation_backend=relation_backend,
-    )
-    plan = replace(
-        plan,
-        problems=_merge_problem_references((*resolved.problems, *plan.problems)),
-    )
-    return CompiledExperiment(
-        program=resolved.experiment,
-        plan=plan,
-        request=resolved.request,
-        template_id=resolved.template_id,
-        inputs=dict(resolved.inputs),
-        config_source=resolved.config_source,
     )
 
 
@@ -91,4 +148,10 @@ def _merge_problem_references(problems: tuple[Problem, ...]) -> tuple[Problem, .
     return tuple(selected)
 
 
-__all__ = ["CompiledExperiment", "compile_experiment"]
+__all__ = [
+    "CompiledExperiment",
+    "LinkedExperiment",
+    "compile_experiment",
+    "compile_local_experiment",
+    "link_experiment",
+]

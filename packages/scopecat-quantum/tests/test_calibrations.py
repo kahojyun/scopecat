@@ -20,7 +20,6 @@ from scopecat_quantum._ids import (
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.calibrations import (
     CalibrationCatalog,
-    CalibrationSelection,
     CalibrationSelectionError,
     CalibrationSelectionIssue,
     CalibrationSelectionIssueCode,
@@ -29,7 +28,6 @@ from scopecat_quantum.calibrations import (
     GateCalibrationBinding,
     GateCalibrationCatalog,
     GateCalibrationKey,
-    GateCalibrationSelection,
     MeasurementCalibration,
     MeasurementCalibrationCatalog,
     MeasurementCalibrationKey,
@@ -187,7 +185,7 @@ def test_exact_calibration_key_contains_call_data_not_gate_definition() -> None:
     )
 
 
-def test_selection_seals_exact_gate_call_coverage() -> None:
+def test_selection_has_exact_gate_call_coverage_and_is_immutable() -> None:
     first = _call("first")
     second = _call("second")
     pulse = _pulse_template()
@@ -205,15 +203,6 @@ def test_selection_seals_exact_gate_call_coverage() -> None:
     )
     assert selection.gates.binding_for(first.id).pulse_template is pulse
     assert selection.binding_for(first.id).pulse_template is pulse
-    with pytest.raises(TypeError, match="only be created by select_calibrations"):
-        CalibrationSelection(
-            CircuitId("forged"),
-            (),
-            selection.gates,
-            selection.measurements,
-        )
-    with pytest.raises(TypeError, match="only be created by select_calibrations"):
-        GateCalibrationSelection(CircuitId("forged"), (), ())
     attribute = "_circuit_id"
     with pytest.raises(FrozenInstanceError):
         setattr(cast("object", selection), attribute, CircuitId("forged"))

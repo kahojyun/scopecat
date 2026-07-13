@@ -23,9 +23,11 @@ from scopecat.models.parameter import (
 from scopecat.models.run_plan import (
     RunPlanChannelBinding,
     RunPlanDeferredValue,
+    RunPlanDomainExecution,
     RunPlanOutput,
     RunPlanPayloadValue,
     RunPlanPoint,
+    RunPlanPointInstrumentExecution,
     RunPlanRecord,
     RunPlanResolvedRoute,
     RunPlanRoute,
@@ -61,6 +63,7 @@ def _valid_run_plan_data() -> dict[str, Any]:
     return {
         "experiment_id": "experiment",
         "experiment_kind": "test",
+        "execution_units": [_point_execution_data()],
         "point_count": 2,
         "coordinate_ids": ["amplitude"],
         "points": [
@@ -80,6 +83,7 @@ def _valid_run_plan_data() -> dict[str, Any]:
                 "id": "signal",
                 "kind": "observable",
                 "producer_kind": "instrument",
+                "producer_unit_id": "point-instrument",
                 "dtype": "float64",
                 "dims": ["point"],
                 "shape": [2],
@@ -116,6 +120,18 @@ def _valid_run_plan_data() -> dict[str, Any]:
         ],
         "dataset_dimensions": {"point": 2},
         "primary_observables": ["signal"],
+    }
+
+
+def _point_execution_data() -> dict[str, str]:
+    return {
+        "kind": "point_instrument",
+        "unit_id": "point-instrument",
+        "backend_id": "scopecat.point-instrument.v1",
+        "provider_id": "tests.signal_instrument_provider",
+        "submission_scope": "point",
+        "compute_placement": "host",
+        "automatic_fusion": "none",
     }
 
 
@@ -670,9 +686,94 @@ def test_run_plan_dataset_dimensions_must_be_non_negative() -> None:
         RunPlanRecord(
             experiment_id="experiment",
             experiment_kind="test",
+            execution_units=[
+                RunPlanPointInstrumentExecution.model_validate(_point_execution_data())
+            ],
             point_count=0,
             dataset_dimensions={"point": -1},
         )
+
+
+def _domain_execution_data() -> dict[str, str]:
+    return {
+        "kind": "domain_job",
+        "unit_id": "domain-job",
+        "adapter_id": "tests.domain.v1",
+        "semantic_operation_id": "measure",
+        "completion_contract": "synchronous",
+        "invocation_id": "invocation-1",
+        "intent_fingerprint": "sha256:intent",
+        "target_id": "target-1",
+        "compiler_id": "compiler-1",
+        "capability_fingerprint": "sha256:capability",
+        "artifact_id": "artifact-1",
+        "artifact_fingerprint": "sha256:artifact",
+    }
+
+
+def test_run_plan_domain_execution_is_payload_free_durable_identity() -> None:
+    execution = RunPlanDomainExecution.model_validate(_domain_execution_data())
+
+    assert_model_round_trip(execution)
+    assert execution.model_dump(mode="json") == _domain_execution_data()
+    assert set(execution.model_dump(mode="json")).isdisjoint(
+        {"payload", "entry_address", "result_address", "target_address"}
+    )
+
+    empty_adapter = _domain_execution_data()
+    empty_adapter["adapter_id"] = ""
+    with pytest.raises(ValidationError, match="adapter_id"):
+        RunPlanDomainExecution.model_validate(empty_adapter)
+
+    asynchronous = _domain_execution_data()
+    asynchronous["completion_contract"] = "asynchronous"
+    with pytest.raises(ValidationError, match="completion_contract"):
+        RunPlanDomainExecution.model_validate(asynchronous)
+
+
+def test_run_plan_domain_outputs_require_accepted_execution_identity() -> None:
+    wrong_unit_kind = _valid_run_plan_data()
+    wrong_unit_kind["records"][0]["producer_kind"] = "domain"
+    with pytest.raises(
+        ValidationError,
+        match="domain or host-transform outputs require a domain-job unit",
+    ):
+        RunPlanRecord.model_validate(wrong_unit_kind)
+
+    unknown_unit = _valid_run_plan_data()
+    unknown_unit["records"][0]["producer_unit_id"] = "missing-unit"
+    with pytest.raises(ValidationError, match="unknown producer unit"):
+        RunPlanRecord.model_validate(unknown_unit)
+
+
+def test_run_plan_accepts_mixed_instrument_and_domain_output_units() -> None:
+    mixed = _valid_run_plan_data()
+    mixed["execution_units"].append(_domain_execution_data())
+    mixed["records"].append(
+        {
+            "id": "domain-signal",
+            "kind": "observable",
+            "producer_kind": "domain",
+            "producer_unit_id": "domain-job",
+            "dtype": "float64",
+            "dims": ["point"],
+            "shape": [2],
+        }
+    )
+
+    plan = RunPlanRecord.model_validate(mixed)
+
+    assert [unit.unit_id for unit in plan.execution_units] == [
+        "point-instrument",
+        "domain-job",
+    ]
+    assert [record.producer_unit_id for record in plan.records] == [
+        "point-instrument",
+        "domain-job",
+    ]
+    domain = plan.execution_units[1]
+    assert isinstance(domain, RunPlanDomainExecution)
+    assert domain.target_id == "target-1"
 
 
 def test_run_plan_record_enforces_point_table_invariants() -> None:
@@ -715,6 +816,7 @@ def test_run_plan_output_requires_a_non_negative_shape_matching_dims() -> None:
             id="signal",
             kind="observable",
             producer_kind="instrument",
+            producer_unit_id="point-instrument",
             dtype="float64",
             dims=["point"],
             shape=[],
@@ -724,6 +826,7 @@ def test_run_plan_output_requires_a_non_negative_shape_matching_dims() -> None:
             id="signal",
             kind="observable",
             producer_kind="instrument",
+            producer_unit_id="point-instrument",
             dtype="float64",
             dims=["point"],
             shape=[-1],
@@ -733,6 +836,7 @@ def test_run_plan_output_requires_a_non_negative_shape_matching_dims() -> None:
             id="signal",
             kind="observable",
             producer_kind="instrument",
+            producer_unit_id="point-instrument",
             resource_port_id="readout",
             physical_resource_id="digitizer-0",
             dtype="float64",
@@ -742,6 +846,7 @@ def test_run_plan_output_requires_a_non_negative_shape_matching_dims() -> None:
             id="signal",
             kind="observable",
             producer_kind="instrument",
+            producer_unit_id="point-instrument",
             resource_port_id="",
             dtype="float64",
         )

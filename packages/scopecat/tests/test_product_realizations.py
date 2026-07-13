@@ -99,9 +99,6 @@ def test_local_product_selection_seals_exact_use_order_and_coverage() -> None:
     assert selected.selected_for(second_use.id) is selected.entries[0]
     assert selected.selected_for(first_use.id) is selected.entries[1]
 
-    with pytest.raises(TypeError, match="can only be created"):
-        SelectedLocalProductRealizations(selected.entries)
-
 
 def test_missing_producer_is_a_structured_target_failure() -> None:
     product = _product("derived")

@@ -43,7 +43,11 @@ class RunStartedEvent(_RuntimeEvent):
 
 
 class RuntimeTransitionEvent(_RuntimeEvent):
-    """Lossy observation of one already committed execution transition."""
+    """Lossy observation of one transient or durably committed transition.
+
+    ``sequence`` is present only when the source transition belongs to the
+    durable effect ledger.
+    """
 
     kind: Literal["transition"] = "transition"
     sequence: int | None = Field(default=None, ge=0)

@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import cast
 
+from scopecat._compiler.action import ActionSpec
 from scopecat._compiler.parameter_overlays import PointParameterOverlay
 from scopecat._compiler.point_domain import PointDomain
 from scopecat._compiler.program import (
@@ -15,6 +16,7 @@ from scopecat._compiler.program import (
     TypedComputeOutput,
     ValueInput,
     bind_each,
+    invoke_action,
     set_state_field,
 )
 from scopecat._compiler.state import StateSpec
@@ -44,6 +46,7 @@ from scopecat._relations import (
 from scopecat._resource_identity import LogicalResourcePortId
 from scopecat._semantic_graph import (
     ImplementationCatalog,
+    InstrumentActionEffect,
     LiteralValueSource,
     OperationId,
     OperationOutputSource,
@@ -369,6 +372,7 @@ def lower_state_region(
         current_row=row_type,
         row_arguments={**type_bindings.row_arguments, region.row_argument.id: row_type},
     )
+
     resource = (
         None
         if region.resource_port is not None
@@ -417,6 +421,41 @@ def lower_state_region(
             ),
         ),
         row_scope_id=region.row_argument.id,
+    )
+
+
+def lower_action_effect(
+    ctx: ExperimentAuthoringContext,
+    action: InstrumentActionEffect,
+    graph: VerifiedSemanticGraph,
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
+    inputs: Mapping[str, object],
+    *,
+    type_bindings: RelationTypeBindings,
+) -> ActionSpec:
+    port = resource_ports.get(action.resource_port_id)
+    if port is None:
+        ctx.raise_problem(
+            "module_unknown_resource_port",
+            f"action references unknown resource port {action.resource_port_id}",
+            "actions",
+        )
+    require_port_capability(ctx, port, action.capability_id)
+    operations = {operation.id: operation for operation in graph.graph.operations}
+    return invoke_action(
+        action.id,
+        resource_port_id=action.resource_port_id,
+        capability_id=action.capability_id,
+        fields={
+            field_name: _lower_state_region_value(
+                use,
+                graph=graph,
+                operations=operations,
+                inputs=inputs,
+                type_bindings=type_bindings,
+            )
+            for field_name, use in action.fields
+        },
     )
 
 

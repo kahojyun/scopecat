@@ -25,6 +25,7 @@ from tests.support.authoring import (
     load_config,
     simple_template,
 )
+from tests.support.signal_instruments import TestSignalInstrumentProvider
 
 
 def test_template_missing_input_and_unknown_subject_report_stable_problems(
@@ -171,6 +172,7 @@ def test_preview_experiment_resolves_template_invocation_with_config_profile(
 ) -> None:
     result = preview_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
         workspace=tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
@@ -184,6 +186,7 @@ def test_preview_experiment_resolves_template_invocation_with_config_snapshot(
 ) -> None:
     result = preview_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
+        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
         workspace=tmp_path,
         config_profile=load_config(),
     )

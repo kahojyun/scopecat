@@ -73,12 +73,9 @@ class CircuitTargetAcquisitionUseBinding:
             raise TypeError(msg)
 
 
-_CIRCUIT_TARGET_RESULT_MAPPING_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class CircuitTargetResultMapping:
-    """Sealed exact mapping from one prepared quantum batch to core outputs."""
+    """Sealed exact mapping from one prepared quantum batch to selected outputs."""
 
     batch: PreparedCircuitTargetBatch
     core_mapping: ClosedDomainResultMapping[
@@ -93,15 +90,7 @@ class CircuitTargetResultMapping:
             TargetCompileEntryId,
             TargetAcquisitionAddress,
         ],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _CIRCUIT_TARGET_RESULT_MAPPING_TOKEN:
-            msg = (
-                "CircuitTargetResultMapping can only be created by "
-                "seal_circuit_target_result_mapping"
-            )
-            raise TypeError(msg)
         if not isinstance(cast("object", batch), PreparedCircuitTargetBatch):
             msg = "circuit target result mappings require a prepared batch"
             raise TypeError(msg)
@@ -158,6 +147,12 @@ class CircuitTargetResultMapping:
     ]:
         return self.core_mapping.results
 
+    @property
+    def selected_product_use_ids(self) -> tuple[ProductUseId, ...]:
+        """Return the selected subset in linked-program canonical order."""
+
+        return self.core_mapping.selected_product_use_ids
+
     def entry_for_id(
         self,
         entry_id: TargetCompileEntryId,
@@ -181,9 +176,6 @@ class CircuitTargetResultMapping:
         )
 
 
-_COMPILED_CIRCUIT_TARGET_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class CompiledCircuitTarget[ArtifactT: TargetArtifact]:
     """One compiled artifact correlated to an exact circuit result mapping.
@@ -199,15 +191,7 @@ class CompiledCircuitTarget[ArtifactT: TargetArtifact]:
         self,
         mapping: CircuitTargetResultMapping,
         compiled: CompiledTargetArtifact[ArtifactT],
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _COMPILED_CIRCUIT_TARGET_TOKEN:
-            msg = (
-                "CompiledCircuitTarget can only be created by "
-                "bind_compiled_circuit_target"
-            )
-            raise TypeError(msg)
         _validate_compiled_target_correlation(mapping, compiled)
         object.__setattr__(self, "mapping", mapping)
         object.__setattr__(self, "compiled", compiled)
@@ -228,7 +212,6 @@ def bind_compiled_circuit_target[ArtifactT: TargetArtifact](
     return CompiledCircuitTarget(
         mapping,
         compiled,
-        _token=_COMPILED_CIRCUIT_TARGET_TOKEN,
     )
 
 
@@ -256,22 +239,6 @@ def _validate_compiled_target_correlation[ArtifactT: TargetArtifact](
         or compiled.repetitions != request.repetitions
     ):
         msg = "compiled target provenance does not match its retained request"
-        raise ValueError(msg)
-
-    artifact = compiled.artifact
-    if not isinstance(cast("object", artifact), TargetArtifact):
-        msg = "compiled circuit target artifact violates the target artifact contract"
-        raise TypeError(msg)
-    if (
-        artifact.id != compiled.artifact_id
-        or artifact.target_id != compiled.target_id
-        or artifact.compiler_id != compiled.compiler_id
-        or artifact.capability_fingerprint != compiled.capability_fingerprint
-        or artifact.artifact_fingerprint != compiled.artifact_fingerprint
-        or artifact.source_entry_ids != compiled.source_entry_ids
-        or artifact.repetitions != compiled.repetitions
-    ):
-        msg = "compiled target artifact no longer matches its checked provenance"
         raise ValueError(msg)
 
 
@@ -308,8 +275,14 @@ def seal_circuit_target_result_mapping(
         raise TypeError(msg)
 
     adapter_entries = _adapter_entries(batch)
+    selected_product_use_ids = tuple(
+        dict.fromkeys(
+            binding.product_use_id for binding in selected_acquisition_bindings
+        )
+    )
     core_mapping = seal_domain_result_mapping(
         linked_points,
+        selected_product_use_ids,
         adapter_entries,
         tuple(
             EntryPointBinding(
@@ -330,7 +303,6 @@ def seal_circuit_target_result_mapping(
     return CircuitTargetResultMapping(
         batch,
         core_mapping,
-        _token=_CIRCUIT_TARGET_RESULT_MAPPING_TOKEN,
     )
 
 
@@ -340,24 +312,6 @@ def _adapter_entries(
     AdapterEntryResults[TargetCompileEntryId, TargetAcquisitionAddress],
     ...,
 ]:
-    target_entries = tuple(entry.target_entry for entry in batch.entries)
-    if batch.request.entries != target_entries:
-        msg = "prepared batch request must exactly retain its circuit entries"
-        raise ValueError(msg)
-    addresses = tuple(
-        address for entry in batch.entries for address in entry.acquisition_addresses
-    )
-    if (
-        batch.acquisition_addresses != addresses
-        or batch.request.acquisition_addresses != addresses
-        or tuple(origin.address for origin in batch.acquisition_origins) != addresses
-    ):
-        msg = "prepared batch acquisition coverage is not exact"
-        raise ValueError(msg)
-    entry_ids = tuple(entry.id for entry in batch.entries)
-    if len(set(entry_ids)) != len(entry_ids):
-        msg = "prepared batch target entry ids must be unique"
-        raise ValueError(msg)
     return tuple(
         AdapterEntryResults(
             entry_address=entry.id,

@@ -22,7 +22,7 @@ from scopecat._resource_identity import (
     LogicalResourcePortId,
     PhysicalResourceId,
 )
-from scopecat._semantic_graph import ImplementationId, OperationId, ValueId
+from scopecat._semantic_graph import ActionId, ImplementationId, OperationId, ValueId
 from scopecat._value_availability import ValueAvailability, ValueRate, ValueStage
 from scopecat.models.config import RoutingChannelBinding
 from scopecat.models.state import StateValue
@@ -180,6 +180,42 @@ class BoundResourceState:
 
 
 @dataclass(frozen=True, slots=True)
+class BoundActionField:
+    id: str
+    value: StateValue
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[RoutingChannelBinding, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "bound action field ids must be non-empty"
+            raise ValueError(msg)
+        _validate_bound_entity_target(
+            self.entity_ids,
+            self.channel_bindings,
+            label="bound action field",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class BoundAction:
+    id: ActionId
+    resource_id: PhysicalResourceId
+    resource_port_id: LogicalResourcePortId
+    capability_id: str
+    fields: tuple[BoundActionField, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.capability_id:
+            msg = "bound action capability ids must be non-empty"
+            raise ValueError(msg)
+        field_ids = tuple(field.id for field in self.fields)
+        if len(field_ids) != len(set(field_ids)):
+            msg = "bound action field ids must be unique"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
 class BoundAxis:
     id: str
     kind: str
@@ -291,6 +327,7 @@ class BoundPoint:
     routes: tuple[BoundRoute, ...]
     desired_state: tuple[BoundResourceState, ...]
     collect: tuple[BoundCollect, ...]
+    actions: tuple[BoundAction, ...] = ()
 
     def __post_init__(self) -> None:
         if self.point_index != self.logical_id.logical_ordinal:

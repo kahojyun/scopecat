@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
 
 from scopecat.models.run import RunConfigSource
+from scopecat.models.run_plan import RunPlanProducerKind
 from scopecat.models.state import StateLiteral
 from scopecat.problems import Problem, has_blocking_problems
 from scopecat.results import MeasurementDatasetSchema
@@ -28,7 +28,7 @@ class ExperimentPreviewPoint:
 class ExperimentPreviewRecord:
     id: str
     kind: str
-    producer_kind: Literal["instrument"]
+    producer_kind: RunPlanProducerKind
     resource_port_id: str | None
     physical_resource_id: str | None
     capability: str | None

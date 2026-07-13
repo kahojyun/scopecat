@@ -7,7 +7,6 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-import scopecat._compiler.point_domain as point_domain_module
 from scopecat._compiler.point_domain import (
     LogicalPointId,
     MaterializedPoint,
@@ -27,7 +26,6 @@ from scopecat._compiler.point_domain import (
 )
 from scopecat._point_domain_algebra import (
     POINT_UNIT,
-    PointDomainAnalysis,
     PointRelationRows,
     point_dependent_product,
     point_product,
@@ -765,33 +763,12 @@ def test_verified_domain_is_a_defensive_snapshot() -> None:
     assert captured_root.rows == [{"x": 1}]
 
 
-def test_point_domain_artifacts_are_sealed() -> None:
-    domain = _domain([1])
-    verified = verify_point_domain(domain, program_id="program")
-    logical_id = LogicalPointId(verified.id, 0)
-
-    with pytest.raises(TypeError, match="verify_point_domain"):
-        VerifiedPointDomain(
-            verified.id,
-            domain,
-            cast("PointDomainAnalysis", object()),
-            (),
-        )
-    with pytest.raises(TypeError, match="point-domain selection"):
-        SelectedPointDomain(verified, "test", ())
-    with pytest.raises(TypeError, match="point-domain materialization"):
-        MaterializedPoint(logical_id, {"x": 1}, None)
-    with pytest.raises(TypeError, match="point-domain materialization"):
-        MaterializedPointDomain(verified.id, (), verified.cardinality)
-
-
 def test_materialized_domain_rejects_a_forged_noncanonical_point_identity() -> None:
     verified = verify_point_domain(_domain([1]), program_id="program")
     forged = MaterializedPoint(
         LogicalPointId(verified.id, 7),
         {"x": 1},
         None,
-        _token=point_domain_module._MATERIALIZED_POINT_TOKEN,  # pyright: ignore[reportPrivateUsage]
     )
 
     with pytest.raises(ValueError, match="canonical contiguous ordinal order"):
@@ -799,7 +776,6 @@ def test_materialized_domain_rejects_a_forged_noncanonical_point_identity() -> N
             verified.id,
             (forged,),
             verified.cardinality,
-            _token=point_domain_module._MATERIALIZED_POINT_DOMAIN_TOKEN,  # pyright: ignore[reportPrivateUsage]
         )
 
 
@@ -811,7 +787,6 @@ def test_materialized_domain_rejects_reordered_canonical_points() -> None:
             materialized.id,
             tuple(reversed(materialized.points)),
             materialized.declared_cardinality,
-            _token=point_domain_module._MATERIALIZED_POINT_DOMAIN_TOKEN,  # pyright: ignore[reportPrivateUsage]
         )
 
 

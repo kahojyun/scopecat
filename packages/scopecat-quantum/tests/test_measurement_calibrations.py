@@ -18,7 +18,6 @@ from scopecat_quantum._ids import (
     QubitId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.calibrations import MeasurementCalibrationSelection
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.measurement_calibrations import (
     MeasurementCalibration,
@@ -460,8 +459,3 @@ def test_binding_defensively_rechecks_runtime_shape_and_template_contract() -> N
                 calibration_id=cast("CalibrationId", values["calibration_id"]),
                 pulse_template=cast("PulseProgram", values["pulse_template"]),
             )
-
-
-def test_measurement_selection_cannot_be_forged() -> None:
-    with pytest.raises(TypeError, match="only be created"):
-        MeasurementCalibrationSelection(CircuitId("circuit"), (), ())

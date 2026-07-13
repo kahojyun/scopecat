@@ -278,9 +278,6 @@ class RelationPlanVerificationError(ValueError):
         super().__init__(f"{rendered}: {message}" if rendered else message)
 
 
-_VERIFIED_TOKEN = object()
-
-
 class VerifiedRelationPlan[NodeT: PlanNode]:
     """Publicly immutable proof that a relation plan is closed and well typed.
 
@@ -312,12 +309,7 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         runtime_obligations: tuple[RuntimeObligation, ...],
         bindings: RelationTypeBindings,
         external_row_interface: ExternalRowInterface | None = None,
-        *,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _VERIFIED_TOKEN:
-            msg = "VerifiedRelationPlan can only be created by verify_relation_plan"
-            raise TypeError(msg)
         if external_row_interface is None:
             raise AssertionError("verified relation plan row interface is missing")
         self._root = cast("NodeT", root.model_copy(deep=True))
@@ -434,7 +426,6 @@ def verify_relation_plan[NodeT: PlanNode](
         tuple(verifier.obligations),
         selected,
         _external_row_interface(verifier, free_references, selected),
-        _token=_VERIFIED_TOKEN,
     )
 
 

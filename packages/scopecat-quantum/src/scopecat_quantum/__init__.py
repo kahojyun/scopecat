@@ -9,6 +9,7 @@ from scopecat_quantum import (
     circuits,
     gates,
     measurement_calibrations,
+    measurement_transforms,
     pulses,
     targets,
 )
@@ -99,6 +100,12 @@ from scopecat_quantum.gates import (
     GateParameterDefinition,
     GateParameterKind,
 )
+from scopecat_quantum.measurement_transforms import (
+    BinaryIqDiscriminator,
+    IqCentroid,
+    binary_iq_probability_host_implementation,
+    binary_iq_probability_transform,
+)
 from scopecat_quantum.pulses import (
     DRAG,
     Acquire,
@@ -152,6 +159,7 @@ __all__ = [
     "AcquisitionSlotId",
     "AnalyticEnvelope",
     "Barrier",
+    "BinaryIqDiscriminator",
     "CalibrationBinding",
     "CalibrationCatalog",
     "CalibrationId",
@@ -203,6 +211,7 @@ __all__ = [
     "GateParameterKind",
     "GatePulseInstantiation",
     "Gaussian",
+    "IqCentroid",
     "LogicalSignal",
     "LoweredCircuitPulseProgram",
     "Measure",
@@ -245,6 +254,8 @@ __all__ = [
     "TargetId",
     "VerifiedCircuitProgram",
     "acquisitions",
+    "binary_iq_probability_host_implementation",
+    "binary_iq_probability_transform",
     "bind_compiled_circuit_target",
     "calibrations",
     "circuit_pulses",
@@ -257,6 +268,7 @@ __all__ = [
     "iter_pulse_leaves",
     "lower_circuit_to_pulses",
     "measurement_calibrations",
+    "measurement_transforms",
     "prepare_circuit_target_batch",
     "prepare_circuit_target_entry",
     "pulses",

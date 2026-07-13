@@ -33,16 +33,19 @@ from scopecat.problems import (
     model_location,
 )
 from scopecat.results import MeasurementDType, MeasurementValue
+from scopecat.value_types import Bool as BoolType
 from scopecat.value_types import Float as FloatType
+from scopecat.value_types import Int as IntType
 from scopecat.value_types import Payload as PayloadType
 from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Scalar
+from scopecat.value_types import String as StringType
 from scopecat.value_validation import ValuePath, ValueValidationError, validate_literal
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 
 _CAPABILITY_FIELD_SCALAR_WIRE_SCHEMA = scalar_type_wire_schema(
-    ("float", "quantity", "payload"),
+    ("bool", "int", "float", "string", "quantity", "payload"),
     finite_only=True,
     allow_nullable=False,
 )
@@ -72,8 +75,14 @@ class CapabilityField(BaseModel):
         if value.nullable:
             msg = "instrument capability fields must be non-nullable"
             raise ValueError(msg)
-        if not isinstance(value.atom, FloatType | QuantityType | PayloadType):
-            msg = "instrument capability fields support float, quantity, and payload"
+        if not isinstance(
+            value.atom,
+            BoolType | IntType | FloatType | StringType | QuantityType | PayloadType,
+        ):
+            msg = (
+                "instrument capability fields support bool, int, float, string, "
+                "quantity, and payload"
+            )
             raise ValueError(msg)
         if isinstance(value.atom, FloatType | QuantityType) and not value.atom.finite:
             msg = "instrument capability numeric fields must require finite values"
@@ -285,6 +294,81 @@ class ApplyReceipt(BaseModel):
         return self
 
 
+class InstrumentActionCommandField(BaseModel):
+    """One typed argument supplied to a one-shot instrument action."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field_path: _NonEmptyId
+    value: StateValue
+    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
+    channel_bindings: list[CommandChannelBinding] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> InstrumentActionCommandField:
+        _validate_entity_target(self.entity_ids, self.channel_bindings)
+        return self
+
+
+class InstrumentActionCommand(BaseModel):
+    """A one-shot effect command that is never state-diffed or deduplicated."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["scopecat.instrument_action_command.v1"] = (
+        "scopecat.instrument_action_command.v1"
+    )
+    operation_id: _NonEmptyId
+    attempt: int = Field(default=1, ge=1)
+    instrument_id: _NonEmptyId
+    capability_id: _NonEmptyId
+    fields: list[InstrumentActionCommandField] = Field(default_factory=list)
+    payloads: dict[str, CommandPayload] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_unique_fields(self) -> InstrumentActionCommand:
+        identities = [
+            _state_target_identity(
+                self.capability_id,
+                field.field_path,
+                field.entity_ids,
+                field.channel_bindings,
+            )
+            for field in self.fields
+        ]
+        if len(identities) != len(set(identities)):
+            msg = "instrument action command field targets must be unique"
+            raise ValueError(msg)
+        return self
+
+
+class ActionReceipt(BaseModel):
+    """Explicit outcome of a one-shot action attempt.
+
+    ``not_performed`` proves the action had no effect and is therefore safe for
+    a caller to retry deliberately. ``unknown`` means it may have happened and
+    must never be retried automatically.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["scopecat.action_receipt.v1"] = "scopecat.action_receipt.v1"
+    status: Literal["performed", "not_performed", "unknown"] = "performed"
+    problems: tuple[Problem, ...] = ()
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_outcome_truth_table(self) -> ActionReceipt:
+        blocking = has_blocking_problems(self.problems)
+        if self.status == "performed" and blocking:
+            msg = "a performed action receipt cannot contain blocking problems"
+            raise ValueError(msg)
+        if self.status != "performed" and not blocking:
+            msg = "a negative or unknown action receipt requires a blocking problem"
+            raise ValueError(msg)
+        return self
+
+
 class CollectAxisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -374,7 +458,7 @@ class CollectReceipt(BaseModel):
         return self
 
 
-@dataclass(frozen=True)
+@dataclass
 class DriverFault(Exception):
     """Exceptional driver control flow carrying one stable public problem."""
 
@@ -397,6 +481,8 @@ class InstrumentDriver(Protocol):
     def read_state(self) -> InstrumentStateSnapshot: ...
 
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt: ...
+
+    def action(self, command: InstrumentActionCommand) -> ActionReceipt: ...
 
     def collect(self, command: CollectCommand) -> CollectReceipt: ...
 
@@ -524,6 +610,32 @@ def quantity_field(
     )
 
 
+def bool_field(
+    id: str,  # noqa: A002
+    *,
+    metadata: dict[str, Any] | None = None,
+) -> CapabilityField:
+    return CapabilityField(
+        id=id,
+        value_type=Scalar(BoolType()),
+        metadata=dict(metadata or {}),
+    )
+
+
+def int_field(
+    id: str,  # noqa: A002
+    *,
+    minimum: int | None = None,
+    maximum: int | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> CapabilityField:
+    return CapabilityField(
+        id=id,
+        value_type=Scalar(IntType(minimum=minimum, maximum=maximum)),
+        metadata=dict(metadata or {}),
+    )
+
+
 def float_field(
     id: str,  # noqa: A002
     *,
@@ -534,6 +646,38 @@ def float_field(
         value_type=Scalar(FloatType()),
         metadata=dict(metadata or {}),
     )
+
+
+def string_field(
+    id: str,  # noqa: A002
+    *,
+    min_length: int = 0,
+    max_length: int | None = None,
+    pattern: str | None = None,
+    choices: tuple[str, ...] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> CapabilityField:
+    return CapabilityField(
+        id=id,
+        value_type=Scalar(
+            StringType(
+                min_length=min_length,
+                max_length=max_length,
+                pattern=pattern,
+                choices=choices,
+            )
+        ),
+        metadata=dict(metadata or {}),
+    )
+
+
+def enum_field(
+    id: str,  # noqa: A002
+    *,
+    choices: tuple[str, ...],
+    metadata: dict[str, Any] | None = None,
+) -> CapabilityField:
+    return string_field(id, choices=choices, metadata=metadata)
 
 
 def payload_field(
@@ -606,6 +750,65 @@ def validate_state_command(
                 field_path=field.field_path,
                 value=field.value,
                 spec=field_spec,
+                payloads=available_payloads,
+            )
+        )
+    return problems
+
+
+def validate_action_command(
+    *,
+    command: InstrumentActionCommand,
+    description: InstrumentDescription,
+    payloads: dict[str, CommandPayload] | None = None,
+) -> list[Problem]:
+    """Validate an action against the same typed capability field contract."""
+
+    if command.instrument_id != description.instrument_id:
+        return [
+            _problem(
+                "instrument_driver_mismatch",
+                f"{description.instrument_id} cannot perform action for "
+                f"{command.instrument_id}",
+                "instrument_id",
+            )
+        ]
+    capability = next(
+        (
+            candidate
+            for candidate in description.capabilities
+            if candidate.id == command.capability_id
+        ),
+        None,
+    )
+    if capability is None:
+        return [
+            _problem(
+                "instrument_driver_unsupported_capability",
+                f"{command.instrument_id} does not support {command.capability_id}",
+                "capability_id",
+            )
+        ]
+    specs = {field.id: field for field in capability.fields}
+    available_payloads = {**command.payloads, **(payloads or {})}
+    problems: list[Problem] = []
+    for field in command.fields:
+        spec = specs.get(field.field_path)
+        if spec is None:
+            problems.append(
+                _problem(
+                    "instrument_driver_unsupported_field",
+                    f"{command.instrument_id} does not support {field.field_path}",
+                    "fields",
+                    field.field_path,
+                )
+            )
+            continue
+        problems.extend(
+            _validate_state_value(
+                field_path=field.field_path,
+                value=field.value,
+                spec=spec,
                 payloads=available_payloads,
             )
         )
@@ -695,11 +898,37 @@ def _validate_state_value(
     state_literal = value.root
     literal: object
     literal_path: ValuePath
-    if isinstance(atom, FloatType):
-        if not isinstance(state_literal, float):
+    if isinstance(atom, BoolType):
+        if not isinstance(state_literal, bool):
+            return _field_value_mismatch(
+                field_path,
+                f"expected bool, got {_state_literal_type(state_literal)}",
+            )
+        literal = state_literal
+        literal_path = ("value",)
+    elif isinstance(atom, IntType):
+        if not isinstance(state_literal, int) or isinstance(state_literal, bool):
+            return _field_value_mismatch(
+                field_path,
+                f"expected int, got {_state_literal_type(state_literal)}",
+            )
+        literal = state_literal
+        literal_path = ("value",)
+    elif isinstance(atom, FloatType):
+        if not isinstance(state_literal, int | float) or isinstance(
+            state_literal, bool
+        ):
             return _field_value_mismatch(
                 field_path,
                 f"expected float, got {_state_literal_type(state_literal)}",
+            )
+        literal = state_literal
+        literal_path = ("value",)
+    elif isinstance(atom, StringType):
+        if not isinstance(state_literal, str):
+            return _field_value_mismatch(
+                field_path,
+                f"expected string, got {_state_literal_type(state_literal)}",
             )
         literal = state_literal
         literal_path = ("value",)
@@ -744,8 +973,14 @@ def _validate_state_value(
 
 
 def _state_literal_type(value: StateLiteral) -> str:
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
     if isinstance(value, float):
         return "float"
+    if isinstance(value, str):
+        return "string"
     if isinstance(value, QuantityValue):
         return "quantity"
     return "payload reference"

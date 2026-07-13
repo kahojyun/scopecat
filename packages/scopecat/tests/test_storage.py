@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -9,21 +10,28 @@ from pydantic import BaseModel, ValidationError
 
 import scopecat._storage.local.io as local_io
 import scopecat._storage.local.run_repository as run_repository
+from scopecat._content_identity import stable_content_hash
 from scopecat._execution.journal import (
     CollectionChunk,
+    CollectionChunkReceipt,
     ExecutionJournalEntry,
     ExecutionJournalError,
+    MemoryCollectionRepository,
 )
 from scopecat._measurement_storage import write_measurement_records_path
 from scopecat._storage.local import (
-    LocalCollectionCommitter,
+    LocalCollectionRepository,
     LocalExecutionJournal,
-    LocalMeasurementCommitter,
+    LocalMeasurementRecordCommitter,
     LocalRunLayout,
     LocalRunStore,
 )
 from scopecat.errors import CheckFailed, DataIntegrityError, NotFound, StorageError
 from scopecat.instruments import InstrumentReadback
+from scopecat.measurement_recording import (
+    MeasurementRecordChunk,
+    MeasurementRecordReceipt,
+)
 from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunManifest, RunOutcome
 from scopecat.problems import ProblemCategory, StorageLocation
@@ -32,6 +40,51 @@ from scopecat.results import MeasurementRecord
 
 class JsonlRecord(BaseModel):
     message: str
+
+
+@pytest.mark.parametrize("repository_kind", ("memory", "local"))
+def test_collection_repository_contract(repository_kind: str, tmp_path: Path) -> None:
+    chunk = CollectionChunk(
+        run_id="collection-repository-contract-run",
+        operation_id="point-0.collect.source",
+        command_content_hash="collection-repository-contract-command",
+        point_index=0,
+        instrument_id="source",
+        readback=InstrumentReadback(
+            values={"signal": Quantity(value=1.0, unit="ratio")}
+        ),
+    )
+    repository = (
+        MemoryCollectionRepository()
+        if repository_kind == "memory"
+        else LocalCollectionRepository(tmp_path, run_id=chunk.run_id)
+    )
+
+    receipt = repository.commit(chunk)
+    repeated = repository.commit(chunk.model_copy(deep=True))
+    resolved = repository.resolve(receipt)
+    resolved.instrument_id = "mutated-caller-copy"
+
+    assert repeated == receipt
+    assert receipt.operation_id == chunk.operation_id
+    assert receipt.content_hash == chunk.content_hash
+    assert repository.resolve(receipt).content_hash == chunk.content_hash
+    assert repository.resolve(receipt).instrument_id == chunk.instrument_id
+
+    for update in (
+        {"operation_id": "foreign-operation"},
+        {"ref": "foreign/collection.json"},
+        {"content_hash": "foreign-content-hash"},
+    ):
+        with pytest.raises(ExecutionJournalError):
+            repository.resolve(receipt.model_copy(update=update))
+
+    conflicting = chunk.model_copy(
+        update={"readback": InstrumentReadback()},
+        deep=True,
+    )
+    with pytest.raises(ExecutionJournalError):
+        repository.commit(conflicting)
 
 
 def test_local_run_layout_resolves_run_relative_refs(tmp_path) -> None:
@@ -207,9 +260,9 @@ def test_atomic_models_and_journal_fsync_file_and_parent(
         ExecutionJournalEntry(
             run_id=run_id,
             operation_id="test.operation",
-            stage="point",
-            effect="pure",
-            state="completed",
+            stage="apply_state",
+            effect="state_write",
+            state="started",
         )
     )
     assert len(fsync_calls) == 2
@@ -249,6 +302,9 @@ def test_collection_chunk_hashes_and_replays_non_finite_readbacks(tmp_path) -> N
     chunk = CollectionChunk(
         run_id="run-non-finite",
         operation_id="point-0.collect.source",
+        command_content_hash=stable_content_hash(
+            {"test_command_id": "point-0.collect.source"}
+        ),
         point_index=0,
         instrument_id="source",
         readback=InstrumentReadback(
@@ -266,7 +322,7 @@ def test_collection_chunk_hashes_and_replays_non_finite_readbacks(tmp_path) -> N
             },
         ),
     )
-    committer = LocalCollectionCommitter(tmp_path, run_id=chunk.run_id)
+    committer = LocalCollectionRepository(tmp_path, run_id=chunk.run_id)
 
     first = committer.commit(chunk)
     second = committer.commit(chunk.model_copy(deep=True))
@@ -276,7 +332,72 @@ def test_collection_chunk_hashes_and_replays_non_finite_readbacks(tmp_path) -> N
     )
 
     assert first == second
+    assert first.operation_id == chunk.operation_id
     assert first.content_hash == chunk.content_hash == stored.content_hash
+    resolved = committer.resolve(first)
+    assert resolved is not stored
+    assert resolved.content_hash == stored.content_hash
+
+
+@pytest.mark.parametrize(
+    "receipt_update",
+    [
+        {"operation_id": "another-operation"},
+        {"ref": "execution/readbacks/another-file.json"},
+        {"content_hash": "another-content-hash"},
+    ],
+)
+def test_local_collection_resolve_rejects_mismatched_receipt(
+    tmp_path,
+    receipt_update: dict[str, str],
+) -> None:
+    chunk = CollectionChunk(
+        run_id="run-resolve-mismatch",
+        operation_id="point-0.collect.source",
+        command_content_hash=stable_content_hash(
+            {"test_command_id": "point-0.collect.source"}
+        ),
+        point_index=0,
+        instrument_id="source",
+        readback=InstrumentReadback(),
+    )
+    committer = LocalCollectionRepository(tmp_path, run_id=chunk.run_id)
+    receipt = committer.commit(chunk)
+
+    with pytest.raises(ExecutionJournalError):
+        committer.resolve(receipt.model_copy(update=receipt_update))
+
+
+def test_local_collection_resolve_rejects_unbacked_receipt(tmp_path) -> None:
+    operation_id = "point-0.collect.source"
+    operation_digest = sha256(operation_id.encode("utf-8")).hexdigest()
+    receipt = CollectionChunkReceipt(
+        operation_id=operation_id,
+        ref=f"execution/readbacks/{operation_digest}.json",
+        content_hash="valid-looking-content-hash",
+    )
+    committer = LocalCollectionRepository(tmp_path, run_id="run-unbacked")
+
+    with pytest.raises(ExecutionJournalError, match="failed to resolve"):
+        committer.resolve(receipt)
+
+
+def test_local_collection_resolve_rejects_corrupted_bytes(tmp_path: Path) -> None:
+    chunk = CollectionChunk(
+        run_id="run-corrupted-readback",
+        operation_id="point-0.collect.source",
+        command_content_hash="command-content-hash",
+        point_index=0,
+        instrument_id="source",
+        readback=InstrumentReadback(),
+    )
+    repository = LocalCollectionRepository(tmp_path, run_id=chunk.run_id)
+    receipt = repository.commit(chunk)
+    path = LocalRunStore(tmp_path).ref_path(chunk.run_id, receipt.ref)
+    path.write_text('{"corrupted":', encoding="utf-8")
+
+    with pytest.raises(ExecutionJournalError, match="failed to resolve"):
+        repository.resolve(receipt)
 
 
 @pytest.mark.parametrize("value", [(1, 2), {1, 2}, object()])
@@ -291,20 +412,123 @@ def test_local_measurement_commit_is_canonical_and_nan_idempotent(tmp_path) -> N
         point_index=0,
         coordinates={},
         observables={"signal": Quantity(value=float("nan"), unit="ratio")},
-        metadata={"stable": ["json", 1]},
+        metadata={
+            "logical_point_id": "point-0",
+            "stable": ["json", 1],
+        },
     )
-    committer = LocalMeasurementCommitter(tmp_path, run_id=measurement.run_id)
+    committer = LocalMeasurementRecordCommitter(
+        tmp_path,
+        run_id=measurement.run_id,
+    )
+    chunk = MeasurementRecordChunk(
+        run_id=measurement.run_id,
+        dataset_id="raw-measurements",
+        recording_contract_fingerprint="test-recording-contract",
+        logical_point_id="point-0",
+        point_index=measurement.point_index,
+        record=measurement,
+    )
 
-    committer.commit(measurement)
-    committer.commit(measurement.model_copy(deep=True))
+    first = committer.commit(chunk)
+    second = committer.commit(chunk.model_copy(deep=True))
+    stored = local_io.read_model(
+        LocalRunStore(tmp_path).ref_path(chunk.run_id, first.record_ref),
+        MeasurementRecordChunk,
+    )
 
+    assert (
+        first
+        == second
+        == MeasurementRecordReceipt(
+            operation_id=chunk.operation_id,
+            chunk_content_hash=chunk.content_hash,
+            record_ref=first.record_ref,
+        )
+    )
+    assert stored.operation_id == chunk.operation_id
+    assert stored.content_hash == chunk.content_hash
     assert len(committer.measurements()) == 1
-    assert committer.measurements()[0].metadata == {"stable": ["json", 1]}
+    assert committer.measurements()[0].metadata == {
+        "logical_point_id": "point-0",
+        "stable": ["json", 1],
+    }
     different = measurement.model_copy(
         update={"observables": {"signal": Quantity(value=float("inf"), unit="ratio")}}
     )
     with pytest.raises(ExecutionJournalError, match="different committed"):
-        committer.commit(different)
+        committer.commit(chunk.model_copy(update={"record": different}))
+
+
+def test_local_measurement_commit_allows_distinct_datasets_for_same_point(
+    tmp_path,
+) -> None:
+    measurement = MeasurementRecord(
+        run_id="run-multi-dataset",
+        point_index=3,
+        coordinates={},
+        observables={"signal": Quantity(value=1.0, unit="ratio")},
+        metadata={"logical_point_id": "point-3"},
+    )
+    committer = LocalMeasurementRecordCommitter(
+        tmp_path,
+        run_id=measurement.run_id,
+    )
+    raw = MeasurementRecordChunk(
+        run_id=measurement.run_id,
+        dataset_id="raw-measurements",
+        recording_contract_fingerprint="raw-contract",
+        logical_point_id="point-3",
+        point_index=measurement.point_index,
+        record=measurement,
+    )
+    derived = raw.model_copy(
+        update={
+            "dataset_id": "derived-measurements",
+            "recording_contract_fingerprint": "derived-contract",
+        }
+    )
+
+    raw_receipt = committer.commit(raw)
+    derived_receipt = committer.commit(derived)
+
+    assert raw.operation_id != derived.operation_id
+    assert raw_receipt.record_ref != derived_receipt.record_ref
+    assert len(committer.measurements()) == 2
+
+
+def test_local_measurement_commit_rejects_contract_change_in_canonical_slot(
+    tmp_path,
+) -> None:
+    measurement = MeasurementRecord(
+        run_id="run-contract-conflict",
+        point_index=4,
+        coordinates={},
+        observables={"signal": Quantity(value=1.0, unit="ratio")},
+        metadata={"logical_point_id": "point-4"},
+    )
+    committer = LocalMeasurementRecordCommitter(
+        tmp_path,
+        run_id=measurement.run_id,
+    )
+    original = MeasurementRecordChunk(
+        run_id=measurement.run_id,
+        dataset_id="raw-measurements",
+        recording_contract_fingerprint="original-contract",
+        logical_point_id="point-4",
+        point_index=measurement.point_index,
+        record=measurement,
+    )
+    changed_contract = original.model_copy(
+        update={"recording_contract_fingerprint": "changed-contract"}
+    )
+
+    committer.commit(original)
+    with pytest.raises(ExecutionJournalError, match="different committed"):
+        committer.commit(changed_contract)
+
+    assert original.operation_id != changed_contract.operation_id
+    assert len(committer.measurements()) == 1
 
 
 @pytest.mark.parametrize("value", [(1, 2), {1, 2}, object()])
@@ -326,6 +550,9 @@ def test_collection_chunk_digest_failure_precedes_publish(
     chunk = CollectionChunk(
         run_id="run-hash-failure",
         operation_id="point-0.collect.source",
+        command_content_hash=stable_content_hash(
+            {"test_command_id": "point-0.collect.source"}
+        ),
         point_index=0,
         instrument_id="source",
         readback=InstrumentReadback(),
@@ -341,7 +568,7 @@ def test_collection_chunk_digest_failure_precedes_publish(
     )
 
     with pytest.raises(ValueError, match="hash failed"):
-        LocalCollectionCommitter(tmp_path, run_id=chunk.run_id).commit(chunk)
+        LocalCollectionRepository(tmp_path, run_id=chunk.run_id).commit(chunk)
 
     assert not (tmp_path / "runs" / chunk.run_id).exists()
 

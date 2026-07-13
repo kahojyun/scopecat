@@ -303,12 +303,9 @@ class TargetCompiler[ArtifactT: TargetArtifact](Protocol):
     def compile(self, request: TargetCompileRequest) -> ArtifactT: ...
 
 
-_COMPILED_ARTIFACT_TOKEN = object()
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
-    """Construction-controlled snapshot of return-time artifact provenance.
+    """Checked snapshot of return-time artifact provenance.
 
     This result records checks made immediately after the trusted in-process
     compiler returns. It is not a security boundary and cannot independently
@@ -327,11 +324,7 @@ class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
         *,
         _verified_artifact_id: TargetArtifactId | None = None,
         _verified_artifact_fingerprint: str | None = None,
-        _token: object | None = None,
     ) -> None:
-        if _token is not _COMPILED_ARTIFACT_TOKEN:
-            msg = "CompiledTargetArtifact can only be created by compile_target"
-            raise TypeError(msg)
         if _verified_artifact_id is None or _verified_artifact_fingerprint is None:
             msg = "compiled target artifact result is missing checked provenance"
             raise AssertionError(msg)
@@ -582,7 +575,6 @@ def compile_target[ArtifactT: TargetArtifact](
         artifact,
         _verified_artifact_id=cast("TargetArtifactId", artifact_id),
         _verified_artifact_fingerprint=cast("str", fingerprint),
-        _token=_COMPILED_ARTIFACT_TOKEN,
     )
 
 

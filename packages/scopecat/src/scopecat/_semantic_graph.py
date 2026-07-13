@@ -78,6 +78,28 @@ type SemanticValueType = ValueType | Route
 
 
 @dataclass(frozen=True, slots=True)
+class ActionId:
+    """Nominal identity in the semantic instrument-action symbol space."""
+
+    symbol: SymbolId
+
+    @property
+    def qualified_name(self) -> str:
+        return self.symbol.qualified_name
+
+    @property
+    def scope(self) -> tuple[str, ...]:
+        return self.symbol.scope
+
+    @property
+    def local_id(self) -> str:
+        return self.symbol.local_id
+
+    def prefixed(self, *scope: str) -> ActionId:
+        return ActionId(self.symbol.prefixed(*scope))
+
+
+@dataclass(frozen=True, slots=True)
 class OperationId:
     """Nominal identity in the semantic-operation symbol space."""
 
@@ -423,9 +445,26 @@ class SemanticOperation:
 
 
 @dataclass(frozen=True, slots=True)
+class InstrumentActionEffect:
+    """An ordered point effect that must be delivered exactly once per attempt."""
+
+    id: ActionId
+    resource_port_id: LogicalResourcePortId
+    capability_id: str
+    fields: tuple[tuple[str, ValueUse], ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_unique_names("action field", self.fields)
+        if not self.capability_id:
+            msg = "instrument action capability ids must be non-empty"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticGraphIR:
     value_defs: tuple[ValueDef, ...] = ()
     operations: tuple[SemanticOperation, ...] = ()
+    actions: tuple[InstrumentActionEffect, ...] = ()
     row_regions: tuple[StateEachRegion, ...] = ()
 
 
@@ -473,10 +512,11 @@ class SourceAnchor:
 class SourceMap:
     operation_sources: tuple[tuple[OperationId, SourceAnchor], ...] = ()
     value_sources: tuple[tuple[ValueId, SourceAnchor], ...] = ()
+    action_sources: tuple[tuple[ActionId, SourceAnchor], ...] = ()
     row_region_sources: tuple[tuple[RowRegionId, SourceAnchor], ...] = ()
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class VerifiedSemanticGraph:
     graph: SemanticGraphIR
     value_defs: Mapping[ValueId, ValueDef] = field(
@@ -489,20 +529,21 @@ class VerifiedSemanticGraph:
         compare=False,
         hash=False,
     )
+    actions: Mapping[ActionId, InstrumentActionEffect] = field(
+        init=False,
+        compare=False,
+        hash=False,
+    )
 
-    def __init__(self) -> None:
-        msg = "VerifiedSemanticGraph can only be created by verify_semantic_graph"
-        raise TypeError(msg)
-
-    @classmethod
-    def _from_verified(cls, graph: SemanticGraphIR) -> VerifiedSemanticGraph:
-        verified = object.__new__(cls)
-        definitions = {definition.id: definition for definition in graph.value_defs}
-        regions = {region.id: region for region in graph.row_regions}
-        object.__setattr__(verified, "graph", graph)
-        object.__setattr__(verified, "value_defs", MappingProxyType(definitions))
-        object.__setattr__(verified, "row_regions", MappingProxyType(regions))
-        return verified
+    def __post_init__(self) -> None:
+        definitions = {
+            definition.id: definition for definition in self.graph.value_defs
+        }
+        regions = {region.id: region for region in self.graph.row_regions}
+        actions = {action.id: action for action in self.graph.actions}
+        object.__setattr__(self, "value_defs", MappingProxyType(definitions))
+        object.__setattr__(self, "row_regions", MappingProxyType(regions))
+        object.__setattr__(self, "actions", MappingProxyType(actions))
 
 
 def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
@@ -517,6 +558,7 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         graph.operations,
         problems,
     )
+    actions, ambiguous_action_ids = _actions_by_id(graph.actions, problems)
     regions, ambiguous_region_ids = _regions_by_id(graph.row_regions, problems)
     unambiguous_operations = tuple(
         operation
@@ -525,6 +567,12 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
     )
     _verify_uses(
         unambiguous_operations,
+        definitions,
+        ambiguous_value_ids,
+        problems,
+    )
+    _verify_actions(
+        tuple(actions.values()),
         definitions,
         ambiguous_value_ids,
         problems,
@@ -576,13 +624,14 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
     normalized = SemanticGraphIR(
         value_defs=ordered_defs,
         operations=ordered_operations,
+        actions=tuple(
+            action for action in graph.actions if action.id not in ambiguous_action_ids
+        ),
         # State regions retain authored order: desired-state sequencing is
         # semantic, unlike declaration maps normalized only by identity.
         row_regions=graph.row_regions,
     )
-    return VerifiedSemanticGraph._from_verified(  # pyright: ignore[reportPrivateUsage]
-        normalized
-    )
+    return VerifiedSemanticGraph(normalized)
 
 
 def verify_implementation_catalog(
@@ -665,6 +714,7 @@ def verify_source_map(graph: SemanticGraphIR, source_map: SourceMap) -> SourceMa
     operation_ids = {operation.id for operation in graph.operations}
     value_ids = {definition.id for definition in graph.value_defs}
     row_region_ids = {region.id for region in graph.row_regions}
+    action_ids = {action.id for action in graph.actions}
     operation_sources = _verify_source_entries(
         "operation",
         source_map.operation_sources,
@@ -675,6 +725,12 @@ def verify_source_map(graph: SemanticGraphIR, source_map: SourceMap) -> SourceMa
         "value",
         source_map.value_sources,
         value_ids,
+        problems,
+    )
+    action_sources = _verify_source_entries(
+        "action",
+        source_map.action_sources,
+        action_ids,
         problems,
     )
     row_region_sources = _verify_source_entries(
@@ -694,6 +750,9 @@ def verify_source_map(graph: SemanticGraphIR, source_map: SourceMap) -> SourceMa
         value_sources=tuple(
             sorted(value_sources.items(), key=lambda item: item[0].qualified_name)
         ),
+        action_sources=tuple(
+            sorted(action_sources.items(), key=lambda item: item[0].qualified_name)
+        ),
         row_region_sources=tuple(
             sorted(
                 row_region_sources.items(),
@@ -704,7 +763,7 @@ def verify_source_map(graph: SemanticGraphIR, source_map: SourceMap) -> SourceMa
 
 
 def _verify_source_entries[
-    Identity: (OperationId, RowRegionId, ValueId),
+    Identity: (ActionId, OperationId, RowRegionId, ValueId),
 ](
     kind: str,
     entries: tuple[tuple[Identity, SourceAnchor], ...],
@@ -757,6 +816,7 @@ def merge_semantic_graphs(*graphs: SemanticGraphIR) -> SemanticGraphIR:
     return SemanticGraphIR(
         value_defs=tuple(item for graph in graphs for item in graph.value_defs),
         operations=tuple(item for graph in graphs for item in graph.operations),
+        actions=tuple(item for graph in graphs for item in graph.actions),
         row_regions=tuple(item for graph in graphs for item in graph.row_regions),
     )
 
@@ -778,6 +838,9 @@ def merge_source_maps(*source_maps: SourceMap) -> SourceMap:
         ),
         value_sources=tuple(
             item for source_map in source_maps for item in source_map.value_sources
+        ),
+        action_sources=tuple(
+            item for source_map in source_maps for item in source_map.action_sources
         ),
         row_region_sources=tuple(
             item for source_map in source_maps for item in source_map.row_region_sources
@@ -841,6 +904,73 @@ def _operations_by_id(
         if operation_id not in ambiguous
     }
     return selected, ambiguous
+
+
+def _actions_by_id(
+    actions: tuple[InstrumentActionEffect, ...],
+    problems: list[Problem],
+) -> tuple[dict[ActionId, InstrumentActionEffect], frozenset[ActionId]]:
+    grouped: dict[ActionId, list[InstrumentActionEffect]] = {}
+    for action in actions:
+        grouped.setdefault(action.id, []).append(action)
+    ambiguous = frozenset(
+        action_id
+        for action_id, declarations in grouped.items()
+        if len(declarations) > 1
+    )
+    for action_id in sorted(ambiguous, key=lambda item: item.qualified_name):
+        problems.append(
+            _problem(
+                "semantic_action_duplicate",
+                f"action {action_id.qualified_name!r} is declared more than once",
+                "actions",
+                action_id.qualified_name,
+                category=ProblemCategory.CONFLICT,
+            )
+        )
+    selected = {
+        action_id: grouped[action_id][0]
+        for action_id in sorted(grouped, key=lambda item: item.qualified_name)
+        if action_id not in ambiguous
+    }
+    return selected, ambiguous
+
+
+def _verify_actions(
+    actions: tuple[InstrumentActionEffect, ...],
+    definitions: Mapping[ValueId, ValueDef],
+    ambiguous_value_ids: frozenset[ValueId],
+    problems: list[Problem],
+) -> None:
+    for action in actions:
+        for field_name, use in action.fields:
+            definition = definitions.get(use.value_id)
+            if definition is None:
+                if use.value_id not in ambiguous_value_ids:
+                    problems.append(
+                        _problem(
+                            "semantic_action_field_dangling",
+                            f"action field {field_name!r} references unknown value "
+                            f"{use.value_id.qualified_name!r}",
+                            "actions",
+                            action.id.qualified_name,
+                            "fields",
+                            field_name,
+                            category=ProblemCategory.NOT_FOUND,
+                        )
+                    )
+                continue
+            if definition.owner_region_id is not None:
+                problems.append(
+                    _problem(
+                        "semantic_action_field_region_invalid",
+                        f"action field {field_name!r} is owned by a row region",
+                        "actions",
+                        action.id.qualified_name,
+                        "fields",
+                        field_name,
+                    )
+                )
 
 
 def _regions_by_id(
@@ -1886,9 +2016,11 @@ def _require_unique_names(label: str, values: tuple[tuple[str, object], ...]) ->
 
 __all__ = [
     "LOCAL_OPAQUE_OPERATION_CONTRACT",
+    "ActionId",
     "EffectClass",
     "ImplementationCatalog",
     "ImplementationId",
+    "InstrumentActionEffect",
     "LiteralValueSource",
     "LocalPythonImplementation",
     "OpaqueSemantics",

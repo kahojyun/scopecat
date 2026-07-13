@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from scopecat._execution.program import (
+    ActionStage,
     ApplyStateStage,
     CollectStage,
     ComputeStage,
@@ -14,10 +15,13 @@ from scopecat._execution.program import (
 )
 from scopecat.instruments.sdk import (
     CollectProductRequest,
+    InstrumentActionCommand,
+    InstrumentActionCommandField,
     InstrumentDescription,
     InstrumentStateCommand,
     InstrumentStateCommandField,
     ProductDescription,
+    validate_action_command,
     validate_state_command,
 )
 from scopecat.models.artifact import CommandPayload
@@ -67,6 +71,25 @@ def validate_execution_program_instruments(
                             command=InstrumentStateCommand(
                                 operation_id=operation.operation_id,
                                 instrument_id=operation.instrument_id,
+                                fields=fields,
+                                payloads=_referenced_payloads(fields, payloads),
+                            ),
+                            description=description,
+                            payloads=payloads,
+                        )
+                    )
+            elif isinstance(stage, ActionStage):
+                for operation in stage.operations:
+                    description = descriptions.get(operation.instrument_id)
+                    if description is None:
+                        continue
+                    fields = [field.command_field() for field in operation.fields]
+                    problems.extend(
+                        validate_action_command(
+                            command=InstrumentActionCommand(
+                                operation_id=operation.operation_id,
+                                instrument_id=operation.instrument_id,
+                                capability_id=operation.capability_id,
                                 fields=fields,
                                 payloads=_referenced_payloads(fields, payloads),
                             ),
@@ -150,7 +173,7 @@ def _payload_stubs(stages: tuple[ExecutionStage, ...]) -> dict[str, CommandPaylo
 
 
 def _referenced_payloads(
-    fields: list[InstrumentStateCommandField],
+    fields: Sequence[InstrumentStateCommandField | InstrumentActionCommandField],
     payloads: Mapping[str, CommandPayload],
 ) -> dict[str, CommandPayload]:
     selected: dict[str, CommandPayload] = {}
