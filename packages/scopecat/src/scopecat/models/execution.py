@@ -11,7 +11,7 @@ from scopecat.models.run import RunOutcome, RunStatus
 from scopecat.problems import Problem
 
 EXECUTION_SUMMARY_SCHEMA_VERSION = "scopecat.execution_summary.v2"
-INSTRUMENT_STATE_EVIDENCE_SCHEMA_VERSION = "scopecat.instrument_state_evidence.v2"
+INSTRUMENT_STATE_EVIDENCE_SCHEMA_VERSION = "scopecat.instrument_state_evidence.v3"
 
 
 class StateExecutionSummary(BaseModel):
@@ -73,7 +73,7 @@ class ExecutionSummary(BaseModel):
 class InstrumentStateEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.instrument_state_evidence.v2"] = (
+    schema_version: Literal["scopecat.instrument_state_evidence.v3"] = (
         INSTRUMENT_STATE_EVIDENCE_SCHEMA_VERSION
     )
     run_id: str

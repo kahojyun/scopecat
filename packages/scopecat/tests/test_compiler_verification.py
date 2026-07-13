@@ -2,51 +2,92 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat._compiler.ids import NodeId
 from scopecat._compiler.program import (
     ResourceRouteIntent,
     RouteInput,
     TypedComputeNode,
-    TypedPointSource,
+    TypedComputeOutput,
     TypedProgram,
-    observable,
+    observable_product,
+    record_product,
     set_state_field,
 )
 from scopecat._compiler.verification import verify_typed_program
 from scopecat._compute_result import ComputeResultRef
-from scopecat._relations import literal_rows
+from scopecat._operation_contract import LOCAL_OPAQUE_OPERATION_CONTRACT
+from scopecat._relation_verification import RelationPlanVerificationError
+from scopecat._relations import ScalarExpr, col, grid, literal_rows, outer, point_col
+from scopecat._resource_identity import logical_resource_port_id
+from scopecat._semantic_graph import (
+    ImplementationCatalog,
+    ImplementationId,
+    LocalPythonImplementation,
+    OperationId,
+    operation_result_id,
+)
+from scopecat._symbols import SymbolId
+from scopecat._value_availability import ValueAvailability, ValueRate, ValueStage
 from scopecat.errors import CheckFailed
-from scopecat.value_types import Float, Route, Scalar, Table
+from scopecat.value_types import Float, Route, Scalar, Table, TableColumn
+from tests.support.relation_plans import (
+    point_domain,
+    scalar_value_expr,
+    table_value_expr,
+)
 
 
 def _program(**updates: object) -> TypedProgram:
     program = TypedProgram(
         id="verification",
         kind="test",
-        point_source=TypedPointSource(
-            expr=literal_rows([{}]),
-            value_type=Table(columns=(), min_rows=1, max_rows=1),
+        point_domain=point_domain(
+            literal_rows([{}]),
+            expected_type=Table(columns=(), min_rows=1, max_rows=1),
         ),
     )
     return program.model_copy(update=updates)
 
 
+def _catalog(operation_id: OperationId) -> ImplementationCatalog:
+    return ImplementationCatalog(
+        local_python=(
+            LocalPythonImplementation(
+                id=ImplementationId(f"python.{operation_id.qualified_name}.v1"),
+                operation_id=operation_id,
+                operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                kernel=lambda **_inputs: None,
+            ),
+        )
+    )
+
+
+def _output(operation_id: OperationId, value_type: Scalar) -> TypedComputeOutput:
+    return TypedComputeOutput(
+        id=operation_result_id(operation_id),
+        value_type=value_type,
+        availability=ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT),
+    )
+
+
 def test_typed_program_verifier_rejects_incomplete_compute_route() -> None:
+    operation_id = OperationId(SymbolId(local_id="consume-route"))
     node = TypedComputeNode(
-        id=NodeId(local_id="consume-route"),
+        id=operation_id,
+        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
         inputs={
             "route": RouteInput(
-                port_id="drive",
+                port_id=logical_resource_port_id("drive"),
                 value_type=Route(capabilities=("set_gain",)),
             )
         },
-        output_type=Scalar(Float()),
+        result=_output(operation_id, Scalar(Float())),
     )
     program = _program(
         compute_nodes=(node,),
+        implementation_catalog=_catalog(operation_id),
         route_intents=(
             ResourceRouteIntent(
-                port_id="drive",
+                port_id=logical_resource_port_id("drive"),
                 capabilities=("set_frequency",),
             ),
         ),
@@ -59,20 +100,22 @@ def test_typed_program_verifier_rejects_incomplete_compute_route() -> None:
 
 
 def test_typed_program_verifier_rejects_non_payload_state_compute() -> None:
-    node_id = NodeId(local_id="numeric")
+    operation_id = OperationId(SymbolId(local_id="numeric"))
     program = _program(
         compute_nodes=(
             TypedComputeNode(
-                id=node_id,
-                output_type=Scalar(Float()),
+                id=operation_id,
+                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                result=_output(operation_id, Scalar(Float())),
             ),
         ),
+        implementation_catalog=_catalog(operation_id),
         state=(
             set_state_field(
-                "drive",
+                scalar_value_expr("drive"),
                 capability_id="set_gain",
                 field_path="value",
-                value=ComputeResultRef(node_id=node_id),
+                value=ComputeResultRef(value_id=operation_result_id(operation_id)),
             ),
         ),
     )
@@ -84,11 +127,50 @@ def test_typed_program_verifier_rejects_non_payload_state_compute() -> None:
 
 
 def test_typed_program_verifier_checks_static_record_schema() -> None:
+    product = observable_product("signal", unit="not-a-unit")
+    product_use, record_use = record_product(product)
     program = _program(
-        records=(observable("signal", unit="not-a-unit"),),
+        product_defs=(product,),
+        product_uses=(product_use,),
+        record_uses=(record_use,),
     )
 
     with pytest.raises(CheckFailed) as error:
         verify_typed_program(program)
 
-    assert error.value.problems[0].code == "experiment_record_unit_unsupported"
+    assert error.value.problems[0].code == "product_unit_unsupported"
+
+
+@pytest.mark.parametrize("reference", [col("x"), outer("x")])
+def test_typed_program_verifier_rejects_unbound_point_domain_rows(
+    reference: ScalarExpr,
+) -> None:
+    with pytest.raises(RelationPlanVerificationError) as error:
+        table_value_expr(
+            grid(x=reference),
+            expected_type=Table(
+                columns=(TableColumn("x", Scalar(Float())),),
+                min_rows=1,
+                max_rows=1,
+            ),
+        )
+
+    assert error.value.code == "unbound_row_reference"
+
+
+def test_typed_program_verifier_accepts_explicit_point_scope() -> None:
+    program = _program(
+        point_domain=point_domain(
+            literal_rows([{"x": 1.0}]).point_cross(grid(copy=point_col("x"))),
+            expected_type=Table(
+                columns=(
+                    TableColumn("x", Scalar(Float())),
+                    TableColumn("copy", Scalar(Float())),
+                ),
+                min_rows=1,
+                max_rows=1,
+            ),
+        )
+    )
+
+    assert verify_typed_program(program) is program

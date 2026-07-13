@@ -221,20 +221,23 @@ compute_events = [
     and event["stage"] == "compute"
     and event["state"] == "completed"
 ]
-waveform_summaries = [
-    event["metrics"]
-    for event in compute_events
-    if event["metrics"].get("schema_id") == "pulse_program"
-]
+waveform_summaries = sorted(
+    (
+        event["metrics"]
+        for event in compute_events
+        if event["metrics"].get("schema_id") == "pulse_program"
+    ),
+    key=lambda metrics: str(metrics.get("semantic_operation_id", "")),
+)
 build_preview = next(
     payload
     for payload in waveform_preview.payloads
-    if payload.node_id.endswith("/build-cz-chevron-program")
+    if payload.semantic_operation_id.endswith("/build-cz-chevron-program")
 )
 drive_event = next(
     event
     for event in compute_events
-    if str(event["metrics"].get("kernel_id", "")).endswith(
+    if str(event["metrics"].get("semantic_operation_id", "")).endswith(
         "/render-cz-chevron-drive-waveforms"
     )
 )
@@ -293,7 +296,7 @@ gate_family_summary = {
     "parallel_gate_points": parallel_gate_preview.point_count,
     "waveform_preview_payloads": [
         (
-            payload.node_id,
+            payload.semantic_operation_id,
             payload.schema_id,
             tuple(
                 (target.capability_id, target.field_path)

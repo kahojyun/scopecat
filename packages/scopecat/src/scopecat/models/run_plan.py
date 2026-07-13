@@ -12,7 +12,8 @@ from scopecat.models.entity import EntityRef
 from scopecat.models.measurement import CoordinateValue, MeasurementDatasetSchema
 from scopecat.models.parameter import Quantity
 
-RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v3"
+RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v4"
+type _NonEmptyId = Annotated[str, Field(min_length=1)]
 
 
 class _RunPlanModel(BaseModel):
@@ -117,8 +118,9 @@ class RunPlanPoint(_RunPlanModel):
 class RunPlanOutput(_RunPlanModel):
     id: str
     kind: str
-    source: str
-    resource: str | None = None
+    producer_kind: Literal["instrument"]
+    resource_port_id: _NonEmptyId | None = None
+    physical_resource_id: _NonEmptyId | None = None
     capability: str | None = None
     unit: str | None = None
     dtype: str
@@ -130,16 +132,30 @@ class RunPlanOutput(_RunPlanModel):
         if len(self.dims) != len(self.shape):
             msg = f"run plan output {self.id!r} dims and shape must have equal length"
             raise ValueError(msg)
+        if self.resource_port_id is not None and self.physical_resource_id is not None:
+            msg = "run plan output cannot target both logical and physical resources"
+            raise ValueError(msg)
         return self
+
+
+class RunPlanChannelBinding(_RunPlanModel):
+    entity_id: _NonEmptyId
+    channel_id: _NonEmptyId
+    line_id: _NonEmptyId | None = None
+    capability: _NonEmptyId | None = None
+    group_ids: list[_NonEmptyId] = Field(default_factory=list)
 
 
 class RunPlanStateChange(_RunPlanModel):
     point_index: int = Field(ge=0)
-    resource: str
+    resource_id: _NonEmptyId
+    resource_port_id: _NonEmptyId | None = None
     capability_id: str = Field(min_length=1)
     field_path: str = Field(min_length=1)
     before: RunPlanValue = None
     after: RunPlanValue
+    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
+    channel_bindings: list[RunPlanChannelBinding] = Field(default_factory=list)
 
     @property
     def field(self) -> str:
@@ -149,40 +165,92 @@ class RunPlanStateChange(_RunPlanModel):
     def validate_values(self) -> RunPlanStateChange:
         _validate_run_plan_value(self.before, path="run plan state change before")
         _validate_run_plan_value(self.after, path="run plan state change after")
+        if any(not entity_id for entity_id in self.entity_ids):
+            msg = "run plan state change entity ids must be non-empty"
+            raise ValueError(msg)
+        if len(self.entity_ids) != len(set(self.entity_ids)):
+            msg = "run plan state change entity ids must be unique"
+            raise ValueError(msg)
+        unbound = sorted(
+            {
+                binding.entity_id
+                for binding in self.channel_bindings
+                if binding.entity_id not in self.entity_ids
+            }
+        )
+        if unbound:
+            msg = (
+                "run plan state change channel bindings reference entities outside "
+                "the target: " + ", ".join(unbound)
+            )
+            raise ValueError(msg)
         self.before = cast("RunPlanValue", _normalize_entity_ref(self.before))
         self.after = cast("RunPlanValue", _normalize_entity_ref(self.after))
         return self
 
 
-class RunPlanChannelBinding(_RunPlanModel):
-    entity_id: str
-    channel_id: str
-    line_id: str | None = None
-    capability: str | None = None
-    group_ids: list[str] = Field(default_factory=list)
+def _run_plan_channel_binding_identity(
+    binding: RunPlanChannelBinding,
+) -> tuple[str, str, str | None, str | None, tuple[str, ...]]:
+    return (
+        binding.entity_id,
+        binding.channel_id,
+        binding.line_id,
+        binding.capability,
+        tuple(sorted(binding.group_ids)),
+    )
+
+
+def _run_plan_physical_channel_binding_identity(
+    binding: RunPlanChannelBinding,
+) -> tuple[str, str, str | None, tuple[str, ...]]:
+    return (
+        binding.entity_id,
+        binding.channel_id,
+        binding.line_id,
+        tuple(sorted(binding.group_ids)),
+    )
+
+
+def _run_plan_state_target_identity(
+    change: RunPlanStateChange,
+) -> tuple[object, ...]:
+    return (
+        change.point_index,
+        change.resource_id,
+        change.capability_id,
+        change.field_path,
+        tuple(change.entity_ids),
+        tuple(
+            _run_plan_channel_binding_identity(binding)
+            for binding in change.channel_bindings
+        ),
+    )
 
 
 class RunPlanResolvedRoute(_RunPlanModel):
     point_index: int = Field(ge=0)
-    port_id: str
-    resource_id: str
-    entity_ids: list[str] = Field(default_factory=list)
+    port_id: _NonEmptyId
+    resource_id: _NonEmptyId
+    resource_kind: _NonEmptyId
+    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
+    served_entity_ids: list[_NonEmptyId] = Field(default_factory=list)
     product_axis_order: list[str] = Field(default_factory=list)
     channel_bindings: list[RunPlanChannelBinding] = Field(default_factory=list)
 
 
 class RunPlanRoute(_RunPlanModel):
-    port_id: str
+    port_id: _NonEmptyId
     capabilities: list[str] = Field(default_factory=list)
     entity_expr_count: int = Field(ge=0)
-    fixed_resource: str | None = None
+    fixed_resource_id: _NonEmptyId | None = None
     resolved: list[RunPlanResolvedRoute] = Field(default_factory=list)
 
 
 class RunPlanRecord(_RunPlanModel):
     """Stable projection of the plan accepted for one execution."""
 
-    schema_version: Literal["scopecat.run_plan_record.v3"] = (
+    schema_version: Literal["scopecat.run_plan_record.v4"] = (
         RUN_PLAN_RECORD_SCHEMA_VERSION
     )
     experiment_id: str
@@ -203,6 +271,7 @@ class RunPlanRecord(_RunPlanModel):
     def validate_record_invariants(self) -> RunPlanRecord:
         self._validate_points()
         self._validate_point_references()
+        self._validate_resource_references()
         self._validate_primary_observables()
         self._validate_expected_dataset_schema()
         self._validate_dataset_dimensions()
@@ -247,6 +316,177 @@ class RunPlanRecord(_RunPlanModel):
                         "run plan resolved route point_index is outside the point range"
                     )
                     raise ValueError(msg)
+
+    def _validate_resource_references(self) -> None:
+        routes_by_port = {route.port_id: route for route in self.routes}
+        if len(routes_by_port) != len(self.routes):
+            msg = "run plan route port IDs must be unique"
+            raise ValueError(msg)
+        expected_point_indices = list(range(self.point_count))
+        for route in self.routes:
+            resolved_point_indices = [
+                resolved.point_index for resolved in route.resolved
+            ]
+            if resolved_point_indices != expected_point_indices:
+                msg = (
+                    f"run plan route {route.port_id!r} must resolve exactly once "
+                    "for every point in order"
+                )
+                raise ValueError(msg)
+            if any(resolved.port_id != route.port_id for resolved in route.resolved):
+                msg = (
+                    f"run plan route {route.port_id!r} resolved entries must retain "
+                    "the same logical port ID"
+                )
+                raise ValueError(msg)
+            for resolved in route.resolved:
+                if len(resolved.entity_ids) != len(set(resolved.entity_ids)):
+                    msg = "run plan resolved route entity ids must be unique"
+                    raise ValueError(msg)
+                if len(resolved.served_entity_ids) != len(
+                    set(resolved.served_entity_ids)
+                ):
+                    msg = "run plan resolved route served entity ids must be unique"
+                    raise ValueError(msg)
+                if not set(resolved.entity_ids) <= set(resolved.served_entity_ids):
+                    msg = (
+                        "run plan resolved route entity ids must be served by the "
+                        "physical resource"
+                    )
+                    raise ValueError(msg)
+                target_entity_ids = {
+                    *resolved.entity_ids,
+                    *resolved.served_entity_ids,
+                }
+                if any(
+                    binding.entity_id not in target_entity_ids
+                    for binding in resolved.channel_bindings
+                ):
+                    msg = (
+                        "run plan resolved route channel bindings must reference "
+                        "served entities"
+                    )
+                    raise ValueError(msg)
+                if any(
+                    route.capabilities
+                    and binding.capability is not None
+                    and binding.capability not in route.capabilities
+                    for binding in resolved.channel_bindings
+                ):
+                    msg = (
+                        "run plan resolved route channel bindings must use a "
+                        "capability provided by the logical resource port"
+                    )
+                    raise ValueError(msg)
+            if route.fixed_resource_id is not None and any(
+                resolved.resource_id != route.fixed_resource_id
+                for resolved in route.resolved
+            ):
+                msg = (
+                    f"run plan route {route.port_id!r} resolved entries must retain "
+                    "the fixed physical resource ID"
+                )
+                raise ValueError(msg)
+        for record in self.records:
+            port_id = record.resource_port_id
+            if port_id is None:
+                continue
+            route = routes_by_port.get(port_id)
+            if route is None:
+                msg = (
+                    f"run plan output {record.id!r} references unknown logical "
+                    f"resource port {port_id!r}"
+                )
+                raise ValueError(msg)
+            if record.capability is not None and record.capability not in (
+                route.capabilities
+            ):
+                msg = (
+                    f"run plan output {record.id!r} capability "
+                    f"{record.capability!r} is not provided by resource port "
+                    f"{port_id!r}"
+                )
+                raise ValueError(msg)
+            if any(
+                resolved.resource_kind != "instrument" for resolved in route.resolved
+            ):
+                msg = (
+                    f"run plan output {record.id!r} logical resource port must "
+                    "resolve to instruments"
+                )
+                raise ValueError(msg)
+        seen_state_targets: set[tuple[object, ...]] = set()
+        for change in self.state_changes:
+            target_identity = _run_plan_state_target_identity(change)
+            if target_identity in seen_state_targets:
+                msg = (
+                    "run plan state changes must have unique physical targets "
+                    "within each point"
+                )
+                raise ValueError(msg)
+            seen_state_targets.add(target_identity)
+            if any(
+                binding.capability is not None
+                and binding.capability != change.capability_id
+                for binding in change.channel_bindings
+            ):
+                msg = (
+                    "run plan state change channel binding capability must match "
+                    "the state capability"
+                )
+                raise ValueError(msg)
+            port_id = change.resource_port_id
+            if port_id is None:
+                continue
+            route = routes_by_port.get(port_id)
+            if route is None:
+                msg = (
+                    "run plan state change references unknown logical resource "
+                    f"port {port_id!r}"
+                )
+                raise ValueError(msg)
+            resolved = route.resolved[change.point_index]
+            if resolved.resource_id != change.resource_id:
+                msg = (
+                    "run plan state change physical resource must equal its "
+                    "logical route resolution"
+                )
+                raise ValueError(msg)
+            if resolved.resource_kind != "instrument":
+                msg = (
+                    "run plan state change logical resource must resolve to an "
+                    "instrument"
+                )
+                raise ValueError(msg)
+            if change.capability_id not in route.capabilities:
+                msg = (
+                    "run plan state change capability is not provided by its "
+                    "logical resource port"
+                )
+                raise ValueError(msg)
+            allowed_entity_ids = set(resolved.entity_ids or resolved.served_entity_ids)
+            if not set(change.entity_ids) <= allowed_entity_ids:
+                msg = (
+                    "run plan state change entities are outside its logical "
+                    "route target"
+                )
+                raise ValueError(msg)
+            route_bindings = {
+                _run_plan_physical_channel_binding_identity(binding)
+                for binding in resolved.channel_bindings
+            }
+            if (
+                not {
+                    _run_plan_physical_channel_binding_identity(binding)
+                    for binding in change.channel_bindings
+                }
+                <= route_bindings
+            ):
+                msg = (
+                    "run plan state change channel bindings are outside its "
+                    "logical route target"
+                )
+                raise ValueError(msg)
 
     def _validate_primary_observables(self) -> None:
         record_ids = {record.id for record in self.records}

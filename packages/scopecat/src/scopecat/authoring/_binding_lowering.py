@@ -6,18 +6,25 @@ from typing import cast
 
 from scopecat._compiler.program import ResourceRouteIntent
 from scopecat._compute_result import ComputeResultRef
+from scopecat._relation_use import relation_use
+from scopecat._relation_verification import RelationTypeBindings
 from scopecat._relations import (
     ScalarExpr,
     SeriesExpr,
     as_scalar_expr,
 )
-from scopecat._value_expressions import as_scalar_or_series_value_expr
+from scopecat._resource_identity import LogicalResourcePortId
+from scopecat._value_availability import ValueStage
+from scopecat._value_expressions import (
+    ScalarOrSeriesValueExpr,
+    verify_scalar_value_expr,
+    verify_series_value_expr,
+)
 from scopecat.authoring._binding_intents import (
     BindingIntent,
     ResourcePort,
 )
 from scopecat.authoring._context import ExperimentAuthoringContext
-from scopecat.authoring._value_availability import ValueStage
 from scopecat.authoring._value_binding import bind_value_input_refs
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -32,16 +39,17 @@ from scopecat.value_types import Entity, Scalar, Series
 class BindingSpec:
     """Private compiler-ready desired-state binding."""
 
-    resource_id: str
+    resource_port_id: LogicalResourcePortId
     capability_id: str
     field_path: str
     value: ScalarExpr | ComputeResultRef
+    value_type: Scalar | None
 
 
 def lower_binding_intent(
     intent: BindingIntent,
     ctx: ExperimentAuthoringContext,
-    resource_ports: Mapping[str, ResourcePort],
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
 ) -> BindingSpec:
     """Lower one source binding after config-dependent port validation."""
 
@@ -54,16 +62,24 @@ def lower_binding_intent(
         )
     require_port_capability(ctx, resource_port, intent.capability_id)
     value = intent.value
+    value_type: Scalar | None = None
     if isinstance(value, ValueRef):
+        declared_type = value.value_type
         value = internal_lower_value_ref(value)
         if not isinstance(value, ScalarExpr | ComputeResultRef):
             msg = "state binding value must be scalar-shaped"
             raise TypeError(msg)
+        if isinstance(value, ScalarExpr):
+            if not isinstance(declared_type, Scalar):
+                msg = "state binding scalar expression must declare a scalar type"
+                raise TypeError(msg)
+            value_type = declared_type
     return BindingSpec(
-        resource_id=intent.port_id,
+        resource_port_id=intent.port_id,
         capability_id=intent.capability_id,
         field_path=intent.field_path,
         value=value if isinstance(value, ComputeResultRef) else as_scalar_expr(value),
+        value_type=value_type,
     )
 
 
@@ -72,20 +88,26 @@ def build_route_intents(
     ports: Sequence[ResourcePort],
     *,
     inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
 ) -> list[ResourceRouteIntent]:
     route_intents: list[ResourceRouteIntent] = []
     for port in ports:
         route_intents.append(
             ResourceRouteIntent(
-                port_id=port.qualified_id,
+                port_id=port.symbol_id,
                 capabilities=tuple(port.selector.capabilities),
-                entity_exprs=tuple(
-                    as_scalar_or_series_value_expr(
-                        _route_entity_expr(ctx, input_id, inputs)
+                entity_uses=tuple(
+                    relation_use(
+                        _route_entity_expr(
+                            ctx,
+                            input_id,
+                            inputs,
+                            type_bindings=type_bindings,
+                        )
                     )
                     for input_id in port.selector.entity_inputs
                 ),
-                resource_id=None,
+                fixed_resource_id=None,
             )
         )
     return route_intents
@@ -94,16 +116,16 @@ def build_route_intents(
 def ports_by_id(
     ctx: ExperimentAuthoringContext,
     ports: Sequence[ResourcePort],
-) -> dict[str, ResourcePort]:
-    result: dict[str, ResourcePort] = {}
+) -> dict[LogicalResourcePortId, ResourcePort]:
+    result: dict[LogicalResourcePortId, ResourcePort] = {}
     for port in ports:
-        port_id = port.qualified_id
+        port_id = port.symbol_id
         if port_id in result:
             ctx.raise_problem(
                 "module_resource_port_duplicate",
-                f"duplicate resource port {port_id}",
+                f"duplicate resource port {port_id.qualified_name}",
                 "resources",
-                path=(port_id,),
+                path=(*port_id.scope, port_id.local_id),
             )
         result[port_id] = port
     return result
@@ -113,7 +135,9 @@ def _route_entity_expr(
     ctx: ExperimentAuthoringContext,
     source: ValueRef,
     inputs: Mapping[str, object],
-) -> ScalarExpr | SeriesExpr:
+    *,
+    type_bindings: RelationTypeBindings,
+) -> ScalarOrSeriesValueExpr:
     value_type = source.value_type
     is_entity_value = (
         isinstance(value_type, Scalar) and isinstance(value_type.atom, Entity)
@@ -144,11 +168,11 @@ def _route_entity_expr(
             "resources",
         )
     if isinstance(bound, ScalarExpr) and bound.kind == "literal":
-        return bound.model_copy(
+        bound = bound.model_copy(
             update={"value": ctx.require_entity(cast("EntityRef | str", bound.value))}
         )
     if isinstance(bound, SeriesExpr) and bound.kind == "values":
-        return bound.model_copy(
+        bound = bound.model_copy(
             update={
                 "items": list(
                     ctx.require_entities(
@@ -157,7 +181,20 @@ def _route_entity_expr(
                 )
             }
         )
-    return bound
+    if isinstance(bound, ScalarExpr) and isinstance(value_type, Scalar):
+        return verify_scalar_value_expr(
+            bound,
+            bindings=type_bindings,
+            expected_type=value_type,
+        )
+    if isinstance(bound, SeriesExpr) and isinstance(value_type, Series):
+        return verify_series_value_expr(
+            bound,
+            bindings=type_bindings,
+            expected_type=value_type,
+        )
+    msg = "resource entity source expression does not match its declared shape"
+    raise TypeError(msg)
 
 
 def require_port_capability(
@@ -165,7 +202,7 @@ def require_port_capability(
     port: ResourcePort,
     capability_id: str,
 ) -> None:
-    if port.selector.capabilities and capability_id not in port.selector.capabilities:
+    if capability_id not in port.selector.capabilities:
         ctx.raise_problem(
             "module_resource_port_capability_missing",
             "resource port "

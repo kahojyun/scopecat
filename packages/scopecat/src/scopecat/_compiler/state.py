@@ -1,39 +1,82 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Sequence
 from typing import Annotated, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat._compiler.problems import compiler_problem
 from scopecat._compute_result import ComputeResultRef
+from scopecat._relation_analysis import PlanNode
+from scopecat._relation_backend import (
+    EvalContext,
+    RelationBackend,
+    SelectedRelationPlan,
+    evaluate_relation_in_context,
+    evaluate_scalar,
+    evaluate_series,
+)
+from scopecat._relation_use import RelationUse, RelationUseId
 from scopecat._relations import (
     CellValue,
-    EvalContext,
     RelationExpr,
+    RowScopeId,
     ScalarExpr,
     SeriesExpr,
-    as_scalar_expr,
-    values,
+)
+from scopecat._resource_identity import (
+    LogicalResourcePortId,
+    PhysicalResourceId,
+    ResourceTarget,
 )
 from scopecat._value_expressions import (
     ScalarOrSeriesValueExpr,
     ScalarValueExpr,
-    SeriesValueExpr,
     TableValueExpr,
-    as_scalar_or_series_value_expr,
 )
 from scopecat.models.entity import EntityRef
-from scopecat.problems import Problem, ProblemCategory, model_location
+from scopecat.problems import ModelLocation, model_location
+from scopecat.value_types import String
 
 type StateSpecKind = Literal["set", "for_each"]
 type RouteEntityValue = str | EntityRef
+type SelectedPlanResolver = Callable[[RelationUseId], SelectedRelationPlan[PlanNode]]
 
 
-type StateValueExpr = ScalarExpr | ComputeResultRef
+type StateValueUse = RelationUse[ScalarValueExpr] | ComputeResultRef
 type EvaluatedStateValue = Annotated[
     ComputeResultRef | CellValue,
     Field(union_mode="left_to_right"),
+]
+
+
+class LogicalStateResourceTarget(BaseModel):
+    """State target resolved through one declared logical resource port."""
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, frozen=True)
+
+    kind: Literal["logical_port"] = "logical_port"
+    port_id: LogicalResourcePortId
+
+
+class PhysicalStateResourceTarget(BaseModel):
+    """State target whose physical identity is computed by a relation."""
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, frozen=True)
+
+    kind: Literal["physical_relation"] = "physical_relation"
+    use: RelationUse[ScalarValueExpr]
+
+    @model_validator(mode="after")
+    def validate_string_scalar(self) -> PhysicalStateResourceTarget:
+        if not isinstance(self.use.value.value_type.atom, String):
+            msg = "physical state resource targets require a string scalar relation"
+            raise ValueError(msg)
+        return self
+
+
+type StateResourceTarget = Annotated[
+    LogicalStateResourceTarget | PhysicalStateResourceTarget,
+    Field(discriminator="kind"),
 ]
 
 
@@ -43,50 +86,39 @@ class StateSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     kind: StateSpecKind
-    resource: ScalarExpr | None = None
+    resource_target: StateResourceTarget | None = None
     capability_id: str | None = Field(default=None, min_length=1)
     field_path: str | None = Field(default=None, min_length=1)
-    value: StateValueExpr | None = None
-    route_entities: list[ScalarOrSeriesValueExpr] = Field(default_factory=list)
-    relation: RelationExpr | None = None
+    value_use: StateValueUse | None = None
+    route_entity_uses: list[RelationUse[ScalarOrSeriesValueExpr]] = Field(
+        default_factory=list
+    )
+    relation_use: RelationUse[TableValueExpr] | None = None
+    row_scope_id: RowScopeId | None = None
     state: list[StateSpec] | None = None
-
-    @field_validator("route_entities", mode="before")
-    @classmethod
-    def coerce_route_entities(cls, value: object) -> object:
-        if not isinstance(value, list | tuple):
-            return value
-        items: list[object] = []
-        for item in cast("Sequence[object]", value):
-            items.append(
-                cast("Mapping[str, object]", item)
-                if isinstance(item, Mapping)
-                else as_state_route_value_expr(item)
-            )
-        return items
 
     @model_validator(mode="after")
     def validate_shape(self) -> StateSpec:
         if self.kind == "set":
             if (
-                self.resource is None
+                self.resource_target is None
                 or self.capability_id is None
                 or self.field_path is None
-                or self.value is None
+                or self.value_use is None
             ):
                 msg = "set state requires resource, capability, field path, and value"
                 raise ValueError(msg)
-            self._reject("relation", "state")
+            self._reject("relation_use", "row_scope_id", "state")
         elif self.kind == "for_each":
-            if self.relation is None or not self.state:
+            if self.relation_use is None or not self.state:
                 msg = "for_each state requires relation and state"
                 raise ValueError(msg)
             self._reject(
-                "resource",
+                "resource_target",
                 "capability_id",
                 "field_path",
-                "value",
-                "route_entities",
+                "value_use",
+                "route_entity_uses",
             )
         return self
 
@@ -95,43 +127,6 @@ class StateSpec(BaseModel):
         if self.capability_id is None or self.field_path is None:
             return None
         return f"{self.capability_id}.{self.field_path}"
-
-    def evaluate(self, *, point_index: int, ctx: EvalContext) -> list[StateRecord]:
-        if self.kind == "set":
-            resource = _required(self.resource).eval(ctx)
-            if not isinstance(resource, str):
-                msg = f"state resource must resolve to string, got {resource!r}"
-                raise TypeError(msg)
-            value = _required(self.value)
-            return [
-                StateRecord(
-                    point_index=point_index,
-                    resource=resource,
-                    capability_id=_required(self.capability_id),
-                    field_path=_required(self.field_path),
-                    value=value
-                    if isinstance(value, ComputeResultRef)
-                    else value.eval(ctx),
-                    route_entities=_evaluate_route_entities(self.route_entities, ctx),
-                )
-            ]
-        if self.kind == "for_each":
-            records: list[StateRecord] = []
-            for row in _required(self.relation).evaluate_in_context(
-                EvalContext(params=ctx.params, row={}, outer_row=ctx.row)
-            ):
-                child_ctx = EvalContext(
-                    params=ctx.params,
-                    row=row,
-                    outer_row=ctx.row,
-                )
-                for child in _required(self.state):
-                    records.extend(
-                        child.evaluate(point_index=point_index, ctx=child_ctx)
-                    )
-            return records
-        msg = f"unsupported state spec kind: {self.kind}"
-        raise ValueError(msg)
 
     def _reject(self, *field_names: str) -> None:
         unexpected = [
@@ -148,7 +143,7 @@ class StateRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     point_index: int
-    resource: str
+    resource_target: ResourceTarget
     capability_id: str = Field(min_length=1)
     field_path: str = Field(min_length=1)
     value: EvaluatedStateValue
@@ -159,85 +154,135 @@ class StateRecord(BaseModel):
         return f"{self.capability_id}.{self.field_path}"
 
 
-class StatePatchRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+def evaluate_state_spec(
+    spec: StateSpec,
+    *,
+    point_index: int,
+    ctx: EvalContext,
+    backend: RelationBackend,
+    selected_plan: SelectedPlanResolver,
+    location: ModelLocation,
+) -> list[StateRecord]:
+    """Materialize one data-only state plan with the selected backend."""
 
-    point_index: int
-    resource: str
-    capability_id: str = Field(min_length=1)
-    field_path: str = Field(min_length=1)
-    before: EvaluatedStateValue | None = None
-    after: EvaluatedStateValue
-
-    @property
-    def field(self) -> str:
-        return f"{self.capability_id}.{self.field_path}"
-
-
-def validate_state_records(records: list[StateRecord]) -> list[Problem]:
-    problems: list[Problem] = []
-    seen: dict[
-        tuple[int, str, str, str, tuple[str, ...]],
-        EvaluatedStateValue,
-    ] = {}
-    for record in records:
-        key = (
-            record.point_index,
-            record.resource,
-            record.capability_id,
-            record.field_path,
-            _route_entity_key(record.route_entities),
+    if spec.kind == "set":
+        resource_target = _required(spec.resource_target)
+        resource = (
+            resource_target.port_id
+            if isinstance(resource_target, LogicalStateResourceTarget)
+            else PhysicalResourceId(
+                _evaluate_physical_resource(
+                    resource_target.use,
+                    ctx,
+                    backend=backend,
+                    selected_plan=selected_plan,
+                )
+            )
         )
-        if key in seen and seen[key] != record.value:
-            problems.append(
-                compiler_problem(
-                    "experiment_conflicting_desired_state",
-                    (
-                        "conflicting desired state for "
-                        f"point={record.point_index} resource={record.resource!r} "
-                        f"field={record.field!r}"
+        value_use = _required(spec.value_use)
+        return [
+            StateRecord(
+                point_index=point_index,
+                resource_target=resource,
+                capability_id=_required(spec.capability_id),
+                field_path=_required(spec.field_path),
+                value=(
+                    value_use
+                    if isinstance(value_use, ComputeResultRef)
+                    else evaluate_scalar(
+                        backend,
+                        cast(
+                            "SelectedRelationPlan[ScalarExpr]",
+                            selected_plan(value_use.id),
+                        ),
+                        ctx,
+                    )
+                ),
+                route_entities=_evaluate_route_entities(
+                    spec.route_entity_uses,
+                    ctx,
+                    backend=backend,
+                    selected_plan=selected_plan,
+                ),
+            )
+        ]
+    if spec.kind == "for_each":
+        records: list[StateRecord] = []
+        relation_ctx = EvalContext(
+            params=ctx.params,
+            row=None,
+            outer_row=ctx.row if ctx.row is not None else ctx.outer_row,
+            point_row=ctx.point_row,
+            row_scopes=ctx.row_scopes,
+            inputs=ctx.inputs,
+        )
+        relation_use = _required(spec.relation_use)
+        for row in evaluate_relation_in_context(
+            backend,
+            cast(
+                "SelectedRelationPlan[RelationExpr]",
+                selected_plan(relation_use.id),
+            ),
+            relation_ctx,
+        ):
+            child_ctx = EvalContext(
+                params=ctx.params,
+                row=row,
+                outer_row=ctx.row if ctx.row is not None else ctx.outer_row,
+                point_row=ctx.point_row,
+                row_scopes={
+                    **ctx.row_scopes,
+                    **(
+                        {spec.row_scope_id: row}
+                        if spec.row_scope_id is not None
+                        else {}
                     ),
-                    model_location("state", record.point_index),
-                    category=ProblemCategory.CONFLICT,
-                    details={
-                        "point_index": record.point_index,
-                        "resource_id": record.resource,
-                        "capability_id": record.capability_id,
-                        "field_path": record.field_path,
-                    },
-                )
+                },
+                inputs=ctx.inputs,
             )
-        seen[key] = record.value
-    return problems
+            for child_index, child in enumerate(_required(spec.state)):
+                records.extend(
+                    evaluate_state_spec(
+                        child,
+                        point_index=point_index,
+                        ctx=child_ctx,
+                        backend=backend,
+                        selected_plan=selected_plan,
+                        location=model_location(
+                            location.root,
+                            *location.path,
+                            "state",
+                            child_index,
+                        ),
+                    )
+                )
+        return records
+    msg = f"unsupported state spec kind: {spec.kind}"
+    raise ValueError(msg)
 
 
-def state_patches(records: list[StateRecord]) -> list[StatePatchRecord]:
-    patches: list[StatePatchRecord] = []
-    previous: dict[
-        tuple[str, str, str, tuple[str, ...]],
-        EvaluatedStateValue,
-    ] = {}
-    for record in records:
-        key = (
-            record.resource,
-            record.capability_id,
-            record.field_path,
-            _route_entity_key(record.route_entities),
-        )
-        before = previous.get(key)
-        if before != record.value:
-            patches.append(
-                StatePatchRecord(
-                    point_index=record.point_index,
-                    resource=record.resource,
-                    capability_id=record.capability_id,
-                    field_path=record.field_path,
-                    before=before,
-                    after=record.value,
-                )
-            )
-        previous[key] = record.value
-    return patches
+def _evaluate_physical_resource(
+    use: RelationUse[ScalarValueExpr],
+    ctx: EvalContext,
+    *,
+    backend: RelationBackend,
+    selected_plan: SelectedPlanResolver,
+) -> str:
+    value = evaluate_scalar(
+        backend,
+        cast(
+            "SelectedRelationPlan[ScalarExpr]",
+            selected_plan(use.id),
+        ),
+        ctx,
+    )
+    if not isinstance(value, str):
+        msg = f"physical state resource must resolve to string, got {value!r}"
+        raise TypeError(msg)
+    if not value:
+        msg = "physical state resource id must be non-empty"
+        raise ValueError(msg)
+    return value
 
 
 def _required[T](value: T | None) -> T:
@@ -246,31 +291,36 @@ def _required[T](value: T | None) -> T:
     return value
 
 
-def as_state_route_value_expr(value: object) -> ScalarOrSeriesValueExpr:
-    """Normalize one state-routing entity expression by declared shape."""
-
-    if isinstance(value, ScalarValueExpr | SeriesValueExpr):
-        return value
-    if isinstance(value, TableValueExpr | RelationExpr):
-        msg = "state route entity source must be scalar or series-shaped"
-        raise TypeError(msg)
-    if isinstance(value, ScalarExpr | SeriesExpr):
-        return as_scalar_or_series_value_expr(value)
-    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        return as_scalar_or_series_value_expr(values(cast("Sequence[object]", value)))
-    return as_scalar_or_series_value_expr(as_scalar_expr(value))
-
-
 def _evaluate_route_entities(
-    expressions: Sequence[ScalarOrSeriesValueExpr],
+    uses: Sequence[RelationUse[ScalarOrSeriesValueExpr]],
     ctx: EvalContext,
+    *,
+    backend: RelationBackend,
+    selected_plan: SelectedPlanResolver,
 ) -> list[RouteEntityValue]:
     evaluated: list[CellValue] = []
-    for expression in expressions:
+    for use in uses:
+        expression = use.value
         if isinstance(expression, ScalarValueExpr):
-            evaluated.append(expression.expr.eval(ctx))
+            evaluated.append(
+                evaluate_scalar(
+                    backend,
+                    cast(
+                        "SelectedRelationPlan[ScalarExpr]",
+                        selected_plan(use.id),
+                    ),
+                    ctx,
+                )
+            )
         else:
-            series_values = expression.expr.evaluate(ctx)
+            series_values = evaluate_series(
+                backend,
+                cast(
+                    "SelectedRelationPlan[SeriesExpr]",
+                    selected_plan(use.id),
+                ),
+                ctx,
+            )
             if not series_values:
                 msg = "state route entity series must not be empty"
                 raise ValueError(msg)
@@ -303,22 +353,16 @@ def _is_present(value: object) -> bool:
     return not (isinstance(value, list) and not value)
 
 
-def _route_entity_key(values: list[RouteEntityValue]) -> tuple[str, ...]:
-    return tuple(
-        value.id if isinstance(value, EntityRef) else value for value in values
-    )
-
-
 StateSpec.model_rebuild()
 
 __all__ = [
     "EvaluatedStateValue",
-    "StatePatchRecord",
+    "LogicalStateResourceTarget",
+    "PhysicalStateResourceTarget",
     "StateRecord",
+    "StateResourceTarget",
     "StateSpec",
     "StateSpecKind",
-    "StateValueExpr",
-    "as_state_route_value_expr",
-    "state_patches",
-    "validate_state_records",
+    "StateValueUse",
+    "evaluate_state_spec",
 ]

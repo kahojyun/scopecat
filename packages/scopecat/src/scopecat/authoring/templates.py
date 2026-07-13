@@ -363,6 +363,11 @@ class TemplateBuilder:
             ),
         )
 
+    def records(self, *selections: RecordSelection) -> TemplateBuilder:
+        """Append explicit product-use record projections to this template."""
+
+        return template_builder_with_record_selections_internal(self, selections)
+
     def label(self, label: str | None) -> TemplateBuilder:
         return replace_handle(self, _label=label)
 

@@ -84,7 +84,7 @@ class RuntimePayloadObservation:
     run_id: str
     experiment_id: str
     point_index: int | None
-    node_id: str | None
+    semantic_operation_id: str | None
     payload_id: str
     schema_id: str
     compute_status: str | None

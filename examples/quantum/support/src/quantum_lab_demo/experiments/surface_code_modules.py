@@ -110,6 +110,16 @@ TOY_SURFACE_CODE_ROUND_MODULE = (
         field="repetitions",
         value=_ROUNDS * sc.Quantity(value=1.0, unit="count"),
     )
+    .product(
+        "stabilizer_iq",
+        resource="readout",
+        unit="ratio",
+        dtype="complex128",
+        axes=(
+            sc.record_axis("round", size=_ROUNDS, kind="repeat"),
+            sc.entity_axis("qubit", _PATCH_QUBITS),
+        ),
+    )
     .build()
 )
 

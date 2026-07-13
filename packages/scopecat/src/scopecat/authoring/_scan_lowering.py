@@ -3,18 +3,25 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
+from dataclasses import replace
 
+from scopecat._point_domain_algebra import (
+    point_dependent_product,
+    point_product,
+    point_rows,
+    point_zip,
+)
 from scopecat._relations import (
     RelationExpr,
     ScalarExpr,
     as_scalar_expr,
     grid,
     param,
-    zip_relations,
 )
 from scopecat._relations import linspace as relation_linspace
 from scopecat._relations import values as relation_values
+from scopecat.authoring._point_domain_intents import PointDomainIntent
 from scopecat.authoring._request_values import (
     project_run_request_scalar,
     project_run_request_value,
@@ -24,12 +31,18 @@ from scopecat.authoring._scan_intents import (
     PointScanIntent,
     Scan,
     ScanGroupIntent,
+    iter_scan_leaves,
+    scan_parameter_contracts,
+    scan_point_id,
 )
 from scopecat.authoring._value_binding import bind_scalar_input_refs
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,
+    internal_value_ref_bound_point_input_ids,
+    internal_value_ref_free_point_dependencies,
     internal_value_ref_from_expression,
+    internal_value_ref_point_dependencies,
 )
 from scopecat.models.parameter import Quantity
 from scopecat.models.run_request import (
@@ -39,6 +52,7 @@ from scopecat.models.run_request import (
     ScanGroupRecord,
     ScanRecord,
 )
+from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Scalar, Table, TableColumn
 
 
@@ -47,12 +61,72 @@ def lower_scan_points(
     *,
     inputs: Mapping[str, object] | None = None,
 ) -> ValueRef:
-    """Build one typed point table from public scan intent."""
+    """Build one typed relation leaf from a scalar scan axis."""
 
+    if isinstance(scan, ScanGroupIntent):
+        msg = "scan groups must lower through the point-domain algebra"
+        raise TypeError(msg)
+    center = (
+        scan.center
+        if isinstance(scan, PointScanIntent) and isinstance(scan.center, ValueRef)
+        else None
+    )
     return internal_value_ref_from_expression(
         _lower_scan_points_relation(scan, inputs=inputs),
         _scan_points_type(scan),
+        parameter_contracts=scan_parameter_contracts(scan),
+        point_dependencies=(
+            internal_value_ref_point_dependencies(center) if center is not None else ()
+        ),
+        free_point_dependencies=(
+            internal_value_ref_free_point_dependencies(center)
+            if center is not None
+            else ()
+        ),
+        bound_point_input_ids=(
+            internal_value_ref_bound_point_input_ids(center)
+            if center is not None
+            else frozenset()
+        ),
     )
+
+
+def lower_scan_point_domain(
+    scan: Scan,
+    *,
+    inputs: Mapping[str, object] | None = None,
+    dependency_edges: Collection[tuple[str, str]] = (),
+) -> PointDomainIntent:
+    """Preserve Cartesian, dependent, and positional scan composition."""
+
+    if not isinstance(scan, ScanGroupIntent):
+        return point_rows(lower_scan_points(scan, inputs=inputs))
+    children = tuple(
+        lower_scan_point_domain(
+            child,
+            inputs=inputs,
+            dependency_edges=dependency_edges,
+        )
+        for child in scan.scans
+    )
+    if scan.kind == "zip":
+        return point_zip(*children)
+
+    combined = children[0]
+    produced = {scan_point_id(leaf) for leaf in iter_scan_leaves(scan.scans[0])}
+    for child_scan, child_domain in zip(scan.scans[1:], children[1:], strict=True):
+        child_ids = {scan_point_id(leaf) for leaf in iter_scan_leaves(child_scan)}
+        dependent = any(
+            producer_id in produced and consumer_id in child_ids
+            for producer_id, consumer_id in dependency_edges
+        )
+        combined = (
+            point_dependent_product(combined, child_domain)
+            if dependent
+            else point_product(combined, child_domain)
+        )
+        produced.update(child_ids)
+    return combined
 
 
 def _lower_scan_points_relation(
@@ -98,17 +172,8 @@ def _lower_scan_points_relation(
             else list(scan.values)
         )
         return grid(**{scan.point_id: source})
-    if not isinstance(scan, ScanGroupIntent):
-        msg = "invalid scan handle"
-        raise TypeError(msg)
-    if scan.kind == "cartesian":
-        relation = _lower_scan_points_relation(scan.scans[0], inputs=inputs)
-        for next_scan in scan.scans[1:]:
-            relation = relation.cross(
-                _lower_scan_points_relation(next_scan, inputs=inputs)
-            )
-        return relation
-    return _zip_scan_points(scan, inputs=inputs)
+    msg = "scan relation leaf must be a point or parameter scan"
+    raise TypeError(msg)
 
 
 def project_scan_record(
@@ -174,16 +239,6 @@ def project_scan_record(
     )
 
 
-def _zip_scan_points(
-    scan: ScanGroupIntent,
-    *,
-    inputs: Mapping[str, object] | None,
-) -> RelationExpr:
-    return zip_relations(
-        *(_lower_scan_points_relation(child, inputs=inputs) for child in scan.scans)
-    )
-
-
 def _scan_points_type(scan: Scan) -> Table:
     if isinstance(scan, PointScanIntent | ParameterScanIntent):
         if not isinstance(scan.target.value_type, Scalar):
@@ -200,7 +255,7 @@ def _scan_points_type(scan: Scan) -> Table:
             msg = f"scan axis {scan.point_id!r} has no statically known row count"
             raise ValueError(msg)
         return Table(
-            columns=(TableColumn(scan.point_id, scan.target.value_type),),
+            columns=(TableColumn(scan.point_id, _scan_point_value_type(scan)),),
             min_rows=row_count,
             max_rows=row_count,
         )
@@ -224,6 +279,23 @@ def _scan_points_type(scan: Scan) -> Table:
         min_rows=row_count,
         max_rows=row_count,
     )
+
+
+def _scan_point_value_type(scan: PointScanIntent | ParameterScanIntent) -> Scalar:
+    value_type = scan.target.value_type
+    if not isinstance(value_type, Scalar):
+        msg = "scan target must carry a scalar value type"
+        raise TypeError(msg)
+    if (
+        scan.unit is not None
+        and isinstance(value_type.atom, QuantityType)
+        and value_type.atom.unit is None
+    ):
+        return Scalar(
+            replace(value_type.atom, unit=scan.unit),
+            nullable=value_type.nullable,
+        )
+    return value_type
 
 
 def _scan_quantity(value: object) -> Quantity:
@@ -277,4 +349,4 @@ def _request_scalar_value(
     return project_run_request_value(value, path="scan.value")
 
 
-__all__ = ["lower_scan_points", "project_scan_record"]
+__all__ = ["lower_scan_point_domain", "lower_scan_points", "project_scan_record"]

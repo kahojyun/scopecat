@@ -226,6 +226,9 @@ def validate_config_profile(
                 )
 
     routing_resources = {resource.id: resource for resource in config.routing.resources}
+    routing_target_topologies: dict[
+        tuple[str, str, str], tuple[str | None, tuple[str, ...]]
+    ] = {}
     for edge in config.routing.edges:
         resource = routing_resources.get(edge.resource_id)
         if resource is None:
@@ -349,6 +352,26 @@ def validate_config_profile(
                     )
                 )
             else:
+                channel = channels_by_id[binding.channel_id]
+                target = (edge.resource_id, binding.entity_id, binding.channel_id)
+                topology = (
+                    binding.line_id or channel.line_id,
+                    tuple(sorted(binding.group_ids or channel.group_ids)),
+                )
+                previous_topology = routing_target_topologies.setdefault(
+                    target,
+                    topology,
+                )
+                if previous_topology != topology:
+                    problems.append(
+                        _problem(
+                            "routing_binding_topology_conflict",
+                            f"routing bindings for resource {edge.resource_id}, "
+                            f"entity {binding.entity_id}, and channel "
+                            f"{binding.channel_id} disagree on physical topology",
+                            ("system", "routing", "edges"),
+                        )
+                    )
                 if edge.channels and binding.channel_id not in edge.channels:
                     problems.append(
                         _problem(
@@ -372,7 +395,6 @@ def validate_config_profile(
                             ("system", "routing", "edges"),
                         )
                     )
-                channel = channels_by_id[binding.channel_id]
                 if (
                     binding.line_id is not None
                     and channel.line_id is not None

@@ -3,19 +3,36 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
-from scopecat._compiler.bound import BoundRoute
+from scopecat._compiler.bound import (
+    BoundCollect,
+    BoundResourceState,
+    BoundRoute,
+)
 from scopecat._compiler.problems import compiler_problem
-from scopecat.models.config import ConfigProfileSnapshot
+from scopecat._resource_identity import LogicalResourcePortId, PhysicalResourceId
+from scopecat.models.config import ConfigProfileSnapshot, RoutingChannelBinding
 from scopecat.problems import ModelLocation, Problem, ProblemCategory, model_location
 
+type _ChannelConsumerId = LogicalResourcePortId | PhysicalResourceId
 
-def validate_route_constraints(
-    routes_by_point: Mapping[int, Sequence[BoundRoute]],
+
+@dataclass(frozen=True, slots=True)
+class _ChannelUse:
+    resource_id: PhysicalResourceId
+    consumer_id: _ChannelConsumerId
+    bindings: tuple[RoutingChannelBinding, ...]
+
+
+def validate_point_resource_constraints(
+    point_index: int,
+    routes: Sequence[BoundRoute],
+    desired_state: Sequence[BoundResourceState],
+    collects: Sequence[BoundCollect],
     *,
     config: ConfigProfileSnapshot,
 ) -> list[Problem]:
-    problems: list[Problem] = []
     group_limits = {
         group.id: group.max_resources_per_point for group in config.topology.groups
     }
@@ -23,20 +40,64 @@ def validate_route_constraints(
         channel.id: channel.max_route_ports_per_point
         for channel in config.topology.channels
     }
-    for point_index, routes in routes_by_point.items():
-        problems.extend(_duplicate_ports(point_index, routes))
-        problems.extend(_shared_groups(point_index, routes, group_limits=group_limits))
-        problems.extend(
-            _shared_channels(point_index, routes, channel_limits=channel_limits)
+    channel_uses = _channel_uses(routes, desired_state, collects)
+    return [
+        *_duplicate_ports(point_index, routes),
+        *_shared_groups(
+            point_index,
+            channel_uses,
+            group_limits=group_limits,
+        ),
+        *_shared_channels(
+            point_index,
+            channel_uses,
+            channel_limits=channel_limits,
+        ),
+    ]
+
+
+def _channel_uses(
+    routes: Sequence[BoundRoute],
+    desired_state: Sequence[BoundResourceState],
+    collects: Sequence[BoundCollect],
+) -> tuple[_ChannelUse, ...]:
+    uses = [
+        _ChannelUse(
+            resource_id=route.resource_id,
+            consumer_id=route.port_id,
+            bindings=route.channel_bindings,
         )
-    return problems
+        for route in routes
+        if route.channel_bindings
+    ]
+    uses.extend(
+        _ChannelUse(
+            resource_id=state.resource_id,
+            consumer_id=field.resource_port_id or state.resource_id,
+            bindings=field.channel_bindings,
+        )
+        for state in desired_state
+        for field in state.fields
+        if field.channel_bindings
+    )
+    uses.extend(
+        _ChannelUse(
+            resource_id=collect.resource_id,
+            consumer_id=request.resource_port_id or collect.resource_id,
+            bindings=request.channel_bindings,
+        )
+        for collect in collects
+        for request in collect.requests
+        if request.channel_bindings
+    )
+    return tuple(uses)
 
 
 def _duplicate_ports(
     point_index: int,
     routes: Sequence[BoundRoute],
 ) -> list[Problem]:
-    by_port: dict[str, list[BoundRoute]] = {}
+    by_port: dict[LogicalResourcePortId, list[BoundRoute]] = {}
     for route in routes:
         by_port.setdefault(route.port_id, []).append(route)
     problems: list[Problem] = []
@@ -55,9 +116,10 @@ def _duplicate_ports(
         problems.append(
             _problem(
                 "routing_port_resolved_multiple_bindings",
-                f"route port {port_id} resolved to multiple bindings for "
-                f"point {point_index}",
-                model_location("points", point_index, "routes", port_id),
+                "route port "
+                f"{port_id.qualified_name} resolved to multiple bindings "
+                f"for point {point_index}",
+                model_location("points", point_index, "routes", port_id.qualified_name),
             )
         )
     return problems
@@ -65,15 +127,15 @@ def _duplicate_ports(
 
 def _shared_groups(
     point_index: int,
-    routes: Sequence[BoundRoute],
+    uses: Sequence[_ChannelUse],
     *,
     group_limits: Mapping[str, int | None],
 ) -> list[Problem]:
-    resources_by_group: dict[str, set[str]] = {}
-    for route in routes:
-        for binding in route.channel_bindings:
+    resources_by_group: dict[str, set[PhysicalResourceId]] = {}
+    for use in uses:
+        for binding in use.bindings:
             for group_id in binding.group_ids:
-                resources_by_group.setdefault(group_id, set()).add(route.resource_id)
+                resources_by_group.setdefault(group_id, set()).add(use.resource_id)
     problems: list[Problem] = []
     for group_id, resource_ids in sorted(resources_by_group.items()):
         limit = group_limits.get(group_id, 1)
@@ -84,7 +146,7 @@ def _shared_groups(
                 "routing_shared_group_resource_conflict",
                 f"shared group {group_id} is used by {len(resource_ids)} resources "
                 f"at point {point_index}, above its limit of {limit}: "
-                + ", ".join(sorted(resource_ids)),
+                + ", ".join(sorted(item.value for item in resource_ids)),
                 model_location("points", point_index, "routes"),
             )
         )
@@ -93,29 +155,40 @@ def _shared_groups(
 
 def _shared_channels(
     point_index: int,
-    routes: Sequence[BoundRoute],
+    uses: Sequence[_ChannelUse],
     *,
     channel_limits: Mapping[str, int | None],
 ) -> list[Problem]:
-    ports_by_channel: dict[str, set[str]] = {}
-    for route in routes:
-        for binding in route.channel_bindings:
-            ports_by_channel.setdefault(binding.channel_id, set()).add(route.port_id)
+    consumers_by_channel: dict[str, set[_ChannelConsumerId]] = {}
+    for use in uses:
+        for binding in use.bindings:
+            consumers_by_channel.setdefault(binding.channel_id, set()).add(
+                use.consumer_id
+            )
     problems: list[Problem] = []
-    for channel_id, port_ids in sorted(ports_by_channel.items()):
+    for channel_id, consumer_ids in sorted(consumers_by_channel.items()):
         limit = channel_limits.get(channel_id, 1)
-        if limit is None or len(port_ids) <= limit:
+        if limit is None or len(consumer_ids) <= limit:
             continue
         problems.append(
             _problem(
                 "routing_channel_shared_by_ports",
-                f"channel {channel_id} is selected by {len(port_ids)} route ports "
+                f"channel {channel_id} is selected by {len(consumer_ids)} resource "
+                "consumers "
                 f"at point {point_index}, above its limit of {limit}: "
-                + ", ".join(sorted(port_ids)),
+                + ", ".join(
+                    sorted(_channel_consumer_display(item) for item in consumer_ids)
+                ),
                 model_location("points", point_index, "routes"),
             )
         )
     return problems
+
+
+def _channel_consumer_display(consumer_id: _ChannelConsumerId) -> str:
+    if isinstance(consumer_id, LogicalResourcePortId):
+        return f"port:{consumer_id.qualified_name}"
+    return f"physical:{consumer_id.value}"
 
 
 def _problem(code: str, message: str, location: ModelLocation) -> Problem:
@@ -127,4 +200,4 @@ def _problem(code: str, message: str, location: ModelLocation) -> Problem:
     )
 
 
-__all__ = ["validate_route_constraints"]
+__all__ = ["validate_point_resource_constraints"]

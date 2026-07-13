@@ -7,7 +7,8 @@ import scopecat as sc
 from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 from scopecat._compiler.binding import bind_program
 from scopecat._execution.executor import execute_run
-from scopecat.authoring._module_composition import assemble_invocation_internal
+from scopecat._resource_identity import logical_resource_port_id
+from scopecat.authoring._elaboration import elaborate_module
 from scopecat.authoring._resolution import resolve_experiment
 from scopecat.config_profiles import load_config_profile
 from scopecat.instruments import (
@@ -83,22 +84,22 @@ def test_quantum_wiring_builder_compiles_lab_vocabulary_to_core_config() -> None
 
     routing = RoutingView.from_config(config)
     drive = routing.route(
-        port_id="drive",
+        port_id=logical_resource_port_id("drive"),
         capabilities=("play_pulse_program",),
         entity_ids=("q0",),
     )
     readout = routing.route(
-        port_id="readout",
+        port_id=logical_resource_port_id("readout"),
         capabilities=("acquire_iq",),
         entity_ids=("q0",),
     )
 
-    assert drive.resource_id == "drive-stack"
+    assert drive.resource_id.value == "drive-stack"
     assert [
         (binding.entity_id, binding.line_id, binding.channel_id, binding.group_ids)
         for binding in drive.channel_bindings
     ] == [("q0", "q0.xy", "drive.awg0.ch1", ["lo.xy0"])]
-    assert readout.resource_id == "readout-stack"
+    assert readout.resource_id.value == "readout-stack"
     assert [
         (binding.entity_id, binding.line_id, binding.channel_id, binding.group_ids)
         for binding in readout.channel_bindings
@@ -139,17 +140,17 @@ def test_default_quantum_wiring_config_describes_lines_groups_and_channel_routes
 
     routing = RoutingView.from_config(config)
     drive_binding = routing.route(
-        port_id="drive",
+        port_id=logical_resource_port_id("drive"),
         capabilities=("play_pulse_program",),
         entity_ids=("q0", "q1"),
     )
     readout_binding = routing.route(
-        port_id="readout",
+        port_id=logical_resource_port_id("readout"),
         capabilities=("acquire_iq",),
         entity_ids=("q0", "q1"),
     )
 
-    assert drive_binding.resource_id == "drive-stack"
+    assert drive_binding.resource_id.value == "drive-stack"
     assert [
         (binding.entity_id, binding.line_id, binding.channel_id, binding.group_ids)
         for binding in drive_binding.channel_bindings
@@ -157,7 +158,7 @@ def test_default_quantum_wiring_config_describes_lines_groups_and_channel_routes
         ("q0", "q0.xy", "drive.awg0.ch1", ["lo.xy0"]),
         ("q1", "q1.xy", "drive.awg0.ch2", ["lo.xy0"]),
     ]
-    assert readout_binding.resource_id == "readout-stack"
+    assert readout_binding.resource_id.value == "readout-stack"
     assert [
         (binding.entity_id, binding.line_id, binding.channel_id, binding.group_ids)
         for binding in readout_binding.channel_bindings
@@ -216,22 +217,28 @@ def test_workspace_system_summary_describes_default_quantum_wiring(tmp_path) -> 
 
 def test_modules_leave_resource_selection_to_routing() -> None:
     modules = [
-        RABI_MODULE(qubit="q0"),
-        READOUT_MODULE(qubit="q0"),
-        FLUX_BACKGROUND_MODULE(
-            coupler="coupler-q0-q1",
-            flux_bias=sc.Quantity(value=0.02, unit="arb"),
+        (RABI_MODULE, {"qubit": "q0"}),
+        (READOUT_MODULE, {"qubit": "q0"}),
+        (
+            FLUX_BACKGROUND_MODULE,
+            {
+                "coupler": "coupler-q0-q1",
+                "flux_bias": sc.Quantity(value=0.02, unit="arb"),
+            },
         ),
-        CZ_CHEVRON_MODULE(
-            control_qubit="q0",
-            partner_qubit="q1",
-            coupler="coupler-q0-q1",
+        (
+            CZ_CHEVRON_MODULE,
+            {
+                "control_qubit": "q0",
+                "partner_qubit": "q1",
+                "coupler": "coupler-q0-q1",
+            },
         ),
-        MULTIPLEXED_READOUT_MODULE(qubits=["q0", "q1"]),
+        (MULTIPLEXED_READOUT_MODULE, {"qubits": ["q0", "q1"]}),
     ]
 
-    for module in modules:
-        assembly = assemble_invocation_internal(module)
+    for module, inputs in modules:
+        assembly = elaborate_module(module, **inputs)
 
         assert assembly.resource_ports
         assert all(not hasattr(port, "resource_id") for port in assembly.resource_ports)
@@ -249,8 +256,14 @@ def test_default_quantum_wiring_preview_includes_resolved_channel_routes(
         .preview()
     )
 
-    drive = next(route for route in preview.routes if route.port_id == "drive")
-    readout = next(route for route in preview.routes if route.port_id == "readout")
+    drive = next(
+        route for route in preview.routes if route.port_id == "simultaneous/drive"
+    )
+    readout = next(
+        route
+        for route in preview.routes
+        if route.port_id == "multiplexed_readout/readout"
+    )
 
     assert [
         (binding.line_id, binding.channel_id)

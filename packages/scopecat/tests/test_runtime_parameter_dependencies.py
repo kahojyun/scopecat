@@ -4,66 +4,102 @@ import pytest
 
 from scopecat._compiler.binding import bind_program
 from scopecat._compiler.environment import validate_config_environment
-from scopecat._compiler.ids import NodeId
+from scopecat._compiler.point_domain import PointDomain
 from scopecat._compiler.program import (
     TypedComputeNode,
-    TypedPointSource,
+    TypedComputeOutput,
     ValueInput,
     typed_program,
 )
 from scopecat._execution.engine import (  # pyright: ignore[reportPrivateUsage]
     _versioned_value,
 )
-from scopecat._relations import (
-    ParameterRelationData,
-    lit,
-    literal_rows,
-    param,
-    parameter_series,
-    table,
+from scopecat._operation_contract import LOCAL_OPAQUE_OPERATION_CONTRACT
+from scopecat._point_domain_algebra import POINT_UNIT
+from scopecat._relation_backend import ParameterRelationData
+from scopecat._relation_verification import RelationTypeBindings
+from scopecat._relations import lit, param, parameter_series, table
+from scopecat._semantic_graph import (
+    ImplementationCatalog,
+    ImplementationId,
+    LocalPythonImplementation,
+    OperationId,
+    operation_result_id,
 )
-from scopecat._value_expressions import as_value_expr
+from scopecat._symbols import SymbolId
+from scopecat._value_availability import ValueAvailability, ValueRate, ValueStage
 from scopecat.models.entity import EntityRef
 from scopecat.value_types import Bool, Float, Scalar, Series, Table
 from tests.support.authoring import load_config
+from tests.support.relation_plans import value_expr
 
 
 def test_bound_compute_call_carries_dependency_provenance() -> None:
+    operation_id = OperationId(SymbolId(local_id="consume-parameters"))
+    gain_type = Scalar(Float())
+    offsets_type = Series(Scalar(Float()))
+    calibrations_type = Table(columns=(), allow_extra_columns=True)
+    bindings = RelationTypeBindings(
+        parameters={
+            "gain": gain_type,
+            "offsets": offsets_type,
+            "calibrations": calibrations_type,
+        }
+    )
     node = TypedComputeNode(
-        id=NodeId(local_id="consume-parameters"),
+        id=operation_id,
+        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
         inputs={
             "gain": ValueInput(
-                value=as_value_expr(param("gain")),
-                source_inputs=("gain_input",),
-                value_type=Scalar(Float()),
+                value=value_expr(
+                    param("gain"),
+                    expected_type=gain_type,
+                    bindings=bindings,
+                ),
+                origin_input_ids=("gain_input",),
             ),
             "offsets": ValueInput(
-                value=as_value_expr(parameter_series("offsets")),
-                source_inputs=("offsets_input",),
-                value_type=Series(Scalar(Float())),
+                value=value_expr(
+                    parameter_series("offsets"),
+                    expected_type=offsets_type,
+                    bindings=bindings,
+                ),
+                origin_input_ids=("offsets_input",),
             ),
             "calibrations": ValueInput(
-                value=as_value_expr(table("calibrations")),
-                source_inputs=("calibrations_input",),
-                value_type=Table(columns=(), allow_extra_columns=True),
+                value=value_expr(
+                    table("calibrations"),
+                    expected_type=calibrations_type,
+                    bindings=bindings,
+                ),
+                origin_input_ids=("calibrations_input",),
             ),
             "runtime_value": ValueInput(
-                value=as_value_expr(lit(1.0)),
-                source_inputs=("runtime_value",),
-                value_type=Scalar(Float()),
+                value=value_expr(lit(1.0), expected_type=gain_type),
+                origin_input_ids=("runtime_value",),
             ),
         },
-        output_type=Scalar(Bool()),
-        fn=lambda **_inputs: True,
+        result=TypedComputeOutput(
+            id=operation_result_id(operation_id),
+            value_type=Scalar(Bool()),
+            availability=ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT),
+        ),
     )
     program = typed_program(
         id="dependency-provenance",
         kind="compiler_test",
-        point_source=TypedPointSource(
-            expr=literal_rows([{}]),
-            value_type=Table(columns=(), min_rows=1, max_rows=1),
-        ),
+        point_domain=PointDomain(root=POINT_UNIT),
         compute_nodes=(node,),
+        implementation_catalog=ImplementationCatalog(
+            local_python=(
+                LocalPythonImplementation(
+                    id=ImplementationId("python.consume-parameters.v1"),
+                    operation_id=operation_id,
+                    operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                    kernel=lambda **_inputs: True,
+                ),
+            )
+        ),
     )
     parameters = ParameterRelationData(
         scalars={"gain": 1.0},

@@ -1,8 +1,10 @@
 """Private symbolic references to point-local compute results."""
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from __future__ import annotations
 
-from scopecat._compiler.ids import NodeId
+from pydantic import BaseModel, ConfigDict
+
+from scopecat._semantic_graph import ValueId
 
 
 class ComputeResultRef(BaseModel):
@@ -14,12 +16,7 @@ class ComputeResultRef(BaseModel):
         revalidate_instances="always",
     )
 
-    node_id: NodeId
-
-    @field_validator("node_id", mode="before")
-    @classmethod
-    def coerce_root_node_id(cls, value: object) -> object:
-        return NodeId(local_id=value) if isinstance(value, str) else value
+    value_id: ValueId
 
 
 __all__ = ["ComputeResultRef"]

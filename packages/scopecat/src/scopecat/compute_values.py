@@ -11,8 +11,10 @@ class ResolvedRoute:
 
     port_id: str
     resource_id: str
+    resource_kind: str = "instrument"
     capabilities: tuple[str, ...] = ()
     entity_ids: tuple[str, ...] = ()
+    served_entity_ids: tuple[str, ...] = ()
     product_axis_order: tuple[str, ...] = ()
 
 

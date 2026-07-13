@@ -159,8 +159,8 @@ class InstrumentRegistry(BaseModel):
 class RoutingResource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
-    kind: str = "instrument"
+    id: str = Field(min_length=1)
+    kind: str = Field(default="instrument", min_length=1)
     capabilities: list[str] = Field(default_factory=list)
     served_entities: list[str] = Field(default_factory=list)
     channels: list[str] = Field(default_factory=list)

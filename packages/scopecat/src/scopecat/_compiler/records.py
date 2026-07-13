@@ -1,13 +1,20 @@
-"""Typed record declarations and config-bound record planning."""
+"""Logical record uses and their config-bound dataset projections."""
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat._compiler.problems import compiler_problem
+from scopecat._compiler.products import (
+    InstrumentProductProducer,
+    ProductAxisDef,
+    ProductDef,
+)
+from scopecat._product_identity import ProductId, ProductUse, ProductUseId
 from scopecat._relations import CellValue, Row
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
@@ -20,34 +27,18 @@ from scopecat.results import (
 )
 from scopecat.units import compatible_units, is_supported_unit
 
-RecordKind = Literal["observable", "artifact", "readback", "expression"]
-RecordSource = Literal["instrument", "state", "point", "expression", "runtime"]
 
+class RecordUse(BaseModel):
+    """Template-owned durable destination for one logical product use."""
 
-class RecordAxisSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
 
-    id: str
-    kind: str
-    size: int = Field(gt=0)
-    unit: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class RecordSpec(BaseModel):
-    """Closed logical output declaration for one run segment."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    kind: RecordKind = "observable"
-    source: RecordSource = "instrument"
-    resource: str | None = None
-    capability: str | None = None
-    product_key: str | None = None
-    unit: str | None = None
-    dtype: MeasurementDType = "float64"
-    axes: list[RecordAxisSpec] = Field(default_factory=list)
+    id: str = Field(min_length=1)
+    product_use_id: ProductUseId
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -62,14 +53,12 @@ class RecordAxisPlan(BaseModel):
 
 
 class RecordPlan(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     id: str
-    kind: RecordKind
-    source: RecordSource
-    resource: str | None = None
-    capability: str | None = None
-    product_key: str | None = None
+    product_use_id: ProductUseId
+    product_id: ProductId
+    kind: str
     unit: str | None = None
     dtype: MeasurementDType
     axes: list[RecordAxisPlan] = Field(default_factory=list)
@@ -84,36 +73,212 @@ class PointRecordLike(Protocol):
 
 
 def plan_records(
-    records: Sequence[RecordSpec],
+    products: Sequence[ProductDef],
+    product_uses: Sequence[ProductUse],
+    record_uses: Sequence[RecordUse],
     *,
     point_count: int,
 ) -> list[RecordPlan]:
-    return [
-        RecordPlan(
-            id=record.id,
-            kind=record.kind,
-            source=record.source,
-            resource=record.resource,
-            capability=record.capability,
-            product_key=record.product_key,
-            unit=record.unit,
-            dtype=record.dtype,
-            axes=[
-                RecordAxisPlan(
-                    id=axis.id,
-                    kind=axis.kind,
-                    size=axis.size,
-                    unit=axis.unit,
-                    metadata=axis.metadata,
-                )
-                for axis in record.axes
-            ],
-            dims=["point", *(axis.id for axis in record.axes)],
-            shape=[point_count, *(axis.size for axis in record.axes)],
-            metadata=record.metadata,
+    products_by_id = {product.id: product for product in products}
+    uses_by_id = {use.id: use for use in product_uses}
+    plans: list[RecordPlan] = []
+    for record in record_uses:
+        try:
+            use = uses_by_id[record.product_use_id]
+            product = products_by_id[use.product_id]
+        except KeyError as error:
+            msg = "record planning requires a closed verified product graph"
+            raise ValueError(msg) from error
+        plans.append(
+            RecordPlan(
+                id=record.id,
+                product_use_id=use.id,
+                product_id=product.id,
+                kind=product.kind,
+                unit=product.unit,
+                dtype=product.dtype,
+                axes=[_plan_axis(axis) for axis in product.axes],
+                dims=["point", *(axis.id for axis in product.axes)],
+                shape=[point_count, *(axis.size for axis in product.axes)],
+                metadata={**product.metadata, **record.metadata},
+            )
         )
-        for record in records
-    ]
+    return plans
+
+
+def validate_product_graph(
+    products: Sequence[ProductDef],
+    producers: Sequence[InstrumentProductProducer],
+    product_uses: Sequence[ProductUse],
+    record_uses: Sequence[RecordUse],
+    *,
+    phase: ProblemPhase = ProblemPhase.AUTHORING,
+) -> tuple[Problem, ...]:
+    """Check declaration/use/record closure without choosing a target."""
+
+    problems: list[Problem] = []
+    product_counts = Counter(product.id for product in products)
+    products_by_id = {product.id: product for product in products}
+    for product_id, count in product_counts.items():
+        if count < 2:
+            continue
+        problems.append(
+            compiler_problem(
+                "product_definition_duplicate",
+                f"logical product {product_id.qualified_name!r} is defined "
+                "more than once",
+                model_location("product_defs", product_id.qualified_name),
+                phase=phase,
+                category=ProblemCategory.CONFLICT,
+            )
+        )
+
+    producer_counts = Counter(producer.id for producer in producers)
+    for producer_id, count in producer_counts.items():
+        if count < 2:
+            continue
+        problems.append(
+            compiler_problem(
+                "product_producer_duplicate",
+                f"product producer {producer_id.qualified_name!r} is declared "
+                "more than once",
+                model_location(
+                    "instrument_product_producers",
+                    producer_id.qualified_name,
+                ),
+                phase=phase,
+                category=ProblemCategory.CONFLICT,
+            )
+        )
+    for producer in producers:
+        if producer.product_id in products_by_id:
+            continue
+        problems.append(
+            compiler_problem(
+                "product_producer_definition_missing",
+                f"product producer {producer.id.qualified_name!r} references "
+                f"unknown product {producer.product_id.qualified_name!r}",
+                model_location(
+                    "instrument_product_producers",
+                    producer.id.qualified_name,
+                    "product_id",
+                ),
+                phase=phase,
+                category=ProblemCategory.NOT_FOUND,
+            )
+        )
+
+    use_counts = Counter(use.id for use in product_uses)
+    uses_by_id = {use.id: use for use in product_uses}
+    for use_id, count in use_counts.items():
+        if count < 2:
+            continue
+        problems.append(
+            compiler_problem(
+                "product_use_identity_duplicate",
+                f"product use {use_id.value!r} occurs more than once",
+                model_location("product_uses", use_id.value),
+                phase=phase,
+                category=ProblemCategory.CONFLICT,
+            )
+        )
+    for use in product_uses:
+        if use.product_id in products_by_id:
+            continue
+        problems.append(
+            compiler_problem(
+                "product_use_definition_missing",
+                f"product use {use.id.value!r} references unknown product "
+                f"{use.product_id.qualified_name!r}",
+                model_location("product_uses", use.id.value, "product_id"),
+                phase=phase,
+                category=ProblemCategory.NOT_FOUND,
+            )
+        )
+
+    for record in record_uses:
+        if record.product_use_id in uses_by_id:
+            continue
+        problems.append(
+            compiler_problem(
+                "record_product_use_missing",
+                f"record {record.id!r} references unknown product use "
+                f"{record.product_use_id.value!r}",
+                model_location("record_uses", record.id, "product_use_id"),
+                phase=phase,
+                category=ProblemCategory.NOT_FOUND,
+            )
+        )
+    return tuple(problems)
+
+
+def _plan_axis(axis: ProductAxisDef) -> RecordAxisPlan:
+    return RecordAxisPlan(
+        id=axis.id,
+        kind=axis.kind,
+        size=axis.size,
+        unit=axis.unit,
+        metadata=axis.metadata,
+    )
+
+
+def validate_product_defs(
+    products: Sequence[ProductDef],
+    *,
+    phase: ProblemPhase = ProblemPhase.AUTHORING,
+) -> tuple[Problem, ...]:
+    """Validate intrinsic product schema independently of demand or recording."""
+
+    problems: list[Problem] = []
+    for product in products:
+        product_name = product.id.qualified_name
+        if product.unit is not None and not is_supported_unit(product.unit):
+            problems.append(
+                compiler_problem(
+                    "product_unit_unsupported",
+                    f"product {product_name!r} uses unsupported unit {product.unit!r}",
+                    model_location("product_defs", product_name, "unit"),
+                    phase=phase,
+                )
+            )
+        axis_ids = [axis.id for axis in product.axes]
+        for axis_id in sorted(_duplicates(axis_ids)):
+            problems.append(
+                compiler_problem(
+                    "product_axis_duplicate",
+                    f"product {product_name!r} axis {axis_id!r} is duplicated",
+                    model_location("product_defs", product_name, "axes"),
+                    phase=phase,
+                    category=ProblemCategory.CONFLICT,
+                )
+            )
+        for axis in product.axes:
+            location = model_location(
+                "product_defs",
+                product_name,
+                "axes",
+                axis.id,
+            )
+            if axis.id == "point":
+                problems.append(
+                    compiler_problem(
+                        "product_axis_reserved",
+                        "product axis 'point' conflicts with the point dimension",
+                        location,
+                        phase=phase,
+                    )
+                )
+            if axis.unit is not None and not is_supported_unit(axis.unit):
+                problems.append(
+                    compiler_problem(
+                        "product_axis_unit_unsupported",
+                        f"product {product_name!r} axis {axis.id!r} uses "
+                        f"unsupported unit {axis.unit!r}",
+                        model_location(location.root, *location.path, "unit"),
+                        phase=phase,
+                    )
+                )
+    return tuple(problems)
 
 
 def validate_record_plan(
@@ -148,56 +313,11 @@ def validate_record_plan(
         )
     axes_by_id: dict[str, tuple[str, RecordAxisPlan]] = {}
     for record in records:
-        if record.unit is not None and not is_supported_unit(record.unit):
-            problems.append(
-                compiler_problem(
-                    "experiment_record_unit_unsupported",
-                    f"record {record.id!r} uses unsupported unit {record.unit!r}",
-                    model_location("records", record.id, "unit"),
-                    phase=phase,
-                )
-            )
-        axis_ids = [axis.id for axis in record.axes]
-        for axis_id in sorted(_duplicates(axis_ids)):
-            problems.append(
-                compiler_problem(
-                    "experiment_record_axis_duplicate",
-                    f"record {record.id!r} axis {axis_id!r} is duplicated",
-                    model_location("records", record.id, "axes"),
-                    phase=phase,
-                    category=ProblemCategory.CONFLICT,
-                )
-            )
         seen_axis_ids: set[str] = set()
         for axis in record.axes:
             if axis.id in seen_axis_ids:
                 continue
             seen_axis_ids.add(axis.id)
-            if axis.id == "point":
-                problems.append(
-                    compiler_problem(
-                        "experiment_record_axis_reserved",
-                        "record axis 'point' conflicts with the point dimension",
-                        model_location("records", record.id, "axes", "point"),
-                        phase=phase,
-                    )
-                )
-            if axis.unit is not None and not is_supported_unit(axis.unit):
-                problems.append(
-                    compiler_problem(
-                        "experiment_record_axis_unit_unsupported",
-                        f"record {record.id!r} axis {axis.id!r} uses unsupported "
-                        f"unit {axis.unit!r}",
-                        model_location(
-                            "records",
-                            record.id,
-                            "axes",
-                            axis.id,
-                            "unit",
-                        ),
-                        phase=phase,
-                    )
-                )
             existing = axes_by_id.get(axis.id)
             if existing is None:
                 axes_by_id[axis.id] = (record.id, axis)
@@ -222,44 +342,6 @@ def validate_record_plan(
                             axis.id,
                         ),
                     ),
-                )
-            )
-        if record.kind != "observable":
-            problems.append(
-                compiler_problem(
-                    "experiment_record_kind_unsupported",
-                    f"record kind {record.kind!r} is not supported yet",
-                    model_location("records", record.id, "kind"),
-                    phase=phase,
-                )
-            )
-        elif record.source != "instrument":
-            problems.append(
-                compiler_problem(
-                    "experiment_record_source_unsupported",
-                    f"observable record source {record.source!r} is not supported yet",
-                    model_location("records", record.id, "source"),
-                    phase=phase,
-                )
-            )
-    product_keys_by_resource: dict[str | None, list[str]] = {}
-    for record in records:
-        if record.source != "instrument" or record.kind != "observable":
-            continue
-        if record.id in duplicate_record_ids:
-            continue
-        product_keys_by_resource.setdefault(record.resource, []).append(
-            _record_product_key(record)
-        )
-    for resource, product_keys in product_keys_by_resource.items():
-        for product_key in sorted(_duplicates(product_keys)):
-            problems.append(
-                compiler_problem(
-                    "experiment_record_product_duplicate",
-                    f"instrument product {product_key!r} is mapped more than once",
-                    model_location("records", *((resource,) if resource else ())),
-                    phase=phase,
-                    category=ProblemCategory.CONFLICT,
                 )
             )
     return problems
@@ -289,10 +371,6 @@ def expected_dataset_schema(
             dims=record.dims,
             shape=record.shape,
             metadata={
-                "source": record.source,
-                **({"resource": record.resource} if record.resource else {}),
-                **({"capability": record.capability} if record.capability else {}),
-                **({"product_key": record.product_key} if record.product_key else {}),
                 **record.metadata,
             },
         )
@@ -332,14 +410,6 @@ def _record_axes(records: Sequence[RecordPlan]) -> list[MeasurementDimension]:
                 )
             )
     return dimensions
-
-
-def _record_product_key(record: RecordPlan) -> str:
-    if record.product_key:
-        return record.product_key
-    if record.capability:
-        return record.capability
-    return record.id
 
 
 def _axes_are_compatible(left: RecordAxisPlan, right: RecordAxisPlan) -> bool:
@@ -459,13 +529,12 @@ def _duplicates(values: Sequence[str]) -> set[str]:
 __all__ = [
     "PointRecordLike",
     "RecordAxisPlan",
-    "RecordAxisSpec",
-    "RecordKind",
     "RecordPlan",
-    "RecordSource",
-    "RecordSpec",
+    "RecordUse",
     "expected_dataset_schema",
     "plan_records",
     "point_coordinate_ids",
+    "validate_product_defs",
+    "validate_product_graph",
     "validate_record_plan",
 ]

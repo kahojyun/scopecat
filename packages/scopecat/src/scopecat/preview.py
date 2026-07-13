@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import Literal
 
 from scopecat.models.run import RunConfigSource
 from scopecat.models.state import StateLiteral
@@ -27,27 +28,19 @@ class ExperimentPreviewPoint:
 class ExperimentPreviewRecord:
     id: str
     kind: str
-    source: str
-    resource: str | None
+    producer_kind: Literal["instrument"]
+    resource_port_id: str | None
+    physical_resource_id: str | None
     capability: str | None
     unit: str | None
     dtype: str
     dims: tuple[str, ...]
     shape: tuple[int, ...]
 
-
-@dataclass(frozen=True)
-class ExperimentPreviewStateChange:
-    point_index: int
-    resource: str
-    capability_id: str
-    field_path: str
-    before: object | None
-    after: object
-
-    @property
-    def field(self) -> str:
-        return f"{self.capability_id}.{self.field_path}"
+    def __post_init__(self) -> None:
+        if self.resource_port_id is not None and self.physical_resource_id is not None:
+            msg = "preview record cannot target both logical and physical resources"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -60,11 +53,30 @@ class ExperimentPreviewChannelBinding:
 
 
 @dataclass(frozen=True)
+class ExperimentPreviewStateChange:
+    point_index: int
+    resource_id: str
+    resource_port_id: str | None
+    capability_id: str
+    field_path: str
+    before: object | None
+    after: object
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[ExperimentPreviewChannelBinding, ...] = ()
+
+    @property
+    def field(self) -> str:
+        return f"{self.capability_id}.{self.field_path}"
+
+
+@dataclass(frozen=True)
 class ExperimentPreviewResolvedRoute:
     point_index: int
     port_id: str
     resource_id: str
+    resource_kind: str
     entity_ids: tuple[str, ...]
+    served_entity_ids: tuple[str, ...]
     product_axis_order: tuple[str, ...]
     channel_bindings: tuple[ExperimentPreviewChannelBinding, ...]
 
@@ -74,7 +86,7 @@ class ExperimentPreviewRoute:
     port_id: str
     capabilities: tuple[str, ...]
     entity_expr_count: int
-    fixed_resource: str | None
+    fixed_resource_id: str | None
     resolved: tuple[ExperimentPreviewResolvedRoute, ...] = ()
 
 
@@ -82,15 +94,17 @@ class ExperimentPreviewRoute:
 class ExperimentPreviewStateField:
     point_index: int
     resource_id: str
+    resource_port_id: str | None
     capability_id: str
     field_path: str
     value: StateLiteral
+    entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[ExperimentPreviewChannelBinding, ...] = ()
 
 
 @dataclass(frozen=True)
 class ExperimentPreviewPayload:
-    node_id: str
+    semantic_operation_id: str
     schema_id: str
     state_fields: tuple[ExperimentPreviewStateTarget, ...]
     dependencies: dict[str, tuple[str, ...]]
@@ -98,8 +112,11 @@ class ExperimentPreviewPayload:
 
 @dataclass(frozen=True, order=True)
 class ExperimentPreviewStateTarget:
+    resource_id: str
     capability_id: str
     field_path: str
+    entity_ids: tuple[str, ...] = ()
+    resource_port_id: str | None = None
 
     @property
     def field(self) -> str:
@@ -109,7 +126,7 @@ class ExperimentPreviewStateTarget:
 @dataclass(frozen=True)
 class ExperimentPreviewComputeStep:
     point_index: int
-    node_id: str
+    semantic_operation_id: str
     payload_id: str | None
     schema_id: str | None
     dependencies: dict[str, tuple[str, ...]]
@@ -119,7 +136,7 @@ class ExperimentPreviewComputeStep:
 class ExperimentPreviewRuntimeSummary:
     route_count: int
     state_field_count: int
-    compute_node_count: int
+    compute_operation_count: int
     compute_step_count: int
     payload_count: int
 

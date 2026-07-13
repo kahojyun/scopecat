@@ -11,10 +11,12 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
+from scopecat._value_type_compatibility import literal_scalar_type
 from scopecat.authoring._frozen_values import freeze_runtime_input
 from scopecat.authoring._parameter_contracts import (
     ParameterContract,
     ParameterLookupContract,
+    ParameterValueContract,
 )
 from scopecat.authoring._scan_intents import (
     ParameterRow as ParameterRow,
@@ -45,7 +47,6 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_id,
 )
-from scopecat.authoring._value_type_compatibility import literal_scalar_type
 from scopecat.authoring.values import ParameterKeyInput
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
@@ -246,6 +247,13 @@ def _implicit_around_axis(
         span=captured_span,
         point_count=points,
         implicit_center=True,
+        parameter_contracts=(
+            ParameterValueContract(
+                kind="parameter",
+                parameter_id=point_id,
+                value_type=cast("Scalar", target.value_type),
+            ),
+        ),
     )
 
 

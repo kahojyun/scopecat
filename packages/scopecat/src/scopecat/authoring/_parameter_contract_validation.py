@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from scopecat._value_type_compatibility import describe_value_type, is_assignable
 from scopecat.authoring._context import ExperimentAuthoringContext
 from scopecat.authoring._parameter_contracts import (
     ParameterContract,
     ParameterLookupContract,
     ParameterValueContract,
 )
-from scopecat.authoring._value_refs import describe_value_type, is_assignable
 from scopecat.models.parameter import ParameterDefinition
 from scopecat.problems import ProblemCategory
 from scopecat.value_types import Entity, String, Table, ValueType
@@ -88,6 +88,14 @@ def _validate_parameter_lookup(
             "parameters",
             path=column_path,
             category=ProblemCategory.NOT_FOUND,
+        )
+    if not column.required:
+        ctx.raise_problem(
+            "authoring_parameter_lookup_column_optional",
+            f"parameter table {contract.parameter_id} lookup result column "
+            f"{contract.column_id} is not guaranteed to be present",
+            "parameters",
+            path=column_path,
         )
     _require_declared_type(
         ctx,

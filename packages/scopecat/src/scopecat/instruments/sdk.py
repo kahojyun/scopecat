@@ -39,6 +39,8 @@ from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Scalar
 from scopecat.value_validation import ValuePath, ValueValidationError, validate_literal
 
+type _NonEmptyId = Annotated[str, Field(min_length=1)]
+
 _CAPABILITY_FIELD_SCALAR_WIRE_SCHEMA = scalar_type_wire_schema(
     ("float", "quantity", "payload"),
     finite_only=True,
@@ -133,34 +135,81 @@ class InstrumentDescription(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class CommandChannelBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entity_id: _NonEmptyId
+    channel_id: _NonEmptyId
+    line_id: _NonEmptyId | None = None
+    capability: _NonEmptyId | None = None
+    group_ids: list[_NonEmptyId] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def _validate_entity_target(
+    entity_ids: list[str],
+    channel_bindings: list[CommandChannelBinding],
+) -> None:
+    if any(not entity_id for entity_id in entity_ids):
+        msg = "entity target ids must be non-empty"
+        raise ValueError(msg)
+    if len(entity_ids) != len(set(entity_ids)):
+        msg = "entity target ids must be unique"
+        raise ValueError(msg)
+    unbound = sorted(
+        {
+            binding.entity_id
+            for binding in channel_bindings
+            if binding.entity_id not in entity_ids
+        }
+    )
+    if unbound:
+        msg = "channel bindings reference entities outside the target: " + ", ".join(
+            unbound
+        )
+        raise ValueError(msg)
+
+
 class InstrumentStateField(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     capability_id: str
     field_path: str
     value: StateValue
+    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
+    channel_bindings: list[CommandChannelBinding] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> InstrumentStateField:
+        _validate_entity_target(self.entity_ids, self.channel_bindings)
+        return self
 
 
 class InstrumentStateSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.instrument_state_snapshot.v1"] = (
-        "scopecat.instrument_state_snapshot.v1"
+    schema_version: Literal["scopecat.instrument_state_snapshot.v2"] = (
+        "scopecat.instrument_state_snapshot.v2"
     )
     instrument_id: str
     fields: list[InstrumentStateField] = Field(default_factory=list)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
-
-class CommandChannelBinding(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    entity_id: str
-    channel_id: str
-    line_id: str | None = None
-    capability: str | None = None
-    group_ids: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    @model_validator(mode="after")
+    def validate_unique_targets(self) -> InstrumentStateSnapshot:
+        identities = [
+            _state_target_identity(
+                field.capability_id,
+                field.field_path,
+                field.entity_ids,
+                field.channel_bindings,
+            )
+            for field in self.fields
+        ]
+        if len(identities) != len(set(identities)):
+            msg = "instrument state snapshot field targets must be unique"
+            raise ValueError(msg)
+        return self
 
 
 class InstrumentStateCommandField(BaseModel):
@@ -170,20 +219,42 @@ class InstrumentStateCommandField(BaseModel):
     capability_id: str
     field_path: str
     value: StateValue
+    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
     channel_bindings: list[CommandChannelBinding] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> InstrumentStateCommandField:
+        _validate_entity_target(self.entity_ids, self.channel_bindings)
+        return self
 
 
 class InstrumentStateCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.instrument_state_command.v2"] = (
-        "scopecat.instrument_state_command.v2"
+    schema_version: Literal["scopecat.instrument_state_command.v3"] = (
+        "scopecat.instrument_state_command.v3"
     )
     operation_id: str | None = None
     attempt: int = Field(default=1, ge=1)
     instrument_id: str
     fields: list[InstrumentStateCommandField] = Field(default_factory=list)
     payloads: dict[str, CommandPayload] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_unique_targets(self) -> InstrumentStateCommand:
+        identities = [
+            _state_target_identity(
+                field.capability_id,
+                field.field_path,
+                field.entity_ids,
+                field.channel_bindings,
+            )
+            for field in self.fields
+        ]
+        if len(identities) != len(set(identities)):
+            msg = "instrument state command field targets must be unique"
+            raise ValueError(msg)
+        return self
 
 
 class ApplyReceipt(BaseModel):
@@ -196,7 +267,7 @@ class ApplyReceipt(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.apply_receipt.v2"] = "scopecat.apply_receipt.v2"
+    schema_version: Literal["scopecat.apply_receipt.v3"] = "scopecat.apply_receipt.v3"
     status: Literal["applied", "not_applied", "unknown"] = "applied"
     problems: tuple[Problem, ...] = ()
     state: InstrumentStateSnapshot | None = None
@@ -232,14 +303,22 @@ class CollectProductRequest(BaseModel):
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     dimensions: list[CollectAxisRequest] = Field(default_factory=list)
+    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
     channel_bindings: list[CommandChannelBinding] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> CollectProductRequest:
+        _validate_entity_target(self.entity_ids, self.channel_bindings)
+        return self
 
 
 class CollectCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.collect_command.v0"
+    schema_version: Literal["scopecat.collect_command.v1"] = (
+        "scopecat.collect_command.v1"
+    )
     operation_id: str | None = None
     attempt: int = Field(default=1, ge=1)
     instrument_id: str
@@ -247,6 +326,14 @@ class CollectCommand(BaseModel):
     point_count: int
     requests: list[CollectProductRequest] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_unique_requests(self) -> CollectCommand:
+        request_ids = [request.id for request in self.requests]
+        if len(request_ids) != len(set(request_ids)):
+            msg = "collect command request ids must be unique"
+            raise ValueError(msg)
+        return self
 
 
 class InstrumentReadback(BaseModel):
@@ -530,25 +617,71 @@ def apply_state_command_to_snapshot(
     command: InstrumentStateCommand,
 ) -> InstrumentStateSnapshot:
     fields = {
-        (field.capability_id, field.field_path): field.value.model_copy(deep=True)
+        _state_target_identity(
+            field.capability_id,
+            field.field_path,
+            field.entity_ids,
+            field.channel_bindings,
+        ): field.model_copy(deep=True)
         for field in snapshot.fields
     }
     for field in command.fields:
-        fields[(field.capability_id, field.field_path)] = field.value.model_copy(
-            deep=True
+        fields[
+            _state_target_identity(
+                field.capability_id,
+                field.field_path,
+                field.entity_ids,
+                field.channel_bindings,
+            )
+        ] = InstrumentStateField(
+            capability_id=field.capability_id,
+            field_path=field.field_path,
+            value=field.value.model_copy(deep=True),
+            entity_ids=list(field.entity_ids),
+            channel_bindings=[
+                binding.model_copy(deep=True) for binding in field.channel_bindings
+            ],
         )
     return InstrumentStateSnapshot(
         instrument_id=snapshot.instrument_id,
-        fields=[
-            InstrumentStateField(
-                capability_id=capability_id,
-                field_path=field_path,
-                value=value,
-            )
-            for (capability_id, field_path), value in sorted(fields.items())
-        ],
+        fields=[fields[key] for key in sorted(fields, key=_state_target_sort_key)],
         metadata=dict(snapshot.metadata),
     )
+
+
+type _StateTargetIdentity = tuple[
+    str,
+    str,
+    tuple[str, ...],
+    tuple[tuple[str, str, str | None, str | None, tuple[str, ...]], ...],
+]
+
+
+def _state_target_identity(
+    capability_id: str,
+    field_path: str,
+    entity_ids: list[str],
+    channel_bindings: list[CommandChannelBinding],
+) -> _StateTargetIdentity:
+    return (
+        capability_id,
+        field_path,
+        tuple(entity_ids),
+        tuple(
+            (
+                binding.entity_id,
+                binding.channel_id,
+                binding.line_id,
+                binding.capability,
+                tuple(sorted(binding.group_ids)),
+            )
+            for binding in channel_bindings
+        ),
+    )
+
+
+def _state_target_sort_key(identity: _StateTargetIdentity) -> str:
+    return repr(identity)
 
 
 def _validate_state_value(

@@ -1,4 +1,4 @@
-"""Type compatibility for first-class authoring values."""
+"""Shared compatibility and literal inference for first-class value types."""
 
 from __future__ import annotations
 

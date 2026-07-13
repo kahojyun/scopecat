@@ -16,15 +16,22 @@ from scopecat._execution.journal import (
 from scopecat._execution.program import (
     ApplyStateOperation,
     ApplyStateStage,
+    CollectionResultBinding,
     CollectOperation,
     CollectStage,
     ComputeOperation,
+    ComputeResultSlot,
     ComputeStage,
     ExecutionProgram,
     OutputInput,
     PointProgram,
+    RecordProjection,
     StateTarget,
 )
+from scopecat._operation_contract import LOCAL_OPAQUE_OPERATION_CONTRACT
+from scopecat._product_identity import ProductUse, ProductUseId, product_id
+from scopecat._semantic_graph import OperationId, operation_result_id
+from scopecat._symbols import SymbolId
 from scopecat.instruments import (
     ApplyReceipt,
     CollectCommand,
@@ -47,7 +54,7 @@ from scopecat.problems import (
 )
 from scopecat.value_types import Float, Scalar
 from scopecat.value_types import Quantity as QuantityType
-from tests.support.authoring import load_config
+from tests.support.experiment_preview import config_with_physical_resources
 from tests.support.instrument_drivers import SignalInstrumentDriver
 
 
@@ -127,7 +134,8 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
         sc.module("tests.compute_schedule.parent")
         .computes(produce_program)
         .use(
-            child(
+            child.instantiate(
+                "compute-schedule-child",
                 program=produce_program.output,
                 state_rows=({"slot": 0},),
             )
@@ -142,7 +150,7 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
     driver = SignalInstrumentDriver()
     lab = sc.open(
         tmp_path,
-        config=load_config(),
+        config=config_with_physical_resources({"source-0": ("play_program",)}),
         instrument_provider=_SingleDriverProvider(driver),
     )
 
@@ -167,6 +175,8 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
 def test_compute_output_is_normalized_before_downstream_use() -> None:
     consumed: list[Quantity] = []
     producer_id = "normalized-output-point.compute.producer"
+    producer_result_id = operation_result_id(OperationId(SymbolId(local_id="producer")))
+    consumer_result_id = operation_result_id(OperationId(SymbolId(local_id="consumer")))
 
     def consume(*, value: Quantity) -> float:
         consumed.append(value)
@@ -184,29 +194,40 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
                         operations=(
                             ComputeOperation(
                                 operation_id=producer_id,
-                                kernel_id="producer",
+                                semantic_operation_id="producer",
+                                implementation_id="python.producer.v1",
+                                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                                 kernel=lambda: Quantity(
                                     value=5000.0,
                                     unit="MHz",
                                 ),
                                 inputs={},
-                                output_type=Scalar(QuantityType(unit="GHz")),
+                                result=ComputeResultSlot(
+                                    id=producer_result_id,
+                                    value_type=Scalar(QuantityType(unit="GHz")),
+                                ),
                             ),
                             ComputeOperation(
                                 operation_id=(
                                     "normalized-output-point.compute.consumer"
                                 ),
-                                kernel_id="consumer",
+                                semantic_operation_id="consumer",
+                                implementation_id="python.consumer.v1",
+                                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                                 kernel=consume,
-                                inputs={"value": OutputInput(producer_id)},
-                                output_type=Scalar(Float()),
+                                inputs={"value": OutputInput(producer_result_id)},
+                                result=ComputeResultSlot(
+                                    id=consumer_result_id,
+                                    value_type=Scalar(Float()),
+                                ),
                             ),
                         )
                     ),
                 ),
             ),
         ),
-        expected_output_ids=frozenset(),
+        product_uses=(),
+        record_projections=(),
     )
 
     result = ExecutionEngine(
@@ -221,6 +242,80 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
 
     assert result.status == "completed"
     assert consumed == [Quantity(value=5.0, unit="GHz")]
+
+
+def test_compute_cache_is_partitioned_by_implementation_identity() -> None:
+    calls: list[str] = []
+    first_result_id = operation_result_id(OperationId(SymbolId(local_id="first")))
+    second_result_id = operation_result_id(OperationId(SymbolId(local_id="second")))
+
+    def first() -> float:
+        calls.append("first")
+        return 1.0
+
+    def second() -> float:
+        calls.append("second")
+        return 2.0
+
+    program = ExecutionProgram(
+        experiment_id="implementation-cache-identity",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid="implementation-cache-point",
+                coordinates={},
+                stages=(
+                    ComputeStage(
+                        operations=(
+                            ComputeOperation(
+                                operation_id="implementation-cache-point.compute.first",
+                                semantic_operation_id="first",
+                                implementation_id="python.first.v1",
+                                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                                kernel=first,
+                                inputs={},
+                                result=ComputeResultSlot(
+                                    id=first_result_id,
+                                    value_type=Scalar(Float()),
+                                ),
+                                cache_namespace="shared",
+                                cache_key="same-inputs",
+                            ),
+                            ComputeOperation(
+                                operation_id="implementation-cache-point.compute.second",
+                                semantic_operation_id="second",
+                                implementation_id="python.second.v1",
+                                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                                kernel=second,
+                                inputs={},
+                                result=ComputeResultSlot(
+                                    id=second_result_id,
+                                    value_type=Scalar(Float()),
+                                ),
+                                cache_namespace="shared",
+                                cache_key="same-inputs",
+                            ),
+                        )
+                    ),
+                ),
+            ),
+        ),
+        product_uses=(),
+        record_projections=(),
+    )
+
+    result = ExecutionEngine(
+        run_id="implementation-cache-run",
+        program=program,
+        drivers={},
+        journal=MemoryExecutionJournal(),
+        measurements=MemoryMeasurementCommitter(),
+        readbacks=MemoryCollectionCommitter(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "completed"
+    assert calls == ["first", "second"]
 
 
 class _BlockingStateDriver(SignalInstrumentDriver):
@@ -315,7 +410,8 @@ def test_malformed_apply_receipt_is_unknown_and_journaled() -> None:
                 stages=(ApplyStateStage(operations=(operation,)),),
             ),
         ),
-        expected_output_ids=frozenset(),
+        product_uses=(),
+        record_projections=(),
         resource_order=(driver.instrument_id,),
     )
     journal = MemoryExecutionJournal()
@@ -354,7 +450,8 @@ def test_malformed_collect_readback_is_unknown_and_journaled() -> None:
                 stages=(CollectStage(operations=(operation,)),),
             ),
         ),
-        expected_output_ids=frozenset({"signal"}),
+        product_uses=(_collection_product_use("signal"),),
+        record_projections=(_record_projection("signal"),),
         resource_order=(driver.instrument_id,),
     )
     journal = MemoryExecutionJournal()
@@ -401,7 +498,8 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
                 ),
             ),
         ),
-        expected_output_ids=frozenset(),
+        product_uses=(),
+        record_projections=(),
         resource_order=("source-a", "source-b"),
     )
 
@@ -455,7 +553,8 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
                 ),
             ),
         ),
-        expected_output_ids=frozenset(),
+        product_uses=(),
+        record_projections=(),
         resource_order=("source-0",),
     )
     journal = MemoryExecutionJournal()
@@ -508,7 +607,8 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
                 ),
             ),
         ),
-        expected_output_ids=frozenset(),
+        product_uses=(),
+        record_projections=(),
         resource_order=("source-a", "source-b"),
     )
     journal = MemoryExecutionJournal()
@@ -577,6 +677,58 @@ class _UnexpectedProductDriver(SignalInstrumentDriver):
         )
 
 
+def test_one_collected_product_projects_to_two_record_aliases() -> None:
+    driver = SignalInstrumentDriver()
+    point_uid = "record-alias-point"
+    use = _collection_product_use("shared")
+    operation = _collect_operation(point_uid, driver.instrument_id, "shared")
+    measurements = MemoryMeasurementCommitter()
+    program = ExecutionProgram(
+        experiment_id="record-alias",
+        points=(
+            PointProgram(
+                point_index=0,
+                point_uid=point_uid,
+                coordinates={},
+                stages=(CollectStage(operations=(operation,)),),
+            ),
+        ),
+        product_uses=(use,),
+        record_projections=(
+            RecordProjection(
+                record_id="primary",
+                product_use_id=use.id,
+                product_id=use.product_id,
+            ),
+            RecordProjection(
+                record_id="secondary",
+                product_use_id=use.id,
+                product_id=use.product_id,
+            ),
+        ),
+        resource_order=(driver.instrument_id,),
+    )
+
+    result = ExecutionEngine(
+        run_id="record-alias-run",
+        program=program,
+        drivers={driver.instrument_id: driver},
+        journal=MemoryExecutionJournal(),
+        measurements=measurements,
+        readbacks=MemoryCollectionCommitter(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run()
+
+    assert result.status == "completed"
+    assert len(driver.collect_commands) == 1
+    assert len(measurements.measurements) == 1
+    assert set(measurements.measurements[0].observables) == {"primary", "secondary"}
+    assert (
+        measurements.measurements[0].observables["primary"]
+        == measurements.measurements[0].observables["secondary"]
+    )
+
+
 def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> None:
     first = _UnexpectedProductDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
@@ -593,7 +745,14 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
                 stages=(CollectStage(operations=(first_operation, second_operation)),),
             ),
         ),
-        expected_output_ids=frozenset({"first", "second"}),
+        product_uses=(
+            _collection_product_use("first"),
+            _collection_product_use("second"),
+        ),
+        record_projections=(
+            _record_projection("first"),
+            _record_projection("second"),
+        ),
         resource_order=("source-a", "source-b"),
     )
     journal = MemoryExecutionJournal()
@@ -683,7 +842,8 @@ def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
                 ),
             ),
         ),
-        expected_output_ids=frozenset(),
+        product_uses=(),
+        record_projections=(),
         resource_order=("source-a", "source-b"),
     )
     journal = MemoryExecutionJournal()
@@ -743,14 +903,39 @@ def _collect_operation(
     instrument_id: str,
     output_id: str,
 ) -> CollectOperation:
+    use = _collection_product_use(output_id)
+    operation_id = f"{point_uid}.collect.{instrument_id}"
     return CollectOperation(
-        operation_id=f"{point_uid}.collect.{instrument_id}",
+        operation_id=operation_id,
         instrument_id=instrument_id,
         command=CollectCommand(
+            operation_id=operation_id,
             instrument_id=instrument_id,
             point_index=0,
             point_count=1,
             requests=[CollectProductRequest(id="signal")],
         ),
-        record_bindings={"signal": output_id},
+        result_bindings=(
+            CollectionResultBinding(
+                provider_key="signal",
+                product_use_id=use.id,
+                product_id=use.product_id,
+            ),
+        ),
+    )
+
+
+def _collection_product_use(output_id: str) -> ProductUse:
+    return ProductUse(
+        product_id=product_id("signal"),
+        id=ProductUseId(f"record:{output_id}"),
+    )
+
+
+def _record_projection(output_id: str) -> RecordProjection:
+    use = _collection_product_use(output_id)
+    return RecordProjection(
+        record_id=output_id,
+        product_use_id=use.id,
+        product_id=use.product_id,
     )

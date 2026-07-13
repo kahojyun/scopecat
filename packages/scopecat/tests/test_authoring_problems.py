@@ -137,7 +137,6 @@ def test_template_build_validates_product_and_record_selection_names() -> None:
         )
 
     assert [problem.code for problem in error.value.problems] == [
-        "module_product_selection_duplicate",
         "module_record_duplicate",
     ]
 
@@ -232,10 +231,35 @@ def test_unused_child_binding_does_not_consume_outer_input(tmp_path: Path) -> No
     outer = (
         sc.module("test.unused-child-root")
         .inputs(outer_value)
-        .use(child(child_value=outer_value))
+        .use(child.instantiate("unused-child", child_value=outer_value))
         .build()
     )
     invocation = outer.template("test.unused-child", kind="input").build().bind()
+
+    resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())
+
+
+def test_unused_child_expression_binding_does_not_consume_outer_input(
+    tmp_path: Path,
+) -> None:
+    value_type = sc.ScalarType(sc.FloatType())
+    child_value = sc.input("child_value", value_type)
+    outer_value = sc.input("outer_value", value_type)
+    child = sc.module("test.unused-child-expression").inputs(child_value).build()
+    outer = (
+        sc.module("test.unused-child-expression-root")
+        .inputs(outer_value)
+        .use(
+            child.instantiate(
+                "unused-child",
+                child_value=outer_value + 1.0,
+            )
+        )
+        .build()
+    )
+    invocation = (
+        outer.template("test.unused-child-expression", kind="input").build().bind()
+    )
 
     resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())
 

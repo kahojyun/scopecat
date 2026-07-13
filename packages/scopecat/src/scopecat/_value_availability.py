@@ -1,4 +1,4 @@
-"""Orthogonal stage and rate semantics for typed authoring values."""
+"""Orthogonal stage and rate semantics for transient typed values."""
 
 from __future__ import annotations
 
@@ -22,12 +22,18 @@ class ValueRate(StrEnum):
 
     RUN = "run"
     POINT = "point"
+    ROW = "row"
 
 
 _STAGE_ORDER = {
     ValueStage.PLAN: 0,
     ValueStage.EXECUTE: 1,
     ValueStage.RESULT: 2,
+}
+_RATE_ORDER = {
+    ValueRate.RUN: 0,
+    ValueRate.POINT: 1,
+    ValueRate.ROW: 2,
 }
 
 
@@ -49,11 +55,7 @@ class ValueAvailability:
             return cls(ValueStage.PLAN, ValueRate.RUN)
         return cls(
             stage=max(values, key=lambda value: _STAGE_ORDER[value.stage]).stage,
-            rate=(
-                ValueRate.POINT
-                if any(value.rate is ValueRate.POINT for value in values)
-                else ValueRate.RUN
-            ),
+            rate=max(values, key=lambda value: _RATE_ORDER[value.rate]).rate,
         )
 
 

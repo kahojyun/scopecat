@@ -7,8 +7,14 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from typing import cast
+from uuid import UUID, uuid4
 
 from scopecat._relations import param, parameter_series, table
+from scopecat._resource_identity import (
+    LogicalResourcePortId,
+    logical_resource_port_id,
+)
+from scopecat._value_type_compatibility import literal_scalar_type
 from scopecat.authoring._frozen_values import freeze_runtime_input
 from scopecat.authoring._handles import create_handle
 from scopecat.authoring._parameter_contracts import (
@@ -19,15 +25,14 @@ from scopecat.authoring._parameter_contracts import (
 from scopecat.authoring._value_refs import (
     TableRow,
     ValueRef,
-    internal_compute_value_ref,
     internal_input_value_ref,
     internal_lower_scalar_value_ref,
+    internal_operation_result_value_ref,
     internal_point_value_ref,
     internal_value_ref_from_expression,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
 )
-from scopecat.authoring._value_type_compatibility import literal_scalar_type
 from scopecat.compute_values import ResolvedRoute
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
@@ -71,21 +76,27 @@ type ParameterKeyInput = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class ComputeDeclarationKey:
+    """Nominal identity shared by a compute declaration and its result use."""
+
+    value: UUID
+
+    @classmethod
+    def fresh(cls) -> ComputeDeclarationKey:
+        return cls(uuid4())
+
+
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class RouteRef:
     """Explicit typed route edge for a point-local compute input."""
 
-    port_id: str
+    port_id: LogicalResourcePortId
     value_type: Route
 
     def __init__(self) -> None:
         msg = "RouteRef is an opaque handle; create routes with scopecat.route"
         raise TypeError(msg)
-
-    def __post_init__(self) -> None:
-        if not self.port_id:
-            msg = "route port id must be non-empty"
-            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -96,7 +107,7 @@ class Compute:
     fn: ComputeFunction
     inputs: tuple[tuple[str, ComputeInput], ...]
     output_type: ValueType
-    _origin: object
+    _declaration_key: ComputeDeclarationKey
 
     def __init__(self) -> None:
         msg = "Compute is an opaque handle; create computes with scopecat.compute"
@@ -124,10 +135,10 @@ class Compute:
 
     @property
     def output(self) -> ValueRef:
-        return internal_compute_value_ref(
+        return internal_operation_result_value_ref(
             self.id,
             self.output_type,
-            origin=(self._origin,),
+            origin=(self._declaration_key,),
             point_dependencies=tuple(
                 dependency
                 for _name, value in self.inputs
@@ -269,7 +280,7 @@ def route(
         raise TypeError(msg)
     return create_handle(
         RouteRef,
-        port_id=port_id,
+        port_id=logical_resource_port_id(port_id),
         value_type=Route(
             capabilities=cast("tuple[str, ...]", selected_capabilities),
         ),
@@ -301,14 +312,14 @@ def compute(
             (name, _capture_compute_input(value)) for name, value in selected_inputs
         ),
         output_type=output_type,
-        _origin=object(),
+        _declaration_key=ComputeDeclarationKey.fresh(),
     )
 
 
-def compute_origin_internal(definition: Compute) -> object:
-    """Return the nominal identity shared by a declaration and its output."""
+def compute_declaration_key_internal(definition: Compute) -> ComputeDeclarationKey:
+    """Return the typed identity shared by a declaration and its output."""
 
-    return object.__getattribute__(definition, "_origin")
+    return object.__getattribute__(definition, "_declaration_key")
 
 
 def _capture_compute_input(value: ComputeInput) -> ComputeInput:

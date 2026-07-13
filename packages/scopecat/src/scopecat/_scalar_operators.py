@@ -37,6 +37,9 @@ type LogicalOperator = Literal["and", "or"]
 type ScalarOperator = (
     ArithmeticOperator | EqualityOperator | OrderingOperator | LogicalOperator
 )
+SCALAR_OPERATORS: frozenset[ScalarOperator] = frozenset(
+    {"+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "and", "or"}
+)
 type ScalarCategory = Literal[
     "bool",
     "number",
@@ -46,6 +49,13 @@ type ScalarCategory = Literal[
     "record",
     "payload",
 ]
+
+
+def is_scalar_operator(value: object) -> TypeGuard[ScalarOperator]:
+    """Return whether an untrusted value names a supported scalar operator."""
+
+    return isinstance(value, str) and value in SCALAR_OPERATORS
+
 
 _ARITHMETIC_OPERANDS: dict[
     ArithmeticOperator,
@@ -515,8 +525,10 @@ def _is_number(value: object) -> TypeGuard[int | float]:
 
 
 __all__ = [
+    "SCALAR_OPERATORS",
     "ScalarOperator",
     "compare_ordered_values",
+    "is_scalar_operator",
     "require_finite_arithmetic_result",
     "require_runtime_operator",
     "require_sortable_scalar",

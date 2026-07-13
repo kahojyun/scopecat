@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat._parameter_resolution import resolve_config_parameters
-from scopecat._relations import ParameterRelationData
+from scopecat._relation_backend import ParameterRelationData
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.planning.validation import validate_config_profile
 from scopecat.problems import Problem, has_blocking_problems

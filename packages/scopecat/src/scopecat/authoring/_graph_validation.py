@@ -11,35 +11,41 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from scopecat._compiler.graph import ComputeGraphError, order_compute_nodes
-from scopecat._compiler.program import (
-    ComputeEdge,
-    ComputeInput,
-    RouteInput,
-    TypedComputeNode,
+from scopecat._compiler.point_domain import is_point_coordinate_type
+from scopecat._product_identity import ProductId
+from scopecat._resource_identity import LogicalResourcePortId
+from scopecat._semantic_graph import (
+    OperationOutputSource,
+    RouteValueSource,
+    ScalarBinarySemantics,
+    SourceMap,
+    ValueUse,
+    VerifiedSemanticGraph,
+    verify_implementation_catalog,
+    verify_semantic_graph,
+    verify_source_map,
 )
-from scopecat._compiler.verification import is_point_coordinate_type
-from scopecat.authoring._binding_intents import ResourcePort
-from scopecat.authoring._intents import ComputeNodeIntent
-from scopecat.authoring._module_composition import ExperimentAssemblyInternal
-from scopecat.authoring._record_intents import (
-    ModuleProductPort,
-    RecordAxisIntent,
-    RecordIntent,
-)
-from scopecat.authoring._value_availability import (
+from scopecat._value_availability import (
     ValueAvailabilityError,
     ValueRate,
     ValueStage,
     require_value_availability,
 )
+from scopecat.authoring._binding_intents import ResourcePort
+from scopecat.authoring._elaboration import SemanticExperimentIR
+from scopecat.authoring._point_domain_intents import (
+    point_domain_intent_value_type,
+)
+from scopecat.authoring._record_intents import (
+    ModuleProductPort,
+    RecordAxisIntent,
+    RecordIntent,
+)
+from scopecat.authoring._semantic_elaboration import semantic_value_id
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_value_ref_availability,
-    internal_value_ref_compute_node_id,
-    internal_value_ref_compute_origin,
 )
-from scopecat.authoring.values import RouteRef
 from scopecat.errors import CheckFailed
 from scopecat.models.parameter import Quantity as QuantityValue
 from scopecat.problems import (
@@ -52,41 +58,65 @@ from scopecat.problems import (
     model_location,
 )
 from scopecat.units import is_supported_unit
-from scopecat.value_types import Payload, Scalar, Table
+from scopecat.value_types import Payload, Route, Scalar
 
 
 @dataclass(frozen=True, slots=True)
 class VerifiedAssemblyGraph:
     """Source graph facts safe for config-dependent lowering to consume."""
 
-    compute_nodes: tuple[ComputeNodeIntent, ...]
-    resource_ports: Mapping[str, ResourcePort]
+    semantic_graph: VerifiedSemanticGraph
+    source_map: SourceMap
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePort]
 
 
 def verify_assembly_graph(
-    assembly: ExperimentAssemblyInternal,
+    assembly: SemanticExperimentIR,
 ) -> VerifiedAssemblyGraph:
     """Verify and order the config-independent portion of an assembly.
 
     The verifier deliberately has no authoring context or config argument.  A
     successful result therefore proves that config-dependent linking will not
-    encounter a missing compute producer, a compute cycle, or an incomplete
-    route edge.
+    encounter a missing compute producer, a compute cycle, or a dangling
+    logical-resource reference.
     """
 
     problems: list[Problem] = []
+    try:
+        semantic_graph = verify_semantic_graph(assembly.semantic_graph)
+    except CheckFailed as error:
+        problems.extend(error.problems)
+        semantic_graph = None
+    try:
+        verify_implementation_catalog(
+            assembly.semantic_graph,
+            assembly.implementation_catalog,
+        )
+    except CheckFailed as error:
+        problems.extend(error.problems)
+    try:
+        source_map = verify_source_map(assembly.semantic_graph, assembly.source_map)
+    except CheckFailed as error:
+        problems.extend(error.problems)
+        source_map = None
     resource_ports = _resource_ports(assembly.resource_ports, problems)
-    _verify_compute_origins(assembly.compute_nodes, problems)
-    compute_nodes = _ordered_compute_nodes(assembly.compute_nodes, problems)
-    _verify_compute_input_availability(compute_nodes, problems)
-    _verify_compute_routes(compute_nodes, resource_ports, problems)
-    _verify_plan_value_availability(assembly, problems)
-    _verify_state_compute_values(assembly, compute_nodes, problems)
-    _verify_record_schema(assembly, problems)
+    if semantic_graph is not None:
+        _verify_compute_input_availability(semantic_graph, problems)
+        _verify_compute_routes(semantic_graph, resource_ports, problems)
+        _verify_state_compute_values(assembly, semantic_graph, problems)
+    _verify_state_resource_ports(assembly, resource_ports, problems)
+    if semantic_graph is not None:
+        _verify_plan_value_availability(assembly, semantic_graph, problems)
+    _verify_record_schema(assembly, resource_ports, problems)
     if problems:
         raise CheckFailed(problems)
+    if semantic_graph is None or source_map is None:
+        raise AssertionError(
+            "successful assembly verification requires graph and source-map proofs"
+        )
     return VerifiedAssemblyGraph(
-        compute_nodes=compute_nodes,
+        semantic_graph=semantic_graph,
+        source_map=source_map,
         resource_ports=MappingProxyType(resource_ports),
     )
 
@@ -94,198 +124,205 @@ def verify_assembly_graph(
 def _resource_ports(
     ports: Sequence[ResourcePort],
     problems: list[Problem],
-) -> dict[str, ResourcePort]:
-    selected: dict[str, ResourcePort] = {}
-    duplicates: set[str] = set()
+) -> dict[LogicalResourcePortId, ResourcePort]:
+    selected: dict[LogicalResourcePortId, ResourcePort] = {}
+    duplicates: set[LogicalResourcePortId] = set()
     for port in ports:
-        port_id = port.qualified_id
+        port_id = port.symbol_id
         if port_id in selected:
             duplicates.add(port_id)
             continue
         selected[port_id] = port
-    for port_id in sorted(duplicates):
+    for port_id in sorted(duplicates, key=lambda item: item.qualified_name):
         problems.append(
             _problem(
                 "module_resource_port_duplicate",
-                f"duplicate resource port {port_id}",
-                model_location("resources", port_id),
+                f"duplicate resource port {port_id.qualified_name}",
+                model_location("resources", *port_id.scope, port_id.local_id),
                 category=ProblemCategory.CONFLICT,
             )
         )
     return selected
 
 
-def _verify_compute_origins(
-    nodes: Sequence[ComputeNodeIntent],
-    problems: list[Problem],
-) -> None:
-    producers = {node.node_id: node for node in nodes}
-    for node in nodes:
-        for input_name, value in node.inputs:
-            if not isinstance(value, ValueRef):
-                continue
-            producer_id = internal_value_ref_compute_node_id(value)
-            if producer_id is None:
-                continue
-            producer = producers.get(producer_id)
-            if producer is None:
-                continue
-            if internal_value_ref_compute_origin(value) == producer.origin:
-                continue
-            problems.append(
-                _problem(
-                    "compute_value_foreign_instance",
-                    f"compute node {node.node_id.qualified_name!r} input "
-                    f"{input_name!r} references producer "
-                    f"{producer_id.qualified_name!r} from another module instance",
-                    model_location(
-                        "compute_nodes",
-                        *node.node_id.scope,
-                        node.node_id.local_id,
-                        "inputs",
-                        input_name,
-                    ),
-                )
-            )
-
-
-def _ordered_compute_nodes(
-    nodes: Sequence[ComputeNodeIntent],
-    problems: list[Problem],
-) -> tuple[ComputeNodeIntent, ...]:
-    selected = tuple(nodes)
-    graph_nodes = tuple(_compute_graph_node(node) for node in selected)
-    try:
-        ordered = order_compute_nodes(graph_nodes)
-    except ComputeGraphError as error:
-        problems.append(_problem(error.code, str(error), error.location))
-        return selected
-    by_id = {node.node_id: node for node in selected}
-    return tuple(by_id[node.id] for node in ordered)
-
-
-def _compute_graph_node(node: ComputeNodeIntent) -> TypedComputeNode:
-    graph_inputs: dict[str, ComputeInput] = {}
-    for name, value in node.inputs:
-        if isinstance(value, ValueRef):
-            producer = internal_value_ref_compute_node_id(value)
-            if producer is not None:
-                graph_inputs[name] = ComputeEdge(
-                    producer=producer,
-                    value_type=value.value_type,
-                )
-        elif isinstance(value, RouteRef):
-            graph_inputs[name] = RouteInput(
-                port_id=value.port_id,
-                value_type=value.value_type,
-            )
-    return TypedComputeNode(
-        id=node.node_id,
-        inputs=graph_inputs,
-        output_type=node.output_type,
-        fn=node.fn,
-    )
-
-
 def _verify_compute_routes(
-    nodes: Sequence[ComputeNodeIntent],
-    ports: Mapping[str, ResourcePort],
+    graph: VerifiedSemanticGraph,
+    ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
-    for node in nodes:
-        for input_name, value in node.inputs:
-            if not isinstance(value, RouteRef):
+    for operation in graph.graph.operations:
+        for input_name, use in operation.inputs:
+            definition = graph.value_defs.get(use.value_id)
+            if definition is None or not isinstance(
+                definition.source, RouteValueSource
+            ):
                 continue
             location = model_location(
                 "compute_nodes",
-                *node.node_id.scope,
-                node.node_id.local_id,
+                *operation.id.scope,
+                operation.id.local_id,
                 "inputs",
                 input_name,
             )
-            port = ports.get(value.port_id)
+            port = ports.get(definition.source.port_id)
             if port is None:
                 problems.append(
                     _problem(
                         "compute_route_port_missing",
-                        f"compute node {node.node_id.qualified_name!r} input "
+                        f"compute node {operation.id.qualified_name!r} input "
                         f"{input_name!r} references undeclared route port "
-                        f"{value.port_id!r}",
+                        f"{definition.source.port_id.qualified_name!r}",
+                        location,
+                    )
+                )
+                continue
+            if not isinstance(definition.value_type, Route):
+                problems.append(
+                    _problem(
+                        "compute_route_type_invalid",
+                        f"compute node {operation.id.qualified_name!r} input "
+                        f"{input_name!r} has a non-route route source",
                         location,
                     )
                 )
                 continue
             missing = sorted(
-                set(value.value_type.capabilities) - set(port.selector.capabilities)
+                set(definition.value_type.capabilities)
+                - set(port.selector.capabilities)
             )
             if missing:
                 problems.append(
                     _problem(
                         "compute_route_capability_missing",
-                        f"compute node {node.node_id.qualified_name!r} input "
+                        f"compute node {operation.id.qualified_name!r} input "
                         f"{input_name!r} requires capabilities not declared by "
-                        f"route port {value.port_id!r}: {', '.join(missing)}",
+                        "route port "
+                        f"{definition.source.port_id.qualified_name!r}: "
+                        f"{', '.join(missing)}",
                         location,
                     )
                 )
 
 
-def _verify_compute_input_availability(
-    nodes: Sequence[ComputeNodeIntent],
+def _verify_state_resource_ports(
+    assembly: SemanticExperimentIR,
+    ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
-    for node in nodes:
-        for input_name, value in node.inputs:
-            if not isinstance(value, ValueRef):
+    for index, binding in enumerate(assembly.bindings):
+        _verify_state_resource_port(
+            binding.port_id,
+            binding.capability_id,
+            ports,
+            context="binding",
+            location=model_location("bindings", index, "resource"),
+            problems=problems,
+        )
+    for index, state in enumerate(assembly.semantic_graph.row_regions):
+        if state.resource_port is None:
+            continue
+        _verify_state_resource_port(
+            state.resource_port,
+            state.capability_id,
+            ports,
+            context="state binding",
+            location=model_location("state", index, "resource_port"),
+            problems=problems,
+        )
+
+
+def _verify_state_resource_port(
+    port_id: LogicalResourcePortId,
+    capability_id: str,
+    ports: Mapping[LogicalResourcePortId, ResourcePort],
+    *,
+    context: str,
+    location: ModelLocation,
+    problems: list[Problem],
+) -> None:
+    port = ports.get(port_id)
+    if port is None:
+        problems.append(
+            _problem(
+                "module_unknown_resource_port",
+                f"{context} references undeclared resource port "
+                f"{port_id.qualified_name!r}",
+                location,
+                category=ProblemCategory.NOT_FOUND,
+            )
+        )
+        return
+    _verify_resource_port_capability(
+        port_id,
+        capability_id,
+        port,
+        location=location,
+        problems=problems,
+    )
+
+
+def _verify_resource_port_capability(
+    port_id: LogicalResourcePortId,
+    capability_id: str | None,
+    port: ResourcePort,
+    *,
+    location: ModelLocation,
+    problems: list[Problem],
+) -> None:
+    if capability_id is not None and capability_id not in port.selector.capabilities:
+        problems.append(
+            _problem(
+                "module_resource_port_capability_missing",
+                f"resource port {port_id.qualified_name!r} does not declare "
+                f"capability {capability_id!r}",
+                location,
+            )
+        )
+
+
+def _verify_compute_input_availability(
+    graph: VerifiedSemanticGraph,
+    problems: list[Problem],
+) -> None:
+    for operation in graph.graph.operations:
+        for input_name, use in operation.inputs:
+            definition = graph.value_defs.get(use.value_id)
+            if definition is None:
                 continue
             location = model_location(
                 "compute_nodes",
-                *node.node_id.scope,
-                node.node_id.local_id,
+                *operation.id.scope,
+                operation.id.local_id,
                 "inputs",
                 input_name,
             )
-            availability = internal_value_ref_availability(value)
             try:
                 require_value_availability(
-                    availability,
+                    definition.availability,
                     stages=(ValueStage.PLAN, ValueStage.EXECUTE),
+                    rates=(
+                        (ValueRate.RUN, ValueRate.POINT, ValueRate.ROW)
+                        if isinstance(
+                            operation.contract.semantics,
+                            ScalarBinarySemantics,
+                        )
+                        else (ValueRate.RUN, ValueRate.POINT)
+                    ),
                     context="compute input",
                     location=location,
                 )
             except ValueAvailabilityError as error:
                 problems.append(_availability_problem(error))
-                continue
-            if (
-                availability.stage == ValueStage.EXECUTE
-                and internal_value_ref_compute_node_id(value) is None
-            ):
-                problems.append(
-                    _problem(
-                        "execute_value_expression_unsupported",
-                        "compute execute-stage inputs must be direct compute "
-                        "outputs; expressions containing compute outputs are "
-                        "not supported",
-                        location,
-                    )
-                )
 
 
 def _verify_state_compute_values(
-    assembly: ExperimentAssemblyInternal,
-    nodes: Sequence[ComputeNodeIntent],
+    assembly: SemanticExperimentIR,
+    graph: VerifiedSemanticGraph,
     problems: list[Problem],
 ) -> None:
-    producers = {node.node_id: node for node in nodes}
     values = [
-        *(
-            (model_location("bindings", index, "value"), binding.value)
-            for index, binding in enumerate(assembly.bindings)
-        ),
-        *(
-            (model_location("state", index, "value"), state.value)
-            for index, state in enumerate(assembly.state_intents)
-        ),
+        (model_location("bindings", index, "value"), binding.value)
+        for index, binding in enumerate(assembly.bindings)
     ]
     for location, value in values:
         if not isinstance(value, ValueRef):
@@ -295,6 +332,7 @@ def _verify_state_compute_values(
             require_value_availability(
                 availability,
                 stages=(ValueStage.PLAN, ValueStage.EXECUTE),
+                rates=(ValueRate.RUN, ValueRate.POINT, ValueRate.ROW),
                 context="state value",
                 location=location,
             )
@@ -303,53 +341,73 @@ def _verify_state_compute_values(
             continue
         if availability.stage == ValueStage.PLAN:
             continue
-        node_id = internal_value_ref_compute_node_id(value)
-        if node_id is None:
+        value_id = semantic_value_id(value)
+        definition = graph.value_defs.get(value_id)
+        if definition is None or not isinstance(
+            definition.source, OperationOutputSource
+        ):
             problems.append(
                 _problem(
-                    "execute_value_expression_unsupported",
-                    "state execute-stage values must be direct compute outputs",
+                    "compute_payload_unknown_output",
+                    "state references unknown compute output "
+                    f"{value_id.qualified_name!r}",
                     location,
                 )
             )
             continue
-        producer = producers.get(node_id)
-        if producer is None:
-            problems.append(
-                _problem(
-                    "compute_payload_unknown_node",
-                    f"state references unknown compute node {node_id.qualified_name!r}",
-                    location,
-                )
-            )
-            continue
-        if internal_value_ref_compute_origin(value) != producer.origin:
-            problems.append(
-                _problem(
-                    "compute_value_foreign_instance",
-                    "state references a same-named compute producer from another "
-                    f"module instance: {node_id.qualified_name!r}",
-                    location,
-                )
-            )
-            continue
-        if producer.output_type != value.value_type:
+        if definition.value_type != value.value_type:
             problems.append(
                 _problem(
                     "compute_edge_type_mismatch",
                     f"state expects compute output {value.value_type!r}, but "
-                    f"producer {node_id.qualified_name!r} returns "
-                    f"{producer.output_type!r}",
+                    f"output {definition.id.qualified_name!r} has type "
+                    f"{definition.value_type!r}",
                     location,
                 )
             )
             continue
-        if not _is_payload_type(producer.output_type):
+        if not _is_payload_type(definition.value_type):
             problems.append(
                 _problem(
                     "compute_payload_unavailable",
                     "state compute output is not an available payload: "
-                    f"{node_id.qualified_name!r}",
+                    f"{definition.id.qualified_name!r}",
+                    location,
+                )
+            )
+    for index, region in enumerate(graph.graph.row_regions):
+        definition = graph.value_defs.get(region.value.value_id)
+        if definition is None:
+            continue
+        location = model_location("state", index, "value")
+        try:
+            require_value_availability(
+                definition.availability,
+                stages=(ValueStage.PLAN, ValueStage.EXECUTE),
+                rates=(ValueRate.RUN, ValueRate.POINT, ValueRate.ROW),
+                context="state value",
+                location=location,
+            )
+        except ValueAvailabilityError as error:
+            problems.append(_availability_problem(error))
+            continue
+        if definition.availability.stage is ValueStage.PLAN:
+            continue
+        if not isinstance(definition.source, OperationOutputSource):
+            problems.append(
+                _problem(
+                    "compute_payload_unknown_output",
+                    "state references an execute value without a compute output: "
+                    f"{definition.id.qualified_name!r}",
+                    location,
+                )
+            )
+        elif not _is_payload_type(definition.value_type):
+            problems.append(
+                _problem(
+                    "compute_payload_unavailable",
+                    "state compute output is not an available payload: "
+                    f"{definition.id.qualified_name!r}",
                     location,
                 )
             )
@@ -360,7 +418,8 @@ def _is_payload_type(value_type: object) -> bool:
 
 
 def _verify_plan_value_availability(
-    assembly: ExperimentAssemblyInternal,
+    assembly: SemanticExperimentIR,
+    graph: VerifiedSemanticGraph,
     problems: list[Problem],
 ) -> None:
     for port in assembly.resource_ports:
@@ -379,33 +438,37 @@ def _verify_plan_value_availability(
                 problems=problems,
             )
 
-    for index, state in enumerate(assembly.state_intents):
-        _require_plan_value(
+    for index, state in enumerate(graph.graph.row_regions):
+        _require_semantic_plan_value(
+            graph,
             state.relation,
             context="state relation",
             location=model_location("state", index, "relation"),
             problems=problems,
         )
-        if isinstance(state.resource, ValueRef):
-            _require_plan_value(
+        if state.resource is not None:
+            _require_semantic_plan_value(
+                graph,
                 state.resource,
                 context="state resource selector",
                 location=model_location("state", index, "resource"),
                 problems=problems,
+                rates=(ValueRate.RUN, ValueRate.POINT, ValueRate.ROW),
             )
         for route_index, route_entity in enumerate(state.route_entities):
-            if isinstance(route_entity, ValueRef):
-                _require_plan_value(
-                    route_entity,
-                    context="state route selector",
-                    location=model_location(
-                        "state",
-                        index,
-                        "route_entities",
-                        route_index,
-                    ),
-                    problems=problems,
-                )
+            _require_semantic_plan_value(
+                graph,
+                route_entity,
+                context="state route selector",
+                location=model_location(
+                    "state",
+                    index,
+                    "route_entities",
+                    route_index,
+                ),
+                problems=problems,
+                rates=(ValueRate.RUN, ValueRate.POINT, ValueRate.ROW),
+            )
 
     for record in (*assembly.records, *assembly.product_ports):
         for axis in record.axes:
@@ -435,11 +498,37 @@ def _require_plan_value(
     context: str,
     location: ModelLocation,
     problems: list[Problem],
+    rates: tuple[ValueRate, ...] = (ValueRate.RUN, ValueRate.POINT),
 ) -> None:
     try:
         require_value_availability(
             internal_value_ref_availability(value),
             stages=(ValueStage.PLAN,),
+            rates=rates,
+            context=context,
+            location=location,
+        )
+    except ValueAvailabilityError as error:
+        problems.append(_availability_problem(error))
+
+
+def _require_semantic_plan_value(
+    graph: VerifiedSemanticGraph,
+    use: ValueUse,
+    *,
+    context: str,
+    location: ModelLocation,
+    problems: list[Problem],
+    rates: tuple[ValueRate, ...] = (ValueRate.RUN, ValueRate.POINT),
+) -> None:
+    definition = graph.value_defs.get(use.value_id)
+    if definition is None:
+        return
+    try:
+        require_value_availability(
+            definition.availability,
+            stages=(ValueStage.PLAN,),
+            rates=rates,
             context=context,
             location=location,
         )
@@ -448,22 +537,24 @@ def _require_plan_value(
 
 
 def _verify_record_schema(
-    assembly: ExperimentAssemblyInternal,
+    assembly: SemanticExperimentIR,
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
-    product_by_id: dict[str, ModuleProductPort] = {}
-    duplicate_products: set[str] = set()
+    _verify_record_resource_ports(assembly, resource_ports, problems)
+    product_by_id: dict[ProductId, ModuleProductPort] = {}
+    duplicate_products: set[ProductId] = set()
     for product in assembly.product_ports:
-        if product.qualified_id in product_by_id:
-            duplicate_products.add(product.qualified_id)
+        if product.product_id in product_by_id:
+            duplicate_products.add(product.product_id)
             continue
-        product_by_id[product.qualified_id] = product
+        product_by_id[product.product_id] = product
     if duplicate_products:
         problems.append(
             _problem(
                 "module_product_duplicate",
                 "experiment assembly defines duplicate products: "
-                + ", ".join(sorted(duplicate_products)),
+                + ", ".join(sorted(item.qualified_name for item in duplicate_products)),
                 model_location("products"),
                 category=ProblemCategory.CONFLICT,
             )
@@ -473,13 +564,14 @@ def _verify_record_schema(
         (record.id, record) for record in assembly.records
     ]
     for selection in assembly.record_selections:
-        record_id = selection.record_id or selection.product_id
+        record_id = selection.record_id or selection.product_id.qualified_name
         product = product_by_id.get(selection.product_id)
         if product is None:
             problems.append(
                 _problem(
                     "module_product_unknown",
-                    f"experiment selects unknown product {selection.product_id}",
+                    "experiment selects unknown product "
+                    f"{selection.product_id.qualified_name}",
                     model_location("records"),
                     category=ProblemCategory.NOT_FOUND,
                 )
@@ -492,7 +584,8 @@ def _verify_record_schema(
             problems.append(
                 _problem(
                     "module_product_foreign_instance",
-                    f"experiment selects product {selection.product_id!r} from "
+                    "experiment selects product "
+                    f"{selection.product_id.qualified_name!r} from "
                     "another module instance",
                     model_location("records"),
                 )
@@ -503,7 +596,7 @@ def _verify_record_schema(
     record_ids = [
         *(record.id for record in assembly.records),
         *(
-            selection.record_id or selection.product_id
+            selection.record_id or selection.product_id.qualified_name
             for selection in assembly.record_selections
         ),
     ]
@@ -519,16 +612,11 @@ def _verify_record_schema(
             )
         )
 
-    point_columns = (
-        {
-            column.id
-            for column in assembly.point_source.value_type.columns
-            if is_point_coordinate_type(column.value_type)
-        }
-        if assembly.point_source is not None
-        and isinstance(assembly.point_source.value_type, Table)
-        else set[str]()
-    )
+    point_columns = {
+        column.id
+        for column in point_domain_intent_value_type(assembly.point_domain).columns
+        if is_point_coordinate_type(column.value_type)
+    }
     for record_id in sorted(set(record_ids) & point_columns):
         problems.append(
             _problem(
@@ -540,7 +628,6 @@ def _verify_record_schema(
         )
 
     axes_by_id: dict[str, tuple[str, RecordAxisIntent]] = {}
-    product_keys_by_resource: dict[str | None, list[str]] = {}
     for record_id, record in records:
         _verify_record_definition(record_id, record, problems)
         seen_axis_ids: set[str] = set()
@@ -572,22 +659,67 @@ def _verify_record_schema(
                         ),
                     )
                 )
-        if record.kind == "observable" and record.source == "instrument":
-            product_keys_by_resource.setdefault(record.resource, []).append(
-                record.product_key
-                or record.capability
-                or (record.id if isinstance(record, ModuleProductPort) else record_id)
-            )
-    for resource, product_keys in product_keys_by_resource.items():
-        for product_key in _duplicates(product_keys):
+
+
+def _verify_record_resource_ports(
+    assembly: SemanticExperimentIR,
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
+    problems: list[Problem],
+) -> None:
+    for record in assembly.records:
+        if record.resource_port_id is None:
+            continue
+        port = resource_ports.get(record.resource_port_id)
+        if port is None:
             problems.append(
                 _problem(
-                    "experiment_record_product_duplicate",
-                    f"instrument product {product_key!r} is mapped more than once",
-                    model_location("records", *((resource,) if resource else ())),
-                    category=ProblemCategory.CONFLICT,
+                    "module_record_resource_port_missing",
+                    f"record {record.id!r} references undeclared resource port "
+                    f"{record.resource_port_id.qualified_name!r}",
+                    model_location("records", record.id, "resource"),
+                    category=ProblemCategory.NOT_FOUND,
                 )
             )
+            continue
+        _verify_resource_port_capability(
+            record.resource_port_id,
+            record.capability,
+            port,
+            location=model_location("records", record.id, "capability"),
+            problems=problems,
+        )
+    for product in assembly.product_ports:
+        if product.resource_port_id is None:
+            continue
+        port = resource_ports.get(product.resource_port_id)
+        if port is None:
+            problems.append(
+                _problem(
+                    "module_record_resource_port_missing",
+                    f"product {product.qualified_id!r} references undeclared resource "
+                    f"port {product.resource_port_id.qualified_name!r}",
+                    model_location(
+                        "products",
+                        *product.scope,
+                        product.id,
+                        "resource",
+                    ),
+                    category=ProblemCategory.NOT_FOUND,
+                )
+            )
+            continue
+        _verify_resource_port_capability(
+            product.resource_port_id,
+            product.capability,
+            port,
+            location=model_location(
+                "products",
+                *product.scope,
+                product.id,
+                "capability",
+            ),
+            problems=problems,
+        )
 
 
 def _verify_record_definition(
@@ -598,33 +730,17 @@ def _verify_record_definition(
     if record.unit is not None and not is_supported_unit(record.unit):
         problems.append(
             _problem(
-                "experiment_record_unit_unsupported",
-                f"record {record_id!r} uses unsupported unit {record.unit!r}",
+                "product_unit_unsupported",
+                f"product {record_id!r} uses unsupported unit {record.unit!r}",
                 model_location("records", record_id, "unit"),
-            )
-        )
-    if record.kind != "observable":
-        problems.append(
-            _problem(
-                "experiment_record_kind_unsupported",
-                f"record kind {record.kind!r} is not supported yet",
-                model_location("records", record_id, "kind"),
-            )
-        )
-    elif record.source != "instrument":
-        problems.append(
-            _problem(
-                "experiment_record_source_unsupported",
-                f"observable record source {record.source!r} is not supported yet",
-                model_location("records", record_id, "source"),
             )
         )
     duplicate_axes = _duplicates([axis.id for axis in record.axes])
     for axis_id in duplicate_axes:
         problems.append(
             _problem(
-                "experiment_record_axis_duplicate",
-                f"record {record_id!r} axis {axis_id!r} is duplicated",
+                "product_axis_duplicate",
+                f"product {record_id!r} axis {axis_id!r} is duplicated",
                 model_location("records", record_id, "axes"),
                 category=ProblemCategory.CONFLICT,
             )
@@ -634,16 +750,16 @@ def _verify_record_definition(
         if axis.id == "point":
             problems.append(
                 _problem(
-                    "experiment_record_axis_reserved",
-                    "record axis 'point' conflicts with the point dimension",
+                    "product_axis_reserved",
+                    "product axis 'point' conflicts with the point dimension",
                     location,
                 )
             )
         if axis.unit is not None and not is_supported_unit(axis.unit):
             problems.append(
                 _problem(
-                    "experiment_record_axis_unit_unsupported",
-                    f"record {record_id!r} axis {axis.id!r} uses unsupported "
+                    "product_axis_unit_unsupported",
+                    f"product {record_id!r} axis {axis.id!r} uses unsupported "
                     f"unit {axis.unit!r}",
                     model_location(location.root, *location.path, "unit"),
                 )

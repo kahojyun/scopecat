@@ -14,6 +14,9 @@ compatibility layers for abandoned internal shapes.
   non-goals, and design principles.
 - [Problems, failures, outcomes, events, and logs](problem-error-outcome.md):
   reporting-channel boundaries and failure semantics.
+- [Layered transient IR architecture](ir-architecture.md): IR layers,
+  dependency rules, semantic invariants, extension boundaries, and migration
+  direction.
 
 ## Admission Rule
 

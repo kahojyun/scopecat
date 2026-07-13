@@ -8,14 +8,27 @@ import pytest
 import scopecat as sc
 import scopecat.authoring as authoring
 from scopecat._compiler.environment import validate_config_environment
-from scopecat._compiler.ids import NodeId
-from scopecat._compiler.program import ValueInput
+from scopecat._compiler.state import LogicalStateResourceTarget
 from scopecat._compute_result import ComputeResultRef
-from scopecat._relations import (
+from scopecat._point_domain_algebra import point_rows
+from scopecat._relation_backend import (
+    REFERENCE_RELATION_BACKEND,
     EvalContext,
+)
+from scopecat._relation_verification import RelationTypeBindings
+from scopecat._relations import (
+    as_scalar_expr,
     input_ref,
     param,
 )
+from scopecat._resource_identity import logical_resource_port_id
+from scopecat._semantic_graph import (
+    OperationId,
+    PlanExpressionSource,
+    ValueUse,
+    operation_result_id,
+)
+from scopecat._symbols import SymbolId
 from scopecat._workflows.config import register_and_activate_config_profile
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
@@ -24,17 +37,16 @@ from scopecat.authoring._binding_intents import (
     requires,
     resource_port,
 )
+from scopecat.authoring._elaboration import (
+    SemanticExperimentIR,
+    elaborate_module,
+    merge_semantic_experiments,
+)
 from scopecat.authoring._intents import (  # pyright: ignore[reportPrivateUsage]
-    ComputeNodeIntent,
     ExperimentStateIntent,
     ModuleInputPort,
 )
 from scopecat.authoring._invocation_plan import prepare_invocation
-from scopecat.authoring._module_composition import (
-    ExperimentAssemblyInternal,
-    assemble_invocation_internal,
-    assemble_module_internal,
-)
 from scopecat.authoring._module_construction import module_from_parts_internal
 from scopecat.authoring._record_intents import (  # pyright: ignore[reportPrivateUsage]
     ModuleProductPort,
@@ -58,13 +70,11 @@ from scopecat.authoring._value_refs import (
     internal_bind_value_ref_inputs,
     internal_lower_scalar_value_ref,
     internal_lower_value_ref,
+    internal_value_ref_from_expression,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
 )
-from scopecat.authoring.assembly import (
-    ExperimentModule,
-    ModuleInvocation,
-)
+from scopecat.authoring.assembly import ExperimentModule
 from scopecat.errors import CheckFailed
 from scopecat.models.config import RoutingGraph, RoutingResource
 from scopecat.models.entity import EntityRef
@@ -74,6 +84,7 @@ from scopecat.models.parameter import (
     TableParameterValue,
 )
 from scopecat.models.run_request import RunRequest
+from scopecat.problems import model_location
 from tests.support.authoring import (
     DRIVE_FREQUENCY_POINT,
     SIMPLE_MODULE,
@@ -83,7 +94,12 @@ from tests.support.authoring import (
 from tests.support.authoring import (
     parameters as _parameters,
 )
-from tests.support.experiment_preview import preview_contract, preview_result
+from tests.support.experiment_preview import (
+    config_with_physical_resources,
+    preview_contract,
+    preview_result,
+)
+from tests.support.relation_plans import evaluate_scalar
 
 
 def _table_definition(
@@ -109,9 +125,10 @@ def _around_parameter_points(
     *,
     points: int = 5,
 ) -> ValueRef:
+    point_type = authoring.ScalarType(authoring.QuantityType(unit="GHz"))
     return lower_scan_points(
         sc.axis(
-            sc.point(parameter_id, _QUANTITY_VALUE),
+            sc.point(parameter_id, point_type),
             center=sc.parameter(parameter_id, _QUANTITY_VALUE),
             span=Quantity(value=200.0, unit="MHz"),
             points=points,
@@ -126,10 +143,24 @@ def _module_fixture(
     resources: Sequence[ResourcePort] = (),
     bindings: Sequence[ExperimentBindingIntent] = (),
     state_intents: Sequence[ExperimentStateIntent] = (),
-    compute_nodes: Sequence[ComputeNodeIntent] = (),
     records: Sequence[RecordIntent] = (),
     product_ports: Sequence[ModuleProductPort] = (),
 ) -> ExperimentModule:
+    converted_records = tuple(
+        ModuleProductPort(
+            id=record.id,
+            kind=record.kind,
+            resource_port_id=record.resource_port_id,
+            capability=record.capability,
+            product_key=record.product_key,
+            unit=record.unit,
+            dtype=record.dtype,
+            axes=record.axes,
+            metadata=record.metadata,
+            producer_metadata=record.producer_metadata,
+        )
+        for record in records
+    )
     return module_from_parts_internal(
         id=id,
         input_ports=tuple(
@@ -142,9 +173,8 @@ def _module_fixture(
         resources=tuple(resources),
         bindings=tuple(bindings),
         state_intents=tuple(state_intents),
-        compute_nodes=tuple(compute_nodes),
-        records=tuple(records),
-        product_ports=tuple(product_ports),
+        records=(),
+        product_ports=(*product_ports, *converted_records),
     )
 
 
@@ -156,8 +186,36 @@ def _template_invocation(
     inputs: Mapping[str, authoring.RuntimeInput] | None = None,
     metadata: Mapping[str, authoring.MetadataValue] | None = None,
 ) -> authoring.ExperimentInvocation:
-    root_module = authoring.module(f"{id}.root").use(*modules).build()
+    input_types: dict[str, authoring.ValueType] = {}
+    for module in modules:
+        for port in module.input_ports:
+            existing = input_types.setdefault(port.id, port.value_type)
+            if existing != port.value_type:
+                raise AssertionError(f"conflicting test module input {port.id!r}")
+    root_inputs = {
+        input_id: authoring.input(input_id, value_type)
+        for input_id, value_type in input_types.items()
+    }
+    instances = tuple(
+        module.instantiate(
+            module.id,
+            **{port.id: root_inputs[port.id] for port in module.input_ports},
+        )
+        for module in modules
+    )
+    root_module = (
+        authoring.module(f"{id}.root")
+        .inputs(*root_inputs.values())
+        .use(*instances)
+        .build()
+    )
     template = root_module.template(id, kind=kind)
+    for instance in instances:
+        for product in instance.products.values():
+            template = template.record_product(
+                product,
+                record_id=product.local_id,
+            )
     if experiment_id is not None:
         template = template.experiment_id(experiment_id)
     if metadata is not None:
@@ -183,9 +241,9 @@ def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"
     )
-    assert [record.id for record in experiment.records] == ["signal"]
+    assert [record.id for record in experiment.record_uses] == ["signal"]
     assert preview.primary_observables == ("signal",)
-    assert preview.state_changes[0].resource == "source-0"
+    assert preview.state_changes[0].resource_id == "source-0"
     assert preview.state_changes[0].field == "set_frequency.frequency"
     assert preview.state_changes[0].after == Quantity(value=4.9, unit="GHz")
     assert preview.state_fields[0].resource_id == "source-0"
@@ -228,9 +286,13 @@ def test_template_selects_module_products_as_records() -> None:
         config_profile=load_config(),
     )
 
-    assert unselected.experiment.records == ()
-    assert [record.id for record in selected.experiment.records] == ["signal"]
-    assert selected.experiment.records[0].metadata == {"product_id": "signal"}
+    assert unselected.experiment.record_uses == ()
+    assert [
+        product.id.qualified_name for product in unselected.experiment.product_defs
+    ] == ["signal"]
+    assert [record.id for record in selected.experiment.record_uses] == ["signal"]
+    assert selected.experiment.record_uses[0].metadata == {}
+    assert selected.experiment.product_uses[0].product_id.qualified_name == "signal"
 
 
 def test_compute_inputs_keep_template_input_provenance() -> None:
@@ -291,74 +353,31 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         )
         .build()
     )
-    seed_config = load_config()
-    catalog = seed_config.parameter_catalog.model_copy(
-        update={
-            "definitions": [
-                *seed_config.parameter_catalog.definitions,
-                _table_definition(
-                    id="sample_qubits",
-                    primary_key=["qubit"],
-                    columns=[
-                        sc.TableColumn(
-                            id="qubit",
-                            value_type=authoring.ScalarType(authoring.EntityType()),
-                        ),
-                        sc.TableColumn(
-                            id="drive_frequency",
-                            value_type=authoring.ScalarType(
-                                authoring.QuantityType(unit="GHz")
-                            ),
-                        ),
-                    ],
-                ),
-            ]
-        }
+    compiled = compile_prepared_invocation(
+        prepare_invocation(template.bind(qubit="q0"))
     )
-    parameter_snapshot = seed_config.parameter_snapshot.model_copy(
-        update={
-            "values": [
-                *seed_config.parameter_snapshot.values,
-                TableParameterValue(
-                    id="sample_qubits",
-                    rows=[
-                        {
-                            "qubit": EntityRef(id="q0"),
-                            "drive_frequency": Quantity(value=5.0, unit="GHz"),
-                        }
-                    ],
-                ),
-            ]
-        }
+    graph = compiled.assembly.semantic_graph
+    operation = next(
+        operation
+        for operation in graph.operations
+        if operation.id.local_id == "build-program"
     )
-    config = seed_config.model_copy(
-        update={
-            "system": seed_config.system.model_copy(
-                update={"parameter_catalog": catalog}
-            ),
-            "parameter_snapshot": parameter_snapshot,
-        }
-    )
+    definitions = {definition.id: definition for definition in graph.value_defs}
+    uses = dict(operation.inputs)
 
-    resolved = resolve_experiment(
-        template.bind(qubit="q0"),
-        workspace=Path("/tmp/scopecat-test"),
-        config_profile=config,
-    )
-    node = resolved.experiment.compute_nodes[0]
-
-    qubit_input = node.inputs["qubit"]
-    length_input = node.inputs["length"]
-    frequency_input = node.inputs["frequency"]
-    assert isinstance(qubit_input, ValueInput)
-    assert isinstance(length_input, ValueInput)
-    assert isinstance(frequency_input, ValueInput)
-    assert qubit_input.source_inputs == ("qubit",)
-    assert length_input.source_inputs == ("pulse_length",)
-    assert frequency_input.source_inputs == ("qubit",)
-    assert node.output_type == authoring.ScalarType(authoring.PayloadType("pulse"))
-    assert resolved.experiment.state[0].value == ComputeResultRef(
-        node_id=NodeId(local_id="build-program")
+    assert all(isinstance(use, ValueUse) for use in uses.values())
+    qubit_source = definitions[uses["qubit"].value_id].source
+    length_source = definitions[uses["length"].value_id].source
+    frequency_source = definitions[uses["frequency"].value_id].source
+    assert isinstance(qubit_source, PlanExpressionSource)
+    assert isinstance(length_source, PlanExpressionSource)
+    assert isinstance(frequency_source, PlanExpressionSource)
+    assert qubit_source.source_inputs == ("qubit",)
+    assert length_source.source_inputs == ("pulse_length",)
+    assert frequency_source.source_inputs == ("qubit",)
+    output_id = dict(operation.outputs)["result"]
+    assert definitions[output_id].value_type == authoring.ScalarType(
+        authoring.PayloadType("pulse")
     )
 
 
@@ -399,6 +418,7 @@ def test_template_can_scan_entity_input_without_subject_special_case() -> None:
     module = (
         authoring.module("test.entity_scan_module")
         .inputs(qubit)
+        .resource("source")
         .product("signal", resource="source", unit="ratio")
         .build()
     )
@@ -866,6 +886,7 @@ def test_entity_series_input_can_define_record_axis() -> None:
     module = (
         authoring.module("test.entity_series_axis_module")
         .inputs(qubits)
+        .resource("source")
         .product(
             "iq",
             resource="source",
@@ -887,7 +908,7 @@ def test_entity_series_input_can_define_record_axis() -> None:
         config_profile=load_config(),
     )
 
-    axis = resolved.experiment.records[0].axes[0]
+    axis = resolved.experiment.product_defs[0].axes[0]
     assert axis.id == "qubit"
     assert axis.kind == "entity"
     assert axis.size == 1
@@ -924,6 +945,7 @@ def test_entity_series_input_can_define_record_axis() -> None:
 def test_non_entity_string_series_defines_categorical_record_axis() -> None:
     module = (
         authoring.module("test.categorical_axis")
+        .resource("source")
         .product(
             "iq",
             resource="source",
@@ -955,10 +977,10 @@ def test_non_entity_string_series_defines_categorical_record_axis() -> None:
         config_profile=load_config(),
     )
 
-    axis = resolved.experiment.records[0].axes[0]
+    axis = resolved.experiment.product_defs[0].axes[0]
     assert axis.size == 2
     assert axis.metadata == {}
-    role_axis = resolved.experiment.records[0].axes[1]
+    role_axis = resolved.experiment.product_defs[0].axes[1]
     assert role_axis.kind == "entity"
     assert role_axis.size == 2
     assert role_axis.metadata == {}
@@ -1057,20 +1079,26 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
     assert binding.resource_id == "readout-array"
     assert binding.entity_ids == ("q0", "q1")
     assert binding.product_axis_order == ("q0", "q1")
-    assert preview.records[0].resource == "readout"
+    assert preview.records[0].resource_port_id == "readout"
+    assert preview.records[0].physical_resource_id is None
     assert preview.records[0].dims == ("point", "qubit")
     assert preview.records[0].shape == (1, 2)
 
 
-def test_module_invocation_compiles_to_assembly_without_config() -> None:
-    invocation = SIMPLE_MODULE(subject="q0")
-    assembly = assemble_invocation_internal(invocation)
+def test_module_elaborates_without_config() -> None:
+    module = _module_fixture(
+        id="test.simple_reusable",
+        entity_inputs=("subject",),
+        resources=(resource_port("source", requires()),),
+    )
+    assembly = elaborate_module(module, subject="q0")
 
-    assert isinstance(invocation, ModuleInvocation)
-    assert isinstance(assembly, ExperimentAssemblyInternal)
+    assert isinstance(assembly, SemanticExperimentIR)
     assert assembly.experiment_id is None
     assert assembly.kind is None
     assert assembly.inputs == {"subject": "q0"}
+    assert assembly.input_ports[0].id == "subject"
+    assert assembly.resource_ports[0].scope == ()
     assert assembly.resource_ports[0].id == "source"
 
 
@@ -1110,7 +1138,11 @@ def test_request_projection_rejects_transient_typed_and_compiler_values() -> Non
     transient_values = (
         typed_value,
         input_ref("subject"),
-        ComputeResultRef(node_id=NodeId(local_id="build-program")),
+        ComputeResultRef(
+            value_id=operation_result_id(
+                OperationId(SymbolId(local_id="build-program"))
+            )
+        ),
     )
 
     for value in transient_values:
@@ -1121,12 +1153,12 @@ def test_request_projection_rejects_transient_typed_and_compiler_values() -> Non
 
 
 def test_link_assembly_resolves_config_dependent_fragments() -> None:
-    source = assemble_invocation_internal(SIMPLE_MODULE(subject="q0"))
-    points = ExperimentAssemblyInternal(point_source=_around_parameter_points())
-    assembly = ExperimentAssemblyInternal.combine(
+    source = elaborate_module(SIMPLE_MODULE, subject="q0")
+    points = SemanticExperimentIR(point_domain=point_rows(_around_parameter_points()))
+    assembly = merge_semantic_experiments(
         experiment_id="authored-simple-scan",
         kind="simple_scan",
-        assemblies=(points, source),
+        fragments=(points, source),
     )
     request = RunRequest(
         id="simple.request",
@@ -1146,72 +1178,77 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
     assert resolved.experiment.id == "authored-simple-scan"
     assert resolved.config.id == load_config().id
     preview = preview_contract(resolved.experiment, resolved.parameters)
-    assert preview.state_changes[0].resource == "source-0"
+    assert preview.state_changes[0].resource_id == "source-0"
 
 
-def test_template_composition_merges_shared_resource_port_capabilities() -> None:
-    pulse = _module_fixture(
-        id="test.shared_resource.pulse",
-        resources=[
-            resource_port("source", requires("set_frequency")),
-        ],
-        bindings=[
-            bind_field(
-                "source",
-                capability="set_frequency",
-                field="frequency",
-                value=authoring.parameter("drive_frequency", _QUANTITY_VALUE),
-            )
-        ],
+def test_link_assembly_validates_parameter_contracts_owned_by_point_source() -> None:
+    assembly = SemanticExperimentIR(
+        experiment_id="missing-parameter-scan",
+        kind="simple_scan",
+        point_domain=point_rows(_around_parameter_points("missing_frequency")),
     )
-    records = _module_fixture(
-        id="test.shared_resource.records",
-        entity_inputs=(),
-        resources=[
-            resource_port("source", requires("acquire_signal")),
-        ],
-        records=[observable("signal", resource="source", unit="ratio")],
+    request = RunRequest(
+        id="missing-parameter.request",
+        template_id="test.simple_scan",
     )
 
-    compiled = compile_prepared_invocation(
-        prepare_invocation(
-            _template_invocation(
-                pulse,
-                records,
-                id="test.shared_resource",
-                kind="simple_scan",
-            )
+    with pytest.raises(CheckFailed) as caught:
+        _link_assembly(
+            assembly,
+            request=request,
+            inputs={},
+            environment=validate_config_environment(load_config()),
+            workspace=Path("/tmp/scopecat-test"),
+            config_source=None,
         )
-    )
 
-    assert isinstance(compiled.assembly, ExperimentAssemblyInternal)
-    assembly = compiled.assembly
-    assert len(assembly.resource_ports) == 1
-    assert assembly.resource_ports[0].id == "source"
-    assert assembly.resource_ports[0].selector.capabilities == (
-        "set_frequency",
-        "acquire_signal",
+    assert caught.value.problems[0].code == "unknown_authoring_parameter"
+    assert caught.value.problems[0].location == model_location(
+        "parameters",
+        "missing_frequency",
     )
 
 
-def test_resource_port_merge_deduplicates_only_the_same_value_handle() -> None:
-    entity_type = authoring.ScalarType(authoring.EntityType())
-    first = authoring.parameter("first_subject", entity_type)
-    second = authoring.parameter("second_subject", entity_type)
-    module = (
-        authoring.module("test.shared_resource.entities")
-        .resource("source", for_entities=(first,))
-        .resource("source", for_entities=(second,))
-        .resource("source", for_entities=(first,))
+def test_explicit_instances_keep_same_named_resource_ports_isolated() -> None:
+    pulse = (
+        authoring.module("test.shared_resource.pulse")
+        .resource("source", requires=("set_frequency",))
+        .build()
+    )
+    records = (
+        authoring.module("test.shared_resource.records")
+        .resource("source", requires=("acquire_signal",))
+        .product("signal", resource="source", unit="ratio")
+        .build()
+    )
+    root = (
+        authoring.module("test.shared_resource.root")
+        .use(
+            pulse.instantiate("pulse"),
+            records.instantiate("records"),
+        )
         .build()
     )
 
-    assembly = assemble_module_internal(module)
-    sources = assembly.resource_ports[0].selector.entity_inputs
+    assembly = elaborate_module(root)
+    assert [port.symbol_id for port in assembly.resource_ports] == [
+        logical_resource_port_id(SymbolId(scope=("pulse",), local_id="source")),
+        logical_resource_port_id(SymbolId(scope=("records",), local_id="source")),
+    ]
+    assert [port.selector.capabilities for port in assembly.resource_ports] == [
+        ("set_frequency",),
+        ("acquire_signal",),
+    ]
 
-    assert len(sources) == 2
-    assert sources[0] is first
-    assert sources[1] is second
+
+def test_module_construction_rejects_duplicate_resource_ids() -> None:
+    with pytest.raises(ValueError, match="duplicate module resource ids"):
+        (
+            authoring.module("test.shared_resource.duplicate")
+            .resource("source", requires=("set_frequency",))
+            .resource("source", requires=("acquire_signal",))
+            .build()
+        )
 
 
 def test_template_composition_rejects_duplicate_record_ids() -> None:
@@ -1225,6 +1262,7 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
     second = _module_fixture(
         id="test.duplicate_record.second",
         entity_inputs=(),
+        resources=[resource_port("source", requires("set_frequency"))],
         records=[observable("signal", resource="source", unit="ratio")],
     )
 
@@ -1243,7 +1281,7 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
     assert error.value.problems[0].code == "module_record_duplicate"
 
 
-def test_module_composition_invocation_literals_bind_local_inputs() -> None:
+def test_elaboration_invocation_literals_bind_local_inputs() -> None:
     drive_frequency = authoring.input(
         "drive_frequency",
         authoring.ScalarType(authoring.QuantityType()),
@@ -1262,11 +1300,16 @@ def test_module_composition_invocation_literals_bind_local_inputs() -> None:
     )
     parent = (
         authoring.module("test.invocation_defaults.parent")
-        .use(child(drive_frequency=Quantity(value=5.0, unit="GHz")))
+        .use(
+            child.instantiate(
+                "defaults-child",
+                drive_frequency=Quantity(value=5.0, unit="GHz"),
+            )
+        )
         .build()
     )
 
-    assembly = assemble_module_internal(
+    assembly = elaborate_module(
         parent,
     )
 
@@ -1281,7 +1324,10 @@ def test_module_invocation_rejects_undeclared_inputs() -> None:
     child = authoring.module("test.invocation_unknown_input.child").build()
 
     with pytest.raises(ValueError, match="received undeclared inputs: 'frequency'"):
-        child(frequency=Quantity(value=5.0, unit="GHz"))
+        child.instantiate(
+            "unknown-input-child",
+            frequency=Quantity(value=5.0, unit="GHz"),
+        )
 
 
 def test_module_invocation_rejects_raw_relation_inputs() -> None:
@@ -1292,10 +1338,13 @@ def test_module_invocation_rejects_raw_relation_inputs() -> None:
     child = authoring.module("test.invocation_raw_input").inputs(frequency).build()
 
     with pytest.raises(TypeError, match="typed values or closed literal data"):
-        child(frequency=input_ref("frequency"))  # type: ignore[arg-type]
+        child.instantiate(
+            "raw-input-child",
+            frequency=input_ref("frequency"),  # type: ignore[arg-type]
+        )
 
 
-def test_module_composition_invocation_expressions_bind_local_inputs() -> None:
+def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
     drive_frequency = authoring.input(
         "drive_frequency",
         authoring.ScalarType(authoring.QuantityType()),
@@ -1315,17 +1364,18 @@ def test_module_composition_invocation_expressions_bind_local_inputs() -> None:
     parent = (
         authoring.module("test.invocation_expression.parent")
         .use(
-            child(
+            child.instantiate(
+                "expression-child",
                 drive_frequency=authoring.parameter(
                     "drive_frequency",
                     authoring.ScalarType(authoring.QuantityType()),
-                )
+                ),
             )
         )
         .build()
     )
 
-    assembly = assemble_module_internal(
+    assembly = elaborate_module(
         parent,
     )
 
@@ -1336,7 +1386,7 @@ def test_module_composition_invocation_expressions_bind_local_inputs() -> None:
     )
 
 
-def test_module_composition_defers_nested_expression_and_literal_bindings() -> None:
+def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
     value_type = authoring.ScalarType(authoring.FloatType())
     child_value = authoring.input(
         "child_value",
@@ -1364,7 +1414,8 @@ def test_module_composition_defers_nested_expression_and_literal_bindings() -> N
         authoring.module("test.invocation_deferred.parent")
         .inputs(parent_value)
         .use(
-            child(
+            child.instantiate(
+                "deferred-child",
                 child_value=parent_value + 0.25,
                 unused_parameter=authoring.parameter(
                     "unused_parameter",
@@ -1377,15 +1428,17 @@ def test_module_composition_defers_nested_expression_and_literal_bindings() -> N
     )
     root = (
         authoring.module("test.invocation_deferred.root")
-        .use(parent(parent_value=1.5))
+        .use(parent.instantiate("deferred-parent", parent_value=1.5))
         .build()
     )
 
-    assembly = assemble_module_internal(root)
+    assembly = elaborate_module(root)
 
     assert isinstance(assembly.bindings[0].value, ValueRef)
     expression = internal_lower_scalar_value_ref(assembly.bindings[0].value)
-    assert expression.eval(EvalContext()) == 1.75
+    assert (
+        evaluate_scalar(REFERENCE_RELATION_BACKEND, expression, EvalContext()) == 1.75
+    )
     assert internal_value_ref_parameter_contracts(assembly.bindings[0].value) == ()
     assert internal_value_ref_point_dependencies(assembly.bindings[0].value) == ()
     assert assembly.parameter_contracts == ()
@@ -1426,7 +1479,7 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     used_point = authoring.point("reachable_point", value_type)
     unused_point = authoring.point("phantom_point", value_type)
 
-    assembly = assemble_module_internal(
+    assembly = elaborate_module(
         module,
         used_parameter=used_parameter,
         unused_parameter=unused_parameter,
@@ -1442,20 +1495,44 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     )
 
 
-def test_deferred_input_binding_detects_cycles_within_a_scope() -> None:
+def test_scalar_input_binding_preserves_parent_same_named_input() -> None:
     value_type = authoring.ScalarType(authoring.FloatType())
-    first = authoring.input("first", value_type)
-    second = authoring.input("second", value_type)
-    expression = internal_bind_value_ref_inputs(
-        first + 1.0,
-        {"first": second, "second": first},
+    child_value = authoring.input("value", value_type)
+    parent_value = authoring.input("value", value_type)
+
+    bound = internal_bind_value_ref_inputs(
+        child_value + 1.0,
+        {"value": parent_value + 1.0},
     )
 
-    with pytest.raises(ValueError, match="cyclic module input reference: first"):
-        internal_lower_scalar_value_ref(expression)
+    assert evaluate_scalar(
+        REFERENCE_RELATION_BACKEND,
+        internal_lower_scalar_value_ref(bound),
+        EvalContext(inputs={"value": 2.0}),
+        bindings=RelationTypeBindings(inputs={"value": value_type}),
+    ) == pytest.approx(4.0)
 
 
-def test_module_composition_invocation_input_refs_bind_to_parent_inputs() -> None:
+def test_expression_input_binding_does_not_capture_sibling_child_inputs() -> None:
+    value_type = authoring.ScalarType(authoring.FloatType())
+    child_value = internal_value_ref_from_expression(input_ref("a"), value_type)
+    parent_b = authoring.input("b", value_type)
+    child_b = internal_value_ref_from_expression(as_scalar_expr(10.0), value_type)
+
+    bound = internal_bind_value_ref_inputs(
+        child_value,
+        {"a": parent_b + 1.0, "b": child_b},
+    )
+
+    assert evaluate_scalar(
+        REFERENCE_RELATION_BACKEND,
+        internal_lower_scalar_value_ref(bound),
+        EvalContext(inputs={"b": 2.0}),
+        bindings=RelationTypeBindings(inputs={"b": value_type}),
+    ) == pytest.approx(3.0)
+
+
+def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
     drive_frequency = authoring.input(
         "drive_frequency",
         authoring.ScalarType(authoring.QuantityType()),
@@ -1479,13 +1556,16 @@ def test_module_composition_invocation_input_refs_bind_to_parent_inputs() -> Non
     parent = (
         authoring.module("test.invocation_parent_input.parent")
         .inputs(outer_frequency)
-        .use(child(drive_frequency=outer_frequency))
+        .use(
+            child.instantiate(
+                "parent-input-child",
+                drive_frequency=outer_frequency,
+            )
+        )
         .build()
     )
 
-    assembly = assemble_module_internal(
-        parent, outer_frequency=Quantity(value=5.2, unit="GHz")
-    )
+    assembly = elaborate_module(parent, outer_frequency=Quantity(value=5.2, unit="GHz"))
 
     assert "drive_frequency" not in assembly.inputs
     assert isinstance(assembly.bindings[0].value, ValueRef)
@@ -1494,7 +1574,7 @@ def test_module_composition_invocation_input_refs_bind_to_parent_inputs() -> Non
     assert localized.name == "outer_frequency"
 
 
-def test_module_composition_does_not_merge_sibling_invocation_inputs() -> None:
+def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
     first_frequency = authoring.input(
         "drive_frequency",
         authoring.ScalarType(authoring.QuantityType()),
@@ -1531,13 +1611,19 @@ def test_module_composition_does_not_merge_sibling_invocation_inputs() -> None:
     module = (
         authoring.module("test.invocation_sibling.parent")
         .use(
-            first(drive_frequency=Quantity(value=5.0, unit="GHz")),
-            second(drive_frequency=Quantity(value=5.1, unit="GHz")),
+            first.instantiate(
+                "first",
+                drive_frequency=Quantity(value=5.0, unit="GHz"),
+            ),
+            second.instantiate(
+                "second",
+                drive_frequency=Quantity(value=5.1, unit="GHz"),
+            ),
         )
         .build()
     )
 
-    assembly = assemble_module_internal(
+    assembly = elaborate_module(
         module,
     )
 
@@ -1550,7 +1636,7 @@ def test_module_composition_does_not_merge_sibling_invocation_inputs() -> None:
     assert second_value.value == Quantity(value=5.1, unit="GHz")
 
 
-def test_module_composition_localizes_invocation_entity_inputs() -> None:
+def test_elaboration_localizes_invocation_entity_inputs() -> None:
     qubit = authoring.input(
         "qubit",
         authoring.ScalarType(authoring.EntityType()),
@@ -1578,7 +1664,8 @@ def test_module_composition_localizes_invocation_entity_inputs() -> None:
     parent = (
         authoring.module("test.invocation_entity.parent")
         .use(
-            child(
+            child.instantiate(
+                "entity-child",
                 qubit="q0",
                 drive_frequency=Quantity(value=5.0, unit="GHz"),
             )
@@ -1586,7 +1673,7 @@ def test_module_composition_localizes_invocation_entity_inputs() -> None:
         .build()
     )
 
-    assembly = assemble_module_internal(
+    assembly = elaborate_module(
         parent,
     )
 
@@ -1692,11 +1779,11 @@ def test_module_uses_record_axes() -> None:
         config_profile=load_config(),
     )
 
-    assert len(resolved.experiment.records) == 1
-    record = resolved.experiment.records[0]
-    assert record.id == "signal"
-    assert [axis.id for axis in record.axes] == ["shot", "repetition"]
-    assert [axis.size for axis in record.axes] == [2, 3]
+    assert len(resolved.experiment.record_uses) == 1
+    product = resolved.experiment.product_defs[0]
+    assert product.id.local_id == "signal"
+    assert [axis.id for axis in product.axes] == ["shot", "repetition"]
+    assert [axis.size for axis in product.axes] == [2, 3]
 
 
 def test_module_invocation_resolves_multiple_entity_inputs() -> None:
@@ -1812,16 +1899,20 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         resolved.parameters,
         config=config,
     )
-    resource = resolved.experiment.state[0].resource
-    assert resource is not None
-    assert resource.value is not None
-    assert resource.value == "drive"
+    resource_target = resolved.experiment.state[0].resource_target
+    assert isinstance(resource_target, LogicalStateResourceTarget)
+    assert resource_target.port_id.qualified_name == "drive"
     assert preview.routes[0].resolved[0].resource_id == "source-1"
     assert preview.state_fields[0].resource_id == "source-1"
 
 
 def test_module_can_materialize_background_state_from_parameter_table() -> None:
-    seed_config = load_config()
+    seed_config = config_with_physical_resources(
+        {
+            "flux-q0": ("set_offset",),
+            "flux-q1": ("set_offset",),
+        }
+    )
     catalog = seed_config.parameter_catalog.model_copy(
         update={
             "definitions": [
@@ -1905,10 +1996,14 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
         workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
-    preview = preview_contract(resolved.experiment, resolved.parameters)
+    preview = preview_contract(
+        resolved.experiment,
+        resolved.parameters,
+        config=config,
+    )
 
     assert [
-        (change.resource, change.field, change.after)
+        (change.resource_id, change.field, change.after)
         for change in preview.state_changes
     ] == [
         ("flux-q0", "set_offset.offset", Quantity(value=0.1, unit="arb")),

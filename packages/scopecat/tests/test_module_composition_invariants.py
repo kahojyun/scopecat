@@ -5,19 +5,25 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import scopecat as sc
+from scopecat._product_identity import ProductId
+from scopecat._semantic_graph import (
+    OperationOutputSource,
+    RouteValueSource,
+    SemanticOperation,
+    ValueDef,
+    ValueUse,
+)
+from scopecat._symbols import SymbolId
+from scopecat.authoring._elaboration import (
+    SemanticExperimentIR,
+    elaborate_module,
+)
 from scopecat.authoring._graph_validation import (
     VerifiedAssemblyGraph,
     verify_assembly_graph,
 )
-from scopecat.authoring._module_composition import (
-    ExperimentAssemblyInternal,
-    assemble_module_internal,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_value_ref_compute_node_id,
-)
 from scopecat.errors import CheckFailed
+from scopecat.value_types import Route
 
 _INSTANCE_IDS = (
     "alpha",
@@ -93,12 +99,35 @@ def _consumer_module() -> sc.ExperimentModule:
     )
 
 
+def _stateful_module() -> tuple[sc.ExperimentModule, sc.TableType]:
+    row_type = sc.TableType(
+        columns=(
+            sc.TableColumn("resource", sc.ScalarType(sc.StringType())),
+            sc.TableColumn("offset", sc.ScalarType(sc.FloatType())),
+        )
+    )
+    rows = sc.input("rows", row_type)
+    module = (
+        sc.module("test.composition-invariant.stateful")
+        .inputs(rows)
+        .state_each(
+            rows,
+            resource=lambda row: row["resource"],
+            capability="set_offset",
+            field="offset",
+            value=lambda row: row["offset"],
+        )
+        .build()
+    )
+    return module, row_type
+
+
 def _verified_assembly(
     instance_id: str,
-) -> tuple[ExperimentAssemblyInternal, VerifiedAssemblyGraph]:
+) -> tuple[SemanticExperimentIR, VerifiedAssemblyGraph]:
     instance = _composable_module().instantiate(instance_id)
     root = sc.module("test.composition-invariant.root").use(instance).build()
-    assembly = assemble_module_internal(root)
+    assembly = elaborate_module(root)
     return assembly, verify_assembly_graph(assembly)
 
 
@@ -122,24 +151,32 @@ def _nested_exporting_module(scope: tuple[str, ...]) -> sc.ExperimentModule:
 
 
 def _normalized_signature(
-    assembly: ExperimentAssemblyInternal,
+    assembly: SemanticExperimentIR,
     verified: VerifiedAssemblyGraph,
 ) -> tuple[object, ...]:
-    resources = {port.qualified_id: port.id for port in assembly.resource_ports}
-    nodes = {node.node_id: node.id for node in verified.compute_nodes}
+    resources = {port.symbol_id: port.id for port in assembly.resource_ports}
+    semantic_graph = verified.semantic_graph.graph
+    definitions = verified.semantic_graph.value_defs
 
-    def input_signature(value: object) -> object:
-        if isinstance(value, ValueRef):
-            producer = internal_value_ref_compute_node_id(value)
-            if producer is not None:
-                return ("compute", nodes[producer], value.value_type)
-        if isinstance(value, sc.RouteRef):
+    def input_signature(value: ValueUse) -> object:
+        definition = definitions[value.value_id]
+        if isinstance(definition.source, OperationOutputSource):
+            return (
+                "compute",
+                definition.source.operation_id.local_id,
+                definition.value_type,
+            )
+        if isinstance(definition.source, RouteValueSource):
+            assert isinstance(definition.value_type, Route)
             return (
                 "route",
-                resources[value.port_id],
-                value.value_type.capabilities,
+                resources[definition.source.port_id],
+                definition.value_type.capabilities,
             )
-        return value
+        return (type(definition.source).__name__, definition.value_type)
+
+    def result_definition(operation: SemanticOperation) -> ValueDef:
+        return definitions[dict(operation.outputs)["result"]]
 
     return (
         tuple(
@@ -147,14 +184,14 @@ def _normalized_signature(
         ),
         tuple(
             (
-                node.id,
+                operation.id.local_id,
                 tuple(
                     (input_id, input_signature(value))
-                    for input_id, value in node.inputs
+                    for input_id, value in operation.inputs
                 ),
-                node.output_type,
+                result_definition(operation).value_type,
             )
-            for node in verified.compute_nodes
+            for operation in semantic_graph.operations
         ),
         tuple(
             (
@@ -168,7 +205,9 @@ def _normalized_signature(
         tuple(
             (
                 product.id,
-                resources[product.resource] if product.resource is not None else None,
+                resources[product.resource_port_id]
+                if product.resource_port_id is not None
+                else None,
                 product.unit,
                 product.dtype,
             )
@@ -184,13 +223,48 @@ def test_alpha_renaming_changes_only_structural_instance_scope() -> None:
         assembly, verified = _verified_assembly(instance_id)
 
         assert {port.scope for port in assembly.resource_ports} == {(instance_id,)}
-        assert {node.node_id.scope for node in verified.compute_nodes} == {
-            (instance_id,)
-        }
+        assert {
+            operation.id.scope for operation in verified.semantic_graph.graph.operations
+        } == {(instance_id,)}
         assert {product.scope for product in assembly.product_ports} == {(instance_id,)}
         signatures.append(_normalized_signature(assembly, verified))
 
     assert all(signature == signatures[0] for signature in signatures[1:])
+
+
+def test_alpha_renaming_keeps_synthetic_source_declarations_stable() -> None:
+    anchors = []
+    child = _composable_module()
+    for instance_id in ("alpha", "beta"):
+        instance = child.instantiate(instance_id)
+        root = sc.module("test.composition-invariant.root").use(instance).build()
+        assembly = elaborate_module(root)
+        route_anchor = next(
+            anchor
+            for _value_id, anchor in assembly.source_map.value_sources
+            if anchor.kind == "operation_route_input"
+        )
+        anchors.append(route_anchor)
+
+    assert anchors[0].declaration_id == anchors[1].declaration_id
+    assert anchors[0].composition_scope == ("alpha",)
+    assert anchors[1].composition_scope == ("beta",)
+
+
+def test_child_module_metadata_does_not_implicitly_merge_into_entrypoint() -> None:
+    left = sc.module("test.metadata.left", metadata={"shared": "left"}).build()
+    right = sc.module("test.metadata.right", metadata={"shared": "right"}).build()
+
+    assemblies = []
+    for first, second in ((left, right), (right, left)):
+        root = (
+            sc.module("test.metadata.root", metadata={"owner": "root"})
+            .use(first.instantiate("first"), second.instantiate("second"))
+            .build()
+        )
+        assemblies.append(elaborate_module(root))
+
+    assert assemblies[0].metadata == assemblies[1].metadata == {"owner": "root"}
 
 
 @settings(max_examples=50)
@@ -224,6 +298,56 @@ def test_generated_alpha_renaming_preserves_normalized_semantics(
     assert reports[0].problems == reports[1].problems == ()
 
 
+@settings(max_examples=40)
+@given(
+    instance_ids=st.lists(_GENERATED_INSTANCE_ID, min_size=2, max_size=2, unique=True),
+    offsets=st.lists(
+        st.floats(
+            min_value=-10,
+            max_value=10,
+            allow_nan=False,
+            allow_infinity=False,
+        ),
+        min_size=1,
+        max_size=4,
+    ),
+)
+def test_generated_state_region_alpha_renaming_preserves_public_checks(
+    instance_ids: list[str],
+    offsets: list[float],
+) -> None:
+    child, row_type = _stateful_module()
+    reports = []
+    for instance_id in instance_ids:
+        rows = sc.input("rows", row_type)
+        instance = child.instantiate(instance_id, rows=rows)
+        root = (
+            sc.module("test.composition-invariant.state-region-root")
+            .inputs(rows)
+            .use(instance)
+            .build()
+        )
+        report = (
+            root.template(
+                "test.composition-invariant.state-region",
+                kind="contract",
+            )
+            .build()
+            .bind(
+                rows=tuple(
+                    {"resource": f"source-{index}", "offset": offset}
+                    for index, offset in enumerate(offsets)
+                )
+            )
+            .check()
+        )
+        assert report.complete, report.explain()
+        reports.append(report)
+
+    assert reports[0].status == reports[1].status
+    assert reports[0].problems == reports[1].problems == ()
+
+
 def test_structural_scopes_keep_separator_lookalikes_injective() -> None:
     child = _composable_module()
     direct = child.instantiate("a/b")
@@ -232,17 +356,20 @@ def test_structural_scopes_keep_separator_lookalikes_injective() -> None:
     nested = wrapper.instantiate("a")
     root = sc.module("test.composition-invariant.injective").use(direct, nested).build()
 
-    assembly = assemble_module_internal(root)
+    assembly = elaborate_module(root)
     verified = verify_assembly_graph(assembly)
 
-    node_ids = {node.node_id for node in verified.compute_nodes}
+    node_ids = {operation.id for operation in verified.semantic_graph.graph.operations}
     resource_ids = {port.qualified_id for port in assembly.resource_ports}
-    product_ids = {product.qualified_id for product in assembly.product_ports}
+    product_ids = {product.product_id for product in assembly.product_ports}
 
     assert {node_id.scope for node_id in node_ids} == {("a/b",), ("a", "b")}
     assert len({node_id.qualified_name for node_id in node_ids}) == 4
     assert resource_ids == {"a%2Fb/source", "a/b/source"}
-    assert product_ids == {"a%2Fb/signal", "a/b/signal"}
+    assert product_ids == {
+        ProductId(SymbolId(scope=("a/b",), local_id="signal")),
+        ProductId(SymbolId(scope=("a", "b"), local_id="signal")),
+    }
 
 
 @settings(max_examples=50)
@@ -287,10 +414,13 @@ def test_repeated_config_free_verification_is_deterministic() -> None:
 
     signatures = []
     for _ in range(5):
-        assembly = assemble_module_internal(root)
+        assembly = elaborate_module(root)
         verified = verify_assembly_graph(assembly)
         signatures.append(_normalized_signature(assembly, verified))
-        assert [node.id for node in verified.compute_nodes] == [
+        assert [
+            operation.id.local_id
+            for operation in verified.semantic_graph.graph.operations
+        ] == [
             "produce",
             "consume",
         ]
@@ -310,17 +440,17 @@ def test_scoped_export_can_feed_another_instance_without_capture() -> None:
         .build()
     )
 
-    verified = verify_assembly_graph(assemble_module_internal(root))
+    verified = verify_assembly_graph(elaborate_module(root))
     sink_node = next(
-        node
-        for node in verified.compute_nodes
-        if node.node_id.scope == ("sink",) and node.node_id.local_id == "consume-export"
+        operation
+        for operation in verified.semantic_graph.graph.operations
+        if operation.id.scope == ("sink",) and operation.id.local_id == "consume-export"
     )
     payload_input = dict(sink_node.inputs)["payload"]
-    assert isinstance(payload_input, ValueRef)
-    producer = internal_value_ref_compute_node_id(payload_input)
+    definition = verified.semantic_graph.value_defs[payload_input.value_id]
+    assert isinstance(definition.source, OperationOutputSource)
+    producer = definition.source.operation_id
 
-    assert producer is not None
     assert producer.scope == ("source",)
     assert producer.local_id == "consume"
 
@@ -365,25 +495,15 @@ def test_generated_nominal_ownership_rejects_same_named_foreign_outputs(
         "sink",
         payload=foreign.outputs.payload,
     )
-    root = (
-        sc.module("test.composition-invariant.generated-foreign-root")
-        .use(selected, sink)
-        .build()
-    )
-
-    report = (
-        root.template(
-            "test.composition-invariant.generated-foreign",
-            kind="contract",
+    with pytest.raises(CheckFailed) as error:
+        (
+            sc.module("test.composition-invariant.generated-foreign-root")
+            .use(selected, sink)
+            .build()
         )
-        .build()
-        .bind()
-        .check()
-    )
 
-    assert not report.ok
-    assert [problem.code for problem in report.problems] == [
-        "compute_value_foreign_instance"
+    assert [problem.code for problem in error.value.problems] == [
+        "module_export_foreign_instance"
     ]
 
 
@@ -397,17 +517,15 @@ def test_same_named_foreign_output_fails_config_free_verification(
         f"sink-{instance_id}",
         payload=foreign.outputs.payload,
     )
-    root = (
-        sc.module("test.composition-invariant.foreign-output")
-        .use(selected, sink)
-        .build()
-    )
-
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(assemble_module_internal(root))
+        (
+            sc.module("test.composition-invariant.foreign-output")
+            .use(selected, sink)
+            .build()
+        )
 
     assert [problem.code for problem in error.value.problems] == [
-        "compute_value_foreign_instance"
+        "module_export_foreign_instance"
     ]
 
 

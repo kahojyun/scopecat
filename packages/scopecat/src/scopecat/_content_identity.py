@@ -33,6 +33,12 @@ def content_fingerprint(value: object) -> object:
 
     if value is None:
         return {"kind": "none"}
+    if isinstance(value, type):
+        return {
+            "kind": "python_type",
+            "module": value.__module__,
+            "qualname": value.__qualname__,
+        }
     if isinstance(value, Enum):
         return {
             "kind": "enum",

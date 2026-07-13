@@ -6,31 +6,33 @@ from collections.abc import Sequence
 from typing import Literal
 
 from scopecat._compiler.bound import (
-    BoundCollect,
     BoundPlan,
     BoundPoint,
-    BoundProduct,
     BoundResourceState,
+    CollectionRequest,
 )
 from scopecat._compiler.bound import (
     BoundValue as CompilerBoundValue,
 )
-from scopecat._compiler.ids import NodeId
 from scopecat._execution.program import (
     ApplyStateOperation,
     ApplyStateStage,
     BoundInput,
+    CollectionResultBinding,
     CollectOperation,
     CollectStage,
     ComputeOperation,
+    ComputeResultSlot,
     ComputeStage,
     ExecutionProgram,
     OutputInput,
     PayloadSlot,
     PointProgram,
+    RecordProjection,
     ResourceClaim,
     StateTarget,
 )
+from scopecat._semantic_graph import OperationId
 from scopecat.instruments.sdk import (
     CollectAxisRequest,
     CollectCommand,
@@ -49,8 +51,8 @@ def build_execution_program(
     """Build the sole executable program consumed by ``ExecutionEngine``.
 
     ``instrument_order`` comes from the bound driver/resource selection, never
-    from provider list iteration.  It is required when a collection target is
-    intentionally broadcast (``BoundCollect.instrument_id is None``).
+    from provider list iteration. Every local collection already owns one
+    physical instrument target.
     """
 
     if has_blocking_problems(plan.problems):
@@ -80,11 +82,20 @@ def build_execution_program(
         for instrument_id in selected_instrument_order
         if instrument_id in used_instruments
     )
-    claims = _resource_claims(plan, instrument_order=selected_instrument_order)
+    claims = _resource_claims(plan, instrument_order=resource_order)
     return ExecutionProgram(
         experiment_id=plan.experiment_id,
         points=points,
-        expected_output_ids=plan.expected_output_ids,
+        product_uses=plan.product_uses,
+        record_projections=tuple(
+            RecordProjection(
+                record_id=record.id,
+                product_use_id=record.product_use_id,
+                product_id=record.product_id,
+            )
+            for record in plan.records
+            if record.kind == "observable"
+        ),
         resource_order=resource_order,
         resource_claims=claims,
         expected_dataset_schema=plan.expected_dataset_schema,
@@ -106,40 +117,38 @@ def _point_program(
     )
     return PointProgram(
         point_index=point.point_index,
-        point_uid=point.point_uid,
+        point_uid=point.logical_id.value,
         coordinates=dict(point.coordinates),
         stages=tuple(stage for stage in (compute, state, collect) if stage.operations),
     )
 
 
-def _compute_stage(point: BoundPoint) -> ComputeStage:
-    operation_ids = {
-        call.node_id: _compute_operation_id(point.point_uid, call.node_id)
-        for call in point.compute
-    }
+def _compute_stage(
+    point: BoundPoint,
+) -> ComputeStage:
     operations: list[ComputeOperation] = []
     for call in point.compute:
-        if not callable(call.fn):
-            msg = f"bound compute node {call.node_id} has no callable kernel"
-            raise ValueError(msg)
         inputs: dict[str, BoundInput | OutputInput] = {}
         for name, value in call.inputs.items():
             if isinstance(value, CompilerBoundValue):
                 inputs[name] = BoundInput(value.value)
             else:
-                try:
-                    producer_id = operation_ids[value.producer]
-                except KeyError as error:
-                    msg = f"compute producer {value.producer} is not in the bound point"
-                    raise ValueError(msg) from error
-                inputs[name] = OutputInput(producer_id)
+                inputs[name] = OutputInput(value.value_id)
         operations.append(
             ComputeOperation(
-                operation_id=operation_ids[call.node_id],
-                kernel_id=call.node_id.qualified_name,
-                kernel=call.fn,
+                operation_id=_compute_operation_id(
+                    point.logical_id.value,
+                    call.operation_id,
+                ),
+                semantic_operation_id=call.operation_id.qualified_name,
+                implementation_id=call.implementation_id.value,
+                contract=call.contract,
+                kernel=call.implementation.kernel,
                 inputs=inputs,
-                output_type=call.output_type,
+                result=ComputeResultSlot(
+                    id=call.result.id,
+                    value_type=call.result.value_type,
+                ),
                 dependencies=dict(call.dependencies),
                 payload_slot=(
                     PayloadSlot(id=call.payload_id, schema_id=call.payload_schema_id)
@@ -147,7 +156,7 @@ def _compute_stage(point: BoundPoint) -> ComputeStage:
                     and call.payload_schema_id is not None
                     else None
                 ),
-                cache_namespace=call.node_id.qualified_name,
+                cache_namespace=call.operation_id.qualified_name,
                 cache_key=call.cache_key,
             )
         )
@@ -161,7 +170,7 @@ def _state_stage(
 ) -> ApplyStateStage:
     states_by_instrument: dict[str, list[BoundResourceState]] = {}
     for state in point.desired_state:
-        states_by_instrument.setdefault(state.resource_id, []).append(state)
+        states_by_instrument.setdefault(state.resource_id.value, []).append(state)
     operations: list[ApplyStateOperation] = []
     for instrument_id in instrument_order:
         states = states_by_instrument.get(instrument_id)
@@ -169,13 +178,14 @@ def _state_stage(
             continue
         operations.append(
             ApplyStateOperation(
-                operation_id=f"{point.point_uid}.state.{instrument_id}",
+                operation_id=f"{point.logical_id.value}.state.{instrument_id}",
                 instrument_id=instrument_id,
                 targets=tuple(
                     StateTarget(
                         capability_id=state.capability_id,
                         field_path=field.field_path,
                         value=field.value,
+                        entity_ids=field.entity_ids,
                         channel_bindings=tuple(
                             _command_channel_binding(binding)
                             for binding in field.channel_bindings
@@ -195,36 +205,33 @@ def _collect_stage(
     point_count: int,
     instrument_order: tuple[str, ...],
 ) -> CollectStage:
-    products_by_instrument: dict[str, list[BoundProduct]] = {}
+    requests_by_instrument: dict[str, list[CollectionRequest]] = {}
     for collect in point.collect:
-        targets = _collect_targets(collect, instrument_order=instrument_order)
-        for instrument_id in targets:
-            products_by_instrument.setdefault(instrument_id, []).extend(
-                collect.products
-            )
-    operations: list[CollectOperation] = []
-    routes_by_instrument = {
-        instrument_id: tuple(
-            route for route in point.routes if route.resource_id == instrument_id
+        requests_by_instrument.setdefault(collect.resource_id.value, []).extend(
+            collect.requests
         )
-        for instrument_id in instrument_order
-    }
+    operations: list[CollectOperation] = []
     for instrument_id in instrument_order:
-        products = products_by_instrument.get(instrument_id)
-        if not products:
+        requests = requests_by_instrument.get(instrument_id)
+        if not requests:
             continue
-        record_bindings = {
-            product.product_key: product.record_id for product in products
-        }
-        if len(record_bindings) != len(products):
+        provider_keys = [request.provider_key for request in requests]
+        if len(provider_keys) != len(set(provider_keys)):
             msg = f"instrument {instrument_id} has duplicate collection product keys"
             raise ValueError(msg)
-        operation_id = f"{point.point_uid}.collect.{instrument_id}"
+        operation_id = f"{point.logical_id.value}.collect.{instrument_id}"
         operations.append(
             CollectOperation(
                 operation_id=operation_id,
                 instrument_id=instrument_id,
-                record_bindings=record_bindings,
+                result_bindings=tuple(
+                    CollectionResultBinding(
+                        provider_key=request.provider_key,
+                        product_use_id=request.product_use_id,
+                        product_id=request.product_id,
+                    )
+                    for request in requests
+                ),
                 command=CollectCommand(
                     operation_id=operation_id,
                     instrument_id=instrument_id,
@@ -232,10 +239,10 @@ def _collect_stage(
                     point_count=point_count,
                     requests=[
                         CollectProductRequest(
-                            id=product.product_key,
-                            capability_id=product.capability,
-                            unit=product.unit,
-                            dtype=product.dtype,
+                            id=request.provider_key,
+                            capability_id=request.capability,
+                            unit=request.unit,
+                            dtype=request.dtype,
                             dimensions=[
                                 CollectAxisRequest(
                                     id=axis.id,
@@ -244,21 +251,16 @@ def _collect_stage(
                                     unit=axis.unit,
                                     metadata=dict(axis.metadata),
                                 )
-                                for axis in product.axes
+                                for axis in request.axes
                             ],
+                            entity_ids=list(request.entity_ids),
                             channel_bindings=[
                                 _command_channel_binding(binding)
-                                for route in routes_by_instrument[instrument_id]
-                                if product.capability is None
-                                or product.capability in route.capabilities
-                                for binding in route.channel_bindings
-                                if binding.capability is None
-                                or product.capability is None
-                                or binding.capability == product.capability
+                                for binding in request.channel_bindings
                             ],
-                            metadata=dict(product.metadata),
+                            metadata=dict(request.metadata),
                         )
-                        for product in products
+                        for request in requests
                     ],
                 ),
             )
@@ -276,21 +278,12 @@ def _explicit_instrument_order(
         msg = "instrument_order must contain unique non-empty ids"
         raise ValueError(msg)
     fixed: set[str] = {
-        state.resource_id for point in plan.points for state in point.desired_state
+        state.resource_id.value
+        for point in plan.points
+        for state in point.desired_state
     } | {
-        collect.instrument_id
-        for point in plan.points
-        for collect in point.collect
-        if collect.instrument_id is not None
+        collect.resource_id.value for point in plan.points for collect in point.collect
     }
-    broadcasts = any(
-        collect.instrument_id is None
-        for point in plan.points
-        for collect in point.collect
-    )
-    if broadcasts and not selected:
-        msg = "instrument_order is required for broadcast collection"
-        raise ValueError(msg)
     missing = sorted(fixed - set(selected))
     if selected and missing:
         msg = "instrument_order is missing bound resources: " + ", ".join(missing)
@@ -298,16 +291,6 @@ def _explicit_instrument_order(
     if not selected:
         return tuple(sorted(fixed))
     return selected
-
-
-def _collect_targets(
-    collect: BoundCollect,
-    *,
-    instrument_order: tuple[str, ...],
-) -> tuple[str, ...]:
-    if collect.instrument_id is None:
-        return instrument_order
-    return (collect.instrument_id,)
 
 
 def _resource_claims(
@@ -320,23 +303,37 @@ def _resource_claims(
     ]
     seen = {(claim.kind, claim.id) for claim in claims}
     for point in plan.points:
-        for route in point.routes:
-            for binding in route.channel_bindings:
-                candidates: tuple[tuple[Literal["channel", "group"], str], ...] = (
-                    ("channel", binding.channel_id),
-                    *(("group", group_id) for group_id in binding.group_ids),
-                )
-                for kind, identifier in candidates:
-                    key = (kind, identifier)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    claims.append(
-                        ResourceClaim(
-                            id=identifier,
-                            kind=kind,
-                        )
+        channel_bindings = (
+            binding for route in point.routes for binding in route.channel_bindings
+        )
+        state_bindings = (
+            binding
+            for state in point.desired_state
+            for field in state.fields
+            for binding in field.channel_bindings
+        )
+        collect_bindings = (
+            binding
+            for collect in point.collect
+            for request in collect.requests
+            for binding in request.channel_bindings
+        )
+        for binding in (*channel_bindings, *state_bindings, *collect_bindings):
+            candidates: tuple[tuple[Literal["channel", "group"], str], ...] = (
+                ("channel", binding.channel_id),
+                *(("group", group_id) for group_id in binding.group_ids),
+            )
+            for kind, identifier in candidates:
+                key = (kind, identifier)
+                if key in seen:
+                    continue
+                seen.add(key)
+                claims.append(
+                    ResourceClaim(
+                        id=identifier,
+                        kind=kind,
                     )
+                )
     return tuple(claims)
 
 
@@ -351,8 +348,8 @@ def _command_channel_binding(binding: RoutingChannelBinding) -> CommandChannelBi
     )
 
 
-def _compute_operation_id(point_uid: str, node_id: NodeId) -> str:
-    return f"{point_uid}.compute.{node_id.qualified_name}"
+def _compute_operation_id(logical_point_id: str, operation_id: OperationId) -> str:
+    return f"{logical_point_id}.compute.{operation_id.qualified_name}"
 
 
 __all__ = ["build_execution_program"]

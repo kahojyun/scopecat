@@ -13,15 +13,19 @@ from pydantic import BaseModel, JsonValue
 
 import scopecat._execution.executor as execution_executor
 from scopecat._compiler.binding import bind_program
-from scopecat._compiler.bound import BoundAxis
+from scopecat._compiler.bound import BoundAxis, BoundPlan
 from scopecat._compiler.environment import validate_config_environment
-from scopecat._compiler.ids import NodeId
+from scopecat._compiler.point_domain import PointDomain
+from scopecat._compiler.product_realizations import select_local_product_realizations
+from scopecat._compiler.products import ProductAxisDef
 from scopecat._compiler.program import (
     TypedComputeNode,
-    TypedPointSource,
+    TypedComputeOutput,
     ValueInput,
     compute_result,
-    observable,
+    instrument_product_producer,
+    observable_product,
+    record_product,
     set_state_field,
     typed_program,
 )
@@ -33,9 +37,20 @@ from scopecat._execution.evidence import (
 )
 from scopecat._execution.executor import execute_run
 from scopecat._execution.program import ResourceClaim
-from scopecat._relations import col, literal_rows
+from scopecat._operation_contract import LOCAL_OPAQUE_OPERATION_CONTRACT
+from scopecat._point_domain_algebra import point_rows
+from scopecat._relation_verification import RelationTypeBindings, RowType
+from scopecat._relations import lit, literal_rows, point_col
+from scopecat._semantic_graph import (
+    ImplementationCatalog,
+    ImplementationId,
+    LocalPythonImplementation,
+    OperationId,
+    operation_result_id,
+)
 from scopecat._storage.local import LocalRunStore
-from scopecat._value_expressions import as_value_expr
+from scopecat._symbols import SymbolId
+from scopecat._value_availability import ValueAvailability, ValueRate, ValueStage
 from scopecat.errors import ProviderContractError, RunFailed, RunPersistenceError
 from scopecat.instruments.sdk import (
     CapabilityDescription,
@@ -75,15 +90,21 @@ from scopecat.runtime import (
     RuntimePayloadObservation,
     RuntimeTransitionEvent,
 )
-from scopecat.value_types import Payload, Scalar
+from scopecat.value_types import Payload, Scalar, String, TableColumn
 from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Table as TableType
 from tests.support.execution import execute_bound_run
+from tests.support.experiment_preview import config_with_physical_resources
 from tests.support.instrument_drivers import SignalInstrumentDriver
 from tests.support.records import (
     assert_model_round_trip,
     read_measurement_records,
     read_model,
+)
+from tests.support.relation_plans import (
+    scalar_value_expr,
+    table_value_expr,
+    value_expr,
 )
 from tests.support.signal_instruments import (
     TestSignalInstrument,
@@ -127,6 +148,7 @@ def test_instrument_models_round_trip() -> None:
                 capability_id="set_frequency",
                 field_path="frequency",
                 value=state_value,
+                entity_ids=["q0"],
                 channel_bindings=[
                     CommandChannelBinding(
                         entity_id="q0",
@@ -146,11 +168,11 @@ def test_instrument_models_round_trip() -> None:
     )
     assert_model_round_trip(
         state,
-        schema_version="scopecat.instrument_state_snapshot.v1",
+        schema_version="scopecat.instrument_state_snapshot.v2",
     )
     assert_model_round_trip(
         command,
-        schema_version="scopecat.instrument_state_command.v2",
+        schema_version="scopecat.instrument_state_command.v3",
     )
 
 
@@ -206,14 +228,14 @@ def test_execute_run_persists_measurements_and_run_files(
     assert persisted_manifest == manifest
     assert persisted_config == config
     assert persisted_plan.experiment_id == summary.experiment_id
-    assert persisted_plan.schema_version == "scopecat.run_plan_record.v3"
+    assert persisted_plan.schema_version == "scopecat.run_plan_record.v4"
     assert persisted_plan.point_count == summary.point_count
     assert not (run_dir / "experiment-spec.json").exists()
-    assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v2"
+    assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v3"
     assert {
         snapshot.schema_version
         for snapshot in [*state_evidence.initial_state, *state_evidence.final_state]
-    } == {"scopecat.instrument_state_snapshot.v1"}
+    } == {"scopecat.instrument_state_snapshot.v2"}
     final_state_value = state_evidence.final_state[0].fields[0].value.root
     assert final_state_value == Quantity(value=5.1, unit="GHz")
     persisted_state_evidence = json.loads(state_evidence_path.read_text())
@@ -886,9 +908,8 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
         load_experiment(),
         validate_config_environment(config),
     )
-    plan = replace(
+    plan = _first_point_plan(
         plan,
-        points=plan.points[:1],
         problems=(
             Problem(
                 code="plan_warning",
@@ -1029,7 +1050,7 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
         load_experiment(),
         validate_config_environment(config),
     )
-    plan = replace(plan, points=plan.points[:1])
+    plan = _first_point_plan(plan)
 
     with pytest.raises(ProviderContractError) as captured:
         execute_run(
@@ -1046,7 +1067,7 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
     assert problem.location == model_location(
         "execution_program",
         "operations",
-        f"{plan.points[0].point_uid}.collect.source-0",
+        f"{plan.points[0].logical_id.value}.collect.source-0",
         "requests",
         "signal",
         "unit",
@@ -1066,21 +1087,48 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
         include_axis=True,
     )
     config = load_config()
+    environment = validate_config_environment(config)
+    assert environment.routing is not None
     plan = bind_program(
         load_experiment(),
-        validate_config_environment(config),
+        environment,
     )
     point = plan.points[0]
     collect = point.collect[0]
-    product = replace(
-        collect.products[0],
+    request = replace(
+        collect.requests[0],
         axes=(BoundAxis(id="sample", kind="sample", size=2, unit="ns"),),
     )
     point = replace(
         point,
-        collect=(replace(collect, products=(product,)),),
+        collect=(replace(collect, requests=(request,)),),
     )
-    plan = replace(plan, points=(point,))
+    product = plan.product_defs[0].model_copy(
+        update={
+            "axes": (ProductAxisDef(id="sample", kind="sample", size=2, unit="ns"),)
+        }
+    )
+    record = replace(
+        plan.records[0],
+        axes=request.axes,
+        dims=("point", "sample"),
+        shape=(1, 2),
+    )
+    realizations, realization_problems = select_local_product_realizations(
+        (product,),
+        plan.instrument_product_producers,
+        plan.product_uses,
+        routing=environment.routing,
+    )
+    assert realization_problems == ()
+    assert realizations is not None
+    plan = replace(
+        plan,
+        points=(point,),
+        product_defs=(product,),
+        records=(record,),
+        local_product_realizations=realizations,
+    )
 
     with pytest.raises(ProviderContractError) as captured:
         execute_run(
@@ -1097,7 +1145,7 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
     assert problem.location == model_location(
         "execution_program",
         "operations",
-        f"{point.point_uid}.collect.source-0",
+        f"{point.logical_id.value}.collect.source-0",
         "requests",
         "signal",
         "axes",
@@ -1106,6 +1154,21 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
     )
     assert not provider.provide_called
     assert open_run_store(tmp_path).list_runs() == []
+
+
+def _first_point_plan(
+    plan: BoundPlan,
+    *,
+    problems: tuple[Problem, ...] | None = None,
+) -> BoundPlan:
+    return replace(
+        plan,
+        points=plan.points[:1],
+        records=tuple(
+            replace(record, shape=(1, *record.shape[1:])) for record in plan.records
+        ),
+        **({"problems": problems} if problems is not None else {}),
+    )
 
 
 def test_provider_description_interruption_precedes_run_acceptance(
@@ -1195,55 +1258,99 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
         calls.append(value)
         return {"value": value}
 
+    operation_id = OperationId(SymbolId(local_id="build-program"))
+    result_id = operation_result_id(operation_id)
+    point_type = TableType(
+        columns=(TableColumn("value", Scalar(QuantityType())),),
+        allow_extra_columns=True,
+    )
+    product = observable_product("signal")
+    producer = instrument_product_producer(
+        product,
+        physical_resource_id="source-0",
+    )
+    product_use, record_use = record_product(product)
     spec = typed_program(
         id="cached-compute-run",
         kind="cached_compute",
-        point_source=TypedPointSource(
-            expr=literal_rows(
-                [
-                    {
-                        "sequence_index": 0,
-                        "value": Quantity(value=4.9, unit="GHz"),
-                    },
-                    {
-                        "sequence_index": 1,
-                        "value": Quantity(value=4.9, unit="GHz"),
-                    },
-                    {
-                        "sequence_index": 2,
-                        "value": Quantity(value=5.1, unit="GHz"),
-                    },
-                ]
+        point_domain=PointDomain(
+            root=point_rows(
+                table_value_expr(
+                    literal_rows(
+                        [
+                            {
+                                "sequence_index": 0,
+                                "value": Quantity(value=4.9, unit="GHz"),
+                            },
+                            {
+                                "sequence_index": 1,
+                                "value": Quantity(value=4.9, unit="GHz"),
+                            },
+                            {
+                                "sequence_index": 2,
+                                "value": Quantity(value=5.1, unit="GHz"),
+                            },
+                        ]
+                    ),
+                    expected_type=point_type,
+                )
             ),
-            value_type=TableType(columns=(), allow_extra_columns=True),
         ),
         state=[
             set_state_field(
-                "source-0",
+                scalar_value_expr(
+                    lit("source-0"),
+                    expected_type=Scalar(String()),
+                ),
                 capability_id="play_program",
                 field_path="program",
                 value=compute_result("build-program"),
             )
         ],
-        records=[observable("signal", resource="source-0")],
+        product_defs=[product],
+        instrument_product_producers=[producer],
+        product_uses=[product_use],
+        record_uses=[record_use],
         compute_nodes=[
             TypedComputeNode(
-                id=NodeId(local_id="build-program"),
-                output_type=Scalar(Payload("pulse_program")),
+                id=operation_id,
+                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                result=TypedComputeOutput(
+                    id=result_id,
+                    value_type=Scalar(Payload("pulse_program")),
+                    availability=ValueAvailability(
+                        ValueStage.EXECUTE,
+                        ValueRate.POINT,
+                    ),
+                ),
                 inputs={
                     "value": ValueInput(
-                        value=as_value_expr(col("value")),
-                        value_type=Scalar(QuantityType()),
+                        value=value_expr(
+                            point_col("value"),
+                            expected_type=Scalar(QuantityType()),
+                            bindings=RelationTypeBindings(
+                                point_row=RowType.from_table(point_type)
+                            ),
+                        ),
                     )
                 },
-                fn=build_program,
             )
         ],
+        implementation_catalog=ImplementationCatalog(
+            local_python=(
+                LocalPythonImplementation(
+                    id=ImplementationId("python.build-program.v1"),
+                    operation_id=operation_id,
+                    operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                    kernel=build_program,
+                ),
+            )
+        ),
     )
     events: list[RuntimeEvent] = []
     payload_observations: list[RuntimePayloadObservation] = []
 
-    config = load_config()
+    config = config_with_physical_resources({"source-0": ("play_program",)})
     manifest, summary = execute_bound_run(
         config=config,
         experiment=spec,
@@ -1289,7 +1396,8 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
     assert payload_ids[0] == payload_ids[1]
     assert payload_ids[2] != payload_ids[0]
     assert all(
-        payload_id.startswith("build-program.payload.") for payload_id in payload_ids
+        payload_id.startswith(f"{result_id.qualified_name}.payload.")
+        for payload_id in payload_ids
     )
     assert [
         (observation.payload_id, observation.compute_status)
@@ -1299,6 +1407,12 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
         (payload_ids[1], "reused"),
         (payload_ids[2], "evaluated"),
     ]
+    assert {
+        observation.semantic_operation_id for observation in payload_observations
+    } == {"build-program"}
+    assert [
+        observation.summary["implementation_id"] for observation in payload_observations
+    ] == ["python.build-program.v1"] * 3
     assert [observation.payload.payload for observation in payload_observations] == [
         {"value": Quantity(value=4.9, unit="GHz")},
         {"value": Quantity(value=4.9, unit="GHz")},
@@ -1348,10 +1462,16 @@ def test_execute_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
         update={
             "state": [
                 set_state_field(
-                    "source-0",
+                    scalar_value_expr(
+                        lit("source-0"),
+                        expected_type=Scalar(String()),
+                    ),
                     capability_id="set_frequency",
                     field_path="frequency",
-                    value=Quantity(value=5.9, unit="GHz"),
+                    value=scalar_value_expr(
+                        lit(Quantity(value=5.9, unit="GHz")),
+                        expected_type=Scalar(QuantityType(unit="GHz")),
+                    ),
                 )
             ]
         }

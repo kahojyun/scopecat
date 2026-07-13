@@ -107,8 +107,10 @@ def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
     experiment = load_experiment()
     experiment = experiment.model_copy(
         update={
-            "records": [
-                experiment.records[0].model_copy(update={"product_key": "missing"})
+            "instrument_product_producers": [
+                experiment.instrument_product_producers[0].model_copy(
+                    update={"provider_key": "missing"}
+                )
             ]
         }
     )
@@ -129,7 +131,9 @@ def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
     experiment = load_experiment()
     experiment = experiment.model_copy(
         update={
-            "records": [experiment.records[0].model_copy(update={"dtype": "int64"})]
+            "product_defs": [
+                experiment.product_defs[0].model_copy(update={"dtype": "int64"})
+            ]
         }
     )
 

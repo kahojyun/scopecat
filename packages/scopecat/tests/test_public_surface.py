@@ -13,7 +13,13 @@ import scopecat.authoring.assembly as authoring_assembly
 import scopecat.models.value as value_models
 import scopecat.problems as problems
 import scopecat.results as results
+from scopecat._relation_backend import (
+    REFERENCE_RELATION_BACKEND,
+    EvalContext,
+)
 from scopecat._relations import param
+from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
+from tests.support.relation_plans import evaluate_scalar
 
 
 def test_raw_relation_ir_has_no_public_module() -> None:
@@ -187,9 +193,9 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
     assert not hasattr(sc.ModuleInvocation, "_assemble")
     assert not hasattr(sc.ExperimentModule, "assemble")
     assert not hasattr(sc.ExperimentModule, "_assemble")
-    assert not hasattr(authoring_assembly, "ExperimentAssemblyInternal")
-    assert not hasattr(authoring_assembly, "assemble_invocation_internal")
-    assert not hasattr(authoring_assembly, "assemble_module_internal")
+    assert "__call__" not in sc.ExperimentModule.__dict__
+    assert not hasattr(authoring_assembly, "FlattenedExperimentIR")
+    assert not hasattr(authoring_assembly, "elaborate_module")
     assert not hasattr(authoring_assembly, "link_experiment_assembly_internal")
 
     public_signatures = " ".join(
@@ -203,7 +209,7 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
             sc.Experiment.state_each,
             sc.compute,
             sc.parameter_lookup,
-            sc.ExperimentModule.__call__,
+            sc.ExperimentModule.instantiate,
         )
     )
     assert "ScalarExpr" not in public_signatures
@@ -212,7 +218,7 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
     assert "ResourceSelector" not in public_signatures
     assert "object" not in str(signature(sc.compute))
     assert "object" not in str(signature(sc.parameter_lookup))
-    assert "object" not in str(signature(sc.ExperimentModule.__call__))
+    assert "object" not in str(signature(sc.ExperimentModule.instantiate))
     for method in (
         sc.ExperimentTemplate.bind,
         sc.ExperimentInvocation.bind,
@@ -307,10 +313,19 @@ def test_public_invocations_capture_immutable_input_snapshots() -> None:
     )
     module = sc.module("test.immutable-module-input").inputs(payload).build()
     items = [1]
-    module_invocation = module(payload=cast("sc.ModuleInput", {"items": items}))
+    module_invocation = module.instantiate(
+        "immutable-input",
+        payload=cast("sc.ModuleInput", {"items": items}),
+    )
     items.append(2)
 
-    assert module_invocation.inputs["payload"] == {"items": (1,)}
+    captured_payload = evaluate_scalar(
+        REFERENCE_RELATION_BACKEND,
+        internal_lower_scalar_value_ref(module_invocation.inputs["payload"]),
+        EvalContext(),
+    )
+    assert isinstance(captured_payload, value_models.PayloadValue)
+    assert captured_payload.payload == {"items": (1,)}
     with pytest.raises(TypeError, match="immutable"):
         cast("dict[str, object]", module_invocation.inputs)["payload"] = {}
 

@@ -1,56 +1,81 @@
 """Typed transient program produced by the authoring compiler.
 
 Nothing in this module is a durable wire format. ``TypedProgram`` retains the
-typed point source and explicit dataflow edges needed by later compiler passes,
+point domain and explicit dataflow edges needed by later compiler passes,
 and deliberately has no schema version or round-trip compatibility promise.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Annotated, Any, Literal, cast
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    field_validator,
 )
 
-from scopecat._compiler.ids import NodeId
-from scopecat._compiler.parameter_overlays import (
-    PointParameterOverlay,
-    TypedOverlayExpression,
+from scopecat._compiler.parameter_overlays import PointParameterOverlay
+from scopecat._compiler.point_domain import PointDomain
+from scopecat._compiler.products import (
+    InstrumentProductProducer,
+    ProductAxisDef,
+    ProductDef,
+    ProductKind,
 )
-from scopecat._compiler.records import (
-    RecordAxisSpec,
-    RecordKind,
-    RecordSource,
-    RecordSpec,
-)
+from scopecat._compiler.records import RecordUse
 from scopecat._compiler.state import (
+    LogicalStateResourceTarget,
+    PhysicalStateResourceTarget,
     StateSpec,
-    as_state_route_value_expr,
 )
 from scopecat._compute_result import ComputeResultRef
-from scopecat._relations import (
-    RelationExpr,
-    ScalarExpr,
-    SeriesExpr,
-    as_scalar_expr,
+from scopecat._operation_contract import OperationContract
+from scopecat._product_identity import (
+    ProductId,
+    ProductProducerId,
+    ProductUse,
+    product_id,
+    product_producer_id,
+    product_use,
 )
+from scopecat._relation_use import RelationUse, RelationUseId, relation_use
+from scopecat._relation_verification import RelationTypeBindings
+from scopecat._relations import RowScopeId, ScalarExpr, as_scalar_expr
+from scopecat._resource_identity import (
+    LogicalResourcePortId,
+    PhysicalResourceId,
+    ResourceTarget,
+    logical_resource_port_id,
+)
+from scopecat._semantic_graph import (
+    ImplementationCatalog,
+    OperationId,
+    SourceMap,
+    ValueId,
+    operation_result_id,
+)
+from scopecat._symbols import SymbolId
+from scopecat._value_availability import ValueAvailability
 from scopecat._value_expressions import (
     ScalarOrSeriesValueExpr,
+    ScalarValueExpr,
+    TableValueExpr,
     ValueExpr,
-    as_scalar_or_series_value_expr,
-    as_value_expr,
+    verify_scalar_value_expr,
 )
 from scopecat.results import MeasurementDType
-from scopecat.value_types import Route, Scalar, Table, ValueType
+from scopecat.value_types import Route, Scalar, String, ValueType
 
 
 class ValueInput(BaseModel):
-    """Typed expression evaluated for one compute invocation."""
+    """Proof-carrying value evaluated for one compute invocation.
+
+    ``origin_input_ids`` is pre-rewrite provenance. The enclosed proof imports
+    describe the final bound plan and are deliberately not used as a substitute
+    for that provenance.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -60,15 +85,12 @@ class ValueInput(BaseModel):
 
     kind: Literal["value"] = "value"
     value: ValueExpr
-    source_inputs: tuple[str, ...] = ()
-    value_type: ValueType
+    relation_use_id: RelationUseId = Field(default_factory=RelationUseId.fresh)
+    origin_input_ids: tuple[str, ...] = ()
 
-    @field_validator("value", mode="before")
-    @classmethod
-    def coerce_value_expression(cls, value: object) -> object:
-        if isinstance(value, ScalarExpr | SeriesExpr | RelationExpr):
-            return as_value_expr(value)
-        return value
+    @property
+    def value_type(self) -> ValueType:
+        return self.value.value_type
 
 
 class ComputeEdge(BaseModel):
@@ -81,8 +103,12 @@ class ComputeEdge(BaseModel):
     )
 
     kind: Literal["compute"] = "compute"
-    producer: NodeId
-    value_type: ValueType
+    value_id: ValueId
+    expected_type: ValueType
+
+    @property
+    def value_type(self) -> ValueType:
+        return self.expected_type
 
 
 class RouteInput(BaseModel):
@@ -95,7 +121,7 @@ class RouteInput(BaseModel):
     )
 
     kind: Literal["route"] = "route"
-    port_id: str
+    port_id: LogicalResourcePortId
     value_type: Route
 
 
@@ -103,6 +129,20 @@ type ComputeInput = Annotated[
     ValueInput | ComputeEdge | RouteInput,
     Field(discriminator="kind"),
 ]
+
+
+class TypedComputeOutput(BaseModel):
+    """One explicitly identified value defined by a typed compute node."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    id: ValueId
+    value_type: ValueType
+    availability: ValueAvailability
 
 
 class TypedComputeNode(BaseModel):
@@ -114,38 +154,14 @@ class TypedComputeNode(BaseModel):
         frozen=True,
     )
 
-    id: NodeId
+    id: OperationId
+    contract: OperationContract
     inputs: dict[str, ComputeInput] = Field(default_factory=dict)
-    output_type: ValueType
-    fn: Callable[..., object] | None = Field(default=None, exclude=True)
+    result: TypedComputeOutput
 
 
 class ResourceRouteIntent(BaseModel):
     """Symbolic resource route retained until point-local compilation."""
-
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
-    port_id: str
-    capabilities: tuple[str, ...] = ()
-    entity_exprs: tuple[ScalarOrSeriesValueExpr, ...] = ()
-    resource_id: str | None = None
-
-    @field_validator("entity_exprs", mode="before")
-    @classmethod
-    def coerce_entity_expressions(cls, value: object) -> object:
-        if isinstance(value, list | tuple):
-            items = cast("Sequence[object]", value)
-            return [
-                as_scalar_or_series_value_expr(item)
-                if isinstance(item, ScalarExpr | SeriesExpr)
-                else item
-                for item in items
-            ]
-        return value
-
-
-class TypedPointSource(BaseModel):
-    """Bound but unevaluated point relation with its semantic table type."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -153,9 +169,10 @@ class TypedPointSource(BaseModel):
         frozen=True,
     )
 
-    expr: RelationExpr
-    value_type: Table
-    entity_column_ids: tuple[str, ...] = ()
+    port_id: LogicalResourcePortId
+    capabilities: tuple[str, ...] = ()
+    entity_uses: tuple[RelationUse[ScalarOrSeriesValueExpr], ...] = ()
+    fixed_resource_id: PhysicalResourceId | None = None
 
 
 class TypedProgram(BaseModel):
@@ -167,14 +184,22 @@ class TypedProgram(BaseModel):
         frozen=True,
     )
 
-    id: str
-    kind: str
-    point_source: TypedPointSource
+    id: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    point_domain: PointDomain
     route_intents: tuple[ResourceRouteIntent, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
+    implementation_catalog: ImplementationCatalog = Field(
+        default_factory=ImplementationCatalog,
+        exclude=True,
+    )
+    source_map: SourceMap = Field(default_factory=SourceMap, exclude=True)
     state: tuple[StateSpec, ...] = ()
-    records: tuple[RecordSpec, ...] = ()
+    product_defs: tuple[ProductDef, ...] = ()
+    instrument_product_producers: tuple[InstrumentProductProducer, ...] = ()
+    product_uses: tuple[ProductUse, ...] = ()
+    record_uses: tuple[RecordUse, ...] = ()
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -186,6 +211,7 @@ def overlay_parameter_cell(
     column_id: str,
     value: object,
     value_type: Scalar,
+    bindings: RelationTypeBindings,
 ) -> PointParameterOverlay:
     """Build a typed point-local cell overlay for internal compiler tests."""
 
@@ -194,61 +220,102 @@ def overlay_parameter_cell(
         raise ValueError(msg)
     return PointParameterOverlay(
         table_id=table_id,
-        key={
-            name: TypedOverlayExpression(
-                expr=as_scalar_expr(expression),
-                value_type=key_types[name],
+        key_uses={
+            name: relation_use(
+                verify_scalar_value_expr(
+                    _require_scalar_expression(expression),
+                    bindings=bindings,
+                    expected_type=key_types[name],
+                )
             )
             for name, expression in key.items()
         },
         column_id=column_id,
-        value=TypedOverlayExpression(
-            expr=as_scalar_expr(value),
-            value_type=value_type,
+        value_use=relation_use(
+            verify_scalar_value_expr(
+                _require_scalar_expression(value),
+                bindings=bindings,
+                expected_type=value_type,
+            )
         ),
     )
 
 
 def set_state_field(
-    resource: object,
+    resource: ScalarValueExpr | None = None,
     *,
+    resource_port_id: LogicalResourcePortId | None = None,
     capability_id: str,
     field_path: str,
-    value: object,
-    route_entities: Sequence[object] = (),
+    value: ScalarValueExpr | ComputeResultRef,
+    route_entities: Sequence[ScalarOrSeriesValueExpr] = (),
 ) -> StateSpec:
     """Build desired state from orthogonal capability and field identities."""
 
+    if (resource is None) == (resource_port_id is None):
+        msg = "state field requires exactly one physical resource or logical port"
+        raise ValueError(msg)
+    if resource is not None and not isinstance(resource.value_type.atom, String):
+        msg = "physical state resource expressions must have string scalar type"
+        raise TypeError(msg)
+
     return StateSpec(
         kind="set",
-        resource=as_scalar_expr(resource),
+        resource_target=(
+            LogicalStateResourceTarget(port_id=resource_port_id)
+            if resource_port_id is not None
+            else PhysicalStateResourceTarget(
+                use=relation_use(cast("ScalarValueExpr", resource))
+            )
+        ),
         capability_id=capability_id,
         field_path=field_path,
-        value=value if isinstance(value, ComputeResultRef) else as_scalar_expr(value),
-        route_entities=[as_state_route_value_expr(entity) for entity in route_entities],
+        value_use=value if isinstance(value, ComputeResultRef) else relation_use(value),
+        route_entity_uses=[relation_use(expression) for expression in route_entities],
     )
 
 
-def compute_result(node_id: NodeId | str) -> ComputeResultRef:
-    """Reference one point-local compute result."""
+def compute_result(value: ValueId | OperationId | str) -> ComputeResultRef:
+    """Reference an exact output or one operation's current single result."""
 
-    selected = node_id if isinstance(node_id, NodeId) else NodeId(local_id=node_id)
-    return ComputeResultRef(node_id=selected)
+    if isinstance(value, ValueId):
+        selected = value
+    else:
+        operation_id = (
+            value
+            if isinstance(value, OperationId)
+            else OperationId(SymbolId(local_id=value))
+        )
+        selected = operation_result_id(operation_id)
+    return ComputeResultRef(value_id=selected)
 
 
-def bind_each(relation: RelationExpr, *state: StateSpec) -> StateSpec:
-    return StateSpec(kind="for_each", relation=relation, state=list(state))
+def bind_each(
+    relation: TableValueExpr,
+    *state: StateSpec,
+    row_scope_id: RowScopeId | None = None,
+) -> StateSpec:
+    return StateSpec(
+        kind="for_each",
+        relation_use=relation_use(relation),
+        row_scope_id=row_scope_id,
+        state=list(state),
+    )
 
 
-def record_axis(
+def _require_scalar_expression(value: object) -> ScalarExpr:
+    return value if isinstance(value, ScalarExpr) else as_scalar_expr(value)
+
+
+def product_axis(
     id: str,  # noqa: A002
     *,
     size: int,
     kind: str | None = None,
     unit: str | None = None,
     metadata: dict[str, Any] | None = None,
-) -> RecordAxisSpec:
-    return RecordAxisSpec(
+) -> ProductAxisDef:
+    return ProductAxisDef(
         id=id,
         kind=kind or id,
         size=size,
@@ -257,84 +324,155 @@ def record_axis(
     )
 
 
-def shot_axis(size: int) -> RecordAxisSpec:
-    return record_axis("shot", size=size, kind="shot", unit="count")
+def shot_axis(size: int) -> ProductAxisDef:
+    return product_axis("shot", size=size, kind="shot", unit="count")
 
 
-def record_output(
-    id: str,  # noqa: A002
+def product_output(
+    id: str | ProductId,  # noqa: A002
     *,
-    kind: RecordKind = "observable",
-    source: RecordSource = "instrument",
+    kind: ProductKind = "observable",
     unit: str | None = None,
-    resource: str | None = None,
-    capability: str | None = None,
-    product_key: str | None = None,
     dtype: MeasurementDType = "float64",
-    axes: list[RecordAxisSpec] | None = None,
-) -> RecordSpec:
-    return RecordSpec(
-        id=id,
+    axes: Sequence[ProductAxisDef] = (),
+    metadata: dict[str, Any] | None = None,
+) -> ProductDef:
+    selected_id = id if isinstance(id, ProductId) else product_id(id)
+    return ProductDef(
+        id=selected_id,
         kind=kind,
-        source=source,
-        resource=resource,
-        capability=capability,
-        product_key=product_key,
         unit=unit,
         dtype=dtype,
-        axes=axes or [],
+        axes=tuple(axes),
+        metadata=dict(metadata or {}),
     )
 
 
-def observable(
-    id: str,  # noqa: A002
+def observable_product(
+    id: str | ProductId,  # noqa: A002
     *,
-    source: RecordSource = "instrument",
     unit: str | None = None,
-    resource: str | None = None,
-    capability: str | None = None,
-    product_key: str | None = None,
     dtype: MeasurementDType = "float64",
-    axes: list[RecordAxisSpec] | None = None,
-) -> RecordSpec:
-    return record_output(
+    axes: Sequence[ProductAxisDef] = (),
+    metadata: dict[str, Any] | None = None,
+) -> ProductDef:
+    return product_output(
         id,
         kind="observable",
-        source=source,
         unit=unit,
-        resource=resource,
-        capability=capability,
-        product_key=product_key,
         dtype=dtype,
         axes=axes,
+        metadata=metadata,
     )
+
+
+def instrument_product_producer(
+    product: ProductDef | ProductId,
+    *,
+    id: ProductProducerId | str | None = None,  # noqa: A002
+    resource_port_id: LogicalResourcePortId | str | None = None,
+    physical_resource_id: PhysicalResourceId | str | None = None,
+    capability: str | None = None,
+    provider_key: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> InstrumentProductProducer:
+    """Declare an instrument edge separately from logical product schema."""
+
+    selected_product_id = product.id if isinstance(product, ProductDef) else product
+    if id is None:
+        selected_producer_id = ProductProducerId(selected_product_id.symbol)
+    elif isinstance(id, ProductProducerId):
+        selected_producer_id = id
+    else:
+        selected_producer_id = product_producer_id(id)
+    return InstrumentProductProducer(
+        id=selected_producer_id,
+        product_id=selected_product_id,
+        resource_target=_product_resource_target(
+            resource_port_id=resource_port_id,
+            physical_resource_id=physical_resource_id,
+        ),
+        capability=capability,
+        provider_key=provider_key or selected_product_id.local_id,
+        metadata=dict(metadata or {}),
+    )
+
+
+def record_product(
+    product: ProductDef | ProductId,
+    *,
+    record_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> tuple[ProductUse, RecordUse]:
+    """Create one product-use occurrence and one durable record consumer."""
+
+    selected_id = product.id if isinstance(product, ProductDef) else product
+    use = product_use(selected_id)
+    return use, RecordUse(
+        id=record_id or selected_id.qualified_name,
+        product_use_id=use.id,
+        metadata=dict(metadata or {}),
+    )
+
+
+def _product_resource_target(
+    *,
+    resource_port_id: LogicalResourcePortId | str | None,
+    physical_resource_id: PhysicalResourceId | str | None,
+) -> ResourceTarget | None:
+    if resource_port_id is not None and physical_resource_id is not None:
+        msg = "product output cannot target both a logical and physical resource"
+        raise ValueError(msg)
+    if resource_port_id is not None:
+        return (
+            resource_port_id
+            if isinstance(resource_port_id, LogicalResourcePortId)
+            else logical_resource_port_id(resource_port_id)
+        )
+    if physical_resource_id is not None:
+        return (
+            physical_resource_id
+            if isinstance(physical_resource_id, PhysicalResourceId)
+            else PhysicalResourceId(physical_resource_id)
+        )
+    return None
 
 
 def typed_program(
     *,
     id: str,  # noqa: A002
     kind: str,
-    point_source: TypedPointSource,
+    point_domain: PointDomain,
     route_intents: Sequence[ResourceRouteIntent] = (),
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     compute_nodes: Sequence[TypedComputeNode] = (),
+    implementation_catalog: ImplementationCatalog | None = None,
+    source_map: SourceMap | None = None,
     state: Sequence[StateSpec] = (),
-    records: Sequence[RecordSpec] = (),
+    product_defs: Sequence[ProductDef] = (),
+    instrument_product_producers: Sequence[InstrumentProductProducer] = (),
+    product_uses: Sequence[ProductUse] = (),
+    record_uses: Sequence[RecordUse] = (),
     metadata: dict[str, Any] | None = None,
 ) -> TypedProgram:
-    """Build and verify one low-level typed program."""
+    """Build one low-level typed program with topologically ordered computes."""
 
     from scopecat._compiler.graph import order_compute_nodes
 
     return TypedProgram(
         id=id,
         kind=kind,
-        point_source=point_source,
+        point_domain=point_domain,
         route_intents=tuple(route_intents),
         parameter_overlays=tuple(parameter_overlays),
         compute_nodes=order_compute_nodes(compute_nodes),
+        implementation_catalog=implementation_catalog or ImplementationCatalog(),
+        source_map=source_map or SourceMap(),
         state=tuple(state),
-        records=tuple(records),
+        product_defs=tuple(product_defs),
+        instrument_product_producers=tuple(instrument_product_producers),
+        product_uses=tuple(product_uses),
+        record_uses=tuple(record_uses),
         metadata=dict(metadata or {}),
     )
 
@@ -345,15 +483,17 @@ __all__ = [
     "ResourceRouteIntent",
     "RouteInput",
     "TypedComputeNode",
-    "TypedPointSource",
+    "TypedComputeOutput",
     "TypedProgram",
     "ValueInput",
     "bind_each",
     "compute_result",
-    "observable",
+    "instrument_product_producer",
+    "observable_product",
     "overlay_parameter_cell",
-    "record_axis",
-    "record_output",
+    "product_axis",
+    "product_output",
+    "record_product",
     "set_state_field",
     "shot_axis",
     "typed_program",

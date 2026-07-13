@@ -1,7 +1,37 @@
 from __future__ import annotations
 
-from scopecat._relations import ParameterRelationData
+from scopecat._relation_backend import ParameterRelationData
+from scopecat._relation_verification import ParameterLookupSignature
 from scopecat.models.parameter import Quantity
+from scopecat.value_types import Bool, Scalar, String, Table, TableColumn
+from scopecat.value_types import Quantity as QuantityType
+
+READOUT_DEVICES_TYPE = Table(
+    columns=(
+        TableColumn("device_id", Scalar(String())),
+        TableColumn("enabled", Scalar(Bool())),
+        TableColumn("resource_id", Scalar(String())),
+        TableColumn("frequency", Scalar(QuantityType(unit="GHz"))),
+    ),
+    primary_key=("device_id",),
+)
+DRIVE_CHANNELS_TYPE = Table(
+    columns=(
+        TableColumn("resource_id", Scalar(String())),
+        TableColumn("fixed_if", Scalar(QuantityType(unit="MHz"))),
+    ),
+    primary_key=("resource_id",),
+)
+PARAMETER_TYPES = {
+    "drive_channels": DRIVE_CHANNELS_TYPE,
+    "readout_devices": READOUT_DEVICES_TYPE,
+}
+READOUT_FREQUENCY_LOOKUP = ParameterLookupSignature(
+    table_id="readout_devices",
+    key_input_types=(("device_id", Scalar(String())),),
+    column_id="frequency",
+    result_type=Scalar(QuantityType(unit="GHz")),
+)
 
 
 def parameters() -> ParameterRelationData:

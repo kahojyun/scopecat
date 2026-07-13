@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from scopecat._execution.program import (
     ApplyStateStage,
@@ -79,11 +80,33 @@ def validate_execution_program_instruments(
                     if description is None:
                         continue
                     for request in operation.command.requests:
-                        product = _find_product(
+                        lookup = _find_product(
                             description,
                             capability_id=request.capability_id,
                             product_key=request.id,
                         )
+                        if lookup.ambiguous:
+                            capability_ids = ", ".join(
+                                repr(capability_id)
+                                for capability_id in lookup.capability_ids
+                            )
+                            problems.append(
+                                _problem(
+                                    "instrument_product_ambiguous",
+                                    f"instrument {operation.instrument_id} product "
+                                    f"{request.id} matches multiple provider "
+                                    f"declarations under capabilities "
+                                    f"{capability_ids}; the request must resolve "
+                                    "to exactly one product",
+                                    "operations",
+                                    operation.operation_id,
+                                    "requests",
+                                    request.id,
+                                    "capability_id",
+                                )
+                            )
+                            continue
+                        product = lookup.product
                         if product is None:
                             problems.append(
                                 _problem(
@@ -141,19 +164,33 @@ def _referenced_payloads(
     return selected
 
 
+@dataclass(frozen=True, slots=True)
+class _ProductLookup:
+    product: ProductDescription | None
+    capability_ids: tuple[str, ...]
+
+    @property
+    def ambiguous(self) -> bool:
+        return len(self.capability_ids) > 1
+
+
 def _find_product(
     description: InstrumentDescription,
     *,
     capability_id: str | None,
     product_key: str,
-) -> ProductDescription | None:
+) -> _ProductLookup:
+    matches: list[tuple[str, ProductDescription]] = []
     for capability in description.capabilities:
         if capability_id is not None and capability.id != capability_id:
             continue
         for product in capability.products:
             if product.key == product_key:
-                return product
-    return None
+                matches.append((capability.id, product))
+    return _ProductLookup(
+        product=matches[0][1] if len(matches) == 1 else None,
+        capability_ids=tuple(capability_id for capability_id, _product in matches),
+    )
 
 
 def _validate_product(

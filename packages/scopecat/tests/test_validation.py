@@ -562,6 +562,59 @@ def test_routing_binding_groups_must_match_channel_topology() -> None:
     }
 
 
+def test_routing_bindings_for_one_physical_target_must_agree_on_topology() -> None:
+    config_data = load_config().model_dump(mode="json")
+    config_data["system"]["topology"]["lines"] = [
+        {"id": "q0.xy", "kind": "control_line", "signal": "drive"},
+        {"id": "q0.alt", "kind": "control_line", "signal": "drive"},
+    ]
+    config_data["system"]["routing"] = {
+        "resources": [
+            {
+                "id": "source-0",
+                "capabilities": ["set_frequency", "set_power"],
+            }
+        ],
+        "edges": [
+            {
+                "id": "source-0-q0-frequency",
+                "resource_id": "source-0",
+                "entity_ids": ["q0"],
+                "capabilities": ["set_frequency"],
+                "bindings": [
+                    {
+                        "entity_id": "q0",
+                        "channel_id": "drive-q0",
+                        "line_id": "q0.xy",
+                        "capability": "set_frequency",
+                    }
+                ],
+            },
+            {
+                "id": "source-0-q0-power",
+                "resource_id": "source-0",
+                "entity_ids": ["q0"],
+                "capabilities": ["set_power"],
+                "bindings": [
+                    {
+                        "entity_id": "q0",
+                        "channel_id": "drive-q0",
+                        "line_id": "q0.alt",
+                        "capability": "set_power",
+                    }
+                ],
+            },
+        ],
+    }
+    config = ConfigProfileSnapshot.model_validate(config_data)
+
+    problems = validate_config(config)
+
+    assert {problem.code for problem in problems} >= {
+        "configuration.routing_binding_topology_conflict"
+    }
+
+
 def test_unsupported_unit_fails_model_validation() -> None:
     config_data = load_config().model_dump(mode="json")
     config_data["parameter_snapshot"]["values"][0]["value"]["unit"] = "furlong"

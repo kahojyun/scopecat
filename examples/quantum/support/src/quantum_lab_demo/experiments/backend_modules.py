@@ -45,6 +45,19 @@ BACKEND_BATCH_MODULE = (
         field="repetitions",
         value=_LOGICAL_POINTS * sc.Quantity(value=1.0, unit="count"),
     )
+    .product(
+        "backend_probabilities",
+        resource="readout",
+        unit="ratio",
+        axes=(
+            sc.record_axis(
+                "backend_point",
+                size=_LOGICAL_POINTS,
+                kind="backend_point",
+                unit="count",
+            ),
+        ),
+    )
     .build()
 )
 

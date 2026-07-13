@@ -8,18 +8,28 @@ data model does not depend on its lowering pipeline.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from scopecat._compiler.ids import NodeId
+from scopecat._relations import RowScopeId
+from scopecat._resource_identity import LogicalResourcePortId
+from scopecat._symbols import SymbolId
 from scopecat.authoring._value_refs import (
     ValueRef,
-    internal_compute_value_ref,
     internal_input_value_ref,
+    internal_operation_result_value_ref,
 )
 from scopecat.authoring.value_types import ValueType
-from scopecat.authoring.values import ComputeFunction, ParameterKeyInput, RouteRef
+from scopecat.authoring.values import (
+    ComputeDeclarationKey,
+    ParameterKeyInput,
+    RouteRef,
+)
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
 from scopecat.models.value import PayloadValue
+
+if TYPE_CHECKING:
+    from scopecat.authoring._module_ir import InvocationKey
 
 type ClosedScalarValue = (
     Quantity | str | int | float | bool | None | EntityRef | PayloadValue
@@ -37,18 +47,18 @@ type ComputeNodeInputValue = (
     | EntityRef
     | PayloadValue
 )
-type PointSourceInput = ValueRef | None
 
 
 @dataclass(frozen=True)
 class StateEachIntent:
     relation: ValueRef
-    resource: ValueRef | ClosedScalarValue
+    row_scope_id: RowScopeId
+    resource: ValueRef | ClosedScalarValue | None
     capability_id: str
     field_path: str
     value: ValueRef | ClosedScalarValue
     route_entities: tuple[StateRouteValue, ...] = ()
-    resource_port: str | None = None
+    resource_port: LogicalResourcePortId | None = None
 
     @property
     def field(self) -> str:
@@ -58,25 +68,27 @@ class StateEachIntent:
 ExperimentStateIntent = StateEachIntent
 
 
-@dataclass(frozen=True)
-class ComputeNodeIntent:
+@dataclass(frozen=True, slots=True)
+class ModuleOperationDecl:
+    """Callable-free semantic declaration for one module-local operation."""
+
     id: str
-    fn: ComputeFunction
+    declaration_key: ComputeDeclarationKey
     output_type: ValueType
     inputs: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     scope: tuple[str, ...] = ()
-    origin: tuple[object, ...] = ()
+    instance_path: tuple[InvocationKey, ...] = ()
 
     @property
-    def node_id(self) -> NodeId:
-        return NodeId(scope=self.scope, local_id=self.id)
+    def operation_id(self) -> SymbolId:
+        return SymbolId(scope=self.scope, local_id=self.id)
 
     @property
     def result(self) -> ValueRef:
-        return internal_compute_value_ref(
-            self.node_id,
+        return internal_operation_result_value_ref(
+            self.operation_id,
             self.output_type,
-            origin=self.origin,
+            origin=(*self.instance_path, self.declaration_key),
         )
 
 
@@ -88,15 +100,6 @@ class ModuleInputPort:
     @property
     def ref(self) -> ValueRef:
         return internal_input_value_ref(self.id, self.value_type)
-
-
-@dataclass(frozen=True)
-class ModuleOutputPort:
-    """One typed value explicitly exported from a module boundary."""
-
-    id: str
-    value: ValueRef
-    value_type: ValueType
 
 
 @dataclass(frozen=True)
@@ -112,12 +115,10 @@ class ParameterScanOverlayIntent:
 __all__ = [
     "ClosedScalarValue",
     "ComputeNodeInputValue",
-    "ComputeNodeIntent",
     "ExperimentStateIntent",
     "ModuleInputPort",
-    "ModuleOutputPort",
+    "ModuleOperationDecl",
     "ParameterScanOverlayIntent",
-    "PointSourceInput",
     "StateEachIntent",
     "StateRouteValue",
 ]

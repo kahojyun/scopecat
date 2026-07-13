@@ -1,73 +1,133 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+from scopecat._compiler.point_domain import PointDomain
 from scopecat._compiler.program import (
-    TypedPointSource,
-    bind_each,
     overlay_parameter_cell,
-    set_state_field,
     typed_program,
 )
+from scopecat._relation_verification import RelationTypeBindings, RowType
 from scopecat._relations import (
     RelationExpr,
     col,
     grid,
     linspace,
     literal_rows,
-    outer,
     param,
+    point_col,
     table,
 )
 from scopecat.models.parameter import Quantity
 from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Scalar, String
 from scopecat.value_types import Table as TableType
-from tests.support.experiment_preview import preview_contract
-from tests.support.parameter_fixtures import parameters as _parameters
+from tests.support.experiment_preview import (
+    config_with_physical_resources,
+    preview_contract,
+)
+from tests.support.parameter_fixtures import (
+    PARAMETER_TYPES,
+    READOUT_FREQUENCY_LOOKUP,
+)
+from tests.support.parameter_fixtures import (
+    parameters as _parameters,
+)
+from tests.support.relation_plans import (
+    each_state,
+    state_field,
+)
+from tests.support.relation_plans import (
+    point_domain as verified_point_domain,
+)
 
 
-def _point_source(expr: RelationExpr) -> TypedPointSource:
-    return TypedPointSource(
-        expr=expr,
-        value_type=TableType(columns=(), allow_extra_columns=True),
+def _point_domain(expr: RelationExpr) -> PointDomain:
+    return verified_point_domain(
+        expr,
+        bindings=RelationTypeBindings(parameters=PARAMETER_TYPES),
+    )
+
+
+def _point_bindings(
+    points: PointDomain,
+    *,
+    lookup: bool = False,
+) -> RelationTypeBindings:
+    return RelationTypeBindings(
+        parameters=PARAMETER_TYPES,
+        parameter_lookups=((READOUT_FREQUENCY_LOOKUP,) if lookup else ()),
+        point_row=RowType.from_table(points.value_type),
+    )
+
+
+def _state_bindings(
+    points: PointDomain,
+    table_id: str,
+    *,
+    lookup: bool = False,
+) -> RelationTypeBindings:
+    table_type = PARAMETER_TYPES[table_id]
+    assert isinstance(table_type, TableType)
+    return replace(
+        _point_bindings(points, lookup=lookup),
+        current_row=RowType.from_table(table_type),
     )
 
 
 def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
+    unchanged_points = _point_domain(grid(index=[0, 1]))
     unchanged = typed_program(
         id="unchanged-state-patches",
         kind="problem",
-        point_source=_point_source(grid(index=[0, 1])),
+        point_domain=unchanged_points,
         state=[
-            set_state_field(
+            state_field(
                 "drive-a",
                 capability_id="drive",
                 field_path="carrier_frequency",
                 value=Quantity(value=5.0, unit="GHz"),
+                bindings=_point_bindings(unchanged_points),
             )
         ],
     )
+    swept_points = _point_domain(grid(frequency=linspace(5.0, 5.1, 2, unit="GHz")))
     swept = typed_program(
         id="swept-state-patches",
         kind="problem",
-        point_source=_point_source(grid(frequency=linspace(5.0, 5.1, 2, unit="GHz"))),
+        point_domain=swept_points,
         state=[
-            set_state_field(
+            state_field(
                 "drive-a",
                 capability_id="drive",
                 field_path="carrier_frequency",
-                value=col("frequency"),
+                value=point_col("frequency"),
+                bindings=_point_bindings(swept_points),
             )
         ],
     )
 
-    unchanged_preview = preview_contract(unchanged, _parameters())
-    swept_preview = preview_contract(swept, _parameters())
+    config = config_with_physical_resources({"drive-a": ("drive",)})
+    unchanged_preview = preview_contract(unchanged, _parameters(), config=config)
+    swept_preview = preview_contract(swept, _parameters(), config=config)
     unchanged_patches = [
-        (change.point_index, change.resource, change.field, change.before, change.after)
+        (
+            change.point_index,
+            change.resource_id,
+            change.field,
+            change.before,
+            change.after,
+        )
         for change in unchanged_preview.state_changes
     ]
     swept_patches = [
-        (change.point_index, change.resource, change.field, change.before, change.after)
+        (
+            change.point_index,
+            change.resource_id,
+            change.field,
+            change.before,
+            change.after,
+        )
         for change in swept_preview.state_changes
     ]
 
@@ -100,33 +160,39 @@ def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
 
 
 def test_preview_repeated_state_uses_outer_point_row() -> None:
+    points = _point_domain(grid(lo_frequency=linspace(4.9, 5.0, 2, unit="GHz")))
+    point_bindings = _point_bindings(points)
     spec = typed_program(
         id="shared-lo-fixed-if-scan",
         kind="drive.shared_lo_scan",
-        point_source=_point_source(
-            grid(lo_frequency=linspace(4.9, 5.0, 2, unit="GHz"))
-        ),
+        point_domain=points,
         state=[
-            bind_each(
+            each_state(
                 table("drive_channels"),
-                set_state_field(
+                state_field(
                     col("resource_id"),
                     capability_id="drive",
                     field_path="carrier_frequency",
-                    value=outer("lo_frequency") + col("fixed_if"),
+                    value=point_col("lo_frequency") + col("fixed_if"),
+                    bindings=_state_bindings(points, "drive_channels"),
                 ),
+                bindings=point_bindings,
             )
         ],
     )
 
-    preview = preview_contract(spec, _parameters())
+    preview = preview_contract(
+        spec,
+        _parameters(),
+        config=config_with_physical_resources({"xy0": ("drive",), "xy1": ("drive",)}),
+    )
 
     assert [point.coordinates["lo_frequency"] for point in preview.points] == [
         Quantity(value=4.9, unit="GHz"),
         Quantity(value=5.0, unit="GHz"),
     ]
     assert [
-        (change.point_index, change.resource, change.field, change.after)
+        (change.point_index, change.resource_id, change.field, change.after)
         for change in preview.state_changes
     ] == [
         (0, "xy0", "drive.carrier_frequency", Quantity(value=5.0, unit="GHz")),
@@ -137,55 +203,76 @@ def test_preview_repeated_state_uses_outer_point_row() -> None:
 
 
 def test_preview_selected_target_table_plans_simultaneous_resources() -> None:
+    points = _point_domain(
+        table("readout_devices")
+        .join(
+            literal_rows([{"device_id": "r1"}, {"device_id": "r0"}]),
+            on={"device_id": "device_id"},
+        )
+        .sort("device_id")
+    )
+    point_bindings = _point_bindings(points, lookup=True)
     spec = typed_program(
         id="selected-readouts-with-shared-drives",
         kind="readout.selected_parallel_scan",
-        point_source=_point_source(
-            table("readout_devices")
-            .join(
-                literal_rows([{"device_id": "r1"}, {"device_id": "r0"}]),
-                on={"device_id": "device_id"},
-            )
-            .sort("device_id")
-        ),
+        point_domain=points,
         parameter_overlays=[
             overlay_parameter_cell(
                 "readout_devices",
-                key={"device_id": col("device_id")},
+                key={"device_id": point_col("device_id")},
                 key_types={"device_id": Scalar(String())},
                 column_id="frequency",
-                value=col("frequency") + Quantity(value=50, unit="MHz"),
+                value=point_col("frequency") + Quantity(value=50, unit="MHz"),
                 value_type=Scalar(QuantityType(unit="GHz")),
+                bindings=point_bindings,
             )
         ],
         state=[
-            set_state_field(
-                col("resource_id"),
+            state_field(
+                point_col("resource_id"),
                 capability_id="readout",
                 field_path="frequency",
                 value=param(
                     "readout_devices",
-                    key={"device_id": col("device_id")},
+                    key={"device_id": point_col("device_id")},
                     column="frequency",
                 ),
+                bindings=point_bindings,
             ),
-            bind_each(
+            each_state(
                 table("drive_channels"),
-                set_state_field(
+                state_field(
                     col("resource_id"),
                     capability_id="drive",
                     field_path="carrier_frequency",
-                    value=outer("frequency") + col("fixed_if"),
+                    value=point_col("frequency") + col("fixed_if"),
+                    bindings=_state_bindings(
+                        points,
+                        "drive_channels",
+                        lookup=True,
+                    ),
                 ),
+                bindings=point_bindings,
             ),
         ],
     )
 
-    preview = preview_contract(spec, _parameters())
+    preview = preview_contract(
+        spec,
+        _parameters(),
+        config=config_with_physical_resources(
+            {
+                "readout-a": ("readout",),
+                "readout-b": ("readout",),
+                "xy0": ("drive",),
+                "xy1": ("drive",),
+            }
+        ),
+    )
 
     assert [point.coordinates["device_id"] for point in preview.points] == ["r0", "r1"]
     assert [
-        (change.point_index, change.resource, change.field, change.after)
+        (change.point_index, change.resource_id, change.field, change.after)
         for change in preview.state_changes
     ] == [
         (0, "readout-a", "readout.frequency", Quantity(value=6.0, unit="GHz")),

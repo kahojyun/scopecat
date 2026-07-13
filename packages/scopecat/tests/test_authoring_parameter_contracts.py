@@ -24,6 +24,9 @@ def _identity(value: object) -> object:
 def _resolve_dependency(
     value: sc.ValueRef,
     config: ConfigProfileSnapshot,
+    *,
+    module_inputs: tuple[sc.ValueRef, ...] = (),
+    bound_inputs: dict[str, sc.RuntimeInput] | None = None,
 ) -> None:
     dependency = sc.compute(
         "consume-parameter-dependency",
@@ -31,13 +34,20 @@ def _resolve_dependency(
         inputs={"value": value},
         output_type=value.value_type,
     )
-    module = sc.module("test.parameter-contract").computes(dependency).build()
-    _resolve_module(module, config)
+    module = (
+        sc.module("test.parameter-contract")
+        .inputs(*module_inputs)
+        .computes(dependency)
+        .build()
+    )
+    _resolve_module(module, config, inputs=bound_inputs)
 
 
 def _resolve_module(
     module: sc.ExperimentModule,
     config: ConfigProfileSnapshot,
+    *,
+    inputs: dict[str, sc.RuntimeInput] | None = None,
 ) -> None:
     invocation = (
         module.template(
@@ -45,7 +55,7 @@ def _resolve_module(
             kind="parameter_contract",
         )
         .build()
-        .bind()
+        .bind(**(inputs or {}))
     )
     resolve_experiment(
         invocation,
@@ -54,7 +64,10 @@ def _resolve_module(
     )
 
 
-def _config_with_parameter_table() -> ConfigProfileSnapshot:
+def _config_with_parameter_table(
+    *,
+    frequency_required: bool = True,
+) -> ConfigProfileSnapshot:
     config = load_config()
     definition = ParameterDefinition(
         id="device_parameters",
@@ -70,6 +83,7 @@ def _config_with_parameter_table() -> ConfigProfileSnapshot:
                 sc.TableColumn(
                     id="frequency",
                     value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+                    required=frequency_required,
                 ),
             ),
         ),
@@ -210,7 +224,7 @@ def test_series_parameter_is_first_class_in_authoring_and_resolution() -> None:
     )
 
 
-def test_parameter_contract_survives_nested_module_composition() -> None:
+def test_parameter_contract_survives_nested_elaboration() -> None:
     frequency = sc.input(
         "frequency",
         sc.ScalarType(sc.StringType()),
@@ -230,11 +244,12 @@ def test_parameter_contract_survives_nested_module_composition() -> None:
     parent = (
         sc.module("test.parameter-contract-parent")
         .use(
-            child(
+            child.instantiate(
+                "parameter-contract-child",
                 frequency=sc.parameter(
                     "drive_frequency",
                     sc.ScalarType(sc.StringType()),
-                )
+                ),
             )
         )
         .build()
@@ -408,6 +423,23 @@ def test_parameter_lookup_checks_table_column_and_entity_type() -> None:
     )
 
 
+def test_parameter_lookup_rejects_an_optional_result_column() -> None:
+    with pytest.raises(CheckFailed) as caught:
+        _resolve_dependency(
+            sc.parameter_lookup(
+                "device_parameters",
+                key={"device": "q0"},
+                column="frequency",
+                value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+            ),
+            _config_with_parameter_table(frequency_required=False),
+        )
+
+    assert caught.value.problems[0].code == (
+        "authoring_parameter_lookup_column_optional"
+    )
+
+
 def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> None:
     config = _config_with_parameter_table()
     typed_device = sc.input(
@@ -453,20 +485,21 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             ),
             config,
         )
+    wrong_device = sc.input(
+        "device",
+        sc.ScalarType(sc.EntityType(entity_kind="logical_coupler")),
+    )
     with pytest.raises(CheckFailed) as wrong_key_type:
         _resolve_dependency(
             sc.parameter_lookup(
                 "device_parameters",
-                key={
-                    "device": sc.input(
-                        "device",
-                        sc.ScalarType(sc.EntityType(entity_kind="logical_coupler")),
-                    )
-                },
+                key={"device": wrong_device},
                 column="frequency",
                 value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
             ),
             config,
+            module_inputs=(wrong_device,),
+            bound_inputs={"device": "q0"},
         )
 
     assert wrong_key_shape.value.problems[0].code == (
@@ -604,4 +637,4 @@ def test_table_row_callback_retains_source_and_added_parameter_contracts() -> No
     with pytest.raises(CheckFailed) as error:
         _resolve_dependency(derived, _config_with_parameter_table())
 
-    assert error.value.problems[0].code == ("authoring_parameter_column_type_mismatch")
+    assert error.value.problems[0].code == "semantic_parameter_lookup_type_conflict"

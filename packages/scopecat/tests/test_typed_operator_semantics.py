@@ -3,12 +3,24 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat._relations import ParameterRelationData, lit, literal_rows
+from scopecat._relation_backend import (
+    REFERENCE_RELATION_BACKEND,
+    ParameterRelationData,
+)
+from scopecat._relation_verification import RelationTypeBindings
+from scopecat._relations import lit, literal_rows
 from scopecat._scalar_operators import compare_ordered_values, runtime_values_equal
 from scopecat.authoring._value_refs import (
     internal_lower_scalar_value_ref,
     internal_lower_table_value_ref,
 )
+from tests.support.relation_plans import evaluate_relation, evaluate_scalar
+
+_BACKEND = REFERENCE_RELATION_BACKEND
+
+
+def _input_bindings(**inputs: sc.ValueType) -> RelationTypeBindings:
+    return RelationTypeBindings(inputs=inputs)
 
 
 def test_typed_arithmetic_and_runtime_use_the_same_operator_contract() -> None:
@@ -23,8 +35,11 @@ def test_typed_arithmetic_and_runtime_use_the_same_operator_contract() -> None:
     numeric = count + 0.5
     assert numeric.value_type == sc.ScalarType(sc.FloatType())
     assert (
-        internal_lower_scalar_value_ref(numeric).eval(
-            ParameterRelationData().to_context(inputs={"count": 2})
+        evaluate_scalar(
+            _BACKEND,
+            internal_lower_scalar_value_ref(numeric),
+            ParameterRelationData().to_context(inputs={"count": 2}),
+            bindings=_input_bindings(count=count.value_type),
         )
         == 2.5
     )
@@ -35,7 +50,12 @@ def test_typed_arithmetic_rejects_non_finite_runtime_results() -> None:
     overflow = internal_lower_scalar_value_ref(value * 1e308)
 
     with pytest.raises(ValueError, match="non-finite result"):
-        overflow.eval(ParameterRelationData().to_context(inputs={"value": 1e308}))
+        evaluate_scalar(
+            _BACKEND,
+            overflow,
+            ParameterRelationData().to_context(inputs={"value": 1e308}),
+            bindings=_input_bindings(value=value.value_type),
+        )
 
 
 def test_entity_equality_uses_kind_and_id_but_not_metadata() -> None:
@@ -52,7 +72,9 @@ def test_entity_equality_uses_kind_and_id_but_not_metadata() -> None:
     concrete_kind_comparison = internal_lower_scalar_value_ref(resonator.eq(qubit))
 
     assert (
-        comparison.eval(
+        evaluate_scalar(
+            _BACKEND,
+            comparison,
             ParameterRelationData().to_context(
                 inputs={
                     "generic": sc.EntityRef(
@@ -66,29 +88,45 @@ def test_entity_equality_uses_kind_and_id_but_not_metadata() -> None:
                         metadata={"source": "right"},
                     ),
                 }
-            )
+            ),
+            bindings=_input_bindings(
+                generic=generic.value_type,
+                qubit=qubit.value_type,
+            ),
         )
         is True
     )
     assert (
-        comparison.eval(
+        evaluate_scalar(
+            _BACKEND,
+            comparison,
             ParameterRelationData().to_context(
                 inputs={
                     "generic": sc.EntityRef(id="q0", kind="resonator"),
                     "qubit": sc.EntityRef(id="q0", kind="qubit"),
                 }
-            )
+            ),
+            bindings=_input_bindings(
+                generic=generic.value_type,
+                qubit=qubit.value_type,
+            ),
         )
         is False
     )
     assert (
-        concrete_kind_comparison.eval(
+        evaluate_scalar(
+            _BACKEND,
+            concrete_kind_comparison,
             ParameterRelationData().to_context(
                 inputs={
                     "resonator": sc.EntityRef(id="q0", kind="resonator"),
                     "qubit": sc.EntityRef(id="q0", kind="qubit"),
                 }
-            )
+            ),
+            bindings=_input_bindings(
+                resonator=resonator.value_type,
+                qubit=qubit.value_type,
+            ),
         )
         is False
     )
@@ -114,7 +152,9 @@ def test_record_equality_recurses_through_typed_scalar_semantics() -> None:
     comparison = internal_lower_scalar_value_ref(left.eq(right))
 
     assert (
-        comparison.eval(
+        evaluate_scalar(
+            _BACKEND,
+            comparison,
             ParameterRelationData().to_context(
                 inputs={
                     "left": {
@@ -134,7 +174,11 @@ def test_record_equality_recurses_through_typed_scalar_semantics() -> None:
                         "frequency": sc.Quantity(5000.0, "MHz"),
                     },
                 }
-            )
+            ),
+            bindings=_input_bindings(
+                left=left.value_type,
+                right=right.value_type,
+            ),
         )
         is True
     )
@@ -195,8 +239,11 @@ def test_nullable_values_are_only_safe_for_equality() -> None:
     is_null = optional_count.eq(None)
     assert is_null.value_type == sc.ScalarType(sc.BoolType())
     assert (
-        internal_lower_scalar_value_ref(is_null).eval(
-            ParameterRelationData().to_context(inputs={"count": None})
+        evaluate_scalar(
+            _BACKEND,
+            internal_lower_scalar_value_ref(is_null),
+            ParameterRelationData().to_context(inputs={"count": None}),
+            bindings=_input_bindings(count=optional_count.value_type),
         )
         is True
     )
@@ -210,8 +257,9 @@ def test_typed_boolean_composition_uses_the_shared_operator_contract() -> None:
     disjunction = internal_lower_scalar_value_ref(left.or_(right))
     context = ParameterRelationData().to_context(inputs={"left": True, "right": False})
 
-    assert conjunction.eval(context) is False
-    assert disjunction.eval(context) is True
+    bindings = _input_bindings(left=left.value_type, right=right.value_type)
+    assert evaluate_scalar(_BACKEND, conjunction, context, bindings=bindings) is False
+    assert evaluate_scalar(_BACKEND, disjunction, context, bindings=bindings) is True
     with pytest.raises(TypeError, match="not defined"):
         left.and_(1)
 
@@ -230,9 +278,9 @@ def test_typed_sort_uses_numeric_string_and_quantity_ordering() -> None:
             )
         ),
     )
-    sorted_rows = internal_lower_table_value_ref(
-        rows.sort("number", "label", "frequency")
-    ).evaluate(
+    sorted_rows = evaluate_relation(
+        _BACKEND,
+        internal_lower_table_value_ref(rows.sort("number", "label", "frequency")),
         inputs={
             "rows": [
                 {
@@ -256,7 +304,8 @@ def test_typed_sort_uses_numeric_string_and_quantity_ordering() -> None:
                     "frequency": sc.Quantity(2.0, "GHz"),
                 },
             ]
-        }
+        },
+        bindings=_input_bindings(rows=rows.value_type),
     )
 
     assert [row["number"] for row in sorted_rows] == [2, 10, 10, 10]
@@ -327,8 +376,12 @@ def test_ordering_requires_finite_numeric_contracts_and_values() -> None:
         open_float.lt(1.0)
     with pytest.raises(TypeError, match="guarantee finite"):
         rows.sort("value")
-    with pytest.raises(TypeError, match="not defined"):
-        lit(float("nan")).lt(1.0).eval(ParameterRelationData().to_context())
+    with pytest.raises(ValueError, match="Float bounds must be finite"):
+        evaluate_scalar(
+            _BACKEND,
+            lit(float("nan")).lt(1.0),
+            ParameterRelationData().to_context(),
+        )
 
 
 def test_typed_join_requires_explicit_compatible_non_null_keys() -> None:
@@ -361,11 +414,17 @@ def test_typed_join_requires_explicit_compatible_non_null_keys() -> None:
         "left_value",
         "right_value",
     )
-    assert internal_lower_table_value_ref(joined).evaluate(
+    assert evaluate_relation(
+        _BACKEND,
+        internal_lower_table_value_ref(joined),
         inputs={
             "left": [{"id": "q0", "left_value": 1}],
             "right": [{"id": "q0", "right_value": 2}],
-        }
+        },
+        bindings=_input_bindings(
+            left=left.value_type,
+            right=right.value_type,
+        ),
     ) == [{"id": "q0", "left_value": 1, "right_value": 2}]
 
     incompatible = sc.input(
@@ -400,8 +459,14 @@ def test_join_preserves_the_left_typed_representation_of_shared_keys() -> None:
     )
     numeric_join = integer_left.join(float_right, on={"id": "id"})
 
-    assert internal_lower_table_value_ref(numeric_join).evaluate(
-        inputs={"integer_left": [{"id": 1}], "float_right": [{"id": 1.0}]}
+    assert evaluate_relation(
+        _BACKEND,
+        internal_lower_table_value_ref(numeric_join),
+        inputs={"integer_left": [{"id": 1}], "float_right": [{"id": 1.0}]},
+        bindings=_input_bindings(
+            integer_left=integer_left.value_type,
+            float_right=float_right.value_type,
+        ),
     ) == [{"id": 1}]
 
     ghz_left = sc.input(
@@ -428,11 +493,17 @@ def test_join_preserves_the_left_typed_representation_of_shared_keys() -> None:
     )
     quantity_join = ghz_left.join(mhz_right, on={"frequency": "frequency"})
 
-    assert internal_lower_table_value_ref(quantity_join).evaluate(
+    assert evaluate_relation(
+        _BACKEND,
+        internal_lower_table_value_ref(quantity_join),
         inputs={
             "ghz_left": [{"frequency": sc.Quantity(1.0, "GHz")}],
             "mhz_right": [{"frequency": sc.Quantity(1000.0, "MHz")}],
-        }
+        },
+        bindings=_input_bindings(
+            ghz_left=ghz_left.value_type,
+            mhz_right=mhz_right.value_type,
+        ),
     ) == [{"frequency": sc.Quantity(1.0, "GHz")}]
 
 
@@ -462,15 +533,17 @@ def test_quantity_join_is_symmetric_even_below_display_unit_rounding() -> None:
     tiny_ghz = sc.Quantity(1e-13, "GHz")
     tiny_hz = sc.Quantity(1e-4, "Hz")
 
-    assert internal_lower_table_value_ref(
-        ghz.join(hz, on={"frequency": "frequency"})
-    ).evaluate(
-        inputs={"ghz": [{"frequency": tiny_ghz}], "hz": [{"frequency": tiny_hz}]}
+    assert evaluate_relation(
+        _BACKEND,
+        internal_lower_table_value_ref(ghz.join(hz, on={"frequency": "frequency"})),
+        inputs={"ghz": [{"frequency": tiny_ghz}], "hz": [{"frequency": tiny_hz}]},
+        bindings=_input_bindings(ghz=ghz.value_type, hz=hz.value_type),
     ) == [{"frequency": tiny_ghz}]
-    assert internal_lower_table_value_ref(
-        hz.join(ghz, on={"frequency": "frequency"})
-    ).evaluate(
-        inputs={"ghz": [{"frequency": tiny_ghz}], "hz": [{"frequency": tiny_hz}]}
+    assert evaluate_relation(
+        _BACKEND,
+        internal_lower_table_value_ref(hz.join(ghz, on={"frequency": "frequency"})),
+        inputs={"ghz": [{"frequency": tiny_ghz}], "hz": [{"frequency": tiny_hz}]},
+        bindings=_input_bindings(ghz=ghz.value_type, hz=hz.value_type),
     ) == [{"frequency": tiny_hz}]
 
 
@@ -505,14 +578,20 @@ def test_table_transforms_only_retain_provable_primary_keys() -> None:
         {"group": 1, "item": 1, "value": 10},
         {"group": 1, "item": 2, "value": 20},
     ]
-    assert internal_lower_table_value_ref(partial).evaluate(
-        inputs={"rows": source_rows}
+    assert evaluate_relation(
+        _BACKEND,
+        internal_lower_table_value_ref(partial),
+        inputs={"rows": source_rows},
+        bindings=_input_bindings(rows=rows.value_type),
     ) == [
         {"group": 1, "value": 10},
         {"group": 1, "value": 20},
     ]
-    assert internal_lower_table_value_ref(overwritten).evaluate(
-        inputs={"rows": source_rows}
+    assert evaluate_relation(
+        _BACKEND,
+        internal_lower_table_value_ref(overwritten),
+        inputs={"rows": source_rows},
+        bindings=_input_bindings(rows=rows.value_type),
     ) == [
         {"group": 1, "item": 1, "value": 10},
         {"group": 1, "item": 1, "value": 20},
@@ -533,13 +612,16 @@ def test_dotted_table_columns_are_exact_keys_for_row_access_and_sort() -> None:
         lambda row: {"copied_rank": row["device.rank"]}
     ).sort("device.rank")
 
-    assert internal_lower_table_value_ref(transformed).evaluate(
+    assert evaluate_relation(
+        _BACKEND,
+        internal_lower_table_value_ref(transformed),
         inputs={
             "rows": [
                 {"device.rank": 2, "label": "second"},
                 {"device.rank": 1, "label": "first"},
             ]
-        }
+        },
+        bindings=_input_bindings(rows=rows.value_type),
     ) == [
         {"device.rank": 1, "label": "first", "copied_rank": 1},
         {"device.rank": 2, "label": "second", "copied_rank": 2},
@@ -561,10 +643,16 @@ def test_join_and_cross_reject_non_key_column_collisions() -> None:
     with pytest.raises(ValueError, match="cross has conflicting columns"):
         left.cross(right)
 
-    with pytest.raises(ValueError, match="join column collision"):
-        literal_rows([{"id": "q0", "value": 1}]).join(
-            literal_rows([{"id": "q0", "value": 1}]),
-            on={"id": "id"},
-        ).evaluate()
-    with pytest.raises(ValueError, match="cross column collision"):
-        literal_rows([{"id": "q0"}]).cross(literal_rows([{"id": "q1"}])).evaluate()
+    with pytest.raises(ValueError, match="join contains duplicate columns: value"):
+        evaluate_relation(
+            _BACKEND,
+            literal_rows([{"id": "q0", "value": 1}]).join(
+                literal_rows([{"id": "q0", "value": 1}]),
+                on={"id": "id"},
+            ),
+        )
+    with pytest.raises(ValueError, match="cross contains duplicate columns: id"):
+        evaluate_relation(
+            _BACKEND,
+            literal_rows([{"id": "q0"}]).cross(literal_rows([{"id": "q1"}])),
+        )

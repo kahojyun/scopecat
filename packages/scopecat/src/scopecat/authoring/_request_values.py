@@ -66,7 +66,7 @@ def project_run_request_scalar(expression: ScalarExpr) -> object:
 
     if expression.kind == "literal":
         return project_run_request_value(expression.value, path="expression.literal")
-    if expression.kind in {"column", "outer_column"} and expression.name:
+    if expression.kind == "point_column" and expression.name:
         return {"kind": "axis", "axis_id": expression.name}
     if expression.kind == "input" and expression.name:
         return {"kind": "input", "input_id": expression.name}

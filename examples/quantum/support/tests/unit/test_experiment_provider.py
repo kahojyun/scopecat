@@ -9,7 +9,6 @@ from demo_lab_test_paths import (
     EXPERIMENT_VIRTUAL_LAB_PROFILE,
 )
 from scopecat._compiler.binding import bind_program
-from scopecat._execution.executor import execute_run
 from scopecat.authoring import (
     ExperimentInvocation,
     PayloadType,
@@ -17,8 +16,8 @@ from scopecat.authoring import (
 )
 from scopecat.authoring._resolution import resolve_experiment
 from scopecat.config_profiles import load_config_profile
-from scopecat.errors import ProviderContractError
 from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.problems import ProblemPhase
 from scopecat.runtime import RuntimeEvent, RuntimeTransitionEvent
 
 from quantum_lab_demo.experiments import (
@@ -39,8 +38,8 @@ from quantum_lab_demo.experiments.points import (
 from quantum_lab_demo.experiments.readout_responses import _settings_from_config
 from quantum_lab_demo.lab import quantum_lab
 
-_CZ_CHEVRON_SCOPE = "quantum_lab_demo.experiments.two_qubit.cz_chevron[0]"
-_BACKEND_BATCH_SCOPE = "quantum_lab_demo.experiments.backend.batch[0]"
+_CZ_CHEVRON_SCOPE = "cz_chevron"
+_BACKEND_BATCH_SCOPE = "batch"
 
 
 def load_config() -> ConfigProfileSnapshot:
@@ -135,23 +134,26 @@ def test_cz_chevron_emits_scoped_compute_lifecycle_summaries(
     drive_event = next(
         event
         for event in compute_events
-        if event.metrics.get("kernel_id")
+        if event.metrics.get("semantic_operation_id")
         == f"{_CZ_CHEVRON_SCOPE}/render-cz-chevron-drive-waveforms"
     )
     program_event = next(
         event
         for event in compute_events
-        if event.metrics.get("kernel_id")
+        if event.metrics.get("semantic_operation_id")
         == f"{_CZ_CHEVRON_SCOPE}/build-cz-chevron-program"
     )
 
     assert run.manifest.status == "completed"
     for event in (program_event, drive_event):
-        kernel_id = cast("str", event.metrics["kernel_id"])
+        semantic_operation_id = cast("str", event.metrics["semantic_operation_id"])
+        implementation_id = cast("str", event.metrics["implementation_id"])
         payload_id = cast("str", event.metrics["payload_id"])
         assert event.metrics["compute_status"] == "evaluated"
-        assert payload_id.startswith(f"{kernel_id}.payload.")
-        assert event.operation_id.endswith(f".compute.{kernel_id}")
+        assert implementation_id.startswith("python:")
+        assert implementation_id.endswith(f":{semantic_operation_id}")
+        assert payload_id.startswith(f"{semantic_operation_id}/outputs/result.payload.")
+        assert event.operation_id.endswith(f".compute.{semantic_operation_id}")
 
 
 @pytest.mark.parametrize(
@@ -207,17 +209,17 @@ def test_array_record_cases_run_provider_python_api(
             if isinstance(event, RuntimeTransitionEvent)
             and event.stage == "compute"
             and event.state == "completed"
-            and event.metrics.get("kernel_id")
+            and event.metrics.get("semantic_operation_id")
             == f"{_BACKEND_BATCH_SCOPE}/build-backend-batch-job"
         )
         assert batch_event.metrics["compute_status"] == "evaluated"
         payload_id = cast("str", batch_event.metrics["payload_id"])
         assert payload_id.startswith(
-            f"{_BACKEND_BATCH_SCOPE}/build-backend-batch-job.payload."
+            f"{_BACKEND_BATCH_SCOPE}/build-backend-batch-job/outputs/result.payload."
         )
 
 
-def test_rejects_invalid_payload_schema(
+def test_rejects_invalid_compute_edge_payload_schema_during_planning(
     tmp_path: Path,
 ) -> None:
     resolved = resolve_experiment(
@@ -230,7 +232,13 @@ def test_rejects_invalid_payload_schema(
         update={
             "compute_nodes": [
                 node.model_copy(
-                    update={"output_type": ScalarType(PayloadType("pulse_program"))}
+                    update={
+                        "result": node.result.model_copy(
+                            update={
+                                "value_type": ScalarType(PayloadType("pulse_program"))
+                            }
+                        )
+                    }
                 )
                 if node.id.local_id == sequence_node_id
                 else node
@@ -239,20 +247,13 @@ def test_rejects_invalid_payload_schema(
         }
     )
 
-    lab = _lab(tmp_path)
-    assert lab.instrument_provider is not None
     plan = bind_program(experiment, resolved.environment)
-    with pytest.raises(ProviderContractError) as error:
-        execute_run(
-            config=resolved.config,
-            plan=plan,
-            request=resolved.request,
-            instrument_provider=lab.instrument_provider,
-            workspace=tmp_path,
-            config_source=resolved.config_source,
-        )
 
-    assert error.value.problems[0].code == "instrument_driver_field_value_mismatch"
+    assert not plan.valid
+    assert plan.points == ()
+    assert len(plan.problems) == 1
+    assert plan.problems[0].code == "compute_edge_type_mismatch"
+    assert plan.problems[0].phase is ProblemPhase.PLANNING
 
 
 def _lab(tmp_path: Path):

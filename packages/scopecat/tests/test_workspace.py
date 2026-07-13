@@ -44,6 +44,24 @@ class AnalysisArtifactPayload(BaseModel):
     value: int
 
 
+def _workspace_readout_instance(instance_id: str) -> sc.ModuleInvocation:
+    subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
+    module = (
+        sc.module("workspace.readout")
+        .inputs(subject)
+        .resource("source", requires=("set_frequency",))
+        .bind_field(
+            "source",
+            capability="set_frequency",
+            field="frequency",
+            value=DRIVE_FREQUENCY_POINT,
+        )
+        .product("signal", resource="source", unit="ratio")
+        .build()
+    )
+    return module.instantiate(instance_id, subject="q0")
+
+
 def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
@@ -176,10 +194,10 @@ def test_workspace_experiment_wraps_existing_module_source(tmp_path: Path) -> No
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
+    readout = _workspace_readout_instance("readout")
     experiment = (
         lab.experiment("readout scan")
-        .use(SIMPLE_MODULE)
-        .entity("subject", "q0")
+        .use(readout)
         .scan(
             DRIVE_FREQUENCY_POINT,
             [
@@ -188,6 +206,7 @@ def test_workspace_experiment_wraps_existing_module_source(tmp_path: Path) -> No
                 Quantity(value=5.1, unit="GHz"),
             ],
         )
+        .record_product(readout.products.signal, record_id="signal")
     )
 
     run = experiment.run()
@@ -204,10 +223,10 @@ def test_workspace_experiment_composes_module_source_with_fragments(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
+    readout = _workspace_readout_instance("readout")
     experiment = (
         lab.experiment("readout scan")
-        .use(SIMPLE_MODULE)
-        .entity("subject", "q0")
+        .use(readout)
         .scan(
             DRIVE_FREQUENCY_POINT,
             [
@@ -216,12 +235,13 @@ def test_workspace_experiment_composes_module_source_with_fragments(
                 Quantity(value=5.1, unit="GHz"),
             ],
         )
-        .record("manual_signal", resource="source", unit="ratio")
+        .record_product(readout.products.signal, record_id="signal")
+        .record("manual_signal", unit="ratio")
     )
 
     preview = experiment.preview()
 
-    assert preview.primary_observables == ("signal", "manual_signal")
+    assert set(preview.primary_observables) == {"signal", "manual_signal"}
 
 
 def test_prepared_experiment_validate_returns_authoring_problems(
@@ -288,7 +308,7 @@ def test_prepared_experiment_validate_returns_record_schema_problems(
     assert validation.ok is False
     assert validation.summary is None
     assert [problem.code for problem in validation.problems] == [
-        "experiment_record_unit_unsupported"
+        "product_unit_unsupported"
     ]
 
 
@@ -723,7 +743,7 @@ def test_workspace_experiment_defines_complete_experiment(
     )
 
     assert run.manifest.status == "completed"
-    assert persisted_plan.state_changes[0].resource == "source-0"
+    assert persisted_plan.state_changes[0].resource_id == "source-0"
     assert persisted_plan.state_changes[0].field == "set_frequency.frequency"
     assert persisted_plan.state_changes[0].after == Quantity(
         value=4.9,
@@ -756,12 +776,16 @@ def test_workspace_module_can_be_composed(
         .product("signal", resource="source")
         .build()
     )
+    signal_scan_instance = signal_scan.instantiate(
+        "signal-scan",
+        drive_frequency=DRIVE_FREQUENCY_POINT,
+    )
 
     run = (
         lab.experiment("composed signal scan")
-        .use(signal_scan)
+        .use(signal_scan_instance)
         .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
-        .record_product("signal")
+        .record_product(signal_scan_instance.products.signal, record_id="signal")
         .run()
     )
 

@@ -11,17 +11,30 @@ from scopecat.authoring._binding_intents import (
 )
 from scopecat.authoring._handles import create_handle
 from scopecat.authoring._intents import (
-    ComputeNodeIntent,
     ExperimentStateIntent,
     ModuleInputPort,
-    ModuleOutputPort,
+    ModuleOperationDecl,
 )
 from scopecat.authoring._module_handles import (
     ExperimentModule,
     ModuleBuilder,
     ModuleInvocation,
 )
-from scopecat.authoring._record_intents import ModuleProductPort, RecordIntent
+from scopecat.authoring._module_ir import (
+    ModuleBodyIR,
+    ModuleImportBinding,
+    ModuleInstanceIR,
+    ModuleInstanceLookup,
+    ModuleInterfaceIR,
+    ModuleIR,
+    ModuleProductExport,
+    ModulePythonImplementation,
+    ModuleValueExport,
+)
+from scopecat.authoring._record_intents import (
+    ModuleProductPort,
+    RecordIntent,
+)
 from scopecat.authoring.values import MetadataValue
 
 
@@ -30,57 +43,62 @@ def module_from_parts_internal(
     id: str,  # noqa: A002
     invocations: Sequence[ModuleInvocation] = (),
     input_ports: Sequence[ModuleInputPort] = (),
-    output_ports: Sequence[ModuleOutputPort] = (),
+    output_ports: Sequence[ModuleValueExport] = (),
     resources: Sequence[ResourcePort] = (),
     bindings: Sequence[ExperimentBindingIntent] = (),
     state_intents: Sequence[ExperimentStateIntent] = (),
-    compute_nodes: Sequence[ComputeNodeIntent] = (),
+    operations: Sequence[ModuleOperationDecl] = (),
+    python_implementations: Sequence[ModulePythonImplementation] = (),
     records: Sequence[RecordIntent] = (),
     product_ports: Sequence[ModuleProductPort] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentModule:
-    return _module(
+    instances = tuple(_module_instance_ir(invocation) for invocation in invocations)
+    projected_products = tuple(
+        product.projected_by(instance.lookup)
+        for instance in instances
+        for product in instance.module.interface.products
+    )
+    declared_products = tuple(
+        ModuleProductExport.from_declaration(product) for product in product_ports
+    )
+    module_ir = ModuleIR(
         id=id,
-        invocations=invocations,
-        input_ports=input_ports,
-        output_ports=output_ports,
-        resources=resources,
-        bindings=bindings,
-        state_intents=state_intents,
-        compute_nodes=compute_nodes,
-        records=records,
-        product_ports=product_ports,
-        metadata=metadata,
+        interface=ModuleInterfaceIR(
+            imports=tuple(input_ports),
+            exports=tuple(output_ports),
+            resources=tuple(resources),
+            products=(*projected_products, *declared_products),
+        ),
+        body=ModuleBodyIR(
+            instances=instances,
+            bindings=tuple(bindings),
+            state=tuple(state_intents),
+            operations=tuple(operations),
+            records=tuple(records),
+            products=tuple(product_ports),
+        ),
+        python_implementations=tuple(python_implementations),
+        metadata=freeze_json_mapping(metadata or {}),
+    )
+    return create_handle(
+        ExperimentModule,
+        _ir=module_ir,
     )
 
 
-def _module(
-    *,
-    id: str,  # noqa: A002
-    invocations: Sequence[ModuleInvocation] = (),
-    input_ports: Sequence[ModuleInputPort] = (),
-    output_ports: Sequence[ModuleOutputPort] = (),
-    resources: Sequence[ResourcePort] = (),
-    bindings: Sequence[ExperimentBindingIntent] = (),
-    state_intents: Sequence[ExperimentStateIntent] = (),
-    compute_nodes: Sequence[ComputeNodeIntent] = (),
-    records: Sequence[RecordIntent] = (),
-    product_ports: Sequence[ModuleProductPort] = (),
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentModule:
-    return create_handle(
-        ExperimentModule,
-        id=id,
-        invocations=tuple(invocations),
-        input_ports=tuple(input_ports),
-        output_ports=tuple(output_ports),
-        resource_ports=tuple(resources),
-        bindings=tuple(bindings),
-        state_intents=tuple(state_intents),
-        compute_nodes=tuple(compute_nodes),
-        records=tuple(records),
-        product_ports=tuple(product_ports),
-        metadata=freeze_json_mapping(metadata or {}),
+def _module_instance_ir(invocation: ModuleInvocation) -> ModuleInstanceIR:
+    bindings = tuple(
+        ModuleImportBinding(import_id=import_id, source=source)
+        for import_id, source in invocation.inputs.items()
+    )
+    return ModuleInstanceIR(
+        lookup=ModuleInstanceLookup(
+            invocation_key=invocation.invocation_key,
+            instance_id=invocation.instance_id,
+        ),
+        module=invocation.module.ir,
+        input_bindings=bindings,
     )
 
 
@@ -119,21 +137,22 @@ def build_module_from_builder(
         resources=builder.resources,
         bindings=builder.bindings,
         state_intents=builder.state_intents,
-        compute_nodes=builder.compute_nodes,
+        operations=builder.operations,
+        python_implementations=builder.python_implementations,
         records=builder.records,
         product_ports=builder.product_ports,
         metadata=merged_metadata,
     )
 
 
-def module_use_invocation(
-    selected: ExperimentModule | ModuleBuilder | ModuleInvocation,
-) -> ModuleInvocation:
+def module_use_invocation(selected: object) -> ModuleInvocation:
     if isinstance(selected, ModuleInvocation):
         return selected
-    if isinstance(selected, ExperimentModule):
-        return selected()
-    return selected.build()()
+    msg = (
+        "module composition requires an explicit ModuleInvocation; "
+        "use module.instantiate(instance_id, **inputs)"
+    )
+    raise TypeError(msg)
 
 
 __all__ = ["module"]

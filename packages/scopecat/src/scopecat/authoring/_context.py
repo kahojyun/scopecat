@@ -7,7 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
 
-from scopecat._relations import ParameterRelationData
+from scopecat._relation_backend import (
+    REFERENCE_RELATION_BACKEND,
+    ParameterRelationData,
+    RelationBackend,
+)
 from scopecat.errors import CheckFailed
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.entity import EntityRef, entity_ref
@@ -23,9 +27,12 @@ from scopecat.problems import (
 
 @dataclass
 class ExperimentAuthoringContext:
+    """Config context with an explicit host backend for static constant folding."""
+
     config: ConfigProfileSnapshot
     parameters: ParameterRelationData
     workspace: Path
+    static_relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND
     config_source: RunConfigSource | None = None
     problems: list[Problem] = field(default_factory=list)
 

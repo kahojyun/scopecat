@@ -35,6 +35,12 @@ READOUT_CAPTURE_MODULE = (
         field="repetitions",
         value=sc.parameter("repetitions", _QUANTITY),
     )
+    .product("raw_iq", resource="readout", unit="ratio", dtype="complex128")
+    .product("probability_0", "probability_1", resource="readout", unit=None)
+    .product("state0_iq", resource="readout", unit="ratio", dtype="complex128")
+    .product("state1_iq", resource="readout", unit="ratio", dtype="complex128")
+    .product("state0_iq_stdev", resource="readout", unit=None)
+    .product("state1_iq_stdev", resource="readout", unit=None)
     .build()
 )
 
@@ -55,7 +61,7 @@ READOUT_MODULE = (
     .inputs(_READOUT_QUBIT)
     .resource(
         "readout",
-        requires=("readout_pulse",),
+        requires=("readout_pulse", "acquire_iq"),
         for_entities=(_READOUT_QUBIT,),
     )
     .computes(_BUILD_READOUT_PROGRAM)
@@ -77,6 +83,17 @@ READOUT_MODULE = (
         field="power",
         value=qubit_param("readout_power", _READOUT_QUBIT),
     )
+    .bind_field(
+        "readout",
+        capability="acquire_iq",
+        field="repetitions",
+        value=sc.parameter("repetitions", _QUANTITY),
+    )
+    .product("raw_iq", resource="readout", unit="ratio", dtype="complex128")
+    .product("state0_iq", resource="readout", unit="ratio", dtype="complex128")
+    .product("state1_iq", resource="readout", unit="ratio", dtype="complex128")
+    .product("state0_iq_stdev", resource="readout", unit=None)
+    .product("state1_iq_stdev", resource="readout", unit=None)
     .build()
 )
 
@@ -101,7 +118,7 @@ MULTIPLEXED_READOUT_PULSE_MODULE = (
     .inputs(_MULTIPLEXED_QUBITS, _MULTIPLEXED_POWER)
     .resource(
         "readout",
-        requires=("readout_pulse",),
+        requires=("readout_pulse", "acquire_iq"),
         for_entities=(_MULTIPLEXED_QUBITS,),
     )
     .computes(_BUILD_MULTIPLEXED_READOUT_PROGRAM)
@@ -122,6 +139,19 @@ MULTIPLEXED_READOUT_PULSE_MODULE = (
         capability="readout_pulse",
         field="power",
         value=_MULTIPLEXED_POWER,
+    )
+    .bind_field(
+        "readout",
+        capability="acquire_iq",
+        field="repetitions",
+        value=sc.parameter("repetitions", _QUANTITY),
+    )
+    .product(
+        "multiplexed_iq",
+        resource="readout",
+        unit="ratio",
+        dtype="complex128",
+        axes=(sc.entity_axis("qubit", _MULTIPLEXED_QUBITS),),
     )
     .build()
 )
@@ -177,6 +207,16 @@ QND_REPEATED_MEASUREMENT_MODULE = (
         field="repetitions",
         value=_QND_SHOTS * sc.Quantity(value=1.0, unit="count"),
     )
+    .product(
+        "qnd_iq",
+        resource="readout",
+        unit="ratio",
+        dtype="complex128",
+        axes=(
+            sc.record_axis("round", size=_QND_ROUNDS, kind="repeat"),
+            sc.shot_axis(_QND_SHOTS),
+        ),
+    )
     .build()
 )
 
@@ -198,6 +238,13 @@ MULTIPLEXED_READOUT_MODULE = (
         capability="acquire_iq",
         field="repetitions",
         value=sc.parameter("repetitions", _QUANTITY),
+    )
+    .product(
+        "multiplexed_iq",
+        resource="readout",
+        unit="ratio",
+        dtype="complex128",
+        axes=(sc.entity_axis("qubit", _MULTIPLEXED_CAPTURE_QUBITS),),
     )
     .build()
 )

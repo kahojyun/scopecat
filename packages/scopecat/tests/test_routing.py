@@ -11,18 +11,29 @@ from scopecat._compiler.binding import (  # pyright: ignore[reportPrivateUsage]
 )
 from scopecat._compiler.bound import BoundPlan
 from scopecat._compiler.environment import validate_config_environment
+from scopecat._compiler.point_domain import PointDomain
 from scopecat._compiler.program import (
     ResourceRouteIntent,
-    TypedPointSource,
     TypedProgram,
-    observable,
+    instrument_product_producer,
+    observable_product,
+    record_product,
     set_state_field,
     typed_program,
 )
 from scopecat._execution.lowering import build_execution_program
 from scopecat._execution.program import ApplyStateStage, CollectStage
+from scopecat._point_domain_algebra import POINT_UNIT
+from scopecat._relation_use import relation_use
+from scopecat._relation_verification import RelationTypeBindings
 from scopecat._relations import input_series, lit, literal_rows, values
-from scopecat._value_expressions import as_value_expr
+from scopecat._resource_identity import (
+    LogicalResourcePortId,
+    PhysicalResourceId,
+    logical_resource_port_id,
+    physical_resource_id,
+)
+from scopecat._value_expressions import ScalarValueExpr
 from scopecat.models.config import (
     Channel,
     ConfigProfileSnapshot,
@@ -37,8 +48,34 @@ from scopecat.models.config import (
 from scopecat.models.entity import EntityRef
 from scopecat.planning.validation import validate_config
 from scopecat.routing import RoutingError, RoutingView
+from scopecat.value_types import Entity, Float, Int, Scalar, Series, String, TableColumn
 from scopecat.value_types import Table as TableType
 from tests.support.authoring import load_config, parameters
+from tests.support.relation_plans import (
+    scalar_value_expr,
+    series_value_expr,
+    table_value_expr,
+)
+
+
+def _resource(value: str) -> ScalarValueExpr:
+    return scalar_value_expr(lit(value), expected_type=Scalar(String()))
+
+
+def _port(value: str) -> LogicalResourcePortId:
+    return logical_resource_port_id(value)
+
+
+def _physical(value: str) -> PhysicalResourceId:
+    return physical_resource_id(value)
+
+
+def _number(value: float) -> ScalarValueExpr:
+    return scalar_value_expr(lit(value), expected_type=Scalar(Float()))
+
+
+def _entity(value: str) -> ScalarValueExpr:
+    return scalar_value_expr(lit(value), expected_type=Scalar(Entity()))
 
 
 def test_routing_view_routes_by_capability_and_entity() -> None:
@@ -73,13 +110,13 @@ def test_routing_view_routes_by_capability_and_entity() -> None:
     routing = RoutingView.from_config(config.model_copy(update={"system": system}))
 
     binding = routing.route(
-        port_id="drive",
+        port_id=_port("drive"),
         capabilities=("set_frequency",),
         entity_ids=("q1",),
     )
 
-    assert binding.resource_id == "source-1"
-    assert binding.port_id == "drive"
+    assert binding.resource_id == _physical("source-1")
+    assert binding.port_id == _port("drive")
 
 
 def test_routing_view_prefers_explicit_routing_graph() -> None:
@@ -109,12 +146,12 @@ def test_routing_view_prefers_explicit_routing_graph() -> None:
     routing = RoutingView.from_config(config.model_copy(update={"system": system}))
 
     binding = routing.route(
-        port_id="drive",
+        port_id=_port("drive"),
         capabilities=("set_frequency",),
         entity_ids=("q1",),
     )
 
-    assert binding.resource_id == "source-1"
+    assert binding.resource_id == _physical("source-1")
 
 
 def test_routing_view_routes_through_graph_edges() -> None:
@@ -159,12 +196,12 @@ def test_routing_view_routes_through_graph_edges() -> None:
     routing = RoutingView.from_config(config.model_copy(update={"system": system}))
 
     binding = routing.route(
-        port_id="drive",
+        port_id=_port("drive"),
         capabilities=("set_frequency",),
         entity_ids=("q1",),
     )
 
-    assert binding.resource_id == "source-1"
+    assert binding.resource_id == _physical("source-1")
 
 
 def test_routing_view_returns_channel_bindings_from_edges() -> None:
@@ -247,48 +284,93 @@ def test_routing_view_returns_channel_bindings_from_edges() -> None:
     routing = RoutingView.from_config(selected_config)
 
     binding = routing.route(
-        port_id="drive",
+        port_id=_port("drive"),
         capabilities=("set_frequency",),
         entity_ids=("q1",),
     )
 
     assert not validate_config(selected_config)
-    assert binding.resource_id == "source-1"
+    assert binding.resource_id == _physical("source-1")
     assert [item.channel_id for item in binding.channel_bindings] == ["awg0.ch2"]
     assert [item.line_id for item in binding.channel_bindings] == ["q1.xy"]
     assert [item.group_ids for item in binding.channel_bindings] == [["lo.xy0"]]
 
 
+def test_capability_entity_domain_limits_resource_channel_fallback() -> None:
+    config = load_config()
+    routing = RoutingView(
+        resources=(
+            RoutingResource(
+                id="source-0",
+                capabilities=["B"],
+                served_entities=["q0", "q1"],
+                channels=["drive-q0", "readout-q0"],
+            ),
+        ),
+        edges=(
+            RoutingEdge(
+                id="source-0-B-q0",
+                resource_id="source-0",
+                entity_ids=["q0"],
+                capabilities=["B"],
+            ),
+        ),
+        channel_lines_by_id={
+            channel.id: channel.line_id for channel in config.topology.channels
+        },
+        channel_groups_by_id={
+            channel.id: tuple(channel.group_ids) for channel in config.topology.channels
+        },
+    )
+
+    binding = routing.route(
+        port_id=_port("signal"),
+        capabilities=("B",),
+    )
+
+    assert binding.served_entity_ids == ("q0",)
+    assert [
+        (item.capability, item.entity_id, item.channel_id)
+        for item in binding.channel_bindings
+    ] == [("B", "q0", "drive-q0")]
+
+
 def test_multi_channel_entity_binding_reaches_state_and_collect_commands() -> None:
     config = _multi_channel_config()
+    product = observable_product(
+        "signal_value",
+        unit="ratio",
+    )
+    producer = instrument_product_producer(
+        product,
+        resource_port_id=_port("signal"),
+        capability="signal",
+    )
+    product_use, record_use = record_product(product)
     experiment = typed_program(
         id="multi-channel-binding",
         kind="routing_test",
-        point_source=_empty_point_source(),
+        point_domain=_empty_point_domain(),
         route_intents=[
             ResourceRouteIntent(
-                port_id="signal",
+                port_id=_port("signal"),
                 capabilities=("signal",),
-                entity_exprs=(as_value_expr(lit("q0")),),
+                entity_uses=(relation_use(_entity("q0")),),
             )
         ],
         state=[
             set_state_field(
-                "signal",
+                resource_port_id=_port("signal"),
                 capability_id="signal",
                 field_path="level",
-                value=1.0,
-                route_entities=("q0",),
+                value=_number(1.0),
+                route_entities=(_entity("q0"),),
             )
         ],
-        records=[
-            observable(
-                "signal_value",
-                resource="signal",
-                capability="signal",
-                unit="ratio",
-            )
-        ],
+        product_defs=[product],
+        instrument_product_producers=[producer],
+        product_uses=[product_use],
+        record_uses=[record_use],
     )
 
     plan = _bind(experiment, config=config)
@@ -360,7 +442,7 @@ def test_routing_view_fallback_channel_bindings_follow_served_entity_order() -> 
     routing = RoutingView.from_config(config.model_copy(update={"system": system}))
 
     binding = routing.route(
-        port_id="spectator_bias",
+        port_id=_port("spectator_bias"),
         capabilities=("set_flux_bias",),
         entity_ids=("coupler-q2-q3",),
     )
@@ -400,7 +482,7 @@ def test_routing_view_reports_ambiguous_port_without_entity_filter() -> None:
     routing = RoutingView.from_config(config.model_copy(update={"system": system}))
 
     with pytest.raises(RoutingError) as error:
-        routing.route(port_id="drive", capabilities=("set_frequency",))
+        routing.route(port_id=_port("drive"), capabilities=("set_frequency",))
 
     assert error.value.code == "module_resource_port_ambiguous"
 
@@ -410,10 +492,10 @@ def test_routing_view_rejects_explicit_resource_entity_mismatch() -> None:
 
     with pytest.raises(RoutingError) as error:
         routing.route(
-            port_id="drive",
+            port_id=_port("drive"),
             capabilities=("set_frequency",),
             entity_ids=("q1",),
-            resource_id="source-0",
+            fixed_resource_id=_physical("source-0"),
         )
 
     assert error.value.code == "module_resource_port_entity_mismatch"
@@ -606,48 +688,80 @@ def test_bound_plan_rejects_product_duplicates_after_route_resolution() -> None:
         update={"topology": config.topology.model_copy(update={"channels": channels})}
     )
     selected_config = config.model_copy(update={"system": system})
+    products = (
+        observable_product("left_signal"),
+        observable_product("right_signal"),
+    )
+    producers = (
+        instrument_product_producer(
+            products[0],
+            resource_port_id=_port("left"),
+            provider_key="signal",
+        ),
+        instrument_product_producer(
+            products[1],
+            resource_port_id=_port("right"),
+            provider_key="signal",
+        ),
+    )
+    uses_and_records = tuple(record_product(product) for product in products)
     experiment = typed_program(
         id="resolved-product-duplicate",
         kind="routing_test",
-        point_source=_empty_point_source(),
+        point_domain=_empty_point_domain(),
         route_intents=[
-            ResourceRouteIntent(port_id="left", resource_id="source-0"),
-            ResourceRouteIntent(port_id="right", resource_id="source-0"),
+            ResourceRouteIntent(
+                port_id=_port("left"),
+                fixed_resource_id=_physical("source-0"),
+            ),
+            ResourceRouteIntent(
+                port_id=_port("right"),
+                fixed_resource_id=_physical("source-0"),
+            ),
         ],
-        records=[
-            observable("left_signal", resource="left", product_key="signal"),
-            observable("right_signal", resource="right", product_key="signal"),
-        ],
+        product_defs=products,
+        instrument_product_producers=producers,
+        product_uses=[item[0] for item in uses_and_records],
+        record_uses=[item[1] for item in uses_and_records],
     )
 
     plan = _bind(experiment, config=selected_config)
 
     assert not plan.valid
     assert [problem.code for problem in plan.problems] == [
-        "experiment_record_product_duplicate"
+        "collection_provider_key_duplicate"
     ]
 
 
 def test_bound_plan_rejects_broadcast_and_explicit_product_duplicates() -> None:
+    products = (
+        observable_product("broadcast_signal"),
+        observable_product("explicit_signal"),
+    )
+    producers = (
+        instrument_product_producer(products[0], provider_key="signal"),
+        instrument_product_producer(
+            products[1],
+            physical_resource_id=_physical("source-0"),
+            provider_key="signal",
+        ),
+    )
+    uses_and_records = tuple(record_product(product) for product in products)
     experiment = typed_program(
         id="broadcast-product-duplicate",
         kind="routing_test",
-        point_source=_empty_point_source(),
-        records=[
-            observable("broadcast_signal", product_key="signal"),
-            observable(
-                "explicit_signal",
-                resource="source-0",
-                product_key="signal",
-            ),
-        ],
+        point_domain=_empty_point_domain(),
+        product_defs=products,
+        instrument_product_producers=producers,
+        product_uses=[item[0] for item in uses_and_records],
+        record_uses=[item[1] for item in uses_and_records],
     )
 
     plan = _bind(experiment)
 
     assert not plan.valid
     assert [problem.code for problem in plan.problems] == [
-        "experiment_record_product_duplicate"
+        "collection_provider_key_duplicate"
     ]
 
 
@@ -655,19 +769,19 @@ def test_bound_plan_reports_conflicting_state_field_values() -> None:
     experiment = typed_program(
         id="conflicting-state",
         kind="routing_test",
-        point_source=_empty_point_source(),
+        point_domain=_empty_point_domain(),
         state=[
             set_state_field(
-                "source-0",
+                _resource("source-0"),
                 capability_id="set_frequency",
                 field_path="frequency",
-                value=1.0,
+                value=_number(1.0),
             ),
             set_state_field(
-                "source-0",
+                _resource("source-0"),
                 capability_id="set_frequency",
                 field_path="frequency",
-                value=2.0,
+                value=_number(2.0),
             ),
         ],
     )
@@ -683,8 +797,15 @@ def test_route_entity_expressions_reject_table_shape() -> None:
     with pytest.raises(ValidationError):
         ResourceRouteIntent.model_validate(
             {
-                "port_id": "source",
-                "entity_exprs": [as_value_expr(literal_rows([{"entity": "q0"}]))],
+                "port_id": _port("source"),
+                "entity_exprs": [
+                    table_value_expr(
+                        literal_rows([{"entity": "q0"}]),
+                        expected_type=TableType(
+                            columns=(TableColumn("entity", Scalar(Entity())),),
+                        ),
+                    )
+                ],
             }
         )
 
@@ -693,17 +814,28 @@ def test_bound_plan_reports_invalid_route_entity_member() -> None:
     experiment = typed_program(
         id="invalid-route-entity",
         kind="routing_test",
-        point_source=_empty_point_source(),
+        point_domain=_empty_point_domain(),
         route_intents=[
             ResourceRouteIntent(
-                port_id="source",
+                port_id=_port("source"),
                 capabilities=("set_frequency",),
-                entity_exprs=(as_value_expr(lit(1)),),
+                entity_uses=(
+                    relation_use(
+                        scalar_value_expr(lit(1), expected_type=Scalar(Int()))
+                    ),
+                ),
             ),
             ResourceRouteIntent(
-                port_id="empty-source",
+                port_id=_port("empty-source"),
                 capabilities=("set_frequency",),
-                entity_exprs=(as_value_expr(values([])),),
+                entity_uses=(
+                    relation_use(
+                        series_value_expr(
+                            values([]),
+                            expected_type=Series(Scalar(Entity())),
+                        )
+                    ),
+                ),
             ),
         ],
     )
@@ -715,52 +847,57 @@ def test_bound_plan_reports_invalid_route_entity_member() -> None:
     ) == 2
 
 
-def test_route_entity_evaluation_failure_does_not_create_wildcard_binding() -> None:
+def test_unresolved_route_entity_input_is_rejected_before_binding() -> None:
     experiment = typed_program(
         id="failed-route-entity-expression",
         kind="routing_test",
-        point_source=_empty_point_source(),
+        point_domain=_empty_point_domain(),
         route_intents=[
             ResourceRouteIntent(
-                port_id="source",
+                port_id=_port("source"),
                 capabilities=("set_frequency",),
-                entity_exprs=(as_value_expr(input_series("missing")),),
+                entity_uses=(
+                    relation_use(
+                        series_value_expr(
+                            input_series("missing"),
+                            expected_type=Series(Scalar(Entity())),
+                            bindings=RelationTypeBindings(
+                                inputs={"missing": Series(Scalar(Entity()))}
+                            ),
+                        ),
+                    ),
+                ),
             )
         ],
     )
     plan = _bind(experiment)
 
-    assert plan.points[0].routes == ()
-    assert {problem.code for problem in plan.problems} == {
-        "experiment_route_entity_evaluation_failed"
-    }
+    assert plan.points == ()
+    assert {problem.code for problem in plan.problems} == {"linked_input_unresolved"}
 
 
 def _two_route_experiment() -> TypedProgram:
     return typed_program(
         id="two-route-conflict",
         kind="routing_test",
-        point_source=_empty_point_source(),
+        point_domain=_empty_point_domain(),
         route_intents=[
             ResourceRouteIntent(
-                port_id="drive_a",
+                port_id=_port("drive_a"),
                 capabilities=("set_frequency",),
-                entity_exprs=(as_value_expr(lit("q0")),),
+                entity_uses=(relation_use(_entity("q0")),),
             ),
             ResourceRouteIntent(
-                port_id="drive_b",
+                port_id=_port("drive_b"),
                 capabilities=("set_frequency",),
-                entity_exprs=(as_value_expr(lit("q1")),),
+                entity_uses=(relation_use(_entity("q1")),),
             ),
         ],
     )
 
 
-def _empty_point_source() -> TypedPointSource:
-    return TypedPointSource(
-        expr=literal_rows([{}]),
-        value_type=TableType(columns=(), min_rows=1, max_rows=1),
-    )
+def _empty_point_domain() -> PointDomain:
+    return PointDomain(root=POINT_UNIT)
 
 
 def _bind(

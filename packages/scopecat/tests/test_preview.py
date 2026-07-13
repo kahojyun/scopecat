@@ -1,19 +1,27 @@
 from pathlib import Path
 
 from scopecat._compiler.environment import validate_config_environment
+from scopecat._compiler.point_domain import PointDomain
 from scopecat._compiler.program import (
-    TypedPointSource,
     TypedProgram,
-    observable,
-    set_state_field,
+    instrument_product_producer,
+    observable_product,
+    record_product,
     typed_program,
 )
-from scopecat._relations import RelationExpr, col, grid, range_values, table
+from scopecat._relation_verification import RelationTypeBindings, RowType
+from scopecat._relations import RelationExpr, grid, point_col, range_values, table
 from scopecat.config_profiles import load_config_profile
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.value_types import Table as TableType
 from tests.support.experiment_preview import preview_result
+from tests.support.relation_plans import (
+    point_domain as verified_point_domain,
+)
+from tests.support.relation_plans import (
+    state_field,
+)
 from tests.support.workflow_fixtures import load_experiment
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
@@ -25,11 +33,12 @@ def _preview_spec(spec: TypedProgram, config: ConfigProfileSnapshot):
     )
 
 
-def _point_source(expr: RelationExpr) -> TypedPointSource:
-    return TypedPointSource(
-        expr=expr,
-        value_type=TableType(columns=(), allow_extra_columns=True),
-    )
+def _point_domain(
+    expr: RelationExpr,
+    *,
+    bindings: RelationTypeBindings | None = None,
+) -> PointDomain:
+    return verified_point_domain(expr, bindings=bindings)
 
 
 def test_preview_experiment_builds_expected_plan() -> None:
@@ -41,7 +50,7 @@ def test_preview_experiment_builds_expected_plan() -> None:
     assert preview.experiment_id == spec.id
     assert preview.experiment_kind == spec.kind
     assert preview.point_count == 3
-    assert preview.state_changes[0].resource == "source-0"
+    assert preview.state_changes[0].resource_id == "source-0"
     assert preview.state_changes[0].field == "set_frequency.frequency"
     assert preview.state_changes[0].after == Quantity(value=4.9, unit="GHz")
     assert preview.state_fields[0].resource_id == "source-0"
@@ -54,29 +63,44 @@ def test_preview_experiment_builds_expected_plan() -> None:
 
 def test_preview_experiment_includes_float_step_stop_point() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    points = _point_domain(
+        grid(
+            drive_frequency=range_values(
+                5.9,
+                6.0,
+                0.025,
+                unit="GHz",
+                include_stop=True,
+            )
+        )
+    )
+    bindings = RelationTypeBindings(point_row=RowType.from_table(points.value_type))
+    product = observable_product(
+        "signal",
+        unit="ratio",
+    )
+    producer = instrument_product_producer(
+        product,
+        physical_resource_id="source-0",
+    )
+    product_use, record_use = record_product(product)
     spec = typed_program(
         id="float-range-scan",
         kind="simple_scan",
-        point_source=_point_source(
-            grid(
-                drive_frequency=range_values(
-                    5.9,
-                    6.0,
-                    0.025,
-                    unit="GHz",
-                    include_stop=True,
-                )
-            )
-        ),
+        point_domain=points,
         state=[
-            set_state_field(
+            state_field(
                 "source-0",
                 capability_id="set_frequency",
                 field_path="frequency",
-                value=col("drive_frequency"),
+                value=point_col("drive_frequency"),
+                bindings=bindings,
             )
         ],
-        records=[observable("signal", unit="ratio", resource="source-0")],
+        product_defs=[product],
+        instrument_product_producers=[producer],
+        product_uses=[product_use],
+        record_uses=[record_use],
     )
 
     preview, problems = _preview_spec(spec, config)
@@ -100,7 +124,7 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
     spec = typed_program(
         id="duplicate-coordinate-scan",
         kind="simple_scan",
-        point_source=_point_source(grid(drive_frequency=[value, value])),
+        point_domain=_point_domain(grid(drive_frequency=[value, value])),
     )
 
     preview, problems = _preview_spec(spec, config)
@@ -109,12 +133,22 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
     assert len({point.point_uid for point in preview.points}) == 2
 
 
-def test_validate_experiment_does_not_duplicate_preview_problems() -> None:
+def test_validate_experiment_does_not_duplicate_link_problems() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     spec = typed_program(
         id="bad-preview-points",
         kind="problem",
-        point_source=_point_source(table("missing_table")),
+        point_domain=_point_domain(
+            table("missing_table"),
+            bindings=RelationTypeBindings(
+                parameters={
+                    "missing_table": TableType(
+                        columns=(),
+                        allow_extra_columns=True,
+                    )
+                }
+            ),
+        ),
     )
 
     _preview, problems = _preview_spec(spec, config)
@@ -122,5 +156,5 @@ def test_validate_experiment_does_not_duplicate_preview_problems() -> None:
     assert [
         problem.code
         for problem in problems
-        if problem.code == "experiment_points_evaluation_failed"
-    ] == ["experiment_points_evaluation_failed"]
+        if problem.code == "linked_parameter_missing"
+    ] == ["linked_parameter_missing"]

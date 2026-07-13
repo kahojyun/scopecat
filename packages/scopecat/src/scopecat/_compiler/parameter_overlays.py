@@ -2,31 +2,30 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat._compiler.problems import CompilerProblemError, compiler_problem
-from scopecat._relations import (
-    CellValue,
+from scopecat._relation_analysis import PlanNode
+from scopecat._relation_backend import (
     EvalContext,
     ParameterRelationData,
-    ScalarExpr,
+    RelationBackend,
+    SelectedRelationPlan,
+    evaluate_scalar,
 )
+from scopecat._relation_use import RelationUse, RelationUseId
+from scopecat._relations import CellValue, ScalarExpr
 from scopecat._scalar_operators import runtime_values_equal
+from scopecat._value_expressions import ScalarValueExpr
 from scopecat.models.entity import EntityRef, same_entity_identity
 from scopecat.problems import ModelLocation, ProblemCategory, model_location
 from scopecat.value_types import Scalar
 from scopecat.value_validation import ValueValidationError, coerce_literal
 
-
-class TypedOverlayExpression(BaseModel):
-    """One scalar expression paired with its catalog-declared target type."""
-
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
-    expr: ScalarExpr
-    value_type: Scalar
+type SelectedPlanResolver = Callable[[RelationUseId], SelectedRelationPlan[PlanNode]]
 
 
 class PointParameterOverlay(BaseModel):
@@ -40,9 +39,9 @@ class PointParameterOverlay(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     table_id: str
-    key: dict[str, TypedOverlayExpression] = Field(min_length=1)
+    key_uses: dict[str, RelationUse[ScalarValueExpr]] = Field(min_length=1)
     column_id: str
-    value: TypedOverlayExpression
+    value_use: RelationUse[ScalarValueExpr]
 
     @model_validator(mode="after")
     def validate_target(self) -> PointParameterOverlay:
@@ -60,6 +59,8 @@ def apply_point_parameter_overlay(
     *,
     ctx: EvalContext,
     params: ParameterRelationData,
+    backend: RelationBackend,
+    selected_plan: SelectedPlanResolver,
 ) -> None:
     """Apply one catalog-typed cell replacement to a point-local environment."""
 
@@ -78,8 +79,15 @@ def apply_point_parameter_overlay(
 
     key = {
         column_id: _coerce_overlay_value(
-            expression.expr.eval(ctx),
-            expression.value_type,
+            evaluate_scalar(
+                backend,
+                cast(
+                    "SelectedRelationPlan[ScalarExpr]",
+                    selected_plan(use.id),
+                ),
+                ctx,
+            ),
+            use.value.value_type,
             code="experiment_parameter_overlay_key_invalid",
             location=model_location(
                 "parameters",
@@ -88,7 +96,7 @@ def apply_point_parameter_overlay(
                 column_id,
             ),
         )
-        for column_id, expression in overlay.key.items()
+        for column_id, use in overlay.key_uses.items()
     }
     matches = [
         row
@@ -140,7 +148,7 @@ def apply_point_parameter_overlay(
         )
     _coerce_overlay_value(
         row[overlay.column_id],
-        overlay.value.value_type,
+        overlay.value_use.value.value_type,
         code="experiment_parameter_overlay_resolved_value_invalid",
         location=model_location(
             "parameters",
@@ -150,8 +158,15 @@ def apply_point_parameter_overlay(
         ),
     )
     row[overlay.column_id] = _coerce_overlay_value(
-        overlay.value.expr.eval(ctx),
-        overlay.value.value_type,
+        evaluate_scalar(
+            backend,
+            cast(
+                "SelectedRelationPlan[ScalarExpr]",
+                selected_plan(overlay.value_use.id),
+            ),
+            ctx,
+        ),
+        overlay.value_use.value.value_type,
         code="experiment_parameter_overlay_value_invalid",
         location=model_location(
             "parameters",
@@ -195,6 +210,5 @@ def _cell_matches(left: CellValue | None, right: CellValue) -> bool:
 
 __all__ = [
     "PointParameterOverlay",
-    "TypedOverlayExpression",
     "apply_point_parameter_overlay",
 ]

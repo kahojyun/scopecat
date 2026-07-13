@@ -402,7 +402,7 @@ class Experiment:
 
     def use(
         self,
-        *modules: ExperimentModule | ModuleBuilder | ModuleInvocation,
+        *modules: ModuleInvocation,
     ) -> Experiment:
         return replace_handle(self, module=self.module.use(*modules))
 
@@ -1077,7 +1077,11 @@ def _workspace_request_inputs(experiment: Experiment) -> dict[str, object]:
         "records": [
             {
                 "id": record.id,
-                "resource": record.resource,
+                "resource_port_id": (
+                    record.resource_port_id.qualified_name
+                    if record.resource_port_id is not None
+                    else None
+                ),
                 "capability": record.capability,
                 "product_key": record.product_key,
                 "unit": record.unit,
@@ -1087,7 +1091,7 @@ def _workspace_request_inputs(experiment: Experiment) -> dict[str, object]:
         ],
         "selected_products": [
             {
-                "product_id": selection.product_id,
+                "product_id": selection.product_id.qualified_name,
                 "record_id": selection.record_id,
             }
             for selection in experiment.record_selections

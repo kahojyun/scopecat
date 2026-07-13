@@ -57,7 +57,7 @@ and move repeated lab details into a local support package:
 | User change | Edit here | Keep notebooks using |
 |---|---|---|
 | Change reusable scan defaults, exposed inputs, or selected products | `support/src/quantum_lab_demo/experiments/templates.py` | template constants plus `Workspace.prepare(...).input(...).scan(...).preview()/run()` |
-| Reuse resource, state, compute, record, or product declarations | focused `support/src/quantum_lab_demo/experiments/*_modules.py` files | template constants or `Workspace.experiment(...).use(...)` |
+| Reuse resource, state, compute, record, or product declarations | focused `support/src/quantum_lab_demo/experiments/*_modules.py` files | explicitly named `module.instantiate(...)` values passed to templates or `Workspace.experiment(...).use(...)` |
 | Try a one-off scan or product selection | notebook cells with `Workspace.experiment(...)` or `Workspace.prepare(...).scan(...)` | fluent terminal methods: `preview()`, `validate()`, `run()` |
 | Change waveform or sequence generation | `support/src/quantum_lab_demo/experiments/compute.py` plus payload types in `support/src/quantum_lab_demo/experiments/payloads.py` | template constants; runtime payload summaries |
 | Edit qubit, coupler, channel, line, or shared-LO wiring | `support/src/quantum_lab_demo/virtual_lab/wiring.py` | `quantum_wiring()` compiled into config |

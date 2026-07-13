@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._module_composition import assemble_module_internal
+from scopecat.authoring._elaboration import elaborate_module
 from scopecat.authoring._resolution import resolve_experiment
 from scopecat.errors import CheckFailed
 from scopecat.problems import model_location
@@ -94,10 +94,12 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
     )
     parent_frequency = sc.point("frequency", _FREQUENCY_TYPE)
     parent = (
-        sc.module("test.point-parent").use(child(frequency=parent_frequency)).build()
+        sc.module("test.point-parent")
+        .use(child.instantiate("point-child", frequency=parent_frequency))
+        .build()
     )
 
-    assembly = assemble_module_internal(parent)
+    assembly = elaborate_module(parent)
     assert tuple(
         (dependency.id, dependency.value_type)
         for dependency in assembly.point_dependencies

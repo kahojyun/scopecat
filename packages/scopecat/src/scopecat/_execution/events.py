@@ -40,7 +40,7 @@ _OBSERVATION_METRIC_KEYS = frozenset(
         "entity_ids",
         "field_count",
         "fields",
-        "kernel_id",
+        "implementation_id",
         "measurement_count",
         "observable_ids",
         "payload_count",
@@ -50,6 +50,7 @@ _OBSERVATION_METRIC_KEYS = frozenset(
         "sample_dtype",
         "sample_shape",
         "schema_id",
+        "semantic_operation_id",
         "shape",
         "skipped_field_count",
         "source_program_id",
@@ -178,7 +179,8 @@ def observe_payload(
         return
     point_index = payload.metadata.get("point_index")
     operation_id = payload.metadata.get("operation_id")
-    kernel_id = payload.metadata.get("kernel_id")
+    semantic_operation_id = payload.metadata.get("semantic_operation_id")
+    implementation_id = payload.metadata.get("implementation_id")
     compute_status = payload.metadata.get("compute_status")
     try:
         observer(
@@ -186,7 +188,11 @@ def observe_payload(
                 run_id=run_id,
                 experiment_id=experiment_id,
                 point_index=point_index if isinstance(point_index, int) else None,
-                node_id=kernel_id if isinstance(kernel_id, str) else None,
+                semantic_operation_id=(
+                    semantic_operation_id
+                    if isinstance(semantic_operation_id, str)
+                    else None
+                ),
                 payload_id=payload.id,
                 schema_id=payload.schema_id,
                 compute_status=(
@@ -197,7 +203,16 @@ def observe_payload(
                     "payload_id": payload.id,
                     "schema_id": payload.schema_id,
                     **payload_summary(payload.payload),
-                    **({"node_id": kernel_id} if isinstance(kernel_id, str) else {}),
+                    **(
+                        {"semantic_operation_id": semantic_operation_id}
+                        if isinstance(semantic_operation_id, str)
+                        else {}
+                    ),
+                    **(
+                        {"implementation_id": implementation_id}
+                        if isinstance(implementation_id, str)
+                        else {}
+                    ),
                     **(
                         {"operation_id": operation_id}
                         if isinstance(operation_id, str)

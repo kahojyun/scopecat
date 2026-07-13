@@ -1001,12 +1001,15 @@ def _execution_problems(
 
 def _planned_instrument_ids(plan: BoundPlan) -> list[str]:
     return sorted(
-        {state.resource_id for point in plan.points for state in point.desired_state}
+        {
+            state.resource_id.value
+            for point in plan.points
+            for state in point.desired_state
+        }
         | {
-            collect.instrument_id
+            collect.resource_id.value
             for point in plan.points
             for collect in point.collect
-            if collect.instrument_id is not None
         }
     )
 

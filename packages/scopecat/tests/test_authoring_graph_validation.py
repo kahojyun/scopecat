@@ -1,18 +1,32 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 import scopecat as sc
+from scopecat._point_domain_algebra import point_rows
 from scopecat._relations import literal_rows
+from scopecat._semantic_graph import (
+    ImplementationCatalog,
+    LiteralValueSource,
+    OperationOutputSource,
+    ScalarBinarySemantics,
+    ValueUse,
+)
+from scopecat._value_availability import ValueRate, ValueStage
+from scopecat.authoring._elaboration import SemanticExperimentIR
 from scopecat.authoring._graph_validation import verify_assembly_graph
-from scopecat.authoring._module_composition import ExperimentAssemblyInternal
+from scopecat.authoring._invocation_plan import prepare_invocation
 from scopecat.authoring._record_intents import observable
-from scopecat.authoring._resolution import resolve_experiment
+from scopecat.authoring._resolution import (
+    compile_prepared_invocation,
+    resolve_experiment,
+)
 from scopecat.authoring._value_refs import internal_value_ref_from_expression
 from scopecat.errors import CheckFailed
-from scopecat.problems import ModelLocation, model_location
+from scopecat.problems import model_location
 from scopecat.value_types import Float, Payload, Scalar, Table, TableColumn
 from tests.support.authoring import load_config
 
@@ -26,7 +40,7 @@ def _resolve(module: sc.ExperimentModule, tmp_path: Path) -> None:
     )
 
 
-def test_compute_graph_is_verified_before_parameter_contracts(tmp_path: Path) -> None:
+def test_compute_graph_is_verified_before_parameter_contracts() -> None:
     missing = sc.compute(
         "missing-producer",
         fn=lambda: 1.0,
@@ -45,33 +59,23 @@ def test_compute_graph_is_verified_before_parameter_contracts(tmp_path: Path) ->
         },
         output_type=sc.ScalarType(sc.FloatType()),
     )
-    module = sc.module("test.graph.order").computes(consumer).build()
-
     with pytest.raises(CheckFailed) as error:
-        _resolve(module, tmp_path)
+        sc.module("test.graph.order").computes(consumer).build()
 
-    assert error.value.problems[0].code == "compute_producer_missing"
-    assert error.value.problems[0].location == model_location(
-        "compute_nodes", "consumer", "inputs", "upstream"
-    )
+    assert error.value.problems[0].code == "module_compute_foreign_definition"
 
 
-def test_compute_route_requires_a_declared_port(tmp_path: Path) -> None:
+def test_compute_route_requires_a_declared_port() -> None:
     consume = sc.compute(
         "consume-route",
         fn=lambda *, route: route,
         inputs={"route": sc.route("drive")},
         output_type=sc.ScalarType(sc.StringType()),
     )
-    module = sc.module("test.graph.route-missing").computes(consume).build()
-
     with pytest.raises(CheckFailed) as error:
-        _resolve(module, tmp_path)
+        sc.module("test.graph.route-missing").computes(consume).build()
 
-    assert error.value.problems[0].code == "compute_route_port_missing"
-    assert error.value.problems[0].location == model_location(
-        "compute_nodes", "consume-route", "inputs", "route"
-    )
+    assert error.value.problems[0].code == "module_resource_undeclared"
 
 
 def test_compute_route_requires_port_capabilities(tmp_path: Path) -> None:
@@ -95,29 +99,26 @@ def test_compute_route_requires_port_capabilities(tmp_path: Path) -> None:
     assert "set_gain" in error.value.problems[0].message
 
 
-def test_state_rejects_an_unregistered_compute_output(tmp_path: Path) -> None:
+def test_state_rejects_an_unregistered_compute_output() -> None:
     missing = sc.compute(
         "missing-program",
         fn=lambda: {"program": True},
         output_type=sc.ScalarType(sc.PayloadType("pulse-program")),
     )
-    module = (
-        sc.module("test.graph.state-missing")
-        .resource("drive", requires=("play_waveforms",))
-        .bind_field(
-            "drive",
-            capability="play_waveforms",
-            field="program",
-            value=missing.output,
-        )
-        .build()
-    )
-
     with pytest.raises(CheckFailed) as error:
-        _resolve(module, tmp_path)
+        (
+            sc.module("test.graph.state-missing")
+            .resource("drive", requires=("play_waveforms",))
+            .bind_field(
+                "drive",
+                capability="play_waveforms",
+                field="program",
+                value=missing.output,
+            )
+            .build()
+        )
 
-    assert error.value.problems[0].code == "compute_payload_unknown_node"
-    assert error.value.problems[0].location == model_location("bindings", 0, "value")
+    assert error.value.problems[0].code == "module_compute_foreign_definition"
 
 
 def test_state_rejects_a_non_payload_compute_output(tmp_path: Path) -> None:
@@ -144,6 +145,7 @@ def test_state_rejects_a_non_payload_compute_output(tmp_path: Path) -> None:
 
     assert error.value.problems[0].code == "compute_payload_unavailable"
     assert error.value.problems[0].location == model_location("bindings", 0, "value")
+    assert "numeric-value/outputs/result" in error.value.problems[0].message
 
 
 def test_static_record_schema_is_checked_before_parameter_catalog(
@@ -170,7 +172,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog(
     with pytest.raises(CheckFailed) as error:
         _resolve(module, tmp_path)
 
-    assert error.value.problems[0].code == ("experiment_record_axis_duplicate")
+    assert error.value.problems[0].code == ("product_axis_duplicate")
     assert error.value.problems[0].location == model_location(
         "records", "signal", "axes"
     )
@@ -193,7 +195,12 @@ def test_resource_selector_rejects_execute_stage_value(tmp_path: Path) -> None:
     parent = (
         sc.module("test.stage.resource-parent")
         .computes(produce_subject)
-        .use(child(subject=produce_subject.output))
+        .use(
+            child.instantiate(
+                "resource-child",
+                subject=produce_subject.output,
+            )
+        )
         .build()
     )
 
@@ -203,7 +210,12 @@ def test_resource_selector_rejects_execute_stage_value(tmp_path: Path) -> None:
     problem = error.value.problems[0]
     assert problem.code == "value_stage_unavailable"
     assert problem.location == model_location(
-        "resources", "drive", "selector", "entity_inputs", 0
+        "resources",
+        "resource-child",
+        "drive",
+        "selector",
+        "entity_inputs",
+        0,
     )
     assert "resource selector" in problem.message
     assert "execute-stage" in problem.message
@@ -294,7 +306,7 @@ def test_state_route_selector_rejects_execute_stage_value(tmp_path: Path) -> Non
     assert "state route selector" in problem.message
 
 
-def test_direct_compute_edge_is_topologically_ordered(tmp_path: Path) -> None:
+def test_direct_compute_edge_is_topologically_ordered() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     producer = sc.compute(
         "producer",
@@ -310,19 +322,18 @@ def test_direct_compute_edge_is_topologically_ordered(tmp_path: Path) -> None:
     module = sc.module("test.graph.direct-edge").computes(consumer, producer).build()
 
     invocation = module.template("test.graph.direct-edge", kind="graph").build().bind()
-    resolved = resolve_experiment(
-        invocation,
-        workspace=tmp_path,
-        config_profile=load_config(),
-    )
+    compiled = compile_prepared_invocation(prepare_invocation(invocation))
 
-    assert [node.id.local_id for node in resolved.experiment.compute_nodes] == [
+    assert [
+        operation.id.local_id
+        for operation in compiled.assembly.semantic_graph.operations
+    ] == [
         "producer",
         "consumer",
     ]
 
 
-def test_compute_rejects_expression_bound_to_execute_value(tmp_path: Path) -> None:
+def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     child_value = sc.input("value", value_type)
     consumer = sc.compute(
@@ -345,19 +356,88 @@ def test_compute_rejects_expression_bound_to_execute_value(tmp_path: Path) -> No
     parent = (
         sc.module("test.graph.execute-expression-parent")
         .computes(producer)
-        .use(child(value=producer.output))
+        .use(child.instantiate("expression-child", value=producer.output))
         .build()
     )
 
-    with pytest.raises(CheckFailed) as error:
-        _resolve(parent, tmp_path)
+    invocation = (
+        parent.template("test.graph.execute-expression", kind="graph").build().bind()
+    )
+    compiled = compile_prepared_invocation(prepare_invocation(invocation))
+    graph = compiled.assembly.semantic_graph
+    definitions = {definition.id: definition for definition in graph.value_defs}
+    producer_operation = next(
+        operation
+        for operation in graph.operations
+        if operation.id.local_id == "producer"
+    )
+    consumer_operation = next(
+        operation
+        for operation in graph.operations
+        if operation.id.local_id == "consumer"
+    )
+    scalar_operation = next(
+        operation
+        for operation in graph.operations
+        if isinstance(operation.contract.semantics, ScalarBinarySemantics)
+    )
 
-    problem = error.value.problems[0]
-    assert problem.code == "execute_value_expression_unsupported"
-    assert isinstance(problem.location, ModelLocation)
-    assert problem.location.path[-3] == "consumer"
-    assert problem.location.path[-2:] == ("inputs", "value")
-    assert "direct compute outputs" in problem.message
+    assert scalar_operation.contract.semantics == ScalarBinarySemantics("+")
+    scalar_inputs = dict(scalar_operation.inputs)
+    scalar_output = dict(scalar_operation.outputs)["result"]
+    consumer_input = dict(consumer_operation.inputs)["value"]
+    assert isinstance(consumer_input, ValueUse)
+    assert consumer_input.value_id == scalar_output
+
+    left = definitions[scalar_inputs["left"].value_id]
+    right = definitions[scalar_inputs["right"].value_id]
+    result = definitions[scalar_output]
+    assert left.source == OperationOutputSource(producer_operation.id)
+    assert isinstance(right.source, LiteralValueSource)
+    assert right.source.value == 1.0
+    assert result.availability.stage is ValueStage.EXECUTE
+    assert result.availability.rate is ValueRate.POINT
+
+
+def test_execute_core_operation_defers_local_implementation_selection() -> None:
+    value_type = sc.ScalarType(sc.FloatType())
+    produce = sc.compute("produce", fn=lambda: 1.0, output_type=value_type)
+    consume = sc.compute(
+        "consume",
+        fn=lambda *, value: value,
+        inputs={"value": produce.output + 1.0},
+        output_type=value_type,
+    )
+    module = (
+        sc.module("test.graph.core-implementation").computes(produce, consume).build()
+    )
+    invocation = (
+        module.template("test.graph.core-implementation", kind="graph").build().bind()
+    )
+    compiled = compile_prepared_invocation(prepare_invocation(invocation))
+    scalar_operation = next(
+        operation
+        for operation in compiled.assembly.semantic_graph.operations
+        if isinstance(operation.contract.semantics, ScalarBinarySemantics)
+    )
+    catalog = ImplementationCatalog(
+        local_python=tuple(
+            implementation
+            for implementation in compiled.assembly.implementation_catalog.local_python
+            if implementation.operation_id != scalar_operation.id
+        )
+    )
+
+    verified = verify_assembly_graph(
+        replace(compiled.assembly, implementation_catalog=catalog)
+    )
+
+    selected = next(
+        operation
+        for operation in verified.semantic_graph.graph.operations
+        if operation.id == scalar_operation.id
+    )
+    assert selected.contract == scalar_operation.contract
 
 
 def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
@@ -369,8 +449,8 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
     )
 
     verify_assembly_graph(
-        ExperimentAssemblyInternal(
-            point_source=point_source,
+        SemanticExperimentIR(
+            point_domain=point_rows(point_source),
             records=(observable("payload"),),
         )
     )
@@ -384,8 +464,8 @@ def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
 
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(
-            ExperimentAssemblyInternal(
-                point_source=point_source,
+            SemanticExperimentIR(
+                point_domain=point_rows(point_source),
                 records=(observable("coordinate"),),
             )
         )

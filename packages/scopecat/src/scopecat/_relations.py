@@ -1,31 +1,22 @@
-"""Private transient relation and scalar expression graph.
+"""Backend-neutral relation, series, and scalar plan nodes.
 
-This module is the production foundation for the shared relation
-language. It is intentionally small: it gives typed authoring and planner
-snapshots a shared expression graph plus a deterministic local evaluator without
-depending on pandas, Polars, notebooks, or domain packages.
+Nodes contain declared semantics and construction helpers only. Traversal and
+reference analysis live in :mod:`scopecat._relation_analysis`; materialization
+belongs to an explicitly selected :mod:`scopecat._relation_backend`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from functools import cmp_to_key
-from itertools import product
+from dataclasses import dataclass
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat._relation_scalar_eval import (
-    eval_binary,
-    is_cell_value,
-    read_path,
-)
-from scopecat._scalar_operators import (
-    ScalarOperator,
-    compare_ordered_values,
-    runtime_values_equal,
-)
-from scopecat.models.entity import EntityRef, same_entity_identity
+from scopecat._relation_scalar_eval import is_cell_value
+from scopecat._scalar_operators import ScalarOperator
+from scopecat._symbols import SymbolId
+from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
 from scopecat.models.value import PayloadValue
 
@@ -36,6 +27,7 @@ type ScalarExprKind = Literal[
     "literal",
     "column",
     "outer_column",
+    "point_column",
     "input",
     "param_scalar",
     "param_lookup",
@@ -60,6 +52,8 @@ type RelationExprKind = Literal[
     "filter",
     "join",
     "cross",
+    "lateral_cross",
+    "point_cross",
     "zip",
     "with_columns",
     "sort",
@@ -68,100 +62,18 @@ type RelationExprKind = Literal[
 type GridColumnKind = Literal["scalar", "series", "relation", "values"]
 
 
-class ParameterRelationData(BaseModel):
-    """Resolved scalar, series, and table values for relation evaluation."""
+@dataclass(frozen=True, slots=True)
+class RowScopeId:
+    """Nominal lexical identity for one relation-row callback binder."""
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    symbol: SymbolId
 
-    scalars: dict[str, CellValue] = Field(default_factory=dict)
-    series: dict[str, list[CellValue]] = Field(default_factory=dict)
-    tables: dict[str, list[Row]] = Field(default_factory=dict)
+    @property
+    def qualified_name(self) -> str:
+        return self.symbol.qualified_name
 
-    @model_validator(mode="after")
-    def validate_unified_namespace(self) -> ParameterRelationData:
-        collisions = sorted(
-            (self.scalars.keys() & self.series.keys())
-            | (self.scalars.keys() & self.tables.keys())
-            | (self.series.keys() & self.tables.keys())
-        )
-        if collisions:
-            msg = (
-                "parameter ids must be unique across scalar, series, and table "
-                f"shapes: {', '.join(collisions)}"
-            )
-            raise ValueError(msg)
-        return self
-
-    def scalar(self, parameter_id: str) -> CellValue:
-        try:
-            return self.scalars[parameter_id]
-        except KeyError as exc:
-            msg = f"unknown scalar parameter {parameter_id!r}"
-            raise KeyError(msg) from exc
-
-    def value(self, parameter_id: str) -> object:
-        """Return one value from the unified parameter namespace."""
-
-        if parameter_id in self.scalars:
-            return self.scalars[parameter_id]
-        if parameter_id in self.series:
-            return list(self.series[parameter_id])
-        if parameter_id in self.tables:
-            return [dict(row) for row in self.tables[parameter_id]]
-        msg = f"unknown parameter {parameter_id!r}"
-        raise KeyError(msg)
-
-    def table_rows(self, table_id: str) -> list[Row]:
-        try:
-            return [dict(row) for row in self.tables[table_id]]
-        except KeyError as exc:
-            msg = f"unknown parameter table {table_id!r}"
-            raise KeyError(msg) from exc
-
-    def series_values(self, parameter_id: str) -> list[CellValue]:
-        try:
-            return list(self.series[parameter_id])
-        except KeyError as exc:
-            msg = f"unknown series parameter {parameter_id!r}"
-            raise KeyError(msg) from exc
-
-    def lookup_row(self, table_id: str, key: Mapping[str, CellValue]) -> Row:
-        matches = [
-            row
-            for row in self.table_rows(table_id)
-            if all(
-                _cell_matches(row.get(column), value) for column, value in key.items()
-            )
-        ]
-        if len(matches) != 1:
-            msg = f"{table_id!r} key {dict(key)!r} matched {len(matches)} rows"
-            raise ValueError(msg)
-        return matches[0]
-
-    def to_context(
-        self,
-        *,
-        row: Row | None = None,
-        outer_row: Row | None = None,
-        inputs: Mapping[str, object] | None = None,
-    ) -> EvalContext:
-        return EvalContext(
-            params=self,
-            row=row or {},
-            outer_row=outer_row,
-            inputs=dict(inputs or {}),
-        )
-
-
-class EvalContext(BaseModel):
-    """Current row, optional outer row, and resolved parameters."""
-
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
-    params: ParameterRelationData = Field(default_factory=ParameterRelationData)
-    row: Row = Field(default_factory=dict)
-    outer_row: Row | None = None
-    inputs: dict[str, Any] = Field(default_factory=dict)
+    def prefixed(self, *scope: str) -> RowScopeId:
+        return RowScopeId(self.symbol.prefixed(*scope))
 
 
 class CaseBranch(BaseModel):
@@ -172,13 +84,14 @@ class CaseBranch(BaseModel):
 
 
 class ScalarExpr(BaseModel):
-    """Transient scalar expression used by relation evaluation."""
+    """Data-only scalar plan node."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     kind: ScalarExprKind
     value: CellValue | None = None
     name: str | None = None
+    row_scope_id: RowScopeId | None = None
     table_id: str | None = None
     key: dict[str, ScalarExpr] | None = None
     column: str | None = None
@@ -194,66 +107,66 @@ class ScalarExpr(BaseModel):
             if self.value is None and "value" not in self.model_fields_set:
                 msg = "literal expression requires value"
                 raise ValueError(msg)
-            self._reject("name", "table_id", "key", "column", "op", "left", "right")
+            self._reject(
+                "name",
+                "row_scope_id",
+                "table_id",
+                "key",
+                "column",
+                "op",
+                "left",
+                "right",
+            )
             self._reject("cases", "fallback")
-        elif self.kind in {"column", "outer_column", "input", "param_scalar"}:
+        elif self.kind in {
+            "column",
+            "outer_column",
+            "point_column",
+            "input",
+            "param_scalar",
+        }:
             if not self.name:
                 msg = f"{self.kind} expression requires name"
                 raise ValueError(msg)
             self._reject("value", "table_id", "key", "column", "op", "left", "right")
+            if self.kind != "column":
+                self._reject("row_scope_id")
             self._reject("cases", "fallback")
         elif self.kind == "param_lookup":
             if self.table_id is None or self.key is None or self.column is None:
                 msg = "parameter table lookup requires table_id, key, and column"
                 raise ValueError(msg)
-            self._reject("value", "name", "op", "left", "right", "cases", "fallback")
+            self._reject(
+                "value",
+                "name",
+                "row_scope_id",
+                "op",
+                "left",
+                "right",
+                "cases",
+                "fallback",
+            )
         elif self.kind == "binary":
             if self.op is None or self.left is None or self.right is None:
                 msg = "binary expression requires op, left, and right"
                 raise ValueError(msg)
-            self._reject("value", "name", "table_id", "key", "column")
+            self._reject("value", "name", "row_scope_id", "table_id", "key", "column")
             self._reject("cases", "fallback")
         elif self.kind == "case":
             if not self.cases or self.fallback is None:
                 msg = "case expression requires cases and fallback"
                 raise ValueError(msg)
-            self._reject("value", "name", "table_id", "key", "column", "op")
+            self._reject(
+                "value",
+                "name",
+                "row_scope_id",
+                "table_id",
+                "key",
+                "column",
+                "op",
+            )
             self._reject("left", "right")
         return self
-
-    def eval(self, ctx: EvalContext) -> CellValue:
-        if self.kind == "literal":
-            return self.value
-        if self.kind == "column":
-            return read_path(ctx.row, _required(self.name))
-        if self.kind == "outer_column":
-            if ctx.outer_row is None:
-                msg = f"outer column {_required(self.name)!r} used outside scope"
-                raise ValueError(msg)
-            return read_path(ctx.outer_row, _required(self.name))
-        if self.kind == "input":
-            return read_path(ctx.inputs, _required(self.name))
-        if self.kind == "param_scalar":
-            return ctx.params.scalar(_required(self.name))
-        if self.kind == "param_lookup":
-            resolved_key = {
-                name: expr.eval(ctx) for name, expr in _required(self.key).items()
-            }
-            row = ctx.params.lookup_row(_required(self.table_id), resolved_key)
-            return read_path(row, _required(self.column))
-        if self.kind == "binary":
-            return eval_binary(
-                _required(self.op),
-                _required(self.left).eval(ctx),
-                _required(self.right).eval(ctx),
-            )
-        if self.kind == "case":
-            for branch in _required(self.cases):
-                if branch.condition.eval(ctx) is True:
-                    return branch.value.eval(ctx)
-            return _required(self.fallback).eval(ctx)
-        msg = f"unsupported scalar expression kind: {self.kind}"
-        raise ValueError(msg)
 
     def _binary(self, op: ScalarOperator, other: object) -> ScalarExpr:
         return ScalarExpr(
@@ -335,7 +248,7 @@ class ScalarExpr(BaseModel):
 
 
 class SeriesExpr(BaseModel):
-    """One-dimensional deterministic series used by `grid` columns."""
+    """Data-only one-dimensional series plan used by grid columns."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
@@ -440,69 +353,6 @@ class SeriesExpr(BaseModel):
             )
         return self
 
-    def evaluate(self, ctx: EvalContext) -> list[CellValue]:
-        if self.kind == "values":
-            return list(_required(self.items))
-        if self.kind == "linspace":
-            count = _required(self.count)
-            start_value = _required(self.start).eval(ctx)
-            stop_value = _required(self.stop).eval(ctx)
-            unit = self.unit or _quantity_unit(start_value)
-            start = _series_float(start_value, unit=unit)
-            stop = _series_float(stop_value, unit=unit)
-            if count == 1:
-                return _series_values([start], unit=unit)
-            step_value = (stop - start) / (count - 1)
-            return _series_values(
-                [start + index * step_value for index in range(count)],
-                unit=unit,
-            )
-        if self.kind == "range":
-            start_value = _required(self.start).eval(ctx)
-            stop_value = _required(self.stop).eval(ctx)
-            step_value = _required(self.step).eval(ctx)
-            unit = self.unit or _quantity_unit(start_value)
-            start = _series_float(start_value, unit=unit)
-            stop = _series_float(stop_value, unit=unit)
-            step = _series_float(step_value, unit=unit)
-            if step == 0:
-                msg = "range step must not be zero"
-                raise ValueError(msg)
-            values: list[float] = []
-            current = start
-            if step > 0:
-                while current < stop or (
-                    self.include_stop and _float_almost_equal(current, stop)
-                ):
-                    values.append(current)
-                    current += step
-            else:
-                while current > stop or (
-                    self.include_stop and _float_almost_equal(current, stop)
-                ):
-                    values.append(current)
-                    current += step
-            return _series_values(values, unit=unit)
-        if self.kind == "input":
-            return _input_series(ctx.inputs, _required(self.name))
-        if self.kind == "param_series":
-            return ctx.params.series_values(_required(self.name))
-        if self.kind == "relation_column":
-            return [
-                read_path(row, _required(self.column))
-                for row in _required(self.source).evaluate_in_context(ctx)
-            ]
-        if self.kind == "relation_entities":
-            entities: list[CellValue] = []
-            for row in _required(self.source).evaluate_in_context(ctx):
-                for column in _required(self.columns):
-                    value = read_path(row, column)
-                    if not any(_cell_matches(existing, value) for existing in entities):
-                        entities.append(value)
-            return entities
-        msg = f"unsupported series kind: {self.kind}"
-        raise ValueError(msg)
-
     def _reject(self, *field_names: str) -> None:
         unexpected = [
             field_name
@@ -539,23 +389,9 @@ class GridColumn(BaseModel):
             raise ValueError(msg)
         return self
 
-    def evaluate(self, ctx: EvalContext) -> list[CellValue]:
-        if self.kind == "scalar":
-            return [_required(self.scalar).eval(ctx)]
-        if self.kind == "series":
-            return _required(self.series).evaluate(ctx)
-        if self.kind == "relation":
-            return cast(
-                list[CellValue], _required(self.relation).evaluate_in_context(ctx)
-            )
-        if self.kind == "values":
-            return list(_required(self.values))
-        msg = f"unsupported grid column kind: {self.kind}"
-        raise ValueError(msg)
-
 
 class RelationExpr(BaseModel):
-    """Transient relation expression with a deterministic local evaluator."""
+    """Data-only relation plan node."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
@@ -564,6 +400,7 @@ class RelationExpr(BaseModel):
     table_id: str | None = None
     name: str | None = None
     columns: dict[str, GridColumn] | None = None
+    row_scope_id: RowScopeId | None = None
     source: RelationExpr | None = None
     left: RelationExpr | None = None
     right: RelationExpr | None = None
@@ -606,15 +443,15 @@ class RelationExpr(BaseModel):
             if self.source is None or self.condition is None:
                 msg = "filter relation requires source and condition"
                 raise ValueError(msg)
-            self._reject_common("source", "condition")
+            self._reject_common("source", "condition", "row_scope_id")
         elif self.kind == "join":
             if self.left is None or self.right is None or not self.on:
                 msg = "join relation requires left, right, and at least one key"
                 raise ValueError(msg)
             self._reject_common("left", "right", "on")
-        elif self.kind == "cross":
+        elif self.kind in {"cross", "lateral_cross", "point_cross"}:
             if self.left is None or self.right is None:
-                msg = "cross relation requires left and right"
+                msg = f"{self.kind} relation requires left and right"
                 raise ValueError(msg)
             self._reject_common("left", "right")
         elif self.kind == "zip":
@@ -626,7 +463,7 @@ class RelationExpr(BaseModel):
             if self.source is None or self.new_columns is None:
                 msg = "with_columns relation requires source and new_columns"
                 raise ValueError(msg)
-            self._reject_common("source", "new_columns")
+            self._reject_common("source", "new_columns", "row_scope_id")
         elif self.kind == "sort":
             if self.source is None or not self.sort_columns:
                 msg = "sort relation requires source and at least one sort column"
@@ -639,159 +476,6 @@ class RelationExpr(BaseModel):
             self._reject_common("source", "limit_count")
         return self
 
-    def evaluate(
-        self,
-        params: ParameterRelationData | None = None,
-        *,
-        row: Row | None = None,
-        outer_row: Row | None = None,
-        inputs: Mapping[str, object] | None = None,
-    ) -> list[Row]:
-        relation_params = _relation_params(params)
-        return self.evaluate_in_context(
-            EvalContext(
-                params=relation_params,
-                row=row or {},
-                outer_row=outer_row,
-                inputs=dict(inputs or {}),
-            )
-        )
-
-    def evaluate_in_context(self, ctx: EvalContext) -> list[Row]:
-        if self.kind == "literal_rows":
-            return [dict(row) for row in _required(self.rows)]
-        if self.kind == "table":
-            return ctx.params.table_rows(_required(self.table_id))
-        if self.kind == "input":
-            return _input_table(ctx.inputs, _required(self.name))
-        if self.kind == "grid":
-            names = tuple(_required(self.columns))
-            choices = [_required(self.columns)[name].evaluate(ctx) for name in names]
-            grid_rows: list[Row] = []
-            for combination in product(*choices):
-                grid_rows.append(dict(zip(names, combination, strict=True)))
-            return grid_rows
-        if self.kind == "select":
-            return [
-                {
-                    column: read_path(source_row, column)
-                    for column in _required(self.select_columns)
-                }
-                for source_row in _required(self.source).evaluate_in_context(ctx)
-            ]
-        if self.kind == "filter":
-            filtered_rows: list[Row] = []
-            for source_row in _required(self.source).evaluate_in_context(ctx):
-                child_ctx = EvalContext(
-                    params=ctx.params,
-                    row=source_row,
-                    outer_row=ctx.outer_row,
-                    inputs=ctx.inputs,
-                )
-                if _required(self.condition).eval(child_ctx) is True:
-                    filtered_rows.append(source_row)
-            return filtered_rows
-        if self.kind == "join":
-            left_rows = _required(self.left).evaluate_in_context(ctx)
-            right_rows = _required(self.right).evaluate_in_context(ctx)
-            on = _required(self.on)
-            allowed_shared = {
-                left_column
-                for left_column, right_column in on.items()
-                if left_column == right_column
-            }
-            _require_disjoint_row_columns(
-                left_rows,
-                right_rows,
-                operation="join",
-                allowed_shared=allowed_shared,
-            )
-            joined: list[Row] = []
-            for left_row in left_rows:
-                for right_row in right_rows:
-                    if _join_keys_match(left_row, right_row, on):
-                        joined.append(
-                            _merge_rows(
-                                left_row,
-                                right_row,
-                                operation="join",
-                                allowed_shared=allowed_shared,
-                            )
-                        )
-            return joined
-        if self.kind == "cross":
-            crossed: list[Row] = []
-            for left_row in _required(self.left).evaluate_in_context(ctx):
-                child_ctx = EvalContext(
-                    params=ctx.params,
-                    row=(
-                        _merge_rows(ctx.row, left_row, operation="cross")
-                        if ctx.row
-                        else left_row
-                    ),
-                    outer_row=ctx.outer_row,
-                    inputs=ctx.inputs,
-                )
-                right_rows = _required(self.right).evaluate_in_context(child_ctx)
-                _require_disjoint_row_columns(
-                    [left_row],
-                    right_rows,
-                    operation="cross",
-                )
-                for right_row in right_rows:
-                    crossed.append(_merge_rows(left_row, right_row, operation="cross"))
-            return crossed
-        if self.kind == "zip":
-            rows_by_source = [
-                source.evaluate_in_context(ctx) for source in _required(self.sources)
-            ]
-            lengths = {len(rows) for rows in rows_by_source}
-            if len(lengths) != 1:
-                msg = "zip relation requires sources with equal length"
-                raise ValueError(msg)
-            zipped: list[Row] = []
-            for row_group in zip(*rows_by_source, strict=True):
-                merged: Row = {}
-                for row in row_group:
-                    overlap = set(merged).intersection(row)
-                    if overlap:
-                        msg = "zip relation contains duplicate columns: " + ", ".join(
-                            sorted(overlap)
-                        )
-                        raise ValueError(msg)
-                    merged.update(row)
-                zipped.append(merged)
-            return zipped
-        if self.kind == "with_columns":
-            derived_rows: list[Row] = []
-            for source_row in _required(self.source).evaluate_in_context(ctx):
-                next_row = dict(source_row)
-                child_ctx = EvalContext(
-                    params=ctx.params,
-                    row=next_row,
-                    outer_row=ctx.outer_row,
-                    inputs=ctx.inputs,
-                )
-                for name, expr in _required(self.new_columns).items():
-                    next_row[name] = expr.eval(child_ctx)
-                derived_rows.append(next_row)
-            return derived_rows
-        if self.kind == "sort":
-            source_rows = _required(self.source).evaluate_in_context(ctx)
-            columns = tuple(_required(self.sort_columns))
-            return sorted(
-                source_rows,
-                key=cmp_to_key(
-                    lambda left, right: _compare_rows(left, right, columns=columns)
-                ),
-            )
-        if self.kind == "limit":
-            return _required(self.source).evaluate_in_context(ctx)[
-                : _required(self.limit_count)
-            ]
-        msg = f"unsupported relation kind: {self.kind}"
-        raise ValueError(msg)
-
     def select(self, *columns: str) -> RelationExpr:
         return RelationExpr(
             kind="select",
@@ -799,8 +483,18 @@ class RelationExpr(BaseModel):
             select_columns=list(columns),
         )
 
-    def filter(self, condition: ScalarExpr) -> RelationExpr:
-        return RelationExpr(kind="filter", source=self, condition=condition)
+    def filter(
+        self,
+        condition: ScalarExpr,
+        *,
+        row_scope_id: RowScopeId | None = None,
+    ) -> RelationExpr:
+        return RelationExpr(
+            kind="filter",
+            source=self,
+            condition=condition,
+            row_scope_id=row_scope_id,
+        )
 
     def join(self, other: RelationExpr, *, on: Mapping[str, str]) -> RelationExpr:
         return RelationExpr(kind="join", left=self, right=other, on=dict(on))
@@ -808,13 +502,29 @@ class RelationExpr(BaseModel):
     def cross(self, other: RelationExpr) -> RelationExpr:
         return RelationExpr(kind="cross", left=self, right=other)
 
-    def with_columns(self, **columns: object) -> RelationExpr:
+    def lateral_cross(self, other: RelationExpr) -> RelationExpr:
+        """Cross with a right plan that may reference the current left row."""
+
+        return RelationExpr(kind="lateral_cross", left=self, right=other)
+
+    def point_cross(self, other: RelationExpr) -> RelationExpr:
+        """Cross partial point rows while extending the right point scope."""
+
+        return RelationExpr(kind="point_cross", left=self, right=other)
+
+    def with_columns(
+        self,
+        *,
+        row_scope_id: RowScopeId | None = None,
+        **columns: object,
+    ) -> RelationExpr:
         return RelationExpr(
             kind="with_columns",
             source=self,
             new_columns={
                 name: as_scalar_expr(value) for name, value in columns.items()
             },
+            row_scope_id=row_scope_id,
         )
 
     def sort(self, *columns: str) -> RelationExpr:
@@ -845,6 +555,7 @@ class RelationExpr(BaseModel):
             "table_id",
             "name",
             "columns",
+            "row_scope_id",
             "source",
             "left",
             "right",
@@ -876,12 +587,18 @@ def lit(value: CellValue) -> ScalarExpr:
     return ScalarExpr(kind="literal", value=value)
 
 
-def col(name: str) -> ScalarExpr:
-    return ScalarExpr(kind="column", name=name)
+def col(name: str, *, row_scope_id: RowScopeId | None = None) -> ScalarExpr:
+    return ScalarExpr(kind="column", name=name, row_scope_id=row_scope_id)
 
 
 def outer(name: str) -> ScalarExpr:
     return ScalarExpr(kind="outer_column", name=name)
+
+
+def point_col(name: str) -> ScalarExpr:
+    """Reference a field from the experiment point independently of row scope."""
+
+    return ScalarExpr(kind="point_column", name=name)
 
 
 def input_ref(name: str) -> ScalarExpr:
@@ -904,19 +621,6 @@ def input_table(name: str) -> RelationExpr:
     """Reference a table-shaped input."""
 
     return RelationExpr(kind="input", name=name)
-
-
-def _cell_matches(left: CellValue, right: CellValue) -> bool:
-    if isinstance(left, EntityRef) and isinstance(right, EntityRef):
-        return same_entity_identity(left, right)
-    if isinstance(left, EntityRef) and isinstance(right, str):
-        return left.id == right
-    if isinstance(left, str) and isinstance(right, EntityRef):
-        return left == right.id
-    try:
-        return runtime_values_equal(left, right)
-    except TypeError:
-        return False
 
 
 def param(
@@ -1067,178 +771,11 @@ def _grid_column(source: object) -> GridColumn:
     raise TypeError(msg)
 
 
-def _relation_params(params: ParameterRelationData | None) -> ParameterRelationData:
-    if params is None:
-        return ParameterRelationData()
-    return params
-
-
 def _unit_literal(value: object, *, unit: str | None) -> object:
     if unit is None or isinstance(value, ScalarExpr | Quantity):
         return value
     if isinstance(value, int | float) and not isinstance(value, bool):
         return Quantity(value=float(value), unit=unit)
-    return value
-
-
-def _quantity_unit(value: CellValue) -> str | None:
-    if isinstance(value, Quantity):
-        return value.unit
-    return None
-
-
-def _series_float(value: CellValue, *, unit: str | None) -> float:
-    if isinstance(value, Quantity):
-        if unit is None:
-            return value.value
-        return value.to(unit).value
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return float(value)
-    msg = f"series bound must be numeric or quantity, got {value!r}"
-    raise TypeError(msg)
-
-
-def _series_values(raw_values: Sequence[float], *, unit: str | None) -> list[CellValue]:
-    values_list = [round(value, 12) for value in raw_values]
-    if unit is None:
-        return [cast(CellValue, value) for value in values_list]
-    return [Quantity(value=value, unit=unit) for value in values_list]
-
-
-def _float_almost_equal(left: float, right: float) -> bool:
-    return abs(left - right) <= 1e-12
-
-
-def _join_keys_match(left: Row, right: Row, on: Mapping[str, str]) -> bool:
-    for left_column, right_column in on.items():
-        left_value = read_path(left, left_column)
-        right_value = read_path(right, right_column)
-        if left_value is None or right_value is None:
-            msg = "join key values must be non-null"
-            raise TypeError(msg)
-        if not runtime_values_equal(left_value, right_value):
-            return False
-    return True
-
-
-def _compare_rows(left: Row, right: Row, *, columns: tuple[str, ...]) -> int:
-    for column in columns:
-        result = compare_ordered_values(
-            read_path(left, column),
-            read_path(right, column),
-        )
-        if result:
-            return result
-    return 0
-
-
-def _require_disjoint_row_columns(
-    left_rows: Sequence[Row],
-    right_rows: Sequence[Row],
-    *,
-    operation: str,
-    allowed_shared: set[str] | None = None,
-) -> None:
-    left_columns = {column for row in left_rows for column in row}
-    right_columns = {column for row in right_rows for column in row}
-    conflicts = sorted((left_columns & right_columns) - (allowed_shared or set()))
-    if conflicts:
-        msg = f"{operation} column collision: {', '.join(conflicts)}"
-        raise ValueError(msg)
-
-
-def _merge_rows(
-    left: Row,
-    right: Row,
-    *,
-    operation: str,
-    allowed_shared: set[str] | None = None,
-) -> Row:
-    merged = dict(left)
-    for key, value in right.items():
-        if key in merged:
-            if key not in (allowed_shared or set()):
-                msg = f"{operation} column collision for {key!r}"
-                raise ValueError(msg)
-            if not runtime_values_equal(merged[key], value):
-                msg = (
-                    f"{operation} shared key {key!r} differs: "
-                    f"{merged[key]!r} != {value!r}"
-                )
-                raise ValueError(msg)
-            # The combined typed schema retains the left shared column. Keep
-            # its normalized representation as well (for example Int instead
-            # of equal Float, or GHz instead of equal MHz).
-            continue
-        merged[key] = value
-    return merged
-
-
-def _input_series(inputs: Mapping[str, object], name: str) -> list[CellValue]:
-    try:
-        value = inputs[name]
-    except KeyError as exc:
-        msg = f"unknown series input {name!r}"
-        raise KeyError(msg) from exc
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        msg = f"series input {name!r} must be a sequence"
-        raise TypeError(msg)
-    items: list[CellValue] = []
-    for item in cast("Sequence[object]", value):
-        if not is_cell_value(item):
-            msg = f"series input {name!r} contains unsupported value {item!r}"
-            raise TypeError(msg)
-        items.append(item)
-    return items
-
-
-def _input_table(inputs: Mapping[str, object], name: str) -> list[Row]:
-    try:
-        value = inputs[name]
-    except KeyError as exc:
-        msg = f"unknown table input {name!r}"
-        raise KeyError(msg) from exc
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        msg = f"table input {name!r} must be a sequence of rows"
-        raise TypeError(msg)
-    rows: list[Row] = []
-    for row in cast("Sequence[object]", value):
-        if not isinstance(row, Mapping):
-            msg = f"table input {name!r} contains non-row value {row!r}"
-            raise TypeError(msg)
-        mapping = cast("Mapping[object, object]", row)
-        if not all(isinstance(key, str) for key in mapping):
-            msg = f"table input {name!r} row keys must be strings"
-            raise TypeError(msg)
-        rows.append(
-            {
-                cast(str, key): _normalize_input_cell(item)
-                for key, item in mapping.items()
-            }
-        )
-    return rows
-
-
-def _normalize_input_cell(value: object) -> CellValue:
-    if not isinstance(value, Mapping):
-        if is_cell_value(value):
-            return value
-        msg = f"input table cell contains unsupported value {value!r}"
-        raise TypeError(msg)
-    mapping = cast("Mapping[object, object]", value)
-    if set(mapping) == {"value", "unit"}:
-        return Quantity.model_validate(mapping)
-    if "id" in mapping and set(mapping) <= {"id", "kind", "metadata"}:
-        return EntityRef.model_validate(mapping)
-    if not all(isinstance(key, str) for key in mapping):
-        msg = "input table mapping cells must use string keys"
-        raise TypeError(msg)
-    return dict(cast("Mapping[str, Any]", mapping))
-
-
-def _required[T](value: T | None) -> T:
-    if value is None:
-        raise AssertionError("validated field is unexpectedly missing")
     return value
 
 
@@ -1250,11 +787,10 @@ RelationExpr.model_rebuild()
 __all__ = [
     "CaseBranch",
     "CellValue",
-    "EvalContext",
     "GridColumn",
-    "ParameterRelationData",
     "RelationExpr",
     "Row",
+    "RowScopeId",
     "ScalarExpr",
     "SeriesExpr",
     "as_scalar_expr",
@@ -1271,6 +807,7 @@ __all__ = [
     "param",
     "parameter_series",
     "parameter_table",
+    "point_col",
     "range_values",
     "table",
     "values",

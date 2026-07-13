@@ -1,3 +1,4 @@
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -5,8 +6,9 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from scopecat._compiler.ids import NodeId
 from scopecat._compute_result import ComputeResultRef
+from scopecat._semantic_graph import OperationId, operation_result_id
+from scopecat._symbols import SymbolId
 from scopecat.config_profiles import load_config_profile
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import (
@@ -77,7 +79,7 @@ def _valid_run_plan_data() -> dict[str, Any]:
             {
                 "id": "signal",
                 "kind": "observable",
-                "source": "instrument",
+                "producer_kind": "instrument",
                 "dtype": "float64",
                 "dims": ["point"],
                 "shape": [2],
@@ -86,7 +88,7 @@ def _valid_run_plan_data() -> dict[str, Any]:
         "state_changes": [
             {
                 "point_index": 1,
-                "resource": "source",
+                "resource_id": "source",
                 "capability_id": "set_amplitude",
                 "field_path": "amplitude",
                 "after": 0.5,
@@ -101,7 +103,14 @@ def _valid_run_plan_data() -> dict[str, Any]:
                         "point_index": 0,
                         "port_id": "source",
                         "resource_id": "source-0",
-                    }
+                        "resource_kind": "instrument",
+                    },
+                    {
+                        "point_index": 1,
+                        "port_id": "source",
+                        "resource_id": "source-0",
+                        "resource_kind": "instrument",
+                    },
                 ],
             }
         ],
@@ -418,7 +427,7 @@ def test_scan_records_reject_unknown_or_structured_scalar_values() -> None:
 def test_run_plan_state_change_preserves_boolean_values() -> None:
     change = RunPlanStateChange(
         point_index=0,
-        resource="switch-0",
+        resource_id="switch-0",
         capability_id="switch",
         field_path="enabled",
         after=True,
@@ -432,14 +441,18 @@ def test_run_plan_state_change_preserves_boolean_values() -> None:
 
 def test_run_plan_state_change_accepts_only_durable_descriptors() -> None:
     for value in (
-        ComputeResultRef(node_id=NodeId(local_id="build-program")),
+        ComputeResultRef(
+            value_id=operation_result_id(
+                OperationId(SymbolId(local_id="build-program"))
+            )
+        ),
         PayloadValue(schema_id="pulse", payload=object()),
     ):
         with pytest.raises(ValidationError):
             RunPlanStateChange.model_validate(
                 {
                     "point_index": 0,
-                    "resource": "source",
+                    "resource_id": "source",
                     "capability_id": "execute",
                     "field_path": "program",
                     "after": value,
@@ -448,14 +461,14 @@ def test_run_plan_state_change_accepts_only_durable_descriptors() -> None:
 
     compute = RunPlanStateChange(
         point_index=0,
-        resource="source",
+        resource_id="source",
         capability_id="execute",
         field_path="program",
         after=RunPlanDeferredValue(),
     )
     payload = RunPlanStateChange(
         point_index=0,
-        resource="source",
+        resource_id="source",
         capability_id="execute",
         field_path="program",
         after=RunPlanPayloadValue(schema_id="pulse"),
@@ -478,7 +491,7 @@ def test_run_plan_models_reject_non_finite_numbers(value: float) -> None:
     with pytest.raises(ValidationError):
         RunPlanStateChange(
             point_index=0,
-            resource="source",
+            resource_id="source",
             capability_id="set_amplitude",
             field_path="amplitude",
             after=value,
@@ -500,7 +513,7 @@ def test_run_plan_models_reject_nested_non_finite_numbers(value: float) -> None:
         with pytest.raises(ValidationError, match="finite"):
             RunPlanStateChange(
                 point_index=0,
-                resource="source",
+                resource_id="source",
                 capability_id="set_value",
                 field_path="value",
                 before=invalid_value,
@@ -509,7 +522,7 @@ def test_run_plan_models_reject_nested_non_finite_numbers(value: float) -> None:
         with pytest.raises(ValidationError, match="finite"):
             RunPlanStateChange(
                 point_index=0,
-                resource="source",
+                resource_id="source",
                 capability_id="set_value",
                 field_path="value",
                 after=invalid_value,
@@ -532,7 +545,7 @@ def test_run_plan_nested_values_round_trip_safely() -> None:
     )
     change = RunPlanStateChange(
         point_index=0,
-        resource="source",
+        resource_id="source",
         capability_id="set_subject",
         field_path="subject",
         before=entity,
@@ -701,7 +714,7 @@ def test_run_plan_output_requires_a_non_negative_shape_matching_dims() -> None:
         RunPlanOutput(
             id="signal",
             kind="observable",
-            source="instrument",
+            producer_kind="instrument",
             dtype="float64",
             dims=["point"],
             shape=[],
@@ -710,11 +723,132 @@ def test_run_plan_output_requires_a_non_negative_shape_matching_dims() -> None:
         RunPlanOutput(
             id="signal",
             kind="observable",
-            source="instrument",
+            producer_kind="instrument",
             dtype="float64",
             dims=["point"],
             shape=[-1],
         )
+    with pytest.raises(ValidationError, match="both logical and physical"):
+        RunPlanOutput(
+            id="signal",
+            kind="observable",
+            producer_kind="instrument",
+            resource_port_id="readout",
+            physical_resource_id="digitizer-0",
+            dtype="float64",
+        )
+    with pytest.raises(ValidationError):
+        RunPlanOutput(
+            id="signal",
+            kind="observable",
+            producer_kind="instrument",
+            resource_port_id="",
+            dtype="float64",
+        )
+
+
+def test_run_plan_record_closes_logical_resource_inventory() -> None:
+    incomplete_route = _valid_run_plan_data()
+    incomplete_route["routes"][0]["resolved"].pop()
+    with pytest.raises(ValidationError, match="exactly once for every point"):
+        RunPlanRecord.model_validate(incomplete_route)
+
+    changed_resolved_port = _valid_run_plan_data()
+    changed_resolved_port["routes"][0]["resolved"][1]["port_id"] = "other"
+    with pytest.raises(ValidationError, match="same logical port ID"):
+        RunPlanRecord.model_validate(changed_resolved_port)
+
+    changed_fixed_resource = _valid_run_plan_data()
+    changed_fixed_resource["routes"][0]["fixed_resource_id"] = "source-1"
+    with pytest.raises(ValidationError, match="fixed physical resource ID"):
+        RunPlanRecord.model_validate(changed_fixed_resource)
+
+    missing_record_port = _valid_run_plan_data()
+    missing_record_port["records"][0]["resource_port_id"] = "missing"
+    with pytest.raises(ValidationError, match="unknown logical resource port"):
+        RunPlanRecord.model_validate(missing_record_port)
+
+    missing_capability = _valid_run_plan_data()
+    missing_capability["records"][0].update(
+        resource_port_id="source",
+        capability="acquire",
+    )
+    with pytest.raises(ValidationError, match="not provided by resource port"):
+        RunPlanRecord.model_validate(missing_capability)
+
+
+def test_run_plan_record_closes_logical_effect_targets() -> None:
+    valid = _valid_run_plan_data()
+    valid["routes"][0]["capabilities"] = ["set_amplitude"]
+    for resolved in valid["routes"][0]["resolved"]:
+        resolved.update(
+            entity_ids=["q0"],
+            served_entity_ids=["q0"],
+            channel_bindings=[
+                {
+                    "entity_id": "q0",
+                    "channel_id": "drive-q0",
+                    "capability": "set_amplitude",
+                }
+            ],
+        )
+    valid["state_changes"][0].update(
+        resource_id="source-0",
+        resource_port_id="source",
+        entity_ids=["q0"],
+        channel_bindings=[
+            {
+                "entity_id": "q0",
+                "channel_id": "drive-q0",
+                "capability": "set_amplitude",
+            }
+        ],
+    )
+    RunPlanRecord.model_validate(valid)
+
+    missing_capability = deepcopy(valid)
+    missing_capability["state_changes"][0]["capability_id"] = "missing"
+    missing_capability["state_changes"][0]["channel_bindings"][0]["capability"] = (
+        "missing"
+    )
+    with pytest.raises(ValidationError, match="capability is not provided"):
+        RunPlanRecord.model_validate(missing_capability)
+
+    unserved_entity = deepcopy(valid)
+    unserved_entity["state_changes"][0]["entity_ids"] = ["q1"]
+    unserved_entity["state_changes"][0]["channel_bindings"] = []
+    with pytest.raises(ValidationError, match="outside its logical route target"):
+        RunPlanRecord.model_validate(unserved_entity)
+
+    unbound_channel = deepcopy(valid)
+    unbound_channel["state_changes"][0]["channel_bindings"][0]["channel_id"] = (
+        "readout-q0"
+    )
+    with pytest.raises(ValidationError, match="channel bindings are outside"):
+        RunPlanRecord.model_validate(unbound_channel)
+
+    non_instrument_state = deepcopy(valid)
+    non_instrument_state["routes"][0]["resolved"][1]["resource_kind"] = "service"
+    with pytest.raises(ValidationError, match="resolve to an instrument"):
+        RunPlanRecord.model_validate(non_instrument_state)
+
+    duplicate_target = deepcopy(valid)
+    duplicate_target["state_changes"].append(deepcopy(valid["state_changes"][0]))
+    with pytest.raises(ValidationError, match="unique physical targets"):
+        RunPlanRecord.model_validate(duplicate_target)
+
+
+def test_run_plan_logical_records_resolve_only_to_instruments() -> None:
+    invalid = _valid_run_plan_data()
+    invalid["records"][0].update(
+        resource_port_id="source",
+        capability="measure",
+    )
+    invalid["routes"][0]["capabilities"] = ["measure"]
+    invalid["routes"][0]["resolved"][0]["resource_kind"] = "service"
+
+    with pytest.raises(ValidationError, match="resolve to instruments"):
+        RunPlanRecord.model_validate(invalid)
 
 
 def test_run_plan_record_validates_observable_and_dimension_references() -> None:
@@ -843,6 +977,29 @@ def test_run_plan_record_aligns_schema_observable_type_and_shape(
 
     with pytest.raises(ValidationError, match=message):
         RunPlanRecord.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"resource_port_id": "other"},
+        {"physical_resource_id": "source-0"},
+        {"resource": "source"},
+    ],
+)
+def test_run_plan_dataset_metadata_is_independent_of_producer_resource_identity(
+    metadata: dict[str, str],
+) -> None:
+    data = _valid_run_plan_data()
+    data["records"][0]["resource_port_id"] = "source"
+    schema = _valid_expected_dataset_schema_data()
+    schema["variables"][0]["metadata"] = metadata
+    data["expected_dataset_schema"] = schema
+
+    restored = RunPlanRecord.model_validate(data)
+
+    assert restored.expected_dataset_schema is not None
+    assert restored.expected_dataset_schema.variables[0].metadata == metadata
 
 
 def test_run_plan_models_share_closed_finite_configuration() -> None:

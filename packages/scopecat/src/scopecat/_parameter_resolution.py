@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat._relations import CellValue, ParameterRelationData, Row
+from scopecat._relation_backend import ParameterRelationData
+from scopecat._relations import CellValue, Row
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import (
     ParameterCatalog,

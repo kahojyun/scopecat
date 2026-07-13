@@ -3,50 +3,82 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import cast
 
-from scopecat._compiler.parameter_overlays import (
-    PointParameterOverlay,
-    TypedOverlayExpression,
-)
+from scopecat._compiler.parameter_overlays import PointParameterOverlay
+from scopecat._compiler.point_domain import PointDomain
 from scopecat._compiler.program import (
     ComputeEdge,
     RouteInput,
     TypedComputeNode,
-    TypedPointSource,
+    TypedComputeOutput,
     ValueInput,
     bind_each,
     set_state_field,
 )
 from scopecat._compiler.state import StateSpec
 from scopecat._compute_result import ComputeResultRef
+from scopecat._point_domain_algebra import (
+    POINT_UNIT,
+    PointDependentProduct,
+    PointDomainAnalysis,
+    PointDomainExpr,
+    PointDomainPath,
+    PointProduct,
+    PointRelationRows,
+    PointUnit,
+    PointZip,
+    analyze_point_domain,
+)
+from scopecat._relation_use import relation_use
+from scopecat._relation_verification import RelationTypeBindings, RowType
 from scopecat._relations import (
     CellValue,
     RelationExpr,
     ScalarExpr,
     SeriesExpr,
     as_scalar_expr,
-    col,
-    literal_rows,
-    values,
+    point_col,
 )
-from scopecat._value_expressions import as_value_expr
+from scopecat._resource_identity import LogicalResourcePortId
+from scopecat._semantic_graph import (
+    ImplementationCatalog,
+    LiteralValueSource,
+    OperationId,
+    OperationOutputSource,
+    PlanExpressionSource,
+    RouteValueSource,
+    ScalarBinarySemantics,
+    SemanticOperation,
+    StateEachRegion,
+    ValueDef,
+    ValueId,
+    ValueUse,
+    VerifiedSemanticGraph,
+)
+from scopecat._value_availability import ValueStage
+from scopecat._value_expressions import (
+    ScalarOrSeriesValueExpr,
+    ScalarValueExpr,
+    TableValueExpr,
+    ValueExpr,
+    verify_scalar_value_expr,
+    verify_value_expr,
+)
+from scopecat._value_type_compatibility import require_assignable
 from scopecat.authoring._binding_intents import ResourcePort
 from scopecat.authoring._binding_lowering import (
     BindingSpec,
     require_port_capability,
 )
 from scopecat.authoring._context import ExperimentAuthoringContext
-from scopecat.authoring._intents import (
-    ClosedScalarValue,
-    ComputeNodeInputValue,
-    ComputeNodeIntent,
-    ModuleInputPort,
-    ParameterScanOverlayIntent,
-    StateEachIntent,
-    StateRouteValue,
+from scopecat.authoring._elaboration import SemanticExperimentIR
+from scopecat.authoring._intents import ModuleInputPort, ParameterScanOverlayIntent
+from scopecat.authoring._point_domain_intents import (
+    PointDomainIntent,
+    point_domain_intent_output_types,
 )
-from scopecat.authoring._module_composition import ExperimentAssemblyInternal
 from scopecat.authoring._value_binding import (
     bind_relation_input_refs,
     bind_scalar_input_refs,
@@ -60,23 +92,25 @@ from scopecat.authoring._value_refs import (
     internal_lower_scalar_value_ref,
     internal_lower_table_value_ref,
     internal_lower_value_ref,
-    require_assignable,
+    internal_value_ref_bound_point_input_ids,
+    internal_value_ref_free_point_input_ids,
 )
-from scopecat.authoring._value_type_compatibility import literal_scalar_type
 from scopecat.authoring.value_types import Table as TableType
 from scopecat.authoring.value_types import (
     ValueType,
     ValueValidationError,
     coerce_literal,
 )
-from scopecat.authoring.values import RouteRef
 from scopecat.models.entity import EntityRef
+from scopecat.value_types import Route
 
 
 def lower_parameter_overlay_intent(
     ctx: ExperimentAuthoringContext,
     intent: ParameterScanOverlayIntent,
     inputs: Mapping[str, object],
+    *,
+    type_bindings: RelationTypeBindings,
 ) -> PointParameterOverlay:
     definition = ctx.config.parameter_catalog.get(intent.table_id)
     if definition is None or not isinstance(definition.value_type, TableType):
@@ -91,22 +125,28 @@ def lower_parameter_overlay_intent(
         raise AssertionError("validated parameter overlay column is missing") from error
     return PointParameterOverlay(
         table_id=intent.table_id,
-        key={
-            name: TypedOverlayExpression(
-                expr=bind_scalar_input_refs(
-                    internal_lower_scalar_value_ref(value)
-                    if isinstance(value, ValueRef)
-                    else as_scalar_expr(value),
-                    inputs,
-                ),
-                value_type=key_types[name],
+        key_uses={
+            name: relation_use(
+                verify_scalar_value_expr(
+                    bind_scalar_input_refs(
+                        internal_lower_scalar_value_ref(value)
+                        if isinstance(value, ValueRef)
+                        else as_scalar_expr(value),
+                        inputs,
+                    ),
+                    bindings=type_bindings,
+                    expected_type=key_types[name],
+                )
             )
             for name, value in intent.key
         },
         column_id=intent.column_id,
-        value=TypedOverlayExpression(
-            expr=col(intent.point_id),
-            value_type=target_column.value_type,
+        value_use=relation_use(
+            verify_scalar_value_expr(
+                point_col(intent.point_id),
+                bindings=type_bindings,
+                expected_type=target_column.value_type,
+            )
         ),
     )
 
@@ -138,82 +178,354 @@ def validate_entity_inputs(
         )
 
 
-def lower_compute_node_intent(
-    node: ComputeNodeIntent,
+def lower_semantic_compute_graph(
+    graph: VerifiedSemanticGraph,
+    catalog: ImplementationCatalog,
     inputs: Mapping[str, object],
-) -> TypedComputeNode:
-    return TypedComputeNode(
-        id=node.node_id,
-        inputs={
-            name: compute_node_input(
-                value,
-                inputs,
-            )
-            for name, value in node.inputs
-        },
-        output_type=node.output_type,
-        fn=node.fn,
+    *,
+    type_bindings: RelationTypeBindings,
+) -> tuple[tuple[TypedComputeNode, ...], ImplementationCatalog]:
+    """Lower execute-stage semantic operations to the current local artifact."""
+
+    operations = {operation.id: operation for operation in graph.graph.operations}
+    nodes = tuple(
+        _lower_semantic_operation(
+            operation,
+            definitions=graph.value_defs,
+            operations=operations,
+            inputs=inputs,
+            type_bindings=type_bindings,
+        )
+        for operation in graph.graph.operations
+        if _operation_is_execute_stage(operation, graph.value_defs)
+    )
+    node_ids = {node.id for node in nodes}
+    selected_catalog = ImplementationCatalog(
+        local_python=tuple(
+            implementation
+            for implementation in catalog.local_python
+            if implementation.operation_id in node_ids
+        )
+    )
+    return nodes, selected_catalog
+
+
+def _operation_is_execute_stage(
+    operation: SemanticOperation,
+    definitions: Mapping[ValueId, ValueDef],
+) -> bool:
+    return any(
+        definitions[value_id].availability.stage is ValueStage.EXECUTE
+        for _port, value_id in operation.outputs
+        if value_id in definitions
     )
 
 
-def lower_state_intent(
-    ctx: ExperimentAuthoringContext,
-    intent: StateEachIntent,
-    resource_ports: Mapping[str, ResourcePort],
+def _lower_semantic_operation(
+    operation: SemanticOperation,
+    *,
+    definitions: Mapping[ValueId, ValueDef],
+    operations: Mapping[OperationId, SemanticOperation],
     inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
+) -> TypedComputeNode:
+    outputs = dict(operation.outputs)
+    output = definitions[outputs["result"]]
+    if isinstance(output.value_type, Route):
+        raise AssertionError("semantic operation outputs cannot be route values")
+    return TypedComputeNode(
+        id=operation.id,
+        contract=operation.contract,
+        inputs={
+            name: _lower_semantic_input(
+                use.value_id,
+                definitions=definitions,
+                operations=operations,
+                inputs=inputs,
+                type_bindings=type_bindings,
+            )
+            for name, use in operation.inputs
+        },
+        result=TypedComputeOutput(
+            id=output.id,
+            value_type=output.value_type,
+            availability=output.availability,
+        ),
+    )
+
+
+def _lower_semantic_input(
+    value_id: ValueId,
+    *,
+    definitions: Mapping[ValueId, ValueDef],
+    operations: Mapping[OperationId, SemanticOperation],
+    inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
+) -> ValueInput | ComputeEdge | RouteInput:
+    definition = definitions[value_id]
+    source = definition.source
+    if isinstance(source, RouteValueSource):
+        if not isinstance(definition.value_type, Route):
+            raise AssertionError("route sources must define route-typed values")
+        return RouteInput(
+            port_id=source.port_id,
+            value_type=definition.value_type,
+        )
+    if isinstance(source, OperationOutputSource) and (
+        definition.availability.stage is ValueStage.EXECUTE
+    ):
+        if isinstance(definition.value_type, Route):
+            raise AssertionError("compute edges cannot carry route values")
+        return ComputeEdge(
+            value_id=definition.id,
+            expected_type=definition.value_type,
+        )
+    if isinstance(definition.value_type, Route):
+        raise AssertionError("plan values cannot carry route types")
+    expression = _semantic_plan_expression(
+        value_id,
+        definitions=definitions,
+        operations=operations,
+        active=frozenset(),
+    )
+    origin_input_ids = tuple(value_input_refs(expression))
+    return ValueInput(
+        value=verify_value_expr(
+            bind_value_input_refs(expression, inputs),
+            bindings=type_bindings,
+            expected_type=definition.value_type,
+        ),
+        origin_input_ids=origin_input_ids,
+    )
+
+
+def _semantic_plan_expression(
+    value_id: ValueId,
+    *,
+    definitions: Mapping[ValueId, ValueDef],
+    operations: Mapping[OperationId, SemanticOperation],
+    active: frozenset[ValueId],
+) -> ScalarExpr | SeriesExpr | RelationExpr:
+    if value_id in active:
+        raise AssertionError("verified semantic graph contains a plan-value cycle")
+    definition = definitions[value_id]
+    source = definition.source
+    if isinstance(source, PlanExpressionSource):
+        return source.expression
+    if isinstance(source, LiteralValueSource):
+        return literal_data_expr(source.value)
+    if not isinstance(source, OperationOutputSource):
+        raise AssertionError("route and execute values cannot become plan expressions")
+    operation = operations[source.operation_id]
+    if not isinstance(operation.contract.semantics, ScalarBinarySemantics):
+        raise AssertionError("only core scalar operations can be plan-inlined")
+    uses = dict(operation.inputs)
+    nested_active = active | {value_id}
+    left = _semantic_plan_expression(
+        uses["left"].value_id,
+        definitions=definitions,
+        operations=operations,
+        active=nested_active,
+    )
+    right = _semantic_plan_expression(
+        uses["right"].value_id,
+        definitions=definitions,
+        operations=operations,
+        active=nested_active,
+    )
+    if not isinstance(left, ScalarExpr) or not isinstance(right, ScalarExpr):
+        raise AssertionError("scalar semantic operands must lower to scalar plans")
+    return ScalarExpr(
+        kind="binary",
+        op=operation.contract.semantics.operator,
+        left=left,
+        right=right,
+    )
+
+
+def lower_state_region(
+    ctx: ExperimentAuthoringContext,
+    region: StateEachRegion,
+    graph: VerifiedSemanticGraph,
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
+    inputs: Mapping[str, object],
+    *,
+    type_bindings: RelationTypeBindings,
 ) -> StateSpec:
-    if intent.resource_port is not None:
-        port = resource_ports.get(intent.resource_port)
+    if region.resource_port is not None:
+        port = resource_ports.get(region.resource_port)
         if port is None:
             ctx.raise_problem(
                 "module_unknown_resource_port",
                 "state binding references unknown resource port "
-                f"{intent.resource_port}",
+                f"{region.resource_port}",
                 "state",
             )
-        require_port_capability(ctx, port, intent.capability_id)
-    return bind_each(
-        bind_relation_input_refs(
-            internal_lower_table_value_ref(intent.relation),
-            inputs,
-            unbound_to_outer=True,
-        ),
-        set_state_field(
-            _bind_scalar_value_ref(
-                intent.resource,
-                inputs,
-                unbound_to_outer=True,
-            ),
-            capability_id=intent.capability_id,
-            field_path=intent.field_path,
-            value=_bind_state_value(
-                intent.value,
-                inputs,
-                unbound_to_outer=True,
-            ),
-            route_entities=tuple(
-                _bind_state_route_expr(
-                    ctx,
-                    entity,
-                    inputs,
-                    unbound_to_outer=True,
-                )
-                for entity in intent.route_entities
-            ),
-        ),
+        require_port_capability(ctx, port, region.capability_id)
+    operations = {operation.id: operation for operation in graph.graph.operations}
+    row_type = RowType.from_table(region.row_argument.value_type)
+    body_bindings = replace(
+        type_bindings,
+        current_row=row_type,
+        row_arguments={**type_bindings.row_arguments, region.row_argument.id: row_type},
     )
+    resource = (
+        None
+        if region.resource_port is not None
+        else _lower_state_region_scalar(
+            _required_region_use(region.resource, role="resource"),
+            graph=graph,
+            operations=operations,
+            inputs=inputs,
+            role="resource",
+            type_bindings=body_bindings,
+        )
+    )
+    relation = _lower_state_region_plan_value(
+        region.relation,
+        graph=graph,
+        operations=operations,
+        inputs=inputs,
+        type_bindings=type_bindings,
+    )
+    if not isinstance(relation, TableValueExpr):
+        raise AssertionError("verified state region relation must be table-shaped")
+    state_value = _lower_state_region_value(
+        region.value,
+        graph=graph,
+        operations=operations,
+        inputs=inputs,
+        type_bindings=body_bindings,
+    )
+    return bind_each(
+        relation,
+        set_state_field(
+            resource,
+            resource_port_id=region.resource_port,
+            capability_id=region.capability_id,
+            field_path=region.field_path,
+            value=state_value,
+            route_entities=tuple(
+                _lower_state_region_route(
+                    route,
+                    graph=graph,
+                    operations=operations,
+                    inputs=inputs,
+                    type_bindings=body_bindings,
+                )
+                for route in region.route_entities
+            ),
+        ),
+        row_scope_id=region.row_argument.id,
+    )
+
+
+def _lower_state_region_value(
+    use: ValueUse,
+    *,
+    graph: VerifiedSemanticGraph,
+    operations: Mapping[OperationId, SemanticOperation],
+    inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
+) -> ScalarValueExpr | ComputeResultRef:
+    definition = graph.value_defs[use.value_id]
+    if isinstance(definition.source, OperationOutputSource) and (
+        definition.availability.stage is ValueStage.EXECUTE
+    ):
+        return ComputeResultRef(value_id=definition.id)
+    value = _lower_state_region_plan_value(
+        use,
+        graph=graph,
+        operations=operations,
+        inputs=inputs,
+        type_bindings=type_bindings,
+    )
+    if not isinstance(value, ScalarValueExpr):
+        raise AssertionError("verified state region value must be scalar-shaped")
+    return value
+
+
+def _lower_state_region_scalar(
+    use: ValueUse,
+    *,
+    graph: VerifiedSemanticGraph,
+    operations: Mapping[OperationId, SemanticOperation],
+    inputs: Mapping[str, object],
+    role: str,
+    type_bindings: RelationTypeBindings,
+) -> ScalarValueExpr:
+    value = _lower_state_region_plan_value(
+        use,
+        graph=graph,
+        operations=operations,
+        inputs=inputs,
+        type_bindings=type_bindings,
+    )
+    if not isinstance(value, ScalarValueExpr):
+        raise AssertionError(f"verified state region {role} must be scalar-shaped")
+    return value
+
+
+def _lower_state_region_route(
+    use: ValueUse,
+    *,
+    graph: VerifiedSemanticGraph,
+    operations: Mapping[OperationId, SemanticOperation],
+    inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
+) -> ScalarOrSeriesValueExpr:
+    value = _lower_state_region_plan_value(
+        use,
+        graph=graph,
+        operations=operations,
+        inputs=inputs,
+        type_bindings=type_bindings,
+    )
+    if isinstance(value, TableValueExpr):
+        raise AssertionError("verified state route must be scalar- or series-shaped")
+    return value
+
+
+def _lower_state_region_plan_value(
+    use: ValueUse,
+    *,
+    graph: VerifiedSemanticGraph,
+    operations: Mapping[OperationId, SemanticOperation],
+    inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
+) -> ValueExpr:
+    definition = graph.value_defs[use.value_id]
+    if isinstance(definition.value_type, Route):
+        raise AssertionError("state plan values cannot be route-shaped")
+    expression = _semantic_plan_expression(
+        use.value_id,
+        definitions=graph.value_defs,
+        operations=operations,
+        active=frozenset(),
+    )
+    return verify_value_expr(
+        bind_value_input_refs(expression, inputs),
+        bindings=type_bindings,
+        expected_type=definition.value_type,
+    )
+
+
+def _required_region_use(use: ValueUse | None, *, role: str) -> ValueUse:
+    if use is None:
+        raise AssertionError(f"verified state region has no {role} use")
+    return use
 
 
 def validate_assembly_conflicts(
     ctx: ExperimentAuthoringContext,
-    assembly: ExperimentAssemblyInternal,
+    assembly: SemanticExperimentIR,
 ) -> None:
     _reject_duplicates(
         ctx,
         ids=[
             *(record.id for record in assembly.records),
             *(
-                selection.record_id or selection.product_id
+                selection.record_id or selection.product_id.qualified_name
                 for selection in assembly.record_selections
             ),
         ],
@@ -230,7 +542,10 @@ def validate_assembly_conflicts(
     )
     _reject_duplicates(
         ctx,
-        ids=[node.node_id.qualified_name for node in assembly.compute_nodes],
+        ids=[
+            operation.id.qualified_name
+            for operation in assembly.semantic_graph.operations
+        ],
         code="module_compute_node_duplicate",
         message="experiment assembly defines duplicate program nodes",
         path="compute_nodes",
@@ -291,19 +606,14 @@ def coerce_assembly_inputs(
 
 def validate_consumed_inputs(
     ctx: ExperimentAuthoringContext,
-    assembly: ExperimentAssemblyInternal,
+    assembly: SemanticExperimentIR,
     inputs: Mapping[str, object],
 ) -> None:
     """Reject only free module inputs that the assembled program actually uses."""
 
-    point_input_ids = (
-        {column.id for column in assembly.point_source.value_type.columns}
-        if assembly.point_source is not None
-        and isinstance(assembly.point_source.value_type, TableType)
-        else set[str]()
-    )
-    point_source_dependencies = _nested_input_dependencies(
-        assembly.point_source,
+    point_input_ids = set(point_domain_intent_output_types(assembly.point_domain))
+    point_domain_dependencies = _point_domain_input_dependencies(
+        assembly.point_domain,
         inputs=inputs,
     )
     consumed_dependencies: set[str] = set()
@@ -314,20 +624,14 @@ def validate_consumed_inputs(
         for source in port.selector.entity_inputs
     )
     values.extend(binding.value for binding in assembly.bindings)
-    for intent in assembly.state_intents:
-        values.extend(
-            (
-                intent.relation,
-                intent.resource,
-                intent.value,
-                *intent.route_entities,
-            )
-        )
     values.extend(
         value for overlay in assembly.parameter_overlays for _name, value in overlay.key
     )
-    values.extend(
-        value for node in assembly.compute_nodes for _name, value in node.inputs
+    consumed_dependencies.update(
+        input_id
+        for definition in assembly.semantic_graph.value_defs
+        if isinstance(definition.source, PlanExpressionSource)
+        for input_id in definition.source.source_inputs
     )
     values.extend(axis.size for record in assembly.records for axis in record.axes)
     values.extend(
@@ -338,7 +642,7 @@ def validate_consumed_inputs(
 
     provided = set(inputs)
     missing = sorted(
-        (point_source_dependencies - provided)
+        (point_domain_dependencies - provided)
         | (consumed_dependencies - provided - point_input_ids)
     )
     if missing:
@@ -348,6 +652,52 @@ def validate_consumed_inputs(
             "values: " + ", ".join(missing),
             "inputs",
         )
+
+
+def _point_domain_input_dependencies(
+    domain: PointDomainIntent,
+    *,
+    inputs: Mapping[str, object],
+) -> set[str]:
+    """Return imports not closed by directional point-domain composition."""
+
+    def visit(node: PointDomainIntent) -> tuple[set[str], set[str]]:
+        if isinstance(node, PointUnit):
+            return set(), set()
+        if isinstance(node, PointRelationRows):
+            return (
+                _nested_input_dependencies(node.rows, inputs=inputs)
+                - internal_value_ref_bound_point_input_ids(node.rows),
+                set(internal_value_ref_free_point_input_ids(node.rows)),
+            )
+        if isinstance(node, PointProduct):
+            children = tuple(visit(factor) for factor in node.factors)
+        elif isinstance(node, PointZip):
+            children = tuple(visit(source) for source in node.sources)
+        else:
+            left_dependencies, left_point_inputs = visit(node.left)
+            right_dependencies, right_point_inputs = visit(node.right)
+            bound_ids = set(point_domain_intent_output_types(node.left))
+            closed_right_inputs = right_point_inputs & bound_ids
+            return (
+                left_dependencies | (right_dependencies - closed_right_inputs),
+                left_point_inputs | (right_point_inputs - bound_ids),
+            )
+        return (
+            {
+                input_id
+                for dependencies, _point_inputs in children
+                for input_id in dependencies
+            },
+            {
+                input_id
+                for _dependencies, point_inputs in children
+                for input_id in point_inputs
+            },
+        )
+
+    dependencies, _point_inputs = visit(domain)
+    return dependencies
 
 
 def _nested_input_dependencies(
@@ -419,58 +769,131 @@ def _reject_duplicates(
         )
 
 
-def lower_point_source(
-    point_source: ValueRef | None,
+def lower_point_domain(
+    point_domain: PointDomainIntent,
     *,
     inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
     entity_input_ids: Sequence[str] = (),
-) -> TypedPointSource:
-    """Bind invocation inputs while retaining config-dependent point intent."""
+) -> PointDomain:
+    """Bind and verify every relation leaf under its exact algebra role."""
 
-    if point_source is None:
-        relation = literal_rows([{}])
-        value_type = TableType(columns=(), min_rows=1, max_rows=1)
-    else:
-        relation = internal_lower_table_value_ref(point_source)
-        value_type = point_source.value_type
-        if not isinstance(value_type, TableType):
-            raise AssertionError("validated point source must remain table-shaped")
-    return TypedPointSource(
-        expr=bind_relation_input_refs(relation, inputs),
-        value_type=value_type,
-        entity_column_ids=tuple(dict.fromkeys(entity_input_ids)),
+    analysis = analyze_point_domain(
+        point_domain,
+        leaf_value_type=_point_domain_leaf_value_type,
+    )
+    root = _lower_point_domain_node(
+        point_domain,
+        path=(),
+        ambient_row=type_bindings.point_row,
+        analysis=analysis,
+        inputs=inputs,
+        type_bindings=type_bindings,
+    )
+    value_type = analysis.root.value_type
+    point_column_ids = {column.id for column in value_type.columns}
+    return PointDomain(
+        root=root,
+        entity_columns=tuple(
+            column_id
+            for column_id in dict.fromkeys(entity_input_ids)
+            if column_id in point_column_ids
+        ),
     )
 
 
-def compute_node_input(
-    value: ComputeNodeInputValue,
+def _lower_point_domain_node(
+    node: PointDomainIntent,
+    *,
+    path: PointDomainPath,
+    ambient_row: RowType | None,
+    analysis: PointDomainAnalysis,
     inputs: Mapping[str, object],
-) -> ValueInput | ComputeEdge | RouteInput:
-    if isinstance(value, ValueRef):
-        lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultRef):
-            return ComputeEdge(
-                producer=lowered.node_id,
-                value_type=value.value_type,
+    type_bindings: RelationTypeBindings,
+) -> PointDomainExpr[TableValueExpr]:
+    if isinstance(node, PointUnit):
+        return POINT_UNIT
+    if isinstance(node, PointRelationRows):
+        value_type = _point_domain_leaf_value_type(node.rows, path)
+        return PointRelationRows(
+            verify_value_expr(
+                bind_relation_input_refs(
+                    internal_lower_table_value_ref(node.rows),
+                    inputs,
+                ),
+                bindings=replace(type_bindings, point_row=ambient_row),
+                expected_type=value_type,
+            ),
+            relation_use_id=node.relation_use_id,
+        )
+    if isinstance(node, PointProduct):
+        return PointProduct(
+            tuple(
+                _lower_point_domain_node(
+                    factor,
+                    path=(*path, "factors", index),
+                    ambient_row=ambient_row,
+                    analysis=analysis,
+                    inputs=inputs,
+                    type_bindings=type_bindings,
+                )
+                for index, factor in enumerate(node.factors)
             )
-        source_inputs = value_input_refs(lowered)
-        bound = bind_value_input_refs(lowered, inputs)
-        return ValueInput(
-            value=as_value_expr(bound),
-            source_inputs=tuple(source_inputs),
-            value_type=value.value_type,
         )
-    if isinstance(value, RouteRef):
-        return RouteInput(
-            port_id=value.port_id,
-            value_type=value.value_type,
+    if isinstance(node, PointZip):
+        return PointZip(
+            tuple(
+                _lower_point_domain_node(
+                    source,
+                    path=(*path, "sources", index),
+                    ambient_row=ambient_row,
+                    analysis=analysis,
+                    inputs=inputs,
+                    type_bindings=type_bindings,
+                )
+                for index, source in enumerate(node.sources)
+            )
         )
-    expression = literal_data_expr(value)
-    bound = bind_value_input_refs(expression, inputs)
-    return ValueInput(
-        value=as_value_expr(bound),
-        source_inputs=(),
-        value_type=literal_scalar_type(value),
+    left_path = (*path, "left")
+    left = _lower_point_domain_node(
+        node.left,
+        path=left_path,
+        ambient_row=ambient_row,
+        analysis=analysis,
+        inputs=inputs,
+        type_bindings=type_bindings,
+    )
+    right_ambient = _extend_point_row(
+        ambient_row,
+        analysis.facts[left_path].value_type,
+    )
+    right = _lower_point_domain_node(
+        node.right,
+        path=(*path, "right"),
+        ambient_row=right_ambient,
+        analysis=analysis,
+        inputs=inputs,
+        type_bindings=type_bindings,
+    )
+    return PointDependentProduct(left, right)
+
+
+def _point_domain_leaf_value_type(
+    value: ValueRef,
+    _path: PointDomainPath,
+) -> TableType:
+    value_type = value.value_type
+    if not isinstance(value_type, TableType):
+        msg = "point-domain relation leaf must be table-shaped"
+        raise TypeError(msg)
+    return value_type
+
+
+def _extend_point_row(parent: RowType | None, child: TableType) -> RowType:
+    return RowType(
+        (*(() if parent is None else parent.columns), *child.columns),
+        (False if parent is None else parent.allow_extra_columns)
+        or child.allow_extra_columns,
     )
 
 
@@ -478,103 +901,28 @@ def state_specs(
     bindings: Sequence[BindingSpec],
     *,
     inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
 ) -> list[StateSpec]:
     specs: list[StateSpec] = []
     for binding in bindings:
         value = binding.value
         specs.append(
             set_state_field(
-                binding.resource_id,
+                resource_port_id=binding.resource_port_id,
                 capability_id=binding.capability_id,
                 field_path=binding.field_path,
                 value=(
                     value
                     if isinstance(value, ComputeResultRef)
-                    else bind_scalar_input_refs(value, inputs)
+                    else verify_scalar_value_expr(
+                        bind_scalar_input_refs(value, inputs),
+                        bindings=type_bindings,
+                        expected_type=binding.value_type,
+                    )
                 ),
             )
         )
     return specs
-
-
-def _bind_state_value(
-    value: ValueRef | ClosedScalarValue,
-    inputs: Mapping[str, object],
-    *,
-    unbound_to_outer: bool = False,
-) -> ScalarExpr | ComputeResultRef:
-    if isinstance(value, ValueRef):
-        lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultRef):
-            return lowered
-        if not isinstance(lowered, ScalarExpr):
-            msg = "state value must be scalar-shaped"
-            raise TypeError(msg)
-        expression = lowered
-    else:
-        expression = as_scalar_expr(value)
-    return bind_scalar_input_refs(
-        expression,
-        inputs,
-        unbound_to_outer=unbound_to_outer,
-    )
-
-
-def _bind_scalar_value_ref(
-    value: ValueRef | ClosedScalarValue,
-    inputs: Mapping[str, object],
-    *,
-    unbound_to_outer: bool = False,
-) -> ScalarExpr:
-    if isinstance(value, ValueRef):
-        lowered = internal_lower_value_ref(value)
-        if not isinstance(lowered, ScalarExpr):
-            msg = "state resource must be a scalar expression"
-            raise TypeError(msg)
-        expression = lowered
-    else:
-        expression = as_scalar_expr(value)
-    return bind_scalar_input_refs(
-        expression,
-        inputs,
-        unbound_to_outer=unbound_to_outer,
-    )
-
-
-def _bind_state_route_expr(
-    ctx: ExperimentAuthoringContext,
-    expression: StateRouteValue,
-    inputs: Mapping[str, object],
-    *,
-    unbound_to_outer: bool = False,
-) -> ScalarExpr | SeriesExpr:
-    if isinstance(expression, ValueRef):
-        lowered = internal_lower_value_ref(expression)
-        if isinstance(lowered, ComputeResultRef | RelationExpr):
-            ctx.raise_problem(
-                "module_resource_entity_input_invalid",
-                "state route entity source must be scalar or series-shaped",
-                "state",
-                path=("route_entities",),
-            )
-        selected_expression = lowered
-    elif isinstance(expression, tuple):
-        selected_expression = values([input_cell(value) for value in expression])
-    else:
-        selected_expression = as_scalar_expr(expression)
-    bound = bind_value_input_refs(
-        selected_expression,
-        inputs,
-        unbound_to_outer=unbound_to_outer,
-    )
-    if isinstance(bound, RelationExpr):
-        ctx.raise_problem(
-            "module_state_route_entity_invalid",
-            "state route entity source must be scalar or series-shaped",
-            "state",
-            path=("route_entities",),
-        )
-    return bound
 
 
 def input_row(inputs: Mapping[str, object]) -> dict[str, CellValue]:

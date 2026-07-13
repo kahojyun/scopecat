@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import cast
 
-from scopecat._compiler.bound import BoundPlan
+from scopecat._compiler.bound import BoundPlan, BoundRecord
+from scopecat._compiler.product_realizations import SelectedLocalProductRealization
+from scopecat._resource_identity import LogicalResourcePortId, PhysicalResourceId
 from scopecat.models.config import RoutingChannelBinding
 from scopecat.models.run_plan import (
     RunPlanChannelBinding,
@@ -23,6 +25,10 @@ from scopecat.models.state import PayloadRef, StateValue
 def build_run_plan_record(plan: BoundPlan) -> RunPlanRecord:
     """Project transient compiler output into durable accepted-plan evidence."""
 
+    if not plan.valid:
+        msg = "durable run plans require a valid bound plan"
+        raise ValueError(msg)
+
     coordinate_ids = _coordinate_ids(plan)
     dataset_dimensions = (
         {
@@ -38,6 +44,13 @@ def build_run_plan_record(plan: BoundPlan) -> RunPlanRecord:
         if plan.expected_dataset_schema is not None
         else [record.id for record in plan.records if record.kind == "observable"]
     )
+    selected = plan.local_product_realizations
+    if selected is None:
+        msg = "durable run plans require selected local product realizations"
+        raise ValueError(msg)
+    realizations_by_use = {
+        realization.product_use_id: realization for realization in selected.entries
+    }
     return RunPlanRecord(
         experiment_id=plan.experiment_id,
         experiment_kind=plan.experiment_kind,
@@ -47,7 +60,7 @@ def build_run_plan_record(plan: BoundPlan) -> RunPlanRecord:
         points=[
             RunPlanPoint(
                 point_index=point.point_index,
-                point_uid=point.point_uid,
+                point_uid=point.logical_id.value,
                 coordinates={
                     coordinate_id: point.coordinates[coordinate_id]
                     for coordinate_id in coordinate_ids
@@ -56,42 +69,48 @@ def build_run_plan_record(plan: BoundPlan) -> RunPlanRecord:
             for point in plan.points
         ],
         records=[
-            RunPlanOutput(
-                id=record.id,
-                kind=record.kind,
-                source=record.source,
-                resource=record.resource,
-                capability=record.capability,
-                unit=record.unit,
-                dtype=record.dtype,
-                dims=list(record.dims),
-                shape=list(record.shape),
-            )
+            _run_plan_output(record, realizations_by_use[record.product_use_id])
             for record in plan.records
         ],
         state_changes=[
             RunPlanStateChange(
                 point_index=change.point_index,
-                resource=change.resource,
+                resource_id=change.resource_id.value,
+                resource_port_id=(
+                    change.resource_port_id.qualified_name
+                    if change.resource_port_id is not None
+                    else None
+                ),
                 capability_id=change.capability_id,
                 field_path=change.field_path,
                 before=cast("RunPlanValue", _run_plan_state_value(change.before)),
                 after=cast("RunPlanValue", _run_plan_state_value(change.after)),
+                entity_ids=list(change.entity_ids),
+                channel_bindings=[
+                    _run_plan_channel_binding(binding)
+                    for binding in change.channel_bindings
+                ],
             )
             for change in plan.state_changes
         ],
         routes=[
             RunPlanRoute(
-                port_id=intent.port_id,
+                port_id=intent.port_id.qualified_name,
                 capabilities=list(intent.capabilities),
-                entity_expr_count=len(intent.entity_exprs),
-                fixed_resource=intent.resource_id,
+                entity_expr_count=len(intent.entity_uses),
+                fixed_resource_id=(
+                    intent.fixed_resource_id.value
+                    if intent.fixed_resource_id is not None
+                    else None
+                ),
                 resolved=[
                     RunPlanResolvedRoute(
                         point_index=point.point_index,
-                        port_id=route.port_id,
-                        resource_id=route.resource_id,
+                        port_id=route.port_id.qualified_name,
+                        resource_id=route.resource_id.value,
+                        resource_kind=route.resource_kind,
                         entity_ids=list(route.entity_ids),
+                        served_entity_ids=list(route.served_entity_ids),
                         product_axis_order=list(route.product_axis_order),
                         channel_bindings=[
                             _run_plan_channel_binding(binding)
@@ -107,6 +126,37 @@ def build_run_plan_record(plan: BoundPlan) -> RunPlanRecord:
         ],
         dataset_dimensions=dataset_dimensions,
         primary_observables=primary_observables,
+    )
+
+
+def _run_plan_output(
+    record: BoundRecord,
+    realization: SelectedLocalProductRealization,
+) -> RunPlanOutput:
+    producer = realization.producer
+    return RunPlanOutput(
+        id=record.id,
+        kind=record.kind,
+        producer_kind="instrument",
+        resource_port_id=(
+            producer.resource_target.qualified_name
+            if isinstance(producer.resource_target, LogicalResourcePortId)
+            else None
+        ),
+        physical_resource_id=(
+            producer.resource_target.value
+            if isinstance(producer.resource_target, PhysicalResourceId)
+            else (
+                realization.implicit_resource_id.value
+                if realization.implicit_resource_id is not None
+                else None
+            )
+        ),
+        capability=producer.capability,
+        unit=record.unit,
+        dtype=record.dtype,
+        dims=list(record.dims),
+        shape=list(record.shape),
     )
 
 

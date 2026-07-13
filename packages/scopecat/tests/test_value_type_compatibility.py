@@ -1,15 +1,17 @@
+"""Tests for core value-type compatibility semantics."""
+
 from __future__ import annotations
 
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._value_refs import (
-    internal_lower_scalar_value_ref,
-)
-from scopecat.authoring._value_type_compatibility import (
+from scopecat._value_type_compatibility import (
     describe_value_type,
     is_assignable,
     require_assignable,
+)
+from scopecat.authoring._value_refs import (
+    internal_lower_scalar_value_ref,
 )
 from scopecat.value_types import Int, Scalar
 from scopecat.value_validation import ValueValidationError

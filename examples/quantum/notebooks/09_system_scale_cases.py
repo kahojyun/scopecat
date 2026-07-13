@@ -41,7 +41,7 @@ system_scale_summary = {
     "surface_code_records": [record.id for record in surface_code_preview.records],
     "surface_code_coordinates": list(surface_code_preview.coordinate_ids),
     "backend_batch_payloads": [
-        payload.node_id for payload in backend_batch_preview.payloads
+        payload.semantic_operation_id for payload in backend_batch_preview.payloads
     ],
     "backend_batch_records": [record.id for record in backend_batch_preview.records],
 }

@@ -7,26 +7,57 @@ import pytest
 
 import scopecat.authoring as authoring
 from scopecat._compiler.binding import bind_program
-from scopecat._compiler.ids import NodeId
-from scopecat._compiler.program import ComputeEdge, ValueInput
+from scopecat._compiler.point_domain import materialize_point_domain
+from scopecat._compiler.program import (
+    ComputeEdge,
+    ValueInput,
+)
+from scopecat._compiler.state import evaluate_state_spec
+from scopecat._compiler.verification import seal_typed_program, select_typed_program
 from scopecat._compute_result import ComputeResultRef
-from scopecat._relations import (
+from scopecat._relation_analysis import PlanNode
+from scopecat._relation_backend import (
+    REFERENCE_RELATION_BACKEND,
     EvalContext,
     ParameterRelationData,
-    literal_rows,
+    SelectedRelationPlan,
+    select_relation_plan,
 )
+from scopecat._relation_use import RelationUseId
+from scopecat._relation_verification import RelationTypeBindings, RowType
+from scopecat._relations import ScalarExpr, grid, literal_rows, outer
+from scopecat._semantic_graph import (
+    OperationId,
+    OperationOutputSource,
+    PlanExpressionSource,
+    operation_result_id,
+)
+from scopecat._symbols import SymbolId
 from scopecat._value_expressions import (
     ScalarValueExpr,
     SeriesValueExpr,
     TableValueExpr,
 )
-from scopecat.authoring._module_composition import assemble_module_internal
+from scopecat.authoring._elaboration import elaborate_module
 from scopecat.authoring._resolution import ResolvedExperiment, resolve_experiment
-from scopecat.authoring._value_refs import internal_value_ref_from_expression
+from scopecat.authoring._value_refs import (
+    internal_value_ref_from_expression,
+)
 from scopecat.errors import CheckFailed
 from scopecat.models.entity import EntityRef
+from scopecat.problems import model_location
+from scopecat.value_validation import ValueValidationError
 from tests.support.authoring import load_config
 from tests.support.experiment_preview import preview_contract
+from tests.support.relation_plans import (
+    each_state,
+    materialize_scalar_value,
+    materialize_series_value,
+    materialize_table_value,
+    state_field,
+)
+
+_BACKEND = REFERENCE_RELATION_BACKEND
 
 
 def _echo_rows_offsets(*, rows: object, offsets: object) -> dict[str, object]:
@@ -117,13 +148,32 @@ def _literal_table(
 def _state_values(
     resolved: ResolvedExperiment,
 ) -> list[tuple[int, str, object]]:
-    points = resolved.experiment.point_source.expr.evaluate(resolved.parameters)
+    selected_program = select_typed_program(
+        _BACKEND,
+        seal_typed_program(resolved.experiment),
+    )
+    points = [
+        point.row
+        for point in materialize_point_domain(
+            _BACKEND,
+            selected_program.point_domain,
+            resolved.parameters,
+        ).points
+    ]
     return [
-        (record.point_index, record.resource, record.value)
+        (record.point_index, str(record.resource_target), record.value)
         for point_index, point in enumerate(points)
-        for record in resolved.experiment.state[0].evaluate(
+        for record in evaluate_state_spec(
+            resolved.experiment.state[0],
             point_index=point_index,
-            ctx=EvalContext(params=resolved.parameters, row=point),
+            ctx=EvalContext(
+                params=resolved.parameters,
+                row=point,
+                point_row=point,
+            ),
+            backend=_BACKEND,
+            selected_plan=selected_program.selected_plan,
+            location=model_location("state", 0),
         )
     ]
 
@@ -158,21 +208,21 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
     )
     gate_rows = authoring.input("gate_rows", gate_table)
     offset_values = authoring.input("offset_values", offsets_type)
+    child_instance = child.instantiate(
+        "collections-child",
+        gates=gate_rows,
+        offsets=offset_values,
+    )
     parent = (
         authoring.module("test.collections.parent")
         .inputs(gate_rows, offset_values)
-        .use(
-            child(
-                gates=gate_rows,
-                offsets=offset_values,
-            )
-        )
+        .use(child_instance)
         .build()
     )
     template = (
         parent.template("test.collections", kind="collections")
         .experiment_id("collections")
-        .record_product("signal")
+        .record_product(child_instance.products.signal, record_id="signal")
         .build()
     )
 
@@ -193,9 +243,12 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
     node = experiment.compute_nodes[0]
     rows = node.inputs["rows"]
     assert isinstance(rows, ValueInput)
-    assert rows.source_inputs == ("gate_rows",)
+    assert rows.origin_input_ids == ("gate_rows",)
     assert isinstance(rows.value, TableValueExpr)
-    assert rows.value.expr.evaluate() == [
+    assert materialize_table_value(
+        _BACKEND,
+        rows.value,
+    ) == [
         {
             "control": EntityRef(id="q0"),
             "target": EntityRef(id="q0"),
@@ -208,15 +261,26 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
 
     offset_values = node.inputs["offsets"]
     assert isinstance(offset_values, ValueInput)
-    assert offset_values.source_inputs == ("offset_values",)
+    assert offset_values.origin_input_ids == ("offset_values",)
     assert isinstance(offset_values.value, SeriesValueExpr)
-    assert offset_values.value.expr.evaluate(EvalContext()) == [0.25, 0.5]
+    assert materialize_series_value(
+        _BACKEND,
+        offset_values.value,
+        EvalContext(),
+    ) == [
+        0.25,
+        0.5,
+    ]
 
-    route_entities = experiment.route_intents[0].entity_exprs[0]
+    route_entities = experiment.route_intents[0].entity_uses[0].value
     assert isinstance(route_entities, SeriesValueExpr)
-    assert route_entities.expr.evaluate(EvalContext()) == [EntityRef(id="q0")]
+    assert materialize_series_value(
+        _BACKEND,
+        route_entities,
+        EvalContext(),
+    ) == [EntityRef(id="q0")]
 
-    axis = experiment.records[0].axes[0]
+    axis = experiment.product_defs[0].axes[0]
     assert axis.size == 1
     assert axis.metadata == {
         "entity_kind": "logical_device",
@@ -292,7 +356,13 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
     )
     parent = (
         authoring.module("test.collection_literals.parent")
-        .use(child(rows=(), items=({"label": "first"},)))
+        .use(
+            child.instantiate(
+                "literal-child",
+                rows=(),
+                items=({"label": "first"},),
+            )
+        )
         .build()
     )
     template = (
@@ -311,12 +381,22 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
     rows = node.inputs["rows"]
     assert isinstance(rows, ValueInput)
     assert isinstance(rows.value, TableValueExpr)
-    assert rows.value.expr.evaluate() == []
+    assert (
+        materialize_table_value(
+            _BACKEND,
+            rows.value,
+        )
+        == []
+    )
 
     items = node.inputs["items"]
     assert isinstance(items, ValueInput)
     assert isinstance(items.value, SeriesValueExpr)
-    assert items.value.expr.evaluate(EvalContext()) == [{"label": "first"}]
+    assert materialize_series_value(
+        _BACKEND,
+        items.value,
+        EvalContext(),
+    ) == [{"label": "first"}]
 
 
 def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
@@ -341,13 +421,27 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
     middle = (
         authoring.module("test.same_name.middle")
         .inputs(value, items, rows)
-        .use(leaf(value=value, items=items, rows=rows))
+        .use(
+            leaf.instantiate(
+                "leaf",
+                value=value,
+                items=items,
+                rows=rows,
+            )
+        )
         .build()
     )
     outer = (
         authoring.module("test.same_name.outer")
         .inputs(value, items, rows)
-        .use(middle(value=value, items=items, rows=rows))
+        .use(
+            middle.instantiate(
+                "middle",
+                value=value,
+                items=items,
+                rows=rows,
+            )
+        )
         .build()
     )
     template = (
@@ -365,33 +459,68 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
         config_profile=load_config(),
     )
     node = resolved.experiment.compute_nodes[0]
-    points = resolved.experiment.point_source.expr.evaluate(resolved.parameters)
+    selected_program = select_typed_program(
+        _BACKEND,
+        seal_typed_program(resolved.experiment),
+    )
+    points = [
+        point.row
+        for point in materialize_point_domain(
+            _BACKEND,
+            selected_program.point_domain,
+            resolved.parameters,
+        ).points
+    ]
 
     scalar = node.inputs["value"]
     assert isinstance(scalar, ValueInput)
     assert isinstance(scalar.value, ScalarValueExpr)
-    assert scalar.value.expr.eval(EvalContext(row=points[1])) == 0.5
+    assert (
+        materialize_scalar_value(
+            _BACKEND,
+            scalar.value,
+            EvalContext(row=points[1], point_row=points[1]),
+        )
+        == 0.5
+    )
     series = node.inputs["items"]
     assert isinstance(series, ValueInput)
     assert isinstance(series.value, SeriesValueExpr)
-    assert series.value.expr.evaluate(EvalContext()) == [1.0, 2.0]
+    assert materialize_series_value(
+        _BACKEND,
+        series.value,
+        EvalContext(),
+    ) == [1.0, 2.0]
     table = node.inputs["rows"]
     assert isinstance(table, ValueInput)
     assert isinstance(table.value, TableValueExpr)
-    assert table.value.expr.evaluate() == [{"resource_id": "source-a", "base": 1.0}]
+    assert materialize_table_value(
+        _BACKEND,
+        table.value,
+    ) == [{"resource_id": "source-a", "base": 1.0}]
 
 
-def test_template_accepts_unbound_input_port_from_nested_module() -> None:
+def test_nested_module_requires_explicit_input_forwarding() -> None:
     value = authoring.input(
         "value",
         authoring.ScalarType(authoring.FloatType()),
     )
     child = authoring.module("test.nested_port.child").inputs(value).build()
-    root = authoring.module("test.nested_port.root").use(child).build()
+
+    with pytest.raises(ValueError, match="must connect all inputs"):
+        child.instantiate("child")
+
+    outer_value = authoring.input("outer_value", value.value_type)
+    root = (
+        authoring.module("test.nested_port.root")
+        .inputs(outer_value)
+        .use(child.instantiate("child", value=outer_value))
+        .build()
+    )
     template = root.template("test.nested_port", kind="nested_port").build()
 
     resolve_experiment(
-        template.bind(value=1),
+        template.bind(outer_value=1),
         workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
@@ -461,7 +590,7 @@ def test_module_invocation_rejects_collection_shape_mismatch() -> None:
         authoring.ValueValidationError,
         match=r"expected Table\{.*\}, got Series\[Scalar\[Entity\]\]",
     ):
-        child(rows=items)
+        child.instantiate("collection-shape-child", rows=items)
 
 
 def test_module_invocation_rejects_same_shape_atom_mismatch() -> None:
@@ -478,7 +607,7 @@ def test_module_invocation_rejects_same_shape_atom_mismatch() -> None:
         authoring.ValueValidationError,
         match=r"expected Series\[Scalar\[Entity\]\], got Series\[Scalar\[Float\]\]",
     ):
-        child(entities=numbers)
+        child.instantiate("collection-atom-child", entities=numbers)
 
 
 def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> None:
@@ -494,7 +623,7 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
         authoring.ScalarType(authoring.QuantityType(unit="ns")),
     )
     with pytest.raises(authoring.ValueValidationError, match=r"Quantity\[GHz\]"):
-        quantity_child(frequency=duration)
+        quantity_child.instantiate("quantity-child", frequency=duration)
 
     float_gate_table = authoring.TableType(
         columns=(
@@ -515,7 +644,7 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
         authoring.ValueValidationError,
         match=r"control: Scalar\[Entity\]",
     ):
-        table_child(gates=rows)
+        table_child.instantiate("table-child", gates=rows)
 
 
 def test_compute_output_is_a_typed_child_input_edge() -> None:
@@ -537,7 +666,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     middle = (
         authoring.module("test.compute_edge.middle")
         .inputs(middle_program)
-        .use(child(program=middle_program))
+        .use(child.instantiate("compute-child", program=middle_program))
         .build()
     )
     produce = authoring.compute(
@@ -548,15 +677,28 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     parent = (
         authoring.module("test.compute_edge.parent")
         .computes(produce)
-        .use(middle(program=produce.output))
+        .use(middle.instantiate("compute-middle", program=produce.output))
         .build()
     )
 
-    assembly = assemble_module_internal(
+    assembly = elaborate_module(
         parent,
     )
-    consumer = next(node for node in assembly.compute_nodes if node.id == "consume")
-    assert dict(consumer.inputs)["program"] == produce.output
+    consumer = next(
+        operation
+        for operation in assembly.semantic_graph.operations
+        if operation.id.local_id == "consume"
+    )
+    program_use = dict(consumer.inputs)["program"]
+    program_definition = next(
+        definition
+        for definition in assembly.semantic_graph.value_defs
+        if definition.id == program_use.value_id
+    )
+    assert isinstance(program_definition.source, OperationOutputSource)
+    assert program_definition.source.operation_id == OperationId(
+        SymbolId(local_id="produce")
+    )
     resolved = resolve_experiment(
         parent.template("test.compute_edge", kind="compute_edge").build().bind(),
         workspace=Path("/tmp/scopecat-test"),
@@ -567,9 +709,17 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         for node in resolved.experiment.compute_nodes
         if node.id.local_id == "consume"
     )
+    linked_producer = next(
+        node
+        for node in resolved.experiment.compute_nodes
+        if node.id.local_id == "produce"
+    )
     program_edge = linked_consumer.inputs["program"]
     assert isinstance(program_edge, ComputeEdge)
-    assert program_edge.producer == NodeId(local_id="produce")
+    assert linked_producer.result.id == program_definition.id
+    assert linked_producer.result.value_type == pulse
+    assert program_edge.value_id == linked_producer.result.id
+    assert program_edge.expected_type == linked_producer.result.value_type
 
     incompatible_program = authoring.input(
         "program",
@@ -586,7 +736,10 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         output_type=pulse,
     )
     with pytest.raises(authoring.ValueValidationError, match=r"Payload\[waveform\]"):
-        incompatible_child(program=incompatible_produce.output)
+        incompatible_child.instantiate(
+            "incompatible-child",
+            program=incompatible_produce.output,
+        )
 
 
 def test_series_compute_output_is_a_first_class_typed_value() -> None:
@@ -612,7 +765,7 @@ def test_series_compute_output_is_a_first_class_typed_value() -> None:
     parent = (
         authoring.module("test.compute_series.parent")
         .computes(produce)
-        .use(child(values=produce.output))
+        .use(child.instantiate("series-child", values=produce.output))
         .build()
     )
 
@@ -631,10 +784,11 @@ def test_series_compute_output_is_a_first_class_typed_value() -> None:
         for node in resolved.experiment.compute_nodes
         if node.id.local_id == "consume-series"
     )
-    assert produce.output_type == float_series
+    assert produce.result.value_type == float_series
     values_edge = consume.inputs["values"]
     assert isinstance(values_edge, ComputeEdge)
-    assert values_edge.producer == NodeId(local_id="produce-series")
+    assert values_edge.value_id == produce.result.id
+    assert values_edge.expected_type == produce.result.value_type
 
 
 def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
@@ -690,7 +844,7 @@ def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
     assert isinstance(value_input, ValueInput)
     value = value_input.value
     assert isinstance(value, ScalarValueExpr)
-    assert value.expr.value is None
+    assert value.plan.root.value is None
 
 
 def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
@@ -721,7 +875,8 @@ def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
         authoring.module("test.collection_state.parent")
         .inputs(outer_rows, point_bias)
         .use(
-            child(
+            child.instantiate(
+                "state-child",
                 rows=outer_rows,
                 bias=point_bias,
             )
@@ -759,6 +914,198 @@ def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
     ]
 
 
+def test_state_each_rejects_a_row_value_captured_by_another_binder() -> None:
+    captured: list[authoring.ValueRef] = []
+    row_type = {
+        "resource_id": authoring.ScalarType(authoring.StringType()),
+        "base": authoring.ScalarType(authoring.FloatType()),
+    }
+    first = _literal_table(
+        [{"resource_id": "source-a", "base": 1.0}],
+        **row_type,
+    )
+    second = _literal_table(
+        [{"resource_id": "source-b", "base": 2.0}],
+        **row_type,
+    )
+
+    def capture_resource(row: authoring.TableRow) -> authoring.ValueRef:
+        resource = row["resource_id"]
+        captured.append(resource)
+        return resource
+
+    module = (
+        authoring.module("test.collection_state.foreign-row-capture")
+        .state_each(
+            first,
+            resource=capture_resource,
+            capability="set_offset",
+            field="offset",
+            value=lambda row: row["base"],
+        )
+        .state_each(
+            second,
+            resource=lambda _row: captured[0],
+            capability="set_offset",
+            field="offset",
+            value=lambda row: row["base"],
+        )
+        .build()
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        elaborate_module(module)
+
+    assert "semantic_row_region_body_visibility_invalid" in {
+        problem.code for problem in error.value.problems
+    }
+
+
+@pytest.mark.parametrize(
+    ("resource", "value", "route_entities", "code"),
+    [
+        (1.0, 1.0, (), "semantic_row_region_resource_type_invalid"),
+        ("source-a", "bad", (), "semantic_row_region_value_type_invalid"),
+        (
+            "source-a",
+            10**400,
+            (),
+            "semantic_row_region_value_type_invalid",
+        ),
+        (
+            "source-a",
+            1.0,
+            ((1.0, 2.0),),
+            "semantic_row_region_route_type_invalid",
+        ),
+        (
+            "source-a",
+            1.0,
+            ((),),
+            "semantic_row_region_route_type_invalid",
+        ),
+        (
+            "source-a",
+            1.0,
+            (("",),),
+            "semantic_row_region_route_type_invalid",
+        ),
+    ],
+)
+def test_state_each_rejects_body_values_outside_consumer_contracts(
+    resource: Any,
+    value: Any,
+    route_entities: tuple[Any, ...],
+    code: str,
+) -> None:
+    module = (
+        authoring.module("test.collection_state.invalid-body")
+        .state_each(
+            _literal_table([{}]),
+            resource=resource,
+            capability="set_offset",
+            field="offset",
+            value=value,
+            route_entities=route_entities,
+        )
+        .build()
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        elaborate_module(module)
+
+    assert {problem.code for problem in error.value.problems} == {code}
+
+
+def test_module_instances_alpha_rename_state_row_scopes() -> None:
+    rows = _literal_table(
+        [{"resource_id": "source-a", "base": 1.0}],
+        resource_id=authoring.ScalarType(authoring.StringType()),
+        base=authoring.ScalarType(authoring.FloatType()),
+    )
+    child = (
+        authoring.module("test.collection_state.alpha-child")
+        .state_each(
+            rows,
+            resource=lambda row: row["resource_id"],
+            capability="set_offset",
+            field="offset",
+            value=lambda row: row["base"],
+        )
+        .build()
+    )
+    root = (
+        authoring.module("test.collection_state.alpha-root")
+        .use(child.instantiate("left"), child.instantiate("right"))
+        .build()
+    )
+
+    assembly = elaborate_module(root)
+    regions = assembly.semantic_graph.row_regions
+    definitions = {
+        definition.id: definition for definition in assembly.semantic_graph.value_defs
+    }
+
+    assert len(regions) == 2
+    qualified_scopes = tuple(
+        region.row_argument.id.qualified_name for region in regions
+    )
+    assert len(set(qualified_scopes)) == 2
+    assert qualified_scopes[0].startswith("left/state_row_")
+    assert qualified_scopes[1].startswith("right/state_row_")
+    for region in regions:
+        assert region.resource is not None
+        definition = definitions[region.resource.value_id]
+        assert isinstance(definition.source, PlanExpressionSource)
+        expression = definition.source.expression
+        assert isinstance(expression, ScalarExpr)
+        assert expression.row_scope_id == region.row_argument.id
+        assert definition.owner_region_id == region.id
+
+
+def test_state_regions_and_lowered_state_preserve_authored_order() -> None:
+    rows = _literal_table([{}])
+    module = (
+        authoring.module("test.collection_state.order")
+        .state_each(
+            rows,
+            resource="source-a",
+            capability="set_offset",
+            field="first",
+            value=1.0,
+        )
+        .state_each(
+            rows,
+            resource="source-b",
+            capability="set_offset",
+            field="second",
+            value=2.0,
+        )
+        .build()
+    )
+    assembly = elaborate_module(module)
+
+    assert [region.field_path for region in assembly.semantic_graph.row_regions] == [
+        "first",
+        "second",
+    ]
+
+    template = module.template(
+        "test.collection_state.order",
+        kind="collection_state",
+    ).build()
+    resolved = resolve_experiment(
+        template.bind(),
+        workspace=Path("/tmp/scopecat-test"),
+        config_profile=load_config(),
+    )
+    assert [
+        state.state[0].field_path
+        for state in resolved.experiment.state
+        if state.state is not None
+    ] == ["first", "second"]
+
+
 def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
     entity_series = authoring.SeriesType(_entity_scalar())
     qubits = authoring.input("qubits", entity_series)
@@ -790,15 +1137,76 @@ def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
 
     state = resolved.experiment.state[0]
     assert state.state is not None
-    route_entities = state.state[0].route_entities
-    assert isinstance(route_entities[0], ScalarValueExpr)
-    assert isinstance(route_entities[1], SeriesValueExpr)
+    route_entities = state.state[0].route_entity_uses
+    assert isinstance(route_entities[0].value, ScalarValueExpr)
+    assert isinstance(route_entities[1].value, SeriesValueExpr)
 
-    records = state.evaluate(
+    selected_program = select_typed_program(
+        _BACKEND,
+        seal_typed_program(resolved.experiment),
+    )
+    records = evaluate_state_spec(
+        state,
         point_index=0,
         ctx=EvalContext(params=ParameterRelationData(), row={}),
+        backend=_BACKEND,
+        selected_plan=selected_program.selected_plan,
+        location=model_location("state", 0),
     )
     assert records[0].route_entities == [EntityRef(id="q0")]
+
+
+def test_nested_state_preserves_an_empty_parent_row_as_outer_scope() -> None:
+    leaf = state_field(
+        "source-a",
+        capability_id="set_offset",
+        field_path="offset",
+        value=1.0,
+    )
+    nested = each_state(
+        grid(observed=outer("ambient")),
+        leaf,
+        bindings=RelationTypeBindings(
+            outer_row=RowType(
+                columns=(
+                    authoring.TableColumn(
+                        "ambient",
+                        authoring.ScalarType(authoring.FloatType()),
+                    ),
+                )
+            )
+        ),
+    )
+    state = each_state(literal_rows([{}]), nested)
+    assert state.relation_use is not None
+    assert state.state is not None
+    assert state.state[0].relation_use is not None
+    selected_plans: dict[
+        RelationUseId,
+        SelectedRelationPlan[PlanNode],
+    ] = {
+        state.relation_use.id: cast(
+            "SelectedRelationPlan[PlanNode]",
+            select_relation_plan(_BACKEND, state.relation_use.value.plan),
+        ),
+        state.state[0].relation_use.id: cast(
+            "SelectedRelationPlan[PlanNode]",
+            select_relation_plan(_BACKEND, state.state[0].relation_use.value.plan),
+        ),
+    }
+
+    with pytest.raises(
+        ValueValidationError,
+        match=r"rows\.outer.*missing required columns: ambient",
+    ):
+        evaluate_state_spec(
+            state,
+            point_index=0,
+            ctx=EvalContext(outer_row={"ambient": 1.0}),
+            backend=_BACKEND,
+            selected_plan=selected_plans.__getitem__,
+            location=model_location("state", 0),
+        )
 
 
 def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None:
@@ -829,7 +1237,7 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
     )
     parent = (
         authoring.module("test.collection_state.compute_payload_parent")
-        .use(child(resource_id="source-a"))
+        .use(child.instantiate("payload-child", resource_id="source-a"))
         .build()
     )
     template = parent.template(
@@ -845,10 +1253,14 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
 
     state = resolved.experiment.state[0]
     assert state.state is not None
-    assert state.state[0].value == ComputeResultRef(
-        node_id=NodeId(
-            scope=("test.collection_state.compute_payload_child[0]",),
-            local_id="build-program",
+    assert state.state[0].value_use == ComputeResultRef(
+        value_id=operation_result_id(
+            OperationId(
+                SymbolId(
+                    scope=("payload-child",),
+                    local_id="build-program",
+                )
+            )
         )
     )
 
@@ -876,12 +1288,13 @@ def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:
         authoring.module("test.collection_state.relation_parent")
         .inputs(bias)
         .use(
-            child(
+            child.instantiate(
+                "relation-child",
                 rows=_literal_table(
                     [{"resource_id": "source-a", "base": 1.0}],
                     resource_id=authoring.ScalarType(authoring.StringType()),
                     base=authoring.ScalarType(authoring.FloatType()),
-                ).with_columns(lambda row: {"adjusted": row["base"] + bias})
+                ).with_columns(lambda row: {"adjusted": row["base"] + bias}),
             )
         )
         .build()
@@ -912,7 +1325,15 @@ def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:
 
 def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None:
     state_rows = _state_rows_type()
-    writer_rows = authoring.input("rows", state_rows)
+    writer_rows = authoring.input(
+        "rows",
+        authoring.TableType(
+            columns=tuple(
+                authoring.TableColumn(column.id, column.value_type)
+                for column in state_rows.columns
+            )
+        ),
+    )
     writer = (
         authoring.module("test.collection_state.writer")
         .inputs(writer_rows)
@@ -934,10 +1355,11 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
         authoring.module("test.collection_state.middle")
         .inputs(middle_rows, middle_bias)
         .use(
-            writer(
+            writer.instantiate(
+                "writer",
                 rows=middle_rows.with_columns(
                     lambda row: {"adjusted": row["base"] + middle_bias}
-                )
+                ),
             )
         )
         .build()
@@ -951,7 +1373,8 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
         authoring.module("test.collection_state.outer")
         .inputs(outer_rows, outer_bias)
         .use(
-            middle(
+            middle.instantiate(
+                "middle",
                 middle_rows=outer_rows,
                 bias=outer_bias,
             )
@@ -982,6 +1405,38 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
         (0, "source-a", 1.25),
         (1, "source-a", 1.5),
     ]
+
+
+def test_state_each_rejects_unguarded_optional_column_access() -> None:
+    rows_type = _state_rows_type()
+    rows = authoring.input("rows", rows_type)
+    module = (
+        authoring.module("test.collection_state.optional_column")
+        .inputs(rows)
+        .state_each(
+            rows,
+            resource=lambda row: row["resource_id"],
+            capability="set_offset",
+            field="offset",
+            value=lambda row: row["adjusted"],
+        )
+        .build()
+    )
+    template = module.template(
+        "test.collection_state.optional_column",
+        kind="collection_state",
+    ).build()
+
+    with pytest.raises(CheckFailed) as caught:
+        resolve_experiment(
+            template.bind(
+                rows=({"resource_id": "source-a", "base": 1.0},),
+            ),
+            workspace=Path("/tmp/scopecat-test"),
+            config_profile=load_config(),
+        )
+
+    assert caught.value.problems[0].code == "relation_plan_optional_column_access"
 
 
 def test_state_each_treats_resource_string_as_a_fixed_resource_id() -> None:

@@ -9,6 +9,10 @@ from scopecat._compiler.binding import bind_program
 from scopecat._compiler.bound import BoundPlan
 from scopecat._compiler.environment import ValidatedConfigEnvironment
 from scopecat._compiler.program import TypedProgram
+from scopecat._relation_backend import (
+    REFERENCE_RELATION_BACKEND,
+    RelationBackend,
+)
 from scopecat.authoring._resolution import (
     CompiledInvocation,
     resolve_compiled_invocation,
@@ -44,8 +48,9 @@ def compile_experiment(
     environment: ValidatedConfigEnvironment,
     workspace: str | Path,
     config_source: RunConfigSource | None = None,
+    relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
 ) -> CompiledExperiment:
-    """Run typed linking and config binding for a config-free invocation."""
+    """Run config linking and current local-plan lowering for an invocation."""
 
     resolved = resolve_compiled_invocation(
         invocation,
@@ -53,7 +58,11 @@ def compile_experiment(
         workspace=workspace,
         config_source=config_source,
     )
-    plan = bind_program(resolved.experiment, environment)
+    plan = bind_program(
+        resolved.experiment,
+        environment,
+        relation_backend=relation_backend,
+    )
     plan = replace(
         plan,
         problems=_merge_problem_references((*resolved.problems, *plan.problems)),

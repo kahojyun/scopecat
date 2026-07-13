@@ -1,7 +1,11 @@
 import pytest
 
-from scopecat._relations import (
+from scopecat._relation_backend import (
+    REFERENCE_RELATION_BACKEND,
     ParameterRelationData,
+)
+from scopecat._relation_verification import RelationTypeBindings, RowType
+from scopecat._relations import (
     ScalarExpr,
     col,
     grid,
@@ -12,12 +16,37 @@ from scopecat._relations import (
     outer,
     param,
     parameter_table,
+    range_values,
     table,
     values,
 )
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
+from scopecat.value_types import (
+    Bool,
+    Record,
+    RecordField,
+    Scalar,
+    Series,
+    String,
+    Table,
+    TableColumn,
+)
+from scopecat.value_types import (
+    Quantity as QuantityType,
+)
 from tests.support.records import assert_model_round_trip
+from tests.support.relation_plans import evaluate_relation, evaluate_series
+
+_BOOL = Scalar(Bool())
+_STRING = Scalar(String())
+_FREQUENCY = Scalar(QuantityType(dimension="frequency"))
+
+
+def _table_type(**columns: Scalar) -> Table:
+    return Table(
+        tuple(TableColumn(name, value_type) for name, value_type in columns.items())
+    )
 
 
 def test_quantity_converts_and_combines_compatible_units() -> None:
@@ -31,6 +60,23 @@ def test_quantity_converts_and_combines_compatible_units() -> None:
 
     with pytest.raises(ValueError, match="cannot convert"):
         Quantity(value=1.0, unit="GHz").to("ns")
+
+
+def test_series_materialization_enforces_finiteness_and_progress() -> None:
+    ctx = ParameterRelationData().to_context()
+
+    with pytest.raises(ValueError, match="non-finite"):
+        evaluate_series(
+            REFERENCE_RELATION_BACKEND,
+            linspace(-1e308, 1e308, 3),
+            ctx,
+        )
+    with pytest.raises(ValueError, match="too small to advance"):
+        evaluate_series(
+            REFERENCE_RELATION_BACKEND,
+            range_values(1e308, 1.1e308, 1e-300),
+            ctx,
+        )
 
 
 def test_relation_grid_filter_select_and_round_trip() -> None:
@@ -50,7 +96,7 @@ def test_relation_grid_filter_select_and_round_trip() -> None:
     )
 
     restored = assert_model_round_trip(relation)
-    rows = restored.evaluate()
+    rows = evaluate_relation(REFERENCE_RELATION_BACKEND, restored)
 
     assert rows == [
         {
@@ -108,7 +154,22 @@ def test_parameter_data_drives_variable_key_lookup_and_joins() -> None:
         .select("device_id", "resource_id", "demod", "carrier")
     )
 
-    assert relation.evaluate(params) == [
+    assert evaluate_relation(
+        REFERENCE_RELATION_BACKEND,
+        relation,
+        params,
+        bindings=RelationTypeBindings(
+            parameters={
+                "readout.demod_frequency": _FREQUENCY,
+                "readout_devices": _table_type(
+                    device_id=_STRING,
+                    enabled=_BOOL,
+                    resource_id=_STRING,
+                    frequency=_FREQUENCY,
+                ),
+            }
+        ),
+    ) == [
         {
             "device_id": "r0",
             "resource_id": "adc0",
@@ -184,8 +245,22 @@ def test_series_and_table_inputs_are_durable_typed_expressions() -> None:
     )
     series = assert_model_round_trip(input_series("offsets"))
 
-    assert relation.evaluate(inputs={"gate_rows": rows}) == [rows[1]]
-    assert series.evaluate(
+    assert evaluate_relation(
+        REFERENCE_RELATION_BACKEND,
+        relation,
+        inputs={"gate_rows": rows},
+        bindings=RelationTypeBindings(
+            inputs={
+                "gate_rows": _table_type(
+                    qubit=_STRING,
+                    frequency=_FREQUENCY,
+                )
+            }
+        ),
+    ) == [rows[1]]
+    assert evaluate_series(
+        REFERENCE_RELATION_BACKEND,
+        series,
         ParameterRelationData().to_context(
             inputs={
                 "offsets": [
@@ -193,7 +268,8 @@ def test_series_and_table_inputs_are_durable_typed_expressions() -> None:
                     Quantity(value=10.0, unit="MHz"),
                 ]
             }
-        )
+        ),
+        bindings=RelationTypeBindings(inputs={"offsets": Series(_FREQUENCY)}),
     ) == [
         Quantity(value=-10.0, unit="MHz"),
         Quantity(value=10.0, unit="MHz"),
@@ -201,10 +277,13 @@ def test_series_and_table_inputs_are_durable_typed_expressions() -> None:
 
 
 def test_relation_column_and_entities_series_have_explicit_ordering_rules() -> None:
+    q0 = EntityRef(id="q0", kind="qubit")
+    q1 = EntityRef(id="q1", kind="qubit")
+    q2 = EntityRef(id="q2", kind="qubit")
     relation = literal_rows(
         [
-            {"control": "q0", "partner": "q1"},
-            {"control": "q1", "partner": "q2"},
+            {"control": q0, "partner": q1},
+            {"control": q1, "partner": q2},
         ]
     )
 
@@ -212,8 +291,12 @@ def test_relation_column_and_entities_series_have_explicit_ordering_rules() -> N
     entities = assert_model_round_trip(relation.entities("control", "partner"))
     ctx = ParameterRelationData().to_context()
 
-    assert column.evaluate(ctx) == ["q0", "q1"]
-    assert entities.evaluate(ctx) == ["q0", "q1", "q2"]
+    assert evaluate_series(REFERENCE_RELATION_BACKEND, column, ctx) == [q0, q1]
+    assert evaluate_series(REFERENCE_RELATION_BACKEND, entities, ctx) == [
+        q0,
+        q1,
+        q2,
+    ]
 
 
 def test_record_with_entities_field_round_trips_without_collection_coercion() -> None:
@@ -233,7 +316,9 @@ def test_record_with_entities_field_round_trips_without_collection_coercion() ->
         "kind": "batch",
     }
 
-    table_rows = input_table("rows").evaluate(
+    table_rows = evaluate_relation(
+        REFERENCE_RELATION_BACKEND,
+        input_table("rows"),
         inputs={
             "rows": [
                 {
@@ -243,7 +328,28 @@ def test_record_with_entities_field_round_trips_without_collection_coercion() ->
                     }
                 }
             ]
-        }
+        },
+        bindings=RelationTypeBindings(
+            inputs={
+                "rows": _table_type(
+                    payload=Scalar(
+                        Record(
+                            fields=(
+                                RecordField(
+                                    "entities",
+                                    Series(
+                                        Scalar(
+                                            Record(fields=(RecordField("id", _STRING),))
+                                        )
+                                    ),
+                                ),
+                                RecordField("kind", _STRING),
+                            )
+                        )
+                    )
+                )
+            }
+        ),
     )
     assert type(table_rows[0]["payload"]) is dict
     assert table_rows[0]["payload"] == restored.value
@@ -259,14 +365,18 @@ def test_entity_series_round_trips_as_series_shape() -> None:
 
     restored = assert_model_round_trip(series)
 
-    assert restored.evaluate(ParameterRelationData().to_context()) == [
+    assert evaluate_series(
+        REFERENCE_RELATION_BACKEND,
+        restored,
+        ParameterRelationData().to_context(),
+    ) == [
         EntityRef(id="q0", kind="logical_device"),
         EntityRef(id="q1", kind="logical_device"),
     ]
 
 
-def test_cross_evaluates_right_relation_with_left_row_context() -> None:
-    relation = grid(qubit=["q0", "q1"]).cross(
+def test_lateral_cross_evaluates_right_relation_with_left_row_context() -> None:
+    relation = grid(qubit=["q0", "q1"]).lateral_cross(
         grid(
             frequency=linspace(
                 param(
@@ -300,7 +410,19 @@ def test_cross_evaluates_right_relation_with_left_row_context() -> None:
         }
     )
 
-    assert relation.evaluate(params) == [
+    assert evaluate_relation(
+        REFERENCE_RELATION_BACKEND,
+        relation,
+        params,
+        bindings=RelationTypeBindings(
+            parameters={
+                "qubits": _table_type(
+                    qubit=_STRING,
+                    center_frequency=_FREQUENCY,
+                )
+            }
+        ),
+    ) == [
         {"qubit": "q0", "frequency": Quantity(value=4.9, unit="GHz")},
         {"qubit": "q0", "frequency": Quantity(value=5.0, unit="GHz")},
         {"qubit": "q0", "frequency": Quantity(value=5.1, unit="GHz")},
@@ -333,7 +455,7 @@ def test_relation_join_sort_and_limit_are_durable_operations() -> None:
 
     restored = assert_model_round_trip(relation)
 
-    assert restored.evaluate() == [
+    assert evaluate_relation(REFERENCE_RELATION_BACKEND, restored) == [
         {
             "device_id": "r0",
             "frequency": Quantity(value=5.9, unit="GHz"),
@@ -362,9 +484,20 @@ def test_outer_scope_supports_repeated_state_style_bindings() -> None:
         carrier=outer("lo_frequency") + col("fixed_if")
     )
 
-    assert repeated.evaluate(
+    assert evaluate_relation(
+        REFERENCE_RELATION_BACKEND,
+        repeated,
         params,
         outer_row={"lo_frequency": Quantity(value=5.0, unit="GHz")},
+        bindings=RelationTypeBindings(
+            parameters={
+                "drive_channels": _table_type(
+                    resource_id=_STRING,
+                    fixed_if=_FREQUENCY,
+                )
+            },
+            outer_row=RowType((TableColumn("lo_frequency", _FREQUENCY),)),
+        ),
     ) == [
         {
             "resource_id": "xy0",

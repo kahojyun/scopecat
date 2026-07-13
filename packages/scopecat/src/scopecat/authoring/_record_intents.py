@@ -7,7 +7,17 @@ from dataclasses import dataclass, field, replace
 from typing import Literal, cast
 
 from scopecat._frozen import FrozenMapping, freeze_json_mapping
-from scopecat._qualified_name import qualified_name
+from scopecat._product_identity import (
+    ProductId,
+    ProductUse,
+    parse_product_id,
+    product_use,
+)
+from scopecat._resource_identity import (
+    LogicalResourcePortId,
+    logical_resource_port_id,
+)
+from scopecat._symbols import SymbolId
 from scopecat.authoring._frozen_values import (
     empty_frozen_mapping,
     freeze_runtime_input,
@@ -20,7 +30,6 @@ from scopecat.models.parameter import Quantity
 from scopecat.results import MeasurementDType
 
 type RecordKind = Literal["observable", "artifact", "readback", "expression"]
-type RecordSource = Literal["instrument", "state", "point", "expression", "runtime"]
 type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
 
@@ -47,17 +56,24 @@ class RecordAxisIntent(RecordAxis):
 class RecordIntent:
     id: str
     kind: RecordKind = "observable"
-    source: RecordSource = "instrument"
-    resource: str | None = None
+    resource_port_id: LogicalResourcePortId | None = None
     capability: str | None = None
     product_key: str | None = None
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     axes: tuple[RecordAxisIntent, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    producer_metadata: Mapping[str, MetadataValue] = field(
+        default_factory=empty_frozen_mapping
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
+        object.__setattr__(
+            self,
+            "producer_metadata",
+            freeze_json_mapping(self.producer_metadata),
+        )
 
 
 @dataclass(frozen=True)
@@ -66,14 +82,16 @@ class ModuleProductPort:
     scope: tuple[str, ...] = ()
     origin: tuple[object, ...] = field(default=(), repr=False, compare=False)
     kind: RecordKind = "observable"
-    source: RecordSource = "instrument"
-    resource: str | None = None
+    resource_port_id: LogicalResourcePortId | None = None
     capability: str | None = None
     product_key: str | None = None
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     axes: tuple[RecordAxisIntent, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    producer_metadata: Mapping[str, MetadataValue] = field(
+        default_factory=empty_frozen_mapping
+    )
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -83,18 +101,26 @@ class ModuleProductPort:
             msg = "module product scope segments must be non-empty"
             raise ValueError(msg)
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
+        object.__setattr__(
+            self,
+            "producer_metadata",
+            freeze_json_mapping(self.producer_metadata),
+        )
+
+    @property
+    def product_id(self) -> ProductId:
+        return ProductId(SymbolId(scope=self.scope, local_id=self.id))
 
     @property
     def qualified_id(self) -> str:
-        return _qualified_product_id(self.scope, self.id)
+        return self.product_id.qualified_name
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class ProductRef:
     """Opaque hygienic reference to one module or module-instance product."""
 
-    _scope: tuple[str, ...]
-    _local_id: str
+    _product_id: ProductId
     _origin: tuple[object, ...] = field(repr=False, compare=False)
 
     def __init__(self) -> None:
@@ -105,22 +131,23 @@ class ProductRef:
         raise TypeError(msg)
 
     def __post_init__(self) -> None:
-        if not self._local_id:
-            msg = "product reference local id must be non-empty"
-            raise ValueError(msg)
-        if any(not segment for segment in self._scope):
-            msg = "product reference scope segments must be non-empty"
-            raise ValueError(msg)
+        if not isinstance(cast("object", self._product_id), ProductId):
+            msg = "product references require a nominal product id"
+            raise TypeError(msg)
 
     @property
     def id(self) -> str:
         """The injective, scope-qualified identity used during linking."""
 
-        return _qualified_product_id(self._scope, self._local_id)
+        return self._product_id.qualified_name
+
+    @property
+    def product_id(self) -> ProductId:
+        return self._product_id
 
     @property
     def local_id(self) -> str:
-        return self._local_id
+        return self._product_id.local_id
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -169,7 +196,7 @@ class RecordSelection:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ProductSelectionIntent(RecordSelection):
-    product_id: str
+    product_use: ProductUse
     product_origin: tuple[object, ...] | None = field(
         default=None,
         repr=False,
@@ -179,7 +206,14 @@ class ProductSelectionIntent(RecordSelection):
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
     def __post_init__(self) -> None:
+        if self.record_id is not None and not self.record_id:
+            msg = "record id must be non-empty when provided"
+            raise ValueError(msg)
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
+
+    @property
+    def product_id(self) -> ProductId:
+        return self.product_use.product_id
 
 
 def record_axis(
@@ -223,7 +257,6 @@ def shot_axis(
 def observable(
     id: str,  # noqa: A002
     *,
-    source: RecordSource = "instrument",
     unit: str | None = "ratio",
     resource: str | None = None,
     capability: str | None = None,
@@ -231,18 +264,21 @@ def observable(
     dtype: MeasurementDType = "float64",
     axes: Sequence[RecordAxis] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
+    producer_metadata: Mapping[str, MetadataValue] | None = None,
 ) -> RecordIntent:
     return RecordIntent(
         id=id,
         kind="observable",
-        source=source,
-        resource=resource,
+        resource_port_id=(
+            logical_resource_port_id(resource) if resource is not None else None
+        ),
         capability=capability,
         product_key=product_key,
         unit=unit,
         dtype=dtype,
         axes=record_axis_intents(axes),
         metadata=freeze_json_mapping(metadata or {}),
+        producer_metadata=freeze_json_mapping(producer_metadata or {}),
     )
 
 
@@ -253,19 +289,38 @@ def record_product(
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> RecordSelection:
     selected_product_id = (
-        product_id.id if isinstance(product_id, ProductRef) else product_id
+        product_id.product_id
+        if isinstance(product_id, ProductRef)
+        else parse_product_id(product_id)
     )
     selected_product_origin = (
         internal_product_ref_origin(product_id)
         if isinstance(product_id, ProductRef)
         else None
     )
-    if not selected_product_id:
-        msg = "record product id must be non-empty"
+    return ProductSelectionIntent(
+        product_use=product_use(selected_product_id),
+        product_origin=selected_product_origin,
+        record_id=record_id,
+        metadata=freeze_json_mapping(metadata or {}),
+    )
+
+
+def record_alias(
+    selection: RecordSelection,
+    *,
+    record_id: str,
+    metadata: Mapping[str, MetadataValue] | None = None,
+) -> RecordSelection:
+    """Add another durable projection without creating another product use."""
+
+    selected = product_selection_intent(selection)
+    if not record_id:
+        msg = "record alias id must be non-empty"
         raise ValueError(msg)
     return ProductSelectionIntent(
-        product_id=selected_product_id,
-        product_origin=selected_product_origin,
+        product_use=selected.product_use,
+        product_origin=selected.product_origin,
         record_id=record_id,
         metadata=freeze_json_mapping(metadata or {}),
     )
@@ -274,11 +329,23 @@ def record_product(
 def internal_product_ref(product: ModuleProductPort) -> ProductRef:
     """Create the public reference corresponding to one localized port."""
 
+    return internal_product_ref_from_identity(
+        product.product_id,
+        origin=product.origin,
+    )
+
+
+def internal_product_ref_from_identity(
+    product_id: ProductId,
+    *,
+    origin: tuple[object, ...],
+) -> ProductRef:
+    """Create a public reference from an interface product projection."""
+
     return create_handle(
         ProductRef,
-        _scope=product.scope,
-        _local_id=product.id,
-        _origin=product.origin,
+        _product_id=product_id,
+        _origin=origin,
     )
 
 
@@ -318,10 +385,6 @@ def prefix_product_port(
     )
 
 
-def _qualified_product_id(scope: tuple[str, ...], local_id: str) -> str:
-    return qualified_name(scope, local_id)
-
-
 def record_axis_intents(
     axes: Sequence[RecordAxis],
 ) -> tuple[RecordAxisIntent, ...]:
@@ -338,7 +401,7 @@ def product_selection_intent(selection: RecordSelection) -> ProductSelectionInte
     """Validate and unwrap one public product-selection handle."""
 
     if not isinstance(selection, ProductSelectionIntent):
-        msg = "record selections must be created with record_product"
+        msg = "record selections must be created with record_product or record_alias"
         raise TypeError(msg)
     return selection
 
@@ -404,13 +467,13 @@ __all__ = [
     "RecordIntent",
     "RecordKind",
     "RecordSelection",
-    "RecordSource",
     "entity_axis",
     "localize_product_input_refs",
     "localize_record_input_refs",
     "observable",
     "prefix_product_port",
     "product_selection_intent",
+    "record_alias",
     "record_axis",
     "record_axis_intents",
     "record_product",

@@ -42,10 +42,11 @@ code used to validate Scopecat's notebook-first UX.
 Runnable user-facing examples live one directory up in `examples/quantum`.
 Those examples should stay thin: they open `Workspace` objects, keep reusable
 `ExperimentModule` declarations in focused domain files such as
-`rabi_modules.py`, `readout_modules.py`, `record_modules.py`, and
-`two_qubit_modules.py`; keep reusable `ExperimentTemplate` entrypoints in
-`templates.py`; pass template constants directly to notebooks; prepare or run
-them with fluent terminal calls such as
+`rabi_modules.py`, `readout_modules.py`, and `two_qubit_modules.py`. Products
+live with the module that owns their logical resource instead of depending on
+implicit same-name resource merging. Keep reusable `ExperimentTemplate`
+entrypoints in `templates.py`; pass template constants directly to notebooks;
+prepare or run them with fluent terminal calls such as
 `Workspace.prepare(...).input(...).scan(...).preview()/run()`, inspect
 `Run.data()`, save `Analysis`, try candidate configs, and review candidate run
 comparisons.

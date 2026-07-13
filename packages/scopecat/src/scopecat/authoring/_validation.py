@@ -11,12 +11,16 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Protocol
 
-from scopecat.authoring._context import problem
-from scopecat.authoring._module_handles import (
-    ExperimentModule,
-    module_exposed_input_types_internal,
-    module_exposed_product_ports_internal,
+from scopecat._product_identity import ProductId
+from scopecat._value_availability import (
+    ValueAvailabilityError,
+    ValueStage,
+    require_value_availability,
 )
+from scopecat._value_type_compatibility import is_assignable
+from scopecat.authoring._context import problem
+from scopecat.authoring._module_handles import ExperimentModule
+from scopecat.authoring._module_ir import ModuleIR
 from scopecat.authoring._record_intents import ProductSelectionIntent
 from scopecat.authoring._scan_intents import (
     ParameterScanIntent,
@@ -26,16 +30,10 @@ from scopecat.authoring._scan_intents import (
     iter_scan_leaves,
     scan_point_id,
 )
-from scopecat.authoring._value_availability import (
-    ValueAvailabilityError,
-    ValueStage,
-    require_value_availability,
-)
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_value_ref_availability,
     internal_value_ref_input_id,
-    is_assignable,
 )
 from scopecat.errors import CheckFailed
 from scopecat.problems import ModelLocation, Problem, ProblemPhase, model_location
@@ -87,9 +85,9 @@ def validate_template_bound_inputs(
     """Reject known invocation input errors while leaving missing values open."""
 
     input_types, type_problems = _template_input_types(module, default_scans)
-    allowed = {description.id for description in descriptions} | set(
-        module_exposed_input_types_internal(module)
-    )
+    allowed = {description.id for description in descriptions} | {
+        port.id for port in module.ir.interface.imports
+    }
     unknown = sorted(set(inputs) - allowed)
     problems = list(type_problems)
     if unknown:
@@ -111,37 +109,31 @@ def validate_template_bound_inputs(
     _raise_problems(problems)
 
 
-def validate_scan_availability(
+def validate_invocation_scans(
     scans: Sequence[Scan],
 ) -> None:
-    """Require scan centers and parameter keys to exist during planning."""
+    """Check invocation scan values before semantic or relation lowering."""
 
-    _raise_problems(
-        _scan_availability_problems(scans, location=model_location("scans"))
+    problems = _scan_availability_problems(
+        scans,
+        location=model_location("scans"),
     )
+    for index, scan in enumerate(scans):
+        problems.extend(
+            _scan_length_problems(
+                scan,
+                location=model_location("scans", index),
+            )[1]
+        )
+    _raise_problems(problems)
 
 
 def _template_input_types(
     module: ExperimentModule,
     default_scans: Sequence[Scan],
 ) -> tuple[dict[str, ValueType], list[Problem]]:
-    candidates = _module_exposed_input_type_candidates(module)
+    selected = {port.id: port.value_type for port in module.ir.interface.imports}
     problems: list[Problem] = []
-    selected: dict[str, ValueType] = {}
-    for input_id in sorted(candidates):
-        value_types = candidates[input_id]
-        first = value_types[0]
-        if any(value_type != first for value_type in value_types[1:]):
-            problems.append(
-                problem(
-                    "module_input_type_conflict",
-                    f"module input {input_id} has incompatible value types",
-                    "inputs",
-                    path=(input_id,),
-                )
-            )
-            continue
-        selected[input_id] = first
 
     for scan in default_scans:
         for leaf in iter_scan_leaves(scan):
@@ -159,21 +151,6 @@ def _template_input_types(
                         )
                     )
     return selected, problems
-
-
-def _module_exposed_input_type_candidates(
-    module: ExperimentModule,
-) -> dict[str, list[ValueType]]:
-    result: dict[str, list[ValueType]] = {}
-    for invocation in module.invocations:
-        nested = _module_exposed_input_type_candidates(invocation.module)
-        for input_id, value_types in nested.items():
-            if input_id in invocation.inputs:
-                continue
-            result.setdefault(input_id, []).extend(value_types)
-    for port in module.input_ports:
-        result.setdefault(port.id, []).append(port.value_type)
-    return result
 
 
 def _direct_scan_input_types(
@@ -431,34 +408,37 @@ def _validate_record_selections(
     selections: Sequence[ProductSelectionIntent],
 ) -> list[Problem]:
     problems: list[Problem] = []
-    products = module_exposed_product_ports_internal(module)
-    product_ids = [product.qualified_id for product in products]
-    _unused_product_ids, record_ids = _module_product_and_record_ids(module)
-    duplicate_products = _duplicates(product_ids)
+    products = module.ir.interface.products
+    product_ids = [product.symbol_id for product in products]
+    record_ids = _module_record_ids(module.ir)
+    duplicate_products = {
+        product_id for product_id in product_ids if product_ids.count(product_id) > 1
+    }
     if duplicate_products:
         problems.append(
             problem(
                 "module_product_duplicate",
                 "experiment assembly defines duplicate products: "
-                + ", ".join(duplicate_products),
+                + ", ".join(sorted(item.qualified_name for item in duplicate_products)),
                 "products",
             )
         )
 
     selected_product_ids = [selection.product_id for selection in selections]
-    unknown_products = sorted(set(selected_product_ids) - set(product_ids))
+    unknown_products = set(selected_product_ids) - set(product_ids)
     if unknown_products:
         problems.append(
             problem(
                 "module_product_unknown",
-                "experiment selects unknown products: " + ", ".join(unknown_products),
+                "experiment selects unknown products: "
+                + ", ".join(sorted(item.qualified_name for item in unknown_products)),
                 "records",
             )
         )
-    product_origins_by_id: dict[str, list[tuple[object, ...]]] = {}
+    product_origins_by_id: dict[ProductId, list[tuple[object, ...]]] = {}
     for product in products:
-        product_origins_by_id.setdefault(product.qualified_id, []).append(
-            product.origin
+        product_origins_by_id.setdefault(product.symbol_id, []).append(
+            product.target_origin
         )
     for selection in selections:
         if selection.product_origin is None:
@@ -470,24 +450,15 @@ def _validate_record_selections(
             problems.append(
                 problem(
                     "module_product_foreign_instance",
-                    f"experiment selects product {selection.product_id!r} from "
+                    "experiment selects product "
+                    f"{selection.product_id.qualified_name!r} from "
                     "another module instance",
                     "records",
                 )
             )
-    duplicate_selections = _duplicates(selected_product_ids)
-    if duplicate_selections:
-        problems.append(
-            problem(
-                "module_product_selection_duplicate",
-                "experiment template selects duplicate products: "
-                + ", ".join(duplicate_selections),
-                "records",
-            )
-        )
-
     selected_record_ids = [
-        selection.record_id or selection.product_id for selection in selections
+        selection.record_id or selection.product_id.qualified_name
+        for selection in selections
     ]
     duplicate_records = _duplicates((*record_ids, *selected_record_ids))
     if duplicate_records:
@@ -502,21 +473,12 @@ def _validate_record_selections(
     return problems
 
 
-def _module_product_and_record_ids(
-    module: ExperimentModule,
-) -> tuple[list[str], list[str]]:
-    product_ids = [
-        product.qualified_id
-        for product in module_exposed_product_ports_internal(module)
-    ]
+def _module_record_ids(module: ModuleIR) -> list[str]:
     record_ids: list[str] = []
-    for invocation in module.invocations:
-        _nested_products, nested_records = _module_product_and_record_ids(
-            invocation.module
-        )
-        record_ids.extend(nested_records)
-    record_ids.extend(record.id for record in module.records)
-    return product_ids, record_ids
+    for instance in module.body.instances:
+        record_ids.extend(_module_record_ids(instance.module))
+    record_ids.extend(record.id for record in module.body.records)
+    return record_ids
 
 
 def _duplicates(values: Iterable[str]) -> list[str]:
@@ -536,7 +498,7 @@ def _raise_problems(
 
 
 __all__ = [
-    "validate_scan_availability",
+    "validate_invocation_scans",
     "validate_template_bound_inputs",
     "validate_template_definition",
 ]

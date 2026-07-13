@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, cast
@@ -47,9 +47,12 @@ from scopecat._execution.program import (
     PointProgram,
     ResourceClaim,
 )
+from scopecat._product_identity import ProductUseId
+from scopecat._semantic_graph import ValueId
 from scopecat.instruments.sdk import (
     ApplyReceipt,
     CollectReceipt,
+    CommandChannelBinding,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentReadback,
@@ -220,8 +223,9 @@ class _MutablePointStats:
 class _PointFrame:
     point: PointProgram
     stats: _MutablePointStats = field(default_factory=_MutablePointStats)
-    compute_results: dict[str, object] = field(default_factory=dict)
+    compute_results: dict[ValueId, object] = field(default_factory=dict)
     payloads: dict[str, CommandPayload] = field(default_factory=dict)
+    product_values: dict[ProductUseId, MeasurementValue] = field(default_factory=dict)
     observables: dict[str, MeasurementValue] = field(default_factory=dict)
     instrument_ids: list[str] = field(default_factory=list)
 
@@ -264,7 +268,7 @@ class ExecutionEngine:
         self.current_states: dict[str, InstrumentStateSnapshot] = {}
         self.point_results: list[PointExecutionResult] = []
         self.committed_measurements: list[MeasurementRecord] = []
-        self._compute_cache: dict[tuple[str, object], object] = {}
+        self._compute_cache: dict[tuple[str, str, object], object] = {}
         self._indeterminate = False
         self._interruption: BaseException | None = None
 
@@ -365,8 +369,8 @@ class ExecutionEngine:
                         for stage in point.stages
                         if isinstance(stage, ComputeStage)
                     ),
-                    "compute_node_ids": [
-                        operation.kernel_id
+                    "compute_operation_ids": [
+                        operation.semantic_operation_id
                         for stage in point.stages
                         if isinstance(stage, ComputeStage)
                         for operation in stage.operations
@@ -431,7 +435,8 @@ class ExecutionEngine:
                 state="started",
                 point_index=frame.point.point_index,
                 evidence={
-                    "kernel_id": operation.kernel_id,
+                    "semantic_operation_id": operation.semantic_operation_id,
+                    "implementation_id": operation.implementation_id,
                     **_dependency_summary(operation.dependencies),
                 },
             )
@@ -441,14 +446,14 @@ class ExecutionEngine:
                     name: (
                         value.value
                         if isinstance(value, BoundInput)
-                        else frame.compute_results[value.operation_id]
+                        else frame.compute_results[value.value_id]
                     )
                     for name, value in operation.inputs.items()
                 }
                 raw_result, reused = self._invoke_compute(operation, inputs)
                 result = _unwrap_payload_values(
                     coerce_literal(
-                        operation.output_type,
+                        operation.result.value_type,
                         raw_result,
                         path=("operations", operation.operation_id, "output"),
                     )
@@ -483,7 +488,7 @@ class ExecutionEngine:
                     entry.model_copy(update={"state": "failed", "problems": (problem,)})
                 )
                 return
-            frame.compute_results[operation.operation_id] = result
+            frame.compute_results[operation.result.id] = result
             if reused:
                 frame.stats.compute_reused_node_count += 1
             else:
@@ -499,7 +504,8 @@ class ExecutionEngine:
                     content_hash=content_hash,
                     metadata={
                         "operation_id": operation.operation_id,
-                        "kernel_id": operation.kernel_id,
+                        "semantic_operation_id": operation.semantic_operation_id,
+                        "implementation_id": operation.implementation_id,
                         "point_index": frame.point.point_index,
                         "compute_status": "reused" if reused else "evaluated",
                     },
@@ -512,7 +518,8 @@ class ExecutionEngine:
                     update={
                         "state": "completed",
                         "evidence": {
-                            "kernel_id": operation.kernel_id,
+                            "semantic_operation_id": operation.semantic_operation_id,
+                            "implementation_id": operation.implementation_id,
                             **_dependency_summary(operation.dependencies),
                             "compute_status": "reused" if reused else "evaluated",
                             **(
@@ -550,7 +557,11 @@ class ExecutionEngine:
                 for name, value in sorted(inputs.items())
             )
         )
-        key = (operation.cache_namespace, _versioned_value(selected_key))
+        key = (
+            operation.implementation_id,
+            operation.cache_namespace,
+            _versioned_value(selected_key),
+        )
         if key in self._compute_cache:
             return self._compute_cache[key], True
         result = operation.kernel(**inputs)
@@ -922,9 +933,7 @@ class ExecutionEngine:
         *,
         stage: ExecutionStage,
     ) -> bool:
-        command = operation.command.model_copy(
-            update={"operation_id": operation.operation_id, "attempt": 1}
-        )
+        command = operation.command.model_copy(update={"attempt": 1})
         entry = self._entry(
             operation_id=operation.operation_id,
             stage=stage,
@@ -1085,15 +1094,18 @@ class ExecutionEngine:
     ) -> None:
         if readback.values:
             frame.instrument_ids.append(operation.instrument_id)
-        for product_id, value in readback.values.items():
-            output_id = operation.record_bindings.get(product_id)
-            if output_id is None:
+        bindings = {
+            binding.provider_key: binding for binding in operation.result_bindings
+        }
+        for provider_key, value in readback.values.items():
+            binding = bindings.get(provider_key)
+            if binding is None:
                 self.problems.append(
                     self._problem(
                         "instrument_unexpected_product",
                         (
                             f"instrument {operation.instrument_id} returned "
-                            f"unexpected product {product_id}"
+                            f"unexpected product {provider_key}"
                         ),
                         operation_id=operation.operation_id,
                         point_index=frame.point.point_index,
@@ -1101,30 +1113,34 @@ class ExecutionEngine:
                     )
                 )
                 continue
-            if output_id in frame.observables:
+            if binding.product_use_id in frame.product_values:
                 self.problems.append(
                     self._problem(
-                        "instrument_duplicate_output",
-                        f"point received duplicate observable {output_id}",
+                        "instrument_duplicate_product_use",
+                        "point received more than one result for logical product use "
+                        f"{binding.product_use_id.value}",
                         operation_id=operation.operation_id,
                         point_index=frame.point.point_index,
                         instrument_id=operation.instrument_id,
                     )
                 )
                 continue
-            frame.observables[output_id] = value
+            frame.product_values[binding.product_use_id] = value
 
     def _validate_point_outputs(self, frame: _PointFrame) -> None:
-        missing = self.program.expected_output_ids - set(frame.observables)
-        for output_id in sorted(missing):
-            self.problems.append(
-                self._problem(
-                    "instrument_missing_output",
-                    f"point {frame.point.point_index} is missing observable "
-                    f"{output_id}",
-                    point_index=frame.point.point_index,
+        for projection in self.program.record_projections:
+            value = frame.product_values.get(projection.product_use_id)
+            if value is None:
+                self.problems.append(
+                    self._problem(
+                        "instrument_missing_output",
+                        f"point {frame.point.point_index} is missing observable "
+                        f"{projection.record_id}",
+                        point_index=frame.point.point_index,
+                    )
                 )
-            )
+                continue
+            frame.observables[projection.record_id] = value
 
     def _commit_point_measurement(self, frame: _PointFrame) -> None:
         operation_id = f"{frame.point.point_uid}.commit-measurement"
@@ -1478,18 +1494,52 @@ def _changed_state_fields(
     current: InstrumentStateSnapshot,
 ) -> tuple[list[InstrumentStateCommandField], int]:
     current_by_key = {
-        (field.capability_id, field.field_path): field.value for field in current.fields
+        _execution_state_target_identity(
+            field.capability_id,
+            field.field_path,
+            field.entity_ids,
+            field.channel_bindings,
+        ): field.value
+        for field in current.fields
     }
     fields: list[InstrumentStateCommandField] = []
     skipped = 0
     for target in operation.targets:
-        key = (target.capability_id, target.field_path)
+        key = _execution_state_target_identity(
+            target.capability_id,
+            target.field_path,
+            target.entity_ids,
+            target.channel_bindings,
+        )
         field = target.command_field(resource_id=operation.instrument_id)
-        if not target.channel_bindings and current_by_key.get(key) == target.value:
+        if current_by_key.get(key) == target.value:
             skipped += 1
             continue
         fields.append(field)
     return fields, skipped
+
+
+def _execution_state_target_identity(
+    capability_id: str,
+    field_path: str,
+    entity_ids: Sequence[str],
+    channel_bindings: Sequence[CommandChannelBinding],
+) -> tuple[object, ...]:
+    return (
+        capability_id,
+        field_path,
+        tuple(entity_ids),
+        tuple(
+            (
+                binding.entity_id,
+                binding.channel_id,
+                binding.line_id,
+                binding.capability,
+                tuple(sorted(binding.group_ids)),
+            )
+            for binding in channel_bindings
+        ),
+    )
 
 
 def _referenced_payloads(

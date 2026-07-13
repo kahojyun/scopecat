@@ -48,16 +48,6 @@ from quantum_lab_demo.experiments.readout_modules import (
     READOUT_CAPTURE_MODULE,
     READOUT_MODULE,
 )
-from quantum_lab_demo.experiments.record_modules import (
-    BACKEND_PROBABILITY_RECORD_MODULE,
-    MULTIPLEXED_IQ_RECORD_MODULE,
-    PROBABILITY_1_RECORD_MODULE,
-    PROBABILITY_RECORDS_MODULE,
-    QND_IQ_RECORD_MODULE,
-    RAW_IQ_RECORD_MODULE,
-    READOUT_CLASSIFICATION_RECORDS_MODULE,
-    STABILIZER_IQ_RECORD_MODULE,
-)
 from quantum_lab_demo.experiments.surface_code_modules import (
     TOY_SURFACE_CODE_ROUND_MODULE,
 )
@@ -87,7 +77,33 @@ def _template(
     kind: str,
     modules: tuple[sc.ExperimentModule | sc.ModuleInvocation, ...],
 ) -> sc.TemplateBuilder:
-    return sc.module(f"{id}.root").use(*modules).template(id, kind=kind)
+    input_types: dict[str, sc.ValueType] = {}
+    for selected in modules:
+        if isinstance(selected, sc.ModuleInvocation):
+            continue
+        for port in selected.input_ports:
+            existing = input_types.setdefault(port.id, port.value_type)
+            if existing != port.value_type:
+                raise TypeError(f"conflicting module input {port.id!r}")
+    root_inputs = {
+        input_id: sc.input(input_id, value_type)
+        for input_id, value_type in input_types.items()
+    }
+    instances = tuple(
+        selected
+        if isinstance(selected, sc.ModuleInvocation)
+        else selected.instantiate(
+            selected.id.rsplit(".", maxsplit=1)[-1],
+            **{port.id: root_inputs[port.id] for port in selected.input_ports},
+        )
+        for selected in modules
+    )
+    return (
+        sc.module(f"{id}.root")
+        .inputs(*root_inputs.values())
+        .use(*instances)
+        .template(id, kind=kind)
+    )
 
 
 RABI_TEMPLATE = (
@@ -97,8 +113,6 @@ RABI_TEMPLATE = (
         modules=(
             RABI_MODULE,
             READOUT_CAPTURE_MODULE,
-            PROBABILITY_1_RECORD_MODULE,
-            RAW_IQ_RECORD_MODULE,
         ),
     )
     .experiment_id("rabi")
@@ -108,7 +122,8 @@ RABI_TEMPLATE = (
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
     )
-    .record_product("probability_1", "raw_iq")
+    .record_product("capture/probability_1", record_id="probability_1")
+    .record_product("capture/raw_iq", record_id="raw_iq")
     .label("Rabi")
     .description("Build a experiment-system single-qubit Rabi length scan.")
     .inputs(
@@ -124,7 +139,6 @@ SIMULTANEOUS_RABI_TEMPLATE = (
         modules=(
             SIMULTANEOUS_RABI_MODULE,
             MULTIPLEXED_READOUT_MODULE,
-            MULTIPLEXED_IQ_RECORD_MODULE,
         ),
     )
     .experiment_id("simultaneous-rabi")
@@ -134,7 +148,10 @@ SIMULTANEOUS_RABI_TEMPLATE = (
         span=sc.Quantity(value=60.0, unit="ns"),
         points=5,
     )
-    .record_product("multiplexed_iq")
+    .record_product(
+        "multiplexed_readout/multiplexed_iq",
+        record_id="multiplexed_iq",
+    )
     .label("simultaneous Rabi")
     .description("Build a simultaneous multi-qubit Rabi scan with array readout.")
     .inputs(
@@ -166,8 +183,6 @@ FLUX_BACKGROUND_RABI_TEMPLATE = (
             FLUX_BACKGROUND_MODULE,
             RABI_MODULE,
             READOUT_CAPTURE_MODULE,
-            PROBABILITY_1_RECORD_MODULE,
-            RAW_IQ_RECORD_MODULE,
         ),
     )
     .experiment_id("flux-background-rabi")
@@ -177,7 +192,8 @@ FLUX_BACKGROUND_RABI_TEMPLATE = (
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
     )
-    .record_product("probability_1", "raw_iq")
+    .record_product("capture/probability_1", record_id="probability_1")
+    .record_product("capture/raw_iq", record_id="raw_iq")
     .label("flux-background Rabi")
     .description("Build a Rabi scan while holding a coupler flux-bias background.")
     .inputs(
@@ -202,8 +218,6 @@ SYSTEM_BACKGROUND_RABI_TEMPLATE = (
             SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE,
             RABI_MODULE,
             READOUT_CAPTURE_MODULE,
-            PROBABILITY_1_RECORD_MODULE,
-            RAW_IQ_RECORD_MODULE,
         ),
     )
     .experiment_id("system-background-rabi")
@@ -213,7 +227,8 @@ SYSTEM_BACKGROUND_RABI_TEMPLATE = (
         span=sc.Quantity(value=80.0, unit="ns"),
         points=5,
     )
-    .record_product("probability_1", "raw_iq")
+    .record_product("capture/probability_1", record_id="probability_1")
+    .record_product("capture/raw_iq", record_id="raw_iq")
     .label("parameter-table background Rabi")
     .description(
         "Build a Rabi scan while materializing all coupler parking flux "
@@ -229,12 +244,7 @@ READOUT_TEMPLATE = (
     _template(
         READOUT_TEMPLATE_ID,
         kind="readout_frequency",
-        modules=(
-            READOUT_MODULE,
-            READOUT_CAPTURE_MODULE,
-            RAW_IQ_RECORD_MODULE,
-            READOUT_CLASSIFICATION_RECORDS_MODULE,
-        ),
+        modules=(READOUT_MODULE,),
     )
     .experiment_id("readout-frequency")
     .scan(
@@ -243,8 +253,23 @@ READOUT_TEMPLATE = (
         span=sc.Quantity(value=100.0, unit="MHz"),
         points=5,
     )
-    .record_product("raw_iq", "state0_iq", "state1_iq")
-    .record_product("state0_iq_stdev", "state1_iq_stdev")
+    .record_product("readout_frequency/raw_iq", record_id="raw_iq")
+    .record_product(
+        "readout_frequency/state0_iq",
+        record_id="state0_iq",
+    )
+    .record_product(
+        "readout_frequency/state1_iq",
+        record_id="state1_iq",
+    )
+    .record_product(
+        "readout_frequency/state0_iq_stdev",
+        record_id="state0_iq_stdev",
+    )
+    .record_product(
+        "readout_frequency/state1_iq_stdev",
+        record_id="state1_iq_stdev",
+    )
     .label("readout frequency")
     .description("Build a experiment-system readout frequency scan.")
     .inputs(
@@ -257,13 +282,13 @@ MULTIPLEXED_READOUT_TEMPLATE = (
     _template(
         MULTIPLEXED_READOUT_TEMPLATE_ID,
         kind="multiplexed_readout",
-        modules=(
-            MULTIPLEXED_READOUT_MODULE,
-            MULTIPLEXED_IQ_RECORD_MODULE,
-        ),
+        modules=(MULTIPLEXED_READOUT_MODULE,),
     )
     .experiment_id("multiplexed-readout")
-    .record_product("multiplexed_iq")
+    .record_product(
+        "multiplexed_readout/multiplexed_iq",
+        record_id="multiplexed_iq",
+    )
     .label("multiplexed readout")
     .description("Build a simultaneous readout over an entity series.")
     .inputs(
@@ -279,11 +304,7 @@ MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
     _template(
         MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE_ID,
         kind="multiplexed_readout_calibration",
-        modules=(
-            MULTIPLEXED_READOUT_PULSE_MODULE,
-            MULTIPLEXED_READOUT_MODULE,
-            MULTIPLEXED_IQ_RECORD_MODULE,
-        ),
+        modules=(MULTIPLEXED_READOUT_PULSE_MODULE,),
     )
     .experiment_id("multiplexed-readout-calibration")
     .scan(
@@ -292,7 +313,10 @@ MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
         span=sc.Quantity(value=120.0, unit="MHz"),
         points=5,
     )
-    .record_product("multiplexed_iq")
+    .record_product(
+        "multiplexed_pulse/multiplexed_iq",
+        record_id="multiplexed_iq",
+    )
     .label("multiplexed readout calibration")
     .description("Build a shared readout-frequency scan returning an entity series.")
     .inputs(
@@ -319,13 +343,13 @@ SQG_RB_TEMPLATE = (
         modules=(
             SQG_RB_MODULE,
             READOUT_CAPTURE_MODULE,
-            PROBABILITY_RECORDS_MODULE,
-            RAW_IQ_RECORD_MODULE,
         ),
     )
     .experiment_id("sqg-rb")
     .scan(CLIFFORD_COUNT, (4, 8, 16))
-    .record_product("probability_0", "probability_1", "raw_iq")
+    .record_product("capture/probability_0", record_id="probability_0")
+    .record_product("capture/probability_1", record_id="probability_1")
+    .record_product("capture/raw_iq", record_id="raw_iq")
     .label("SQG RB")
     .description("Build a experiment-system single-qubit randomized benchmarking scan.")
     .inputs(
@@ -342,13 +366,13 @@ CZ_RB_TEMPLATE = (
         modules=(
             CZ_RB_MODULE,
             READOUT_CAPTURE_MODULE,
-            PROBABILITY_RECORDS_MODULE,
-            RAW_IQ_RECORD_MODULE,
         ),
     )
     .experiment_id("cz-rb")
     .scan(CLIFFORD_COUNT, (2, 4, 8))
-    .record_product("probability_0", "probability_1", "raw_iq")
+    .record_product("capture/probability_0", record_id="probability_0")
+    .record_product("capture/probability_1", record_id="probability_1")
+    .record_product("capture/raw_iq", record_id="raw_iq")
     .label("CZ RB")
     .description("Build a experiment-system two-qubit CZ randomized benchmarking scan.")
     .inputs(
@@ -368,8 +392,6 @@ CZ_CHEVRON_TEMPLATE = (
         modules=(
             CZ_CHEVRON_MODULE,
             READOUT_CAPTURE_MODULE,
-            PROBABILITY_RECORDS_MODULE,
-            RAW_IQ_RECORD_MODULE,
         ),
     )
     .experiment_id("cz-chevron")
@@ -379,7 +401,9 @@ CZ_CHEVRON_TEMPLATE = (
         (0.18, 0.24, 0.30),
         unit="arb",
     )
-    .record_product("probability_0", "probability_1", "raw_iq")
+    .record_product("capture/probability_0", record_id="probability_0")
+    .record_product("capture/probability_1", record_id="probability_1")
+    .record_product("capture/raw_iq", record_id="raw_iq")
     .label("CZ chevron")
     .description("Build a two-dimensional CZ amplitude-duration calibration scan.")
     .inputs(
@@ -398,14 +422,14 @@ SPECTATOR_CZ_TEMPLATE = (
             SPECTATOR_FLUX_BACKGROUND_MODULE,
             CZ_CHEVRON_MODULE,
             READOUT_CAPTURE_MODULE,
-            PROBABILITY_RECORDS_MODULE,
-            RAW_IQ_RECORD_MODULE,
         ),
     )
     .experiment_id("spectator-cz-calibration")
     .scan(COUPLER_DURATION, (24, 36), unit="ns")
     .scan(COUPLER_AMPLITUDE, (0.18, 0.24), unit="arb")
-    .record_product("probability_0", "probability_1", "raw_iq")
+    .record_product("capture/probability_0", record_id="probability_0")
+    .record_product("capture/probability_1", record_id="probability_1")
+    .record_product("capture/raw_iq", record_id="raw_iq")
     .label("spectator-aware CZ calibration")
     .description(
         "Build a CZ calibration while maintaining explicit spectator "
@@ -433,13 +457,15 @@ PARALLEL_GATE_SET_TEMPLATE = (
         kind="parallel_gate_set",
         modules=(
             PARALLEL_GATE_SET_MODULE,
-            MULTIPLEXED_READOUT_MODULE(qubits=PARALLEL_GATE_QUBITS),
-            MULTIPLEXED_IQ_RECORD_MODULE(qubits=PARALLEL_GATE_QUBITS),
+            MULTIPLEXED_READOUT_MODULE.instantiate(
+                "parallel-readout",
+                qubits=PARALLEL_GATE_QUBITS,
+            ),
         ),
     )
     .experiment_id("parallel-gate-set")
     .scan(GATE_DURATION, (28, 36), unit="ns")
-    .record_product("multiplexed_iq")
+    .record_product("parallel-readout/multiplexed_iq", record_id="multiplexed_iq")
     .label("parallel gate set")
     .description(
         "Build a table-defined set of disjoint CZ calibrations in one logical "
@@ -470,13 +496,10 @@ TOY_SURFACE_CODE_ROUND_TEMPLATE = (
     _template(
         TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
         kind="toy_surface_code_round",
-        modules=(
-            TOY_SURFACE_CODE_ROUND_MODULE,
-            STABILIZER_IQ_RECORD_MODULE,
-        ),
+        modules=(TOY_SURFACE_CODE_ROUND_MODULE,),
     )
     .experiment_id("toy-surface-code-round")
-    .record_product("stabilizer_iq")
+    .record_product("toy_round/stabilizer_iq", record_id="stabilizer_iq")
     .label("toy surface-code round")
     .description(
         "Build a small stabilizer-round schedule with drive, coupler, and "
@@ -515,13 +538,10 @@ QND_REPEATED_MEASUREMENT_TEMPLATE = (
     _template(
         QND_REPEATED_MEASUREMENT_TEMPLATE_ID,
         kind="qnd_repeated_measurement",
-        modules=(
-            QND_REPEATED_MEASUREMENT_MODULE,
-            QND_IQ_RECORD_MODULE,
-        ),
+        modules=(QND_REPEATED_MEASUREMENT_MODULE,),
     )
     .experiment_id("qnd-repeated-measurement")
-    .record_product("qnd_iq")
+    .record_product("qnd_repeated_measurement/qnd_iq", record_id="qnd_iq")
     .label("QND repeated measurement")
     .description("Build a repeated readout returning one dense round-by-shot array.")
     .inputs(
@@ -542,13 +562,13 @@ BACKEND_BATCH_TEMPLATE = (
     _template(
         BACKEND_BATCH_TEMPLATE_ID,
         kind="backend_batch_out_of_order",
-        modules=(
-            BACKEND_BATCH_MODULE,
-            BACKEND_PROBABILITY_RECORD_MODULE,
-        ),
+        modules=(BACKEND_BATCH_MODULE,),
     )
     .experiment_id("backend-batch-out-of-order")
-    .record_product("backend_probabilities")
+    .record_product(
+        "batch/backend_probabilities",
+        record_id="backend_probabilities",
+    )
     .label("backend batch out-of-order")
     .description(
         "Build a backend-batch mock that keeps logical batch points inside one "
