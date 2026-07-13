@@ -5,6 +5,9 @@
   "automergeType": "branch",
   "platformAutomerge": false,
   "prCreation": "not-pending",
+  "lockFileMaintenance": {
+    "minimumReleaseAge": null
+  },
   "extends": [
     "config:best-practices",
     ":semanticCommitTypeAll(chore)",
