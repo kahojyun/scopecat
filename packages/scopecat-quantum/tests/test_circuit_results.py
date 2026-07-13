@@ -6,27 +6,27 @@ from typing import cast
 
 import pytest
 from scopecat import Quantity
-from scopecat._compiler.environment import validate_config_environment
-from scopecat._compiler.linked import link_program
-from scopecat._compiler.point_domain import PointDomain
-from scopecat._compiler.program import (
+from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.relations.model import literal_rows
+from scopecat.compiler.relations.point_domain import point_rows
+from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
+from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.program import (
     TypedProgram,
     product_output,
     record_product,
 )
-from scopecat._point_domain_algebra import point_rows
-from scopecat._relation_verification import RelationTypeBindings
-from scopecat._relations import literal_rows
-from scopecat._value_expressions import verify_table_value_expr
-from scopecat.config_profiles import load_config_profile
-from scopecat.domain_invocation import (
+from scopecat.config.profiles import load_config_profile
+from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
+from scopecat.sdk.domain.invocation import (
     LogicalPointId,
     MaterializedLinkedPointBatch,
     MaterializedLinkedPoints,
     ProductUseId,
     materialize_linked_points,
 )
-from scopecat.value_types import Float, Scalar, Table, TableColumn
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,

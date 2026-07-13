@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 import scopecat as sc
-from scopecat.instruments import (
+from scopecat.kernel.state import StateLiteral
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    Device,
+    InstrumentSpec,
+    RoutingResource,
+)
+from scopecat.records.parameter import Quantity
+from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
@@ -14,14 +22,6 @@ from scopecat.instruments import (
     quantity_field,
     simple_capability,
 )
-from scopecat.models.config import (
-    ConfigProfileSnapshot,
-    Device,
-    InstrumentSpec,
-    RoutingResource,
-)
-from scopecat.models.parameter import Quantity
-from scopecat.models.state import StateLiteral
 
 from quantum_lab_demo.reference_experiments.fake_x_count_experiment import (
     DEFAULT_X_COUNTS,

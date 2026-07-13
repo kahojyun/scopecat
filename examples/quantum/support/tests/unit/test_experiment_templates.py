@@ -10,13 +10,13 @@ from scopecat.authoring import (
     ExperimentInvocation,
     ValueValidationError,
 )
-from scopecat.authoring._resolution import resolve_experiment
-from scopecat.errors import CheckFailed
-from scopecat.instruments import PayloadRef
-from scopecat.models.artifact import CommandPayload
-from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.parameter import Quantity
-from scopecat.runtime import RuntimePayloadObservation
+from scopecat.execution.observation import RuntimePayloadObservation
+from scopecat.kernel.errors import CheckFailed
+from scopecat.planning.authoring import resolve_experiment
+from scopecat.records.artifact import CommandPayload
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.parameter import Quantity
+from scopecat.sdk.instruments import PayloadRef
 
 from quantum_lab_demo.experiments import (
     BACKEND_BATCH_TEMPLATE_ID,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
-from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot
 
 from quantum_lab_demo.fixtures import (
     DEFAULT_EXPERIMENT_WORKSPACE,

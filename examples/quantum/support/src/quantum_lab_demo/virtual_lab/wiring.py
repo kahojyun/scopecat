@@ -6,8 +6,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Self
 
-from scopecat.config_profiles import load_config_profile
-from scopecat.models.config import (
+from scopecat.config.profiles import load_config_profile
+from scopecat.records.config import (
     Channel,
     ConfigProfileSnapshot,
     Device,
@@ -21,7 +21,7 @@ from scopecat.models.config import (
     Topology,
     TopologyLine,
 )
-from scopecat.models.entity import EntityRef
+from scopecat.records.entity import EntityRef
 
 from quantum_lab_demo.fixtures import EXPERIMENT_FIXTURE_DIR
 

@@ -11,16 +11,9 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Protocol
 
-from scopecat._product_identity import ProductId
-from scopecat._value_availability import (
-    ValueAvailabilityError,
-    ValueStage,
-    require_value_availability,
-)
-from scopecat._value_type_compatibility import is_assignable
-from scopecat.authoring._context import problem
 from scopecat.authoring._module_handles import ExperimentModule
 from scopecat.authoring._module_ir import ModuleIR
+from scopecat.authoring._problems import authoring_problem as problem
 from scopecat.authoring._record_intents import ProductSelectionIntent
 from scopecat.authoring._scan_intents import (
     ParameterScanIntent,
@@ -35,10 +28,22 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_availability,
     internal_value_ref_input_id,
 )
-from scopecat.errors import CheckFailed
-from scopecat.problems import ModelLocation, Problem, ProblemPhase, model_location
-from scopecat.value_types import ValueType
-from scopecat.value_validation import ValueValidationError, validate_literal
+from scopecat.compiler.semantic.availability import (
+    ValueAvailabilityError,
+    ValueStage,
+    require_value_availability,
+)
+from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.problems import (
+    ModelLocation,
+    Problem,
+    ProblemPhase,
+    model_location,
+)
+from scopecat.kernel.product_identity import ProductId
+from scopecat.kernel.value_type_compatibility import is_assignable
+from scopecat.kernel.value_types import ValueType
+from scopecat.kernel.value_validation import ValueValidationError, validate_literal
 
 
 class TemplateInputDescription(Protocol):

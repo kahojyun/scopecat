@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from pydantic import BaseModel, ConfigDict
 
-from scopecat._execution.evidence import run_outcome_ref
-from scopecat._execution.journal import ExecutionTransition
-from scopecat._storage.local import LocalExecutionJournal, LocalRunStore
-from scopecat.models.run import RunLifecycle, RunOutcome
+from scopecat.application.services import WorkspaceServices
+from scopecat.execution.evidence import run_outcome_ref
+from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.run import RunLifecycle, RunOutcome
 
 
 class RunExecutionInspection(BaseModel):
@@ -31,13 +29,14 @@ class RunExecutionInspection(BaseModel):
 def inspect_run_execution(
     *,
     run_id: str,
-    workspace: str | Path,
+    services: WorkspaceServices,
 ) -> RunExecutionInspection:
     """Inspect durable execution state without mutating or recovering the run."""
 
-    storage = LocalRunStore(Path(workspace))
+    execution = services.execution
+    storage = execution.runs
     manifest = storage.read_manifest(run_id)
-    transitions = LocalExecutionJournal(workspace, run_id=run_id).entries()
+    transitions = execution.journal_for(run_id).entries()
     persisted_outcome = (
         storage.read_model(run_id, run_outcome_ref(), RunOutcome)
         if storage.exists(run_id, run_outcome_ref())

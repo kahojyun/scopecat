@@ -117,7 +117,7 @@ domain identities.
 The batch also feeds a separate pure result-mapping boundary. Core first
 materializes logical points from a `LinkedPlan` after a whole-program
 relation-backend preflight, without selecting local Python compute or
-instrument collection. The public `scopecat.domain_invocation` adapter SPI
+instrument collection. The public `scopecat.sdk.domain.invocation` adapter SPI
 then seals an opaque entry/result inventory against the complete canonical
 logical-point and product-use
 inventory. `scopecat-quantum` specializes that proof as

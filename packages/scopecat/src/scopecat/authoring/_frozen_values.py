@@ -6,11 +6,11 @@ import math
 from collections.abc import Mapping
 from typing import Never, cast
 
-import scopecat._frozen as _frozen
+import scopecat.kernel.frozen as _frozen
 from scopecat.authoring._value_refs import ValueRef
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import Quantity
-from scopecat.models.value import PayloadValue
+from scopecat.kernel.payloads import PayloadValue
+from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import Quantity
 
 
 def empty_frozen_mapping() -> Mapping[str, Never]:

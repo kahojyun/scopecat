@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from scopecat._frozen import freeze_json_mapping
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
     ResourcePort,
@@ -37,6 +36,7 @@ from scopecat.authoring._record_intents import (
     RecordIntent,
 )
 from scopecat.authoring.values import MetadataValue
+from scopecat.kernel.frozen import freeze_json_mapping
 
 
 def module_from_parts_internal(

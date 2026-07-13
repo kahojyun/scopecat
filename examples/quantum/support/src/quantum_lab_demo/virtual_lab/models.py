@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from scopecat.instruments import StateValue
+from scopecat.sdk.instruments import StateValue
 
 
 class VirtualResponseProfile(BaseModel):

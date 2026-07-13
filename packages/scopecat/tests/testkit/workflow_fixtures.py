@@ -1,0 +1,187 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from scopecat.authoring import (
+    ExperimentInvocation,
+    QuantityType,
+    ScalarType,
+    parameter,
+)
+from scopecat.compiler.frontend.invocation import (
+    PreparedInvocation,
+    prepare_invocation,
+)
+from scopecat.compiler.typed.program import TypedProgram
+from scopecat.composition.local import local_run_repository
+from scopecat.config.profiles import load_config_profile
+from scopecat.planning.authoring import resolve_experiment_with_config
+from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.data_artifact import (
+    DataArrayArtifact,
+    DataArrayDimension,
+    DataArraySchema,
+    DataArrayVariable,
+    DataColumn,
+    DataTableArtifact,
+    DataTableSchema,
+)
+from scopecat.records.parameter import Quantity
+from scopecat.runs.access import (
+    artifact_storage_ref,
+    dataset_storage_ref,
+)
+from tests.testkit.authoring import DRIVE_FREQUENCY_POINT, SIMPLE_MODULE
+from tests.testkit.paths import CORE_FIXTURE_DIR as WORKFLOW_FIXTURE_DIR
+
+
+def load_config() -> ConfigProfileSnapshot:
+    return load_config_profile(WORKFLOW_FIXTURE_DIR / "config-profile.json")
+
+
+def load_experiment() -> TypedProgram:
+    """Compile the simple-scan DSL fixture into a transient typed program."""
+
+    return resolve_experiment_with_config(
+        load_invocation(),
+        config=load_config(),
+        workspace=WORKFLOW_FIXTURE_DIR,
+    ).experiment
+
+
+def load_invocation() -> ExperimentInvocation:
+    return (
+        SIMPLE_MODULE.template("test.workflow_scan", kind="simple_scan")
+        .experiment_id("simple-scan")
+        .scan(
+            DRIVE_FREQUENCY_POINT,
+            center=parameter(
+                "drive_frequency",
+                ScalarType(QuantityType()),
+            ),
+            span=Quantity(value=200.0, unit="MHz"),
+            points=3,
+        )
+        .build()
+        .bind(subject="q0")
+    )
+
+
+def load_prepared_invocation() -> PreparedInvocation:
+    return prepare_invocation(load_invocation())
+
+
+def config_with_instrument_id(instrument_id: str) -> ConfigProfileSnapshot:
+    config = load_config()
+    instrument = config.instrument_registry.instruments[0].model_copy(
+        update={"id": instrument_id}
+    )
+    system = config.system.model_copy(
+        update={
+            "instrument_registry": config.instrument_registry.model_copy(
+                update={"instruments": [instrument]}
+            ),
+            "routing": config.routing.model_copy(
+                update={
+                    "resources": [
+                        resource.model_copy(update={"id": instrument_id})
+                        for resource in config.routing.resources
+                    ]
+                }
+            ),
+        }
+    )
+    connection = config.connection_profile.connections[0].model_copy(
+        update={
+            "id": f"{instrument_id}-connection",
+            "instrument_id": instrument_id,
+        }
+    )
+    environment = config.environment.model_copy(
+        update={
+            "connection_profile": config.connection_profile.model_copy(
+                update={"connections": [connection]}
+            )
+        }
+    )
+    return config.model_copy(update={"system": system, "environment": environment})
+
+
+def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
+    storage = local_run_repository(workspace)
+    manifest = storage.read_manifest(run_id)
+    metrics_schema = DataTableSchema(
+        columns=[
+            DataColumn(id="metric", role="identifier", dtype="string"),
+            DataColumn(id="value", role="observable", dtype="float64", unit="ratio"),
+        ],
+        primary_key=["metric"],
+    )
+    matrix_schema = DataArraySchema(
+        dimensions=[
+            DataArrayDimension(id="prepared_state", kind="state", size=2),
+            DataArrayDimension(id="assigned_state", kind="state", size=2),
+        ],
+        variables=[
+            DataArrayVariable(
+                id="readout_probability",
+                role="observable",
+                dtype="float64",
+                unit="ratio",
+                dims=["prepared_state", "assigned_state"],
+                shape=[2, 2],
+            )
+        ],
+        primary_variables=["readout_probability"],
+    )
+    metrics_entry = RunDatasetEntry(
+        id="metrics",
+        kind="data_table",
+        media_type="application/json",
+        role="analysis",
+        schema=metrics_schema.model_dump(mode="json"),
+        metadata={"data_shape": "table"},
+    )
+    matrix_entry = RunDatasetEntry(
+        id="readout-matrix",
+        kind="data_array",
+        media_type="application/json",
+        role="analysis",
+        schema=matrix_schema.model_dump(mode="json"),
+        metadata={"data_shape": "array"},
+    )
+    metrics_ref = dataset_storage_ref(metrics_entry)
+    matrix_ref = dataset_storage_ref(matrix_entry)
+    storage.ref_path(run_id, metrics_ref).parent.mkdir(parents=True, exist_ok=True)
+    storage.ref_path(run_id, metrics_ref).write_text(
+        DataTableArtifact(
+            schema=metrics_schema,
+            rows=[{"metric": "visibility", "value": 0.98}],
+        ).model_dump_json(by_alias=True)
+    )
+    storage.ref_path(run_id, matrix_ref).parent.mkdir(parents=True, exist_ok=True)
+    storage.ref_path(run_id, matrix_ref).write_text(
+        DataArrayArtifact(
+            schema=matrix_schema,
+            variables={"readout_probability": [[0.99, 0.03], [0.01, 0.97]]},
+        ).model_dump_json(by_alias=True)
+    )
+    manifest.datasets.extend([metrics_entry, matrix_entry])
+    storage.write_manifest(manifest)
+
+
+def attach_binary_artifact(workspace: Path, run_id: str) -> None:
+    storage = local_run_repository(workspace)
+    manifest = storage.read_manifest(run_id)
+    binary = RunArtifactEntry(
+        id="binary-artifact",
+        kind="binary",
+        media_type="application/octet-stream",
+    )
+    binary_ref = artifact_storage_ref(binary)
+    binary_path = storage.ref_path(run_id, binary_ref)
+    binary_path.parent.mkdir(parents=True, exist_ok=True)
+    binary_path.write_bytes(b"\x00\x01")
+    manifest.artifacts.append(binary)
+    storage.write_manifest(manifest)

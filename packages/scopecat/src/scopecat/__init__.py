@@ -1,155 +1,359 @@
-"""Notebook-first public workflow facade."""
+"""Notebook-first public workflow facade.
 
-from scopecat.authoring import (
-    BoolType,
-    Compute,
-    ComputeInput,
-    EntityType,
-    ExperimentInvocation,
-    ExperimentModule,
-    ExperimentTemplate,
-    FloatType,
-    InputDescription,
-    IntType,
-    MetadataValue,
-    ModuleBuilder,
-    ModuleInput,
-    ModuleInvocation,
-    ModuleOutputs,
-    ParameterKeyInput,
-    PayloadType,
-    ProductOutputs,
-    ProductRef,
-    QuantityType,
-    RecordAxis,
-    RecordField,
-    RecordSelection,
-    RecordType,
-    ResolvedRoute,
-    RouteRef,
-    RouteType,
-    RuntimeInput,
-    ScalarInput,
-    ScalarType,
-    SeriesType,
-    StringType,
-    TableColumn,
-    TableRow,
-    TableType,
-    TemplateBuilder,
-    ValueRef,
-    ValueType,
-    compute,
-    entity_axis,
-    module,
-    parameter,
-    parameter_lookup,
-    point,
-    record_alias,
-    record_axis,
-    record_product,
-    route,
-    shot_axis,
-)
-from scopecat.authoring import (
-    input as input,  # noqa: A004
-)
-from scopecat.authoring.scans import (
-    ParameterRow,
-    Scan,
-    axis,
-    cartesian,
-    param_axis,
-    param_row,
-)
-from scopecat.authoring.scans import zip as zip  # noqa: A004
-from scopecat.checks import (
-    CheckPhase,
-    CheckPhaseReport,
-    CheckStatus,
-    ExperimentCheckReport,
-)
-from scopecat.domain_execution import (
-    DomainExecutionAdapter,
-    DomainExecutionCapabilities,
-    DomainExecutionRequest,
-    PreparedDomainExecution,
-    erase_prepared_domain_execution,
-)
-from scopecat.execution_backend import (
-    ExecutionBackend,
-    ExecutionOptions,
-    FusionMode,
-)
-from scopecat.models.entity import EntityRef, entity_ref
-from scopecat.parameters import (
-    delete_parameter_rows,
-    insert_parameter_rows,
-    replace_scalar_parameter,
-    replace_series_parameter,
-    replace_table_parameter,
-    update_parameter_rows,
-)
-from scopecat.preview import (
-    ExperimentPreview,
-    ExperimentPreviewComputeStep,
-    PreviewExperimentResult,
-    ValidateExperimentResult,
-)
-from scopecat.problems import (
-    ExternalLocation,
-    ModelLocation,
-    Problem,
-    ProblemCategory,
-    ProblemImpact,
-    ProblemLocation,
-    ProblemPhase,
-    RuntimeLocation,
-    StorageLocation,
-    blocking_problem,
-    model_location,
-)
-from scopecat.results import MeasurementDatasetSchema
-from scopecat.runtime import (
-    RunFinishedEvent,
-    RunStartedEvent,
-    RuntimeEvent,
-    RuntimeEventSink,
-    RuntimePayloadObservation,
-    RuntimePayloadObserver,
-    RuntimeProgress,
-    RuntimeTransitionEvent,
-)
-from scopecat.session import (
-    Analysis,
-    AnalysisContext,
-    AnalysisInput,
-    AnalysisOutput,
-    AnalysisStep,
-    CandidateConfig,
-    ComparisonHandle,
-    Data,
-    EarlyStopDecision,
-    Experiment,
-    PreparedExperiment,
-    Quantity,
-    RunHandle,
-    SavedAnalysis,
-    Workspace,
-    decide_online_convergence,
-    open,  # noqa: A004
-)
-from scopecat.session_data import DataDatasetSummary, DataSummary
-from scopecat.system_overview import (
-    SystemChannelSummary,
-    SystemEntitySummary,
-    SystemGroupSummary,
-    SystemLineSummary,
-    SystemResourceSummary,
-    SystemSummary,
-)
+The facade is intentionally lazy: importing an internal Scopecat module does
+not construct the authoring, compiler, session, and storage dependency graph.
+"""
 
-Run = RunHandle
+from __future__ import annotations
+
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from scopecat.api.data import DataDatasetSummary, DataSummary
+    from scopecat.api.system_overview import (
+        SystemChannelSummary,
+        SystemEntitySummary,
+        SystemGroupSummary,
+        SystemLineSummary,
+        SystemResourceSummary,
+        SystemSummary,
+    )
+    from scopecat.api.workspace import (
+        Analysis,
+        AnalysisContext,
+        AnalysisInput,
+        AnalysisOutput,
+        AnalysisStep,
+        CandidateConfig,
+        ComparisonHandle,
+        Data,
+        EarlyStopDecision,
+        Experiment,
+        PreparedExperiment,
+        Quantity,
+        RunHandle,
+        SavedAnalysis,
+        Workspace,
+        decide_online_convergence,
+    )
+    from scopecat.authoring import (
+        BoolType,
+        Compute,
+        ComputeInput,
+        EntityType,
+        ExperimentInvocation,
+        ExperimentModule,
+        ExperimentTemplate,
+        FloatType,
+        InputDescription,
+        IntType,
+        MetadataValue,
+        ModuleBuilder,
+        ModuleInput,
+        ModuleInvocation,
+        ModuleOutputs,
+        ParameterKeyInput,
+        PayloadType,
+        ProductOutputs,
+        ProductRef,
+        QuantityType,
+        RecordAxis,
+        RecordField,
+        RecordSelection,
+        RecordType,
+        ResolvedRoute,
+        RouteRef,
+        RouteType,
+        RuntimeInput,
+        ScalarInput,
+        ScalarType,
+        SeriesType,
+        StringType,
+        TableColumn,
+        TableRow,
+        TableType,
+        TemplateBuilder,
+        ValueRef,
+        ValueType,
+        compute,
+        entity_axis,
+        module,
+        parameter,
+        parameter_lookup,
+        point,
+        record_alias,
+        record_axis,
+        record_product,
+        route,
+        shot_axis,
+    )
+    from scopecat.authoring import (
+        input as input,  # noqa: A004
+    )
+    from scopecat.authoring.scans import (
+        ParameterRow,
+        Scan,
+        axis,
+        cartesian,
+        param_axis,
+        param_row,
+    )
+    from scopecat.authoring.scans import zip as zip  # noqa: A004
+    from scopecat.composition.local import open_local_workspace as open  # noqa: A004
+    from scopecat.config.parameters import (
+        delete_parameter_rows,
+        insert_parameter_rows,
+        replace_scalar_parameter,
+        replace_series_parameter,
+        replace_table_parameter,
+        update_parameter_rows,
+    )
+    from scopecat.execution.observation import (
+        RunFinishedEvent,
+        RunStartedEvent,
+        RuntimeEvent,
+        RuntimeEventSink,
+        RuntimePayloadObservation,
+        RuntimePayloadObserver,
+        RuntimeProgress,
+        RuntimeTransitionEvent,
+    )
+    from scopecat.kernel.problems import (
+        ExternalLocation,
+        ModelLocation,
+        Problem,
+        ProblemCategory,
+        ProblemImpact,
+        ProblemLocation,
+        ProblemPhase,
+        RuntimeLocation,
+        StorageLocation,
+        blocking_problem,
+        model_location,
+    )
+    from scopecat.measurements.results import MeasurementDatasetSchema
+    from scopecat.planning.backend import (
+        ExecutionBackend,
+        ExecutionOptions,
+        FusionMode,
+    )
+    from scopecat.planning.checks import (
+        CheckPhase,
+        CheckPhaseReport,
+        CheckStatus,
+        ExperimentCheckReport,
+    )
+    from scopecat.planning.preview_models import (
+        ExperimentPreview,
+        ExperimentPreviewComputeStep,
+        PreviewExperimentResult,
+        ValidateExperimentResult,
+    )
+    from scopecat.records.entity import EntityRef, entity_ref
+    from scopecat.sdk.domain.execution import (
+        DomainExecutionAdapter,
+        DomainExecutionCapabilities,
+        DomainExecutionRequest,
+        PreparedDomainExecution,
+        erase_prepared_domain_execution,
+    )
+
+    Run = RunHandle
+
+
+_EXPORTS: dict[str, tuple[str, str]] = {
+    "BoolType": ("scopecat.authoring", "BoolType"),
+    "Compute": ("scopecat.authoring", "Compute"),
+    "ComputeInput": ("scopecat.authoring", "ComputeInput"),
+    "EntityType": ("scopecat.authoring", "EntityType"),
+    "ExperimentInvocation": ("scopecat.authoring", "ExperimentInvocation"),
+    "ExperimentModule": ("scopecat.authoring", "ExperimentModule"),
+    "ExperimentTemplate": ("scopecat.authoring", "ExperimentTemplate"),
+    "FloatType": ("scopecat.authoring", "FloatType"),
+    "InputDescription": ("scopecat.authoring", "InputDescription"),
+    "IntType": ("scopecat.authoring", "IntType"),
+    "MetadataValue": ("scopecat.authoring", "MetadataValue"),
+    "ModuleBuilder": ("scopecat.authoring", "ModuleBuilder"),
+    "ModuleInput": ("scopecat.authoring", "ModuleInput"),
+    "ModuleInvocation": ("scopecat.authoring", "ModuleInvocation"),
+    "ModuleOutputs": ("scopecat.authoring", "ModuleOutputs"),
+    "ParameterKeyInput": ("scopecat.authoring", "ParameterKeyInput"),
+    "PayloadType": ("scopecat.authoring", "PayloadType"),
+    "ProductOutputs": ("scopecat.authoring", "ProductOutputs"),
+    "ProductRef": ("scopecat.authoring", "ProductRef"),
+    "QuantityType": ("scopecat.authoring", "QuantityType"),
+    "RecordAxis": ("scopecat.authoring", "RecordAxis"),
+    "RecordField": ("scopecat.authoring", "RecordField"),
+    "RecordSelection": ("scopecat.authoring", "RecordSelection"),
+    "RecordType": ("scopecat.authoring", "RecordType"),
+    "ResolvedRoute": ("scopecat.authoring", "ResolvedRoute"),
+    "RouteRef": ("scopecat.authoring", "RouteRef"),
+    "RouteType": ("scopecat.authoring", "RouteType"),
+    "RuntimeInput": ("scopecat.authoring", "RuntimeInput"),
+    "ScalarInput": ("scopecat.authoring", "ScalarInput"),
+    "ScalarType": ("scopecat.authoring", "ScalarType"),
+    "SeriesType": ("scopecat.authoring", "SeriesType"),
+    "StringType": ("scopecat.authoring", "StringType"),
+    "TableColumn": ("scopecat.authoring", "TableColumn"),
+    "TableRow": ("scopecat.authoring", "TableRow"),
+    "TableType": ("scopecat.authoring", "TableType"),
+    "TemplateBuilder": ("scopecat.authoring", "TemplateBuilder"),
+    "ValueRef": ("scopecat.authoring", "ValueRef"),
+    "ValueType": ("scopecat.authoring", "ValueType"),
+    "compute": ("scopecat.authoring", "compute"),
+    "entity_axis": ("scopecat.authoring", "entity_axis"),
+    "input": ("scopecat.authoring", "input"),
+    "module": ("scopecat.authoring", "module"),
+    "parameter": ("scopecat.authoring", "parameter"),
+    "parameter_lookup": ("scopecat.authoring", "parameter_lookup"),
+    "point": ("scopecat.authoring", "point"),
+    "record_alias": ("scopecat.authoring", "record_alias"),
+    "record_axis": ("scopecat.authoring", "record_axis"),
+    "record_product": ("scopecat.authoring", "record_product"),
+    "route": ("scopecat.authoring", "route"),
+    "shot_axis": ("scopecat.authoring", "shot_axis"),
+    "ParameterRow": ("scopecat.authoring.scans", "ParameterRow"),
+    "Scan": ("scopecat.authoring.scans", "Scan"),
+    "axis": ("scopecat.authoring.scans", "axis"),
+    "cartesian": ("scopecat.authoring.scans", "cartesian"),
+    "param_axis": ("scopecat.authoring.scans", "param_axis"),
+    "param_row": ("scopecat.authoring.scans", "param_row"),
+    "zip": ("scopecat.authoring.scans", "zip"),
+    "CheckPhase": ("scopecat.planning.checks", "CheckPhase"),
+    "CheckPhaseReport": ("scopecat.planning.checks", "CheckPhaseReport"),
+    "CheckStatus": ("scopecat.planning.checks", "CheckStatus"),
+    "ExperimentCheckReport": ("scopecat.planning.checks", "ExperimentCheckReport"),
+    "DomainExecutionAdapter": (
+        "scopecat.sdk.domain.execution",
+        "DomainExecutionAdapter",
+    ),
+    "DomainExecutionCapabilities": (
+        "scopecat.sdk.domain.execution",
+        "DomainExecutionCapabilities",
+    ),
+    "DomainExecutionRequest": (
+        "scopecat.sdk.domain.execution",
+        "DomainExecutionRequest",
+    ),
+    "PreparedDomainExecution": (
+        "scopecat.sdk.domain.execution",
+        "PreparedDomainExecution",
+    ),
+    "erase_prepared_domain_execution": (
+        "scopecat.sdk.domain.execution",
+        "erase_prepared_domain_execution",
+    ),
+    "ExecutionBackend": ("scopecat.planning.backend", "ExecutionBackend"),
+    "ExecutionOptions": ("scopecat.planning.backend", "ExecutionOptions"),
+    "FusionMode": ("scopecat.planning.backend", "FusionMode"),
+    "EntityRef": ("scopecat.records.entity", "EntityRef"),
+    "entity_ref": ("scopecat.records.entity", "entity_ref"),
+    "delete_parameter_rows": ("scopecat.config.parameters", "delete_parameter_rows"),
+    "insert_parameter_rows": ("scopecat.config.parameters", "insert_parameter_rows"),
+    "replace_scalar_parameter": (
+        "scopecat.config.parameters",
+        "replace_scalar_parameter",
+    ),
+    "replace_series_parameter": (
+        "scopecat.config.parameters",
+        "replace_series_parameter",
+    ),
+    "replace_table_parameter": (
+        "scopecat.config.parameters",
+        "replace_table_parameter",
+    ),
+    "update_parameter_rows": ("scopecat.config.parameters", "update_parameter_rows"),
+    "ExperimentPreview": ("scopecat.planning.preview_models", "ExperimentPreview"),
+    "ExperimentPreviewComputeStep": (
+        "scopecat.planning.preview_models",
+        "ExperimentPreviewComputeStep",
+    ),
+    "PreviewExperimentResult": (
+        "scopecat.planning.preview_models",
+        "PreviewExperimentResult",
+    ),
+    "ValidateExperimentResult": (
+        "scopecat.planning.preview_models",
+        "ValidateExperimentResult",
+    ),
+    "ExternalLocation": ("scopecat.kernel.problems", "ExternalLocation"),
+    "ModelLocation": ("scopecat.kernel.problems", "ModelLocation"),
+    "Problem": ("scopecat.kernel.problems", "Problem"),
+    "ProblemCategory": ("scopecat.kernel.problems", "ProblemCategory"),
+    "ProblemImpact": ("scopecat.kernel.problems", "ProblemImpact"),
+    "ProblemLocation": ("scopecat.kernel.problems", "ProblemLocation"),
+    "ProblemPhase": ("scopecat.kernel.problems", "ProblemPhase"),
+    "RuntimeLocation": ("scopecat.kernel.problems", "RuntimeLocation"),
+    "StorageLocation": ("scopecat.kernel.problems", "StorageLocation"),
+    "blocking_problem": ("scopecat.kernel.problems", "blocking_problem"),
+    "model_location": ("scopecat.kernel.problems", "model_location"),
+    "MeasurementDatasetSchema": (
+        "scopecat.measurements.results",
+        "MeasurementDatasetSchema",
+    ),
+    "RunFinishedEvent": ("scopecat.execution.observation", "RunFinishedEvent"),
+    "RunStartedEvent": ("scopecat.execution.observation", "RunStartedEvent"),
+    "RuntimeEvent": ("scopecat.execution.observation", "RuntimeEvent"),
+    "RuntimeEventSink": ("scopecat.execution.observation", "RuntimeEventSink"),
+    "RuntimePayloadObservation": (
+        "scopecat.execution.observation",
+        "RuntimePayloadObservation",
+    ),
+    "RuntimePayloadObserver": (
+        "scopecat.execution.observation",
+        "RuntimePayloadObserver",
+    ),
+    "RuntimeProgress": ("scopecat.execution.observation", "RuntimeProgress"),
+    "RuntimeTransitionEvent": (
+        "scopecat.execution.observation",
+        "RuntimeTransitionEvent",
+    ),
+    "Analysis": ("scopecat.api.analysis", "Analysis"),
+    "AnalysisContext": ("scopecat.api.analysis", "AnalysisContext"),
+    "AnalysisInput": ("scopecat.analysis.service", "AnalysisInput"),
+    "AnalysisOutput": ("scopecat.analysis.service", "AnalysisOutput"),
+    "AnalysisStep": ("scopecat.api.analysis", "AnalysisStep"),
+    "CandidateConfig": ("scopecat.config.candidates", "CandidateConfig"),
+    "ComparisonHandle": ("scopecat.api.comparison", "ComparisonHandle"),
+    "Data": ("scopecat.api.data", "Data"),
+    "EarlyStopDecision": ("scopecat.analysis.online", "EarlyStopDecision"),
+    "Experiment": ("scopecat.api.workspace", "Experiment"),
+    "PreparedExperiment": ("scopecat.api.workspace", "PreparedExperiment"),
+    "Quantity": ("scopecat.records.parameter", "Quantity"),
+    "RunHandle": ("scopecat.api.run", "RunHandle"),
+    "SavedAnalysis": ("scopecat.analysis.service", "SavedAnalysis"),
+    "Workspace": ("scopecat.api.workspace", "Workspace"),
+    "decide_online_convergence": (
+        "scopecat.analysis.online",
+        "decide_online_convergence",
+    ),
+    "open": ("scopecat.composition.local", "open_local_workspace"),
+    "DataDatasetSummary": ("scopecat.api.data", "DataDatasetSummary"),
+    "DataSummary": ("scopecat.api.data", "DataSummary"),
+    "SystemChannelSummary": ("scopecat.api.system_overview", "SystemChannelSummary"),
+    "SystemEntitySummary": ("scopecat.api.system_overview", "SystemEntitySummary"),
+    "SystemGroupSummary": ("scopecat.api.system_overview", "SystemGroupSummary"),
+    "SystemLineSummary": ("scopecat.api.system_overview", "SystemLineSummary"),
+    "SystemResourceSummary": ("scopecat.api.system_overview", "SystemResourceSummary"),
+    "SystemSummary": ("scopecat.api.system_overview", "SystemSummary"),
+    "Run": ("scopecat.api.run", "RunHandle"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    target = _EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute_name = target
+    value = getattr(import_module(module_name), attribute_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_EXPORTS))
+
 
 __all__ = [
     "Analysis",

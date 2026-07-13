@@ -6,11 +6,6 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from scopecat._frozen import FrozenMapping, freeze_json_mapping
-from scopecat._relations import RowScopeId
-from scopecat._resource_identity import logical_resource_port_id
-from scopecat._symbols import SymbolId
-from scopecat._value_type_compatibility import require_assignable
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
     ResourcePort,
@@ -80,10 +75,15 @@ from scopecat.authoring.values import (
     compute_declaration_key_internal,
     module_input_is_valid,
 )
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import Quantity
-from scopecat.models.value import PayloadValue
-from scopecat.results import MeasurementDType
+from scopecat.compiler.relations.model import RowScopeId
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.measurements.results import MeasurementDType
+from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import Quantity
 
 if TYPE_CHECKING:
     from scopecat.authoring.templates import TemplateBuilder

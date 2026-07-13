@@ -8,26 +8,26 @@ from typing import Any, cast
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from scopecat._compiler.environment import validate_config_environment
-from scopecat._compiler.linked import link_program
-from scopecat._relation_backend import ReferenceRelationBackend
-from scopecat._resource_identity import LogicalResourcePortId, PhysicalResourceId
-from scopecat._storage.refs import RUN_PLAN_REF, RUN_REQUEST_REF
-from scopecat._workflows.compilation import compile_experiment
-from scopecat._workflows.preview import build_experiment_preview
-from scopecat._workflows.runs import load_run_plan, load_run_request, start_run
-from scopecat.authoring._resolution import compile_prepared_invocation
-from scopecat.errors import DataIntegrityError
-from scopecat.execution_backend import ExecutionBackend
-from scopecat.models.run_plan import (
+from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.resolution import compile_prepared_invocation
+from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.pipeline import compile_experiment
+from scopecat.compiler.relations.reference_backend import ReferenceRelationBackend
+from scopecat.composition.local import local_run_repository, local_workspace_services
+from scopecat.kernel.errors import DataIntegrityError
+from scopecat.kernel.resource_identity import LogicalResourcePortId, PhysicalResourceId
+from scopecat.planning.backend import ExecutionBackend
+from scopecat.planning.preview import build_experiment_preview
+from scopecat.planning.preview_models import ExperimentPreview
+from scopecat.records.run_plan import (
     RunPlanPointInstrumentExecution,
     RunPlanRecord,
 )
-from scopecat.models.run_request import RunRequest
-from scopecat.preview import ExperimentPreview
-from scopecat.runs import open_run_store
-from tests.support.signal_instruments import TestSignalInstrumentProvider
-from tests.support.workflow_fixtures import load_config, load_prepared_invocation
+from scopecat.records.run_request import RunRequest
+from scopecat.runs.refs import RUN_PLAN_REF, RUN_REQUEST_REF
+from scopecat.runs.service import load_run_plan, load_run_request, start_run
+from tests.testkit.signal_instruments import TestSignalInstrumentProvider
+from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
 
 FIXTURE_DIR = Path(__file__).with_name("fixtures")
 
@@ -322,17 +322,24 @@ def test_stored_plan_remains_readable_when_stored_request_is_corrupt(
         config=load_config(),
         experiment=load_prepared_invocation(),
         workspace=tmp_path,
+        services=local_workspace_services(tmp_path),
     )
-    storage = open_run_store(tmp_path)
+    storage = local_run_repository(tmp_path)
     request_path = storage.ref_path(run.run_id, RUN_REQUEST_REF)
     request = cast("dict[str, Any]", json.loads(request_path.read_text()))
     request["schema_version"] = "scopecat.run_request.v3"
     request_path.write_text(json.dumps(request))
 
     with pytest.raises(DataIntegrityError):
-        load_run_request(run_id=run.run_id, workspace=tmp_path)
+        load_run_request(
+            run_id=run.run_id,
+            services=local_workspace_services(tmp_path),
+        )
 
-    plan = load_run_plan(run_id=run.run_id, workspace=tmp_path)
+    plan = load_run_plan(
+        run_id=run.run_id,
+        services=local_workspace_services(tmp_path),
+    )
     assert plan.model_dump(mode="json") == _golden("run-plan-v7.json")
 
 
@@ -344,16 +351,23 @@ def test_stored_request_remains_readable_when_stored_plan_is_corrupt(
         config=load_config(),
         experiment=load_prepared_invocation(),
         workspace=tmp_path,
+        services=local_workspace_services(tmp_path),
     )
-    storage = open_run_store(tmp_path)
+    storage = local_run_repository(tmp_path)
     plan_path = storage.ref_path(run.run_id, RUN_PLAN_REF)
     plan = cast("dict[str, Any]", json.loads(plan_path.read_text()))
     plan["schema_version"] = "scopecat.run_plan_record.v3"
     plan_path.write_text(json.dumps(plan))
 
     with pytest.raises(DataIntegrityError):
-        load_run_plan(run_id=run.run_id, workspace=tmp_path)
+        load_run_plan(
+            run_id=run.run_id,
+            services=local_workspace_services(tmp_path),
+        )
 
-    request = load_run_request(run_id=run.run_id, workspace=tmp_path)
+    request = load_run_request(
+        run_id=run.run_id,
+        services=local_workspace_services(tmp_path),
+    )
     assert request is not None
     assert request.model_dump(mode="json") == _golden("run-request-v4.json")

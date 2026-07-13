@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+import scopecat as sc
+from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
+from scopecat.composition.local import local_workspace_services
+from scopecat.records.run import RunManifest
+from scopecat.run_comparison import (
+    execute_run_comparison,
+    list_run_comparisons,
+)
+from scopecat.runs.refs import record_content_ref
+from tests.testkit.run_comparison import (
+    active_config_registry_signal_run,
+    candidate_data_records,
+    load_signal_config,
+    run_signal_experiment,
+    write_candidate_records,
+)
+from tests.testkit.signal_testkit import execute_signal_run
+from tests.testkit.workflow_fixtures import load_invocation
+
+
+def test_execute_run_comparison_returns_result_and_lists_baseline_comparison(
+    tmp_path: Path,
+) -> None:
+    services = local_workspace_services(tmp_path)
+    baseline_run_id = run_signal_experiment(tmp_path)
+    candidate_run_id = run_signal_experiment(tmp_path)
+
+    result = execute_run_comparison(
+        baseline_run_id=baseline_run_id,
+        candidate_run_id=candidate_run_id,
+        services=services,
+    )
+
+    comparison_id = f"run-comparison-{candidate_run_id}-signal"
+    assert result.comparison_id == comparison_id
+    assert result.measurement_count == 3
+    assert result.outcome == "unchanged"
+    assert result.observable_id == "signal"
+    assert result.baseline_peak_point_index == 1
+    assert result.candidate_peak_point_index == 1
+    assert result.peak_value_delta.value == 0.0
+    assert result.peak_value_delta.unit == "ratio"
+    assert result.mean_value_delta.value == 0.0
+    assert len(result.points) == 3
+    assert result.points[0].value_delta.value == 0.0
+    assert result.baseline_config_source is None
+    assert result.candidate_config_source is None
+
+    assert [
+        view.id
+        for view in list_run_comparisons(run_id=baseline_run_id, services=services)
+    ] == [comparison_id]
+    assert list_run_comparisons(run_id=candidate_run_id, services=services) == []
+
+
+def test_execute_run_comparison_recovers_orphan_after_manifest_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    services = local_workspace_services(tmp_path)
+    baseline_run_id = run_signal_experiment(tmp_path)
+    candidate_run_id = run_signal_experiment(tmp_path)
+    comparison_id = f"run-comparison-{candidate_run_id}-signal"
+    record_id = f"{comparison_id}-result"
+    original_write_manifest = FilesystemRunRepository.write_manifest
+    failed = False
+
+    def fail_first_comparison_manifest(
+        storage: FilesystemRunRepository,
+        manifest: RunManifest,
+    ) -> None:
+        nonlocal failed
+        if not failed and any(record.id == record_id for record in manifest.records):
+            failed = True
+            raise OSError("injected comparison manifest failure")
+        original_write_manifest(storage, manifest)
+
+    monkeypatch.setattr(
+        FilesystemRunRepository,
+        "write_manifest",
+        fail_first_comparison_manifest,
+    )
+
+    with pytest.raises(OSError, match="injected comparison manifest failure"):
+        execute_run_comparison(
+            baseline_run_id=baseline_run_id,
+            candidate_run_id=candidate_run_id,
+            services=services,
+        )
+
+    storage = services.runs
+    orphan_ref = record_content_ref(
+        record_id=record_id,
+        kind="run_comparison_result",
+    )
+    assert storage.exists(baseline_run_id, orphan_ref)
+    assert all(
+        record.id != record_id
+        for record in storage.read_manifest(baseline_run_id).records
+    )
+
+    recovered = execute_run_comparison(
+        baseline_run_id=baseline_run_id,
+        candidate_run_id=candidate_run_id,
+        services=services,
+    )
+
+    assert recovered.comparison_id == comparison_id
+    assert [
+        view.id
+        for view in list_run_comparisons(run_id=baseline_run_id, services=services)
+    ] == [comparison_id]
+
+
+def test_execute_run_comparison_compares_complex_scalar_magnitude(
+    tmp_path: Path,
+) -> None:
+    services = local_workspace_services(tmp_path)
+    baseline_run_id = run_signal_experiment(tmp_path)
+    candidate_run_id = run_signal_experiment(tmp_path)
+    baseline_records = candidate_data_records(tmp_path, baseline_run_id)
+    candidate_records = candidate_data_records(tmp_path, candidate_run_id)
+    for record in baseline_records:
+        record["observables"] = {"raw_iq": {"real": 3.0, "imag": 4.0, "unit": "ratio"}}
+    for record in candidate_records:
+        record["observables"] = {"raw_iq": {"real": 6.0, "imag": 8.0, "unit": "ratio"}}
+    write_candidate_records(tmp_path, baseline_run_id, baseline_records)
+    write_candidate_records(tmp_path, candidate_run_id, candidate_records)
+
+    result = execute_run_comparison(
+        baseline_run_id=baseline_run_id,
+        candidate_run_id=candidate_run_id,
+        observable_id="raw_iq",
+        services=services,
+    )
+
+    assert result.baseline_peak_value.value == 5.0
+    assert result.candidate_peak_value.value == 10.0
+    assert result.points[0].value_delta.value == 5.0
+
+
+def test_execute_run_comparison_includes_active_config_source(
+    tmp_path: Path,
+) -> None:
+    services = local_workspace_services(tmp_path)
+    baseline_run_id = run_signal_experiment(tmp_path)
+    candidate_run_id = active_config_registry_signal_run(
+        baseline_run_id=baseline_run_id,
+        tmp_path=tmp_path,
+    )
+
+    result = execute_run_comparison(
+        baseline_run_id=baseline_run_id,
+        candidate_run_id=candidate_run_id,
+        services=services,
+    )
+
+    assert result.baseline_config_source is None
+    assert result.candidate_config_source is not None
+    assert result.candidate_config_source.selector == "active"
+    assert result.candidate_config_source.entry_id == ("best-signal-candidate-config")
+
+
+def test_execute_run_comparison_tracks_compared_runs(
+    tmp_path: Path,
+) -> None:
+    config = load_signal_config()
+    experiment = load_invocation()
+    baseline_manifest, _baseline_snapshot = execute_signal_run(
+        config=config,
+        experiment=experiment,
+        workspace=tmp_path,
+    )
+    candidate_manifest, _candidate_snapshot = execute_signal_run(
+        config=config,
+        experiment=experiment,
+        workspace=tmp_path,
+    )
+    lab = sc.open(tmp_path, config=config)
+    baseline = sc.Run(
+        session=lab,
+        manifest=baseline_manifest,
+    )
+    candidate = sc.Run(
+        session=lab,
+        manifest=candidate_manifest,
+    )
+    baseline.analysis("baseline review").input(
+        "raw-measurements",
+        expected_kind="measurement_dataset",
+    ).save()
+    candidate.analysis("candidate review").input(
+        "raw-measurements",
+        expected_kind="measurement_dataset",
+    ).save()
+
+    result = execute_run_comparison(
+        baseline_run_id=baseline.id,
+        candidate_run_id=candidate.id,
+        services=local_workspace_services(tmp_path),
+    )
+
+    assert result.baseline_run_id == baseline.id
+    assert result.candidate_run_id == candidate.id

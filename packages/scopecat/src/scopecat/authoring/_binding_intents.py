@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
-from scopecat._resource_identity import (
+from scopecat.authoring._value_refs import ValueRef
+from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
-from scopecat.authoring._value_refs import ValueRef
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import Quantity
-from scopecat.models.value import PayloadValue
+from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import Quantity
 
 type EntitySource = ValueRef
 type BindingValue = (

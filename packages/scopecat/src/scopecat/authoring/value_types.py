@@ -1,6 +1,6 @@
 """Authoring facade for the shared value type and validation APIs."""
 
-from scopecat.value_types import (
+from scopecat.kernel.value_types import (
     AtomType,
     Bool,
     Entity,
@@ -18,7 +18,7 @@ from scopecat.value_types import (
     TableColumn,
     ValueType,
 )
-from scopecat.value_validation import (
+from scopecat.kernel.value_validation import (
     ValueValidationError,
     coerce_literal,
     validate_literal,

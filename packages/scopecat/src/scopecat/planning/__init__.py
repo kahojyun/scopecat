@@ -1,5 +1,3 @@
-"""Pure planning and configuration checks."""
+"""Host planning, coverage, routing, preview, and validation."""
 
-from scopecat.planning.validation import validate_config
-
-__all__ = ["validate_config"]
+__all__: list[str] = []

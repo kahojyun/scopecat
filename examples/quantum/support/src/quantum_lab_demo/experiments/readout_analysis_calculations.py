@@ -5,17 +5,17 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from scopecat.errors import CheckFailed
-from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.parameter import Quantity
-from scopecat.problems import (
+from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
     ProblemPhase,
     blocking_problem,
     model_location,
 )
-from scopecat.results import ComplexQuantity, MeasurementRecord
+from scopecat.measurements.results import ComplexQuantity, MeasurementRecord
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.parameter import Quantity
 
 from quantum_lab_demo.experiments.readout_responses import (
     _frequency_to_ghz,

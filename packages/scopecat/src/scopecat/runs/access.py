@@ -4,23 +4,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from scopecat._storage.local import LocalRunStore
-from scopecat._storage.refs import (
-    artifact_content_ref,
-    dataset_content_ref,
-    record_content_ref,
-)
-from scopecat.errors import CheckFailed, DataIntegrityError, NotFound
-from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
-from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.data_artifact import DataArrayArtifact, DataTableArtifact
-from scopecat.models.run import RunManifest
-from scopecat.problems import (
+from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
+from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
     ProblemCategory,
@@ -29,18 +19,23 @@ from scopecat.problems import (
     StorageLocation,
     model_location,
 )
+from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
+from scopecat.records.run import RunManifest
+from scopecat.runs.refs import (
+    artifact_content_ref,
+    dataset_content_ref,
+    record_content_ref,
+)
+from scopecat.runs.repository import RunRepository
 
-RunStore = LocalRunStore
 type RunPayloadEntry = RunArtifactEntry | RunDatasetEntry
 type RunManifestEntry = RunArtifactEntry | RunDatasetEntry | RunRecordEntry
 
 
-def open_run_store(workspace: str | Path) -> LocalRunStore:
-    return LocalRunStore(workspace)
-
-
 def load_config_profile_snapshot(
-    *, storage: LocalRunStore, run_id: str
+    *, storage: RunRepository, run_id: str
 ) -> ConfigProfileSnapshot:
     return storage.read_config_profile_snapshot(run_id)
 
@@ -493,7 +488,7 @@ def require_record(
 
 def read_artifact_bytes(
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     selector: str,
     expected_kind: str | None = None,
@@ -508,7 +503,7 @@ def read_artifact_bytes(
 
 def read_artifact_text(
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     selector: str,
     expected_kind: str | None = None,
@@ -523,7 +518,7 @@ def read_artifact_text(
 
 def read_artifact_json(
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     selector: str,
     expected_kind: str | None = None,
@@ -556,7 +551,7 @@ def read_artifact_json(
 
 def read_record_text(
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     selector: str,
     expected_kind: str | None = None,
@@ -571,7 +566,7 @@ def read_record_text(
 
 def read_record_json(
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     selector: str,
     expected_kind: str | None = None,
@@ -604,7 +599,7 @@ def read_record_json(
 
 def read_model_artifact[TModel: BaseModel](
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     selector: str,
     model_type: type[TModel],
@@ -641,7 +636,7 @@ def read_model_artifact[TModel: BaseModel](
 
 def read_model_record[TModel: BaseModel](
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     selector: str,
     model_type: type[TModel],
@@ -677,7 +672,7 @@ def read_model_record[TModel: BaseModel](
 
 
 def read_data_table_artifact(
-    *, storage: LocalRunStore, run_id: str, selector: str
+    *, storage: RunRepository, run_id: str, selector: str
 ) -> DataTableArtifact:
     dataset = require_dataset(
         manifest=storage.read_manifest(run_id),
@@ -706,7 +701,7 @@ def read_data_table_artifact(
 
 
 def read_data_array_artifact(
-    *, storage: LocalRunStore, run_id: str, selector: str
+    *, storage: RunRepository, run_id: str, selector: str
 ) -> DataArrayArtifact:
     dataset = require_dataset(
         manifest=storage.read_manifest(run_id),

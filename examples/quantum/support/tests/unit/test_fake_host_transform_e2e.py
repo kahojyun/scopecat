@@ -5,41 +5,30 @@ from pathlib import Path
 
 import pytest
 from scopecat import Quantity
-from scopecat._compiler.environment import validate_config_environment
-from scopecat._compiler.linked import link_program
-from scopecat._compiler.point_domain import PointDomain
-from scopecat._compiler.program import (
+from scopecat.adapters.memory import MemoryExecutionJournal
+from scopecat.adapters.memory.execution import MemoryMeasurementRecordCommitter
+from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.relations.model import literal_rows
+from scopecat.compiler.relations.point_domain import point_rows
+from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
+from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.program import (
     TypedProgram,
     product_output,
     record_product,
     shot_axis,
 )
-from scopecat._point_domain_algebra import point_rows
-from scopecat._relation_verification import RelationTypeBindings
-from scopecat._relations import literal_rows
-from scopecat._value_expressions import verify_table_value_expr
-from scopecat.config_profiles import load_config_profile
-from scopecat.domain_invocation import (
-    MaterializedLinkedPoints,
-    materialize_linked_points,
-)
-from scopecat.domain_runtime import (
-    CorrelatedDomainFetch,
-    fetch_domain_invocation,
-    plan_domain_submission,
-    submit_domain_invocation,
-)
-from scopecat.execution_journal import MemoryExecutionJournal
-from scopecat.measurement_projection import (
+from scopecat.config.profiles import load_config_profile
+from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
+from scopecat.measurements.projection import (
     bind_measurement_projection,
     project_measurement_records,
     select_measurement_projection,
 )
-from scopecat.measurement_recording import (
-    MemoryMeasurementRecordCommitter,
-    commit_projected_measurement_records,
-)
-from scopecat.measurement_transforms import (
+from scopecat.measurements.recording import commit_projected_measurement_records
+from scopecat.measurements.transforms import (
     HostMeasurementTransformCall,
     HostMeasurementTransformFragmentBinding,
     HostMeasurementTransformImplementationBinding,
@@ -50,13 +39,22 @@ from scopecat.measurement_transforms import (
     select_host_measurement_transforms,
     verify_measurement_transform_graph,
 )
-from scopecat.measurement_values import (
+from scopecat.measurements.values import (
     ProductValueFragmentDef,
     bind_domain_output_fragment,
     domain_output_fragment,
     select_measurement_value_assembly,
 )
-from scopecat.value_types import Float, Scalar, Table, TableColumn
+from scopecat.sdk.domain.invocation import (
+    MaterializedLinkedPoints,
+    materialize_linked_points,
+)
+from scopecat.sdk.domain.runtime import (
+    CorrelatedDomainFetch,
+    fetch_domain_invocation,
+    plan_domain_submission,
+    submit_domain_invocation,
+)
 from scopecat_quantum import (
     Acquire,
     AcquireSignal,

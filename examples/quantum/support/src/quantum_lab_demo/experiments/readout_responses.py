@@ -6,14 +6,14 @@ import math
 from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict
-from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import (
+from scopecat.measurements.results import ComplexQuantity
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import (
     Quantity,
     ScalarParameterValue,
     TableParameterValue,
 )
-from scopecat.results import ComplexQuantity
 
 
 @dataclass(frozen=True)

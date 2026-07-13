@@ -1,6 +1,6 @@
 """Map prepared circuit-target results to Scopecat logical outputs.
 
-This module is a thin quantum adapter over :mod:`scopecat.domain_invocation`.
+This module is a thin quantum adapter over :mod:`scopecat.sdk.domain.invocation`.
 It derives the complete adapter inventory from a sealed circuit-target batch;
 core remains unaware of circuits, pulses, acquisition slots, and target entry
 structure.
@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.domain_invocation import (
+from scopecat.sdk.domain.invocation import (
     AdapterEntryResults,
     ClosedDomainEntry,
     ClosedDomainResult,

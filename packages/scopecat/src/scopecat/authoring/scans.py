@@ -11,7 +11,6 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
-from scopecat._value_type_compatibility import literal_scalar_type
 from scopecat.authoring._frozen_values import freeze_runtime_input
 from scopecat.authoring._parameter_contracts import (
     ParameterContract,
@@ -48,12 +47,13 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_point_id,
 )
 from scopecat.authoring.values import ParameterKeyInput
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import Quantity
-from scopecat.units import compatible_units, unit_kind
-from scopecat.value_types import Quantity as QuantityType
-from scopecat.value_types import Scalar
-from scopecat.value_validation import validate_literal
+from scopecat.kernel.units import compatible_units, unit_kind
+from scopecat.kernel.value_type_compatibility import literal_scalar_type
+from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_validation import validate_literal
+from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import Quantity
 
 
 def axis(

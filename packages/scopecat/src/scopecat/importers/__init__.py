@@ -7,19 +7,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from scopecat._parameter_resolution import validate_parameter_snapshot
-from scopecat.errors import CheckFailed
-from scopecat.models.artifact import RunArtifactEntry
-from scopecat.models.parameter import (
-    ParameterCatalog,
-    ParameterSnapshot,
-    ScalarParameterValue,
-    SeriesParameterValue,
-    StoredParameterValue,
-    TableParameterValue,
-)
-from scopecat.parameter_validation import coerce_stored_parameter_value
-from scopecat.problems import (
+from scopecat.config.parameter_resolution import validate_parameter_snapshot
+from scopecat.config.validation import coerce_stored_parameter_value
+from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.problems import (
     ExternalLocation,
     LocationPathItem,
     ModelLocation,
@@ -28,6 +19,15 @@ from scopecat.problems import (
     ProblemImpact,
     ProblemPhase,
     has_blocking_problems,
+)
+from scopecat.records.artifact import RunArtifactEntry
+from scopecat.records.parameter import (
+    ParameterCatalog,
+    ParameterSnapshot,
+    ScalarParameterValue,
+    SeriesParameterValue,
+    StoredParameterValue,
+    TableParameterValue,
 )
 
 ImportSourceKind = Literal["csv", "xlsx", "json", "registry", "legacy", "manual"]

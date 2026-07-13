@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import scopecat as sc
-from scopecat.runs import dataset_storage_ref
+from scopecat.runs.access import dataset_storage_ref
 
 from quantum_lab_demo.experiments.readout_analysis_calculations import (
     READOUT_PARAMETER_ID,

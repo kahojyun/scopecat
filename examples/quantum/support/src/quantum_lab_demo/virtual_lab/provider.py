@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from scopecat.instruments import (
+from scopecat.sdk.instruments import (
     ActionReceipt,
     ApplyReceipt,
     CollectCommand,
@@ -26,7 +26,7 @@ from scopecat.instruments import (
     product_axis,
     quantity_field,
 )
-from scopecat.models.provider import ProviderOptionDescription
+from scopecat.sdk.instruments.provider_options import ProviderOptionDescription
 
 from quantum_lab_demo.virtual_lab.devices import VirtualDevice, VirtualLab
 from quantum_lab_demo.virtual_lab.profiles import (

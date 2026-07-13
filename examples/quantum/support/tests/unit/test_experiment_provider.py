@@ -8,17 +8,18 @@ from demo_lab_test_paths import (
     EXPERIMENT_FIXTURE_DIR,
     EXPERIMENT_VIRTUAL_LAB_PROFILE,
 )
-from scopecat._compiler.binding import bind_program
 from scopecat.authoring import (
     ExperimentInvocation,
     PayloadType,
     ScalarType,
 )
-from scopecat.authoring._resolution import resolve_experiment
-from scopecat.config_profiles import load_config_profile
-from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.problems import ProblemPhase
-from scopecat.runtime import RuntimeEvent, RuntimeTransitionEvent
+from scopecat.compiler.linking.linked import link_program
+from scopecat.config.profiles import load_config_profile
+from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
+from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.problems import ProblemPhase
+from scopecat.planning.authoring import resolve_experiment
+from scopecat.records.config import ConfigProfileSnapshot
 
 from quantum_lab_demo.experiments import (
     BACKEND_BATCH_TEMPLATE,
@@ -247,13 +248,12 @@ def test_rejects_invalid_compute_edge_payload_schema_during_planning(
         }
     )
 
-    plan = bind_program(experiment, resolved.environment)
+    with pytest.raises(CheckFailed) as caught:
+        link_program(experiment, resolved.environment)
 
-    assert not plan.valid
-    assert plan.points == ()
-    assert len(plan.problems) == 1
-    assert plan.problems[0].code == "compute_edge_type_mismatch"
-    assert plan.problems[0].phase is ProblemPhase.PLANNING
+    assert len(caught.value.problems) == 1
+    assert caught.value.problems[0].code == "compute_edge_type_mismatch"
+    assert caught.value.problems[0].phase is ProblemPhase.PLANNING
 
 
 def _lab(tmp_path: Path):

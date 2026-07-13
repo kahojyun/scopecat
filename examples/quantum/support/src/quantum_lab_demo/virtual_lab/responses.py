@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from scopecat.instruments import (
+from scopecat.measurements.results import (
+    ComplexQuantity,
+    MeasurementArray,
+    MeasurementValue,
+)
+from scopecat.records.parameter import Quantity
+from scopecat.sdk.instruments import (
     CollectCommand,
     CollectProductRequest,
 )
-from scopecat.models.parameter import Quantity
-from scopecat.results import ComplexQuantity, MeasurementArray, MeasurementValue
 
 from quantum_lab_demo.virtual_lab.devices import VirtualDevice
 

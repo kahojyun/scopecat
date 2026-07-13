@@ -7,10 +7,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat.models.config import ConfigContentHash
-from scopecat.models.parameter import Quantity
-from scopecat.models.parameter_change import ParameterValueDelta
-from scopecat.models.run import RunConfigSource, utc_now
+from scopecat.records.config import ConfigContentHash
+from scopecat.records.parameter import Quantity
+from scopecat.records.parameter_change import ParameterValueDelta
+from scopecat.records.run import RunConfigSource, utc_now
 
 ReviewStatus = Literal["reviewed", "not_reviewed"]
 ParameterChangeDecision = Literal["approved", "rejected", "invalidated"]

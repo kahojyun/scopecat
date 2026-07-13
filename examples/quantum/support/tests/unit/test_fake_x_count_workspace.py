@@ -6,27 +6,29 @@ from typing import cast
 import pytest
 import scopecat as sc
 from scopecat import Quantity
-from scopecat import execution_backend as execution_backends
-from scopecat._storage.local import (
-    LocalExecutionJournal,
-    LocalMeasurementRecordCommitter,
+from scopecat.adapters.filesystem.execution import (
+    FilesystemExecutionJournal,
+    FilesystemMeasurementRecordCommitter,
 )
-from scopecat._workflows.runs import load_run_plan
-from scopecat.domain_execution import DomainExecutionRequest, PreparedDomainExecution
-from scopecat.domain_invocation import DomainInvocationIntent
-from scopecat.domain_runtime import (
+from scopecat.kernel.errors import CheckFailed, RunIndeterminate
+from scopecat.kernel.problems import (
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+)
+from scopecat.planning import backend as execution_backends
+from scopecat.records.run_plan import RunPlanDomainExecution, RunPlanRecord
+from scopecat.sdk.domain.execution import (
+    DomainExecutionRequest,
+    PreparedDomainExecution,
+)
+from scopecat.sdk.domain.invocation import DomainInvocationIntent
+from scopecat.sdk.domain.runtime import (
     DomainFetchCandidate,
     DomainFetchReceipt,
     DomainSubmissionId,
     DomainSubmitReceipt,
     domain_receipt_identity,
-)
-from scopecat.errors import CheckFailed, RunIndeterminate
-from scopecat.models.run_plan import RunPlanDomainExecution, RunPlanRecord
-from scopecat.problems import (
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
 )
 
 from quantum_lab_demo import quantum_lab
@@ -172,8 +174,8 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         preview = experiment.preview()
         run = experiment.run()
         dataset = run.data().measurements().dataset
-        plan = load_run_plan(run_id=run.id, workspace=lab.workspace)
-        journal = LocalExecutionJournal(lab.workspace, run_id=run.id)
+        plan = run.plan
+        journal = FilesystemExecutionJournal(lab.workspace, run_id=run.id)
 
         assert run.manifest.status == "completed"
         assert adapter.runtime.physical_execution_count == 1
@@ -296,9 +298,9 @@ def test_indeterminate_submit_retains_durable_target_reconciliation_context(
     assert recovery.details["retry_contract"] == "after_reconciliation"
     assert recovery.details["automatic_resume"] is False
     assert recovery.details["submission_key"]
-    plan = load_run_plan(run_id=caught.value.run_id, workspace=lab.workspace)
+    plan = lab.get_run(caught.value.run_id).plan
     assert _domain_execution(plan).batches[0].target_id
-    journal = LocalExecutionJournal(lab.workspace, run_id=caught.value.run_id)
+    journal = FilesystemExecutionJournal(lab.workspace, run_id=caught.value.run_id)
     assert any(
         entry.stage == "domain_submit" and entry.state == "unknown"
         for entry in journal.entries()
@@ -334,7 +336,7 @@ def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
     assert recovery.details["job_id"]
     assert recovery.details["automatic_resume"] is False
     assert adapter.runtime.physical_execution_count == 1
-    journal = LocalExecutionJournal(lab.workspace, run_id=caught.value.run_id)
+    journal = FilesystemExecutionJournal(lab.workspace, run_id=caught.value.run_id)
     assert any(
         entry.stage == "domain_fetch" and entry.state == "unknown"
         for entry in journal.entries()
@@ -349,7 +351,7 @@ def test_uncertain_measurement_write_retains_reconciliation_context(
         raise RuntimeError("record store returned no receipt")
 
     monkeypatch.setattr(
-        LocalMeasurementRecordCommitter,
+        FilesystemMeasurementRecordCommitter,
         "commit",
         fail_record_write,
     )
@@ -385,7 +387,7 @@ def test_measurement_reload_failure_still_publishes_indeterminate_terminal_run(
         raise OSError("measurement chunk could not be read")
 
     monkeypatch.setattr(
-        LocalMeasurementRecordCommitter,
+        FilesystemMeasurementRecordCommitter,
         "measurements",
         fail_measurement_reload,
     )
@@ -414,7 +416,7 @@ def test_measurement_reload_failure_still_publishes_indeterminate_terminal_run(
 
 def _standard_domain_semantics(
     plan: RunPlanRecord,
-    journal: LocalExecutionJournal,
+    journal: FilesystemExecutionJournal,
 ) -> object:
     submit_intent = next(
         entry

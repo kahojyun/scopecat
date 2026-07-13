@@ -7,10 +7,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from scopecat.models.measurement import CoordinateValue
-from scopecat.models.parameter import Quantity
-from scopecat.models.run import RunConfigSource, utc_now
-from scopecat.problems import Problem
+from scopecat.kernel.problems import Problem
+from scopecat.records.measurement import CoordinateValue
+from scopecat.records.parameter import Quantity
+from scopecat.records.run import RunConfigSource, utc_now
 
 RUN_COMPARISON_RESULT_SCHEMA_VERSION = "scopecat.run_comparison_result.v5"
 RUN_COMPARISON_REVIEW_RECORD_SCHEMA_VERSION = "scopecat.run_comparison_review_record.v2"

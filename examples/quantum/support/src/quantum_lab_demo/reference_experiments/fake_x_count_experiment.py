@@ -6,19 +6,19 @@ from collections.abc import Sequence
 from typing import cast
 
 import scopecat as sc
-from scopecat.domain_execution import (
+from scopecat.sdk.domain.execution import (
     DomainExecutionCapabilities,
     DomainExecutionRequest,
     PreparedDomainExecution,
     erase_prepared_domain_execution,
 )
-from scopecat.domain_invocation import (
+from scopecat.sdk.domain.invocation import (
     LinkedPlan,
     MaterializedLinkedPoints,
     ProductId,
     ProductUseId,
 )
-from scopecat.domain_runtime import CorrelatedDomainFetch
+from scopecat.sdk.domain.runtime import CorrelatedDomainFetch
 
 from quantum_lab_demo.reference_experiments.fake_x_count import (
     FakeXCountProductBinding,

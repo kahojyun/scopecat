@@ -8,24 +8,25 @@ from typing import Literal
 import pytest
 from pydantic import ValidationError
 from scopecat import Quantity
-from scopecat._compiler.environment import validate_config_environment
-from scopecat._compiler.linked import link_program
-from scopecat._compiler.point_domain import PointDomain, PointDomainId
-from scopecat._compiler.products import ProductAxisDef, ProductDef
-from scopecat._compiler.program import TypedProgram, product_output
-from scopecat._point_domain_algebra import point_rows
-from scopecat._product_identity import ProductUse, ProductUseId
-from scopecat._relation_verification import RelationTypeBindings
-from scopecat._relations import literal_rows
-from scopecat._value_expressions import verify_table_value_expr
-from scopecat.config_profiles import load_config_profile
-from scopecat.domain_invocation import (
-    LogicalPointId,
-    MaterializedLinkedPoints,
-    materialize_linked_points,
+from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.relations.model import literal_rows
+from scopecat.compiler.relations.point_domain import point_rows
+from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
+from scopecat.compiler.typed.point_domain import PointDomain, PointDomainId
+from scopecat.compiler.typed.products import ProductAxisDef, ProductDef
+from scopecat.compiler.typed.program import TypedProgram, product_output
+from scopecat.config.profiles import load_config_profile
+from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.product_identity import ProductUse, ProductUseId
+from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
+from scopecat.measurements.results import (
+    ComplexQuantity,
+    MeasurementArray,
+    MeasurementDType,
 )
-from scopecat.errors import CheckFailed
-from scopecat.measurement_transforms import (
+from scopecat.measurements.transforms import (
     HostMeasurementTransformCall,
     HostMeasurementTransformImplementationBinding,
     MeasurementTransformDef,
@@ -35,12 +36,11 @@ from scopecat.measurement_transforms import (
     select_host_measurement_transforms,
     verify_measurement_transform_graph,
 )
-from scopecat.results import (
-    ComplexQuantity,
-    MeasurementArray,
-    MeasurementDType,
+from scopecat.sdk.domain.invocation import (
+    LogicalPointId,
+    MaterializedLinkedPoints,
+    materialize_linked_points,
 )
-from scopecat.value_types import Float, Scalar, Table, TableColumn
 
 from scopecat_quantum.measurement_transforms import (
     BinaryIqDiscriminator,

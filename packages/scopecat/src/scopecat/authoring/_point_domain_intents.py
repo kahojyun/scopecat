@@ -4,7 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 
-from scopecat._point_domain_algebra import (
+from scopecat.authoring._parameter_contracts import (
+    ParameterContract,
+    merge_parameter_contracts,
+)
+from scopecat.authoring._value_refs import (
+    PointValueDependency,
+    ValueRef,
+    internal_value_ref_free_point_dependencies,
+    internal_value_ref_free_point_input_ids,
+    internal_value_ref_parameter_contracts,
+)
+from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
     PointDomainAnalysis,
     PointDomainExpr,
@@ -19,18 +30,7 @@ from scopecat._point_domain_algebra import (
     point_dependent_product,
     point_product,
 )
-from scopecat.authoring._parameter_contracts import (
-    ParameterContract,
-    merge_parameter_contracts,
-)
-from scopecat.authoring._value_refs import (
-    PointValueDependency,
-    ValueRef,
-    internal_value_ref_free_point_dependencies,
-    internal_value_ref_free_point_input_ids,
-    internal_value_ref_parameter_contracts,
-)
-from scopecat.value_types import Scalar, Table
+from scopecat.kernel.value_types import Scalar, Table
 
 type PointDomainIntent = PointDomainExpr[ValueRef]
 

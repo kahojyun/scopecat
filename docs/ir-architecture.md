@@ -307,9 +307,10 @@ types cannot reuse a cache entry merely because operation, implementation, and
 input identities stayed equal. The callable itself is deliberately not
 hashed: publishing different behavior under the same `ImplementationId`
 violates the implementation provider's versioning responsibility.
-`bind_program` only composes `link_program` with this local lowering. A future
-domain lowering may consume the same successful `LinkedPlan` without first
-constructing a tuple of local points or satisfying local Python coverage.
+Callers explicitly run `link_program` and then choose `materialize_local_plan`
+when they need the local target. A future domain lowering may consume the same
+successful `LinkedPlan` without first constructing a tuple of local points or
+satisfying local Python coverage.
 
 The same linked plan may be consumed by different backend or target lowerings.
 Each lowering must establish complete, non-overlapping implementation ownership
@@ -1118,8 +1119,8 @@ code and tests decisively rather than maintaining parallel legacy IRs.
    canonical local materialization, and nominal logical point identity are
    explicit. A successful `LinkedPlan` retains the verified relation proofs,
    complete use inventory, symbolic domain, and accepted config snapshot without
-   selecting a backend. Local point materialization is a separate lowering, and
-   `bind_program` merely composes linking with that lowering.
+   selecting a backend. Local point materialization is a separate, explicitly
+   selected lowering after `link_program` succeeds.
 6. **Operation contracts and local selection boundary (implemented).**
    `OperationContract` retains semantic meaning, effect class, portability,
    and placement from `SemanticOperation` through `TypedComputeNode`, the

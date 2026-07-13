@@ -2,26 +2,22 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from scopecat._measurement_storage import (
+from scopecat.kernel.errors import DataIntegrityError
+from scopecat.kernel.problems import ProblemCategory
+from scopecat.measurements.datasets import (
     MEASUREMENT_DATASET_KIND,
+    assemble_measurement_dataset,
+    measurement_records_error,
 )
-from scopecat._measurement_storage import (
-    read_measurement_dataset_path as _read_measurement_dataset_path,
-)
-from scopecat._measurement_storage import (
-    read_measurement_records_path as _read_measurement_records_path,
-)
-from scopecat._storage.local import LocalRunStore
-from scopecat._storage.refs import dataset_content_ref
-from scopecat.models.artifact import RunDatasetEntry
-from scopecat.results import (
+from scopecat.measurements.results import (
     MeasurementDataset,
     MeasurementDatasetReadContract,
     MeasurementRecord,
 )
+from scopecat.records.artifact import RunDatasetEntry
 from scopecat.runs.access import dataset_storage_ref, require_dataset
+from scopecat.runs.refs import dataset_content_ref
+from scopecat.runs.repository import RunRepository
 
 MEASUREMENT_DATASET_ID = "raw-measurements"
 MEASUREMENT_DATA_REF = dataset_content_ref(
@@ -32,7 +28,7 @@ MEASUREMENT_DATA_REF = dataset_content_ref(
 
 def read_measurement_records(
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     ref: str = MEASUREMENT_DATA_REF,
     missing_code: str,
@@ -40,20 +36,33 @@ def read_measurement_records(
     invalid_code: str,
     noun: str,
 ) -> list[MeasurementRecord]:
-    path = storage.ref_path(run_id, ref)
-    return read_measurement_records_path(
-        path=path,
-        ref=ref,
-        missing_code=missing_code,
-        empty_code=empty_code,
-        invalid_code=invalid_code,
-        noun=noun,
-    )
+    if not storage.exists(run_id, ref):
+        raise measurement_records_error(
+            missing_code,
+            f"{noun} is missing: {ref}",
+            ref=ref,
+            category=ProblemCategory.NOT_FOUND,
+        )
+    try:
+        records = storage.read_jsonl(run_id, ref, MeasurementRecord)
+    except DataIntegrityError as error:
+        raise measurement_records_error(
+            invalid_code,
+            f"{noun} is not valid measurement data: {ref}",
+            ref=ref,
+        ) from error
+    if not records:
+        raise measurement_records_error(
+            empty_code,
+            f"{noun} is empty: {ref}",
+            ref=ref,
+        )
+    return records
 
 
 def read_measurement_records_artifact(
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     selector: str = MEASUREMENT_DATASET_ID,
     missing_code: str,
@@ -77,36 +86,27 @@ def read_measurement_records_artifact(
     )
 
 
-def read_measurement_records_path(
-    *,
-    path: Path,
-    ref: str,
-    missing_code: str,
-    empty_code: str,
-    invalid_code: str,
-    noun: str,
-) -> list[MeasurementRecord]:
-    return _read_measurement_records_path(
-        path=path,
-        ref=ref,
-        missing_code=missing_code,
-        empty_code=empty_code,
-        invalid_code=invalid_code,
-        noun=noun,
-    )
-
-
 def read_measurement_dataset(
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     dataset: RunDatasetEntry,
     contract: MeasurementDatasetReadContract,
 ) -> MeasurementDataset:
-    return read_measurement_dataset_path(
-        path=storage.ref_path(run_id, dataset_storage_ref(dataset)),
+    ref = dataset_storage_ref(dataset)
+    records = read_measurement_records(
+        storage=storage,
+        run_id=run_id,
+        ref=ref,
+        missing_code=contract.missing_code,
+        empty_code=contract.empty_code,
+        invalid_code=contract.invalid_code,
+        noun=contract.noun,
+    )
+    return assemble_measurement_dataset(
+        records=records,
         dataset_id=dataset.id,
-        ref=dataset_storage_ref(dataset),
+        ref=ref,
         schema_data=dataset.data_schema,
         metadata=dataset.metadata,
         contract=contract,
@@ -115,7 +115,7 @@ def read_measurement_dataset(
 
 def read_measurement_dataset_artifact(
     *,
-    storage: LocalRunStore,
+    storage: RunRepository,
     run_id: str,
     selector: str = MEASUREMENT_DATASET_ID,
     contract: MeasurementDatasetReadContract,
@@ -129,24 +129,5 @@ def read_measurement_dataset_artifact(
         storage=storage,
         run_id=run_id,
         dataset=dataset,
-        contract=contract,
-    )
-
-
-def read_measurement_dataset_path(
-    *,
-    path: Path,
-    dataset_id: str,
-    ref: str,
-    schema_data: dict[str, object] | None,
-    metadata: dict[str, object],
-    contract: MeasurementDatasetReadContract,
-) -> MeasurementDataset:
-    return _read_measurement_dataset_path(
-        path=path,
-        dataset_id=dataset_id,
-        ref=ref,
-        schema_data=schema_data,
-        metadata=metadata,
         contract=contract,
     )

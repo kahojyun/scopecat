@@ -4,24 +4,20 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Literal
 
 from pydantic import ValidationError
 
-from scopecat._manifest_updates import write_manifest_records
-from scopecat._storage.refs import dataset_content_ref, record_content_ref
-from scopecat.errors import (
+from scopecat.application.services import WorkspaceServices
+from scopecat.kernel.errors import (
     CheckFailed,
     Conflict,
     DataIntegrityError,
     NotFound,
     StorageError,
 )
-from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
-from scopecat.models.parameter import Quantity
-from scopecat.models.run import RunConfigSource, RunManifest
-from scopecat.problems import (
+from scopecat.kernel.problems import (
     LocationPathItem,
     Problem,
     ProblemCategory,
@@ -31,11 +27,14 @@ from scopecat.problems import (
     blocking_problem,
     model_location,
 )
-from scopecat.results import (
+from scopecat.measurements.results import (
     ComplexQuantity,
     MeasurementDatasetSchema,
     MeasurementRecord,
 )
+from scopecat.records.artifact import RunDatasetEntry, RunRecordEntry
+from scopecat.records.parameter import Quantity
+from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.run_comparison.models import (
     ComparisonOutcome,
     RunComparisonPoint,
@@ -45,14 +44,15 @@ from scopecat.run_comparison.models import (
     RunComparisonReviewStatus,
     RunComparisonView,
 )
-from scopecat.runs import (
-    RunStore,
+from scopecat.runs.access import (
     get_dataset_by_id,
     list_records,
-    open_run_store,
-    read_measurement_records,
+    record_storage_ref,
 )
-from scopecat.runs.access import record_storage_ref
+from scopecat.runs.manifest import write_manifest_records_locked
+from scopecat.runs.measurements import read_measurement_records
+from scopecat.runs.refs import dataset_content_ref
+from scopecat.runs.repository import RunRepository
 
 MEASUREMENT_DATASET_ID = "raw-measurements"
 MEASUREMENT_DATA_REF = dataset_content_ref(
@@ -66,7 +66,7 @@ def execute_run_comparison(
     *,
     baseline_run_id: str,
     candidate_run_id: str,
-    workspace: str | Path,
+    services: WorkspaceServices,
     observable_id: str | None = None,
 ) -> RunComparisonResult:
     _validate_safe_id(baseline_run_id, "baseline_run_id")
@@ -74,7 +74,7 @@ def execute_run_comparison(
     if observable_id is not None:
         _validate_safe_id(observable_id, "observable_id")
 
-    storage = open_run_store(workspace)
+    storage = services.runs
     baseline_manifest = storage.read_manifest(baseline_run_id)
     candidate_manifest = storage.read_manifest(candidate_run_id)
     resolved_observable_id = _resolve_observable_id(
@@ -141,20 +141,24 @@ def execute_run_comparison(
         outcome=_outcome(peak_value_delta.value),
         points=points,
     )
-    storage.write_model(baseline_run_id, record_storage_ref(result_record), result)
-
-    write_manifest_records(
-        storage=storage,
-        manifest=baseline_manifest,
-        records=[result_record],
-    )
+    with storage.run_lock(baseline_run_id):
+        storage.write_model(
+            baseline_run_id,
+            record_storage_ref(result_record),
+            result,
+        )
+        write_manifest_records_locked(
+            storage=storage,
+            run_id=baseline_run_id,
+            records=[result_record],
+        )
     return result
 
 
 def list_run_comparisons(
-    *, run_id: str, workspace: str | Path
+    *, run_id: str, services: WorkspaceServices
 ) -> list[RunComparisonView]:
-    storage = open_run_store(workspace)
+    storage = services.runs
     manifest = storage.read_manifest(run_id)
     views: list[RunComparisonView] = []
     for record in _comparison_records(manifest):
@@ -172,8 +176,7 @@ def list_run_comparisons(
                 candidate_run_id=result.candidate_run_id,
                 peak_value_delta=result.peak_value_delta,
                 review_status=_review_status(
-                    storage=storage,
-                    run_id=run_id,
+                    manifest=manifest,
                     comparison_id=result.comparison_id,
                 ),
             )
@@ -185,7 +188,7 @@ def review_run_comparison(
     *,
     run_id: str,
     selector: str,
-    workspace: str | Path,
+    services: WorkspaceServices,
     state: RunComparisonReviewState,
     reviewer: str,
     note: str,
@@ -193,47 +196,109 @@ def review_run_comparison(
     if state not in {"accepted", "rejected"}:
         raise CheckFailed([unsupported_run_comparison_review_state_problem(state)])
 
-    storage = open_run_store(workspace)
-    manifest = storage.read_manifest(run_id)
-    _comparison_record, result = _resolve_comparison(
-        manifest=manifest,
-        storage=storage,
-        run_id=run_id,
-        selector=selector,
-    )
-    review_record = RunRecordEntry(
-        id=f"{result.comparison_id}-review",
-        kind="run_comparison_review_record",
-        media_type="application/json",
-    )
-    review_ref = record_storage_ref(review_record)
-    if storage.exists(run_id, review_ref):
-        raise Conflict(
-            [
-                _problem(
-                    "run_comparison_already_reviewed",
-                    f"run comparison already reviewed: {result.comparison_id}",
-                    category=ProblemCategory.CONFLICT,
-                    location=StorageLocation(run_id=run_id, ref=review_ref),
-                    details={"comparison_id": result.comparison_id},
-                )
-            ]
+    storage = services.runs
+    with storage.run_lock(run_id):
+        manifest = storage.read_manifest(run_id)
+        _comparison_record, result = _resolve_comparison(
+            manifest=manifest,
+            storage=storage,
+            run_id=run_id,
+            selector=selector,
         )
+        review_record = RunRecordEntry(
+            id=f"{result.comparison_id}-review",
+            kind="run_comparison_review_record",
+            media_type="application/json",
+        )
+        review_ref = record_storage_ref(review_record)
+        requested_review = RunComparisonReviewRecord(
+            run_id=run_id,
+            comparison_id=result.comparison_id,
+            decision=state,
+            reviewer=reviewer,
+            note=note,
+        )
+        committed_record = next(
+            (record for record in manifest.records if record.id == review_record.id),
+            None,
+        )
+        if committed_record is not None:
+            if committed_record.kind == review_record.kind:
+                committed_review = storage.read_model(
+                    run_id,
+                    review_ref,
+                    RunComparisonReviewRecord,
+                )
+                if _same_review_request(committed_review, requested_review):
+                    # Re-publish the commit marker in case the prior replace
+                    # became visible but its parent-directory fsync failed.
+                    storage.write_manifest(manifest)
+                    return result, committed_review
+            raise _review_conflict(
+                run_id=run_id,
+                review_ref=review_ref,
+                comparison_id=result.comparison_id,
+            )
 
-    review = RunComparisonReviewRecord(
+        review = _publish_or_recover_review(
+            storage=storage,
+            run_id=run_id,
+            review_ref=review_ref,
+            requested=requested_review,
+        )
+        write_manifest_records_locked(
+            storage=storage,
+            run_id=run_id,
+            records=[review_record],
+        )
+        return result, review
+
+
+def _publish_or_recover_review(
+    *,
+    storage: RunRepository,
+    run_id: str,
+    review_ref: str,
+    requested: RunComparisonReviewRecord,
+) -> RunComparisonReviewRecord:
+    if storage.write_model_if_absent(run_id, review_ref, requested):
+        return requested
+    existing = storage.read_model(run_id, review_ref, RunComparisonReviewRecord)
+    if _same_review_request(existing, requested):
+        return existing
+    raise _review_conflict(
         run_id=run_id,
-        comparison_id=result.comparison_id,
-        decision=state,
-        reviewer=reviewer,
-        note=note,
+        review_ref=review_ref,
+        comparison_id=requested.comparison_id,
     )
-    storage.write_model(run_id, review_ref, review)
-    write_manifest_records(
-        storage=storage,
-        manifest=manifest,
-        records=[review_record],
+
+
+def _same_review_request(
+    existing: RunComparisonReviewRecord,
+    requested: RunComparisonReviewRecord,
+) -> bool:
+    return existing.model_dump(exclude={"reviewed_at"}) == requested.model_dump(
+        exclude={"reviewed_at"}
     )
-    return result, review
+
+
+def _review_conflict(
+    *,
+    run_id: str,
+    review_ref: str,
+    comparison_id: str,
+) -> Conflict:
+    return Conflict(
+        [
+            _problem(
+                "run_comparison_already_reviewed",
+                f"run comparison already reviewed: {comparison_id}",
+                category=ProblemCategory.CONFLICT,
+                location=StorageLocation(run_id=run_id, ref=review_ref),
+                details={"comparison_id": comparison_id},
+            )
+        ]
+    )
 
 
 def unsupported_run_comparison_review_state_problem(state: str) -> Problem:
@@ -263,7 +328,7 @@ def _comparison_records(manifest: RunManifest) -> list[RunRecordEntry]:
 def _resolve_comparison(
     *,
     manifest: RunManifest,
-    storage: RunStore,
+    storage: RunRepository,
     run_id: str,
     selector: str,
 ) -> tuple[RunRecordEntry, RunComparisonResult]:
@@ -336,14 +401,14 @@ def _resolve_comparison(
 
 def _load_comparison_record(
     *,
-    storage: RunStore,
+    storage: RunRepository,
     run_id: str,
     record: RunRecordEntry,
     selector: str,
 ) -> RunComparisonResult:
     record_ref = record_storage_ref(record)
-    path = storage.ref_path(run_id, record_ref)
-    if not path.exists():
+    kind = storage.ref_kind(run_id, record_ref)
+    if kind == "missing":
         raise NotFound(
             [
                 _problem(
@@ -355,7 +420,7 @@ def _load_comparison_record(
                 )
             ]
         )
-    if path.is_dir():
+    if kind != "file":
         raise DataIntegrityError(
             [
                 _problem(
@@ -368,8 +433,8 @@ def _load_comparison_record(
             ]
         )
     try:
-        data = path.read_text()
-    except OSError as error:
+        return storage.read_model(run_id, record_ref, RunComparisonResult)
+    except StorageError as error:
         raise StorageError(
             [
                 _problem(
@@ -381,9 +446,7 @@ def _load_comparison_record(
                 )
             ]
         ) from error
-    try:
-        return RunComparisonResult.model_validate_json(data)
-    except ValidationError as error:
+    except DataIntegrityError as error:
         raise DataIntegrityError(
             [
                 _problem(
@@ -412,19 +475,21 @@ def _validate_selector_path(selector: str) -> None:
         )
 
 
-def _review_ref(comparison_id: str) -> str:
-    return record_content_ref(
-        record_id=f"{comparison_id}-review",
-        kind="run_comparison_review_record",
-    )
-
-
 def _review_status(
-    *, storage: RunStore, run_id: str, comparison_id: str
+    *, manifest: RunManifest, comparison_id: str
 ) -> RunComparisonReviewStatus:
-    if storage.exists(run_id, _review_ref(comparison_id)):
-        return "reviewed"
-    return "not_reviewed"
+    review_id = f"{comparison_id}-review"
+    return (
+        "reviewed"
+        if any(
+            record.id == review_id
+            for record in list_records(
+                manifest,
+                kind="run_comparison_review_record",
+            )
+        )
+        else "not_reviewed"
+    )
 
 
 def _comparison_id(candidate_run_id: str, observable_id: str) -> str:
@@ -590,7 +655,9 @@ def _validate_safe_id(value: str, *path: LocationPathItem) -> None:
         )
 
 
-def _read_measurements(*, storage: RunStore, run_id: str) -> list[MeasurementRecord]:
+def _read_measurements(
+    *, storage: RunRepository, run_id: str
+) -> list[MeasurementRecord]:
     try:
         return read_measurement_records(
             storage=storage,
@@ -812,7 +879,9 @@ def _outcome(peak_value_delta: float) -> ComparisonOutcome:
     return "unchanged"
 
 
-def _read_config_source(*, storage: RunStore, run_id: str) -> RunConfigSource | None:
+def _read_config_source(
+    *, storage: RunRepository, run_id: str
+) -> RunConfigSource | None:
     manifest = storage.read_manifest(run_id)
     return manifest.config_source
 

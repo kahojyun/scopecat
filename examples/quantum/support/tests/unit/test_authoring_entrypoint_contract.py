@@ -7,22 +7,22 @@ from typing import cast
 
 import pytest
 import scopecat as sc
-from scopecat._point_domain_algebra import (
+from scopecat.authoring._value_refs import (
+    ValueRef,
+    internal_lower_table_value_ref,
+)
+from scopecat.compiler.frontend.invocation import PreparedInvocation
+from scopecat.compiler.frontend.resolution import (
+    CompiledInvocation,
+    compile_prepared_invocation,
+)
+from scopecat.compiler.relations.point_domain import (
     PointDependentProduct,
     PointDomainExpr,
     PointProduct,
     PointRelationRows,
     PointUnit,
     PointZip,
-)
-from scopecat.authoring._invocation_plan import PreparedInvocation
-from scopecat.authoring._resolution import (
-    CompiledInvocation,
-    compile_prepared_invocation,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_lower_table_value_ref,
 )
 
 _TEMPLATE_ID = "examples.quantum.x-repetition-iq"

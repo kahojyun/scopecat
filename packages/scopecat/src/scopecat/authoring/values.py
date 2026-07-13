@@ -9,12 +9,6 @@ from inspect import Parameter, signature
 from typing import cast
 from uuid import UUID, uuid4
 
-from scopecat._relations import param, parameter_series, table
-from scopecat._resource_identity import (
-    LogicalResourcePortId,
-    logical_resource_port_id,
-)
-from scopecat._value_type_compatibility import literal_scalar_type
 from scopecat.authoring._frozen_values import freeze_runtime_input
 from scopecat.authoring._handles import create_handle
 from scopecat.authoring._parameter_contracts import (
@@ -33,11 +27,21 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
 )
-from scopecat.compute_values import ResolvedRoute
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import Quantity
-from scopecat.models.value import PayloadValue
-from scopecat.value_types import Route, Scalar, Series, ValueType
+from scopecat.compiler.relations.model import (
+    param,
+    parameter_series,
+    table,
+)
+from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.resource_identity import (
+    LogicalResourcePortId,
+    logical_resource_port_id,
+)
+from scopecat.kernel.routes import ResolvedRoute
+from scopecat.kernel.value_type_compatibility import literal_scalar_type
+from scopecat.kernel.value_types import Route, Scalar, Series, ValueType
+from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import Quantity
 
 type ComputeFunction = Callable[..., object]
 type ScalarInput = Quantity | EntityRef | PayloadValue | str | int | float | bool | None

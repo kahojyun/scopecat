@@ -5,19 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from scopecat.instruments import (
+from scopecat.kernel.problems import (
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
+from scopecat.records.parameter import Quantity
+from scopecat.sdk.instruments import (
     DriverFault,
     InstrumentStateCommand,
     InstrumentStateCommandField,
     PayloadRef,
     StateValue,
-)
-from scopecat.models.parameter import Quantity
-from scopecat.problems import (
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
-    model_location,
 )
 
 from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile

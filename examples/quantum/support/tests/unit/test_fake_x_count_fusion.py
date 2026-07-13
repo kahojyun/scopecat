@@ -6,18 +6,17 @@ from pathlib import Path
 
 import pytest
 import scopecat as sc
-from scopecat._storage.local import LocalExecutionJournal
-from scopecat._workflows.runs import load_run_plan
-from scopecat.domain_invocation import DomainInvocationIntent
-from scopecat.domain_runtime import (
+from scopecat.adapters.filesystem.execution import FilesystemExecutionJournal
+from scopecat.kernel.errors import RunIndeterminate
+from scopecat.records.parameter import Quantity
+from scopecat.records.run_plan import RunPlanDomainExecution
+from scopecat.sdk.domain.invocation import DomainInvocationIntent
+from scopecat.sdk.domain.runtime import (
     DomainFetchCandidate,
     DomainFetchReceipt,
     DomainSubmissionId,
     domain_receipt_identity,
 )
-from scopecat.errors import RunIndeterminate
-from scopecat.models.parameter import Quantity
-from scopecat.models.run_plan import RunPlanDomainExecution
 
 from quantum_lab_demo.reference_experiments import (
     FAKE_X_COUNT_BIAS_TEMPLATE,
@@ -61,9 +60,9 @@ def test_scalar_voltage_partitions_programmable_x_count_batches(
         tmp_path,
         options=sc.ExecutionOptions(fusion="automatic"),
     )
-    plan = load_run_plan(run_id=run.id, workspace=tmp_path)
+    plan = run.plan
     records = run.data().measurements().dataset.records
-    journal = LocalExecutionJournal(tmp_path, run_id=run.id).entries()
+    journal = FilesystemExecutionJournal(tmp_path, run_id=run.id).entries()
     domain = _domain_execution(plan)
 
     assert run.manifest.status == "completed"
@@ -116,10 +115,7 @@ def test_fusion_option_changes_physical_jobs_without_changing_logical_records(
         tmp_path / "disabled",
         options=sc.ExecutionOptions(fusion="disabled"),
     )
-    disabled_plan = load_run_plan(
-        run_id=disabled.id,
-        workspace=tmp_path / "disabled",
-    )
+    disabled_plan = disabled.plan
 
     assert automatic_adapter.runtime.physical_execution_count == 2
     assert disabled_adapter.runtime.physical_execution_count == 8

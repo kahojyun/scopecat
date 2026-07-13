@@ -6,12 +6,19 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import cast
 
-from scopecat.domain_invocation import (
+from scopecat.kernel.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
+from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     DomainInvocationIntent,
     close_domain_invocation,
 )
-from scopecat.domain_runtime import (
+from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
     DomainFetchReceipt,
@@ -19,13 +26,6 @@ from scopecat.domain_runtime import (
     DomainSubmissionId,
     DomainSubmitReceipt,
     domain_receipt_identity,
-)
-from scopecat.problems import (
-    Problem,
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
-    model_location,
 )
 from scopecat_quantum import TargetAcquisitionAddress, TargetCompileEntryId
 

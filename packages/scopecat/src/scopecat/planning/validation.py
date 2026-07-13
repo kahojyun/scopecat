@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from scopecat._parameter_resolution import resolve_config_parameters
-from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.problems import (
+from scopecat.config.parameter_resolution import resolve_config_parameters
+from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
     ProblemPhase,
     blocking_problem,
     model_location,
 )
+from scopecat.records.config import ConfigProfileSnapshot
 
 
 def _problem(

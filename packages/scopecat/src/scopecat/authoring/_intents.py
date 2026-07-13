@@ -10,9 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from scopecat._relations import RowScopeId
-from scopecat._resource_identity import LogicalResourcePortId
-from scopecat._symbols import SymbolId
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_input_value_ref,
@@ -24,9 +21,12 @@ from scopecat.authoring.values import (
     ParameterKeyInput,
     RouteRef,
 )
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import Quantity
-from scopecat.models.value import PayloadValue
+from scopecat.compiler.relations.model import RowScopeId
+from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.resource_identity import LogicalResourcePortId
+from scopecat.kernel.symbols import SymbolId
+from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import Quantity
 
 if TYPE_CHECKING:
     from scopecat.authoring._module_ir import InvocationKey

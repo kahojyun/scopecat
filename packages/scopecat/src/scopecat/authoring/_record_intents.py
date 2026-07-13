@@ -6,18 +6,6 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Literal, cast
 
-from scopecat._frozen import FrozenMapping, freeze_json_mapping
-from scopecat._product_identity import (
-    ProductId,
-    ProductUse,
-    parse_product_id,
-    product_use,
-)
-from scopecat._resource_identity import (
-    LogicalResourcePortId,
-    logical_resource_port_id,
-)
-from scopecat._symbols import SymbolId
 from scopecat.authoring._frozen_values import (
     empty_frozen_mapping,
     freeze_runtime_input,
@@ -25,9 +13,21 @@ from scopecat.authoring._frozen_values import (
 from scopecat.authoring._handles import create_handle
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.values import MetadataValue
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import Quantity
-from scopecat.results import MeasurementDType
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.product_identity import (
+    ProductId,
+    ProductUse,
+    parse_product_id,
+    product_use,
+)
+from scopecat.kernel.resource_identity import (
+    LogicalResourcePortId,
+    logical_resource_port_id,
+)
+from scopecat.kernel.symbols import SymbolId
+from scopecat.measurements.results import MeasurementDType
+from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import Quantity
 
 type RecordKind = Literal["observable", "artifact", "readback", "expression"]
 type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]

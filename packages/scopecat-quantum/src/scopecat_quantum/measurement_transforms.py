@@ -8,7 +8,12 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, model_validator
 from scopecat import Quantity
-from scopecat.measurement_transforms import (
+from scopecat.measurements.results import (
+    ComplexQuantity,
+    MeasurementArray,
+    MeasurementValue,
+)
+from scopecat.measurements.transforms import (
     HostMeasurementTransformCall,
     HostMeasurementTransformImplementation,
     MeasurementTransformDef,
@@ -16,7 +21,6 @@ from scopecat.measurement_transforms import (
     MeasurementTransformPort,
     MeasurementTransformSemanticContract,
 )
-from scopecat.results import ComplexQuantity, MeasurementArray, MeasurementValue
 
 _BINARY_IQ_SEMANTIC_ID = "scopecat_quantum.readout.binary_iq_discrimination"
 _BINARY_IQ_SEMANTIC_VERSION = "1"

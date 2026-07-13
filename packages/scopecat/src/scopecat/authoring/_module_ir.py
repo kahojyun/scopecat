@@ -14,9 +14,6 @@ from dataclasses import dataclass, field
 from typing import cast
 from uuid import UUID, uuid4
 
-from scopecat._product_identity import ProductId
-from scopecat._resource_identity import LogicalResourcePortId
-from scopecat._value_type_compatibility import require_assignable
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
     ResourcePort,
@@ -48,14 +45,17 @@ from scopecat.authoring.values import (
     MetadataValue,
     RouteRef,
 )
-from scopecat.errors import CheckFailed
-from scopecat.problems import (
+from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
     ProblemPhase,
     blocking_problem,
     model_location,
 )
+from scopecat.kernel.product_identity import ProductId
+from scopecat.kernel.resource_identity import LogicalResourcePortId
+from scopecat.kernel.value_type_compatibility import require_assignable
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,23 +9,17 @@ being treated as part of the required run contract.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import cast
 
 from pydantic import BaseModel, ValidationError
 
-from scopecat.errors import DataIntegrityError, StorageError
-from scopecat.models.analysis import AnalysisRecord
-from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
-from scopecat.models.execution import ExecutionSummary
-from scopecat.models.measurement import MeasurementDatasetSchema
-from scopecat.models.parameter_change import ParameterChangeProposal
-from scopecat.models.run import RunManifest
-from scopecat.parameter_changes import (
+from scopecat.application.services import WorkspaceServices
+from scopecat.config.changes import (
     ParameterChangeDecisionRecord,
     list_parameter_change_decisions,
 )
-from scopecat.problems import (
+from scopecat.kernel.errors import DataIntegrityError, NotFound
+from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
     ProblemLocation,
@@ -34,6 +28,12 @@ from scopecat.problems import (
     blocking_problem,
     model_location,
 )
+from scopecat.records.analysis import AnalysisRecord
+from scopecat.records.artifact import RunDatasetEntry, RunRecordEntry
+from scopecat.records.execution import ExecutionSummary
+from scopecat.records.measurement import MeasurementDatasetSchema
+from scopecat.records.parameter_change import ParameterChangeProposal
+from scopecat.records.run import RunManifest
 from scopecat.run_comparison import (
     RunComparisonResult,
     RunComparisonReviewRecord,
@@ -52,13 +52,16 @@ from scopecat.run_overview.models import (
     RuntimeExecutionEntry,
     StateExecutionEntry,
 )
-from scopecat.runs import RunStore, list_records, open_run_store
-from scopecat.runs.access import record_storage_ref, storage_ref
+from scopecat.runs.access import (
+    list_records,
+    record_storage_ref,
+    storage_ref,
+)
+from scopecat.runs.repository import RunRepository
 
 
-def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
-    workspace_path = Path(workspace)
-    storage = open_run_store(workspace_path)
+def build_run_overview(*, run_id: str, services: WorkspaceServices) -> RunOverview:
+    storage = services.runs
     manifest = storage.read_manifest(run_id)
     _validate_manifest_entries(storage=storage, run_id=run_id, manifest=manifest)
 
@@ -96,7 +99,7 @@ def build_run_overview(*, run_id: str, workspace: str | Path) -> RunOverview:
 
 
 def _read_execution_overview(
-    *, storage: RunStore, run_id: str, manifest: RunManifest
+    *, storage: RunRepository, run_id: str, manifest: RunManifest
 ) -> ExecutionOverviewEntry | None:
     summary_records = _records_by_kind(manifest, "execution_summary")
     if not summary_records:
@@ -104,10 +107,10 @@ def _read_execution_overview(
     summary_record = summary_records[0]
     summary_ref = record_storage_ref(summary_record)
     summary = _read_model(
-        storage.ref_path(run_id, summary_ref),
-        ExecutionSummary,
+        storage,
+        run_id,
         summary_ref,
-        run_id=run_id,
+        ExecutionSummary,
     )
     state = StateExecutionEntry(
         changed_field_count=summary.state.changed_field_count,
@@ -208,16 +211,16 @@ def _record_count(schema: MeasurementDatasetSchema | None) -> int | None:
 
 
 def _read_analysis_records(
-    *, storage: RunStore, run_id: str, manifest: RunManifest
+    *, storage: RunRepository, run_id: str, manifest: RunManifest
 ) -> list[AnalysisRecordEntry]:
     records: list[AnalysisRecordEntry] = []
     for record in _records_by_kind(manifest, "analysis"):
         record_ref = record_storage_ref(record)
         payload = _read_model(
-            storage.ref_path(run_id, record_ref),
-            AnalysisRecord,
+            storage,
+            run_id,
             record_ref,
-            run_id=run_id,
+            AnalysisRecord,
         )
         records.append(
             AnalysisRecordEntry(
@@ -236,7 +239,7 @@ def _read_analysis_records(
 
 
 def _read_parameter_change_proposals(
-    *, storage: RunStore, run_id: str, manifest: RunManifest
+    *, storage: RunRepository, run_id: str, manifest: RunManifest
 ) -> list[ParameterChangeProposalEntry]:
     proposals: list[ParameterChangeProposalEntry] = []
     for proposal_record in list_records(
@@ -244,12 +247,11 @@ def _read_parameter_change_proposals(
         kind="parameter_change_proposal",
     ):
         proposal_record_ref = record_storage_ref(proposal_record)
-        proposal_path = storage.ref_path(run_id, proposal_record_ref)
         proposal = _read_model(
-            proposal_path,
-            ParameterChangeProposal,
+            storage,
+            run_id,
             proposal_record_ref,
-            run_id=run_id,
+            ParameterChangeProposal,
         )
         decision_info = _read_parameter_change_decision(
             storage=storage,
@@ -273,12 +275,12 @@ def _read_parameter_change_proposals(
 
 
 def _read_parameter_change_decision(
-    *, storage: RunStore, run_id: str, proposal: ParameterChangeProposal
+    *, storage: RunRepository, run_id: str, proposal: ParameterChangeProposal
 ) -> ParameterChangeDecisionInfo:
     decisions = list_parameter_change_decisions(
         run_id=run_id,
         selector=proposal.id,
-        workspace=storage.layout.workspace,
+        storage=storage,
     )
     history = [_parameter_change_decision_event(decision) for decision in decisions]
     if not decisions:
@@ -308,16 +310,16 @@ def _parameter_change_decision_event(
 
 
 def _read_run_comparisons(
-    *, storage: RunStore, run_id: str, manifest: RunManifest
+    *, storage: RunRepository, run_id: str, manifest: RunManifest
 ) -> list[RunComparisonEntry]:
     comparisons: list[RunComparisonEntry] = []
     for record in _records_by_kind(manifest, "run_comparison_result"):
         result_ref = record_storage_ref(record)
         result = _read_model(
-            storage.ref_path(run_id, result_ref),
-            RunComparisonResult,
+            storage,
+            run_id,
             result_ref,
-            run_id=run_id,
+            RunComparisonResult,
         )
         review_record_id = f"{result.comparison_id}-review"
         review_record = next(
@@ -331,16 +333,13 @@ def _read_run_comparisons(
         review_ref = (
             record_storage_ref(review_record) if review_record is not None else None
         )
-        review_path = (
-            storage.ref_path(run_id, review_ref) if review_ref is not None else None
-        )
         review: RunComparisonReviewRecord | None = None
-        if review_path is not None and review_path.exists():
+        if review_ref is not None and storage.exists(run_id, review_ref):
             review = _read_model(
-                review_path,
+                storage,
+                run_id,
+                review_ref,
                 RunComparisonReviewRecord,
-                review_ref or review_record_id,
-                run_id=run_id,
             )
         comparisons.append(
             RunComparisonEntry(
@@ -378,14 +377,14 @@ def _records_by_kind(manifest: RunManifest, kind: str) -> list[RunRecordEntry]:
 
 
 def _read_model[TModel: BaseModel](
-    path: Path,
-    model_type: type[TModel],
-    ref: str,
-    *,
+    storage: RunRepository,
     run_id: str,
+    ref: str,
+    model_type: type[TModel],
 ) -> TModel:
     location = StorageLocation(run_id=run_id, ref=ref)
-    if not path.exists():
+    kind = storage.ref_kind(run_id, ref)
+    if kind == "missing":
         raise DataIntegrityError(
             [
                 _overview_problem(
@@ -395,7 +394,7 @@ def _read_model[TModel: BaseModel](
                 )
             ]
         )
-    if path.is_dir():
+    if kind != "file":
         raise DataIntegrityError(
             [
                 _overview_problem(
@@ -406,21 +405,18 @@ def _read_model[TModel: BaseModel](
             ]
         )
     try:
-        data = path.read_text()
-    except OSError as error:
-        raise StorageError(
+        return storage.read_model(run_id, ref, model_type)
+    except NotFound as error:
+        raise DataIntegrityError(
             [
                 _overview_problem(
-                    "overview_input_read_failed",
-                    "overview input could not be read",
-                    category=ProblemCategory.STORAGE,
+                    "missing_overview_input",
+                    f"overview input is missing: {ref}",
                     location=location,
                 )
             ]
         ) from error
-    try:
-        return model_type.model_validate_json(data)
-    except ValidationError as error:
+    except DataIntegrityError as error:
         raise DataIntegrityError(
             [
                 _overview_problem(
@@ -433,13 +429,12 @@ def _read_model[TModel: BaseModel](
 
 
 def _validate_manifest_entries(
-    *, storage: RunStore, run_id: str, manifest: RunManifest
+    *, storage: RunRepository, run_id: str, manifest: RunManifest
 ) -> None:
     entries = [*manifest.artifacts, *manifest.datasets, *manifest.records]
     for entry in entries:
         entry_storage_ref = storage_ref(entry)
-        path = storage.ref_path(run_id, entry_storage_ref)
-        if path.exists() and path.is_dir():
+        if storage.ref_kind(run_id, entry_storage_ref) == "directory":
             raise DataIntegrityError(
                 [
                     _overview_problem(

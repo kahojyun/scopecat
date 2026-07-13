@@ -15,8 +15,8 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_parameter_contracts,
 )
 from scopecat.authoring.values import ParameterKeyInput
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import Quantity
+from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import Quantity
 
 type ScanValue = Quantity | EntityRef | str | int | float | bool | None
 type ScanCenter = ValueRef | Quantity

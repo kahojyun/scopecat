@@ -7,7 +7,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from scopecat.problems import (
+from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
     ProblemPhase,

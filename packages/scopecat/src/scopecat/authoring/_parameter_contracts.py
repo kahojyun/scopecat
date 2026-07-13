@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from scopecat.value_types import Scalar, ValueType
+from scopecat.kernel.value_types import Scalar, ValueType
 
 
 @dataclass(frozen=True, slots=True)

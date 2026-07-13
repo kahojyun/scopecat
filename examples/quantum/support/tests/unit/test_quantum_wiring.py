@@ -5,13 +5,16 @@ from dataclasses import dataclass, field
 import pytest
 import scopecat as sc
 from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
-from scopecat._compiler.linked import link_program
-from scopecat._execution.execution_plan_executor import execute_execution_plan
-from scopecat._resource_identity import logical_resource_port_id
-from scopecat.authoring._elaboration import elaborate_module
-from scopecat.authoring._resolution import resolve_experiment
-from scopecat.config_profiles import load_config_profile
-from scopecat.instruments import (
+from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.linking.linked import link_program
+from scopecat.composition.local import local_execution_services
+from scopecat.config.profiles import load_config_profile
+from scopecat.execution.local.plan_executor import execute_execution_plan
+from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.planning.authoring import resolve_experiment
+from scopecat.planning.routing import RoutingView
+from scopecat.planning.validation import validate_config
+from scopecat.sdk.instruments import (
     ActionReceipt,
     ApplyReceipt,
     CollectCommand,
@@ -26,8 +29,6 @@ from scopecat.instruments import (
     InstrumentStateCommand,
     InstrumentStateSnapshot,
 )
-from scopecat.planning.validation import validate_config
-from scopecat.routing import RoutingView
 
 from quantum_lab_demo.experiments import SIMULTANEOUS_RABI_TEMPLATE
 from quantum_lab_demo.experiments.background_modules import FLUX_BACKGROUND_MODULE
@@ -321,7 +322,7 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
         config=config,
         prepared=prepared,
         request=resolved.request,
-        workspace=tmp_path,
+        services=local_execution_services(tmp_path),
         config_source=resolved.config_source,
     )
 

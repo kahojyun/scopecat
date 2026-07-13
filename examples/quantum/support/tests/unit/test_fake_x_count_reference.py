@@ -3,22 +3,22 @@ from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
 
-from scopecat._compiler.environment import validate_config_environment
-from scopecat._compiler.linked import link_program
-from scopecat._compiler.point_domain import PointDomain
-from scopecat._compiler.program import (
+from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.relations.model import literal_rows
+from scopecat.compiler.relations.point_domain import point_rows
+from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
+from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.program import (
     TypedProgram,
     product_output,
     record_product,
     shot_axis,
 )
-from scopecat._point_domain_algebra import point_rows
-from scopecat._relation_verification import RelationTypeBindings
-from scopecat._relations import literal_rows
-from scopecat._value_expressions import verify_table_value_expr
-from scopecat.config_profiles import load_config_profile
-from scopecat.domain_invocation import materialize_linked_points
-from scopecat.value_types import Int, Scalar, Table, TableColumn
+from scopecat.config.profiles import load_config_profile
+from scopecat.kernel.value_types import Int, Scalar, Table, TableColumn
+from scopecat.sdk.domain.invocation import materialize_linked_points
 
 from quantum_lab_demo.reference_experiments import (
     FakeXCountProductBinding,

@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 from pydantic import ValidationError
-from scopecat.instruments import (
+from scopecat.records.parameter import Quantity
+from scopecat.sdk.instruments import (
     DriverFault,
     InstrumentStateCommand,
     PayloadRef,
     StateValue,
 )
-from scopecat.models.parameter import Quantity
 
 from quantum_lab_demo.virtual_lab import load_virtual_lab_profile
 from quantum_lab_demo.virtual_lab.devices import VirtualDevice

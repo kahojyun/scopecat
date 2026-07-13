@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from scopecat._frozen import freeze_json_mapping
 from scopecat.authoring._frozen_values import (
     empty_frozen_mapping,
     freeze_runtime_input,
@@ -30,8 +29,9 @@ from scopecat.authoring.values import (
     RuntimeInput,
     runtime_input_is_valid,
 )
-from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.parameter import Quantity
+from scopecat.kernel.frozen import freeze_json_mapping
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.parameter import Quantity
 
 if TYPE_CHECKING:
     from scopecat.authoring._record_intents import (
@@ -40,7 +40,6 @@ if TYPE_CHECKING:
         RecordSelection,
     )
     from scopecat.authoring.assembly import ExperimentModule
-    from scopecat.checks import ExperimentCheckReport
 
     type TemplateModule = ExperimentModule
     type TemplateRecordSelection = ProductSelectionIntent
@@ -130,18 +129,6 @@ class ExperimentTemplate:
             inputs=freeze_runtime_inputs(inputs),
         )
 
-    def check(self) -> ExperimentCheckReport:
-        """Check this reusable definition without config or a provider."""
-
-        from scopecat.authoring._checks import check_template
-
-        return check_template(self)
-
-    def explain(self) -> str:
-        """Explain the config-free definition check."""
-
-        return self.check().explain()
-
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class ExperimentInvocation:
@@ -174,18 +161,6 @@ class ExperimentInvocation:
             self,
             inputs=freeze_runtime_inputs(selected),
         )
-
-    def check(self) -> ExperimentCheckReport:
-        """Compile this invocation through the config-free authoring pass."""
-
-        from scopecat.authoring._checks import check_invocation
-
-        return check_invocation(self)
-
-    def explain(self) -> str:
-        """Explain the config-free authoring check."""
-
-        return self.check().explain()
 
     def scan(
         self,
@@ -242,18 +217,6 @@ class TemplateBuilder:
 
     def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
         return self.build().bind(**inputs)
-
-    def check(self) -> ExperimentCheckReport:
-        """Check the current template definition without raising problems."""
-
-        from scopecat.authoring._checks import check_template_builder
-
-        return check_template_builder(self)
-
-    def explain(self) -> str:
-        """Explain the config-free definition check."""
-
-        return self.check().explain()
 
     def build(self) -> ExperimentTemplate:
         template = create_handle(

@@ -17,13 +17,24 @@ Current scope:
   artifacts.
 - Execution boundary records: execution boundary manifests, including
   plan hashes, result refs, problems, and persisted run artifacts. These
-  assertions live with the execution workflow tests because the durable record
+  assertions live with the run-finalization tests because the durable record
   is coupled to run finalization.
-- Collection repositories: shared Memory/Local behavior for idempotent commit,
-  detached resolve results, exact receipt identity and content hashes, forged
-  receipt rejection, and conflicting writes. Local storage additionally tests
-  malformed persisted bytes at its adapter boundary.
-- Workflow boundary records: run-comparison jobs/results/reviews, parameter
+- Collection repositories: shared memory/filesystem behavior for idempotent
+  commit, detached resolve results, exact receipt identity and content hashes,
+  forged receipt rejection, and conflicting writes. Filesystem storage
+  additionally tests malformed persisted bytes at its adapter boundary.
+- Execution-side ports: reusable memory/filesystem contracts for journal
+  sequencing, measurement-record idempotency and conflict rejection, and
+  payload-evidence idempotency and conflict rejection. Adapter-specific
+  filesystem durability remains in adapter tests.
+- Workspace persistence ports: reusable memory/filesystem contracts for logical
+  run refs, atomic if-absent publication, registry registration and generation
+  CAS, and mutually exclusive resource leases.
+- Import direction: core stays domain-neutral, extension production code uses
+  only public Scopecat modules, records/authoring/compiler sublayers point
+  inward, application use cases do not select composition or adapters, and
+  concrete filesystem adapters are imported only by their composition roots.
+- Application boundary records: run-comparison jobs/results/reviews, parameter
   change decision records, and structured overview inputs. These tests should
   assert serialized durable shape and typed input/output records, not private
   helper placement.

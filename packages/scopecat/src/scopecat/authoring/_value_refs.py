@@ -9,20 +9,23 @@ only lowers them back to relation/compute references at the compiler boundary.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID, uuid4
 
-from scopecat._compute_result import ComputeResultRef
-from scopecat._relation_analysis import (
+from scopecat.authoring._parameter_contracts import (
+    ParameterContract,
+    merge_parameter_contracts,
+)
+from scopecat.compiler.relations.analysis import (
     PlanReferenceKind,
     free_row_references,
     plan_references,
     prefix_plan_row_scopes,
     verify_plan_scopes,
 )
-from scopecat._relations import (
+from scopecat.compiler.relations.model import (
     RelationExpr,
     RowScopeId,
     ScalarExpr,
@@ -34,32 +37,30 @@ from scopecat._relations import (
     input_table,
     point_col,
 )
-from scopecat._scalar_operators import (
+from scopecat.compiler.relations.operators import (
     ScalarOperator,
     require_sortable_scalar,
     scalar_operator_result_type,
 )
-from scopecat._semantic_graph import OperationId, operation_result_id
-from scopecat._symbols import SymbolId
-from scopecat._value_availability import (
+from scopecat.compiler.semantic.availability import (
     ValueAvailability,
     ValueRate,
     ValueStage,
 )
-from scopecat._value_type_compatibility import (
+from scopecat.compiler.semantic.compute_result import ComputeResultRef
+from scopecat.compiler.semantic.model import (
+    OperationId,
+    operation_result_id,
+)
+from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_type_compatibility import (
     describe_value_type,
 )
-from scopecat._value_type_compatibility import (
+from scopecat.kernel.value_type_compatibility import (
     literal_scalar_type as _literal_scalar_type,
 )
-from scopecat.authoring._parameter_contracts import (
-    ParameterContract,
-    merge_parameter_contracts,
-)
-from scopecat.models.entity import EntityRef
-from scopecat.models.parameter import Quantity
-from scopecat.models.value import PayloadValue
-from scopecat.value_types import (
+from scopecat.kernel.value_types import (
     Bool,
     Entity,
     Scalar,
@@ -68,7 +69,13 @@ from scopecat.value_types import (
     TableColumn,
     ValueType,
 )
-from scopecat.value_validation import ValuePath, coerce_literal, format_value_path
+from scopecat.kernel.value_validation import (
+    ValuePath,
+    coerce_literal,
+    format_value_path,
+)
+from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import Quantity
 
 if TYPE_CHECKING:
     from scopecat.authoring._module_ir import InvocationKey
@@ -110,6 +117,22 @@ class ScalarValueOperation:
 
 
 type _ValueDeclarationIdentity = tuple[ValueDeclarationKey, tuple[str, ...]]
+
+
+class _LoweredValueRefInputs(Mapping[str, object]):
+    """Lazily lower one authored input layer at the relation boundary."""
+
+    def __init__(self, values: Mapping[str, ValueRef]) -> None:
+        self._values = values
+
+    def __getitem__(self, key: str) -> object:
+        return internal_lower_value_ref(self._values[key])
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1639,10 +1662,15 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
         )
         if not layers:
             return expression
-        from scopecat.authoring._value_binding import substitute_value_input_refs
+        from scopecat.compiler.relations.input_binding import (
+            substitute_value_input_refs,
+        )
 
         for layer in layers:
-            expression = substitute_value_input_refs(expression, dict(layer))
+            expression = substitute_value_input_refs(
+                expression,
+                _LoweredValueRefInputs(dict(layer)),
+            )
         return expression
     source_id = _required_string_source_id(value)
     if source_kind == "point":
@@ -1731,7 +1759,7 @@ def internal_literal_value_ref(
 ) -> ValueRef:
     """Capture one closed literal as a typed edge without exposing raw IR."""
 
-    from scopecat.authoring._value_binding import (
+    from scopecat.compiler.relations.input_binding import (
         input_cell,
         literal_scalar,
         series_input_value,
@@ -1866,7 +1894,7 @@ def _value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
     if source_kind != "expression":
         return frozenset()
 
-    from scopecat.authoring._value_binding import value_input_refs
+    from scopecat.compiler.relations.input_binding import value_input_refs
 
     expression = cast(
         "_ValueExpression",
