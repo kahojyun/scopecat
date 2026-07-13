@@ -18,6 +18,7 @@ from scopecat._workflows.config import (
     resolve_config_source,
 )
 from scopecat._workflows.runs import (
+    check_experiment,
     list_runs,
     load_run,
     preview_experiment,
@@ -42,6 +43,7 @@ from scopecat.authoring._module_handles import (
     StateScalarInput,
 )
 from scopecat.authoring._record_intents import (
+    ProductRef,
     ProductSelectionIntent,
     RecordAxis,
     RecordIntent,
@@ -63,6 +65,7 @@ from scopecat.authoring.templates import (
     ExperimentInvocation,
     ExperimentTemplate,
     TemplateBuilder,
+    template_builder_with_record_selections_internal,
 )
 from scopecat.authoring.values import (
     Compute,
@@ -74,10 +77,10 @@ from scopecat.authoring.values import (
 from scopecat.candidate_configs import (
     CandidateConfig,
     CandidateConfigInput,
-    resolve_candidate_config,
+    resolve_candidate_config_snapshot,
 )
-from scopecat.errors import ValidationFailed
-from scopecat.instruments import RuntimeEventSink, RuntimePayloadObserver
+from scopecat.checks import ExperimentCheckReport
+from scopecat.errors import CheckFailed
 from scopecat.instruments.sdk import InstrumentProvider
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.entity import EntityRef
@@ -91,6 +94,7 @@ from scopecat.preview import PreviewExperimentResult, ValidateExperimentResult
 from scopecat.results import MeasurementDType
 from scopecat.run_overview import RunOverview, build_run_overview
 from scopecat.run_selectors import RunSelector
+from scopecat.runtime import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.session_analysis import (
     Analysis,
     AnalysisContext,
@@ -246,6 +250,52 @@ class PreparedExperiment:
             run_options=run_options,
         )
 
+    def check(
+        self,
+        *,
+        name: str | None = None,
+        tags: Sequence[str] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> ExperimentCheckReport:
+        """Check authoring, configuration, and planning without execution."""
+
+        run_options = _validated_run_options(
+            self._run_options,
+            name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
+            operator=operator,
+        )
+        return _check_prepared(
+            self._session,
+            self._prepared_invocation,
+            config=self._config,
+            config_profile=self._config_profile,
+            run_options=run_options,
+        )
+
+    def explain(
+        self,
+        *,
+        name: str | None = None,
+        tags: Sequence[str] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> str:
+        """Render a deterministic explanation of :meth:`check`."""
+
+        return self.check(
+            name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
+            operator=operator,
+        ).explain()
+
     def validate(
         self,
         *,
@@ -395,12 +445,23 @@ class Experiment:
             scans=(*self.scans, selected),
         )
 
-    def bind(
+    def bind_field(
         self,
-        port_path: str,
+        resource: str,
+        *,
+        capability: str,
+        field: str,
         value: BindingInput,
     ) -> Experiment:
-        return replace_handle(self, module=self.module.bind(port_path, value))
+        return replace_handle(
+            self,
+            module=self.module.bind_field(
+                resource,
+                capability=capability,
+                field=field,
+                value=value,
+            ),
+        )
 
     def compute(
         self,
@@ -417,6 +478,7 @@ class Experiment:
         *,
         resource: StateScalarInput | None = None,
         resource_port: str | None = None,
+        capability: str,
         field: str,
         value: StateScalarInput,
         route_entities: Sequence[StateRouteInput] = (),
@@ -428,6 +490,7 @@ class Experiment:
                 resource=resource,
                 resource_port=resource_port,
                 field=field,
+                capability=capability,
                 value=value,
                 route_entities=route_entities,
             ),
@@ -460,7 +523,7 @@ class Experiment:
 
     def record_product(
         self,
-        *product_ids: str,
+        *product_ids: str | ProductRef,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> Experiment:
@@ -553,7 +616,10 @@ class Workspace:
         config_profile: ConfigProfileInput | None = None,
     ) -> SystemSummary:
         if isinstance(config, CandidateConfig):
-            config = resolve_candidate_config(config, workspace=self.workspace).config
+            config = resolve_candidate_config_snapshot(
+                config,
+                workspace=self.workspace,
+            )
         selected_config = self.config if config is None else config
         selected_config_profile = _effective_config_profile(
             self,
@@ -713,7 +779,10 @@ def _prepared_config_selection(
     *,
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
-) -> tuple[str | ConfigProfileSnapshot, ConfigProfileInput | None]:
+) -> tuple[
+    str | ConfigProfileSnapshot | CandidateConfig,
+    ConfigProfileInput | None,
+]:
     if config is None:
         selected_config: str | ConfigProfileSnapshot | CandidateConfig = session.config
         config_profile_selector: str | ConfigProfileSnapshot | None = None
@@ -723,11 +792,9 @@ def _prepared_config_selection(
             None if isinstance(config, CandidateConfig) else config
         )
     if isinstance(selected_config, CandidateConfig):
-        selected_config = resolve_candidate_config(
-            selected_config,
-            workspace=session.workspace,
-        ).config
-        config_profile_selector = selected_config
+        # Candidate resolution reads durable run state. Keep it lazy so the
+        # workflow can complete config-free authoring before that I/O.
+        return selected_config, config_profile
     return selected_config, _effective_config_profile(
         session,
         config=config_profile_selector,
@@ -770,6 +837,30 @@ def _preview_prepared(
     )
 
 
+def _check_prepared(
+    session: Workspace,
+    prepared_invocation: PreparedInvocation,
+    *,
+    config: str | ConfigProfileSnapshot | CandidateConfig | None,
+    config_profile: ConfigProfileInput | None,
+    run_options: _RunOptions,
+) -> ExperimentCheckReport:
+    selected_config, selected_config_profile = _prepared_config_selection(
+        session,
+        config=config,
+        config_profile=config_profile,
+    )
+    return check_experiment(
+        _prepared_invocation_with_run_options(
+            prepared_invocation,
+            options=run_options,
+        ),
+        workspace=session.workspace,
+        config=selected_config,
+        config_profile=selected_config_profile,
+    )
+
+
 def _validate_prepared(
     session: Workspace,
     prepared_invocation: PreparedInvocation,
@@ -784,9 +875,9 @@ def _validate_prepared(
             config=config,
             config_profile=config_profile,
         )
-    except ValidationFailed as error:
+    except CheckFailed as error:
         return ValidateExperimentResult(
-            diagnostics=tuple(error.diagnostics),
+            problems=error.problems,
             summary=None,
             template_id=None,
             inputs={},
@@ -947,12 +1038,10 @@ def _workspace_template(
     )
     for scan in experiment.scans:
         builder = builder.scan(scan)
-    for selection in experiment.record_selections:
-        builder = builder.record_product(
-            selection.product_id,
-            record_id=selection.record_id,
-            metadata=selection.metadata,
-        )
+    builder = template_builder_with_record_selections_internal(
+        builder,
+        experiment.record_selections,
+    )
     return builder.build()
 
 

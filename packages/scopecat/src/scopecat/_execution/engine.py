@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Protocol, cast
+from typing import Literal, Protocol, cast
 
 from pydantic import BaseModel, JsonValue
 
-from scopecat._content_identity import content_fingerprint, stable_content_hash
+from scopecat._content_identity import (
+    content_fingerprint,
+    model_wire_content_hash,
+    stable_content_hash,
+)
 from scopecat._execution.events import payload_summary
 from scopecat._execution.journal import (
     CollectionChunk,
@@ -17,12 +22,18 @@ from scopecat._execution.journal import (
     CommittedPayloadEvidence,
     ExecutionEffect,
     ExecutionJournal,
-    ExecutionJournalEntry,
     ExecutionJournalError,
+    ExecutionStage,
+    ExecutionTransition,
     JournalEntryState,
     MeasurementCommitter,
     PayloadEvidence,
     PayloadEvidenceCommitter,
+)
+from scopecat._execution.problems import (
+    contextualize_problems,
+    problem_from_exception,
+    runtime_problem,
 )
 from scopecat._execution.program import (
     ApplyStateOperation,
@@ -36,9 +47,9 @@ from scopecat._execution.program import (
     PointProgram,
     ResourceClaim,
 )
-from scopecat.diagnostics import Diagnostic
 from scopecat.instruments.sdk import (
     ApplyReceipt,
+    CollectReceipt,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentReadback,
@@ -50,9 +61,18 @@ from scopecat.instruments.sdk import (
 )
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.parameter import Quantity
+from scopecat.models.run import RunCertainty, RunResult, RunStatus
 from scopecat.models.state import PayloadRef
 from scopecat.models.value import PayloadValue
-from scopecat.planning.validation import has_blocking_diagnostics
+from scopecat.problems import (
+    LocationPathItem,
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    has_blocking_problems,
+    model_location,
+)
 from scopecat.results import (
     ComplexQuantity,
     MeasurementArray,
@@ -61,6 +81,8 @@ from scopecat.results import (
 )
 from scopecat.units import compatible_units
 from scopecat.value_validation import coerce_literal
+
+logger = logging.getLogger(__name__)
 
 
 class ResourceLeaseManager(Protocol):
@@ -96,7 +118,7 @@ class ExecutionPointStats:
 class PointExecutionResult:
     point_index: int
     point_uid: str
-    status: str
+    result: Literal["succeeded", "failed"]
     stats: ExecutionPointStats
 
 
@@ -106,13 +128,14 @@ class ExecutionEngineResult:
 
     run_id: str
     experiment_id: str
-    status: str
-    diagnostics: tuple[Diagnostic, ...]
+    result: RunResult
+    certainty: RunCertainty
+    termination_reason: str
+    problems: tuple[Problem, ...]
     measurements: tuple[MeasurementRecord, ...]
     initial_state: tuple[InstrumentStateSnapshot, ...]
     final_state: tuple[InstrumentStateSnapshot, ...]
     points: tuple[PointExecutionResult, ...]
-    uncertain: bool = False
     interruption: BaseException | None = field(
         default=None,
         compare=False,
@@ -121,11 +144,23 @@ class ExecutionEngineResult:
 
     @property
     def success(self) -> bool:
-        return self.status == "completed"
+        return self.result == "succeeded"
+
+    @property
+    def status(self) -> RunStatus:
+        if self.result == "succeeded":
+            return "completed"
+        if self.result == "cancelled":
+            return "interrupted"
+        return "unknown" if self.certainty == "indeterminate" else "failed"
+
+    @property
+    def uncertain(self) -> bool:
+        return self.certainty == "indeterminate"
 
     @property
     def completed_point_count(self) -> int:
-        return sum(point.status == "completed" for point in self.points)
+        return sum(point.result == "succeeded" for point in self.points)
 
     @property
     def changed_field_count(self) -> int:
@@ -223,19 +258,19 @@ class ExecutionEngine:
         self.descriptions = dict(descriptions or {})
         self.resources = resources or NoopResourceLeaseManager()
         self.payload_observer = payload_observer
-        self.diagnostics: list[Diagnostic] = []
+        self.problems: list[Problem] = []
         self.initial_state: list[InstrumentStateSnapshot] = []
         self.final_state: list[InstrumentStateSnapshot] = []
         self.current_states: dict[str, InstrumentStateSnapshot] = {}
         self.point_results: list[PointExecutionResult] = []
         self.committed_measurements: list[MeasurementRecord] = []
         self._compute_cache: dict[tuple[str, object], object] = {}
-        self._uncertain = False
+        self._indeterminate = False
         self._interruption: BaseException | None = None
 
     def run(self) -> ExecutionEngineResult:
         self._validate_drivers()
-        if has_blocking_diagnostics(self.diagnostics):
+        if has_blocking_problems(self.problems):
             self._finalize_drivers()
             self._capture_terminal_states()
             return self._result()
@@ -249,25 +284,25 @@ class ExecutionEngine:
                     self.current_states = {
                         state.instrument_id: state for state in self.initial_state
                     }
-                    if not has_blocking_diagnostics(self.diagnostics):
+                    if not has_blocking_problems(self.problems):
                         for point in self.program.points:
                             self._execute_point(point)
-                            if has_blocking_diagnostics(self.diagnostics):
+                            if has_blocking_problems(self.problems):
                                 break
                 except ExecutionJournalError as error:
-                    self.diagnostics.append(
-                        _diagnostic(
+                    self.problems.append(
+                        self._problem(
                             "execution_journal_commit_failed",
                             str(error),
-                            "execution.journal",
+                            category=ProblemCategory.STORAGE,
+                            phase=ProblemPhase.PERSISTENCE,
                         )
                     )
                 except Exception as error:  # Defensive engine boundary.
-                    self.diagnostics.append(
-                        _exception_diagnostic(
+                    self.problems.append(
+                        self._problem_from_exception(
                             "execution_engine_failed",
                             "execution engine failed",
-                            "execution",
                             error,
                         )
                     )
@@ -280,11 +315,10 @@ class ExecutionEngine:
                     terminal_read_attempted = True
                     self._capture_terminal_states()
         except Exception as error:
-            self.diagnostics.append(
-                _exception_diagnostic(
+            self.problems.append(
+                self._problem_from_exception(
                     "resource_lease_failed",
                     "failed to acquire or release execution resources",
-                    "execution.resources",
                     error,
                 )
             )
@@ -304,49 +338,53 @@ class ExecutionEngine:
         for instrument_id in self.program.resource_order:
             if instrument_id in self.drivers:
                 continue
-            self.diagnostics.append(
-                _diagnostic(
+            self.problems.append(
+                self._problem(
                     "missing_instrument",
                     f"no instrument provided for resource {instrument_id}",
-                    f"resources.{instrument_id}",
+                    instrument_id=instrument_id,
+                    category=ProblemCategory.PROVIDER_CONTRACT,
                 )
             )
 
     def _execute_point(self, point: PointProgram) -> None:
         frame = _PointFrame(point=point)
-        diagnostic_count_before = len(self.diagnostics)
+        problem_count_before = len(self.problems)
         point_entry = self._entry(
             operation_id=f"{point.point_uid}.point",
             stage="point",
             effect="pure",
             state="started",
             point_index=point.point_index,
-            summary={
-                "coordinate_ids": sorted(point.coordinates),
-                "compute_step_count": sum(
-                    len(stage.operations)
-                    for stage in point.stages
-                    if isinstance(stage, ComputeStage)
-                ),
-                "compute_node_ids": [
-                    operation.kernel_id
-                    for stage in point.stages
-                    if isinstance(stage, ComputeStage)
-                    for operation in stage.operations
-                ],
-                "route_count": sum(
-                    len(operation.command.requests)
-                    for stage in point.stages
-                    if isinstance(stage, CollectStage)
-                    for operation in stage.operations
-                ),
-                "state_resource_count": sum(
-                    len(stage.operations)
-                    for stage in point.stages
-                    if isinstance(stage, ApplyStateStage)
-                ),
-                "stage_count": len(point.stages),
-            },
+            evidence=cast(
+                "dict[str, JsonValue]",
+                {
+                    "coordinate_ids": sorted(point.coordinates),
+                    "compute_step_count": sum(
+                        len(stage.operations)
+                        for stage in point.stages
+                        if isinstance(stage, ComputeStage)
+                    ),
+                    "compute_node_ids": [
+                        operation.kernel_id
+                        for stage in point.stages
+                        if isinstance(stage, ComputeStage)
+                        for operation in stage.operations
+                    ],
+                    "route_count": sum(
+                        len(operation.command.requests)
+                        for stage in point.stages
+                        if isinstance(stage, CollectStage)
+                        for operation in stage.operations
+                    ),
+                    "state_resource_count": sum(
+                        len(stage.operations)
+                        for stage in point.stages
+                        if isinstance(stage, ApplyStateStage)
+                    ),
+                    "stage_count": len(point.stages),
+                },
+            ),
         )
         self._append(point_entry)
         for stage in point.stages:
@@ -356,23 +394,21 @@ class ExecutionEngine:
                 self._execute_apply_stage(frame, stage)
             else:
                 self._execute_collect_stage(frame, stage)
-            if has_blocking_diagnostics(self.diagnostics[diagnostic_count_before:]):
+            if has_blocking_problems(self.problems[problem_count_before:]):
                 break
 
-        if not has_blocking_diagnostics(self.diagnostics[diagnostic_count_before:]):
+        if not has_blocking_problems(self.problems[problem_count_before:]):
             self._validate_point_outputs(frame)
-        if frame.observables and not has_blocking_diagnostics(
-            self.diagnostics[diagnostic_count_before:]
+        if frame.observables and not has_blocking_problems(
+            self.problems[problem_count_before:]
         ):
             self._commit_point_measurement(frame)
-        point_failed = has_blocking_diagnostics(
-            self.diagnostics[diagnostic_count_before:]
-        )
+        point_failed = has_blocking_problems(self.problems[problem_count_before:])
         self.point_results.append(
             PointExecutionResult(
                 point_index=point.point_index,
                 point_uid=point.point_uid,
-                status="failed" if point_failed else "completed",
+                result="failed" if point_failed else "succeeded",
                 stats=frame.stats.freeze(point_index=point.point_index),
             )
         )
@@ -394,7 +430,7 @@ class ExecutionEngine:
                 effect="pure",
                 state="started",
                 point_index=frame.point.point_index,
-                summary={
+                evidence={
                     "kernel_id": operation.kernel_id,
                     **_dependency_summary(operation.dependencies),
                 },
@@ -414,7 +450,7 @@ class ExecutionEngine:
                     coerce_literal(
                         operation.output_type,
                         raw_result,
-                        path=f"operations.{operation.operation_id}.output",
+                        path=("operations", operation.operation_id, "output"),
                     )
                 )
                 committed_payload: CommittedPayloadEvidence | None = None
@@ -435,17 +471,16 @@ class ExecutionEngine:
                 else:
                     content_hash = None
             except Exception as error:
-                diagnostic = _exception_diagnostic(
+                problem = self._problem_from_exception(
                     "compute_operation_failed",
                     f"compute operation {operation.operation_id} failed",
-                    f"operations.{operation.operation_id}",
                     error,
+                    operation_id=operation.operation_id,
+                    point_index=frame.point.point_index,
                 )
-                self.diagnostics.append(diagnostic)
+                self.problems.append(problem)
                 self._append(
-                    entry.model_copy(
-                        update={"state": "failed", "diagnostics": [diagnostic]}
-                    )
+                    entry.model_copy(update={"state": "failed", "problems": (problem,)})
                 )
                 return
             frame.compute_results[operation.operation_id] = result
@@ -476,7 +511,7 @@ class ExecutionEngine:
                 entry.model_copy(
                     update={
                         "state": "completed",
-                        "summary": {
+                        "evidence": {
                             "kernel_id": operation.kernel_id,
                             **_dependency_summary(operation.dependencies),
                             "compute_status": "reused" if reused else "evaluated",
@@ -536,15 +571,17 @@ class ExecutionEngine:
         frame: _PointFrame,
         operation: ApplyStateOperation,
         *,
-        stage: str,
+        stage: ExecutionStage,
     ) -> bool:
         current = self.current_states.get(operation.instrument_id)
         if current is None:
-            self.diagnostics.append(
-                _diagnostic(
+            self.problems.append(
+                self._problem(
                     "missing_current_state",
                     f"missing current state for {operation.instrument_id}",
-                    operation.instrument_id,
+                    operation_id=operation.operation_id,
+                    point_index=frame.point.point_index,
+                    instrument_id=operation.instrument_id,
                 )
             )
             return False
@@ -557,7 +594,7 @@ class ExecutionEngine:
             state="started",
             point_index=frame.point.point_index,
             instrument_id=operation.instrument_id,
-            summary={
+            evidence={
                 "field_count": len(fields),
                 "skipped_field_count": skipped_count,
             },
@@ -567,9 +604,9 @@ class ExecutionEngine:
                 entry.model_copy(
                     update={
                         "state": "skipped",
-                        "summary": self._state_event_summary(
+                        "evidence": self._state_event_summary(
                             frame,
-                            entry.summary,
+                            entry.evidence,
                             changed_field_count=0,
                             state_command_count=0,
                             payload_count=0,
@@ -586,29 +623,35 @@ class ExecutionEngine:
         )
         entry = entry.model_copy(
             update={
-                "summary": {
-                    **entry.summary,
+                "evidence": {
+                    **entry.evidence,
                     **_command_evidence(command),
                 }
             }
         )
         description = self.descriptions.get(operation.instrument_id)
         if description is not None:
-            command_diagnostics = validate_state_command(
-                command=command,
-                description=description,
-                payloads=frame.payloads,
+            command_problems = contextualize_problems(
+                validate_state_command(
+                    command=command,
+                    description=description,
+                    payloads=frame.payloads,
+                ),
+                run_id=self.run_id,
+                operation_id=operation.operation_id,
+                point_index=frame.point.point_index,
+                instrument_id=operation.instrument_id,
             )
-            self.diagnostics.extend(command_diagnostics)
-            if has_blocking_diagnostics(command_diagnostics):
+            self.problems.extend(command_problems)
+            if has_blocking_problems(command_problems):
                 self._append(
                     entry.model_copy(
                         update={
                             "state": "failed",
-                            "diagnostics": command_diagnostics,
-                            "summary": self._state_event_summary(
+                            "problems": command_problems,
+                            "evidence": self._state_event_summary(
                                 frame,
-                                entry.summary,
+                                entry.evidence,
                                 changed_field_count=0,
                                 state_command_count=0,
                                 payload_count=0,
@@ -620,7 +663,7 @@ class ExecutionEngine:
         # The durable intent must exist before the driver sees the command.
         self._append(entry)
         driver = self.drivers[operation.instrument_id]
-        receipt_evidence: dict[str, object] = {}
+        receipt_evidence: dict[str, JsonValue] = {}
         try:
             receipt = _normalize_apply_receipt(driver.apply_state(command))
             receipt_evidence = _receipt_evidence(receipt)
@@ -635,23 +678,25 @@ class ExecutionEngine:
                 receipt_evidence=receipt_evidence,
             )
         except Exception as error:
-            self._uncertain = True
-            diagnostic = _exception_diagnostic(
+            self._indeterminate = True
+            problem = self._problem_from_exception(
                 "instrument_apply_unknown",
                 f"instrument apply outcome is unknown for {operation.instrument_id}",
-                operation.instrument_id,
                 error,
+                operation_id=operation.operation_id,
+                point_index=frame.point.point_index,
+                instrument_id=operation.instrument_id,
             )
-            self.diagnostics.append(diagnostic)
+            self.problems.append(problem)
             self._append_transition_best_effort(
                 entry.model_copy(
                     update={
                         "state": "unknown",
-                        "diagnostics": [diagnostic],
-                        "summary": {
+                        "problems": (problem,),
+                        "evidence": {
                             **self._state_event_summary(
                                 frame,
-                                entry.summary,
+                                entry.evidence,
                                 changed_field_count=0,
                                 state_command_count=0,
                                 payload_count=0,
@@ -663,20 +708,22 @@ class ExecutionEngine:
             )
             return False
         except BaseException as error:
-            self._uncertain = True
-            diagnostic = self._record_interruption(
+            self._indeterminate = True
+            problem = self._record_interruption(
                 error,
-                path=operation.instrument_id,
+                operation_id=operation.operation_id,
+                point_index=frame.point.point_index,
+                instrument_id=operation.instrument_id,
             )
             self._append_transition_best_effort(
                 entry.model_copy(
                     update={
                         "state": "unknown",
-                        "diagnostics": [diagnostic],
-                        "summary": {
+                        "problems": (problem,),
+                        "evidence": {
                             **self._state_event_summary(
                                 frame,
-                                entry.summary,
+                                entry.evidence,
                                 changed_field_count=0,
                                 state_command_count=0,
                                 payload_count=0,
@@ -693,35 +740,44 @@ class ExecutionEngine:
         *,
         frame: _PointFrame,
         operation: ApplyStateOperation,
-        entry: ExecutionJournalEntry,
+        entry: ExecutionTransition,
         current: InstrumentStateSnapshot,
         fields: list[InstrumentStateCommandField],
         command: InstrumentStateCommand,
         receipt: ApplyReceipt,
-        receipt_evidence: dict[str, object],
+        receipt_evidence: dict[str, JsonValue],
     ) -> bool:
-        self.diagnostics.extend(receipt.diagnostics)
-        receipt_failed = has_blocking_diagnostics(receipt.diagnostics)
+        receipt_problems = contextualize_problems(
+            receipt.problems,
+            run_id=self.run_id,
+            operation_id=operation.operation_id,
+            point_index=frame.point.point_index,
+            instrument_id=operation.instrument_id,
+        )
+        self.problems.extend(receipt_problems)
+        receipt_failed = has_blocking_problems(receipt_problems)
         if receipt.status == "applied" and receipt_failed:
-            self._uncertain = True
-            diagnostic = _diagnostic(
+            self._indeterminate = True
+            problem = self._problem(
                 "instrument_apply_receipt_conflict",
                 (
                     f"instrument {operation.instrument_id} reported applied "
-                    "together with blocking diagnostics"
+                    "together with blocking problems"
                 ),
-                operation.instrument_id,
+                operation_id=operation.operation_id,
+                point_index=frame.point.point_index,
+                instrument_id=operation.instrument_id,
             )
-            self.diagnostics.append(diagnostic)
+            self.problems.append(problem)
             self._append_after_effect(
                 entry.model_copy(
                     update={
                         "state": "unknown",
-                        "diagnostics": [*receipt.diagnostics, diagnostic],
-                        "summary": {
+                        "problems": (*receipt_problems, problem),
+                        "evidence": {
                             **self._state_event_summary(
                                 frame,
-                                entry.summary,
+                                entry.evidence,
                                 changed_field_count=0,
                                 state_command_count=0,
                                 payload_count=0,
@@ -736,31 +792,33 @@ class ExecutionEngine:
             return False
         if receipt.status != "applied":
             if receipt.status == "unknown":
-                self._uncertain = True
+                self._indeterminate = True
             if not receipt_failed:
-                diagnostic = _diagnostic(
+                problem = self._problem(
                     "instrument_state_not_applied",
                     (
                         f"instrument {operation.instrument_id} reported "
                         f"{receipt.status!r} for state operation"
                     ),
-                    operation.instrument_id,
+                    operation_id=operation.operation_id,
+                    point_index=frame.point.point_index,
+                    instrument_id=operation.instrument_id,
                 )
-                self.diagnostics.append(diagnostic)
-                receipt_diagnostics = [*receipt.diagnostics, diagnostic]
+                self.problems.append(problem)
+                operation_problems = (*receipt_problems, problem)
             else:
-                receipt_diagnostics = list(receipt.diagnostics)
+                operation_problems = receipt_problems
             self._append_after_effect(
                 entry.model_copy(
                     update={
                         "state": (
                             "unknown" if receipt.status == "unknown" else "failed"
                         ),
-                        "diagnostics": receipt_diagnostics,
-                        "summary": {
+                        "problems": operation_problems,
+                        "evidence": {
                             **self._state_event_summary(
                                 frame,
-                                entry.summary,
+                                entry.evidence,
                                 changed_field_count=0,
                                 state_command_count=0,
                                 payload_count=0,
@@ -775,22 +833,24 @@ class ExecutionEngine:
             return False
         next_state = receipt.state or apply_state_command_to_snapshot(current, command)
         if next_state.instrument_id != operation.instrument_id:
-            diagnostic = _diagnostic(
+            problem = self._problem(
                 "instrument_apply_state_mismatch",
                 "apply receipt state belongs to a different instrument",
-                operation.instrument_id,
+                operation_id=operation.operation_id,
+                point_index=frame.point.point_index,
+                instrument_id=operation.instrument_id,
             )
-            self.diagnostics.append(diagnostic)
-            self._uncertain = True
+            self.problems.append(problem)
+            self._indeterminate = True
             self._append_after_effect(
                 entry.model_copy(
                     update={
                         "state": "unknown",
-                        "diagnostics": [diagnostic],
-                        "summary": {
+                        "problems": (problem,),
+                        "evidence": {
                             **self._state_event_summary(
                                 frame,
-                                entry.summary,
+                                entry.evidence,
                                 changed_field_count=0,
                                 state_command_count=0,
                                 payload_count=0,
@@ -809,11 +869,11 @@ class ExecutionEngine:
             entry.model_copy(
                 update={
                     "state": "completed",
-                    "diagnostics": list(receipt.diagnostics),
-                    "summary": {
+                    "problems": receipt_problems,
+                    "evidence": {
                         **self._state_event_summary(
                             frame,
-                            entry.summary,
+                            entry.evidence,
                             changed_field_count=len(fields),
                             state_command_count=1,
                             payload_count=len(command.payloads),
@@ -860,7 +920,7 @@ class ExecutionEngine:
         frame: _PointFrame,
         operation: CollectOperation,
         *,
-        stage: str,
+        stage: ExecutionStage,
     ) -> bool:
         command = operation.command.model_copy(
             update={"operation_id": operation.operation_id, "attempt": 1}
@@ -872,7 +932,7 @@ class ExecutionEngine:
             state="started",
             point_index=frame.point.point_index,
             instrument_id=operation.instrument_id,
-            summary={
+            evidence={
                 "request_count": len(operation.command.requests),
                 "product_ids": [item.id for item in operation.command.requests],
                 **_command_evidence(command),
@@ -880,37 +940,75 @@ class ExecutionEngine:
         )
         self._append(entry)
         try:
-            readback = _normalize_readback(
+            receipt = _normalize_collect_receipt(
                 self.drivers[operation.instrument_id].collect(command)
             )
         except Exception as error:
-            self._uncertain = True
-            diagnostic = _exception_diagnostic(
+            self._indeterminate = True
+            problem = self._problem_from_exception(
                 "instrument_collect_unknown",
                 "instrument collection outcome is unknown for "
                 f"{operation.instrument_id}",
-                operation.instrument_id,
                 error,
+                operation_id=operation.operation_id,
+                point_index=frame.point.point_index,
+                instrument_id=operation.instrument_id,
             )
-            self.diagnostics.append(diagnostic)
+            self.problems.append(problem)
             self._append_transition_best_effort(
-                entry.model_copy(
-                    update={"state": "unknown", "diagnostics": [diagnostic]}
-                )
+                entry.model_copy(update={"state": "unknown", "problems": (problem,)})
             )
             return False
         except BaseException as error:
-            self._uncertain = True
-            diagnostic = self._record_interruption(
+            self._indeterminate = True
+            problem = self._record_interruption(
                 error,
-                path=operation.instrument_id,
+                operation_id=operation.operation_id,
+                point_index=frame.point.point_index,
+                instrument_id=operation.instrument_id,
             )
             self._append_transition_best_effort(
+                entry.model_copy(update={"state": "unknown", "problems": (problem,)})
+            )
+            return False
+        receipt_problems = contextualize_problems(
+            receipt.problems,
+            run_id=self.run_id,
+            operation_id=operation.operation_id,
+            point_index=frame.point.point_index,
+            instrument_id=operation.instrument_id,
+        )
+        self.problems.extend(receipt_problems)
+        receipt_evidence = _receipt_evidence(receipt)
+        if receipt.status != "collected":
+            if receipt.status == "unknown":
+                self._indeterminate = True
+            if not has_blocking_problems(receipt_problems):
+                problem = self._problem(
+                    "instrument_collection_not_completed",
+                    f"instrument {operation.instrument_id} reported {receipt.status!r}",
+                    operation_id=operation.operation_id,
+                    point_index=frame.point.point_index,
+                    instrument_id=operation.instrument_id,
+                )
+                self.problems.append(problem)
+                operation_problems = (*receipt_problems, problem)
+            else:
+                operation_problems = receipt_problems
+            self._append_after_effect(
                 entry.model_copy(
-                    update={"state": "unknown", "diagnostics": [diagnostic]}
+                    update={
+                        "state": (
+                            "unknown" if receipt.status == "unknown" else "failed"
+                        ),
+                        "problems": operation_problems,
+                        "evidence": {**entry.evidence, **receipt_evidence},
+                    }
                 )
             )
             return False
+        assert receipt.readback is not None
+        readback = receipt.readback
         try:
             chunk = CollectionChunk(
                 run_id=self.run_id,
@@ -922,46 +1020,54 @@ class ExecutionEngine:
             )
             committed = self.collection_committer.commit(chunk)
         except Exception as error:
-            self._uncertain = True
-            diagnostic = _exception_diagnostic(
+            self._indeterminate = True
+            problem = self._problem_from_exception(
                 "collection_readback_commit_failed",
                 "collection completed but its readback could not be committed",
-                f"operations.{operation.operation_id}.readback",
                 error,
+                operation_id=operation.operation_id,
+                point_index=frame.point.point_index,
+                instrument_id=operation.instrument_id,
+                phase=ProblemPhase.PERSISTENCE,
+                category=ProblemCategory.STORAGE,
             )
-            self.diagnostics.append(diagnostic)
+            self.problems.append(problem)
             self._append_transition_best_effort(
-                entry.model_copy(
-                    update={"state": "unknown", "diagnostics": [diagnostic]}
-                )
+                entry.model_copy(update={"state": "unknown", "problems": (problem,)})
             )
             return False
         except BaseException as error:
-            self._uncertain = True
-            diagnostic = self._record_interruption(
+            self._indeterminate = True
+            problem = self._record_interruption(
                 error,
-                path=f"operations.{operation.operation_id}.readback",
+                operation_id=operation.operation_id,
+                point_index=frame.point.point_index,
+                instrument_id=operation.instrument_id,
             )
             self._append_transition_best_effort(
-                entry.model_copy(
-                    update={"state": "unknown", "diagnostics": [diagnostic]}
-                )
+                entry.model_copy(update={"state": "unknown", "problems": (problem,)})
             )
             return False
-        diagnostic_count = len(self.diagnostics)
-        self.diagnostics.extend(readback.diagnostics)
-        self.diagnostics.extend(_validate_readback(operation, readback))
-        if not has_blocking_diagnostics(self.diagnostics[diagnostic_count:]):
+        validation_problems = contextualize_problems(
+            _validate_readback(operation, readback),
+            run_id=self.run_id,
+            operation_id=operation.operation_id,
+            point_index=frame.point.point_index,
+            instrument_id=operation.instrument_id,
+        )
+        operation_problems = (*receipt_problems, *validation_problems)
+        self.problems.extend(validation_problems)
+        if not has_blocking_problems(operation_problems):
             self._merge_readback(frame, operation, readback)
-        operation_diagnostics = self.diagnostics[diagnostic_count:]
-        failed = has_blocking_diagnostics(operation_diagnostics)
+        failed = has_blocking_problems(operation_problems)
         self._append_after_effect(
             entry.model_copy(
                 update={
                     "state": "failed" if failed else "completed",
-                    "diagnostics": operation_diagnostics,
-                    "summary": {
-                        **entry.summary,
+                    "problems": operation_problems,
+                    "evidence": {
+                        **entry.evidence,
+                        **receipt_evidence,
                         "value_count": len(readback.values),
                         "readback_ref": committed.ref,
                         "readback_content_hash": committed.content_hash,
@@ -982,23 +1088,27 @@ class ExecutionEngine:
         for product_id, value in readback.values.items():
             output_id = operation.record_bindings.get(product_id)
             if output_id is None:
-                self.diagnostics.append(
-                    _diagnostic(
+                self.problems.append(
+                    self._problem(
                         "instrument_unexpected_product",
                         (
                             f"instrument {operation.instrument_id} returned "
                             f"unexpected product {product_id}"
                         ),
-                        f"points.{frame.point.point_index}.products.{product_id}",
+                        operation_id=operation.operation_id,
+                        point_index=frame.point.point_index,
+                        instrument_id=operation.instrument_id,
                     )
                 )
                 continue
             if output_id in frame.observables:
-                self.diagnostics.append(
-                    _diagnostic(
+                self.problems.append(
+                    self._problem(
                         "instrument_duplicate_output",
                         f"point received duplicate observable {output_id}",
-                        f"points.{frame.point.point_index}.outputs.{output_id}",
+                        operation_id=operation.operation_id,
+                        point_index=frame.point.point_index,
+                        instrument_id=operation.instrument_id,
                     )
                 )
                 continue
@@ -1007,12 +1117,12 @@ class ExecutionEngine:
     def _validate_point_outputs(self, frame: _PointFrame) -> None:
         missing = self.program.expected_output_ids - set(frame.observables)
         for output_id in sorted(missing):
-            self.diagnostics.append(
-                _diagnostic(
+            self.problems.append(
+                self._problem(
                     "instrument_missing_output",
                     f"point {frame.point.point_index} is missing observable "
                     f"{output_id}",
-                    f"points.{frame.point.point_index}.outputs.{output_id}",
+                    point_index=frame.point.point_index,
                 )
             )
 
@@ -1024,7 +1134,10 @@ class ExecutionEngine:
             effect="persistence",
             state="started",
             point_index=frame.point.point_index,
-            summary={"observable_ids": sorted(frame.observables)},
+            evidence=cast(
+                "dict[str, JsonValue]",
+                {"observable_ids": sorted(frame.observables)},
+            ),
         )
         self._append(entry)
         measurement = MeasurementRecord(
@@ -1042,31 +1155,37 @@ class ExecutionEngine:
         try:
             self.measurement_committer.commit(measurement)
         except Exception as error:
-            diagnostic = _exception_diagnostic(
+            problem = self._problem_from_exception(
                 "measurement_commit_failed",
                 f"failed to commit point {frame.point.point_index} measurement",
-                f"points.{frame.point.point_index}.measurement",
                 error,
+                operation_id=operation_id,
+                point_index=frame.point.point_index,
+                phase=ProblemPhase.PERSISTENCE,
+                category=ProblemCategory.STORAGE,
             )
-            self.diagnostics.append(diagnostic)
+            self.problems.append(problem)
             self._append(
-                entry.model_copy(
-                    update={"state": "failed", "diagnostics": [diagnostic]}
-                )
+                entry.model_copy(update={"state": "failed", "problems": (problem,)})
             )
             return
         self.committed_measurements.append(measurement)
         frame.stats.acquired_record_count += 1
         self._append(entry.model_copy(update={"state": "completed"}))
 
-    def _read_states(self, *, phase: str) -> list[InstrumentStateSnapshot]:
+    def _read_states(
+        self, *, phase: Literal["initial", "terminal"]
+    ) -> list[InstrumentStateSnapshot]:
         states: list[InstrumentStateSnapshot] = []
         terminal = phase == "terminal"
         for instrument_id in self.program.resource_order:
             operation_id = f"lifecycle.{phase}-read-state.{instrument_id}"
+            transition_stage: ExecutionStage = (
+                "terminal_readback" if terminal else "initial_readback"
+            )
             entry = self._entry(
                 operation_id=operation_id,
-                stage=f"{phase}_readback",
+                stage=transition_stage,
                 effect="read",
                 state="started",
                 instrument_id=instrument_id,
@@ -1080,15 +1199,16 @@ class ExecutionEngine:
                 if state.instrument_id != instrument_id:
                     raise ValueError("read state belongs to a different instrument")
             except Exception as error:
-                diagnostic = _exception_diagnostic(
+                problem = self._problem_from_exception(
                     "instrument_readback_failed",
                     f"instrument {phase} readback failed for {instrument_id}",
-                    instrument_id,
                     error,
+                    operation_id=operation_id,
+                    instrument_id=instrument_id,
                 )
-                self.diagnostics.append(diagnostic)
+                self.problems.append(problem)
                 failed_entry = entry.model_copy(
-                    update={"state": "failed", "diagnostics": [diagnostic]}
+                    update={"state": "failed", "problems": (problem,)}
                 )
                 if terminal:
                     self._append_transition_best_effort(failed_entry)
@@ -1096,14 +1216,13 @@ class ExecutionEngine:
                     self._append_after_effect(failed_entry)
                 continue
             except BaseException as error:
-                diagnostic = self._record_interruption(
+                problem = self._record_interruption(
                     error,
-                    path=instrument_id,
+                    operation_id=operation_id,
+                    instrument_id=instrument_id,
                 )
                 self._append_transition_best_effort(
-                    entry.model_copy(
-                        update={"state": "failed", "diagnostics": [diagnostic]}
-                    )
+                    entry.model_copy(update={"state": "failed", "problems": (problem,)})
                 )
                 continue
             states.append(state)
@@ -1115,7 +1234,7 @@ class ExecutionEngine:
         return states
 
     def _finalize_drivers(self) -> None:
-        action = "abort" if has_blocking_diagnostics(self.diagnostics) else "cleanup"
+        action = "abort" if has_blocking_problems(self.problems) else "cleanup"
         used = set(self.program.resource_order)
         extras = tuple(sorted(set(self.drivers) - used))
         managed_order = (
@@ -1141,28 +1260,26 @@ class ExecutionEngine:
             try:
                 getattr(self.drivers[instrument_id], action)()
             except Exception as error:
-                diagnostic = _exception_diagnostic(
+                problem = self._problem_from_exception(
                     f"instrument_{action}_failed",
                     f"instrument {action} failed for {instrument_id}",
-                    instrument_id,
                     error,
+                    operation_id=operation_id,
+                    instrument_id=instrument_id,
                 )
-                self.diagnostics.append(diagnostic)
+                self.problems.append(problem)
                 self._append_transition_best_effort(
-                    entry.model_copy(
-                        update={"state": "failed", "diagnostics": [diagnostic]}
-                    )
+                    entry.model_copy(update={"state": "failed", "problems": (problem,)})
                 )
                 continue
             except BaseException as error:
-                diagnostic = self._record_interruption(
+                problem = self._record_interruption(
                     error,
-                    path=instrument_id,
+                    operation_id=operation_id,
+                    instrument_id=instrument_id,
                 )
                 self._append_transition_best_effort(
-                    entry.model_copy(
-                        update={"state": "failed", "diagnostics": [diagnostic]}
-                    )
+                    entry.model_copy(update={"state": "failed", "problems": (problem,)})
                 )
                 continue
             self._append_transition_best_effort(
@@ -1173,11 +1290,12 @@ class ExecutionEngine:
         try:
             self.final_state = self._read_states(phase="terminal")
         except ExecutionJournalError as error:
-            self.diagnostics.append(
-                _diagnostic(
+            self.problems.append(
+                self._problem(
                     "execution_journal_commit_failed",
                     str(error),
-                    "execution.journal",
+                    category=ProblemCategory.STORAGE,
+                    phase=ProblemPhase.PERSISTENCE,
                 )
             )
 
@@ -1185,14 +1303,14 @@ class ExecutionEngine:
         self,
         *,
         operation_id: str,
-        stage: str,
+        stage: ExecutionStage,
         effect: ExecutionEffect,
         state: JournalEntryState,
         point_index: int | None = None,
         instrument_id: str | None = None,
-        summary: dict[str, Any] | None = None,
-    ) -> ExecutionJournalEntry:
-        return ExecutionJournalEntry(
+        evidence: Mapping[str, JsonValue] | None = None,
+    ) -> ExecutionTransition:
+        return ExecutionTransition(
             run_id=self.run_id,
             operation_id=operation_id,
             stage=stage,
@@ -1200,82 +1318,156 @@ class ExecutionEngine:
             state=state,
             point_index=point_index,
             instrument_id=instrument_id,
-            summary=summary or {},
+            evidence=dict(evidence or {}),
         )
 
-    def _append(self, entry: ExecutionJournalEntry) -> None:
+    def _append(self, entry: ExecutionTransition) -> None:
         self.journal.append(entry)
 
-    def _append_after_effect(self, entry: ExecutionJournalEntry) -> None:
+    def _append_after_effect(self, entry: ExecutionTransition) -> None:
         try:
             self.journal.append(entry)
         except Exception:
-            self._uncertain = True
+            self._indeterminate = True
             raise
 
-    def _append_transition_best_effort(self, entry: ExecutionJournalEntry) -> None:
+    def _append_transition_best_effort(self, entry: ExecutionTransition) -> None:
         """Record a transition without allowing evidence failure to block safety."""
 
         try:
             self.journal.append(entry)
         except Exception as error:
-            self._uncertain = True
-            self.diagnostics.append(
-                _exception_diagnostic(
+            self._indeterminate = True
+            self.problems.append(
+                self._problem_from_exception(
                     "execution_journal_commit_failed",
                     f"failed to journal {entry.operation_id}",
-                    "execution.journal",
                     error,
+                    operation_id=entry.operation_id,
+                    point_index=entry.point_index,
+                    instrument_id=entry.instrument_id,
+                    phase=ProblemPhase.PERSISTENCE,
+                    category=ProblemCategory.STORAGE,
                 )
             )
         except BaseException as error:
-            self._uncertain = True
-            self._record_interruption(error, path="execution.journal")
+            self._indeterminate = True
+            self._record_interruption(error, operation_id=entry.operation_id)
 
     def _observe_payload(self, payload: CommandPayload) -> None:
         if self.payload_observer is None:
             return
         try:
             self.payload_observer(payload)
-        except Exception:
-            return
+        except BaseException as error:
+            logger.error(
+                "execution payload observer failed",
+                extra={"run_id": self.run_id, "payload_id": payload.id},
+                exc_info=(type(error), error, error.__traceback__),
+            )
 
     def _record_interruption(
         self,
         error: BaseException,
         *,
-        path: str = "execution",
-    ) -> Diagnostic:
+        operation_id: str | None = None,
+        point_index: int | None = None,
+        instrument_id: str | None = None,
+    ) -> Problem:
         if self._interruption is None:
             self._interruption = error
-        diagnostic = _diagnostic(
+        problem = self._problem(
             "execution_interrupted",
-            f"execution interrupted by {type(error).__name__}: {error}",
-            path,
+            f"execution interrupted by {type(error).__name__}",
+            operation_id=operation_id,
+            point_index=point_index,
+            instrument_id=instrument_id,
+            category=ProblemCategory.INTERRUPTED,
+            details={
+                "exception_type": f"{type(error).__module__}.{type(error).__qualname__}"
+            },
         )
-        self.diagnostics.append(diagnostic)
-        return diagnostic
+        self.problems.append(problem)
+        return problem
+
+    def _problem(
+        self,
+        code: str,
+        message: str,
+        *,
+        operation_id: str | None = None,
+        point_index: int | None = None,
+        instrument_id: str | None = None,
+        phase: ProblemPhase = ProblemPhase.EXECUTION,
+        category: ProblemCategory = ProblemCategory.OPERATION,
+        details: Mapping[str, object] | None = None,
+    ) -> Problem:
+        return runtime_problem(
+            code,
+            message,
+            run_id=self.run_id,
+            operation_id=operation_id,
+            point_index=point_index,
+            instrument_id=instrument_id,
+            phase=phase,
+            category=category,
+            details=details,
+        )
+
+    def _problem_from_exception(
+        self,
+        code: str,
+        message: str,
+        error: Exception,
+        *,
+        operation_id: str | None = None,
+        point_index: int | None = None,
+        instrument_id: str | None = None,
+        phase: ProblemPhase = ProblemPhase.EXECUTION,
+        category: ProblemCategory = ProblemCategory.EXTERNAL_FAILURE,
+    ) -> Problem:
+        return problem_from_exception(
+            code,
+            message,
+            run_id=self.run_id,
+            error=error,
+            operation_id=operation_id,
+            point_index=point_index,
+            instrument_id=instrument_id,
+            phase=phase,
+            category=category,
+        )
 
     def _result(self) -> ExecutionEngineResult:
-        status = (
-            "interrupted"
-            if self._interruption is not None
-            else "unknown"
-            if self._uncertain
-            else (
-                "failed" if has_blocking_diagnostics(self.diagnostics) else "completed"
+        if self._interruption is not None:
+            result: RunResult = "cancelled"
+            certainty: RunCertainty = (
+                "indeterminate" if self._indeterminate else "known"
             )
-        )
+            termination_reason = "interrupted"
+        elif self._indeterminate:
+            result = "failed"
+            certainty = "indeterminate"
+            termination_reason = "effect_outcome_unknown"
+        elif has_blocking_problems(self.problems):
+            result = "failed"
+            certainty = "known"
+            termination_reason = "blocking_problem"
+        else:
+            result = "succeeded"
+            certainty = "known"
+            termination_reason = "completed"
         return ExecutionEngineResult(
             run_id=self.run_id,
             experiment_id=self.program.experiment_id,
-            status=status,
-            diagnostics=tuple(self.diagnostics),
+            result=result,
+            certainty=certainty,
+            termination_reason=termination_reason,
+            problems=tuple(self.problems),
             measurements=tuple(self.committed_measurements),
             initial_state=tuple(self.initial_state),
             final_state=tuple(self.final_state),
             points=tuple(self.point_results),
-            uncertain=self._uncertain,
             interruption=self._interruption,
         )
 
@@ -1317,7 +1509,7 @@ def _referenced_payloads(
 
 def _dependency_summary(
     dependencies: Mapping[str, tuple[str, ...]],
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     if not dependencies:
         return {}
     return {
@@ -1328,25 +1520,25 @@ def _dependency_summary(
 def _validate_readback(
     operation: CollectOperation,
     readback: InstrumentReadback,
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
+) -> list[Problem]:
+    problems: list[Problem] = []
     requests = {request.id: request for request in operation.command.requests}
     for product_id in sorted(set(requests) - set(readback.values)):
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _readback_problem(
                 "instrument_missing_product",
                 f"instrument {operation.instrument_id} did not return "
                 f"requested product {product_id}",
-                f"operations.{operation.operation_id}.{product_id}",
+                product_id,
             )
         )
     for product_id in sorted(set(readback.values) - set(requests)):
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _readback_problem(
                 "instrument_unexpected_product",
                 f"instrument {operation.instrument_id} returned unexpected "
                 f"product {product_id}",
-                f"operations.{operation.operation_id}.{product_id}",
+                product_id,
             )
         )
     for product_id in sorted(set(requests) & set(readback.values)):
@@ -1354,39 +1546,42 @@ def _validate_readback(
         value = readback.values[product_id]
         actual_dtype = _readback_dtype(value)
         if not _readback_dtype_compatible(request.dtype, value):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _readback_problem(
                     "instrument_readback_dtype_mismatch",
                     f"instrument {operation.instrument_id} product {product_id} "
                     f"returned {actual_dtype}, expected {request.dtype}",
-                    f"operations.{operation.operation_id}.{product_id}.dtype",
+                    product_id,
+                    "dtype",
                 )
             )
         actual_unit = value.unit
         if request.unit is not None and (
             actual_unit is None or not compatible_units(request.unit, actual_unit)
         ):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _readback_problem(
                     "instrument_readback_unit_mismatch",
                     f"instrument {operation.instrument_id} product {product_id} "
                     f"returned unit {actual_unit!r}, expected "
                     f"{request.unit!r}-compatible units",
-                    f"operations.{operation.operation_id}.{product_id}.unit",
+                    product_id,
+                    "unit",
                 )
             )
         expected_shape = [axis.size for axis in request.dimensions]
         actual_shape = value.shape if isinstance(value, MeasurementArray) else []
         if actual_shape != expected_shape:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _readback_problem(
                     "instrument_readback_shape_mismatch",
                     f"instrument {operation.instrument_id} product {product_id} "
                     f"returned shape {actual_shape}, expected {expected_shape}",
-                    f"operations.{operation.operation_id}.{product_id}.shape",
+                    product_id,
+                    "shape",
                 )
             )
-    return diagnostics
+    return problems
 
 
 def _readback_dtype(value: MeasurementValue) -> str:
@@ -1412,7 +1607,7 @@ def _readback_dtype_compatible(expected: str, value: MeasurementValue) -> bool:
     )
 
 
-def _command_evidence(command: BaseModel) -> dict[str, object]:
+def _command_evidence(command: BaseModel) -> dict[str, JsonValue]:
     envelope = command.model_dump(mode="json")
     return {
         "command": envelope,
@@ -1420,11 +1615,11 @@ def _command_evidence(command: BaseModel) -> dict[str, object]:
     }
 
 
-def _receipt_evidence(receipt: ApplyReceipt) -> dict[str, object]:
+def _receipt_evidence(receipt: ApplyReceipt | CollectReceipt) -> dict[str, JsonValue]:
     envelope = receipt.model_dump(mode="json")
     return {
         "receipt": envelope,
-        "receipt_content_hash": stable_content_hash(envelope),
+        "receipt_content_hash": model_wire_content_hash(receipt),
     }
 
 
@@ -1438,14 +1633,14 @@ def _normalize_apply_receipt(value: object) -> ApplyReceipt:
     return ApplyReceipt.model_validate(value.model_dump(mode="json"))
 
 
-def _normalize_readback(value: object) -> InstrumentReadback:
-    if not isinstance(value, InstrumentReadback):
+def _normalize_collect_receipt(value: object) -> CollectReceipt:
+    if not isinstance(value, CollectReceipt):
         msg = (
-            "instrument collect must return InstrumentReadback, got "
+            "instrument collect must return CollectReceipt, got "
             f"{type(value).__module__}.{type(value).__qualname__}"
         )
         raise TypeError(msg)
-    return InstrumentReadback.model_validate(value.model_dump(mode="json"))
+    return CollectReceipt.model_validate(value.model_dump(mode="json"))
 
 
 def _unwrap_payload_values(value: object) -> object:
@@ -1469,25 +1664,17 @@ def _versioned_value(value: object) -> object:
     return stable_content_hash(content_fingerprint(value))
 
 
-def _diagnostic(code: str, message: str, path: str) -> Diagnostic:
-    return Diagnostic(severity="error", code=code, message=message, path=path)
-
-
-def _exception_diagnostic(
+def _readback_problem(
     code: str,
     message: str,
-    path: str,
-    error: Exception,
-) -> Diagnostic:
-    to_diagnostic = getattr(error, "to_diagnostic", None)
-    if callable(to_diagnostic):
-        converted = to_diagnostic()
-        if isinstance(converted, Diagnostic):
-            return converted
-    return _diagnostic(
+    *path: LocationPathItem,
+) -> Problem:
+    return blocking_problem(
         code,
-        f"{message}: {type(error).__name__}: {error}",
-        path,
+        message,
+        category=ProblemCategory.PROVIDER_CONTRACT,
+        phase=ProblemPhase.EXECUTION,
+        location=model_location("instrument_readback", "values", *path),
     )
 
 

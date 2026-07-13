@@ -20,7 +20,7 @@ from scopecat._workflows.config import register_and_activate_config_profile
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
     ResourcePort,
-    bind,
+    bind_field,
     requires,
     resource_port,
 )
@@ -65,7 +65,7 @@ from scopecat.authoring.assembly import (
     ExperimentModule,
     ModuleInvocation,
 )
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.config import RoutingGraph, RoutingResource
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import (
@@ -274,9 +274,11 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         .inputs(qubit, pulse_length)
         .resource("drive", requires=("play_pulse_program",))
         .computes(build)
-        .bind(
-            "drive.play_pulse_program.program",
-            build.output,
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="program",
+            value=build.output,
         )
         .build()
     )
@@ -517,7 +519,12 @@ def test_entity_scan_routes_resources_per_point() -> None:
             requires=("set_frequency",),
             for_entities=(qubit,),
         )
-        .bind("drive.set_frequency.frequency", Quantity(value=5.0, unit="GHz"))
+        .bind_field(
+            "drive",
+            capability="set_frequency",
+            field="frequency",
+            value=Quantity(value=5.0, unit="GHz"),
+        )
         .product("signal", resource="drive", unit="ratio")
         .build()
     )
@@ -667,9 +674,11 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
             requires=("set_frequency",),
             for_entities=(qubit,),
         )
-        .bind(
-            "drive.set_frequency.frequency",
-            authoring.parameter_lookup(
+        .bind_field(
+            "drive",
+            capability="set_frequency",
+            field="frequency",
+            value=authoring.parameter_lookup(
                 "sample_qubits",
                 key={"qubit": qubit},
                 column="drive_frequency",
@@ -887,29 +896,29 @@ def test_entity_series_input_can_define_record_axis() -> None:
         "entities": [{"id": "q0", "kind": "logical_device", "metadata": {}}],
     }
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             template.bind(qubits=("missing",)),
             workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
-    assert error.value.diagnostics[0].code == "unknown_authoring_entity"
+    assert error.value.problems[0].code == "unknown_authoring_entity"
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             template.bind(qubits=("q0", "q0")),
             workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
-    assert error.value.diagnostics[0].code == "module_record_entity_axis_duplicate"
+    assert error.value.problems[0].code == "module_record_entity_axis_duplicate"
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             template.bind(qubits=()),
             workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
-    assert error.value.diagnostics[0].code == "module_record_entity_axis_invalid"
+    assert error.value.problems[0].code == "module_record_entity_axis_invalid"
 
 
 def test_non_entity_string_series_defines_categorical_record_axis() -> None:
@@ -1147,9 +1156,11 @@ def test_template_composition_merges_shared_resource_port_capabilities() -> None
             resource_port("source", requires("set_frequency")),
         ],
         bindings=[
-            bind(
-                "source.set_frequency.frequency",
-                authoring.parameter("drive_frequency", _QUANTITY_VALUE),
+            bind_field(
+                "source",
+                capability="set_frequency",
+                field="frequency",
+                value=authoring.parameter("drive_frequency", _QUANTITY_VALUE),
             )
         ],
     )
@@ -1217,7 +1228,7 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
         records=[observable("signal", resource="source", unit="ratio")],
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             _template_invocation(
                 first,
@@ -1229,7 +1240,7 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
             config_profile=load_config(),
         )
 
-    assert error.value.diagnostics[0].code == "module_record_duplicate"
+    assert error.value.problems[0].code == "module_record_duplicate"
 
 
 def test_module_composition_invocation_literals_bind_local_inputs() -> None:
@@ -1241,7 +1252,12 @@ def test_module_composition_invocation_literals_bind_local_inputs() -> None:
         authoring.module("test.invocation_defaults.child")
         .inputs(drive_frequency)
         .resource("source", requires=("set_frequency",))
-        .bind("source.set_frequency.frequency", drive_frequency)
+        .bind_field(
+            "source",
+            capability="set_frequency",
+            field="frequency",
+            value=drive_frequency,
+        )
         .build()
     )
     parent = (
@@ -1288,7 +1304,12 @@ def test_module_composition_invocation_expressions_bind_local_inputs() -> None:
         authoring.module("test.invocation_override.child")
         .inputs(drive_frequency)
         .resource("source", requires=("set_frequency",))
-        .bind("source.set_frequency.frequency", drive_frequency)
+        .bind_field(
+            "source",
+            capability="set_frequency",
+            field="frequency",
+            value=drive_frequency,
+        )
         .build()
     )
     parent = (
@@ -1327,7 +1348,12 @@ def test_module_composition_defers_nested_expression_and_literal_bindings() -> N
         authoring.module("test.invocation_deferred.child")
         .inputs(child_value, unused_parameter, unused_point)
         .resource("source", requires=("set_offset",))
-        .bind("source.set_offset.offset", child_value)
+        .bind_field(
+            "source",
+            capability="set_offset",
+            field="offset",
+            value=child_value,
+        )
         .build()
     )
     parent_value = authoring.input(
@@ -1381,8 +1407,18 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
             unused_point_input,
         )
         .resource("source", requires=("set_offset", "set_gain"))
-        .bind("source.set_offset.offset", used_parameter_input)
-        .bind("source.set_gain.gain", used_point_input)
+        .bind_field(
+            "source",
+            capability="set_offset",
+            field="offset",
+            value=used_parameter_input,
+        )
+        .bind_field(
+            "source",
+            capability="set_gain",
+            field="gain",
+            value=used_point_input,
+        )
         .build()
     )
     used_parameter = authoring.parameter("reachable_parameter", value_type)
@@ -1432,7 +1468,12 @@ def test_module_composition_invocation_input_refs_bind_to_parent_inputs() -> Non
         authoring.module("test.invocation_parent_input.child")
         .inputs(drive_frequency)
         .resource("source", requires=("set_frequency",))
-        .bind("source.set_frequency.frequency", drive_frequency)
+        .bind_field(
+            "source",
+            capability="set_frequency",
+            field="frequency",
+            value=drive_frequency,
+        )
         .build()
     )
     parent = (
@@ -1462,7 +1503,12 @@ def test_module_composition_does_not_merge_sibling_invocation_inputs() -> None:
         authoring.module("test.invocation_sibling.first")
         .inputs(first_frequency)
         .resource("source", requires=("set_frequency",))
-        .bind("source.set_frequency.frequency", first_frequency)
+        .bind_field(
+            "source",
+            capability="set_frequency",
+            field="frequency",
+            value=first_frequency,
+        )
         .build()
     )
     second_frequency = authoring.input(
@@ -1473,9 +1519,11 @@ def test_module_composition_does_not_merge_sibling_invocation_inputs() -> None:
         authoring.module("test.invocation_sibling.second")
         .inputs(second_frequency)
         .resource("detector", requires=("set_frequency",))
-        .bind(
-            "detector.set_frequency.frequency",
-            second_frequency,
+        .bind_field(
+            "detector",
+            capability="set_frequency",
+            field="frequency",
+            value=second_frequency,
         )
         .build()
     )
@@ -1519,7 +1567,12 @@ def test_module_composition_localizes_invocation_entity_inputs() -> None:
             requires=("set_frequency",),
             for_entities=(qubit,),
         )
-        .bind("drive.set_frequency.frequency", drive_frequency)
+        .bind_field(
+            "drive",
+            capability="set_frequency",
+            field="frequency",
+            value=drive_frequency,
+        )
         .build()
     )
     parent = (
@@ -1556,9 +1609,11 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
             resource_port("source", requires("set_frequency")),
         ],
         bindings=[
-            bind(
-                "source.set_frequency.frequency",
-                DRIVE_FREQUENCY_POINT,
+            bind_field(
+                "source",
+                capability="set_frequency",
+                field="frequency",
+                value=DRIVE_FREQUENCY_POINT,
             )
         ],
         records=[observable("signal", resource="source", unit="ratio")],
@@ -1601,9 +1656,11 @@ def test_module_uses_record_axes() -> None:
             resource_port("source", requires("set_frequency")),
         ],
         bindings=[
-            bind(
-                "source.set_frequency.frequency",
-                DRIVE_FREQUENCY_POINT,
+            bind_field(
+                "source",
+                capability="set_frequency",
+                field="frequency",
+                value=DRIVE_FREQUENCY_POINT,
             ),
         ],
         records=[
@@ -1727,9 +1784,11 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
             requires=("set_frequency",),
             for_entities=(qubit,),
         )
-        .bind(
-            "drive.set_frequency.frequency",
-            authoring.parameter(
+        .bind_field(
+            "drive",
+            capability="set_frequency",
+            field="frequency",
+            value=authoring.parameter(
                 "drive_frequency",
                 authoring.ScalarType(authoring.QuantityType(unit="GHz")),
             ),
@@ -1830,7 +1889,8 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
         .state_each(
             flux_bias,
             resource=lambda row: row["resource_id"],
-            field="set_offset.offset",
+            capability="set_offset",
+            field="offset",
             value=lambda row: row["offset"],
         )
         .build()
@@ -1891,13 +1951,13 @@ def test_module_assembler_reports_ambiguous_resource_port() -> None:
         workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
-    _preview, diagnostics = preview_result(
+    _preview, problems = preview_result(
         resolved.experiment,
         resolved.parameters,
         config=config,
     )
 
-    assert diagnostics[0].code == "module_resource_port_ambiguous"
+    assert problems[0].code == "module_resource_port_ambiguous"
 
 
 def test_resolve_experiment_uses_active_config_and_input_defaults(

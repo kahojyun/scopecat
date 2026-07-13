@@ -3,23 +3,49 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, cast
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, model_validator
 
-from scopecat.diagnostics import Diagnostic
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    has_blocking_problems,
+    model_location,
+)
+
+OnlineEvaluationStatus = Literal["collecting", "evaluated", "invalid"]
 
 
 class EarlyStopDecision(BaseModel):
     """Typed decision record for online stop conditions."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: str = "scopecat.early_stop_decision.v2"
+    schema_version: Literal["scopecat.early_stop_decision.v3"] = (
+        "scopecat.early_stop_decision.v3"
+    )
     stop: bool
-    completed_point_indices: list[int] = Field(default_factory=list)
+    evaluation_status: OnlineEvaluationStatus
+    completed_point_indices: tuple[int, ...] = ()
     reason: str | None = None
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
+    problems: tuple[Problem, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_evaluation_state(self) -> EarlyStopDecision:
+        blocking = has_blocking_problems(self.problems)
+        if self.evaluation_status == "invalid" and not blocking:
+            msg = "an invalid online evaluation requires a blocking problem"
+            raise ValueError(msg)
+        if self.evaluation_status != "invalid" and blocking:
+            msg = "a valid online evaluation cannot contain blocking problems"
+            raise ValueError(msg)
+        if self.stop and self.evaluation_status != "evaluated":
+            msg = "only an evaluated online decision can stop a run"
+            raise ValueError(msg)
+        return self
 
 
 def decide_online_convergence(
@@ -43,53 +69,67 @@ def decide_online_convergence(
     if len(accepted) < min_points:
         return EarlyStopDecision(
             stop=False,
+            evaluation_status="collecting",
             completed_point_indices=_completed_point_indices(accepted),
-            diagnostics=[
-                _diagnostic(
-                    "insufficient_convergence_points",
-                    f"only {len(accepted)} points are available",
-                    "rows",
-                )
-            ],
         )
 
-    diagnostics: list[Diagnostic] = []
+    problems: list[Problem] = []
     values: list[float] = []
     for row in accepted:
-        point_index = row.get("point_index")
+        point_index = cast("int", row["point_index"])
         if x_column not in row or y_column not in row:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                blocking_problem(
                     "missing_convergence_column",
                     f"row {point_index!r} is missing x/y columns",
-                    f"rows.{point_index}",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location("online_analysis", "rows", point_index),
+                    details={
+                        "point_index": point_index,
+                        "x_column": x_column,
+                        "y_column": y_column,
+                    },
                 )
             )
             continue
         y_value = row[y_column]
         if not _is_number(y_value):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                blocking_problem(
                     "invalid_convergence_value",
                     f"row {point_index!r} has nonnumeric y value",
-                    f"rows.{point_index}.{y_column}",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location(
+                        "online_analysis",
+                        "rows",
+                        point_index,
+                        y_column,
+                    ),
+                    details={
+                        "point_index": point_index,
+                        "column": y_column,
+                    },
                 )
             )
             continue
         values.append(float(cast("int | float", y_value)))
 
     completed_point_indices = _completed_point_indices(accepted)
-    if diagnostics:
+    if problems:
         return EarlyStopDecision(
             stop=False,
+            evaluation_status="invalid",
             completed_point_indices=completed_point_indices,
-            diagnostics=diagnostics,
+            problems=tuple(problems),
         )
 
     tail = values[-window:]
     converged = len(tail) >= window and (max(tail) - min(tail)) <= tolerance
     return EarlyStopDecision(
         stop=converged,
+        evaluation_status="evaluated",
         completed_point_indices=completed_point_indices,
         reason=(
             f"last {window} {y_column!r} values within {tolerance}"
@@ -117,21 +157,21 @@ def _online_accepted_rows(
     return sorted(accepted, key=lambda row: cast("int", row["point_index"]))
 
 
-def _completed_point_indices(rows: Sequence[Mapping[str, Any]]) -> list[int]:
+def _completed_point_indices(rows: Sequence[Mapping[str, Any]]) -> tuple[int, ...]:
     point_indices: list[int] = []
     for row in rows:
         point_index = row.get("point_index")
         if isinstance(point_index, int) and not isinstance(point_index, bool):
             point_indices.append(point_index)
-    return point_indices
+    return tuple(point_indices)
 
 
 def _is_number(value: object) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
 
 
-def _diagnostic(code: str, message: str, path: str) -> Diagnostic:
-    return Diagnostic(severity="error", code=code, message=message, path=path)
-
-
-__all__ = ["EarlyStopDecision", "decide_online_convergence"]
+__all__ = [
+    "EarlyStopDecision",
+    "OnlineEvaluationStatus",
+    "decide_online_convergence",
+]

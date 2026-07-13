@@ -209,17 +209,21 @@ def overlay_parameter_cell(
     )
 
 
-def set_state(
+def set_state_field(
     resource: object,
-    field: str,
-    value: object,
     *,
+    capability_id: str,
+    field_path: str,
+    value: object,
     route_entities: Sequence[object] = (),
 ) -> StateSpec:
+    """Build desired state from orthogonal capability and field identities."""
+
     return StateSpec(
         kind="set",
         resource=as_scalar_expr(resource),
-        field=field,
+        capability_id=capability_id,
+        field_path=field_path,
         value=value if isinstance(value, ComputeResultRef) else as_scalar_expr(value),
         route_entities=[as_state_route_value_expr(entity) for entity in route_entities],
     )
@@ -350,7 +354,7 @@ __all__ = [
     "overlay_parameter_cell",
     "record_axis",
     "record_output",
-    "set_state",
+    "set_state_field",
     "shot_axis",
     "typed_program",
 ]

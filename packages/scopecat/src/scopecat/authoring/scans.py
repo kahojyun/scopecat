@@ -290,7 +290,7 @@ def _validate_scan_values(
         validate_literal(
             target.value_type,
             selected,
-            path=f"scan.values[{index}]",
+            path=("scan", "values", index),
         )
 
 
@@ -315,7 +315,7 @@ def _validate_around_scan(
             path="scan.center",
         )
         return
-    validate_literal(target.value_type, center, path="scan.center")
+    validate_literal(target.value_type, center, path=("scan", "center"))
 
 
 def _validate_around_target(target: ValueRef, *, points: int) -> None:

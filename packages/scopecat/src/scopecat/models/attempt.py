@@ -5,11 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat.diagnostics import Diagnostic
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    has_blocking_problems,
+    model_location,
+)
 
-POINT_ATTEMPT_SUMMARY_SCHEMA_VERSION = "scopecat.point_attempt_summary.v2"
+POINT_ATTEMPT_SUMMARY_SCHEMA_VERSION = "scopecat.point_attempt_summary.v3"
 
 type AttemptValue = str | int | float | bool
 
@@ -17,18 +24,33 @@ type AttemptValue = str | int | float | bool
 class PointAttemptSummary(BaseModel):
     """Summary for repeated attempts inside one logical point."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["scopecat.point_attempt_summary.v2"] = (
+    schema_version: Literal["scopecat.point_attempt_summary.v3"] = (
         POINT_ATTEMPT_SUMMARY_SCHEMA_VERSION
     )
-    point_index: int
+    point_index: int = Field(ge=0)
     success: bool
-    attempts: int
-    selected_attempt: int | None = None
+    attempts: int = Field(ge=0)
+    selected_attempt: int | None = Field(default=None, ge=0)
     final_value: AttemptValue | None = None
     value_label: str | None = None
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
+    problems: tuple[Problem, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_result_state(self) -> PointAttemptSummary:
+        if self.success and has_blocking_problems(self.problems):
+            msg = "a successful point attempt summary cannot be blocked"
+            raise ValueError(msg)
+        if self.success and self.selected_attempt is None:
+            msg = "a successful point attempt summary requires a selected attempt"
+            raise ValueError(msg)
+        if self.selected_attempt is not None and not (
+            0 <= self.selected_attempt < self.attempts
+        ):
+            msg = "selected attempt is outside the attempted range"
+            raise ValueError(msg)
+        return self
 
 
 def summarize_point_attempts(
@@ -48,49 +70,87 @@ def summarize_point_attempts(
         msg = "max_attempts must be positive"
         raise ValueError(msg)
 
-    diagnostics: list[Diagnostic] = []
-    seen_attempts: set[int] = set()
+    problems: list[Problem] = []
+    seen_attempts: dict[int, int] = {}
     selected_attempt: int | None = None
     final_value: AttemptValue | None = None
 
     for row_index, row in enumerate(rows):
         attempt = row.get(attempt_column)
         if not isinstance(attempt, int) or isinstance(attempt, bool):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                blocking_problem(
                     "invalid_point_attempt",
                     f"row {row_index} has invalid attempt {attempt!r}",
-                    f"rows.{row_index}.{attempt_column}",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location(
+                        "point_attempts",
+                        "rows",
+                        row_index,
+                        attempt_column,
+                    ),
                 )
             )
             continue
         if attempt < 0 or attempt >= max_attempts:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                blocking_problem(
                     "invalid_point_attempt",
                     f"row {row_index} attempt {attempt} is out of range",
-                    f"rows.{row_index}.{attempt_column}",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location(
+                        "point_attempts",
+                        "rows",
+                        row_index,
+                        attempt_column,
+                    ),
+                    details={"attempt": attempt, "max_attempts": max_attempts},
                 )
             )
             continue
         if attempt in seen_attempts:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                blocking_problem(
                     "duplicate_point_attempt",
                     f"row {row_index} repeats attempt {attempt}",
-                    f"rows.{row_index}.{attempt_column}",
+                    category=ProblemCategory.CONFLICT,
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location(
+                        "point_attempts",
+                        "rows",
+                        row_index,
+                        attempt_column,
+                    ),
+                    related_locations=(
+                        model_location(
+                            "point_attempts",
+                            "rows",
+                            seen_attempts[attempt],
+                            attempt_column,
+                        ),
+                    ),
+                    details={"attempt": attempt},
                 )
             )
             continue
-        seen_attempts.add(attempt)
+        seen_attempts[attempt] = row_index
 
         value = row.get(value_column)
         if not _is_attempt_value(value):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                blocking_problem(
                     "invalid_attempt_value",
                     f"row {row_index} has invalid value {value!r}",
-                    f"rows.{row_index}.{value_column}",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location(
+                        "point_attempts",
+                        "rows",
+                        row_index,
+                        value_column,
+                    ),
                 )
             )
             continue
@@ -98,16 +158,9 @@ def summarize_point_attempts(
         if value == target_value and selected_attempt is None:
             selected_attempt = attempt
 
+    if problems:
+        selected_attempt = None
     success = selected_attempt is not None
-    if not success:
-        diagnostics.append(
-            _diagnostic(
-                "point_attempt_target_not_reached",
-                f"point {point_index} did not reach target value {target_value!r}",
-                f"points.{point_index}",
-            )
-        )
-
     attempts = (
         selected_attempt + 1 if selected_attempt is not None else len(seen_attempts)
     )
@@ -118,16 +171,12 @@ def summarize_point_attempts(
         selected_attempt=selected_attempt,
         final_value=final_value,
         value_label=value_label,
-        diagnostics=diagnostics,
+        problems=tuple(problems),
     )
 
 
 def _is_attempt_value(value: object) -> bool:
     return isinstance(value, str | int | float | bool)
-
-
-def _diagnostic(code: str, message: str, path: str) -> Diagnostic:
-    return Diagnostic(severity="error", code=code, message=message, path=path)
 
 
 __all__ = ["AttemptValue", "PointAttemptSummary", "summarize_point_attempts"]

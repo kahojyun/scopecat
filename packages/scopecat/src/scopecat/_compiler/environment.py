@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 from scopecat._parameter_resolution import resolve_config_parameters
 from scopecat._relations import ParameterRelationData
-from scopecat.diagnostics import Diagnostic
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.planning.validation import validate_config_profile
+from scopecat.problems import Problem, has_blocking_problems
 from scopecat.routing import RoutingView
 
 
@@ -25,32 +25,27 @@ class ValidatedConfigEnvironment:
     config: ConfigProfileSnapshot
     parameters: ParameterRelationData
     routing: RoutingView | None
-    diagnostics: tuple[Diagnostic, ...]
+    problems: tuple[Problem, ...]
 
     @property
     def valid(self) -> bool:
-        return not any(
-            diagnostic.severity in {"error", "blocker"}
-            for diagnostic in self.diagnostics
-        )
+        return not has_blocking_problems(self.problems)
 
 
 def validate_config_environment(
     config: ConfigProfileSnapshot,
 ) -> ValidatedConfigEnvironment:
     resolved = resolve_config_parameters(config)
-    diagnostics = (
+    problems = (
         *validate_config_profile(config, include_parameter_values=False),
-        *resolved.diagnostics,
+        *resolved.problems,
     )
-    valid = not any(
-        diagnostic.severity in {"error", "blocker"} for diagnostic in diagnostics
-    )
+    valid = not has_blocking_problems(problems)
     return ValidatedConfigEnvironment(
         config=config,
         parameters=resolved.data,
         routing=RoutingView.from_config(config) if valid else None,
-        diagnostics=tuple(diagnostics),
+        problems=tuple(problems),
     )
 
 

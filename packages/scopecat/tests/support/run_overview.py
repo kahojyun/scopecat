@@ -4,7 +4,7 @@ from pathlib import Path
 
 import scopecat as sc
 from scopecat._workflows.config import register_and_activate_candidate_config
-from scopecat.candidate_configs import resolve_candidate_config
+from scopecat.candidate_configs import materialize_candidate_config
 from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import resolve_config_registry_config_source
 from scopecat.models.config import ConfigProfileSnapshot
@@ -46,7 +46,7 @@ def run_signal_experiment_with_review(tmp_path: Path) -> str:
     run_id = run_signal_experiment(tmp_path)
     execute_summary_stats_analysis(run_id=run_id, workspace=tmp_path)
     candidate = _candidate_best_signal_analysis(tmp_path, run_id)
-    resolved = resolve_candidate_config(candidate, workspace=tmp_path)
+    resolved = materialize_candidate_config(candidate, workspace=tmp_path)
     review_parameter_change_proposal(
         run_id=run_id,
         selector=resolved.candidate.proposal_ids[0],

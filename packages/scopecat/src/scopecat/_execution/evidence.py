@@ -9,7 +9,6 @@ from scopecat._execution.persistence import (
     ref_for_dataset,
 )
 from scopecat._storage.refs import record_content_ref
-from scopecat.diagnostics import Diagnostic
 from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
 from scopecat.models.execution import (
     ComputeExecutionSummary,
@@ -17,7 +16,8 @@ from scopecat.models.execution import (
     InstrumentStateEvidence,
     StateExecutionSummary,
 )
-from scopecat.models.run import RunConfigSource, RunManifest, RunStatus
+from scopecat.models.run import RunConfigSource, RunManifest, RunOutcome
+from scopecat.problems import Problem
 from scopecat.results import MeasurementDatasetSchema, MeasurementRecord
 
 RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
@@ -25,6 +25,8 @@ EXECUTION_SUMMARY_ID = "execution-summary"
 EXECUTION_SUMMARY_KIND = "execution_summary"
 INSTRUMENT_STATE_EVIDENCE_ID = "instrument-state-evidence"
 INSTRUMENT_STATE_EVIDENCE_KIND = "instrument_state_evidence"
+RUN_OUTCOME_ID = "run-outcome"
+RUN_OUTCOME_KIND = "run_outcome"
 
 
 def execution_summary_ref() -> str:
@@ -45,6 +47,10 @@ def raw_measurements_ref() -> str:
     return ref_for_dataset(RAW_MEASUREMENTS_DATASET_ID)
 
 
+def run_outcome_ref() -> str:
+    return record_content_ref(record_id=RUN_OUTCOME_ID, kind=RUN_OUTCOME_KIND)
+
+
 def raw_measurement_schema(
     expected_schema: MeasurementDatasetSchema | None,
 ) -> MeasurementDatasetSchema | None:
@@ -58,12 +64,12 @@ def raw_measurement_schema(
 def build_execution_manifest(
     *,
     run_id: str,
-    status: RunStatus,
+    outcome: RunOutcome,
     measurements: list[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
     config_source: RunConfigSource | None,
 ) -> RunManifest:
-    incomplete_run = status != "completed"
+    incomplete_run = outcome.result != "succeeded"
     expected_record_count = (
         _expected_record_count(expected_schema) if expected_schema is not None else None
     )
@@ -80,7 +86,8 @@ def build_execution_manifest(
                 metadata=(
                     {
                         "partial": partial,
-                        "run_status": status,
+                        "run_result": outcome.result,
+                        "run_certainty": outcome.certainty,
                         **(
                             {"expected_record_count": expected_record_count}
                             if expected_schema is not None
@@ -94,7 +101,8 @@ def build_execution_manifest(
         )
     return build_run_manifest(
         run_id=run_id,
-        status=status,
+        lifecycle="terminal",
+        outcome=outcome,
         config_source=config_source,
         records=_records(),
         datasets=datasets,
@@ -111,21 +119,21 @@ def _expected_record_count(schema: MeasurementDatasetSchema) -> int | None:
 def build_execution_summary(
     *,
     result: ExecutionEngineResult,
-    status: RunStatus,
+    outcome: RunOutcome,
     instrument_ids: list[str],
     point_count: int,
-    diagnostics: list[Diagnostic],
+    problems: list[Problem],
 ) -> ExecutionSummary:
     return ExecutionSummary(
         run_id=result.run_id,
         experiment_id=result.experiment_id,
-        status=status,
+        outcome=outcome,
         instrument_ids=instrument_ids,
         point_count=point_count,
         completed_point_count=result.completed_point_count,
         measurement_count=len(result.measurements),
-        diagnostic_count=len(diagnostics),
-        diagnostics=diagnostics,
+        problem_count=len(problems),
+        problems=tuple(problems),
         state=StateExecutionSummary(
             changed_field_count=result.changed_field_count,
             skipped_field_count=result.skipped_field_count,
@@ -153,6 +161,11 @@ def build_instrument_state_evidence(
 def _records() -> list[RunRecordEntry]:
     return [
         RunRecordEntry(
+            id=RUN_OUTCOME_ID,
+            kind=RUN_OUTCOME_KIND,
+            media_type="application/json",
+        ),
+        RunRecordEntry(
             id=EXECUTION_SUMMARY_ID,
             kind=EXECUTION_SUMMARY_KIND,
             media_type="application/json",
@@ -171,6 +184,8 @@ __all__ = [
     "INSTRUMENT_STATE_EVIDENCE_ID",
     "INSTRUMENT_STATE_EVIDENCE_KIND",
     "RAW_MEASUREMENTS_DATASET_ID",
+    "RUN_OUTCOME_ID",
+    "RUN_OUTCOME_KIND",
     "build_execution_manifest",
     "build_execution_summary",
     "build_instrument_state_evidence",
@@ -178,4 +193,5 @@ __all__ = [
     "instrument_state_evidence_ref",
     "raw_measurement_schema",
     "raw_measurements_ref",
+    "run_outcome_ref",
 ]

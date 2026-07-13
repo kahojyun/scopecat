@@ -6,7 +6,7 @@ from scopecat._compiler.program import (
     observable,
     overlay_parameter_cell,
     record_axis,
-    set_state,
+    set_state_field,
     typed_program,
 )
 from scopecat._relations import RelationExpr, col, grid, linspace, param, table
@@ -46,10 +46,11 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
             )
         ],
         state=[
-            set_state(
+            set_state_field(
                 col("readout.resource_id"),
-                "pulse.frequency",
-                param(
+                capability_id="pulse",
+                field_path="frequency",
+                value=param(
                     "readout_devices",
                     key={"device_id": col("readout.device_id")},
                     column="frequency",
@@ -149,13 +150,14 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
 
     spec = typed_program(
         id="preview-waveform-boundary",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
         state=[
-            set_state(
+            set_state_field(
                 "drive-a",
-                "play_waveforms.program",
-                compute_result("build-waveform"),
+                capability_id="play_waveforms",
+                field_path="program",
+                value=compute_result("build-waveform"),
             )
         ],
         compute_nodes=[
@@ -185,25 +187,30 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
     assert step.payload_id.startswith("build-waveform.payload.")
     assert preview.payloads[0].node_id == "build-waveform"
     assert preview.payloads[0].schema_id == "waveform_bundle"
-    assert preview.payloads[0].state_fields == ("play_waveforms.program",)
+    assert [
+        (target.capability_id, target.field_path)
+        for target in preview.payloads[0].state_fields
+    ] == [("play_waveforms", "program")]
     assert preview.payloads[0].dependencies == {}
 
 
 def test_preview_groups_shared_typed_compute_result() -> None:
     spec = typed_program(
         id="preview-shared-payload",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
         state=[
-            set_state(
+            set_state_field(
                 "drive-a",
-                "play_waveforms.program",
-                compute_result("build-waveform"),
+                capability_id="play_waveforms",
+                field_path="program",
+                value=compute_result("build-waveform"),
             ),
-            set_state(
+            set_state_field(
                 "drive-a",
-                "play_waveforms.preview",
-                compute_result("build-waveform"),
+                capability_id="play_waveforms",
+                field_path="preview",
+                value=compute_result("build-waveform"),
             ),
         ],
         compute_nodes=[
@@ -215,47 +222,49 @@ def test_preview_groups_shared_typed_compute_result() -> None:
         ],
     )
 
-    preview, diagnostics = preview_result(spec, _parameters())
+    preview, problems = preview_result(spec, _parameters())
 
-    assert diagnostics == ()
+    assert problems == ()
     assert preview.compute_steps[0].payload_id is not None
     assert preview.compute_steps[0].payload_id.startswith("build-waveform.payload.")
     assert preview.compute_steps[0].schema_id == "waveform_bundle"
     assert len(preview.payloads) == 1
     assert preview.payloads[0].schema_id == "waveform_bundle"
-    assert preview.payloads[0].state_fields == (
-        "play_waveforms.preview",
-        "play_waveforms.program",
-    )
+    assert [
+        (target.capability_id, target.field_path)
+        for target in preview.payloads[0].state_fields
+    ] == [
+        ("play_waveforms", "preview"),
+        ("play_waveforms", "program"),
+    ]
 
 
 def test_preview_contract_reports_unknown_compute_payload_nodes() -> None:
     spec = typed_program(
         id="preview-unknown-payload-node",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
         state=[
-            set_state(
+            set_state_field(
                 "drive-a",
-                "play_waveforms.program",
-                compute_result("missing-node"),
+                capability_id="play_waveforms",
+                field_path="program",
+                value=compute_result("missing-node"),
             )
         ],
         records=[],
     )
 
-    preview, diagnostics = preview_result(spec, _parameters())
+    preview, problems = preview_result(spec, _parameters())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
-        "compute_payload_unknown_node"
-    ]
+    assert [problem.code for problem in problems] == ["compute_payload_unknown_node"]
     assert preview.compute_steps == ()
 
 
 def test_preview_contract_records_are_durable() -> None:
     spec = typed_program(
         id="record-plan",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
         records=[
             observable(

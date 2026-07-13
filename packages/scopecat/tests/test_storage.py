@@ -8,6 +8,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 import scopecat._storage.local.io as local_io
+import scopecat._storage.local.run_repository as run_repository
 from scopecat._execution.journal import (
     CollectionChunk,
     ExecutionJournalEntry,
@@ -21,10 +22,11 @@ from scopecat._storage.local import (
     LocalRunLayout,
     LocalRunStore,
 )
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed, DataIntegrityError, NotFound, StorageError
 from scopecat.instruments import InstrumentReadback
 from scopecat.models.parameter import Quantity
-from scopecat.models.run import RunManifest
+from scopecat.models.run import RunManifest, RunOutcome
+from scopecat.problems import ProblemCategory, StorageLocation
 from scopecat.results import MeasurementRecord
 
 
@@ -39,13 +41,17 @@ def test_local_run_layout_resolves_run_relative_refs(tmp_path) -> None:
         tmp_path / "runs" / "run-000001" / "artifacts" / "result.json"
     )
 
-    with pytest.raises(ValidationFailed) as relative_escape:
+    with pytest.raises(CheckFailed) as relative_escape:
         layout.ref_path("run-000001", "../outside.json")
-    assert relative_escape.value.diagnostics[0].code == "run_ref_path_escape"
+    assert relative_escape.value.problems[0].code == "run.ref_path_escape"
 
-    with pytest.raises(ValidationFailed) as absolute_escape:
+    with pytest.raises(CheckFailed) as absolute_escape:
         layout.ref_path("run-000001", "/outside.json")
-    assert absolute_escape.value.diagnostics[0].code == "run_ref_path_escape"
+    assert absolute_escape.value.problems[0].code == "run.ref_path_escape"
+
+    with pytest.raises(CheckFailed) as run_escape:
+        layout.ref_path("../outside", "manifest.json")
+    assert run_escape.value.problems[0].code == "run.id_invalid"
 
 
 def test_local_run_store_round_trips_model_text_and_jsonl(tmp_path) -> None:
@@ -85,13 +91,83 @@ def test_local_run_store_writes_manifest_atomically(tmp_path) -> None:
     run_id = "run-000001"
     store.write_manifest(_manifest(run_id, datetime(2026, 1, 1, tzinfo=UTC)))
 
-    updated = _manifest(run_id, datetime(2026, 1, 1, tzinfo=UTC)).model_copy(
-        update={"status": "failed"}
+    updated = RunManifest(
+        run_id=run_id,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        lifecycle="running",
     )
     store.write_manifest(updated)
 
-    assert store.read_manifest(run_id).status == "failed"
+    assert store.read_manifest(run_id).status == "running"
     assert not store.ref_path(run_id, "manifest.json.tmp").exists()
+
+
+def test_local_run_store_maps_missing_run_to_not_found(tmp_path: Path) -> None:
+    store = LocalRunStore(tmp_path)
+
+    with pytest.raises(NotFound) as captured:
+        store.read_manifest("run-missing")
+
+    problem = captured.value.problems[0]
+    assert problem.code == "run.not_found"
+    assert problem.category is ProblemCategory.NOT_FOUND
+    assert problem.location == StorageLocation(
+        run_id="run-missing",
+        ref="manifest.json",
+    )
+    assert isinstance(captured.value.__cause__, FileNotFoundError)
+
+
+def test_local_run_store_rejects_run_namespace_symlink_escape(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    run_link = tmp_path / "runs" / "run-link"
+    run_link.parent.mkdir()
+    run_link.symlink_to(outside, target_is_directory=True)
+
+    store = LocalRunStore(tmp_path)
+    with pytest.raises(DataIntegrityError) as captured:
+        store.ref_path("run-link", "manifest.json")
+
+    assert captured.value.problems[0].code == "storage.namespace_escape"
+
+
+def test_local_run_store_maps_invalid_manifest_to_data_integrity(
+    tmp_path: Path,
+) -> None:
+    store = LocalRunStore(tmp_path)
+    manifest_path = store.ref_path("run-invalid", "manifest.json")
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text("{}")
+
+    with pytest.raises(DataIntegrityError) as captured:
+        store.read_manifest("run-invalid")
+
+    assert captured.value.problems[0].code == "run.manifest_invalid"
+    assert captured.value.problems[0].category is ProblemCategory.DATA_INTEGRITY
+    assert captured.value.__cause__ is not None
+
+
+def test_local_run_store_maps_io_failure_without_exposing_raw_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = LocalRunStore(tmp_path)
+    storage_cause = PermissionError("private filesystem details")
+
+    def fail_read_model(*_args: object, **_kwargs: object) -> RunManifest:
+        raise storage_cause
+
+    monkeypatch.setattr(run_repository, "_read_model", fail_read_model)
+
+    with pytest.raises(StorageError) as captured:
+        store.read_manifest("run-private")
+
+    assert captured.value.__cause__ is storage_cause
+    assert captured.value.problems[0].category is ProblemCategory.STORAGE
+    assert "private filesystem details" not in str(captured.value)
 
 
 def test_atomic_models_and_journal_fsync_file_and_parent(
@@ -131,7 +207,7 @@ def test_atomic_models_and_journal_fsync_file_and_parent(
         ExecutionJournalEntry(
             run_id=run_id,
             operation_id="test.operation",
-            stage="test",
+            stage="point",
             effect="pure",
             state="completed",
         )
@@ -304,5 +380,11 @@ def _manifest(run_id: str, created_at: datetime) -> RunManifest:
     return RunManifest(
         run_id=run_id,
         created_at=created_at,
-        status="completed",
+        lifecycle="terminal",
+        outcome=RunOutcome(
+            run_id=run_id,
+            result="succeeded",
+            certainty="known",
+            termination_reason="completed",
+        ),
     )

@@ -22,13 +22,13 @@ def test_typed_value_assignability_and_descriptions() -> None:
     assert is_assignable(narrow, wide)
     assert not is_assignable(wide, narrow)
     assert describe_value_type(narrow) == "Scalar[Int]"
-    require_assignable(narrow, wide, path="input.count")
+    require_assignable(narrow, wide, path=("input", "count"))
 
     with pytest.raises(ValueValidationError) as error:
-        require_assignable(wide, narrow, path="input.count")
+        require_assignable(wide, narrow, path=("input", "count"))
 
     assert error.value.code == "incompatible_value_type"
-    assert error.value.path == "input.count"
+    assert error.value.path == ("input", "count")
 
 
 def test_scalar_operations_capture_entity_literal_snapshots() -> None:

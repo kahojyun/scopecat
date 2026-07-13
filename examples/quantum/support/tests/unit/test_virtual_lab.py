@@ -4,7 +4,7 @@ import pytest
 from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 from pydantic import ValidationError
 from scopecat.instruments import (
-    DriverDiagnostic,
+    DriverFault,
     InstrumentStateCommand,
     PayloadRef,
     StateValue,
@@ -64,7 +64,7 @@ def test_virtual_lab_profile_round_trips_structural_initial_state() -> None:
 def test_virtual_device_rejects_patch_for_other_instrument() -> None:
     device = VirtualDevice(VirtualDeviceProfile(id="readout-stack", kind="readout"))
 
-    with pytest.raises(DriverDiagnostic) as error:
+    with pytest.raises(DriverFault) as error:
         device.apply(
             InstrumentStateCommand(
                 instrument_id="drive-stack",
@@ -72,4 +72,4 @@ def test_virtual_device_rejects_patch_for_other_instrument() -> None:
             )
         )
 
-    assert error.value.code == "virtual_lab_device_mismatch"
+    assert error.value.problem.code == "virtual_lab_device_mismatch"

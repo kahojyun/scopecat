@@ -14,6 +14,7 @@ from scopecat.authoring._intents import (
     ComputeNodeIntent,
     ExperimentStateIntent,
     ModuleInputPort,
+    ModuleOutputPort,
 )
 from scopecat.authoring._module_handles import (
     ExperimentModule,
@@ -29,6 +30,7 @@ def module_from_parts_internal(
     id: str,  # noqa: A002
     invocations: Sequence[ModuleInvocation] = (),
     input_ports: Sequence[ModuleInputPort] = (),
+    output_ports: Sequence[ModuleOutputPort] = (),
     resources: Sequence[ResourcePort] = (),
     bindings: Sequence[ExperimentBindingIntent] = (),
     state_intents: Sequence[ExperimentStateIntent] = (),
@@ -41,6 +43,7 @@ def module_from_parts_internal(
         id=id,
         invocations=invocations,
         input_ports=input_ports,
+        output_ports=output_ports,
         resources=resources,
         bindings=bindings,
         state_intents=state_intents,
@@ -56,6 +59,7 @@ def _module(
     id: str,  # noqa: A002
     invocations: Sequence[ModuleInvocation] = (),
     input_ports: Sequence[ModuleInputPort] = (),
+    output_ports: Sequence[ModuleOutputPort] = (),
     resources: Sequence[ResourcePort] = (),
     bindings: Sequence[ExperimentBindingIntent] = (),
     state_intents: Sequence[ExperimentStateIntent] = (),
@@ -69,6 +73,7 @@ def _module(
         id=id,
         invocations=tuple(invocations),
         input_ports=tuple(input_ports),
+        output_ports=tuple(output_ports),
         resource_ports=tuple(resources),
         bindings=tuple(bindings),
         state_intents=tuple(state_intents),
@@ -89,6 +94,7 @@ def module(
         id=id,
         invocations=(),
         input_ports=(),
+        output_ports=(),
         metadata=freeze_json_mapping(metadata or {}),
     )
 
@@ -109,6 +115,7 @@ def build_module_from_builder(
         id=module_id,
         invocations=builder.invocations,
         input_ports=builder.input_ports,
+        output_ports=builder.output_ports,
         resources=builder.resources,
         bindings=builder.bindings,
         state_intents=builder.state_intents,

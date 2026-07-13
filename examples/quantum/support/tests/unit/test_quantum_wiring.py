@@ -13,13 +13,13 @@ from scopecat.config_profiles import load_config_profile
 from scopecat.instruments import (
     ApplyReceipt,
     CollectCommand,
+    CollectReceipt,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
-    InstrumentReadback,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
 )
@@ -218,7 +218,10 @@ def test_modules_leave_resource_selection_to_routing() -> None:
     modules = [
         RABI_MODULE(qubit="q0"),
         READOUT_MODULE(qubit="q0"),
-        FLUX_BACKGROUND_MODULE(coupler="coupler-q0-q1", flux_bias=0.02),
+        FLUX_BACKGROUND_MODULE(
+            coupler="coupler-q0-q1",
+            flux_bias=sc.Quantity(value=0.02, unit="arb"),
+        ),
         CZ_CHEVRON_MODULE(
             control_qubit="q0",
             partner_qubit="q1",
@@ -271,7 +274,7 @@ def test_virtual_provider_description_declares_full_instrument_schemas() -> None
 
     description = provider.describe(InstrumentProviderContext(config=config))
 
-    assert description.diagnostics == ()
+    assert description.problems == ()
     assert [instrument.instrument_id for instrument in description.instruments] == [
         "drive-stack",
         "readout-stack",
@@ -367,7 +370,7 @@ class _RecordingDriver:
         self.applied_commands.append(command)
         return self.wrapped.apply_state(command)
 
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
         return self.wrapped.collect(command)
 
@@ -397,6 +400,6 @@ class _RecordingProvider:
         self.drivers = [_RecordingDriver(driver) for driver in result.drivers]
         return InstrumentProviderResult(
             drivers=tuple(self.drivers),
-            diagnostics=result.diagnostics,
+            problems=result.problems,
             metadata=dict(result.metadata),
         )

@@ -17,14 +17,16 @@ import hashlib
 import json
 import re
 from collections.abc import Generator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path, PurePosixPath
+from stat import S_ISREG
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic_core import PydanticSerializationError
 
 from scopecat._parameter_updates import merge_candidate_parameter_snapshots
 from scopecat._storage.local import LocalRunStore
@@ -35,8 +37,14 @@ from scopecat._storage.local.io import (
     write_model_atomic as _write_local_model_atomic,
 )
 from scopecat._storage.refs import CONFIG_REGISTRY_LOCK_REF, record_content_ref
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import (
+    CheckFailed,
+    Conflict,
+    DataIntegrityError,
+    NotFound,
+    ProblemFailure,
+    StorageError,
+)
 from scopecat.models.artifact import RunRecordEntry
 from scopecat.models.config import (
     ConfigContentHash,
@@ -47,7 +55,17 @@ from scopecat.models.config import (
 from scopecat.models.parameter_change import ParameterChangeProposal
 from scopecat.models.run import RunConfigSource, RunManifest, utc_now
 from scopecat.parameter_changes import ParameterChangeDecisionRecord
-from scopecat.planning.validation import has_blocking_diagnostics, validate_config
+from scopecat.planning.validation import validate_config
+from scopecat.problems import (
+    ModelLocation,
+    Problem,
+    ProblemCategory,
+    ProblemImpact,
+    ProblemLocation,
+    ProblemPhase,
+    StorageLocation,
+    has_blocking_problems,
+)
 from scopecat.runs import get_record_by_id, list_records, open_run_store
 
 CONFIG_REGISTRY_ROOT = "config-registry"
@@ -272,6 +290,8 @@ def register_config_profile(
     registered_by: str,
     note: str = "",
 ) -> ConfigRegistryEntry:
+    _validate_entry_id(entry_id)
+    _validate_required_text(registered_by, field="registered_by")
     workspace_path = Path(workspace)
     with _registry_lock(workspace_path):
         return _register_config_profile_locked(
@@ -298,6 +318,9 @@ def register_and_activate_config_profile(
     ConfigRegistryActiveState,
     ConfigRegistryActivationRecord,
 ]:
+    _validate_entry_id(entry_id)
+    _validate_required_text(registered_by, field="registered_by")
+    _validate_required_text(operator, field="operator")
     workspace_path = Path(workspace)
     selected_generation = (
         current_config_registry_generation(workspace=workspace_path)
@@ -361,6 +384,12 @@ def register_candidate_config(
     base_config_content_hash: ConfigContentHash,
     note: str = "",
 ) -> ConfigRegistryEntry:
+    _validate_entry_id(entry_id)
+    _validate_required_text(registered_by, field="registered_by")
+    _validate_required_text(run_id, field="run_id")
+    _validate_required_text(candidate_record_id, field="candidate_record_id")
+    for proposal_id in proposal_ids:
+        _validate_required_text(proposal_id, field="proposal_ids")
     workspace_path = Path(workspace)
     with _registry_lock(workspace_path):
         return _register_candidate_config_locked(
@@ -395,6 +424,13 @@ def register_and_activate_candidate_config(
     ConfigRegistryActiveState,
     ConfigRegistryActivationRecord,
 ]:
+    _validate_entry_id(entry_id)
+    _validate_required_text(registered_by, field="registered_by")
+    _validate_required_text(operator, field="operator")
+    _validate_required_text(run_id, field="run_id")
+    _validate_required_text(candidate_record_id, field="candidate_record_id")
+    for proposal_id in proposal_ids:
+        _validate_required_text(proposal_id, field="proposal_ids")
     workspace_path = Path(workspace)
     with _registry_lock(workspace_path):
         current_state = _read_active_state_optional(workspace_path)
@@ -434,15 +470,12 @@ def _register_candidate_config_locked(
 ) -> ConfigRegistryEntry:
     _validate_entry_id(entry_id)
     if not proposal_ids:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_candidate_config_missing_proposals",
-                    "candidate config registration requires parameter proposals",
-                    "proposal_ids",
-                )
-            ]
+        raise _registry_failure(
+            CheckFailed,
+            code="config_registry.candidate_config_missing_proposals",
+            category=ProblemCategory.INVALID_INPUT,
+            message="candidate config registration requires parameter proposals",
+            location=_registry_model_location("proposal_ids"),
         )
     storage = open_run_store(workspace)
     with storage.run_lock(run_id):
@@ -505,29 +538,30 @@ def _validate_candidate_source_records_locked(
     source_config = storage.read_config_profile_snapshot(run_id)
     source_config_hash = config_content_hash(source_config)
     if source_config_hash != base_config_content_hash:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_candidate_base_mismatch",
-                    (
-                        "candidate base config hash does not match its source run "
-                        f"snapshot: {run_id}"
-                    ),
-                    "base_config_content_hash",
-                )
-            ]
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.candidate_base_mismatch",
+            category=ProblemCategory.CONFLICT,
+            message="candidate base config does not match its source run snapshot",
+            location=_registry_model_location("base_config_content_hash"),
+            related_locations=(
+                _registry_storage_location(
+                    CONFIG_PROFILE_SNAPSHOT_REF,
+                    run_id=run_id,
+                ),
+            ),
+            details={
+                "expected_content_hash": base_config_content_hash,
+                "actual_content_hash": source_config_hash,
+            },
         )
     if len(set(proposal_ids)) != len(proposal_ids):
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_candidate_duplicate_proposal",
-                    "candidate config proposal ids must be unique",
-                    "proposal_ids",
-                )
-            ]
+        raise _registry_failure(
+            CheckFailed,
+            code="config_registry.candidate_duplicate_proposal",
+            category=ProblemCategory.INVALID_INPUT,
+            message="candidate config proposal ids must be unique",
+            location=_registry_model_location("proposal_ids"),
         )
     proposals: list[ParameterChangeProposal] = []
     proposal_hashes: dict[str, EvidenceContentHash] = {}
@@ -537,44 +571,29 @@ def _validate_candidate_source_records_locked(
             record_id=proposal_id,
             kind="parameter_change_proposal",
         )
-        try:
-            proposal = storage.read_model(
-                run_id,
-                record_content_ref(
-                    record_id=proposal_record.id,
-                    kind=proposal_record.kind,
-                ),
-                ParameterChangeProposal,
-            )
-        except (OSError, ValidationError) as error:
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "config_registry_invalid_candidate_proposal",
-                        f"candidate proposal record is not readable: {proposal_id}",
-                        "proposal_ids",
-                    )
-                ]
-            ) from error
+        proposal_ref = record_content_ref(
+            record_id=proposal_record.id,
+            kind=proposal_record.kind,
+        )
+        proposal = storage.read_model(
+            run_id,
+            proposal_ref,
+            ParameterChangeProposal,
+        )
         if (
             proposal.id != proposal_id
             or proposal.source_run_id != run_id
             or proposal.base_config_id != source_config.id
             or proposal.base_config_content_hash != base_config_content_hash
         ):
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "config_registry_candidate_proposal_mismatch",
-                        (
-                            "candidate proposal record does not match its source "
-                            f"config: {proposal_id}"
-                        ),
-                        "proposal_ids",
-                    )
-                ]
+            raise _registry_failure(
+                DataIntegrityError,
+                code="config_registry.candidate_proposal_mismatch",
+                category=ProblemCategory.DATA_INTEGRITY,
+                message="candidate proposal does not match its source config",
+                location=_registry_storage_location(proposal_ref, run_id=run_id),
+                related_locations=(_registry_model_location("proposal_ids"),),
+                details={"proposal_id": proposal_id},
             )
         proposals.append(proposal)
         proposal_hashes[proposal_id] = _record_content_hash(proposal)
@@ -590,39 +609,26 @@ def _validate_candidate_source_records_locked(
         record_id=candidate_record_id,
         kind="candidate_config",
     )
-    try:
-        durable_config = storage.read_model(
-            run_id,
-            record_content_ref(
-                record_id=candidate_record.id,
-                kind=candidate_record.kind,
-            ),
-            ConfigProfileSnapshot,
-        )
-    except (OSError, ValidationError) as error:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_invalid_candidate_record",
-                    (f"candidate config record is not readable: {candidate_record_id}"),
-                    "candidate_record_id",
-                )
-            ]
-        ) from error
+    candidate_ref = record_content_ref(
+        record_id=candidate_record.id,
+        kind=candidate_record.kind,
+    )
+    durable_config = storage.read_model(
+        run_id,
+        candidate_ref,
+        ConfigProfileSnapshot,
+    )
     if config_content_hash(durable_config) != config_content_hash(requested_config):
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_candidate_record_mismatch",
-                    (
-                        "candidate config does not match its durable source record: "
-                        f"{candidate_record_id}"
-                    ),
-                    "candidate_record_id",
-                )
-            ]
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.candidate_record_mismatch",
+            category=ProblemCategory.CONFLICT,
+            message="candidate config does not match its durable source record",
+            location=_registry_model_location("candidate_record_id"),
+            related_locations=(
+                _registry_storage_location(candidate_ref, run_id=run_id),
+            ),
+            details={"candidate_record_id": candidate_record_id},
         )
     try:
         expected_parameters = merge_candidate_parameter_snapshots(
@@ -633,33 +639,36 @@ def _validate_candidate_source_records_locked(
             candidate_id=durable_config.parameter_snapshot.id,
         )
     except ValueError as error:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_candidate_derivation_mismatch",
-                    f"candidate config cannot be derived from its proposals: {error}",
-                    "proposal_ids",
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.candidate_derivation_mismatch",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="candidate config cannot be derived from its durable proposals",
+            location=_registry_model_location("proposal_ids"),
         ) from error
-    expected_config = ConfigProfileSnapshot.model_validate(
-        source_config.model_dump(mode="python")
-        | {
-            "id": durable_config.id,
-            "parameter_snapshot": expected_parameters,
-        }
-    )
+    try:
+        expected_config = ConfigProfileSnapshot.model_validate(
+            source_config.model_dump(mode="python")
+            | {
+                "id": durable_config.id,
+                "parameter_snapshot": expected_parameters,
+            }
+        )
+    except ValidationError as error:
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.candidate_derivation_mismatch",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="candidate config cannot be derived from its durable proposals",
+            location=_registry_model_location("proposal_ids"),
+        ) from error
     if config_content_hash(expected_config) != config_content_hash(durable_config):
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_candidate_derivation_mismatch",
-                    "candidate config is not derived from its durable proposals",
-                    "candidate_record_id",
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.candidate_derivation_mismatch",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="candidate config is not derived from its durable proposals",
+            location=_registry_model_location("candidate_record_id"),
         )
     source = CandidateConfigRegistrySource(
         run_id=run_id,
@@ -687,37 +696,22 @@ def _candidate_approval_evidence(
         source_manifest,
         kind="parameter_change_decision_record",
     ):
-        try:
-            decision = storage.read_model(
-                run_id,
-                record_content_ref(record_id=entry.id, kind=entry.kind),
-                ParameterChangeDecisionRecord,
-            )
-        except (OSError, ValidationError) as error:
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "config_registry_invalid_candidate_approval",
-                        f"candidate approval record is not readable: {entry.id}",
-                        "proposal_ids",
-                    )
-                ]
-            ) from error
+        decision_ref = record_content_ref(record_id=entry.id, kind=entry.kind)
+        decision = storage.read_model(
+            run_id,
+            decision_ref,
+            ParameterChangeDecisionRecord,
+        )
         expected_entry_id = f"{decision.proposal_id}-decision-{decision.event_id}"
         if decision.run_id != run_id or entry.id != expected_entry_id:
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "config_registry_invalid_candidate_approval_identity",
-                        (
-                            "candidate approval identity does not match its run "
-                            f"record: {entry.id}"
-                        ),
-                        "proposal_ids",
-                    )
-                ]
+            raise _registry_failure(
+                DataIntegrityError,
+                code="config_registry.candidate_approval_identity_mismatch",
+                category=ProblemCategory.DATA_INTEGRITY,
+                message="candidate approval identity does not match its run record",
+                location=_registry_storage_location(decision_ref, run_id=run_id),
+                related_locations=(_registry_model_location("proposal_ids"),),
+                details={"record_id": entry.id},
             )
         if decision.proposal_id in histories:
             histories[decision.proposal_id].append((entry, decision))
@@ -727,18 +721,13 @@ def _candidate_approval_evidence(
         history = histories[proposal_id]
         if not history or history[-1][1].decision != "approved":
             latest = "not reviewed" if not history else history[-1][1].decision
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "config_registry_candidate_proposal_not_approved",
-                        (
-                            f"candidate proposal {proposal_id} latest decision must "
-                            f"be approved; found {latest}"
-                        ),
-                        "proposal_ids",
-                    )
-                ]
+            raise _registry_failure(
+                Conflict,
+                code="config_registry.candidate_proposal_not_approved",
+                category=ProblemCategory.CONFLICT,
+                message="candidate proposal latest decision is not approved",
+                location=_registry_model_location("proposal_ids"),
+                details={"proposal_id": proposal_id, "latest_decision": latest},
             )
         _entry, approval = history[-1]
         evidence.append(
@@ -753,11 +742,20 @@ def _candidate_approval_evidence(
 
 
 def _record_content_hash(model: BaseModel) -> EvidenceContentHash:
-    content = json.dumps(
-        model.model_dump(mode="json"),
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    try:
+        content = json.dumps(
+            model.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (PydanticSerializationError, TypeError, ValueError) as error:
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.evidence_not_serializable",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="candidate evidence cannot be represented durably",
+            location=_registry_model_location("source"),
+        ) from error
     return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
@@ -779,15 +777,13 @@ def _validate_candidate_entry_evidence_locked(
     )
     if validated.source == entry.source:
         return
-    raise ValidationFailed(
-        [
-            _diagnostic(
-                "error",
-                "config_registry_candidate_evidence_mismatch",
-                f"candidate registry evidence no longer matches: {entry.id}",
-                "source",
-            )
-        ]
+    raise _registry_failure(
+        DataIntegrityError,
+        code="config_registry.candidate_evidence_mismatch",
+        category=ProblemCategory.DATA_INTEGRITY,
+        message="candidate registry evidence no longer matches its durable source",
+        location=_registry_model_location("entries", entry.id, "source"),
+        details={"entry_id": entry.id},
     )
 
 
@@ -808,6 +804,7 @@ def list_config_registry_entries(*, workspace: str | Path) -> list[ConfigRegistr
 def load_config_registry_entry(
     *, entry_id: str, workspace: str | Path
 ) -> ConfigRegistryEntry:
+    _validate_entry_id(entry_id)
     workspace_path = Path(workspace)
     with _registry_lock(workspace_path):
         return _load_config_registry_entry_locked(
@@ -827,20 +824,23 @@ def _load_config_registry_entry_locked(
     if indexed_entry is None:
         refs = _entry_refs(entry_id)
         entry_path = _workspace_relative_path(workspace, refs.entry_ref)
-        code = (
-            "config_registry_uncommitted_entry"
-            if entry_path.exists()
-            else "config_registry_not_found"
-        )
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    code,
-                    f"config registry entry is not committed: {entry_id}",
-                    "entry_id",
-                )
-            ]
+        if _path_exists(entry_path, ref=refs.entry_ref):
+            raise _registry_failure(
+                DataIntegrityError,
+                code="config_registry.uncommitted_entry",
+                category=ProblemCategory.DATA_INTEGRITY,
+                message="config registry entry exists without an index commit",
+                location=_registry_storage_location(refs.entry_ref),
+                related_locations=(_registry_model_location("entry_id"),),
+                details={"entry_id": entry_id},
+            )
+        raise _registry_failure(
+            NotFound,
+            code="config_registry.not_found",
+            category=ProblemCategory.NOT_FOUND,
+            message="config registry entry was not found",
+            location=_registry_model_location("entry_id"),
+            details={"entry_id": entry_id},
         )
     return _validate_indexed_entry_locked(
         workspace=workspace,
@@ -858,18 +858,16 @@ def _validate_indexed_entry_locked(
         workspace=workspace,
     )
     if entry != indexed_entry:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_index_entry_mismatch",
-                    (
-                        "config registry entry file does not match its committed "
-                        f"index record: {entry.id}"
-                    ),
-                    "config_registry",
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.index_entry_mismatch",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry entry does not match its committed index record",
+            location=_registry_storage_location(CONFIG_REGISTRY_INDEX_REF),
+            related_locations=(
+                _registry_storage_location(_entry_refs(entry.id).entry_ref),
+            ),
+            details={"entry_id": entry.id},
         )
     config = _read_entry_config(workspace, entry)
     _validate_candidate_entry_evidence_locked(
@@ -883,31 +881,28 @@ def _validate_indexed_entry_locked(
 def _read_config_registry_entry_file_locked(
     *, entry_id: str, workspace: Path
 ) -> ConfigRegistryEntry:
-    _validate_entry_id(entry_id)
+    _validate_durable_entry_id(entry_id, ref=CONFIG_REGISTRY_INDEX_REF)
     refs = _entry_refs(entry_id)
     entry_path = _workspace_relative_path(workspace, refs.entry_ref)
-    if not entry_path.exists():
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_not_found",
-                    f"config registry entry not found: {entry_id}",
-                    "entry_id",
-                )
-            ]
+    if not _path_exists(entry_path, ref=refs.entry_ref):
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.entry_missing",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="committed config registry entry file is missing",
+            location=_registry_storage_location(refs.entry_ref),
+            details={"entry_id": entry_id},
         )
     entry = _read_model(entry_path, ConfigRegistryEntry, refs.entry_ref)
     if entry.id != entry_id or entry.config_ref != refs.config_ref:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_entry_ref_mismatch",
-                    f"config registry entry has an invalid config ref: {entry.id}",
-                    "config_ref",
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.entry_ref_mismatch",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry entry has inconsistent storage coordinates",
+            location=_registry_storage_location(refs.entry_ref),
+            related_locations=(_registry_model_location("config_ref"),),
+            details={"entry_id": entry_id},
         )
     return entry
 
@@ -915,6 +910,7 @@ def _read_config_registry_entry_file_locked(
 def load_config_registry_config(
     *, entry_id: str, workspace: str | Path
 ) -> ConfigProfileSnapshot:
+    _validate_entry_id(entry_id)
     workspace_path = Path(workspace)
     with _registry_lock(workspace_path):
         entry = _load_config_registry_entry_locked(
@@ -941,6 +937,8 @@ def load_active_config_registry_config(
 def resolve_config_registry_config_source(
     *, selector: str, workspace: str | Path
 ) -> tuple[ConfigProfileSnapshot, RunConfigSource]:
+    if selector != ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR:
+        _validate_entry_id(selector)
     workspace_path = Path(workspace)
     with _registry_lock(workspace_path):
         if selector == ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR:
@@ -961,6 +959,8 @@ def activate_config_registry_entry(
     expected_generation: int,
     note: str = "",
 ) -> tuple[ConfigRegistryActiveState, ConfigRegistryActivationRecord]:
+    _validate_entry_id(entry_id)
+    _validate_required_text(operator, field="operator")
     workspace_path = Path(workspace)
     with _registry_lock(workspace_path):
         return _activate_config_registry_entry_locked(
@@ -1024,20 +1024,18 @@ def rollback_config_registry(
     expected_generation: int,
     note: str = "",
 ) -> tuple[ConfigRegistryActiveState, ConfigRegistryActivationRecord]:
+    _validate_required_text(operator, field="operator")
     workspace_path = Path(workspace)
     with _registry_lock(workspace_path):
         current_state = _read_active_state_optional(workspace_path)
         _require_expected_generation(current_state, expected_generation)
         if current_state is None:
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "config_registry_no_active_entry",
-                        "config registry has no active entry",
-                        "active",
-                    )
-                ]
+            raise _registry_failure(
+                NotFound,
+                code="config_registry.no_active_entry",
+                category=ProblemCategory.NOT_FOUND,
+                message="config registry has no active entry",
+                location=_registry_model_location("active"),
             )
         current_entry = _load_config_registry_entry_locked(
             entry_id=current_state.active_entry_id,
@@ -1052,18 +1050,14 @@ def rollback_config_registry(
         )
         _validate_entry_config(workspace_path, entry)
         if entry.content_hash != rollback_target.entry_content_hash:
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "config_registry_rollback_content_mismatch",
-                        (
-                            "rollback target content no longer matches activation "
-                            f"history: {entry.id}"
-                        ),
-                        "active.history",
-                    )
-                ]
+            raise _registry_failure(
+                DataIntegrityError,
+                code="config_registry.rollback_content_mismatch",
+                category=ProblemCategory.DATA_INTEGRITY,
+                message="rollback target no longer matches activation history",
+                location=_registry_storage_location(CONFIG_REGISTRY_ACTIVE_REF),
+                related_locations=(_registry_storage_location(entry.config_ref),),
+                details={"entry_id": entry.id},
             )
         history = [*current_state.history]
         generation = expected_generation + 1
@@ -1106,16 +1100,13 @@ def _load_active_config_registry_state_locked(
     workspace: Path,
 ) -> ConfigRegistryActiveState:
     active_path = workspace / CONFIG_REGISTRY_ACTIVE_REF
-    if not active_path.exists():
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_no_active_entry",
-                    "config registry has no active entry",
-                    "active",
-                )
-            ]
+    if not _path_exists(active_path, ref=CONFIG_REGISTRY_ACTIVE_REF):
+        raise _registry_failure(
+            NotFound,
+            code="config_registry.no_active_entry",
+            category=ProblemCategory.NOT_FOUND,
+            message="config registry has no active entry",
+            location=_registry_model_location("active"),
         )
     return _read_active_state(active_path)
 
@@ -1188,16 +1179,39 @@ def _entry_refs(entry_id: str) -> _EntryRefs:
 
 def _validate_entry_id(entry_id: str) -> None:
     if not SAFE_ENTRY_ID_RE.fullmatch(entry_id):
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_invalid_entry_id",
-                    f"config registry entry id is not safe: {entry_id}",
-                    "entry_id",
-                )
-            ]
+        raise _registry_failure(
+            CheckFailed,
+            code="config_registry.invalid_entry_id",
+            category=ProblemCategory.INVALID_INPUT,
+            message="config registry entry id is not safe",
+            location=_registry_model_location("entry_id"),
+            details={"entry_id": entry_id},
         )
+
+
+def _validate_durable_entry_id(entry_id: str, *, ref: str) -> None:
+    if SAFE_ENTRY_ID_RE.fullmatch(entry_id):
+        return
+    raise _registry_failure(
+        DataIntegrityError,
+        code="config_registry.entry_id_invalid",
+        category=ProblemCategory.DATA_INTEGRITY,
+        message="config registry durable entry id is not safe",
+        location=_registry_storage_location(ref),
+        details={"entry_id": entry_id},
+    )
+
+
+def _validate_required_text(value: str, *, field: str) -> None:
+    if value.strip():
+        return
+    raise _registry_failure(
+        CheckFailed,
+        code=f"config_registry.{field}_missing",
+        category=ProblemCategory.INVALID_INPUT,
+        message=f"config registry {field} must be non-empty",
+        location=_registry_model_location(field),
+    )
 
 
 def _require_run_record(
@@ -1205,29 +1219,34 @@ def _require_run_record(
 ) -> RunRecordEntry:
     record = get_record_by_id(source_manifest, record_id)
     if record is None:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_missing_source_record",
-                    f"config registry source record not found: {record_id}",
-                    "record_id",
-                )
-            ]
+        raise _registry_failure(
+            NotFound,
+            code="config_registry.source_record_not_found",
+            category=ProblemCategory.NOT_FOUND,
+            message="config registry source record was not found",
+            location=StorageLocation(
+                run_id=source_manifest.run_id,
+                path=("records", record_id),
+            ),
+            related_locations=(_registry_model_location("record_id"),),
+            details={"record_id": record_id},
         )
     if record.kind != kind:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_invalid_source_record_kind",
-                    (
-                        "config registry source record has kind "
-                        f"{record.kind}, expected {kind}: {record_id}"
-                    ),
-                    "record_id",
-                )
-            ]
+        raise _registry_failure(
+            CheckFailed,
+            code="config_registry.source_record_kind_mismatch",
+            category=ProblemCategory.INVALID_INPUT,
+            message="config registry source record has the wrong kind",
+            location=StorageLocation(
+                run_id=source_manifest.run_id,
+                path=("records", record_id, "kind"),
+            ),
+            related_locations=(_registry_model_location("record_id"),),
+            details={
+                "record_id": record_id,
+                "actual_kind": record.kind,
+                "expected_kind": kind,
+            },
         )
     return record
 
@@ -1250,15 +1269,16 @@ def _commit_registration_locked(
             _same_registration(existing, requested_entry)
             and _same_config_profile(existing_config, config)
         ):
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "config_registry_duplicate_entry",
-                        (f"config registry entry already exists: {requested_entry.id}"),
-                        "entry_id",
-                    )
-                ]
+            raise _registry_failure(
+                Conflict,
+                code="config_registry.duplicate_entry",
+                category=ProblemCategory.CONFLICT,
+                message="config registry entry id is already committed differently",
+                location=_registry_model_location("entry_id"),
+                related_locations=(
+                    _registry_storage_location(_entry_refs(existing.id).entry_ref),
+                ),
+                details={"entry_id": requested_entry.id},
             )
         _write_registry_index_if_needed(
             workspace=workspace,
@@ -1287,36 +1307,33 @@ def _find_existing_entry_locked(
         (entry for entry in index.entries if entry.id == entry_id),
         None,
     )
-    if entry_path.exists():
+    if _path_exists(entry_path, ref=refs.entry_ref):
         entry = _read_config_registry_entry_file_locked(
             entry_id=entry_id,
             workspace=workspace,
         )
         if indexed_entry is not None and indexed_entry != entry:
-            raise ValidationFailed(
-                [
-                    _diagnostic(
-                        "error",
-                        "config_registry_index_entry_mismatch",
-                        (
-                            "config registry entry file does not match its committed "
-                            f"index record: {entry_id}"
-                        ),
-                        "config_registry",
-                    )
-                ]
+            raise _registry_failure(
+                DataIntegrityError,
+                code="config_registry.index_entry_mismatch",
+                category=ProblemCategory.DATA_INTEGRITY,
+                message=(
+                    "config registry entry does not match its committed index record"
+                ),
+                location=_registry_storage_location(CONFIG_REGISTRY_INDEX_REF),
+                related_locations=(_registry_storage_location(refs.entry_ref),),
+                details={"entry_id": entry_id},
             )
         return entry
     if indexed_entry is not None:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_incomplete_entry",
-                    f"config registry entry file is missing: {entry_id}",
-                    refs.entry_ref,
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.incomplete_entry",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="committed config registry entry file is missing",
+            location=_registry_storage_location(refs.entry_ref),
+            related_locations=(_registry_storage_location(CONFIG_REGISTRY_INDEX_REF),),
+            details={"entry_id": entry_id},
         )
     return None
 
@@ -1355,28 +1372,59 @@ def _same_config_profile(
 
 def _read_index(workspace: Path) -> ConfigRegistryIndex:
     index_path = workspace / CONFIG_REGISTRY_INDEX_REF
-    if not index_path.exists():
+    if not _path_exists(index_path, ref=CONFIG_REGISTRY_INDEX_REF):
         return ConfigRegistryIndex()
-    return _read_model(index_path, ConfigRegistryIndex, CONFIG_REGISTRY_INDEX_REF)
+    index = _read_model(
+        index_path,
+        ConfigRegistryIndex,
+        CONFIG_REGISTRY_INDEX_REF,
+    )
+    for entry in index.entries:
+        _validate_durable_entry_id(entry.id, ref=CONFIG_REGISTRY_INDEX_REF)
+    return index
 
 
 def _read_active_state_optional(workspace: Path) -> ConfigRegistryActiveState | None:
     active_path = workspace / CONFIG_REGISTRY_ACTIVE_REF
-    if not active_path.exists():
+    if not _path_exists(active_path, ref=CONFIG_REGISTRY_ACTIVE_REF):
         return None
     return _read_active_state(active_path)
 
 
 @contextmanager
 def _registry_lock(workspace: Path) -> Generator[None]:
-    lock_path = workspace / CONFIG_REGISTRY_LOCK_REF
-    ensure_durable_directory(lock_path.parent)
-    with lock_path.open("a+b") as lock_file:
+    lock_path = _workspace_relative_path(workspace, CONFIG_REGISTRY_LOCK_REF)
+    lock_file = None
+    try:
+        ensure_durable_directory(lock_path.parent)
+        lock_file = lock_path.open("a+b")
         flock(lock_file.fileno(), LOCK_EX)
+    except OSError as error:
+        if lock_file is not None:
+            with suppress(OSError):
+                lock_file.close()
+        raise _registry_failure(
+            StorageError,
+            code="config_registry.storage_failed",
+            category=ProblemCategory.STORAGE,
+            message="storage could not acquire the config registry lock",
+            location=_registry_storage_location(CONFIG_REGISTRY_LOCK_REF),
+        ) from error
+    assert lock_file is not None
+    try:
+        yield
+    finally:
         try:
-            yield
-        finally:
             flock(lock_file.fileno(), LOCK_UN)
+            lock_file.close()
+        except OSError as error:
+            raise _registry_failure(
+                StorageError,
+                code="config_registry.storage_failed",
+                category=ProblemCategory.STORAGE,
+                message="storage could not release the config registry lock",
+                location=_registry_storage_location(CONFIG_REGISTRY_LOCK_REF),
+            ) from error
 
 
 def _require_expected_generation(
@@ -1386,18 +1434,17 @@ def _require_expected_generation(
     current_generation = 0 if state is None else state.generation
     if expected_generation == current_generation:
         return
-    raise ValidationFailed(
-        [
-            _diagnostic(
-                "error",
-                "config_registry_conflict",
-                (
-                    "config registry active state changed: expected generation "
-                    f"{expected_generation}, found {current_generation}"
-                ),
-                "expected_generation",
-            )
-        ]
+    raise _registry_failure(
+        Conflict,
+        code="config_registry.conflict",
+        category=ProblemCategory.CONFLICT,
+        message="config registry active state changed",
+        location=_registry_model_location("expected_generation"),
+        related_locations=(_registry_storage_location(CONFIG_REGISTRY_ACTIVE_REF),),
+        details={
+            "expected_generation": expected_generation,
+            "actual_generation": current_generation,
+        },
     )
 
 
@@ -1406,68 +1453,42 @@ def _state_generation(state: ConfigRegistryActiveState | None) -> int:
 
 
 def _read_active_state(path: Path) -> ConfigRegistryActiveState:
-    if path.is_dir():
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_is_directory",
-                    "config registry input is a directory: "
-                    f"{CONFIG_REGISTRY_ACTIVE_REF}",
-                    CONFIG_REGISTRY_ACTIVE_REF,
-                )
-            ]
-        )
+    content = _read_registry_text(path, ref=CONFIG_REGISTRY_ACTIVE_REF)
     try:
-        return ConfigRegistryActiveState.model_validate_json(path.read_text())
+        state = ConfigRegistryActiveState.model_validate_json(content)
     except ValidationError as error:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "invalid_config_registry_active_state",
-                    "config registry active state is not valid JSON",
-                    CONFIG_REGISTRY_ACTIVE_REF,
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.active_state_invalid",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry active state does not match its durable schema",
+            location=_registry_storage_location(CONFIG_REGISTRY_ACTIVE_REF),
         ) from error
+    _validate_durable_entry_id(
+        state.active_entry_id,
+        ref=CONFIG_REGISTRY_ACTIVE_REF,
+    )
+    for record in state.history:
+        _validate_durable_entry_id(record.entry_id, ref=CONFIG_REGISTRY_ACTIVE_REF)
+        if record.previous_entry_id is not None:
+            _validate_durable_entry_id(
+                record.previous_entry_id,
+                ref=CONFIG_REGISTRY_ACTIVE_REF,
+            )
+    return state
 
 
 def _read_config(path: Path, ref: str) -> ConfigProfileSnapshot:
-    if not path.exists():
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "missing_config_registry_input",
-                    f"config registry input is missing: {ref}",
-                    ref,
-                )
-            ]
-        )
-    if path.is_dir():
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_is_directory",
-                    f"config registry input is a directory: {ref}",
-                    ref,
-                )
-            ]
-        )
+    content = _read_registry_text(path, ref=ref)
     try:
-        return ConfigProfileSnapshot.model_validate_json(path.read_text())
+        return ConfigProfileSnapshot.model_validate_json(content)
     except ValidationError as error:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "invalid_config_registry_input",
-                    f"config registry input is not a valid config: {ref}",
-                    ref,
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.config_invalid",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry snapshot does not match its durable schema",
+            location=_registry_storage_location(ref),
         ) from error
 
 
@@ -1479,18 +1500,20 @@ def _read_entry_config(
     config = _read_config(config_path, entry.config_ref)
     actual_hash = config_content_hash(config)
     if actual_hash != entry.content_hash:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_content_hash_mismatch",
-                    (
-                        f"config registry entry {entry.id} content does not match "
-                        "its registered hash"
-                    ),
-                    entry.config_ref,
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.content_hash_mismatch",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry snapshot does not match its registered hash",
+            location=_registry_storage_location(entry.config_ref),
+            related_locations=(
+                _registry_storage_location(_entry_refs(entry.id).entry_ref),
+            ),
+            details={
+                "entry_id": entry.id,
+                "expected_content_hash": entry.content_hash,
+                "actual_content_hash": actual_hash,
+            },
         )
     return config
 
@@ -1501,15 +1524,16 @@ def _validate_active_entry_identity(
 ) -> None:
     if state.active_entry_content_hash == entry.content_hash:
         return
-    raise ValidationFailed(
-        [
-            _diagnostic(
-                "error",
-                "config_registry_active_content_mismatch",
-                "active config registry state does not match its entry",
-                CONFIG_REGISTRY_ACTIVE_REF,
-            )
-        ]
+    raise _registry_failure(
+        DataIntegrityError,
+        code="config_registry.active_content_mismatch",
+        category=ProblemCategory.DATA_INTEGRITY,
+        message="active config registry state does not match its entry",
+        location=_registry_storage_location(CONFIG_REGISTRY_ACTIVE_REF),
+        related_locations=(
+            _registry_storage_location(_entry_refs(entry.id).entry_ref),
+        ),
+        details={"entry_id": entry.id},
     )
 
 
@@ -1532,27 +1556,31 @@ def _validate_candidate_base(
         return
     if entry.source.base_config_content_hash == active_entry.content_hash:
         return
-    raise ValidationFailed(
-        [
-            _diagnostic(
-                "error",
-                "config_registry_stale_candidate",
-                (
-                    f"candidate config {entry.id} was based on "
-                    f"{entry.source.base_config_content_hash}, but the active config "
-                    f"is {active_entry.content_hash}"
-                ),
-                "source.base_config_content_hash",
-            )
-        ]
+    raise _registry_failure(
+        Conflict,
+        code="config_registry.stale_candidate",
+        category=ProblemCategory.CONFLICT,
+        message="candidate config was based on a different active config",
+        location=_registry_model_location(
+            "entries",
+            entry.id,
+            "source",
+            "base_config_content_hash",
+        ),
+        related_locations=(_registry_storage_location(CONFIG_REGISTRY_ACTIVE_REF),),
+        details={
+            "entry_id": entry.id,
+            "candidate_base_content_hash": entry.source.base_config_content_hash,
+            "active_content_hash": active_entry.content_hash,
+        },
     )
 
 
 def _validate_entry_config(workspace: Path, entry: ConfigRegistryEntry) -> None:
     config = _read_entry_config(workspace, entry)
-    diagnostics = validate_config(config)
-    if has_blocking_diagnostics(diagnostics):
-        raise ValidationFailed(diagnostics)
+    problems = validate_config(config)
+    if has_blocking_problems(problems):
+        raise CheckFailed(problems)
 
 
 def _previous_distinct_activation(
@@ -1561,15 +1589,12 @@ def _previous_distinct_activation(
     for record in reversed(state.history[:-1]):
         if record.entry_id != state.active_entry_id:
             return record
-    raise ValidationFailed(
-        [
-            _diagnostic(
-                "error",
-                "config_registry_no_rollback_target",
-                "config registry has no previous active entry",
-                "active",
-            )
-        ]
+    raise _registry_failure(
+        Conflict,
+        code="config_registry.no_rollback_target",
+        category=ProblemCategory.CONFLICT,
+        message="config registry has no previous active entry",
+        location=_registry_model_location("active"),
     )
 
 
@@ -1581,40 +1606,17 @@ def _next_record_id(history: list[ConfigRegistryActivationRecord], action: str) 
 def _read_model[TModel: BaseModel](
     path: Path, model_type: type[TModel], ref: str
 ) -> TModel:
-    if not path.exists():
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "missing_config_registry_input",
-                    f"config registry input is missing: {ref}",
-                    ref,
-                )
-            ]
-        )
-    if path.is_dir():
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_is_directory",
-                    f"config registry input is a directory: {ref}",
-                    ref,
-                )
-            ]
-        )
+    content = _read_registry_text(path, ref=ref)
     try:
-        return model_type.model_validate_json(path.read_text())
+        return model_type.model_validate_json(content)
     except ValidationError as error:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "invalid_config_registry_input",
-                    f"config registry input is not valid JSON for {ref}",
-                    ref,
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.record_invalid",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry record does not match its durable schema",
+            location=_registry_storage_location(ref),
+            details={"model": model_type.__name__},
         ) from error
 
 
@@ -1662,37 +1664,61 @@ def _write_registry_index_if_needed(
 
 
 def _write_model_atomic(path: Path, model: BaseModel) -> None:
-    _write_local_model_atomic(path, model)
+    ref = _workspace_ref(path)
+    try:
+        _write_local_model_atomic(path, model)
+    except OSError as error:
+        raise _registry_failure(
+            StorageError,
+            code="config_registry.storage_failed",
+            category=ProblemCategory.STORAGE,
+            message="storage could not persist a config registry record",
+            location=_registry_storage_location(ref),
+        ) from error
+    except (PydanticSerializationError, TypeError, ValueError) as error:
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.record_not_serializable",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry record cannot be represented durably",
+            location=_registry_storage_location(ref),
+            details={"model": type(model).__name__},
+        ) from error
 
 
 def _workspace_relative_path(workspace: Path, ref: str) -> Path:
     relative = PurePosixPath(ref)
     if relative.is_absolute() or ".." in relative.parts:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_path_escape",
-                    f"config registry path escapes workspace: {ref}",
-                    "config_registry",
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.path_escape",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry ref escapes the workspace",
+            location=_registry_model_location("ref"),
+            details={"ref": ref},
         )
     candidate = workspace / relative.as_posix()
-    workspace_root = workspace.resolve(strict=False)
-    resolved = candidate.resolve(strict=False)
+    try:
+        workspace_root = workspace.resolve(strict=False)
+        resolved = candidate.resolve(strict=False)
+    except OSError as error:
+        raise _registry_failure(
+            StorageError,
+            code="config_registry.storage_failed",
+            category=ProblemCategory.STORAGE,
+            message="storage could not resolve a config registry path",
+            location=_registry_storage_location(ref),
+        ) from error
     try:
         resolved.relative_to(workspace_root)
     except ValueError as error:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_path_escape",
-                    f"config registry path escapes workspace: {ref}",
-                    "config_registry",
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.path_escape",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry ref escapes the workspace",
+            location=_registry_model_location("ref"),
+            details={"ref": ref},
         ) from error
     return candidate
 
@@ -1706,20 +1732,129 @@ def _config_registry_config_path(workspace: Path, ref: str) -> Path:
         or relative.parts[0] != CONFIG_REGISTRY_ROOT
         or relative.parts[1] != "configs"
     ):
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "config_registry_path_escape",
-                    f"config registry config path is outside config store: {ref}",
-                    "config_ref",
-                )
-            ]
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.config_ref_invalid",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry config ref is outside the config store",
+            location=_registry_model_location("config_ref"),
+            details={"ref": ref},
         )
     return _workspace_relative_path(workspace, ref)
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+def _path_exists(path: Path, *, ref: str) -> bool:
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise _registry_failure(
+            StorageError,
+            code="config_registry.storage_failed",
+            category=ProblemCategory.STORAGE,
+            message="storage could not inspect a config registry record",
+            location=_registry_storage_location(ref),
+        ) from error
+    return True
+
+
+def _read_registry_text(path: Path, *, ref: str) -> str:
+    try:
+        path_stat = path.stat()
+    except FileNotFoundError as error:
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.record_missing",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry is missing a referenced durable record",
+            location=_registry_storage_location(ref),
+        ) from error
+    except OSError as error:
+        raise _registry_failure(
+            StorageError,
+            code="config_registry.storage_failed",
+            category=ProblemCategory.STORAGE,
+            message="storage could not inspect a config registry record",
+            location=_registry_storage_location(ref),
+        ) from error
+    if not S_ISREG(path_stat.st_mode):
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.record_not_file",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry record is not a regular file",
+            location=_registry_storage_location(ref),
+        )
+    try:
+        return path.read_text()
+    except FileNotFoundError as error:
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.record_missing",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry is missing a referenced durable record",
+            location=_registry_storage_location(ref),
+        ) from error
+    except UnicodeError as error:
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.record_invalid_encoding",
+            category=ProblemCategory.DATA_INTEGRITY,
+            message="config registry record is not valid text",
+            location=_registry_storage_location(ref),
+        ) from error
+    except OSError as error:
+        raise _registry_failure(
+            StorageError,
+            code="config_registry.storage_failed",
+            category=ProblemCategory.STORAGE,
+            message="storage could not read a config registry record",
+            location=_registry_storage_location(ref),
+        ) from error
+
+
+def _workspace_ref(path: Path) -> str:
+    try:
+        root_index = path.parts.index(CONFIG_REGISTRY_ROOT)
+    except ValueError:
+        return path.name
+    return PurePosixPath(*path.parts[root_index:]).as_posix()
+
+
+def _registry_failure(
+    failure_type: type[ProblemFailure],
+    *,
+    code: str,
+    category: ProblemCategory,
+    message: str,
+    location: ProblemLocation | None = None,
+    related_locations: Sequence[ProblemLocation] = (),
+    details: Mapping[str, object] | None = None,
+) -> ProblemFailure:
+    return failure_type(
+        [
+            Problem(
+                code=code,
+                impact=ProblemImpact.BLOCKING,
+                category=category,
+                phase=ProblemPhase.CONFIGURATION,
+                message=message,
+                location=location,
+                related_locations=tuple(related_locations),
+                details={} if details is None else details,
+            )
+        ]
+    )
+
+
+def _registry_model_location(*path: str | int) -> ModelLocation:
+    return ModelLocation(root="config_registry", path=path)
+
+
+def _registry_storage_location(
+    ref: str,
+    *,
+    run_id: str | None = None,
+) -> StorageLocation:
+    return StorageLocation(run_id=run_id, ref=ref)

@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat._steps import StepArtifactStore
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.data_artifact import (
     DataArrayArtifact,
     DataArrayDimension,
@@ -16,7 +16,7 @@ from scopecat.models.data_artifact import (
     DataTableSchema,
 )
 from tests.support.data_artifacts import (
-    artifact_diagnostics,
+    artifact_contract,
     metrics_table_schema,
     readout_matrix_schema,
 )
@@ -55,7 +55,7 @@ def test_data_array_artifact_rejects_invalid_schema_refs() -> None:
 def test_step_artifact_store_writes_typed_data_artifacts(tmp_path: Path) -> None:
     store = StepArtifactStore(
         root_dir=tmp_path,
-        diagnostics=artifact_diagnostics(),
+        contract=artifact_contract(),
     )
     table_schema = metrics_table_schema()
     array_schema = readout_matrix_schema()
@@ -113,21 +113,21 @@ def test_step_artifact_store_rejects_invalid_typed_data_payload(
 ) -> None:
     store = StepArtifactStore(
         root_dir=tmp_path,
-        diagnostics=artifact_diagnostics(),
+        contract=artifact_contract(),
     )
 
-    with pytest.raises(ValidationFailed) as table_error:
+    with pytest.raises(CheckFailed) as table_error:
         store.write_data_table(
             id="metrics",
             schema=metrics_table_schema(),
             rows=[{"metric": "visibility", "value": 0.98}],
         )
-    with pytest.raises(ValidationFailed) as array_error:
+    with pytest.raises(CheckFailed) as array_error:
         store.write_data_array(
             id="readout-matrix",
             schema=readout_matrix_schema(),
             variables={"readout_probability": [[0.99, 0.03]]},
         )
 
-    assert table_error.value.diagnostics[0].code == "invalid_data_table_artifact"
-    assert array_error.value.diagnostics[0].code == "invalid_data_array_artifact"
+    assert table_error.value.problems[0].code == "invalid_data_table_artifact"
+    assert array_error.value.problems[0].code == "invalid_data_array_artifact"

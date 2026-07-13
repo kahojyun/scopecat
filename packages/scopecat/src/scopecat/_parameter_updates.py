@@ -210,7 +210,7 @@ def materialize_parameter_updates(
         selected[parameter_id] = coerce_stored_parameter_value(
             definition,
             selected[parameter_id],
-            path=f"parameter_snapshot.values.{parameter_id}",
+            path=("parameter_snapshot", "values", parameter_id),
         )
     candidate = ParameterSnapshot(
         id=candidate_id,
@@ -334,7 +334,7 @@ def _apply_table_update(
         parameter_id=current.id,
         table_type=table_type,
         values=update.key,
-        path="key",
+        path=("key",),
     )
     matches = [
         index
@@ -369,7 +369,7 @@ def _apply_table_update(
             parameter_id=current.id,
             table_type=table_type,
             values=update.values,
-            path="values",
+            path=("values",),
         )
         rows = tuple(
             (dict(row) | values) if index == selected_index else row
@@ -415,7 +415,7 @@ def _row_matches_key(
         parameter_id=parameter_id,
         table_type=table_type,
         values={column_id: row[column_id] for column_id in key},
-        path="current_row_key",
+        path=("current_row_key",),
     )
     return all(
         parameter_table_key_part(normalized_row_key[column_id])
@@ -429,7 +429,7 @@ def _coerce_table_cells(
     parameter_id: str,
     table_type: Table,
     values: Mapping[str, ParameterAtomValue],
-    path: str,
+    path: tuple[str | int, ...],
 ) -> dict[str, ParameterAtomValue]:
     columns = {column.id: column for column in table_type.columns}
     unknown = sorted(values.keys() - columns.keys())
@@ -444,7 +444,7 @@ def _coerce_table_cells(
             parameter_id=parameter_id,
             column=columns[column_id],
             value=value,
-            path=f"{path}.{column_id}",
+            path=(*path, column_id),
         )
         for column_id, value in values.items()
     }

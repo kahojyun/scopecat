@@ -10,8 +10,8 @@ import pytest
 import scopecat as sc
 import scopecat.authoring as authoring
 import scopecat.authoring.assembly as authoring_assembly
-import scopecat.diagnostics as diagnostics
 import scopecat.models.value as value_models
+import scopecat.problems as problems
 import scopecat.results as results
 from scopecat._relations import param
 
@@ -29,11 +29,22 @@ def test_internal_authoring_context_and_compute_refs_have_no_public_module() -> 
 
 def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.open)
+    assert sc.Problem is problems.Problem
+    assert callable(sc.blocking_problem)
+    assert callable(sc.model_location)
+    assert not hasattr(sc, "ValueValidationError")
     assert sc.Run is sc.RunHandle
     assert callable(sc.module)
     assert not hasattr(sc, "template")
     assert callable(sc.ModuleBuilder.template)
+    assert callable(sc.ModuleBuilder.bind_field)
+    assert not hasattr(sc.ModuleBuilder, "bind")
     assert callable(sc.ExperimentModule.template)
+    assert callable(sc.Experiment.bind_field)
+    assert not hasattr(sc.Experiment, "bind")
+    assert sc.ModuleOutputs
+    assert sc.ProductOutputs
+    assert sc.ProductRef
     assert callable(sc.input)
     assert callable(sc.compute)
     assert sc.ComputeInput
@@ -103,6 +114,9 @@ def test_user_facing_facades_expose_entry_points() -> None:
         sc.RouteRef,
         sc.ModuleBuilder,
         sc.ModuleInvocation,
+        sc.ModuleOutputs,
+        sc.ProductOutputs,
+        sc.ProductRef,
         sc.ExperimentModule,
         sc.TemplateBuilder,
         sc.ExperimentTemplate,
@@ -118,7 +132,17 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert not hasattr(row, "value")
     assert not hasattr(row, "patch")
     assert hasattr(results, "MeasurementRecord")
-    assert {"severity", "code"}.issubset(diagnostics.Diagnostic.model_fields)
+    assert {
+        "schema_version",
+        "impact",
+        "category",
+        "phase",
+        "code",
+        "location",
+        "related_locations",
+        "details",
+        "occurrence_id",
+    }.issubset(problems.Problem.model_fields)
 
 
 def test_typed_values_are_the_public_module_wiring_surface() -> None:
@@ -171,10 +195,10 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
     public_signatures = " ".join(
         str(signature(method))
         for method in (
-            sc.ModuleBuilder.bind,
+            sc.ModuleBuilder.bind_field,
             sc.ModuleBuilder.resource,
             sc.ModuleBuilder.state_each,
-            sc.Experiment.bind,
+            sc.Experiment.bind_field,
             sc.Experiment.resource,
             sc.Experiment.state_each,
             sc.compute,

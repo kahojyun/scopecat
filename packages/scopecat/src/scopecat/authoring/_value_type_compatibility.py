@@ -21,14 +21,14 @@ from scopecat.value_types import (
     Table,
     ValueType,
 )
-from scopecat.value_validation import ValueValidationError
+from scopecat.value_validation import ValuePath, ValueValidationError
 
 
 def require_assignable(
     source: ValueType,
     target: ValueType,
     *,
-    path: str,
+    path: ValuePath,
 ) -> None:
     """Require every value admitted by ``source`` to be accepted by ``target``."""
 

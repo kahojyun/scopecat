@@ -7,14 +7,13 @@ import pytest
 from pydantic import ValidationError
 
 import scopecat.importers as importers
+from scopecat.errors import CheckFailed
 from scopecat.importers import (
-    ImportSourceLocation,
-    ParameterImportRejected,
     ScalarParameterDraftValue,
     SeriesParameterDraftValue,
     TableParameterDraftValue,
     accept_parameter_import,
-    import_diagnostic,
+    import_problem,
     parameter_import_result,
 )
 from scopecat.models.parameter import (
@@ -24,6 +23,7 @@ from scopecat.models.parameter import (
     SeriesParameterValue,
     TableParameterValue,
 )
+from scopecat.problems import ExternalLocation
 from scopecat.value_types import (
     Bool,
     Float,
@@ -37,14 +37,14 @@ from scopecat.value_types import (
 
 
 def test_import_result_contains_raw_draft_instead_of_parameter_snapshot() -> None:
-    location = ImportSourceLocation(
-        source_uri="registry://parameters",
-        path="parameters.enabled",
+    location = ExternalLocation(
+        uri="registry://parameters",
+        path=("parameters", "enabled"),
     )
     result = parameter_import_result(
         id="typed-import",
         source_kind="registry",
-        source_uri=location.source_uri,
+        source_uri=location.uri,
         values=[
             ScalarParameterDraftValue(
                 id="enabled",
@@ -64,6 +64,8 @@ def test_import_result_contains_raw_draft_instead_of_parameter_snapshot() -> Non
         ],
     )
 
+    assert result.schema_version == "scopecat.parameter_import_result.v1"
+    assert type(result).model_validate_json(result.model_dump_json()) == result
     assert result.draft.id == "typed-import.draft"
     scalar = result.draft.values[0]
     series = result.draft.values[1]
@@ -81,8 +83,8 @@ def test_import_result_contains_raw_draft_instead_of_parameter_snapshot() -> Non
 
 def test_accept_parameter_import_validates_and_freezes_all_shapes() -> None:
     source_uri = "file://calibration.json"
-    location = ImportSourceLocation(source_uri=source_uri)
-    row_location = ImportSourceLocation(source_uri=source_uri, row=2)
+    location = ExternalLocation(uri=source_uri)
+    row_location = ExternalLocation(uri=source_uri, row=2)
     result = parameter_import_result(
         id="calibration-import",
         source_kind="json",
@@ -118,7 +120,7 @@ def test_accept_parameter_import_validates_and_freezes_all_shapes() -> None:
     assert isinstance(table, TableParameterValue)
     assert table.rows == ({"id": "ch-0", "gain": 1.0},)
     assert table.metadata["import_row_locations"] == (
-        {"source_uri": source_uri, "row": 2},
+        {"kind": "external", "uri": source_uri, "row": 2, "path": ()},
     )
     nested = snapshot.metadata["nested"]
     assert isinstance(nested, Mapping)
@@ -128,19 +130,18 @@ def test_accept_parameter_import_validates_and_freezes_all_shapes() -> None:
         cast("dict[str, object]", nested)["reviewed"] = False
 
 
-def test_importer_blocking_diagnostic_prevents_acceptance() -> None:
-    location = ImportSourceLocation(
-        source_uri="legacy://calibration",
-        path="parameters.enabled",
+def test_importer_blocking_problem_prevents_acceptance() -> None:
+    location = ExternalLocation(
+        uri="legacy://calibration",
+        path=("parameters", "enabled"),
     )
     result = parameter_import_result(
         id="blocked-import",
         source_kind="legacy",
-        source_uri=location.source_uri,
+        source_uri=location.uri,
         values=[ScalarParameterDraftValue(id="enabled", value=True, location=location)],
-        diagnostics=[
-            import_diagnostic(
-                severity="blocker",
+        problems=[
+            import_problem(
                 code="import_required_value_missing",
                 message="source record is incomplete",
                 location=location,
@@ -148,23 +149,23 @@ def test_importer_blocking_diagnostic_prevents_acceptance() -> None:
         ],
     )
 
-    assert result.has_blocking_diagnostics is True
-    with pytest.raises(ParameterImportRejected) as caught:
+    assert result.has_blocking_problems is True
+    with pytest.raises(CheckFailed) as caught:
         accept_parameter_import(result, _catalog())
-    assert [diagnostic.code for diagnostic in caught.value.diagnostics] == [
+    assert [problem.code for problem in caught.value.problems] == [
         "import_required_value_missing"
     ]
 
 
 def test_catalog_validation_rejects_raw_value_at_source_location() -> None:
-    location = ImportSourceLocation(
-        source_uri="registry://parameters",
-        path="parameters.enabled",
+    location = ExternalLocation(
+        uri="registry://parameters",
+        path=("parameters", "enabled"),
     )
     result = parameter_import_result(
         id="invalid-import",
         source_kind="registry",
-        source_uri=location.source_uri,
+        source_uri=location.uri,
         values=[
             ScalarParameterDraftValue(
                 id="gain",
@@ -189,16 +190,16 @@ def test_catalog_validation_rejects_raw_value_at_source_location() -> None:
         ],
     )
 
-    with pytest.raises(ParameterImportRejected) as caught:
+    with pytest.raises(CheckFailed) as caught:
         accept_parameter_import(result, _catalog())
 
-    assert [diagnostic.code for diagnostic in caught.value.diagnostics] == [
+    assert [problem.code for problem in caught.value.problems] == [
         "invalid_parameter_bool"
     ]
-    assert caught.value.diagnostics[0].location == location
+    assert caught.value.problems[0].location == location
 
 
-def test_acceptance_wraps_invalid_draft_metadata_as_import_diagnostic() -> None:
+def test_acceptance_wraps_invalid_draft_metadata_as_import_problem() -> None:
     result = parameter_import_result(
         id="invalid-metadata",
         source_kind="manual",
@@ -206,27 +207,27 @@ def test_acceptance_wraps_invalid_draft_metadata_as_import_diagnostic() -> None:
         draft_metadata={"open_handle": object()},
     )
 
-    with pytest.raises(ParameterImportRejected) as caught:
+    with pytest.raises(CheckFailed) as caught:
         accept_parameter_import(result, _catalog())
 
-    assert [diagnostic.code for diagnostic in caught.value.diagnostics] == [
+    assert [problem.code for problem in caught.value.problems] == [
         "invalid_parameter_draft_metadata"
     ]
-    assert caught.value.diagnostics[0].location == ImportSourceLocation(
-        source_uri="manual://parameters"
+    assert caught.value.problems[0].location == ExternalLocation(
+        uri="manual://parameters"
     )
 
 
-def test_catalog_diagnostics_use_series_item_and_table_row_locations() -> None:
+def test_catalog_problems_use_series_item_and_table_row_locations() -> None:
     source = "file://calibration.csv"
-    parameter_location = ImportSourceLocation(source_uri=source, row=1)
+    parameter_location = ExternalLocation(uri=source, row=1)
     item_locations = [
-        ImportSourceLocation(source_uri=source, row=2),
-        ImportSourceLocation(source_uri=source, row=3),
+        ExternalLocation(uri=source, row=2),
+        ExternalLocation(uri=source, row=3),
     ]
     row_locations = [
-        ImportSourceLocation(source_uri=source, row=8),
-        ImportSourceLocation(source_uri=source, row=9),
+        ExternalLocation(uri=source, row=8),
+        ExternalLocation(uri=source, row=9),
     ]
     result = parameter_import_result(
         id="located-errors",
@@ -261,14 +262,14 @@ def test_catalog_diagnostics_use_series_item_and_table_row_locations() -> None:
         ],
     )
 
-    with pytest.raises(ParameterImportRejected) as caught:
+    with pytest.raises(CheckFailed) as caught:
         accept_parameter_import(result, _catalog())
 
-    assert [diagnostic.code for diagnostic in caught.value.diagnostics] == [
+    assert [problem.code for problem in caught.value.problems] == [
         "invalid_parameter_int",
         "invalid_parameter_number",
     ]
-    assert [diagnostic.location for diagnostic in caught.value.diagnostics] == [
+    assert [problem.location for problem in caught.value.problems] == [
         item_locations[1],
         row_locations[1],
     ]
@@ -276,8 +277,8 @@ def test_catalog_diagnostics_use_series_item_and_table_row_locations() -> None:
 
 def test_raw_conversion_error_uses_the_failing_row_location() -> None:
     source = "file://calibration.csv"
-    parameter_location = ImportSourceLocation(source_uri=source, row=1)
-    row_locations = [ImportSourceLocation(source_uri=source, row=12)]
+    parameter_location = ExternalLocation(uri=source, row=1)
+    row_locations = [ExternalLocation(uri=source, row=12)]
     result = parameter_import_result(
         id="raw-row-error",
         source_kind="csv",
@@ -292,15 +293,15 @@ def test_raw_conversion_error_uses_the_failing_row_location() -> None:
         ],
     )
 
-    with pytest.raises(ParameterImportRejected) as caught:
+    with pytest.raises(CheckFailed) as caught:
         accept_parameter_import(result, _catalog())
 
-    assert caught.value.diagnostics[0].code == "invalid_imported_parameter_value"
-    assert caught.value.diagnostics[0].location == row_locations[0]
+    assert caught.value.problems[0].code == "invalid_imported_parameter_value"
+    assert caught.value.problems[0].location == row_locations[0]
 
 
 def test_draft_collection_location_cardinality_is_structural() -> None:
-    location = ImportSourceLocation(source_uri="file://calibration.csv")
+    location = ExternalLocation(uri="file://calibration.csv")
     with pytest.raises(ValidationError):
         SeriesParameterDraftValue(
             id="thresholds",

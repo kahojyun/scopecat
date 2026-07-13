@@ -6,13 +6,19 @@ from dataclasses import dataclass
 from typing import Any
 
 from scopecat.instruments import (
-    DriverDiagnostic,
+    DriverFault,
     InstrumentStateCommand,
     InstrumentStateCommandField,
     PayloadRef,
     StateValue,
 )
 from scopecat.models.parameter import Quantity
+from scopecat.problems import (
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 
 from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile
 
@@ -50,11 +56,16 @@ class VirtualDevice:
 
     def apply(self, command: InstrumentStateCommand) -> None:
         if command.instrument_id != self.id:
-            raise DriverDiagnostic(
-                severity="error",
-                code="virtual_lab_device_mismatch",
-                message=f"{self.id} cannot apply command for {command.instrument_id}",
-                path="instrument_id",
+            raise DriverFault(
+                blocking_problem(
+                    "virtual_lab_device_mismatch",
+                    f"{self.id} cannot apply command for {command.instrument_id}",
+                    category=ProblemCategory.PROVIDER_CONTRACT,
+                    phase=ProblemPhase.EXECUTION,
+                    location=model_location(
+                        "instrument_state_command", "instrument_id"
+                    ),
+                )
             )
         for field in command.fields:
             self._apply_field(field)
@@ -118,11 +129,15 @@ class VirtualLab:
         try:
             return self._devices[device_id]
         except KeyError as error:
-            raise DriverDiagnostic(
-                severity="error",
-                code="virtual_lab_missing_device",
-                message=f"virtual lab profile does not define {device_id}",
-                path="devices",
+            raise DriverFault(
+                blocking_problem(
+                    "virtual_lab_missing_device",
+                    f"virtual lab profile does not define {device_id}",
+                    category=ProblemCategory.PROVIDER_CONTRACT,
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                    location=model_location("virtual_lab_profile", "devices"),
+                    details={"device_id": device_id},
+                )
             ) from error
 
     @property

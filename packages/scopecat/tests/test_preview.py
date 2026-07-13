@@ -5,7 +5,7 @@ from scopecat._compiler.program import (
     TypedPointSource,
     TypedProgram,
     observable,
-    set_state,
+    set_state_field,
     typed_program,
 )
 from scopecat._relations import RelationExpr, col, grid, range_values, table
@@ -36,7 +36,7 @@ def test_preview_experiment_builds_expected_plan() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     spec = load_experiment()
 
-    preview, diagnostics = _preview_spec(spec, config)
+    preview, problems = _preview_spec(spec, config)
 
     assert preview.experiment_id == spec.id
     assert preview.experiment_kind == spec.kind
@@ -49,7 +49,7 @@ def test_preview_experiment_builds_expected_plan() -> None:
     assert preview.state_fields[0].field_path == "frequency"
     assert preview.state_fields[0].value == Quantity(value=4.9, unit="GHz")
     assert preview.records[0].shape == (3,)
-    assert diagnostics == ()
+    assert problems == ()
 
 
 def test_preview_experiment_includes_float_step_stop_point() -> None:
@@ -69,20 +69,21 @@ def test_preview_experiment_includes_float_step_stop_point() -> None:
             )
         ),
         state=[
-            set_state(
+            set_state_field(
                 "source-0",
-                "set_frequency.frequency",
-                col("drive_frequency"),
+                capability_id="set_frequency",
+                field_path="frequency",
+                value=col("drive_frequency"),
             )
         ],
         records=[observable("signal", unit="ratio", resource="source-0")],
     )
 
-    preview, diagnostics = _preview_spec(spec, config)
+    preview, problems = _preview_spec(spec, config)
 
     values = [record.coordinates["drive_frequency"] for record in preview.points]
 
-    assert diagnostics == ()
+    assert problems == ()
     assert all(isinstance(value, Quantity) for value in values)
     assert [value.value for value in values if isinstance(value, Quantity)] == [
         5.9,
@@ -102,24 +103,24 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
         point_source=_point_source(grid(drive_frequency=[value, value])),
     )
 
-    preview, diagnostics = _preview_spec(spec, config)
+    preview, problems = _preview_spec(spec, config)
 
-    assert diagnostics == ()
+    assert problems == ()
     assert len({point.point_uid for point in preview.points}) == 2
 
 
-def test_validate_experiment_does_not_duplicate_preview_diagnostics() -> None:
+def test_validate_experiment_does_not_duplicate_preview_problems() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     spec = typed_program(
         id="bad-preview-points",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(table("missing_table")),
     )
 
-    _preview, diagnostics = _preview_spec(spec, config)
+    _preview, problems = _preview_spec(spec, config)
 
     assert [
-        diagnostic.code
-        for diagnostic in diagnostics
-        if diagnostic.code == "experiment_points_evaluation_failed"
+        problem.code
+        for problem in problems
+        if problem.code == "experiment_points_evaluation_failed"
     ] == ["experiment_points_evaluation_failed"]

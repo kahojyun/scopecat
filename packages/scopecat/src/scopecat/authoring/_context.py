@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
 
 from scopecat._relations import ParameterRelationData
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.entity import EntityRef, entity_ref
 from scopecat.models.run import RunConfigSource
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 
 
 @dataclass
@@ -21,26 +27,35 @@ class ExperimentAuthoringContext:
     parameters: ParameterRelationData
     workspace: Path
     config_source: RunConfigSource | None = None
-    diagnostics: list[Diagnostic] = field(default_factory=list)
+    problems: list[Problem] = field(default_factory=list)
 
     def require_entity(self, entity: EntityRef | str) -> EntityRef:
         selected = entity_ref(entity)
         known = self.config.topology.entity(selected.id)
         if known is None:
-            self.raise_diagnostic(
+            self.raise_problem(
                 "unknown_authoring_entity",
                 f"experiment authoring references unknown entity {selected.id}",
-                "entity",
+                root="entity",
+                path=(selected.id,),
+                category=ProblemCategory.NOT_FOUND,
+                details={"entity_id": selected.id},
             )
         if (
             selected.kind is not None
             and known.kind is not None
             and selected.kind != known.kind
         ):
-            self.raise_diagnostic(
+            self.raise_problem(
                 "authoring_entity_kind_mismatch",
                 f"entity {selected.id} has kind {known.kind}, not {selected.kind}",
-                "entity",
+                root="entity",
+                path=(selected.id,),
+                details={
+                    "entity_id": selected.id,
+                    "actual_kind": known.kind,
+                    "requested_kind": selected.kind,
+                },
             )
         return EntityRef(
             id=selected.id,
@@ -54,31 +69,71 @@ class ExperimentAuthoringContext:
     ) -> tuple[EntityRef, ...]:
         return tuple(self.require_entity(entity) for entity in entities)
 
-    def diagnostic(
+    def problem(
         self,
-        severity: DiagnosticSeverity,
         code: str,
         message: str,
-        path: str | None = None,
-    ) -> Diagnostic:
-        return diagnostic(severity, code, message, path)
+        root: str,
+        *,
+        path: Sequence[str | int] = (),
+        category: ProblemCategory = ProblemCategory.INVALID_INPUT,
+        details: Mapping[str, object] | None = None,
+    ) -> Problem:
+        return problem(
+            code,
+            message,
+            root=root,
+            path=path,
+            category=category,
+            phase=ProblemPhase.PLANNING,
+            details=details,
+        )
 
-    def raise_diagnostic(
-        self, code: str, message: str, path: str | None = None
+    def raise_problem(
+        self,
+        code: str,
+        message: str,
+        root: str,
+        *,
+        path: Sequence[str | int] = (),
+        category: ProblemCategory = ProblemCategory.INVALID_INPUT,
+        details: Mapping[str, object] | None = None,
     ) -> NoReturn:
-        raise ValidationFailed([self.diagnostic("error", code, message, path)])
+        raise CheckFailed(
+            [
+                self.problem(
+                    code,
+                    message,
+                    root=root,
+                    path=path,
+                    category=category,
+                    details=details,
+                )
+            ]
+        )
 
 
-def diagnostic(
-    severity: DiagnosticSeverity,
+def problem(
     code: str,
     message: str,
-    path: str | None = None,
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+    root: str,
+    *,
+    path: Sequence[str | int] = (),
+    category: ProblemCategory = ProblemCategory.INVALID_INPUT,
+    phase: ProblemPhase = ProblemPhase.AUTHORING,
+    details: Mapping[str, object] | None = None,
+) -> Problem:
+    return blocking_problem(
+        code=code,
+        category=category,
+        phase=phase,
+        message=message,
+        location=model_location(root, *path),
+        details=details,
+    )
 
 
 __all__ = [
     "ExperimentAuthoringContext",
-    "diagnostic",
+    "problem",
 ]

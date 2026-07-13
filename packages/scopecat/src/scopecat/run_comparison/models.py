@@ -7,12 +7,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from scopecat.diagnostics import Diagnostic
 from scopecat.models.measurement import CoordinateValue
 from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunConfigSource, utc_now
+from scopecat.problems import Problem
 
-RUN_COMPARISON_RESULT_SCHEMA_VERSION = "scopecat.run_comparison_result.v4"
+RUN_COMPARISON_RESULT_SCHEMA_VERSION = "scopecat.run_comparison_result.v5"
 RUN_COMPARISON_REVIEW_RECORD_SCHEMA_VERSION = "scopecat.run_comparison_review_record.v2"
 
 ComparisonOutcome = Literal["increased", "unchanged", "decreased"]
@@ -34,7 +34,9 @@ class RunComparisonPoint(BaseModel):
 class RunComparisonResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = RUN_COMPARISON_RESULT_SCHEMA_VERSION
+    schema_version: Literal["scopecat.run_comparison_result.v5"] = (
+        RUN_COMPARISON_RESULT_SCHEMA_VERSION
+    )
     comparison_id: str
     baseline_run_id: str
     candidate_run_id: str
@@ -51,7 +53,7 @@ class RunComparisonResult(BaseModel):
     value_unit: str
     outcome: ComparisonOutcome
     points: list[RunComparisonPoint]
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
+    problems: tuple[Problem, ...] = ()
     generated_at: datetime = Field(default_factory=utc_now)
 
 
@@ -69,7 +71,9 @@ class RunComparisonView(BaseModel):
 class RunComparisonReviewRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = RUN_COMPARISON_REVIEW_RECORD_SCHEMA_VERSION
+    schema_version: Literal["scopecat.run_comparison_review_record.v2"] = (
+        RUN_COMPARISON_REVIEW_RECORD_SCHEMA_VERSION
+    )
     run_id: str
     comparison_id: str
     decision: RunComparisonReviewState

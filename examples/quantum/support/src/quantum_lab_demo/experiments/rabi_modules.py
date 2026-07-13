@@ -52,18 +52,29 @@ RABI_MODULE = (
         for_entities=(_RABI_QUBIT,),
     )
     .computes(_BUILD_RABI_SEQUENCE, _RENDER_RABI_WAVEFORMS)
-    .bind(
-        "drive.play_pulse_program.program",
-        _RENDER_RABI_WAVEFORMS.output,
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="program",
+        value=_RENDER_RABI_WAVEFORMS.output,
     )
-    .bind("drive.play_pulse_program.length", DRIVE_LENGTH)
-    .bind(
-        "drive.play_pulse_program.amplitude",
-        qubit_param("rabi_drive_amplitude", _RABI_QUBIT),
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="length",
+        value=DRIVE_LENGTH,
     )
-    .bind(
-        "drive.play_pulse_program.frequency",
-        qubit_param("drive_frequency", _RABI_QUBIT),
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="amplitude",
+        value=qubit_param("rabi_drive_amplitude", _RABI_QUBIT),
+    )
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="frequency",
+        value=qubit_param("drive_frequency", _RABI_QUBIT),
     )
     .build()
 )
@@ -113,13 +124,30 @@ SIMULTANEOUS_RABI_MODULE = (
         _BUILD_SIMULTANEOUS_RABI_SEQUENCE,
         _RENDER_SIMULTANEOUS_RABI_WAVEFORMS,
     )
-    .bind(
-        "drive.play_pulse_program.program",
-        _RENDER_SIMULTANEOUS_RABI_WAVEFORMS.output,
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="program",
+        value=_RENDER_SIMULTANEOUS_RABI_WAVEFORMS.output,
     )
-    .bind("drive.play_pulse_program.length", DRIVE_LENGTH)
-    .bind("drive.play_pulse_program.amplitude", _SIMULTANEOUS_DRIVE_AMPLITUDE)
-    .bind("drive.play_pulse_program.frequency", _SIMULTANEOUS_DRIVE_FREQUENCY)
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="length",
+        value=DRIVE_LENGTH,
+    )
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="amplitude",
+        value=_SIMULTANEOUS_DRIVE_AMPLITUDE,
+    )
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="frequency",
+        value=_SIMULTANEOUS_DRIVE_FREQUENCY,
+    )
     .build()
 )
 

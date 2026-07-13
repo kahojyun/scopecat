@@ -44,10 +44,15 @@ type PointSourceInput = ValueRef | None
 class StateEachIntent:
     relation: ValueRef
     resource: ValueRef | ClosedScalarValue
-    field: str
+    capability_id: str
+    field_path: str
     value: ValueRef | ClosedScalarValue
     route_entities: tuple[StateRouteValue, ...] = ()
     resource_port: str | None = None
+
+    @property
+    def field(self) -> str:
+        return f"{self.capability_id}.{self.field_path}"
 
 
 ExperimentStateIntent = StateEachIntent
@@ -60,6 +65,7 @@ class ComputeNodeIntent:
     output_type: ValueType
     inputs: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     scope: tuple[str, ...] = ()
+    origin: tuple[object, ...] = ()
 
     @property
     def node_id(self) -> NodeId:
@@ -67,7 +73,11 @@ class ComputeNodeIntent:
 
     @property
     def result(self) -> ValueRef:
-        return internal_compute_value_ref(self.node_id, self.output_type)
+        return internal_compute_value_ref(
+            self.node_id,
+            self.output_type,
+            origin=self.origin,
+        )
 
 
 @dataclass(frozen=True)
@@ -78,6 +88,15 @@ class ModuleInputPort:
     @property
     def ref(self) -> ValueRef:
         return internal_input_value_ref(self.id, self.value_type)
+
+
+@dataclass(frozen=True)
+class ModuleOutputPort:
+    """One typed value explicitly exported from a module boundary."""
+
+    id: str
+    value: ValueRef
+    value_type: ValueType
 
 
 @dataclass(frozen=True)
@@ -96,6 +115,7 @@ __all__ = [
     "ComputeNodeIntent",
     "ExperimentStateIntent",
     "ModuleInputPort",
+    "ModuleOutputPort",
     "ParameterScanOverlayIntent",
     "PointSourceInput",
     "StateEachIntent",

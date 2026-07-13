@@ -4,7 +4,7 @@ from scopecat._compiler.program import (
     TypedPointSource,
     bind_each,
     overlay_parameter_cell,
-    set_state,
+    set_state_field,
     typed_program,
 )
 from scopecat._relations import (
@@ -35,25 +35,27 @@ def _point_source(expr: RelationExpr) -> TypedPointSource:
 def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
     unchanged = typed_program(
         id="unchanged-state-patches",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0, 1])),
         state=[
-            set_state(
+            set_state_field(
                 "drive-a",
-                "drive.carrier_frequency",
-                Quantity(value=5.0, unit="GHz"),
+                capability_id="drive",
+                field_path="carrier_frequency",
+                value=Quantity(value=5.0, unit="GHz"),
             )
         ],
     )
     swept = typed_program(
         id="swept-state-patches",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(frequency=linspace(5.0, 5.1, 2, unit="GHz"))),
         state=[
-            set_state(
+            set_state_field(
                 "drive-a",
-                "drive.carrier_frequency",
-                col("frequency"),
+                capability_id="drive",
+                field_path="carrier_frequency",
+                value=col("frequency"),
             )
         ],
     )
@@ -107,10 +109,11 @@ def test_preview_repeated_state_uses_outer_point_row() -> None:
         state=[
             bind_each(
                 table("drive_channels"),
-                set_state(
+                set_state_field(
                     col("resource_id"),
-                    "drive.carrier_frequency",
-                    outer("lo_frequency") + col("fixed_if"),
+                    capability_id="drive",
+                    field_path="carrier_frequency",
+                    value=outer("lo_frequency") + col("fixed_if"),
                 ),
             )
         ],
@@ -156,10 +159,11 @@ def test_preview_selected_target_table_plans_simultaneous_resources() -> None:
             )
         ],
         state=[
-            set_state(
+            set_state_field(
                 col("resource_id"),
-                "readout.frequency",
-                param(
+                capability_id="readout",
+                field_path="frequency",
+                value=param(
                     "readout_devices",
                     key={"device_id": col("device_id")},
                     column="frequency",
@@ -167,10 +171,11 @@ def test_preview_selected_target_table_plans_simultaneous_resources() -> None:
             ),
             bind_each(
                 table("drive_channels"),
-                set_state(
+                set_state_field(
                     col("resource_id"),
-                    "drive.carrier_frequency",
-                    outer("frequency") + col("fixed_if"),
+                    capability_id="drive",
+                    field_path="carrier_frequency",
+                    value=outer("frequency") + col("fixed_if"),
                 ),
             ),
         ],

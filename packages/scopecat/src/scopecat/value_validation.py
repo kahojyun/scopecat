@@ -13,6 +13,7 @@ from scopecat._value_identity import ScalarIdentity, scalar_identity
 from scopecat.models.entity import EntityRef, normalize_entity_metadata
 from scopecat.models.parameter import Quantity as QuantityValue
 from scopecat.models.value import PayloadValue
+from scopecat.problems import LocationPathItem
 from scopecat.units import compatible_units, unit_kind
 from scopecat.value_types import (
     AtomType,
@@ -30,13 +31,31 @@ from scopecat.value_types import (
     ValueType,
 )
 
+type ValuePath = tuple[LocationPathItem, ...]
+
+
+def format_value_path(path: ValuePath) -> str:
+    """Render a structured value path for human-readable exception text."""
+
+    if not path:
+        return ""
+    selected = ""
+    for index, item in enumerate(path):
+        if isinstance(item, int):
+            selected += f"[{item}]"
+        elif index == 0 or item.isidentifier():
+            selected += item if index == 0 else f".{item}"
+        else:
+            selected += f"[{item!r}]"
+    return selected
+
 
 class ValueValidationError(ValueError):
     """A literal does not satisfy a value type."""
 
     def __init__(
         self,
-        path: str,
+        path: ValuePath,
         reason: str,
         *,
         code: str = "invalid_value",
@@ -44,14 +63,15 @@ class ValueValidationError(ValueError):
         self.path = path
         self.reason = reason
         self.code = code
-        super().__init__(f"{path}: {reason}")
+        rendered_path = format_value_path(path)
+        super().__init__(f"{rendered_path}: {reason}" if rendered_path else reason)
 
 
 def coerce_literal(
     value_type: ValueType,
     value: object,
     *,
-    path: str = "value",
+    path: ValuePath = ("value",),
 ) -> object:
     """Validate and normalize a Python literal for ``value_type``.
 
@@ -76,14 +96,14 @@ def validate_literal(
     value_type: ValueType,
     value: object,
     *,
-    path: str = "value",
+    path: ValuePath = ("value",),
 ) -> None:
     """Raise :class:`ValueValidationError` if a literal is incompatible."""
 
     coerce_literal(value_type, value, path=path)
 
 
-def _coerce_atom(atom: AtomType, value: object, *, path: str) -> object:
+def _coerce_atom(atom: AtomType, value: object, *, path: ValuePath) -> object:
     if isinstance(atom, Bool):
         if not isinstance(value, bool):
             raise ValueValidationError(path, f"expected bool, got {value!r}")
@@ -117,7 +137,7 @@ def _coerce_atom(atom: AtomType, value: object, *, path: str) -> object:
     return _coerce_payload(atom, value, path=path)
 
 
-def _coerce_string(atom: String, value: object, *, path: str) -> str:
+def _coerce_string(atom: String, value: object, *, path: ValuePath) -> str:
     if not isinstance(value, str):
         raise ValueValidationError(path, f"expected string, got {value!r}")
     length = len(value)
@@ -141,7 +161,12 @@ def _coerce_string(atom: String, value: object, *, path: str) -> str:
     return value
 
 
-def _coerce_quantity(atom: Quantity, value: object, *, path: str) -> QuantityValue:
+def _coerce_quantity(
+    atom: Quantity,
+    value: object,
+    *,
+    path: ValuePath,
+) -> QuantityValue:
     selected: QuantityValue
     if isinstance(value, QuantityValue):
         selected = value
@@ -200,7 +225,7 @@ def _coerce_quantity(atom: Quantity, value: object, *, path: str) -> QuantityVal
     return selected
 
 
-def _coerce_entity(atom: Entity, value: object, *, path: str) -> EntityRef:
+def _coerce_entity(atom: Entity, value: object, *, path: ValuePath) -> EntityRef:
     if isinstance(value, EntityRef):
         try:
             selected = value.model_copy(
@@ -232,7 +257,12 @@ def _coerce_entity(atom: Entity, value: object, *, path: str) -> EntityRef:
     return selected
 
 
-def _coerce_record(atom: Record, value: object, *, path: str) -> dict[str, object]:
+def _coerce_record(
+    atom: Record,
+    value: object,
+    *,
+    path: ValuePath,
+) -> dict[str, object]:
     mapping = _string_mapping(value, path=path, label="record")
     fields = {field.id: field for field in atom.fields}
     missing = [
@@ -253,7 +283,7 @@ def _coerce_record(atom: Record, value: object, *, path: str) -> dict[str, objec
         field_id: coerce_literal(
             field.value_type,
             mapping[field_id],
-            path=_field_path(path, field_id),
+            path=(*path, field_id),
         )
         for field_id, field in fields.items()
         if field_id in mapping
@@ -263,7 +293,7 @@ def _coerce_record(atom: Record, value: object, *, path: str) -> dict[str, objec
     return result
 
 
-def _coerce_payload(atom: Payload, value: object, *, path: str) -> PayloadValue:
+def _coerce_payload(atom: Payload, value: object, *, path: ValuePath) -> PayloadValue:
     if isinstance(value, PayloadValue):
         if value.schema_id != atom.schema_id:
             raise ValueValidationError(
@@ -290,7 +320,7 @@ def _coerce_series(
     value_type: Series,
     value: object,
     *,
-    path: str,
+    path: ValuePath,
 ) -> tuple[object, ...]:
     sequence = _sequence(value, path=path, label="series")
     _validate_collection_length(
@@ -301,7 +331,7 @@ def _coerce_series(
         label="series",
     )
     return tuple(
-        coerce_literal(value_type.item_type, item, path=f"{path}[{index}]")
+        coerce_literal(value_type.item_type, item, path=(*path, index))
         for index, item in enumerate(sequence)
     )
 
@@ -310,7 +340,7 @@ def _coerce_table(
     value_type: Table,
     value: object,
     *,
-    path: str,
+    path: ValuePath,
 ) -> tuple[dict[str, object], ...]:
     rows = _sequence(value, path=path, label="table")
     _validate_collection_length(
@@ -324,7 +354,7 @@ def _coerce_table(
     result: list[dict[str, object]] = []
     primary_keys: dict[tuple[ScalarIdentity, ...], int] = {}
     for index, raw_row in enumerate(rows):
-        row_path = f"{path}[{index}]"
+        row_path = (*path, index)
         row = _string_mapping(raw_row, path=row_path, label="table row")
         missing = [
             column.id
@@ -346,7 +376,7 @@ def _coerce_table(
             column_id: coerce_literal(
                 column.value_type,
                 row[column_id],
-                path=_field_path(row_path, column_id),
+                path=(*row_path, column_id),
             )
             for column_id, column in columns.items()
             if column_id in row
@@ -372,7 +402,7 @@ def _validate_numeric_value(
     minimum: float | None,
     maximum: float | None,
     *,
-    path: str,
+    path: ValuePath,
 ) -> None:
     if minimum is not None and value < minimum:
         raise ValueValidationError(path, f"value must be at least {minimum}")
@@ -385,7 +415,7 @@ def _validate_collection_length(
     minimum: int,
     maximum: int | None,
     *,
-    path: str,
+    path: ValuePath,
     label: str,
 ) -> None:
     if length < minimum:
@@ -403,7 +433,7 @@ def _validate_collection_length(
 def _string_mapping(
     value: object,
     *,
-    path: str,
+    path: ValuePath,
     label: str,
 ) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
@@ -414,16 +444,15 @@ def _string_mapping(
     return cast("Mapping[str, object]", mapping)
 
 
-def _sequence(value: object, *, path: str, label: str) -> Sequence[object]:
+def _sequence(
+    value: object,
+    *,
+    path: ValuePath,
+    label: str,
+) -> Sequence[object]:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
         raise ValueValidationError(path, f"expected {label} sequence, got {value!r}")
     return cast("Sequence[object]", value)
-
-
-def _field_path(path: str, field_id: str) -> str:
-    if field_id.isidentifier():
-        return f"{path}.{field_id}"
-    return f"{path}[{field_id!r}]"
 
 
 def _python_type_name(
@@ -435,7 +464,9 @@ def _python_type_name(
 
 
 __all__ = [
+    "ValuePath",
     "ValueValidationError",
     "coerce_literal",
+    "format_value_path",
     "validate_literal",
 ]

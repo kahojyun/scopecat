@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scopecat.errors import ValidationFailed
+from scopecat.errors import DataIntegrityError
 from scopecat.models.artifact import RunArtifactEntry
 from scopecat.run_overview import build_run_overview
 from scopecat.runs import artifact_storage_ref, open_run_store
@@ -29,7 +29,7 @@ def test_build_run_overview_rejects_directory_artifact(tmp_path: Path) -> None:
     storage.write_manifest(manifest)
     storage.ref_path(run_id, artifact_storage_ref(artifact)).mkdir(parents=True)
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert error.value.diagnostics[0].code == "overview_ref_is_directory"
+    assert error.value.problems[0].code == "overview_ref_is_directory"

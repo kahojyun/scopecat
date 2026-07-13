@@ -1,22 +1,22 @@
 """Internal artifact and input helpers for analysis-oriented tests."""
 
 from scopecat._steps.artifacts import (
-    StepArtifactDiagnostics,
+    StepArtifactContract,
     StepArtifactHandle,
     StepArtifactStore,
     StepArtifactWriter,
 )
 from scopecat._steps.inputs import (
-    ArtifactInputDiagnostics,
-    MeasurementInputDiagnostics,
+    ArtifactInputContract,
+    MeasurementInputContract,
     StepInputArtifact,
     StepInputResolver,
 )
 
 __all__ = [
-    "ArtifactInputDiagnostics",
-    "MeasurementInputDiagnostics",
-    "StepArtifactDiagnostics",
+    "ArtifactInputContract",
+    "MeasurementInputContract",
+    "StepArtifactContract",
     "StepArtifactHandle",
     "StepArtifactStore",
     "StepArtifactWriter",

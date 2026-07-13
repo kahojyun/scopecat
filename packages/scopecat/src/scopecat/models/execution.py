@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat.diagnostics import Diagnostic
 from scopecat.instruments.sdk import InstrumentStateSnapshot
+from scopecat.models.run import RunOutcome, RunStatus
+from scopecat.problems import Problem
 
-EXECUTION_SUMMARY_SCHEMA_VERSION = "scopecat.execution_summary.v1"
+EXECUTION_SUMMARY_SCHEMA_VERSION = "scopecat.execution_summary.v2"
 INSTRUMENT_STATE_EVIDENCE_SCHEMA_VERSION = "scopecat.instrument_state_evidence.v2"
 
 
@@ -33,18 +34,40 @@ class ComputeExecutionSummary(BaseModel):
 class ExecutionSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = EXECUTION_SUMMARY_SCHEMA_VERSION
+    schema_version: Literal["scopecat.execution_summary.v2"] = (
+        EXECUTION_SUMMARY_SCHEMA_VERSION
+    )
     run_id: str
     experiment_id: str
-    status: str
-    point_count: int
-    completed_point_count: int
-    measurement_count: int
+    outcome: RunOutcome
+    point_count: int = Field(ge=0)
+    completed_point_count: int = Field(ge=0)
+    measurement_count: int = Field(ge=0)
     instrument_ids: list[str]
-    diagnostic_count: int
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
+    problem_count: int = Field(ge=0)
+    problems: tuple[Problem, ...] = ()
     state: StateExecutionSummary = Field(default_factory=StateExecutionSummary)
     compute: ComputeExecutionSummary = Field(default_factory=ComputeExecutionSummary)
+
+    @model_validator(mode="after")
+    def validate_outcome_projection(self) -> ExecutionSummary:
+        if self.outcome.run_id != self.run_id:
+            msg = "execution summary outcome belongs to a different run"
+            raise ValueError(msg)
+        if self.problem_count != len(self.problems):
+            msg = "execution summary problem_count does not match problems"
+            raise ValueError(msg)
+        if self.problems != self.outcome.problems:
+            msg = "execution summary problems must project the durable outcome"
+            raise ValueError(msg)
+        if self.completed_point_count > self.point_count:
+            msg = "completed point count exceeds planned point count"
+            raise ValueError(msg)
+        return self
+
+    @property
+    def status(self) -> RunStatus:
+        return self.outcome.status
 
 
 class InstrumentStateEvidence(BaseModel):

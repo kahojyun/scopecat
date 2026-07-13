@@ -12,6 +12,8 @@ compatibility layers for abandoned internal shapes.
 
 - [Project charter](project-charter.md): long-term product direction,
   non-goals, and design principles.
+- [Problems, failures, outcomes, events, and logs](problem-error-outcome.md):
+  reporting-channel boundaries and failure semantics.
 
 ## Admission Rule
 

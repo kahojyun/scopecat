@@ -25,13 +25,23 @@ from scopecat.value_types import (
     Table,
     TableColumn,
 )
-from scopecat.value_validation import ValueValidationError, coerce_literal
+from scopecat.value_validation import (
+    ValuePath,
+    ValueValidationError,
+    coerce_literal,
+)
 
 
 class ParameterValueValidationError(ValueError):
     """A stored parameter value does not satisfy its catalog definition."""
 
-    def __init__(self, code: str, message: str, *, path: str | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        path: ValuePath | None = None,
+    ) -> None:
         self.code = code
         self.path = path
         super().__init__(message)
@@ -42,7 +52,7 @@ def coerce_parameter_atom(
     parameter_id: str,
     value_type: Scalar,
     value: object,
-    path: str,
+    path: ValuePath,
 ) -> ParameterAtomValue:
     """Validate and normalize one durable scalar atom."""
 
@@ -86,7 +96,7 @@ def coerce_stored_parameter_value(
     definition: ParameterDefinition,
     stored: StoredParameterValue,
     *,
-    path: str,
+    path: ValuePath,
 ) -> StoredParameterValue:
     """Validate and normalize one stored value using its catalog type."""
 
@@ -100,7 +110,7 @@ def coerce_stored_parameter_value(
                     parameter_id=definition.id,
                     value_type=value_type,
                     value=stored.value,
-                    path=f"{path}.value",
+                    path=(*path, "value"),
                 )
             }
         )
@@ -113,7 +123,7 @@ def coerce_stored_parameter_value(
             maximum=value_type.max_length,
             parameter_id=definition.id,
             shape="series",
-            path=f"{path}.items",
+            path=(*path, "items"),
         )
         return stored.model_copy(
             update={
@@ -122,7 +132,7 @@ def coerce_stored_parameter_value(
                         parameter_id=definition.id,
                         value_type=value_type.item_type,
                         value=item,
-                        path=f"{path}.items.{index}",
+                        path=(*path, "items", index),
                     )
                     for index, item in enumerate(stored.items)
                 )
@@ -138,7 +148,7 @@ def coerce_parameter_table_cell(
     parameter_id: str,
     column: TableColumn,
     value: object,
-    path: str,
+    path: ValuePath,
 ) -> ParameterAtomValue:
     """Validate and normalize one typed parameter-table cell."""
 
@@ -155,7 +165,7 @@ def _coerce_table(
     value_type: Table,
     stored: TableParameterValue,
     *,
-    path: str,
+    path: ValuePath,
 ) -> TableParameterValue:
     _validate_length(
         len(stored.rows),
@@ -163,14 +173,14 @@ def _coerce_table(
         maximum=value_type.max_rows,
         parameter_id=definition.id,
         shape="table",
-        path=f"{path}.rows",
+        path=(*path, "rows"),
     )
     columns = {column.id: column for column in value_type.columns}
     required = {column.id for column in value_type.columns if column.required}
     normalized_rows: list[dict[str, ParameterAtomValue]] = []
     seen_keys: set[tuple[object, ...]] = set()
     for row_index, row in enumerate(stored.rows):
-        row_path = f"{path}.rows.{row_index}"
+        row_path = (*path, "rows", row_index)
         missing = sorted(required - row.keys())
         if missing:
             msg = (
@@ -198,7 +208,7 @@ def _coerce_table(
                 parameter_id=definition.id,
                 column=columns[column_id],
                 value=value,
-                path=f"{row_path}.{column_id}",
+                path=(*row_path, column_id),
             )
             for column_id, value in row.items()
         }
@@ -226,7 +236,7 @@ def _raise_shape_mismatch(
     stored: StoredParameterValue,
     *,
     expected: str,
-    path: str,
+    path: ValuePath,
 ) -> NoReturn:
     msg = f"parameter {definition.id} requires {expected} shape, got {stored.shape}"
     raise ParameterValueValidationError(
@@ -243,7 +253,7 @@ def _validate_length(
     maximum: int | None,
     parameter_id: str,
     shape: str,
-    path: str,
+    path: ValuePath,
 ) -> None:
     if length < minimum:
         msg = (

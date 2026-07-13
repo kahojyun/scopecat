@@ -9,11 +9,13 @@ from scopecat._compiler.binding import bind_program
 from scopecat._compiler.bound import BoundPlan
 from scopecat._compiler.environment import ValidatedConfigEnvironment
 from scopecat._compiler.program import TypedProgram
-from scopecat.authoring._invocation_plan import PreparedInvocation
-from scopecat.authoring._resolution import resolve_prepared_invocation
-from scopecat.diagnostics import Diagnostic
+from scopecat.authoring._resolution import (
+    CompiledInvocation,
+    resolve_compiled_invocation,
+)
 from scopecat.models.run import RunConfigSource
 from scopecat.models.run_request import RunRequest
+from scopecat.problems import Problem
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,8 +30,8 @@ class CompiledExperiment:
     config_source: RunConfigSource | None
 
     @property
-    def diagnostics(self) -> tuple[Diagnostic, ...]:
-        return self.plan.diagnostics
+    def problems(self) -> tuple[Problem, ...]:
+        return self.plan.problems
 
     @property
     def valid(self) -> bool:
@@ -37,16 +39,16 @@ class CompiledExperiment:
 
 
 def compile_experiment(
-    prepared: PreparedInvocation,
+    invocation: CompiledInvocation,
     *,
     environment: ValidatedConfigEnvironment,
     workspace: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> CompiledExperiment:
-    """Run authoring, typed linking, and config binding exactly once."""
+    """Run typed linking and config binding for a config-free invocation."""
 
-    resolved = resolve_prepared_invocation(
-        prepared,
+    resolved = resolve_compiled_invocation(
+        invocation,
         environment=environment,
         workspace=workspace,
         config_source=config_source,
@@ -54,9 +56,7 @@ def compile_experiment(
     plan = bind_program(resolved.experiment, environment)
     plan = replace(
         plan,
-        diagnostics=_deduplicate_diagnostics(
-            (*resolved.diagnostics, *plan.diagnostics)
-        ),
+        problems=_merge_problem_references((*resolved.problems, *plan.problems)),
     )
     return CompiledExperiment(
         program=resolved.experiment,
@@ -68,22 +68,17 @@ def compile_experiment(
     )
 
 
-def _deduplicate_diagnostics(
-    diagnostics: tuple[Diagnostic, ...],
-) -> tuple[Diagnostic, ...]:
-    selected: list[Diagnostic] = []
-    seen: set[tuple[str, str, str, str | None]] = set()
-    for diagnostic in diagnostics:
-        key = (
-            diagnostic.severity,
-            diagnostic.code,
-            diagnostic.message,
-            diagnostic.path,
-        )
-        if key in seen:
+def _merge_problem_references(problems: tuple[Problem, ...]) -> tuple[Problem, ...]:
+    """Merge propagated findings without collapsing independent occurrences."""
+
+    selected: list[Problem] = []
+    seen: set[int] = set()
+    for problem in problems:
+        identity = id(problem)
+        if identity in seen:
             continue
-        seen.add(key)
-        selected.append(diagnostic)
+        seen.add(identity)
+        selected.append(problem)
     return tuple(selected)
 
 

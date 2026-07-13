@@ -5,12 +5,13 @@ from scopecat._compiler.program import (
     observable,
     overlay_parameter_cell,
     record_axis,
-    set_state,
+    set_state_field,
     typed_program,
 )
 from scopecat._compiler.records import RecordAxisSpec
 from scopecat._relations import RelationExpr, col, grid, table
 from scopecat.models.parameter import Quantity
+from scopecat.problems import ProblemCategory, model_location
 from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Scalar, String
 from scopecat.value_types import Table as TableType
@@ -25,10 +26,10 @@ def _point_source(expr: RelationExpr) -> TypedPointSource:
     )
 
 
-def test_preview_reports_record_output_shape_diagnostics() -> None:
+def test_preview_reports_record_output_shape_problems() -> None:
     spec = typed_program(
         id="bad-record-shape",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
         records=[
             observable(
@@ -43,9 +44,9 @@ def test_preview_reports_record_output_shape_diagnostics() -> None:
         ],
     )
 
-    preview, diagnostics = preview_result(spec, parameters())
+    preview, problems = preview_result(spec, parameters())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [problem.code for problem in problems] == [
         "experiment_record_duplicate",
         "experiment_record_axis_duplicate",
     ]
@@ -53,10 +54,10 @@ def test_preview_reports_record_output_shape_diagnostics() -> None:
     assert preview.primary_observables == ("signal", "signal")
 
 
-def test_preview_reports_record_schema_diagnostics_without_model_errors() -> None:
+def test_preview_reports_record_schema_problems_without_model_errors() -> None:
     spec = typed_program(
         id="invalid-record-schema",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
         records=[
             observable("bad-unit", unit="not-a-unit"),
@@ -71,9 +72,9 @@ def test_preview_reports_record_schema_diagnostics_without_model_errors() -> Non
         ],
     )
 
-    preview, diagnostics = preview_result(spec, parameters())
+    preview, problems = preview_result(spec, parameters())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [problem.code for problem in problems] == [
         "experiment_record_unit_unsupported",
         "experiment_record_axis_unit_unsupported",
         "experiment_record_axis_reserved",
@@ -84,14 +85,14 @@ def test_preview_reports_record_schema_diagnostics_without_model_errors() -> Non
 def test_preview_reports_coordinate_and_record_id_collision() -> None:
     spec = typed_program(
         id="coordinate-record-collision",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(signal=[1.0])),
         records=[observable("signal", unit="ratio")],
     )
 
-    preview, diagnostics = preview_result(spec, parameters())
+    preview, problems = preview_result(spec, parameters())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [problem.code for problem in problems] == [
         "experiment_record_coordinate_collision"
     ]
     assert preview.schema is None
@@ -100,7 +101,7 @@ def test_preview_reports_coordinate_and_record_id_collision() -> None:
 def test_preview_rejects_duplicate_instrument_product_keys() -> None:
     spec = typed_program(
         id="bad-record-products",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
         records=[
             observable("raw_i", unit="ratio", product_key="i"),
@@ -108,9 +109,9 @@ def test_preview_rejects_duplicate_instrument_product_keys() -> None:
         ],
     )
 
-    preview, diagnostics = preview_result(spec, parameters())
+    preview, problems = preview_result(spec, parameters())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [problem.code for problem in problems] == [
         "experiment_record_product_duplicate"
     ]
     assert preview.dataset_dimensions == {}
@@ -120,14 +121,14 @@ def test_preview_rejects_duplicate_instrument_product_keys() -> None:
 def test_preview_rejects_unimplemented_observable_sources() -> None:
     spec = typed_program(
         id="unsupported-record-source",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
         records=[observable("signal", source="point", unit="ratio")],
     )
 
-    preview, diagnostics = preview_result(spec, parameters())
+    preview, problems = preview_result(spec, parameters())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [problem.code for problem in problems] == [
         "experiment_record_source_unsupported"
     ]
     assert preview.schema is None
@@ -178,7 +179,7 @@ def test_preview_rejects_conflicting_shared_record_axes(
     )
     spec = typed_program(
         id="conflicting-record-axis",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
         records=[
             observable("i", axes=[first_axis]),
@@ -186,33 +187,35 @@ def test_preview_rejects_conflicting_shared_record_axes(
         ],
     )
 
-    preview, diagnostics = preview_result(spec, parameters())
+    preview, problems = preview_result(spec, parameters())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
-        "experiment_record_axis_conflict"
-    ]
+    assert [problem.code for problem in problems] == ["experiment_record_axis_conflict"]
+    assert problems[0].category is ProblemCategory.CONFLICT
+    assert problems[0].related_locations == (
+        model_location("records", "i", "axes", "shot"),
+    )
     assert preview.schema is None
 
 
-def test_preview_reports_points_evaluation_diagnostics() -> None:
+def test_preview_reports_points_evaluation_problems() -> None:
     spec = typed_program(
         id="missing-points",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(table("missing_table")),
     )
 
-    preview, diagnostics = preview_result(spec, parameters())
+    preview, problems = preview_result(spec, parameters())
 
     assert preview.points == ()
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [problem.code for problem in problems] == [
         "experiment_points_evaluation_failed"
     ]
 
 
-def test_preview_reports_parameter_overlay_diagnostics() -> None:
+def test_preview_reports_parameter_overlay_problems() -> None:
     spec = typed_program(
         id="bad-overlay",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(device_id=["r0"])),
         parameter_overlays=[
             overlay_parameter_cell(
@@ -233,26 +236,27 @@ def test_preview_reports_parameter_overlay_diagnostics() -> None:
             ),
         ],
         state=[
-            set_state(
+            set_state_field(
                 "readout-a",
-                "pulse.frequency",
-                Quantity(value=5.9, unit="GHz"),
+                capability_id="pulse",
+                field_path="frequency",
+                value=Quantity(value=5.9, unit="GHz"),
             )
         ],
     )
 
-    preview, diagnostics = preview_result(spec, parameters())
+    preview, problems = preview_result(spec, parameters())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [problem.code for problem in problems] == [
         "experiment_parameter_overlay_row_not_found"
     ]
     assert preview.state_changes == ()
 
 
-def test_preview_reports_unknown_parameter_table_diagnostics() -> None:
+def test_preview_reports_unknown_parameter_table_problems() -> None:
     spec = typed_program(
         id="missing-overlay-table",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(device_id=["r0"])),
         parameter_overlays=[
             overlay_parameter_cell(
@@ -266,39 +270,56 @@ def test_preview_reports_unknown_parameter_table_diagnostics() -> None:
         ],
     )
 
-    preview, diagnostics = preview_result(spec, parameters())
+    preview, problems = preview_result(spec, parameters())
 
-    assert [diagnostic.code for diagnostic in diagnostics] == [
+    assert [problem.code for problem in problems] == [
         "experiment_parameter_overlay_table_missing"
     ]
     assert preview.state_changes == ()
 
 
-def test_preview_reports_state_evaluation_and_conflict_diagnostics() -> None:
+def test_preview_reports_state_evaluation_and_conflict_problems() -> None:
     state_failure = typed_program(
         id="bad-state",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
-        state=[set_state(1, "pulse.frequency", Quantity(value=5.9, unit="GHz"))],
+        state=[
+            set_state_field(
+                1,
+                capability_id="pulse",
+                field_path="frequency",
+                value=Quantity(value=5.9, unit="GHz"),
+            )
+        ],
     )
     conflict = typed_program(
         id="conflict-state",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(index=[0])),
         state=[
-            set_state("readout-a", "pulse.frequency", Quantity(value=5.9, unit="GHz")),
-            set_state("readout-a", "pulse.frequency", Quantity(value=6.0, unit="GHz")),
+            set_state_field(
+                "readout-a",
+                capability_id="pulse",
+                field_path="frequency",
+                value=Quantity(value=5.9, unit="GHz"),
+            ),
+            set_state_field(
+                "readout-a",
+                capability_id="pulse",
+                field_path="frequency",
+                value=Quantity(value=6.0, unit="GHz"),
+            ),
         ],
     )
 
-    failed_preview, failed_diagnostics = preview_result(state_failure, parameters())
-    conflict_preview, conflict_diagnostics = preview_result(conflict, parameters())
+    failed_preview, failed_problems = preview_result(state_failure, parameters())
+    conflict_preview, conflict_problems = preview_result(conflict, parameters())
 
-    assert [diagnostic.code for diagnostic in failed_diagnostics] == [
+    assert [problem.code for problem in failed_problems] == [
         "experiment_state_evaluation_failed"
     ]
     assert failed_preview.state_changes == ()
-    assert [diagnostic.code for diagnostic in conflict_diagnostics] == [
+    assert [problem.code for problem in conflict_problems] == [
         "experiment_conflicting_desired_state"
     ]
     assert [change.after for change in conflict_preview.state_changes] == [

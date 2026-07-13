@@ -13,7 +13,7 @@ from scopecat._workflows.config import register_and_activate_candidate_config
 from scopecat.candidate_configs import (
     CandidateConfig,
     ResolvedCandidateConfig,
-    resolve_candidate_config,
+    materialize_candidate_config,
 )
 from scopecat.config_registry import (
     CandidateConfigRegistrySource,
@@ -33,7 +33,13 @@ from scopecat.config_registry import (
     resolve_config_registry_config_source,
     rollback_config_registry,
 )
-from scopecat.errors import ValidationFailed
+from scopecat.errors import (
+    CheckFailed,
+    Conflict,
+    DataIntegrityError,
+    NotFound,
+    StorageError,
+)
 from scopecat.models.config import config_content_hash
 from scopecat.models.parameter_change import ParameterChangeProposal
 from scopecat.parameter_changes import (
@@ -42,6 +48,7 @@ from scopecat.parameter_changes import (
     load_parameter_change_proposal,
     review_parameter_change_proposal,
 )
+from scopecat.problems import ProblemCategory
 from scopecat.runs import open_run_store
 from tests.support.config_registry import (
     load_config,
@@ -84,6 +91,19 @@ def test_register_config_profile_writes_and_activates_direct_entry(
     assert load_active_config_registry_entry(workspace=tmp_path) == entry
     assert load_active_config_registry_state(workspace=tmp_path) == active_state
     assert load_active_config_registry_config(workspace=tmp_path) == load_config()
+
+
+def test_registry_rejects_invalid_registration_before_storage(tmp_path: Path) -> None:
+    with pytest.raises(CheckFailed) as captured:
+        register_config_profile(
+            config=load_config(),
+            workspace=tmp_path,
+            entry_id="seed",
+            registered_by=" ",
+        )
+
+    assert captured.value.problems[0].code == ("config_registry.registered_by_missing")
+    assert not (tmp_path / "config-registry").exists()
 
 
 def test_candidate_config_registers_and_activates_parameter_proposal(
@@ -186,7 +206,7 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
         operator="operator",
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(Conflict) as error:
         register_and_activate_candidate_config(
             candidate=candidate,
             workspace=tmp_path,
@@ -195,7 +215,7 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
             operator="operator",
         )
 
-    assert error.value.diagnostics[0].code == "config_registry_stale_candidate"
+    assert error.value.problems[0].code == "config_registry.stale_candidate"
     assert load_active_config_registry_state(workspace=tmp_path) == active_state
 
 
@@ -210,7 +230,7 @@ def test_candidate_registration_requires_latest_approval(
         selector="best-signal",
         workspace=tmp_path,
     )
-    candidate = resolve_candidate_config(
+    candidate = materialize_candidate_config(
         CandidateConfig(
             analysis_title="review gate",
             analysis_key="review-gate",
@@ -242,7 +262,7 @@ def test_candidate_registration_requires_latest_approval(
             invalidated_by="reviewer",
         )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(Conflict) as error:
         register_candidate_config(
             config=candidate.config,
             workspace=tmp_path,
@@ -254,8 +274,8 @@ def test_candidate_registration_requires_latest_approval(
             base_config_content_hash=candidate.candidate.base_config_content_hash,
         )
 
-    assert error.value.diagnostics[0].code == (
-        "config_registry_candidate_proposal_not_approved"
+    assert error.value.problems[0].code == (
+        "config_registry.candidate_proposal_not_approved"
     )
 
 
@@ -288,9 +308,9 @@ def test_candidate_invalidation_after_registration_blocks_load_and_activation(
         invalidated_by="reviewer",
     )
 
-    with pytest.raises(ValidationFailed) as load_error:
+    with pytest.raises(Conflict) as load_error:
         load_config_registry_entry(entry_id=entry.id, workspace=tmp_path)
-    with pytest.raises(ValidationFailed) as activation_error:
+    with pytest.raises(Conflict) as activation_error:
         activate_config_registry_entry(
             entry_id=entry.id,
             workspace=tmp_path,
@@ -298,11 +318,11 @@ def test_candidate_invalidation_after_registration_blocks_load_and_activation(
             expected_generation=active_state.generation,
         )
 
-    assert load_error.value.diagnostics[0].code == (
-        "config_registry_candidate_proposal_not_approved"
+    assert load_error.value.problems[0].code == (
+        "config_registry.candidate_proposal_not_approved"
     )
-    assert activation_error.value.diagnostics[0].code == (
-        "config_registry_candidate_proposal_not_approved"
+    assert activation_error.value.problems[0].code == (
+        "config_registry.candidate_proposal_not_approved"
     )
     assert load_active_config_registry_state(workspace=tmp_path) == active_state
 
@@ -338,7 +358,7 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
         operator="operator",
         expected_generation=1,
     )
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(Conflict) as error:
         activate_config_registry_entry(
             entry_id=first.id,
             workspace=tmp_path,
@@ -346,7 +366,7 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
             expected_generation=1,
         )
 
-    assert error.value.diagnostics[0].code == "config_registry_conflict"
+    assert error.value.problems[0].code == "config_registry.conflict"
     unchanged = load_active_config_registry_state(workspace=tmp_path)
     assert unchanged == second_state
     assert [record.generation for record in unchanged.history] == [1, 2]
@@ -390,7 +410,7 @@ def test_activation_runs_full_config_semantic_validation(tmp_path: Path) -> None
         registered_by="operator",
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         activate_config_registry_entry(
             entry_id=entry.id,
             workspace=tmp_path,
@@ -398,7 +418,9 @@ def test_activation_runs_full_config_semantic_validation(tmp_path: Path) -> None
             expected_generation=0,
         )
 
-    assert error.value.diagnostics[0].code == "unknown_connection_instrument"
+    assert error.value.problems[0].code == (
+        "configuration.unknown_connection_instrument"
+    )
     assert current_config_registry_generation(workspace=tmp_path) == 0
 
 
@@ -415,10 +437,10 @@ def test_registry_rejects_snapshot_content_that_no_longer_matches_entry(
     tampered = config.model_copy(update={"metadata": {"tampered": True}})
     (tmp_path / entry.config_ref).write_text(tampered.model_dump_json())
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         load_config_registry_config(entry_id=entry.id, workspace=tmp_path)
 
-    assert error.value.diagnostics[0].code == ("config_registry_content_hash_mismatch")
+    assert error.value.problems[0].code == "config_registry.content_hash_mismatch"
 
 
 def test_concurrent_registrations_preserve_every_index_entry(tmp_path: Path) -> None:
@@ -468,8 +490,8 @@ def test_concurrent_composite_activations_apply_one_generation(
                 operator="operator",
                 expected_generation=initial_state.generation,
             )
-        except ValidationFailed as error:
-            return "error", error.diagnostics[0].code
+        except Conflict as error:
+            return "error", error.problems[0].code
         return "activated", result[0].id
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -477,7 +499,7 @@ def test_concurrent_composite_activations_apply_one_generation(
 
     assert sorted(status for status, _detail in outcomes) == ["activated", "error"]
     assert next(detail for status, detail in outcomes if status == "error") == (
-        "config_registry_conflict"
+        "config_registry.conflict"
     )
     state = load_active_config_registry_state(workspace=tmp_path)
     assert state.generation == initial_state.generation + 1
@@ -505,11 +527,9 @@ def test_idempotent_registration_repairs_a_missing_index_commit(
     # index commit marker is replaced.
     index_path.write_text(committed_index)
 
-    with pytest.raises(ValidationFailed) as uncommitted:
+    with pytest.raises(DataIntegrityError) as uncommitted:
         load_config_registry_entry(entry_id="seed-b", workspace=tmp_path)
-    assert uncommitted.value.diagnostics[0].code == (
-        "config_registry_uncommitted_entry"
-    )
+    assert uncommitted.value.problems[0].code == ("config_registry.uncommitted_entry")
 
     repeated = register_config_profile(
         config=load_config(),
@@ -539,10 +559,75 @@ def test_list_rejects_tampered_entry_and_config_files(tmp_path: Path) -> None:
         tampered_entry.model_dump_json()
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         list_config_registry_entries(workspace=tmp_path)
 
-    assert error.value.diagnostics[0].code == ("config_registry_index_entry_mismatch")
+    assert error.value.problems[0].code == "config_registry.index_entry_mismatch"
+
+
+def test_registry_maps_malformed_index_to_data_integrity(tmp_path: Path) -> None:
+    index_path = tmp_path / "config-registry/index.json"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("not-json")
+
+    with pytest.raises(DataIntegrityError) as captured:
+        list_config_registry_entries(workspace=tmp_path)
+
+    assert captured.value.problems[0].code == "config_registry.record_invalid"
+    assert captured.value.problems[0].category is ProblemCategory.DATA_INTEGRITY
+    assert isinstance(captured.value.__cause__, ValidationError)
+
+
+def test_registry_maps_unsafe_durable_entry_id_to_data_integrity(
+    tmp_path: Path,
+) -> None:
+    entry = register_config_profile(
+        config=load_config(),
+        workspace=tmp_path,
+        entry_id="seed",
+        registered_by="operator",
+    )
+    index_path = tmp_path / "config-registry/index.json"
+    index = ConfigRegistryIndex.model_validate_json(index_path.read_text())
+    index_path.write_text(
+        index.model_copy(
+            update={"entries": (entry.model_copy(update={"id": "../escape"}),)}
+        ).model_dump_json()
+    )
+
+    with pytest.raises(DataIntegrityError) as captured:
+        list_config_registry_entries(workspace=tmp_path)
+
+    assert captured.value.problems[0].code == "config_registry.entry_id_invalid"
+
+
+def test_registry_maps_io_failure_without_exposing_raw_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    register_config_profile(
+        config=load_config(),
+        workspace=tmp_path,
+        entry_id="seed",
+        registered_by="operator",
+    )
+    index_path = tmp_path / "config-registry/index.json"
+    storage_cause = PermissionError("private filesystem details")
+    real_stat = Path.stat
+
+    def guarded_stat(path: Path, *args: object, **kwargs: object):
+        if path == index_path:
+            raise storage_cause
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", guarded_stat)
+
+    with pytest.raises(StorageError) as captured:
+        list_config_registry_entries(workspace=tmp_path)
+
+    assert captured.value.__cause__ is storage_cause
+    assert captured.value.problems[0].category is ProblemCategory.STORAGE
+    assert "private filesystem details" not in str(captured.value)
 
 
 def test_candidate_registration_is_bound_to_its_durable_record(
@@ -553,7 +638,7 @@ def test_candidate_registration_is_bound_to_its_durable_record(
         update={"metadata": {"not_from_candidate_record": True}}
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(Conflict) as error:
         register_candidate_config(
             config=forged,
             workspace=tmp_path,
@@ -565,9 +650,7 @@ def test_candidate_registration_is_bound_to_its_durable_record(
             base_config_content_hash=resolved.candidate.base_config_content_hash,
         )
 
-    assert error.value.diagnostics[0].code == (
-        "config_registry_candidate_record_mismatch"
-    )
+    assert error.value.problems[0].code == ("config_registry.candidate_record_mismatch")
     assert list_config_registry_entries(workspace=tmp_path) == []
 
 
@@ -586,7 +669,7 @@ def test_candidate_record_must_be_derived_from_its_proposals(tmp_path: Path) -> 
         forged,
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         register_candidate_config(
             config=forged,
             workspace=tmp_path,
@@ -598,8 +681,8 @@ def test_candidate_record_must_be_derived_from_its_proposals(tmp_path: Path) -> 
             base_config_content_hash=resolved.candidate.base_config_content_hash,
         )
 
-    assert error.value.diagnostics[0].code == (
-        "config_registry_candidate_derivation_mismatch"
+    assert error.value.problems[0].code == (
+        "config_registry.candidate_derivation_mismatch"
     )
 
 
@@ -626,7 +709,7 @@ def test_candidate_registration_validates_durable_proposal_source(
         proposal.model_copy(update=proposal_update),
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         register_candidate_config(
             config=resolved.config,
             workspace=tmp_path,
@@ -638,17 +721,17 @@ def test_candidate_registration_validates_durable_proposal_source(
             base_config_content_hash=resolved.candidate.base_config_content_hash,
         )
 
-    assert error.value.diagnostics[0].code == (
-        "config_registry_candidate_proposal_mismatch"
+    assert error.value.problems[0].code == (
+        "config_registry.candidate_proposal_mismatch"
     )
 
 
 @pytest.mark.parametrize(
     ("target", "expected_code"),
     (
-        ("proposal", "config_registry_candidate_evidence_mismatch"),
-        ("candidate", "config_registry_candidate_record_mismatch"),
-        ("approval", "config_registry_candidate_evidence_mismatch"),
+        ("proposal", "config_registry.candidate_evidence_mismatch"),
+        ("candidate", "config_registry.candidate_record_mismatch"),
+        ("approval", "config_registry.candidate_evidence_mismatch"),
     ),
 )
 def test_candidate_load_revalidates_content_addressed_evidence(
@@ -705,10 +788,10 @@ def test_candidate_load_revalidates_content_addressed_evidence(
             decision.model_copy(update={"actor": "tampered"}),
         )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises((Conflict, DataIntegrityError)) as error:
         load_config_registry_entry(entry_id=entry.id, workspace=tmp_path)
 
-    assert error.value.diagnostics[0].code == expected_code
+    assert error.value.problems[0].code == expected_code
 
 
 def test_candidate_registration_does_not_ignore_operator_metadata(
@@ -727,7 +810,7 @@ def test_candidate_registration_does_not_ignore_operator_metadata(
         base_config_content_hash=resolved.candidate.base_config_content_hash,
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(Conflict) as error:
         register_candidate_config(
             config=resolved.config,
             workspace=tmp_path,
@@ -740,7 +823,7 @@ def test_candidate_registration_does_not_ignore_operator_metadata(
             base_config_content_hash=resolved.candidate.base_config_content_hash,
         )
 
-    assert error.value.diagnostics[0].code == "config_registry_duplicate_entry"
+    assert error.value.problems[0].code == "config_registry.duplicate_entry"
 
 
 def test_candidate_workflow_captures_generation_before_materialization(
@@ -765,14 +848,14 @@ def test_candidate_workflow_captures_generation_before_materialization(
         registered_by="operator",
         operator="operator",
     )
-    original_resolve = resolve_candidate_config
+    original_materialize = materialize_candidate_config
 
     def resolve_with_intervening_activation(
         selected: CandidateConfig,
         *,
         workspace: str | Path,
     ) -> ResolvedCandidateConfig:
-        resolved = original_resolve(selected, workspace=workspace)
+        resolved = original_materialize(selected, workspace=workspace)
         register_and_activate_config_profile(
             config=load_config(),
             workspace=workspace,
@@ -784,11 +867,11 @@ def test_candidate_workflow_captures_generation_before_materialization(
 
     monkeypatch.setattr(
         config_workflow,
-        "resolve_candidate_config",
+        "materialize_candidate_config",
         resolve_with_intervening_activation,
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(Conflict) as error:
         register_and_activate_candidate_config(
             candidate=candidate,
             workspace=tmp_path,
@@ -797,13 +880,13 @@ def test_candidate_workflow_captures_generation_before_materialization(
             operator="operator",
         )
 
-    assert error.value.diagnostics[0].code == "config_registry_conflict"
-    with pytest.raises(ValidationFailed) as missing:
+    assert error.value.problems[0].code == "config_registry.conflict"
+    with pytest.raises(NotFound) as missing:
         load_config_registry_entry(
             entry_id="candidate-after-race",
             workspace=tmp_path,
         )
-    assert missing.value.diagnostics[0].code == "config_registry_not_found"
+    assert missing.value.problems[0].code == "config_registry.not_found"
 
 
 def test_activation_validates_the_current_active_snapshot_before_stale_check(
@@ -832,7 +915,7 @@ def test_activation_validates_the_current_active_snapshot_before_stale_check(
         tampered.model_dump_json()
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         activate_config_registry_entry(
             entry_id=candidate_entry.id,
             workspace=tmp_path,
@@ -840,7 +923,7 @@ def test_activation_validates_the_current_active_snapshot_before_stale_check(
             expected_generation=active_state.generation,
         )
 
-    assert error.value.diagnostics[0].code == ("config_registry_content_hash_mismatch")
+    assert error.value.problems[0].code == "config_registry.content_hash_mismatch"
     assert load_active_config_registry_state(workspace=tmp_path) == active_state
 
 
@@ -857,7 +940,7 @@ def test_same_entry_reactivation_still_validates_active_integrity(
     tampered = load_config().model_copy(update={"metadata": {"tampered": True}})
     (tmp_path / entry.config_ref).write_text(tampered.model_dump_json())
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         activate_config_registry_entry(
             entry_id=entry.id,
             workspace=tmp_path,
@@ -865,7 +948,7 @@ def test_same_entry_reactivation_still_validates_active_integrity(
             expected_generation=active_state.generation,
         )
 
-    assert error.value.diagnostics[0].code == ("config_registry_content_hash_mismatch")
+    assert error.value.problems[0].code == "config_registry.content_hash_mismatch"
 
 
 def test_rollback_requires_the_historical_target_content_hash(tmp_path: Path) -> None:
@@ -904,16 +987,14 @@ def test_rollback_requires_the_historical_target_content_hash(tmp_path: Path) ->
         ).model_dump_json()
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         rollback_config_registry(
             workspace=tmp_path,
             operator="operator",
             expected_generation=second_state.generation,
         )
 
-    assert error.value.diagnostics[0].code == (
-        "config_registry_rollback_content_mismatch"
-    )
+    assert error.value.problems[0].code == ("config_registry.rollback_content_mismatch")
 
 
 def _resolved_candidate(
@@ -937,4 +1018,11 @@ def _resolved_candidate(
         state="approved",
         reviewer="operator",
     )
-    return run_id, proposal, resolve_candidate_config(candidate, workspace=workspace)
+    return (
+        run_id,
+        proposal,
+        materialize_candidate_config(
+            candidate,
+            workspace=workspace,
+        ),
+    )

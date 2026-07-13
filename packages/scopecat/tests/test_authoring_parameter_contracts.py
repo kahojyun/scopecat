@@ -6,13 +6,14 @@ import pytest
 
 import scopecat as sc
 from scopecat.authoring._resolution import resolve_experiment
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import (
     ParameterDefinition,
     SeriesParameterValue,
     TableParameterValue,
 )
+from scopecat.problems import model_location
 from tests.support.authoring import load_config
 
 
@@ -151,7 +152,7 @@ def test_scalar_parameter_declaration_is_checked_against_catalog() -> None:
         load_config(),
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         _resolve_dependency(
             sc.parameter(
                 "drive_frequency",
@@ -160,11 +161,11 @@ def test_scalar_parameter_declaration_is_checked_against_catalog() -> None:
             load_config(),
         )
 
-    assert error.value.diagnostics[0].code == "authoring_parameter_type_mismatch"
+    assert error.value.problems[0].code == "authoring_parameter_type_mismatch"
 
 
-def test_unknown_scalar_parameter_has_authoring_diagnostic() -> None:
-    with pytest.raises(ValidationFailed) as error:
+def test_unknown_scalar_parameter_has_authoring_problem() -> None:
+    with pytest.raises(CheckFailed) as error:
         _resolve_dependency(
             sc.parameter(
                 "missing_frequency",
@@ -173,8 +174,10 @@ def test_unknown_scalar_parameter_has_authoring_diagnostic() -> None:
             load_config(),
         )
 
-    assert error.value.diagnostics[0].code == "unknown_authoring_parameter"
-    assert error.value.diagnostics[0].path == "parameters.missing_frequency"
+    assert error.value.problems[0].code == "unknown_authoring_parameter"
+    assert error.value.problems[0].location == model_location(
+        "parameters", "missing_frequency"
+    )
 
 
 def test_series_parameter_is_first_class_in_authoring_and_resolution() -> None:
@@ -237,10 +240,10 @@ def test_parameter_contract_survives_nested_module_composition() -> None:
         .build()
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         _resolve_module(parent, load_config())
 
-    assert error.value.diagnostics[0].code == "authoring_parameter_type_mismatch"
+    assert error.value.problems[0].code == "authoring_parameter_type_mismatch"
 
 
 def test_parameter_contract_survives_scan_lowering() -> None:
@@ -266,14 +269,14 @@ def test_parameter_contract_survives_scan_lowering() -> None:
         .bind()
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             invocation,
             workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
 
-    assert error.value.diagnostics[0].code == "authoring_parameter_type_mismatch"
+    assert error.value.problems[0].code == "authoring_parameter_type_mismatch"
 
 
 @pytest.mark.parametrize(
@@ -316,14 +319,14 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
         .bind()
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             invocation,
             workspace=Path("/tmp/scopecat-test"),
             config_profile=_config_with_parameter_table(),
         )
 
-    assert error.value.diagnostics[0].code == expected_code
+    assert error.value.problems[0].code == expected_code
 
 
 def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
@@ -354,14 +357,14 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
         .bind()
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             invocation,
             workspace=Path("/tmp/scopecat-test"),
             config_profile=_config_with_parameter_table(),
         )
 
-    assert error.value.diagnostics[0].code == "authoring_parameter_type_mismatch"
+    assert error.value.problems[0].code == "authoring_parameter_type_mismatch"
 
 
 def test_parameter_lookup_checks_table_column_and_entity_type() -> None:
@@ -376,7 +379,7 @@ def test_parameter_lookup_checks_table_column_and_entity_type() -> None:
         config,
     )
 
-    with pytest.raises(ValidationFailed) as missing_column:
+    with pytest.raises(CheckFailed) as missing_column:
         _resolve_dependency(
             sc.parameter_lookup(
                 "device_parameters",
@@ -386,7 +389,7 @@ def test_parameter_lookup_checks_table_column_and_entity_type() -> None:
             ),
             config,
         )
-    with pytest.raises(ValidationFailed) as wrong_entity_kind:
+    with pytest.raises(CheckFailed) as wrong_entity_kind:
         _resolve_dependency(
             sc.parameter_lookup(
                 "device_parameters",
@@ -397,10 +400,10 @@ def test_parameter_lookup_checks_table_column_and_entity_type() -> None:
             config,
         )
 
-    assert missing_column.value.diagnostics[0].code == (
+    assert missing_column.value.problems[0].code == (
         "unknown_authoring_parameter_column"
     )
-    assert wrong_entity_kind.value.diagnostics[0].code == (
+    assert wrong_entity_kind.value.problems[0].code == (
         "authoring_parameter_column_type_mismatch"
     )
 
@@ -440,7 +443,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
         config_profile=config,
     )
 
-    with pytest.raises(ValidationFailed) as wrong_key_shape:
+    with pytest.raises(CheckFailed) as wrong_key_shape:
         _resolve_dependency(
             sc.parameter_lookup(
                 "device_parameters",
@@ -450,7 +453,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             ),
             config,
         )
-    with pytest.raises(ValidationFailed) as wrong_key_type:
+    with pytest.raises(CheckFailed) as wrong_key_type:
         _resolve_dependency(
             sc.parameter_lookup(
                 "device_parameters",
@@ -466,10 +469,10 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             config,
         )
 
-    assert wrong_key_shape.value.diagnostics[0].code == (
+    assert wrong_key_shape.value.problems[0].code == (
         "authoring_parameter_lookup_key_mismatch"
     )
-    assert wrong_key_type.value.diagnostics[0].code == (
+    assert wrong_key_type.value.problems[0].code == (
         "authoring_parameter_lookup_key_type_mismatch"
     )
 
@@ -496,7 +499,7 @@ def test_parameter_lookup_checks_every_literal_key_type(
     key_type: sc.ScalarType,
     literal: sc.ParameterKeyInput,
 ) -> None:
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         _resolve_dependency(
             sc.parameter_lookup(
                 "literal_key_parameters",
@@ -507,7 +510,7 @@ def test_parameter_lookup_checks_every_literal_key_type(
             _config_with_literal_key_type(key_type),
         )
 
-    assert error.value.diagnostics[0].code == (
+    assert error.value.problems[0].code == (
         "authoring_parameter_lookup_key_type_mismatch"
     )
 
@@ -540,16 +543,16 @@ def test_parameter_table_declaration_is_checked_against_catalog_schema() -> None
         ),
         allow_extra_columns=True,
     )
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         _resolve_dependency(
             sc.parameter("device_parameters", incompatible_table),
             config,
         )
 
-    assert error.value.diagnostics[0].code == ("authoring_parameter_type_mismatch")
+    assert error.value.problems[0].code == ("authoring_parameter_type_mismatch")
 
 
-def test_unknown_parameter_table_has_authoring_diagnostic() -> None:
+def test_unknown_parameter_table_has_authoring_problem() -> None:
     value_type = sc.TableType(
         columns=(
             sc.TableColumn(
@@ -559,14 +562,16 @@ def test_unknown_parameter_table_has_authoring_diagnostic() -> None:
         )
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         _resolve_dependency(
             sc.parameter("missing_table", value_type),
             load_config(),
         )
 
-    assert error.value.diagnostics[0].code == "unknown_authoring_parameter"
-    assert error.value.diagnostics[0].path == "parameters.missing_table"
+    assert error.value.problems[0].code == "unknown_authoring_parameter"
+    assert error.value.problems[0].location == model_location(
+        "parameters", "missing_table"
+    )
 
 
 def test_table_row_callback_retains_source_and_added_parameter_contracts() -> None:
@@ -596,9 +601,7 @@ def test_table_row_callback_retains_source_and_added_parameter_contracts() -> No
         }
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         _resolve_dependency(derived, _config_with_parameter_table())
 
-    assert error.value.diagnostics[0].code == (
-        "authoring_parameter_column_type_mismatch"
-    )
+    assert error.value.problems[0].code == ("authoring_parameter_column_type_mismatch")

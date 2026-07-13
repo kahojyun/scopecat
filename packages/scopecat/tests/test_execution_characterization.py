@@ -4,10 +4,10 @@ from pathlib import Path
 from typing import cast
 
 import scopecat as sc
-from scopecat._content_identity import stable_content_hash
+from scopecat._content_identity import model_wire_content_hash
 from scopecat._execution.engine import ExecutionEngine
 from scopecat._execution.journal import (
-    ExecutionJournalEntry,
+    ExecutionTransition,
     MemoryCollectionCommitter,
     MemoryExecutionJournal,
     MemoryMeasurementCommitter,
@@ -25,11 +25,11 @@ from scopecat._execution.program import (
     PointProgram,
     StateTarget,
 )
-from scopecat.diagnostics import Diagnostic
 from scopecat.instruments import (
     ApplyReceipt,
     CollectCommand,
     CollectProductRequest,
+    CollectReceipt,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
@@ -39,6 +39,12 @@ from scopecat.instruments import (
 )
 from scopecat.models.parameter import Quantity
 from scopecat.models.state import PayloadRef, StateValue
+from scopecat.problems import (
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 from scopecat.value_types import Float, Scalar
 from scopecat.value_types import Quantity as QuantityType
 from tests.support.authoring import load_config
@@ -101,7 +107,8 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
         .state_each(
             state_rows,
             resource="source-0",
-            field="play_program.program",
+            capability="play_program",
+            field="program",
             value=consume_program.output,
         )
         .build()
@@ -221,30 +228,32 @@ class _BlockingStateDriver(SignalInstrumentDriver):
         self.applied.append(command)
         return ApplyReceipt(
             status="not_applied",
-            diagnostics=[
-                Diagnostic(
-                    severity="error",
-                    code="instrument_driver_blocked",
-                    message="driver blocked",
-                    path=self.instrument_id,
-                )
-            ],
+            problems=(
+                blocking_problem(
+                    "instrument_driver_blocked",
+                    "driver blocked",
+                    category=ProblemCategory.EXTERNAL_FAILURE,
+                    phase=ProblemPhase.EXECUTION,
+                    location=model_location("instrument", self.instrument_id),
+                ),
+            ),
         )
 
 
-class _ConflictingAppliedStateDriver(SignalInstrumentDriver):
+class _UnknownAppliedStateDriver(SignalInstrumentDriver):
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         super().apply_state(command)
         return ApplyReceipt(
-            status="applied",
-            diagnostics=[
-                Diagnostic(
-                    severity="error",
-                    code="instrument_driver_applied_with_error",
-                    message="driver reported an error after applying state",
-                    path=self.instrument_id,
-                )
-            ],
+            status="unknown",
+            problems=(
+                blocking_problem(
+                    "instrument_driver_applied_with_error",
+                    "driver reported an error after applying state",
+                    category=ProblemCategory.EXTERNAL_FAILURE,
+                    phase=ProblemPhase.EXECUTION,
+                    location=model_location("instrument", self.instrument_id),
+                ),
+            ),
         )
 
 
@@ -281,13 +290,13 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
 
 
 class _MalformedCollectDriver(SignalInstrumentDriver):
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         super().collect(command)
-        return cast("InstrumentReadback", object())
+        return cast("CollectReceipt", object())
 
 
 class _BrokenFinalizationJournal(MemoryExecutionJournal):
-    def append(self, entry: ExecutionJournalEntry) -> ExecutionJournalEntry:
+    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         if entry.stage in {"abort", "terminal_readback"}:
             raise RuntimeError("lifecycle journal unavailable")
         return super().append(entry)
@@ -323,9 +332,7 @@ def test_malformed_apply_receipt_is_unknown_and_journaled() -> None:
 
     assert result.status == "unknown"
     assert result.uncertain
-    assert "instrument_apply_unknown" in {
-        diagnostic.code for diagnostic in result.diagnostics
-    }
+    assert "instrument_apply_unknown" in {problem.code for problem in result.problems}
     assert [
         entry.state
         for entry in journal.entries
@@ -365,9 +372,7 @@ def test_malformed_collect_readback_is_unknown_and_journaled() -> None:
 
     assert result.status == "unknown"
     assert result.uncertain
-    assert "instrument_collect_unknown" in {
-        diagnostic.code for diagnostic in result.diagnostics
-    }
+    assert "instrument_collect_unknown" in {problem.code for problem in result.problems}
     assert readbacks.chunks == ()
     assert [
         entry.state
@@ -420,7 +425,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         "source-b",
     }
     assert "execution_journal_commit_failed" in {
-        diagnostic.code for diagnostic in result.diagnostics
+        problem.code for problem in result.problems
     }
 
 
@@ -471,12 +476,16 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         for entry in journal.entries
         if entry.stage == "apply_state" and entry.state == "completed"
     )
-    receipt = completed.summary["receipt"]
+    receipt = completed.evidence["receipt"]
     assert isinstance(receipt, dict)
     assert receipt["status"] == "applied"
     assert receipt["metadata"] == {"controller": {"sequence": 17, "confirmed": True}}
-    assert receipt["state"]["instrument_id"] == "source-0"
-    assert completed.summary["receipt_content_hash"] == stable_content_hash(receipt)
+    receipt_state = receipt["state"]
+    assert isinstance(receipt_state, dict)
+    assert receipt_state["instrument_id"] == "source-0"
+    assert completed.evidence["receipt_content_hash"] == model_wire_content_hash(
+        ApplyReceipt.model_validate(receipt)
+    )
 
 
 def test_state_apply_stops_on_blocking_result_without_committing_state() -> None:
@@ -519,7 +528,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     result = engine.run()
 
     assert result.status == "failed"
-    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+    assert [problem.code for problem in result.problems] == [
         "instrument_driver_blocked"
     ]
     assert len(first.applied) == 1
@@ -534,7 +543,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     assert result.final_state == result.initial_state
     assert result.changed_field_count == 0
     assert result.state_command_count == 0
-    assert result.points[0].status == "failed"
+    assert result.points[0].result == "failed"
     assert [
         (entry.operation_id, entry.state)
         for entry in journal.entries
@@ -549,18 +558,22 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         if entry.operation_id == "blocking-state-point.state.source-a"
         and entry.state == "started"
     )
-    assert started.summary["command"]["operation_id"] == started.operation_id
-    assert started.summary["command_content_hash"]
+    command = started.evidence["command"]
+    assert isinstance(command, dict)
+    assert command["operation_id"] == started.operation_id
+    assert started.evidence["command_content_hash"]
 
 
 class _UnexpectedProductDriver(SignalInstrumentDriver):
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
-        return InstrumentReadback(
-            values={
-                "signal": Quantity(value=1.0, unit="ratio"),
-                "unexpected": Quantity(value=2.0, unit="ratio"),
-            }
+        return CollectReceipt(
+            readback=InstrumentReadback(
+                values={
+                    "signal": Quantity(value=1.0, unit="ratio"),
+                    "unexpected": Quantity(value=2.0, unit="ratio"),
+                }
+            )
         )
 
 
@@ -600,7 +613,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
     ).run()
 
     assert result.status == "failed"
-    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+    assert [problem.code for problem in result.problems] == [
         "instrument_unexpected_product"
     ]
     assert len(first.collect_commands) == 1
@@ -622,12 +635,12 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
         if entry.operation_id == first_operation.operation_id
         and entry.state == "failed"
     )
-    assert failed_entry.summary["readback_ref"]
-    assert failed_entry.summary["readback_content_hash"]
+    assert failed_entry.evidence["readback_ref"]
+    assert failed_entry.evidence["readback_content_hash"]
 
 
-def test_applied_receipt_with_blocking_diagnostic_is_unknown() -> None:
-    first = _ConflictingAppliedStateDriver(instrument_id="source-a")
+def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
+    first = _UnknownAppliedStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
     program = ExecutionProgram(
         experiment_id="conflicting-applied-state",
@@ -691,9 +704,8 @@ def test_applied_receipt_with_blocking_diagnostic_is_unknown() -> None:
 
     assert result.status == "unknown"
     assert result.uncertain
-    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+    assert [problem.code for problem in result.problems] == [
         "instrument_driver_applied_with_error",
-        "instrument_apply_receipt_conflict",
     ]
     assert len(first.applied) == 1
     assert second.applied == []

@@ -86,21 +86,29 @@ TOY_SURFACE_CODE_ROUND_MODULE = (
         _RENDER_SURFACE_CODE_DRIVE_WAVEFORMS,
         _RENDER_SURFACE_CODE_COUPLER_WAVEFORMS,
     )
-    .bind(
-        "drive.play_gate_sequence.sequence",
-        _BUILD_SURFACE_CODE_ROUND_PROGRAM.output,
+    .bind_field(
+        "drive",
+        capability="play_gate_sequence",
+        field="sequence",
+        value=_BUILD_SURFACE_CODE_ROUND_PROGRAM.output,
     )
-    .bind(
-        "drive.play_pulse_program.program",
-        _RENDER_SURFACE_CODE_DRIVE_WAVEFORMS.output,
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="program",
+        value=_RENDER_SURFACE_CODE_DRIVE_WAVEFORMS.output,
     )
-    .bind(
-        "coupler.play_coupler_pulse.program",
-        _RENDER_SURFACE_CODE_COUPLER_WAVEFORMS.output,
+    .bind_field(
+        "coupler",
+        capability="play_coupler_pulse",
+        field="program",
+        value=_RENDER_SURFACE_CODE_COUPLER_WAVEFORMS.output,
     )
-    .bind(
-        "readout.acquire_iq.repetitions",
-        _ROUNDS * sc.Quantity(value=1.0, unit="count"),
+    .bind_field(
+        "readout",
+        capability="acquire_iq",
+        field="repetitions",
+        value=_ROUNDS * sc.Quantity(value=1.0, unit="count"),
     )
     .build()
 )

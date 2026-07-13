@@ -23,7 +23,7 @@ from scopecat._workflows.runs import (
     read_run_record_json,
     start_run,
 )
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed, DataIntegrityError, NotFound
 from scopecat.models.run import RunManifest
 from scopecat.runs import dataset_storage_ref, open_run_store
 from tests.support.signal_instruments import TestSignalInstrumentProvider
@@ -115,7 +115,7 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         "readout-matrix",
     }
     assert [dataset.id for dataset in measurement_datasets] == ["raw-measurements"]
-    assert snapshot.content["status"] == "completed"
+    assert snapshot.content["outcome"]["result"] == "succeeded"
     assert snapshot.content["measurement_count"] == 3
     assert raw_dataset.dataset_entry.id == "raw-measurements"
     assert raw_dataset.dataset.dataset_schema.dataset_id == "raw-measurements"
@@ -128,7 +128,10 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
 
 
 def test_run_inputs_are_loaded_independently_for_capture_runs(tmp_path: Path) -> None:
-    manifest = RunManifest(run_id="run_capture", status="completed")
+    manifest = RunManifest(
+        run_id="run_capture",
+        lifecycle="accepted",
+    )
     config = load_config()
     storage = LocalRunStore(tmp_path)
     storage.write_manifest(manifest)
@@ -141,21 +144,21 @@ def test_run_inputs_are_loaded_independently_for_capture_runs(tmp_path: Path) ->
     details = load_run(run_id=manifest.run_id, workspace=tmp_path)
     loaded_config = load_run_config(run_id=manifest.run_id, workspace=tmp_path)
     loaded_request = load_run_request(run_id=manifest.run_id, workspace=tmp_path)
-    with pytest.raises(ValidationFailed) as plan_error:
+    with pytest.raises(DataIntegrityError) as plan_error:
         load_run_plan(run_id=manifest.run_id, workspace=tmp_path)
 
     assert details.manifest == manifest
     assert loaded_config == config
     assert loaded_request is None
-    assert plan_error.value.diagnostics[0].code == "run_plan_missing"
+    assert plan_error.value.problems[0].code == "run.plan_missing"
 
     workspace = sc.open(tmp_path, config_profile=config)
     handle = workspace.get_run(manifest.run_id)
     assert handle.config == config
     assert handle.request is None
-    with pytest.raises(ValidationFailed) as handle_plan_error:
+    with pytest.raises(DataIntegrityError) as handle_plan_error:
         _ = handle.plan
-    assert handle_plan_error.value.diagnostics[0].code == "run_plan_missing"
+    assert handle_plan_error.value.problems[0].code == "run.plan_missing"
 
 
 def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
@@ -167,15 +170,15 @@ def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
     )
     attach_binary_artifact(tmp_path, run.run_id)
 
-    with pytest.raises(ValidationFailed) as missing_run:
+    with pytest.raises(NotFound) as missing_run:
         load_run(run_id="run_missing", workspace=tmp_path)
-    with pytest.raises(ValidationFailed) as missing_artifact:
+    with pytest.raises(NotFound) as missing_artifact:
         read_run_artifact_text(
             run_id=run.run_id,
             selector="missing-artifact",
             workspace=tmp_path,
         )
-    with pytest.raises(ValidationFailed) as path_escape:
+    with pytest.raises(CheckFailed) as path_escape:
         read_run_artifact_text(
             run_id=run.run_id,
             selector="../manifest.json",
@@ -187,9 +190,9 @@ def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
         workspace=tmp_path,
     )
 
-    assert missing_run.value.diagnostics[0].code == "run_not_found"
-    assert missing_artifact.value.diagnostics[0].code == "artifact_not_found"
-    assert path_escape.value.diagnostics[0].code == "artifact_selector_path_escape"
+    assert missing_run.value.problems[0].code == "run.not_found"
+    assert missing_artifact.value.problems[0].code == "run.artifact_not_found"
+    assert path_escape.value.problems[0].code == ("run.artifact_selector_path_escape")
     assert binary.artifact.id == "binary-artifact"
     assert binary.content == b"\x00\x01"
 
@@ -221,12 +224,12 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
         run.run_id, dataset_storage_ref(raw_dataset_entry)
     )
     measurement_path.write_text(f"{invalid_measurement.model_dump_json()}\n")
-    with pytest.raises(ValidationFailed) as invalid_scalar_row:
+    with pytest.raises(DataIntegrityError) as invalid_scalar_row:
         read_run_measurement_dataset(
             run_id=run.run_id,
             workspace=tmp_path,
         )
 
-    assert invalid_scalar_row.value.diagnostics[0].code == (
-        "run_measurement_dataset_invalid_schema"
+    assert invalid_scalar_row.value.problems[0].code == (
+        "run.measurement_dataset.schema_invalid"
     )

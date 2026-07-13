@@ -18,7 +18,7 @@ from scopecat._storage.refs import dataset_content_ref
 from scopecat.models.artifact import RunDatasetEntry
 from scopecat.results import (
     MeasurementDataset,
-    MeasurementDatasetInputDiagnostics,
+    MeasurementDatasetReadContract,
     MeasurementRecord,
 )
 from scopecat.runs.access import dataset_storage_ref, require_dataset
@@ -39,7 +39,6 @@ def read_measurement_records(
     empty_code: str,
     invalid_code: str,
     noun: str,
-    diagnostic_path: str | None = None,
 ) -> list[MeasurementRecord]:
     path = storage.ref_path(run_id, ref)
     return read_measurement_records_path(
@@ -49,7 +48,6 @@ def read_measurement_records(
         empty_code=empty_code,
         invalid_code=invalid_code,
         noun=noun,
-        diagnostic_path=diagnostic_path or ref,
     )
 
 
@@ -62,7 +60,6 @@ def read_measurement_records_artifact(
     empty_code: str,
     invalid_code: str,
     noun: str,
-    diagnostic_path: str | None = None,
 ) -> list[MeasurementRecord]:
     dataset = require_dataset(
         manifest=storage.read_manifest(run_id),
@@ -77,7 +74,6 @@ def read_measurement_records_artifact(
         empty_code=empty_code,
         invalid_code=invalid_code,
         noun=noun,
-        diagnostic_path=diagnostic_path,
     )
 
 
@@ -89,7 +85,6 @@ def read_measurement_records_path(
     empty_code: str,
     invalid_code: str,
     noun: str,
-    diagnostic_path: str,
 ) -> list[MeasurementRecord]:
     return _read_measurement_records_path(
         path=path,
@@ -98,7 +93,6 @@ def read_measurement_records_path(
         empty_code=empty_code,
         invalid_code=invalid_code,
         noun=noun,
-        diagnostic_path=diagnostic_path,
     )
 
 
@@ -107,7 +101,7 @@ def read_measurement_dataset(
     storage: LocalRunStore,
     run_id: str,
     dataset: RunDatasetEntry,
-    diagnostics: MeasurementDatasetInputDiagnostics,
+    contract: MeasurementDatasetReadContract,
 ) -> MeasurementDataset:
     return read_measurement_dataset_path(
         path=storage.ref_path(run_id, dataset_storage_ref(dataset)),
@@ -115,7 +109,7 @@ def read_measurement_dataset(
         ref=dataset_storage_ref(dataset),
         schema_data=dataset.data_schema,
         metadata=dataset.metadata,
-        diagnostics=diagnostics,
+        contract=contract,
     )
 
 
@@ -124,7 +118,7 @@ def read_measurement_dataset_artifact(
     storage: LocalRunStore,
     run_id: str,
     selector: str = MEASUREMENT_DATASET_ID,
-    diagnostics: MeasurementDatasetInputDiagnostics,
+    contract: MeasurementDatasetReadContract,
 ) -> MeasurementDataset:
     dataset = require_dataset(
         manifest=storage.read_manifest(run_id),
@@ -135,7 +129,7 @@ def read_measurement_dataset_artifact(
         storage=storage,
         run_id=run_id,
         dataset=dataset,
-        diagnostics=diagnostics,
+        contract=contract,
     )
 
 
@@ -146,7 +140,7 @@ def read_measurement_dataset_path(
     ref: str,
     schema_data: dict[str, object] | None,
     metadata: dict[str, object],
-    diagnostics: MeasurementDatasetInputDiagnostics,
+    contract: MeasurementDatasetReadContract,
 ) -> MeasurementDataset:
     return _read_measurement_dataset_path(
         path=path,
@@ -154,5 +148,5 @@ def read_measurement_dataset_path(
         ref=ref,
         schema_data=schema_data,
         metadata=metadata,
-        diagnostics=diagnostics,
+        contract=contract,
     )

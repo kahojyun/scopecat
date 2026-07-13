@@ -115,26 +115,41 @@ CZ_CHEVRON_MODULE = (
         _RENDER_CZ_DRIVE_WAVEFORMS,
         _RENDER_CZ_COUPLER_WAVEFORMS,
     )
-    .bind(
-        "drive.play_gate_sequence.sequence",
-        _BUILD_CZ_CHEVRON_PROGRAM.output,
+    .bind_field(
+        "drive",
+        capability="play_gate_sequence",
+        field="sequence",
+        value=_BUILD_CZ_CHEVRON_PROGRAM.output,
     )
-    .bind(
-        "drive.play_pulse_program.program",
-        _RENDER_CZ_DRIVE_WAVEFORMS.output,
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="program",
+        value=_RENDER_CZ_DRIVE_WAVEFORMS.output,
     )
-    .bind("drive.play_pulse_program.length", COUPLER_DURATION)
-    .bind(
-        "drive.play_pulse_program.amplitude",
-        _cz_gate_param("control_echo_amplitude"),
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="length",
+        value=COUPLER_DURATION,
     )
-    .bind(
-        "drive.play_pulse_program.frequency",
-        qubit_param("drive_frequency", _CZ_CONTROL_QUBIT),
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="amplitude",
+        value=_cz_gate_param("control_echo_amplitude"),
     )
-    .bind(
-        "coupler.play_coupler_pulse.program",
-        _RENDER_CZ_COUPLER_WAVEFORMS.output,
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="frequency",
+        value=qubit_param("drive_frequency", _CZ_CONTROL_QUBIT),
+    )
+    .bind_field(
+        "coupler",
+        capability="play_coupler_pulse",
+        field="program",
+        value=_RENDER_CZ_COUPLER_WAVEFORMS.output,
     )
     .build()
 )
@@ -247,17 +262,23 @@ PARALLEL_GATE_SET_MODULE = (
         _RENDER_PARALLEL_GATE_DRIVE_WAVEFORMS,
         _RENDER_PARALLEL_GATE_COUPLER_WAVEFORMS,
     )
-    .bind(
-        "drive.play_gate_sequence.sequence",
-        _BUILD_PARALLEL_GATE_SET_PROGRAM.output,
+    .bind_field(
+        "drive",
+        capability="play_gate_sequence",
+        field="sequence",
+        value=_BUILD_PARALLEL_GATE_SET_PROGRAM.output,
     )
-    .bind(
-        "drive.play_pulse_program.program",
-        _RENDER_PARALLEL_GATE_DRIVE_WAVEFORMS.output,
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="program",
+        value=_RENDER_PARALLEL_GATE_DRIVE_WAVEFORMS.output,
     )
-    .bind(
-        "coupler.play_coupler_pulse.program",
-        _RENDER_PARALLEL_GATE_COUPLER_WAVEFORMS.output,
+    .bind_field(
+        "coupler",
+        capability="play_coupler_pulse",
+        field="program",
+        value=_RENDER_PARALLEL_GATE_COUPLER_WAVEFORMS.output,
     )
     .build()
 )

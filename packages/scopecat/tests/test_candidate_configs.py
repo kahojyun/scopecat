@@ -10,9 +10,9 @@ from pydantic import ValidationError
 import scopecat as sc
 from scopecat._storage.refs import record_content_ref
 from scopecat._workflows.config import register_and_activate_candidate_config
-from scopecat.candidate_configs import resolve_candidate_config
+from scopecat.candidate_configs import materialize_candidate_config
 from scopecat.config_registry import list_config_registry_entries
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed, Conflict
 from scopecat.models.parameter import Quantity, ScalarParameterValue
 from scopecat.models.parameter_change import ParameterChangeProposal
 from scopecat.parameter_changes import load_parameter_change_proposal
@@ -56,6 +56,63 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
     assert proposal.deltas[0].after == updated
 
 
+def test_candidate_checks_are_read_only_until_run_materializes_evidence(
+    tmp_path: Path,
+) -> None:
+    lab = _lab(tmp_path)
+    source_run = lab.prepare(load_invocation()).run()
+    candidate = (
+        source_run.analysis("read-only candidate")
+        .propose(
+            "drive-frequency",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.4, "GHz"),
+            ),
+        )
+        .candidate_config()
+    )
+    prepared = lab.prepare(load_invocation(), config=candidate)
+    storage = open_run_store(tmp_path)
+    manifest_before = storage.read_manifest(source_run.id)
+    refs_before = _run_ref_contents(tmp_path, source_run.id)
+
+    def assert_source_run_unchanged() -> None:
+        assert storage.read_manifest(source_run.id) == manifest_before
+        assert _run_ref_contents(tmp_path, source_run.id) == refs_before
+
+    assert lab.system(config=candidate)
+    assert_source_run_unchanged()
+    assert prepared.check().ok
+    assert_source_run_unchanged()
+    assert prepared.validate().ok
+    assert_source_run_unchanged()
+    assert prepared.preview().point_count == 3
+    assert_source_run_unchanged()
+    assert prepared.explain().startswith("experiment check: passed")
+    assert_source_run_unchanged()
+
+    follow_up = prepared.run()
+
+    manifest_after = storage.read_manifest(source_run.id)
+    materialized_records = [
+        record
+        for record in manifest_after.records
+        if record.kind in {"parameter_change_proposal", "candidate_config"}
+    ]
+    refs_after = _run_ref_contents(tmp_path, source_run.id)
+    assert follow_up.config.id.startswith("candidate-read-only-candidate-")
+    assert manifest_after != manifest_before
+    assert {record.kind for record in materialized_records} == {
+        "parameter_change_proposal",
+        "candidate_config",
+    }
+    for record in materialized_records:
+        ref = record_content_ref(record_id=record.id, kind=record.kind)
+        assert ref not in refs_before
+        assert ref in refs_after
+
+
 @pytest.mark.parametrize(
     "update",
     [
@@ -77,13 +134,13 @@ def test_analysis_rejects_unknown_or_wrong_typed_update_at_propose(
 ) -> None:
     run = _lab(tmp_path).prepare(load_invocation()).run()
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         run.analysis("invalid proposal").propose(
             "invalid",
             update,  # type: ignore[arg-type]
         )
 
-    assert error.value.diagnostics[0].code == "analysis_parameter_proposal_invalid"
+    assert error.value.problems[0].code == "analysis_parameter_proposal_invalid"
 
 
 def test_candidate_config_rejects_overlapping_proposals(tmp_path: Path) -> None:
@@ -106,16 +163,14 @@ def test_candidate_config_rejects_overlapping_proposals(tmp_path: Path) -> None:
         )
     )
 
-    with pytest.raises(ValidationFailed) as error:
-        resolve_candidate_config(
+    with pytest.raises(CheckFailed) as error:
+        materialize_candidate_config(
             analysis.candidate_config(("fit-a", "fit-b")),
             workspace=tmp_path,
         )
 
-    assert error.value.diagnostics[0].code == (
-        "parameter_change_proposal_merge_invalid"
-    )
-    assert "overlap" in error.value.diagnostics[0].message
+    assert error.value.problems[0].code == ("parameter_change_proposal_merge_invalid")
+    assert "overlap" in error.value.problems[0].message
 
 
 def test_candidate_config_rejects_stale_base_hash_before_registration(
@@ -143,7 +198,7 @@ def test_candidate_config_rejects_stale_base_hash_before_registration(
         stale_source,
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(Conflict) as error:
         register_and_activate_candidate_config(
             candidate=candidate,
             workspace=tmp_path,
@@ -151,9 +206,7 @@ def test_candidate_config_rejects_stale_base_hash_before_registration(
             operator="operator",
         )
 
-    assert error.value.diagnostics[0].code == (
-        "parameter_change_proposal_base_mismatch"
-    )
+    assert error.value.problems[0].code == ("parameter_change_proposal_base_mismatch")
     assert list_config_registry_entries(workspace=tmp_path) == []
 
 
@@ -227,10 +280,10 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
         reason="second fit",
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(Conflict) as error:
         second.save()
 
-    assert error.value.diagnostics[0].code == "parameter_change_proposal_conflict"
+    assert error.value.problems[0].code == "parameter_change_proposal_conflict"
     persisted = load_parameter_change_proposal(
         run_id=run.id,
         selector="drive-frequency",
@@ -252,7 +305,7 @@ def test_candidate_config_record_is_immutable(tmp_path: Path) -> None:
         )
         .candidate_config()
     )
-    resolved = resolve_candidate_config(candidate, workspace=tmp_path)
+    resolved = materialize_candidate_config(candidate, workspace=tmp_path)
     storage = open_run_store(tmp_path)
     storage.write_model(
         run.id,
@@ -263,10 +316,10 @@ def test_candidate_config_record_is_immutable(tmp_path: Path) -> None:
         resolved.config.model_copy(update={"metadata": {"tampered": True}}),
     )
 
-    with pytest.raises(ValidationFailed) as error:
-        resolve_candidate_config(candidate, workspace=tmp_path)
+    with pytest.raises(Conflict) as error:
+        materialize_candidate_config(candidate, workspace=tmp_path)
 
-    assert error.value.diagnostics[0].code == "candidate_config_record_conflict"
+    assert error.value.problems[0].code == "candidate_config_record_conflict"
 
 
 def test_concurrent_candidate_materialization_is_idempotent(tmp_path: Path) -> None:
@@ -286,7 +339,7 @@ def test_concurrent_candidate_materialization_is_idempotent(tmp_path: Path) -> N
 
     def resolve(_: int) -> str:
         barrier.wait()
-        return resolve_candidate_config(candidate, workspace=tmp_path).config.id
+        return materialize_candidate_config(candidate, workspace=tmp_path).config.id
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         resolved_ids = list(executor.map(resolve, (0, 1)))
@@ -312,3 +365,12 @@ def _lab(tmp_path: Path) -> sc.Workspace:
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
+
+
+def _run_ref_contents(workspace: Path, run_id: str) -> dict[str, bytes]:
+    run_dir = workspace / "runs" / run_id
+    return {
+        path.relative_to(run_dir).as_posix(): path.read_bytes()
+        for path in sorted(run_dir.rglob("*"))
+        if path.is_file()
+    }

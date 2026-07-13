@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scopecat._steps import StepArtifactDiagnostics
+from scopecat._steps import StepArtifactContract
 from scopecat.models.data_artifact import (
     DataArrayDimension,
     DataArraySchema,
@@ -51,11 +51,11 @@ def readout_matrix_schema() -> DataArraySchema:
     )
 
 
-def artifact_diagnostics() -> StepArtifactDiagnostics:
-    return StepArtifactDiagnostics(
+def artifact_contract() -> StepArtifactContract:
+    return StepArtifactContract(
         missing_id_code="test_missing_artifact",
         duplicate_id_code="test_duplicate_artifact",
         missing_kind_code="test_missing_kind",
         noun="test artifact",
-        path_prefix="artifacts",
+        location_root="artifacts",
     )

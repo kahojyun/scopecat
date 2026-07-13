@@ -12,7 +12,7 @@ from scopecat._compiler.program import (
     TypedPointSource,
     ValueInput,
     compute_result,
-    set_state,
+    set_state_field,
     typed_program,
 )
 from scopecat._content_identity import content_fingerprint
@@ -100,10 +100,11 @@ def test_bound_plan_uses_content_addressed_point_and_payload_identity() -> None:
             ),
         ),
         state=(
-            set_state(
+            set_state_field(
                 "source-0",
-                "play_program.program",
-                compute_result(consumer_id),
+                capability_id="play_program",
+                field_path="program",
+                value=compute_result(consumer_id),
             ),
         ),
     )
@@ -192,7 +193,7 @@ def test_point_source_enforces_complete_table_contract() -> None:
         plan = bind_program(program, environment)
         assert not plan.valid
         assert plan.points == ()
-        assert plan.diagnostics[-1].code == "module_point_value_type_mismatch"
+        assert plan.problems[-1].code == "module_point_value_type_mismatch"
 
 
 def test_point_source_rechecks_primary_key_after_entity_normalization() -> None:
@@ -223,12 +224,12 @@ def test_point_source_rechecks_primary_key_after_entity_normalization() -> None:
 
     assert not plan.valid
     assert plan.points == ()
-    diagnostic = next(
-        diagnostic
-        for diagnostic in plan.diagnostics
-        if diagnostic.code == "module_point_value_type_mismatch"
+    problem = next(
+        problem
+        for problem in plan.problems
+        if problem.code == "module_point_value_type_mismatch"
     )
-    assert "duplicates row 0" in diagnostic.message
+    assert "duplicates row 0" in problem.message
 
 
 def test_compute_inputs_are_normalized_before_binding_and_hashing() -> None:
@@ -317,13 +318,13 @@ def test_compute_payload_input_rejects_mismatched_schema_before_unwrapping() -> 
 
     assert not plan.valid
     assert plan.points[0].compute == ()
-    diagnostic = next(
-        diagnostic
-        for diagnostic in plan.diagnostics
-        if diagnostic.code == "compute_node_input_binding_failed"
+    problem = next(
+        problem
+        for problem in plan.problems
+        if problem.code == "compute_node_input_binding_failed"
     )
     assert "expected payload 'expected-payload', got 'source-payload'" in (
-        diagnostic.message
+        problem.message
     )
 
 
@@ -399,4 +400,4 @@ def test_opaque_point_value_requires_explicit_stable_fingerprint() -> None:
 
     assert not plan.valid
     assert plan.points == ()
-    assert plan.diagnostics[-1].code == "experiment_point_identity_failed"
+    assert plan.problems[-1].code == "experiment_point_identity_failed"

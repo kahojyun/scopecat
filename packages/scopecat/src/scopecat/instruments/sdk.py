@@ -13,22 +13,31 @@ from pydantic import (
     JsonValue,
     WithJsonSchema,
     field_validator,
+    model_validator,
 )
 
 from scopecat._value_type_wire import ScalarWire, scalar_type_wire_schema
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity as QuantityValue
 from scopecat.models.provider import ProviderOptionDescription
 from scopecat.models.state import PayloadRef, StateLiteral, StateValue
 from scopecat.models.value import PayloadValue
+from scopecat.problems import (
+    LocationPathItem,
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    has_blocking_problems,
+    model_location,
+)
 from scopecat.results import MeasurementDType, MeasurementValue
 from scopecat.value_types import Float as FloatType
 from scopecat.value_types import Payload as PayloadType
 from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Scalar
-from scopecat.value_validation import ValueValidationError, validate_literal
+from scopecat.value_validation import ValuePath, ValueValidationError, validate_literal
 
 _CAPABILITY_FIELD_SCALAR_WIRE_SCHEMA = scalar_type_wire_schema(
     ("float", "quantity", "payload"),
@@ -187,11 +196,22 @@ class ApplyReceipt(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.apply_receipt.v1"] = "scopecat.apply_receipt.v1"
+    schema_version: Literal["scopecat.apply_receipt.v2"] = "scopecat.apply_receipt.v2"
     status: Literal["applied", "not_applied", "unknown"] = "applied"
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
+    problems: tuple[Problem, ...] = ()
     state: InstrumentStateSnapshot | None = None
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_outcome_truth_table(self) -> ApplyReceipt:
+        blocking = has_blocking_problems(self.problems)
+        if self.status == "applied" and blocking:
+            msg = "an applied receipt cannot contain blocking problems"
+            raise ValueError(msg)
+        if self.status != "applied" and not blocking:
+            msg = "a negative or unknown apply receipt requires a blocking problem"
+            raise ValueError(msg)
+        return self
 
 
 class CollectAxisRequest(BaseModel):
@@ -233,29 +253,51 @@ class InstrumentReadback(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     values: dict[str, MeasurementValue] = Field(default_factory=dict)
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class DriverDiagnostic(Exception):
-    """Stable diagnostic that driver code can raise or return."""
+class CollectReceipt(BaseModel):
+    """Explicit outcome reported after one collection command."""
 
-    severity: DiagnosticSeverity
-    code: str
-    message: str
-    path: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["scopecat.collect_receipt.v1"] = (
+        "scopecat.collect_receipt.v1"
+    )
+    status: Literal["collected", "not_collected", "unknown"] = "collected"
+    problems: tuple[Problem, ...] = ()
+    readback: InstrumentReadback | None = None
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_readback_outcome(self) -> CollectReceipt:
+        if self.status == "collected" and self.readback is None:
+            msg = "a collected receipt requires a readback"
+            raise ValueError(msg)
+        if self.status == "not_collected" and self.readback is not None:
+            msg = "a not_collected receipt must not contain a readback"
+            raise ValueError(msg)
+        blocking = has_blocking_problems(self.problems)
+        if self.status == "collected" and blocking:
+            msg = "a collected receipt cannot contain blocking problems"
+            raise ValueError(msg)
+        if self.status != "collected" and not blocking:
+            msg = "a negative or unknown collect receipt requires a blocking problem"
+            raise ValueError(msg)
+        return self
+
+
+@dataclass(frozen=True)
+class DriverFault(Exception):
+    """Exceptional driver control flow carrying one stable public problem."""
+
+    problem: Problem
 
     def __post_init__(self) -> None:
-        Exception.__init__(self, self.message)
-
-    def to_diagnostic(self) -> Diagnostic:
-        return Diagnostic(
-            severity=self.severity,
-            code=self.code,
-            message=self.message,
-            path=self.path,
-        )
+        if not has_blocking_problems((self.problem,)):
+            msg = "driver fault requires a blocking problem"
+            raise ValueError(msg)
+        Exception.__init__(self, self.problem.message)
 
 
 class InstrumentDriver(Protocol):
@@ -269,7 +311,7 @@ class InstrumentDriver(Protocol):
 
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt: ...
 
-    def collect(self, command: CollectCommand) -> InstrumentReadback: ...
+    def collect(self, command: CollectCommand) -> CollectReceipt: ...
 
     def cleanup(self) -> None: ...
 
@@ -284,7 +326,7 @@ class InstrumentProviderContext:
 @dataclass(frozen=True)
 class InstrumentProviderResult:
     drivers: tuple[InstrumentDriver, ...]
-    diagnostics: tuple[Diagnostic, ...] = ()
+    problems: tuple[Problem, ...] = ()
     metadata: dict[str, JsonValue] = dc_field(default_factory=dict)
 
 
@@ -294,7 +336,7 @@ class InstrumentProviderDescription:
 
     provider_id: str
     instruments: tuple[InstrumentDescription, ...] = ()
-    diagnostics: tuple[Diagnostic, ...] = ()
+    problems: tuple[Problem, ...] = ()
     label: str | None = None
     description: str | None = None
     options: tuple[ProviderOptionDescription, ...] = ()
@@ -329,9 +371,6 @@ class InstrumentProvider(Protocol):
     def provide(
         self, context: InstrumentProviderContext
     ) -> InstrumentProviderResult: ...
-
-
-DriverDiagnosticInput = Diagnostic | DriverDiagnostic
 
 
 def capability(
@@ -428,29 +467,27 @@ def validate_state_command(
     command: InstrumentStateCommand,
     description: InstrumentDescription,
     payloads: dict[str, CommandPayload] | None = None,
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
+) -> list[Problem]:
+    problems: list[Problem] = []
     available_payloads = {**command.payloads, **(payloads or {})}
     if command.instrument_id != description.instrument_id:
-        diagnostics.append(
-            _diagnostic(
-                "error",
+        problems.append(
+            _problem(
                 "instrument_driver_mismatch",
                 f"{description.instrument_id} cannot apply command for "
                 f"{command.instrument_id}",
                 "instrument_id",
             )
         )
-        return diagnostics
+        return problems
     capability_fields = {
         capability.id: {field.id: field for field in capability.fields}
         for capability in description.capabilities
     }
     for field in command.fields:
         if field.resource_id != command.instrument_id:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     "instrument_driver_resource_mismatch",
                     f"{command.instrument_id} cannot control {field.resource_id}",
                     "resource_id",
@@ -459,9 +496,8 @@ def validate_state_command(
             continue
         field_specs = capability_fields.get(field.capability_id)
         if field_specs is None:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     "instrument_driver_unsupported_capability",
                     f"{command.instrument_id} does not support {field.capability_id}",
                     "capability_id",
@@ -470,16 +506,15 @@ def validate_state_command(
             continue
         field_spec = field_specs.get(field.field_path)
         if field_spec is None:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     "instrument_driver_unsupported_field",
                     f"{command.instrument_id} does not support {field.field_path}",
                     "field_path",
                 )
             )
             continue
-        diagnostics.extend(
+        problems.extend(
             _validate_state_value(
                 field_path=field.field_path,
                 value=field.value,
@@ -487,7 +522,7 @@ def validate_state_command(
                 payloads=available_payloads,
             )
         )
-    return diagnostics
+    return problems
 
 
 def apply_state_command_to_snapshot(
@@ -516,29 +551,17 @@ def apply_state_command_to_snapshot(
     )
 
 
-def normalize_driver_diagnostics(
-    diagnostics: list[DriverDiagnosticInput] | tuple[DriverDiagnosticInput, ...],
-) -> list[Diagnostic]:
-    normalized: list[Diagnostic] = []
-    for diagnostic in diagnostics:
-        if isinstance(diagnostic, DriverDiagnostic):
-            normalized.append(diagnostic.to_diagnostic())
-        else:
-            normalized.append(diagnostic)
-    return normalized
-
-
 def _validate_state_value(
     *,
     field_path: str,
     value: StateValue,
     spec: CapabilityField,
     payloads: dict[str, CommandPayload],
-) -> list[Diagnostic]:
+) -> list[Problem]:
     atom = spec.value_type.atom
     state_literal = value.root
     literal: object
-    literal_path: str
+    literal_path: ValuePath
     if isinstance(atom, FloatType):
         if not isinstance(state_literal, float):
             return _field_value_mismatch(
@@ -546,7 +569,7 @@ def _validate_state_value(
                 f"expected float, got {_state_literal_type(state_literal)}",
             )
         literal = state_literal
-        literal_path = "value"
+        literal_path = ("value",)
     elif isinstance(atom, QuantityType):
         if not isinstance(state_literal, QuantityValue):
             return _field_value_mismatch(
@@ -554,7 +577,7 @@ def _validate_state_value(
                 f"expected quantity, got {_state_literal_type(state_literal)}",
             )
         literal = state_literal
-        literal_path = "value"
+        literal_path = ("value",)
     elif isinstance(atom, PayloadType):
         if not isinstance(state_literal, PayloadRef):
             return _field_value_mismatch(
@@ -564,16 +587,16 @@ def _validate_state_value(
         payload = payloads.get(state_literal.payload_id)
         if payload is None:
             return [
-                _diagnostic(
-                    "error",
+                _problem(
                     "instrument_driver_unknown_payload",
                     f"{field_path} references unknown payload "
                     f"{state_literal.payload_id}",
-                    "value.payload_id",
+                    "value",
+                    "payload_id",
                 )
             ]
         literal = PayloadValue(schema_id=payload.schema_id, payload=payload.payload)
-        literal_path = "value.payload_id"
+        literal_path = ("value", "payload_id")
     else:  # CapabilityField validation makes this unreachable.
         raise AssertionError(type(atom).__name__)
     try:
@@ -599,19 +622,22 @@ def _field_value_mismatch(
     field_path: str,
     reason: str,
     *,
-    path: str = "value",
-) -> list[Diagnostic]:
+    path: ValuePath = ("value",),
+) -> list[Problem]:
     return [
-        _diagnostic(
-            "error",
+        _problem(
             "instrument_driver_field_value_mismatch",
             f"{field_path}: {reason}",
-            path,
+            *path,
         )
     ]
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+def _problem(code: str, message: str, *path: LocationPathItem) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=ProblemCategory.PROVIDER_CONTRACT,
+        phase=ProblemPhase.EXECUTION,
+        location=model_location("instrument_state_command", *path),
+    )

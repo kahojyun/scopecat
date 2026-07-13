@@ -2,7 +2,6 @@ from scopecat._parameter_resolution import (
     resolve_config_parameters,
     validate_parameter_snapshot,
 )
-from scopecat.diagnostics import Diagnostic
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import (
     ParameterCatalog,
@@ -13,6 +12,7 @@ from scopecat.models.parameter import (
     SeriesParameterValue,
     TableParameterValue,
 )
+from scopecat.problems import ModelLocation, Problem
 from scopecat.value_types import Bool, Float, Scalar, Series, String, Table, TableColumn
 from scopecat.value_types import Quantity as QuantityType
 from tests.support.authoring import load_config
@@ -52,12 +52,15 @@ def test_resolve_config_parameters_reports_missing_unknown_and_invalid_values() 
         )
     )
 
-    assert _codes(resolved.diagnostics) == [
+    assert _codes(resolved.problems) == [
         "missing_parameter_value",
         "invalid_parameter_quantity",
         "unknown_parameter_definition",
     ]
-    assert resolved.diagnostics[0].path == "parameter_snapshot.values"
+    assert resolved.problems[0].location == ModelLocation(
+        root="parameter_snapshot",
+        path=("values",),
+    )
     assert resolved.data.scalars == {}
 
 
@@ -106,7 +109,7 @@ def test_resolve_config_parameters_normalizes_scalar_series_and_table() -> None:
         _config(catalog=catalog, parameter_snapshot=snapshot)
     )
 
-    assert resolved.diagnostics == ()
+    assert resolved.problems == ()
     assert resolved.data.scalars == {"gain": 1.0, "enabled": True}
     assert resolved.data.series_values("notes") == ["ready"]
     assert resolved.data.table_rows("channels") == [{"id": "ch-1", "gain": 0.5}]
@@ -131,7 +134,7 @@ def test_validate_parameter_snapshot_checks_shape_length_and_table_keys() -> Non
         ],
     )
 
-    shape_diagnostics = validate_parameter_snapshot(
+    shape_problems = validate_parameter_snapshot(
         catalog,
         ParameterSnapshot(
             id="wrong-shape",
@@ -144,12 +147,12 @@ def test_validate_parameter_snapshot_checks_shape_length_and_table_keys() -> Non
             ],
         ),
     )
-    assert _codes(shape_diagnostics) == [
+    assert _codes(shape_problems) == [
         "parameter_shape_mismatch",
         "duplicate_parameter_table_primary_key",
     ]
 
-    length_diagnostics = validate_parameter_snapshot(
+    length_problems = validate_parameter_snapshot(
         catalog,
         ParameterSnapshot(
             id="short",
@@ -159,7 +162,48 @@ def test_validate_parameter_snapshot_checks_shape_length_and_table_keys() -> Non
             ],
         ),
     )
-    assert _codes(length_diagnostics) == ["parameter_length_out_of_bounds"]
+    assert _codes(length_problems) == ["parameter_length_out_of_bounds"]
+
+
+def test_parameter_problem_locations_preserve_dotted_ids_as_segments() -> None:
+    catalog = ParameterCatalog(
+        id="catalog",
+        definitions=[
+            ParameterDefinition(
+                id="drive.frequency",
+                value_type=Scalar(Float()),
+            ),
+            ParameterDefinition(
+                id="calibration",
+                value_type=Table(
+                    columns=(TableColumn("readout.gain", Scalar(Float())),),
+                ),
+            ),
+        ],
+    )
+    snapshot = ParameterSnapshot(
+        id="snapshot",
+        values=[
+            ScalarParameterValue(id="drive.frequency", value="invalid"),
+            TableParameterValue(
+                id="calibration",
+                rows=[{"readout.gain": "invalid"}],
+            ),
+        ],
+    )
+
+    problems = validate_parameter_snapshot(catalog, snapshot)
+
+    assert [problem.location for problem in problems] == [
+        ModelLocation(
+            root="parameter_snapshot",
+            path=("values", "drive.frequency", "value"),
+        ),
+        ModelLocation(
+            root="parameter_snapshot",
+            path=("values", "calibration", "rows", 0, "readout.gain"),
+        ),
+    ]
 
 
 def _config(
@@ -174,5 +218,5 @@ def _config(
     )
 
 
-def _codes(diagnostics: tuple[Diagnostic, ...]) -> list[str]:
-    return [diagnostic.code for diagnostic in diagnostics]
+def _codes(problems: tuple[Problem, ...]) -> list[str]:
+    return [problem.code for problem in problems]

@@ -7,7 +7,8 @@ import pytest
 import scopecat as sc
 from scopecat.authoring._module_composition import assemble_module_internal
 from scopecat.authoring._resolution import resolve_experiment
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
+from scopecat.problems import model_location
 from tests.support.authoring import load_config
 
 _FREQUENCY_TYPE = sc.ScalarType(sc.QuantityType(unit="GHz"))
@@ -47,12 +48,12 @@ def test_direct_point_dependency_requires_a_scan() -> None:
     frequency = sc.point("frequency", _FREQUENCY_TYPE)
     module = _point_module(frequency, module_id="test.direct-point")
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         _resolve(module)
 
-    diagnostic = error.value.diagnostics[0]
-    assert diagnostic.code == "experiment_point_dependency_missing"
-    assert diagnostic.path == "scans.frequency"
+    problem = error.value.problems[0]
+    assert problem.code == "experiment_point_dependency_missing"
+    assert problem.location == model_location("scans", "frequency")
 
 
 def test_direct_point_dependency_rejects_same_id_with_wrong_type() -> None:
@@ -63,14 +64,14 @@ def test_direct_point_dependency_rejects_same_id_with_wrong_type() -> None:
         sc.ScalarType(sc.StringType()),
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         _resolve(module, scan=sc.axis(wrong_frequency, ("5 GHz",)))
 
-    diagnostic = error.value.diagnostics[0]
-    assert diagnostic.code == "experiment_point_dependency_type_mismatch"
-    assert diagnostic.path == "scans.frequency"
-    assert "Scalar[String]" in diagnostic.message
-    assert "Scalar[Quantity[GHz]]" in diagnostic.message
+    problem = error.value.problems[0]
+    assert problem.code == "experiment_point_dependency_type_mismatch"
+    assert problem.location == model_location("scans", "frequency")
+    assert "Scalar[String]" in problem.message
+    assert "Scalar[Quantity[GHz]]" in problem.message
 
 
 def test_direct_point_dependency_accepts_matching_scan() -> None:
@@ -102,9 +103,9 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
         for dependency in assembly.point_dependencies
     ) == (("frequency", _FREQUENCY_TYPE),)
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         _resolve(parent)
-    assert error.value.diagnostics[0].code == "experiment_point_dependency_missing"
+    assert error.value.problems[0].code == "experiment_point_dependency_missing"
 
     _resolve(
         parent,

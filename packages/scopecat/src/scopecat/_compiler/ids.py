@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from urllib.parse import quote
-
 from pydantic import BaseModel, ConfigDict, field_validator
+
+from scopecat._qualified_name import qualified_name
 
 
 class NodeId(BaseModel):
@@ -36,9 +36,7 @@ class NodeId(BaseModel):
         # Segment-wise percent encoding keeps the familiar path-like display
         # while making the structural identity injective. In particular,
         # ``("a/b", "c")`` cannot collide with ``("a", "b", "c")``.
-        return "/".join(
-            quote(segment, safe="-._~[]") for segment in (*self.scope, self.local_id)
-        )
+        return qualified_name(self.scope, self.local_id)
 
     def prefixed(self, *segments: str) -> NodeId:
         if not segments:

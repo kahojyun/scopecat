@@ -88,14 +88,14 @@ def test_validate_measurement_records_against_schema_accepts_compatible_units() 
         )
     ]
 
-    diagnostics = validate_measurement_records_against_schema(
+    problems = validate_measurement_records_against_schema(
         records,
         schema,
         "raw-measurements",
         "raw",
     )
 
-    assert diagnostics == []
+    assert problems == []
 
 
 def test_validate_schema_accepts_point_local_arrays() -> None:
@@ -141,14 +141,14 @@ def test_validate_schema_accepts_point_local_arrays() -> None:
         },
     )
 
-    diagnostics = validate_measurement_records_against_schema(
+    problems = validate_measurement_records_against_schema(
         [record],
         schema,
         "raw-measurements",
         "raw",
     )
 
-    assert diagnostics == []
+    assert problems == []
 
 
 def test_validate_measurement_records_against_schema_reports_contract_errors() -> None:
@@ -206,13 +206,13 @@ def test_validate_measurement_records_against_schema_reports_contract_errors() -
         )
     ]
 
-    diagnostics = validate_measurement_records_against_schema(
+    problems = validate_measurement_records_against_schema(
         records,
         schema,
         "other-id",
         "derived",
     )
-    codes = {diagnostic.code for diagnostic in diagnostics}
+    codes = {problem.code for problem in problems}
 
     assert {
         "measurement_dataset_id_mismatch",
@@ -263,13 +263,13 @@ def test_validate_measurement_records_against_schema_reports_unit_and_dtype() ->
         )
     ]
 
-    diagnostics = validate_measurement_records_against_schema(
+    problems = validate_measurement_records_against_schema(
         records,
         schema,
         "raw-measurements",
         "raw",
     )
-    codes = {diagnostic.code for diagnostic in diagnostics}
+    codes = {problem.code for problem in problems}
 
     assert "measurement_record_dtype_mismatch" in codes
     assert "measurement_record_unit_mismatch" in codes

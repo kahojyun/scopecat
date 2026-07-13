@@ -96,6 +96,7 @@ class Compute:
     fn: ComputeFunction
     inputs: tuple[tuple[str, ComputeInput], ...]
     output_type: ValueType
+    _origin: object
 
     def __init__(self) -> None:
         msg = "Compute is an opaque handle; create computes with scopecat.compute"
@@ -126,6 +127,7 @@ class Compute:
         return internal_compute_value_ref(
             self.id,
             self.output_type,
+            origin=(self._origin,),
             point_dependencies=tuple(
                 dependency
                 for _name, value in self.inputs
@@ -299,7 +301,14 @@ def compute(
             (name, _capture_compute_input(value)) for name, value in selected_inputs
         ),
         output_type=output_type,
+        _origin=object(),
     )
+
+
+def compute_origin_internal(definition: Compute) -> object:
+    """Return the nominal identity shared by a declaration and its output."""
+
+    return object.__getattribute__(definition, "_origin")
 
 
 def _capture_compute_input(value: ComputeInput) -> ComputeInput:

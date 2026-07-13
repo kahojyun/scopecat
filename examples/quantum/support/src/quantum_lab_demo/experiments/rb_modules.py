@@ -48,19 +48,30 @@ SQG_RB_MODULE = (
         for_entities=(_SQG_QUBIT,),
     )
     .computes(_BUILD_SQG_RB_SEQUENCE, _RENDER_SQG_RB_PULSE_PROGRAM)
-    .bind(
-        "drive.play_gate_sequence.sequence",
-        _BUILD_SQG_RB_SEQUENCE.output,
+    .bind_field(
+        "drive",
+        capability="play_gate_sequence",
+        field="sequence",
+        value=_BUILD_SQG_RB_SEQUENCE.output,
     )
-    .bind(
-        "drive.play_pulse_program.program",
-        _RENDER_SQG_RB_PULSE_PROGRAM.output,
+    .bind_field(
+        "drive",
+        capability="play_pulse_program",
+        field="program",
+        value=_RENDER_SQG_RB_PULSE_PROGRAM.output,
     )
-    .bind(
-        "drive.play_gate_sequence.clifford_count",
-        CLIFFORD_COUNT * sc.Quantity(value=1.0, unit="count"),
+    .bind_field(
+        "drive",
+        capability="play_gate_sequence",
+        field="clifford_count",
+        value=CLIFFORD_COUNT * sc.Quantity(value=1.0, unit="count"),
     )
-    .bind("drive.play_gate_sequence.seed", _SQG_SEED)
+    .bind_field(
+        "drive",
+        capability="play_gate_sequence",
+        field="seed",
+        value=_SQG_SEED,
+    )
     .build()
 )
 
@@ -115,19 +126,30 @@ CZ_RB_MODULE = (
         for_entities=(_CZ_COUPLER,),
     )
     .computes(_BUILD_CZ_RB_SEQUENCE, _RENDER_CZ_RB_COUPLER_PULSE)
-    .bind(
-        "drive.play_gate_sequence.sequence",
-        _BUILD_CZ_RB_SEQUENCE.output,
+    .bind_field(
+        "drive",
+        capability="play_gate_sequence",
+        field="sequence",
+        value=_BUILD_CZ_RB_SEQUENCE.output,
     )
-    .bind(
-        "drive.play_gate_sequence.clifford_count",
-        CLIFFORD_COUNT * sc.Quantity(value=1.0, unit="count"),
+    .bind_field(
+        "drive",
+        capability="play_gate_sequence",
+        field="clifford_count",
+        value=CLIFFORD_COUNT * sc.Quantity(value=1.0, unit="count"),
     )
-    .bind(
-        "coupler.play_coupler_pulse.program",
-        _RENDER_CZ_RB_COUPLER_PULSE.output,
+    .bind_field(
+        "coupler",
+        capability="play_coupler_pulse",
+        field="program",
+        value=_RENDER_CZ_RB_COUPLER_PULSE.output,
     )
-    .bind("drive.play_gate_sequence.seed", _CZ_SEED)
+    .bind_field(
+        "drive",
+        capability="play_gate_sequence",
+        field="seed",
+        value=_CZ_SEED,
+    )
     .build()
 )
 

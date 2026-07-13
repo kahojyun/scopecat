@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 from scopecat._compiler.ids import NodeId
 from scopecat._compiler.program import ResourceRouteIntent
 from scopecat._relations import ParameterRelationData, Row
-from scopecat.diagnostics import Diagnostic
 from scopecat.models.config import RoutingChannelBinding
 from scopecat.models.state import StateValue
+from scopecat.problems import Problem, has_blocking_problems
 from scopecat.results import (
     CoordinateValue,
     MeasurementDatasetSchema,
@@ -135,9 +135,14 @@ class BoundCollect:
 class PlannedStateChange:
     point_index: int
     resource: str
-    field: str
+    capability_id: str
+    field_path: str
     before: object
     after: object
+
+    @property
+    def field(self) -> str:
+        return f"{self.capability_id}.{self.field_path}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,7 +172,7 @@ class BoundPlan:
     route_intents: tuple[ResourceRouteIntent, ...]
     state_changes: tuple[PlannedStateChange, ...]
     expected_dataset_schema: MeasurementDatasetSchema | None
-    diagnostics: tuple[Diagnostic, ...] = ()
+    problems: tuple[Problem, ...] = ()
 
     @property
     def point_count(self) -> int:
@@ -175,10 +180,7 @@ class BoundPlan:
 
     @property
     def valid(self) -> bool:
-        return not any(
-            diagnostic.severity in {"error", "blocker"}
-            for diagnostic in self.diagnostics
-        )
+        return not has_blocking_problems(self.problems)
 
     @property
     def expected_output_ids(self) -> frozenset[str]:

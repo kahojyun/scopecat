@@ -8,13 +8,15 @@ import scopecat as sc
 from demo_lab_experiment_testkit import load_experiment_config
 from scopecat.authoring import (
     ExperimentInvocation,
+    ValueValidationError,
 )
 from scopecat.authoring._resolution import resolve_experiment
-from scopecat.errors import ValidationFailed
-from scopecat.instruments import PayloadRef, RuntimePayloadObservation
+from scopecat.errors import CheckFailed
+from scopecat.instruments import PayloadRef
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
+from scopecat.runtime import RuntimePayloadObservation
 
 from quantum_lab_demo.experiments import (
     BACKEND_BATCH_TEMPLATE_ID,
@@ -864,21 +866,21 @@ def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
 
 
 def test_template_rejects_removed_scan_input_alias(tmp_path: Path) -> None:
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             SQG_RB_TEMPLATE.bind(qubit="q0", lengths=[]),
             workspace=tmp_path,
             config_profile=load_experiment_config(),
         )
 
-    assert error.value.diagnostics[0].code == "experiment_template_unknown_input"
+    assert error.value.problems[0].code == "experiment_template_unknown_input"
 
 
 def test_scan_values_are_checked_against_the_typed_point() -> None:
-    with pytest.raises(sc.ValueValidationError) as error:
+    with pytest.raises(ValueValidationError) as error:
         SQG_RB_TEMPLATE.bind(qubit="q0").scan(CLIFFORD_COUNT, [0])
 
-    assert error.value.path == "scan.values[0]"
+    assert error.value.path == ("scan", "values", 0)
     assert error.value.reason == "value must be at least 1"
 
 

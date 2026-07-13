@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from scopecat._steps import StepArtifactStore
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.parameter import Quantity
 from scopecat.results import (
     MeasurementDatasetSchema,
@@ -13,13 +13,13 @@ from scopecat.results import (
     MeasurementRecord,
     MeasurementVariable,
 )
-from tests.support.steps import StepResult, artifact_diagnostics
+from tests.support.steps import StepResult, artifact_contract
 
 
 def test_step_artifact_store_collects_existing_artifacts_only(tmp_path: Path) -> None:
     store = StepArtifactStore(
         root_dir=tmp_path,
-        diagnostics=artifact_diagnostics(),
+        contract=artifact_contract(),
     )
 
     store.write_model(
@@ -46,14 +46,14 @@ def test_step_artifact_store_rejects_duplicate_id(
 ) -> None:
     store = StepArtifactStore(
         root_dir=tmp_path,
-        diagnostics=artifact_diagnostics(),
+        contract=artifact_contract(),
     )
     store.write_text(id="one", kind="log", content="one")
 
-    with pytest.raises(ValidationFailed) as duplicate_id:
+    with pytest.raises(CheckFailed) as duplicate_id:
         store.write_text(id="one", kind="log", content="duplicate")
 
-    assert duplicate_id.value.diagnostics[0].code == "test_duplicate_artifact"
+    assert duplicate_id.value.problems[0].code == "test_duplicate_artifact"
 
 
 def test_step_artifact_store_writes_measurement_dataset_metadata(
@@ -61,7 +61,7 @@ def test_step_artifact_store_writes_measurement_dataset_metadata(
 ) -> None:
     store = StepArtifactStore(
         root_dir=tmp_path,
-        diagnostics=artifact_diagnostics(),
+        contract=artifact_contract(),
     )
     records = [
         MeasurementRecord(
@@ -96,7 +96,7 @@ def test_step_artifact_store_validates_measurement_dataset_schema(
 ) -> None:
     store = StepArtifactStore(
         root_dir=tmp_path,
-        diagnostics=artifact_diagnostics(),
+        contract=artifact_contract(),
     )
     schema = MeasurementDatasetSchema(
         dataset_id="derived-measurements",
@@ -132,7 +132,7 @@ def test_step_artifact_store_validates_measurement_dataset_schema(
         )
     ]
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         store.write_measurement_dataset(
             id="derived-measurements",
             dataset_role="derived",
@@ -140,7 +140,7 @@ def test_step_artifact_store_validates_measurement_dataset_schema(
             schema=schema,
         )
 
-    assert [diagnostic.code for diagnostic in error.value.diagnostics] == [
+    assert [problem.code for problem in error.value.problems] == [
         "measurement_record_missing_observable",
         "measurement_record_unexpected_observable",
     ]

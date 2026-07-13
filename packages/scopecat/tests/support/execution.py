@@ -11,7 +11,6 @@ from scopecat._compiler.binding import bind_program
 from scopecat._compiler.environment import validate_config_environment
 from scopecat._compiler.program import TypedProgram
 from scopecat._execution.executor import execute_run
-from scopecat.instruments import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.instruments.sdk import (
     InstrumentDriver,
     InstrumentProviderContext,
@@ -21,6 +20,7 @@ from scopecat.instruments.sdk import (
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.execution import ExecutionSummary
 from scopecat.models.run import RunManifest
+from scopecat.runtime import RuntimeEventSink, RuntimePayloadObserver
 
 
 @dataclass(frozen=True, slots=True)

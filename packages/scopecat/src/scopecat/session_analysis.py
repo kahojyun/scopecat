@@ -19,8 +19,7 @@ from scopecat.candidate_configs import (
     CandidateConfig,
     CandidateSelection,
 )
-from scopecat.diagnostics import Diagnostic
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.ids import artifact_slug
 from scopecat.models.analysis import (
     AnalysisRecord,
@@ -35,6 +34,13 @@ from scopecat.parameter_changes import (
     parameter_change_proposal_from_updates,
     parameter_change_proposal_record_ref,
     write_parameter_change_proposals,
+)
+from scopecat.problems import (
+    LocationPathItem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
 )
 from scopecat.runs.access import RunStore, artifact_storage_ref, open_run_store
 from scopecat.session_data import Data
@@ -212,7 +218,7 @@ class Analysis:
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
         if not content.strip():
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_note_invalid",
                 "analysis note content must be a non-empty string",
                 "content",
@@ -261,21 +267,21 @@ class Analysis:
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
         if not role.strip():
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_input_role_invalid",
                 "analysis input role must be a non-empty string",
                 "role",
             )
         selected_sources = [selector is not None, uri is not None].count(True)
         if selected_sources != 1:
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_input_source_invalid",
                 "analysis input requires exactly one of selector or uri",
                 "input",
             )
         if uri is not None:
             if not uri.strip():
-                _raise_analysis_diagnostic(
+                _raise_analysis_problem(
                     "analysis_input_uri_invalid",
                     "analysis input URI must be non-empty",
                     "uri",
@@ -325,13 +331,13 @@ class Analysis:
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
         if not title.strip():
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_artifact_title_invalid",
                 "analysis artifact title must be a non-empty string",
                 "title",
             )
         if not kind.strip():
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_artifact_kind_invalid",
                 "analysis artifact kind must be a non-empty string",
                 "kind",
@@ -344,7 +350,7 @@ class Analysis:
             path is not None,
         ]
         if selected_sources.count(True) != 1:
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_artifact_source_invalid",
                 (
                     "analysis artifact requires exactly one of model, json_content, "
@@ -353,13 +359,13 @@ class Analysis:
                 "artifact",
             )
         if artifact_id is not None and not artifact_id.strip():
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_artifact_id_invalid",
                 "analysis artifact id must be a non-empty string",
                 "artifact_id",
             )
         if filename is not None and not _is_artifact_filename(filename):
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_artifact_filename_invalid",
                 f"analysis artifact filename must be a basename: {filename}",
                 "filename",
@@ -367,14 +373,14 @@ class Analysis:
         if path is not None:
             source_path = Path(path)
             if not source_path.is_file():
-                _raise_analysis_diagnostic(
+                _raise_analysis_problem(
                     "analysis_artifact_source_missing",
                     f"analysis artifact source file is missing: {source_path}",
                     "path",
                 )
             selected_filename = filename or source_path.name
             if not _is_artifact_filename(selected_filename):
-                _raise_analysis_diagnostic(
+                _raise_analysis_problem(
                     "analysis_artifact_filename_invalid",
                     (
                         "analysis artifact filename must be a basename: "
@@ -393,7 +399,7 @@ class Analysis:
             source = _AnalysisTextArtifactSource(content=text)
         else:
             if content is None:
-                _raise_analysis_diagnostic(
+                _raise_analysis_problem(
                     "analysis_artifact_source_invalid",
                     (
                         "analysis artifact requires exactly one of model, "
@@ -421,26 +427,26 @@ class Analysis:
         confidence: float | None = None,
     ) -> Analysis:
         if not proposal_id.strip():
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_parameter_proposal_id_invalid",
                 "analysis parameter proposal id must be non-empty",
                 "proposal_id",
             )
         if not updates:
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_parameter_proposal_empty",
                 "analysis parameter proposal requires at least one update",
                 "updates",
             )
         if confidence is not None and not 0 <= confidence <= 1:
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_parameter_proposal_confidence_invalid",
                 "analysis parameter proposal confidence must be between 0 and 1",
                 "confidence",
             )
         selected_id = artifact_slug(proposal_id, fallback="analysis")
         if any(proposal.id == selected_id for proposal in self.parameter_proposals):
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_parameter_proposal_id_duplicated",
                 f"analysis parameter proposal id is duplicated: {selected_id}",
                 "proposal_id",
@@ -456,7 +462,7 @@ class Analysis:
                 confidence=confidence,
             )
         except (TypeError, ValueError) as error:
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_parameter_proposal_invalid",
                 str(error),
                 "updates",
@@ -591,7 +597,7 @@ def _select_candidate_proposals(
     selection: CandidateSelection,
 ) -> tuple[ParameterChangeProposal, ...]:
     if not proposals:
-        _raise_analysis_diagnostic(
+        _raise_analysis_problem(
             "candidate_config_no_parameter_proposals",
             "candidate config requires at least one parameter proposal",
             "parameter_proposals",
@@ -599,7 +605,7 @@ def _select_candidate_proposals(
     if selection is None:
         if len(proposals) == 1:
             return (proposals[0],)
-        _raise_analysis_diagnostic(
+        _raise_analysis_problem(
             "candidate_config_selection_required",
             (
                 "candidate config selection is required when analysis has multiple "
@@ -609,7 +615,7 @@ def _select_candidate_proposals(
         )
     selected_ids = (selection,) if isinstance(selection, str) else tuple(selection)
     if not selected_ids:
-        _raise_analysis_diagnostic(
+        _raise_analysis_problem(
             "candidate_config_selection_empty",
             "candidate config selection must include at least one parameter proposal",
             "selection",
@@ -620,7 +626,7 @@ def _select_candidate_proposals(
     for selected_id in selected_ids:
         proposal_id = artifact_slug(selected_id, fallback="analysis")
         if proposal_id in seen:
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "candidate_config_selection_duplicated",
                 f"candidate config selection is duplicated: {proposal_id}",
                 "selection",
@@ -628,7 +634,7 @@ def _select_candidate_proposals(
         try:
             selected.append(by_id[proposal_id])
         except KeyError:
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "candidate_config_selection_not_found",
                 f"candidate config selection was not found: {proposal_id}",
                 "selection",
@@ -646,7 +652,7 @@ def _saved_analysis_output_content(
         return {"artifact_id": next(output_refs)}
     if output.kind == "parameter_change_proposal":
         if not isinstance(output.content, ParameterChangeProposal):
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_parameter_proposal_output_invalid",
                 "analysis parameter proposal output has invalid content",
                 "outputs",
@@ -770,7 +776,7 @@ def _analysis_artifact_specs(
         if output.kind != "artifact":
             continue
         if not isinstance(output.content, _AnalysisArtifactSpec):
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_artifact_output_invalid",
                 "analysis artifact output has invalid content",
                 "outputs",
@@ -788,7 +794,7 @@ def _analysis_artifact_artifact_id(
 ) -> str:
     if spec.artifact_id is not None:
         if spec.artifact_id in seen_artifact_ids:
-            _raise_analysis_diagnostic(
+            _raise_analysis_problem(
                 "analysis_artifact_id_duplicated",
                 f"analysis artifact id is duplicated: {spec.artifact_id}",
                 "artifact_id",
@@ -864,7 +870,7 @@ def _is_artifact_filename(filename: str) -> bool:
 def _analysis_key(key: str | None, title: str) -> str:
     selected = key if key is not None else title
     if not selected.strip():
-        _raise_analysis_diagnostic(
+        _raise_analysis_problem(
             "analysis_key_invalid",
             "analysis key must be a non-empty string",
             "key",
@@ -872,14 +878,19 @@ def _analysis_key(key: str | None, title: str) -> str:
     return artifact_slug(selected, fallback="analysis")
 
 
-def _raise_analysis_diagnostic(code: str, message: str, path: str) -> NoReturn:
-    raise ValidationFailed(
+def _raise_analysis_problem(
+    code: str,
+    message: str,
+    *path: LocationPathItem,
+) -> NoReturn:
+    raise CheckFailed(
         [
-            Diagnostic(
-                severity="error",
-                code=code,
-                message=message,
-                path=path,
+            blocking_problem(
+                code,
+                message,
+                category=ProblemCategory.INVALID_INPUT,
+                phase=ProblemPhase.ANALYSIS,
+                location=model_location("analysis", *path),
             )
         ]
     )

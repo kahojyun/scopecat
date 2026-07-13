@@ -9,18 +9,25 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from pathlib import Path
 from uuid import uuid4
 
 from pydantic import JsonValue, ValidationError
 
 from scopecat._storage.local.io import encode_model_json, ensure_durable_directory
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import DataIntegrityError, NotFound, StorageError
 from scopecat.models.artifact import RunDatasetEntry
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    StorageLocation,
+    blocking_problem,
+)
 from scopecat.results import (
     MeasurementDataset,
-    MeasurementDatasetInputDiagnostics,
+    MeasurementDatasetReadContract,
     MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementRecord,
@@ -60,7 +67,7 @@ def validate_measurement_dataset_records(
     schema: MeasurementDatasetSchema | None,
     dataset_id: str,
     dataset_role: MeasurementDatasetRole,
-) -> list[Diagnostic]:
+) -> list[Problem]:
     if schema is None:
         return []
     return validate_measurement_records_against_schema(
@@ -102,9 +109,9 @@ def write_measurement_records_path(
     path: Path,
     records: Sequence[MeasurementRecord],
 ) -> None:
-    ensure_durable_directory(path.parent)
     temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
     try:
+        ensure_durable_directory(path.parent)
         with temporary_path.open("w") as data_file:
             for record in records:
                 data_file.write(encode_model_json(record) + "\n")
@@ -112,8 +119,19 @@ def write_measurement_records_path(
             os.fsync(data_file.fileno())
         temporary_path.replace(path)
         _fsync_directory(path.parent)
+    except OSError as error:
+        raise StorageError(
+            [
+                _storage_problem(
+                    "measurement_records_write_failed",
+                    "measurement records could not be written durably",
+                    ref=str(path),
+                )
+            ]
+        ) from error
     finally:
-        temporary_path.unlink(missing_ok=True)
+        with suppress(OSError):
+            temporary_path.unlink(missing_ok=True)
 
 
 def _fsync_directory(path: Path) -> None:
@@ -132,29 +150,50 @@ def read_measurement_records_path(
     empty_code: str,
     invalid_code: str,
     noun: str,
-    diagnostic_path: str,
 ) -> list[MeasurementRecord]:
-    if not path.is_file():
-        raise ValidationFailed(
+    try:
+        content = path.read_text()
+    except FileNotFoundError as error:
+        raise NotFound(
             [
-                _diagnostic(
-                    "error",
+                _storage_problem(
                     missing_code,
                     f"{noun} is missing: {ref}",
-                    diagnostic_path,
+                    ref=ref,
+                    category=ProblemCategory.NOT_FOUND,
                 )
             ]
-        )
-
-    lines = [line for line in path.read_text().splitlines() if line.strip()]
-    if not lines:
-        raise ValidationFailed(
+        ) from error
+    except IsADirectoryError as error:
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _storage_problem(
+                    invalid_code,
+                    f"{noun} is not a readable file: {ref}",
+                    ref=ref,
+                    category=ProblemCategory.DATA_INTEGRITY,
+                )
+            ]
+        ) from error
+    except OSError as error:
+        raise StorageError(
+            [
+                _storage_problem(
+                    "measurement_records_read_failed",
+                    f"{noun} could not be read",
+                    ref=ref,
+                )
+            ]
+        ) from error
+    lines = [line for line in content.splitlines() if line.strip()]
+    if not lines:
+        raise DataIntegrityError(
+            [
+                _storage_problem(
                     empty_code,
                     f"{noun} is empty: {ref}",
-                    diagnostic_path,
+                    ref=ref,
+                    category=ProblemCategory.DATA_INTEGRITY,
                 )
             ]
         )
@@ -165,13 +204,14 @@ def read_measurement_records_path(
             json.loads(line)
             measurements.append(MeasurementRecord.model_validate_json(line))
         except (json.JSONDecodeError, ValidationError) as error:
-            raise ValidationFailed(
+            raise DataIntegrityError(
                 [
-                    _diagnostic(
-                        "error",
+                    _storage_problem(
                         invalid_code,
                         f"{noun} line {index} is not a valid measurement record",
-                        diagnostic_path,
+                        ref=ref,
+                        category=ProblemCategory.DATA_INTEGRITY,
+                        details={"line": index},
                     )
                 ]
             ) from error
@@ -185,26 +225,24 @@ def read_measurement_dataset_path(
     ref: str,
     schema_data: dict[str, object] | None,
     metadata: Mapping[str, object],
-    diagnostics: MeasurementDatasetInputDiagnostics,
+    contract: MeasurementDatasetReadContract,
 ) -> MeasurementDataset:
-    diagnostic_path = diagnostics.diagnostic_path or ref
     records = read_measurement_records_path(
         path=path,
         ref=ref,
-        missing_code=diagnostics.missing_code,
-        empty_code=diagnostics.empty_code,
-        invalid_code=diagnostics.invalid_code,
-        noun=diagnostics.noun,
-        diagnostic_path=diagnostic_path,
+        missing_code=contract.missing_code,
+        empty_code=contract.empty_code,
+        invalid_code=contract.invalid_code,
+        noun=contract.noun,
     )
     if schema_data is None:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
-                    diagnostics.missing_schema_code,
-                    f"{diagnostics.noun} ref is missing schema: {ref}",
-                    diagnostic_path,
+                _storage_problem(
+                    contract.missing_schema_code,
+                    f"{contract.noun} ref is missing schema: {ref}",
+                    ref=ref,
+                    category=ProblemCategory.DATA_INTEGRITY,
                 )
             ]
         )
@@ -212,29 +250,26 @@ def read_measurement_dataset_path(
         schema = MeasurementDatasetSchema.model_validate(schema_data)
     except ValidationError as error:
         raise _invalid_dataset_schema(
-            diagnostics=diagnostics,
+            contract=contract,
             ref=ref,
-            diagnostic_path=diagnostic_path,
         ) from error
 
     if schema.dataset_id != dataset_id:
         raise _invalid_dataset_schema(
-            diagnostics=diagnostics,
+            contract=contract,
             ref=ref,
-            diagnostic_path=diagnostic_path,
         )
 
-    row_diagnostics = validate_measurement_dataset_records(
+    row_problems = validate_measurement_dataset_records(
         records=records,
         schema=schema,
         dataset_id=dataset_id,
         dataset_role=schema.dataset_role,
     )
-    if row_diagnostics:
+    if row_problems:
         raise _invalid_dataset_schema(
-            diagnostics=diagnostics,
+            contract=contract,
             ref=ref,
-            diagnostic_path=diagnostic_path,
         )
 
     try:
@@ -248,34 +283,44 @@ def read_measurement_dataset_path(
         )
     except ValidationError as error:
         raise _invalid_dataset_schema(
-            diagnostics=diagnostics,
+            contract=contract,
             ref=ref,
-            diagnostic_path=diagnostic_path,
         ) from error
 
 
 def _invalid_dataset_schema(
     *,
-    diagnostics: MeasurementDatasetInputDiagnostics,
+    contract: MeasurementDatasetReadContract,
     ref: str,
-    diagnostic_path: str,
-) -> ValidationFailed:
-    return ValidationFailed(
+) -> DataIntegrityError:
+    return DataIntegrityError(
         [
-            _diagnostic(
-                "error",
-                diagnostics.invalid_schema_code,
-                f"{diagnostics.noun} dataset_schema is invalid: {ref}",
-                diagnostic_path,
+            _storage_problem(
+                contract.invalid_schema_code,
+                f"{contract.noun} dataset_schema is invalid: {ref}",
+                ref=ref,
+                category=ProblemCategory.DATA_INTEGRITY,
             )
         ]
     )
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+def _storage_problem(
+    code: str,
+    message: str,
+    *,
+    ref: str,
+    category: ProblemCategory = ProblemCategory.STORAGE,
+    details: Mapping[str, object] | None = None,
+) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=category,
+        phase=ProblemPhase.PERSISTENCE,
+        location=StorageLocation(ref=ref),
+        details={} if details is None else details,
+    )
 
 
 __all__ = [

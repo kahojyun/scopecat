@@ -1,13 +1,5 @@
-"""Pure planning and validation helpers."""
+"""Pure planning and configuration checks."""
 
-from scopecat.planning.validation import (
-    format_diagnostics,
-    has_blocking_diagnostics,
-    validate_config,
-)
+from scopecat.planning.validation import validate_config
 
-__all__ = [
-    "format_diagnostics",
-    "has_blocking_diagnostics",
-    "validate_config",
-]
+__all__ = ["validate_config"]

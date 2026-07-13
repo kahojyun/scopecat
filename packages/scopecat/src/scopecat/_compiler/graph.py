@@ -7,15 +7,16 @@ from collections.abc import Sequence
 
 from scopecat._compiler.ids import NodeId
 from scopecat._compiler.program import ComputeEdge, TypedComputeNode
+from scopecat.problems import ModelLocation, model_location
 
 
 class ComputeGraphError(ValueError):
     """One structural compiler error in the compute graph."""
 
-    def __init__(self, code: str, message: str, path: str) -> None:
+    def __init__(self, code: str, message: str, location: ModelLocation) -> None:
         super().__init__(message)
         self.code = code
-        self.path = path
+        self.location = location
 
 
 def order_compute_nodes(
@@ -35,7 +36,7 @@ def order_compute_nodes(
                     f"compute producer {node.id.qualified_name!r} is declared "
                     "more than once"
                 ),
-                f"compute_nodes.{node.id.qualified_name}",
+                model_location("compute_nodes", *node.id.scope, node.id.local_id),
             )
         positions[node.id] = index
         producers[node.id] = node
@@ -57,7 +58,13 @@ def order_compute_nodes(
                         f"{input_name!r} references missing producer "
                         f"{producer_id.qualified_name!r}"
                     ),
-                    f"compute_nodes.{node.id.qualified_name}.inputs.{input_name}",
+                    model_location(
+                        "compute_nodes",
+                        *node.id.scope,
+                        node.id.local_id,
+                        "inputs",
+                        input_name,
+                    ),
                 )
             producer = producers[producer_id]
             if producer.output_type != input_value.value_type:
@@ -69,7 +76,13 @@ def order_compute_nodes(
                         f"producer {producer_id.qualified_name!r} returns "
                         f"{producer.output_type!r}"
                     ),
-                    f"compute_nodes.{node.id.qualified_name}.inputs.{input_name}",
+                    model_location(
+                        "compute_nodes",
+                        *node.id.scope,
+                        node.id.local_id,
+                        "inputs",
+                        input_name,
+                    ),
                 )
             if producer_id not in upstream:
                 upstream.append(producer_id)
@@ -101,7 +114,7 @@ def order_compute_nodes(
         raise ComputeGraphError(
             "compute_graph_cycle",
             f"compute graph contains a dependency cycle: {rendered}",
-            f"compute_nodes.{first.qualified_name}",
+            model_location("compute_nodes", *first.scope, first.local_id),
         )
 
     return tuple(ordered)

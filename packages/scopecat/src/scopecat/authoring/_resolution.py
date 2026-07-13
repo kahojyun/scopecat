@@ -16,8 +16,9 @@ from scopecat._relations import ParameterRelationData
 from scopecat.authoring._assembly_linking import link_experiment_assembly_internal
 from scopecat.authoring._context import ExperimentAuthoringContext
 from scopecat.authoring._context import (
-    diagnostic as _diagnostic,
+    problem as _problem,
 )
+from scopecat.authoring._graph_validation import verify_assembly_graph
 from scopecat.authoring._intents import ParameterScanOverlayIntent
 from scopecat.authoring._invocation_plan import (
     InvocationRequestContext,
@@ -48,6 +49,7 @@ from scopecat.authoring._scan_lowering import (
     lower_scan_points,
     project_scan_record,
 )
+from scopecat.authoring._validation import validate_scan_availability
 from scopecat.authoring._value_refs import (
     ValueRef,
     describe_value_type,
@@ -65,12 +67,19 @@ from scopecat.authoring.templates import (
 from scopecat.authoring.values import ModuleInput, module_input_is_valid
 from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import resolve_config_registry_config_source
-from scopecat.diagnostics import Diagnostic
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunConfigSource
 from scopecat.models.run_request import RunRequest
-from scopecat.planning.validation import has_blocking_diagnostics
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    has_blocking_problems,
+    model_location,
+)
+from scopecat.value_validation import ValueValidationError
 
 
 @dataclass(frozen=True)
@@ -83,11 +92,13 @@ class ResolvedExperiment:
     parameters: ParameterRelationData
     environment: ValidatedConfigEnvironment
     config_source: RunConfigSource | None = None
-    diagnostics: tuple[Diagnostic, ...] = ()
+    problems: tuple[Problem, ...] = ()
 
 
 @dataclass(frozen=True)
-class _CompiledInvocation:
+class CompiledInvocation:
+    """Config-free result of compiling one prepared DSL invocation."""
+
     assembly: ExperimentAssemblyInternal
     request: RunRequest
     inputs: dict[str, object]
@@ -100,14 +111,16 @@ def resolve_experiment(
     config_entry: str | None = "active",
     config_profile: ConfigProfileInput | None = None,
 ) -> ResolvedExperiment:
+    prepared = prepare_invocation(experiment)
+    compiled = compile_prepared_invocation(prepared)
     config, source = _resolve_config_source(
         workspace=workspace,
         config_entry=config_entry,
         config_profile=config_profile,
     )
-    return resolve_experiment_with_config(
-        experiment,
-        config=config,
+    return resolve_compiled_invocation(
+        compiled,
+        environment=validate_config_environment(config),
         workspace=workspace,
         config_source=source,
     )
@@ -120,8 +133,9 @@ def resolve_experiment_with_config(
     workspace: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> ResolvedExperiment:
-    return resolve_prepared_invocation(
-        prepare_invocation(experiment),
+    compiled = compile_prepared_invocation(prepare_invocation(experiment))
+    return resolve_compiled_invocation(
+        compiled,
         environment=validate_config_environment(config),
         workspace=workspace,
         config_source=config_source,
@@ -135,9 +149,24 @@ def resolve_prepared_invocation(
     workspace: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> ResolvedExperiment:
-    if not environment.valid:
-        raise ValidationFailed(list(environment.diagnostics))
     compiled = compile_prepared_invocation(prepared)
+    return resolve_compiled_invocation(
+        compiled,
+        environment=environment,
+        workspace=workspace,
+        config_source=config_source,
+    )
+
+
+def resolve_compiled_invocation(
+    compiled: CompiledInvocation,
+    *,
+    environment: ValidatedConfigEnvironment,
+    workspace: str | Path,
+    config_source: RunConfigSource | None = None,
+) -> ResolvedExperiment:
+    if not environment.valid:
+        raise CheckFailed(list(environment.problems))
     return _link_assembly(
         compiled.assembly,
         request=compiled.request,
@@ -150,34 +179,19 @@ def resolve_prepared_invocation(
 
 def compile_prepared_invocation(
     prepared: PreparedInvocation,
-) -> _CompiledInvocation:
+) -> CompiledInvocation:
     invocation = prepared.invocation
     request_context = prepared.request_context
     scans = _effective_scans(invocation)
     inputs = _merged_inputs(invocation)
-
-    try:
-        compiled = _compile_invocation_template(invocation, inputs)
-        _validate_invocation_inputs(
-            invocation,
-            compiled,
-            inputs,
-            scans=scans,
-        )
-    except ValidationFailed:
-        raise
-    except Exception as error:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "experiment_authoring_compile_failed",
-                    "experiment authoring compile failed: "
-                    f"{type(error).__name__}: {error}",
-                    "authoring",
-                )
-            ]
-        ) from error
+    compiled = _compile_invocation_template(invocation, inputs)
+    _validate_invocation_inputs(
+        invocation,
+        compiled,
+        inputs,
+        scans=scans,
+    )
+    validate_scan_availability(scans)
     request = _materialized_request(request_context, inputs=inputs, scans=scans)
     merged_inputs = {**compiled.inputs, **inputs}
     assembly = replace(
@@ -191,7 +205,8 @@ def compile_prepared_invocation(
             scans,
             inputs=inputs,
         )
-    return _CompiledInvocation(
+    verify_assembly_graph(assembly)
+    return CompiledInvocation(
         assembly=assembly,
         request=request,
         inputs=merged_inputs,
@@ -250,27 +265,27 @@ def _validate_invocation_inputs(
         for description in invocation.template.inputs
         if description.id not in inputs and description.id not in scan_inputs
     ]
-    diagnostics: list[Diagnostic] = []
+    problems: list[Problem] = []
     if unknown:
-        diagnostics.append(
-            _diagnostic(
-                "error",
+        problems.append(
+            _problem(
                 "experiment_template_unknown_input",
                 "experiment template received unknown input: " + ", ".join(unknown),
-                "template.inputs",
+                "template",
+                path=("inputs",),
             )
         )
     if missing:
-        diagnostics.append(
-            _diagnostic(
-                "error",
+        problems.append(
+            _problem(
                 "experiment_template_missing_input",
                 "experiment template missing required input: " + ", ".join(missing),
-                "template.inputs",
+                "template",
+                path=("inputs",),
             )
         )
-    if diagnostics:
-        raise ValidationFailed(diagnostics)
+    if problems:
+        raise CheckFailed(problems)
 
 
 def _link_assembly(
@@ -288,22 +303,7 @@ def _link_assembly(
         workspace=Path(workspace),
         config_source=config_source,
     )
-    try:
-        experiment = link_experiment_assembly_internal(assembly, context)
-    except ValidationFailed:
-        raise
-    except Exception as error:
-        raise ValidationFailed(
-            [
-                _diagnostic(
-                    "error",
-                    "experiment_authoring_link_failed",
-                    "experiment authoring link failed: "
-                    f"{type(error).__name__}: {error}",
-                    "authoring",
-                )
-            ]
-        ) from error
+    experiment = link_experiment_assembly_internal(assembly, context)
     return _resolved_invocation(
         experiment,
         environment=environment,
@@ -312,9 +312,9 @@ def _link_assembly(
         request=request,
         inputs=inputs,
         parameters=environment.parameters,
-        authoring_diagnostics=[
-            *environment.diagnostics,
-            *context.diagnostics,
+        authoring_problems=[
+            *environment.problems,
+            *context.problems,
         ],
     )
 
@@ -328,12 +328,12 @@ def _resolved_invocation(
     request: RunRequest,
     inputs: Mapping[str, object],
     parameters: ParameterRelationData,
-    authoring_diagnostics: list[Diagnostic] | None = None,
+    authoring_problems: list[Problem] | None = None,
 ) -> ResolvedExperiment:
     del workspace
-    diagnostics = list(authoring_diagnostics or [])
-    if has_blocking_diagnostics(diagnostics):
-        raise ValidationFailed(diagnostics)
+    problems = list(authoring_problems or [])
+    if has_blocking_problems(problems):
+        raise CheckFailed(problems)
     resolved_request = request.model_copy(
         update={
             "config_source": (
@@ -352,7 +352,7 @@ def _resolved_invocation(
         parameters=parameters,
         environment=environment,
         config_source=config_source,
-        diagnostics=tuple(diagnostics),
+        problems=tuple(problems),
     )
 
 
@@ -411,10 +411,9 @@ def _validate_group_override_shape(
         axis_ids = {scan_point_id(leaf) for leaf in iter_scan_leaves(scan)}
         existing = axis_ids & known
         if existing and existing != axis_ids:
-            raise ValidationFailed(
+            raise CheckFailed(
                 [
-                    _diagnostic(
-                        "error",
+                    _problem(
                         "scan_group_mixed_override",
                         (
                             "scan group cannot mix overridden default axes with "
@@ -555,10 +554,9 @@ def _validate_scans(scans: Sequence[Scan]) -> None:
         {axis_id for axis_id in axis_ids if axis_ids.count(axis_id) > 1}
     )
     if duplicates:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "scan_axis_duplicate",
                     "duplicate scan axis: " + ", ".join(duplicates),
                     "scans",
@@ -577,11 +575,24 @@ def _validate_scan_target_types(
             expected = input_types.get(scan_point_id(scan))
             if expected is None:
                 continue
-            require_assignable(
-                scan.target.value_type,
-                expected,
-                path=f"scans.{scan_point_id(scan)}",
-            )
+            input_id = scan_point_id(scan)
+            try:
+                require_assignable(
+                    scan.target.value_type,
+                    expected,
+                    path=("scans", input_id),
+                )
+            except ValueValidationError as error:
+                raise CheckFailed(
+                    [
+                        _problem(
+                            "module_input_type_mismatch",
+                            str(error),
+                            "scans",
+                            path=(input_id,),
+                        )
+                    ]
+                ) from error
 
 
 def _validate_point_dependencies(
@@ -593,33 +604,33 @@ def _validate_point_dependencies(
         for root in scans
         for scan in iter_scan_leaves(root)
     }
-    diagnostics: list[Diagnostic] = []
+    problems: list[Problem] = []
     for dependency in assembly.point_dependencies:
         actual = scan_types.get(dependency.id)
         if actual is None:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     "experiment_point_dependency_missing",
                     f"module requires point {dependency.id!r}, but no scan provides it",
-                    f"scans.{dependency.id}",
+                    "scans",
+                    path=(dependency.id,),
                 )
             )
             continue
         if is_assignable(actual, dependency.value_type):
             continue
-        diagnostics.append(
-            _diagnostic(
-                "error",
+        problems.append(
+            _problem(
                 "experiment_point_dependency_type_mismatch",
                 f"scan for point {dependency.id!r} provides "
                 f"{describe_value_type(actual)}, but the module requires "
                 f"{describe_value_type(dependency.value_type)}",
-                f"scans.{dependency.id}",
+                "scans",
+                path=(dependency.id,),
             )
         )
-    if diagnostics:
-        raise ValidationFailed(diagnostics)
+    if problems:
+        raise CheckFailed(problems)
 
 
 def _combined_scan_points(
@@ -658,13 +669,11 @@ def _resolve_config_source(
 ) -> tuple[ConfigProfileSnapshot, RunConfigSource | None]:
     if config_profile is not None:
         if config_entry not in (None, "active"):
-            raise ValidationFailed(
+            raise CheckFailed(
                 [
-                    _diagnostic(
-                        "error",
+                    _configuration_problem(
                         "conflicting_experiment_authoring_config_source",
                         "provide either config_profile or config_entry, not both",
-                        "config",
                     )
                 ]
             )
@@ -672,13 +681,11 @@ def _resolve_config_source(
             return config_profile, None
         return load_config_profile(config_profile), None
     if config_entry is None:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _configuration_problem(
                     "missing_experiment_authoring_config_source",
                     "provide config_profile or config_entry",
-                    "config",
                 )
             ]
         )
@@ -688,8 +695,22 @@ def _resolve_config_source(
     )
 
 
+def _configuration_problem(code: str, message: str) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=ProblemCategory.INVALID_INPUT,
+        phase=ProblemPhase.CONFIGURATION,
+        location=model_location("config"),
+    )
+
+
 __all__ = [
+    "CompiledInvocation",
     "ResolvedExperiment",
+    "compile_prepared_invocation",
+    "resolve_compiled_invocation",
     "resolve_experiment",
     "resolve_experiment_with_config",
+    "resolve_prepared_invocation",
 ]

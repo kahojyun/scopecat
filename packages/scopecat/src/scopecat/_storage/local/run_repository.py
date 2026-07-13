@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Generator, Iterable
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
+from stat import S_ISDIR
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+from pydantic_core import PydanticSerializationError
 
 from scopecat._storage.local.io import (
     ensure_durable_directory,
@@ -44,12 +46,18 @@ from scopecat._storage.refs import (
     RUN_PLAN_REF,
     RUN_REQUEST_REF,
 )
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import DataIntegrityError, NotFound, StorageError
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
 from scopecat.models.run_plan import RunPlanRecord
 from scopecat.models.run_request import RunRequest
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemImpact,
+    ProblemPhase,
+    StorageLocation,
+)
 
 
 class LocalRunStore:
@@ -68,25 +76,43 @@ class LocalRunStore:
         return self.layout.ref_path(run_id, ref)
 
     def exists(self, run_id: str, ref: str) -> bool:
-        return self.ref_path(run_id, ref).exists()
+        path = self.ref_path(run_id, ref)
+        try:
+            path.stat()
+        except FileNotFoundError:
+            return False
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
+        return True
 
     def read_manifest(self, run_id: str) -> RunManifest:
         manifest_path = self.ref_path(run_id, MANIFEST_REF)
-        if not manifest_path.is_file():
-            raise ValidationFailed(
+        try:
+            return _read_model(manifest_path, RunManifest)
+        except FileNotFoundError as error:
+            raise NotFound(
                 [
-                    _diagnostic(
-                        "error",
-                        "run_not_found",
-                        f"run not found: {run_id}",
-                        "run_id",
+                    _run_problem(
+                        run_id=run_id,
+                        ref=MANIFEST_REF,
+                        code="run.not_found",
+                        category=ProblemCategory.NOT_FOUND,
+                        message="run was not found",
                     )
                 ]
-            )
-        return _read_model(manifest_path, RunManifest)
+            ) from error
+        except (IsADirectoryError, UnicodeError, ValidationError) as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=MANIFEST_REF,
+                code="run.manifest_invalid",
+                message="run manifest does not match its durable schema",
+            ) from error
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=MANIFEST_REF) from error
 
     def write_manifest(self, manifest: RunManifest) -> None:
-        _write_model_atomic(self.ref_path(manifest.run_id, MANIFEST_REF), manifest)
+        self.write_model_atomic(manifest.run_id, MANIFEST_REF, manifest)
 
     @contextmanager
     def run_lock(self, run_id: str) -> Generator[None]:
@@ -97,34 +123,40 @@ class LocalRunStore:
         acquiring it a second time.
         """
 
-        lock_path = self.layout.run_dir(run_id) / ".run.lock"
-        ensure_durable_directory(lock_path.parent)
-        with lock_path.open("a+b") as lock_file:
-            flock(lock_file.fileno(), LOCK_EX)
-            try:
-                yield
-            finally:
-                flock(lock_file.fileno(), LOCK_UN)
+        lock_ref = ".run.lock"
+        lock_path = self.ref_path(run_id, lock_ref)
+        with _exclusive_lock(lock_path, run_id=run_id, ref=lock_ref):
+            yield
 
     @contextmanager
     def config_registry_lock(self) -> Generator[None]:
         """Join the registry-to-run lock order used by promotion decisions."""
 
-        lock_path = self.layout.workspace / CONFIG_REGISTRY_LOCK_REF
-        ensure_durable_directory(lock_path.parent)
-        with lock_path.open("a+b") as lock_file:
-            flock(lock_file.fileno(), LOCK_EX)
-            try:
-                yield
-            finally:
-                flock(lock_file.fileno(), LOCK_UN)
+        lock_path = self.layout.workspace_ref_path(CONFIG_REGISTRY_LOCK_REF)
+        with _exclusive_lock(lock_path, ref=CONFIG_REGISTRY_LOCK_REF):
+            yield
 
     def list_runs(self) -> list[RunManifest]:
-        if not self.layout.runs_root.is_dir():
+        runs_root = self.layout.validated_runs_root()
+        try:
+            root_stat = runs_root.stat()
+        except FileNotFoundError:
             return []
+        except OSError as error:
+            raise _storage_failure(ref="runs") from error
+        if not S_ISDIR(root_stat.st_mode):
+            raise _integrity_failure(
+                ref="runs",
+                code="run.repository_invalid",
+                message="run repository root is not a directory",
+            )
+        try:
+            manifest_paths = sorted(runs_root.glob("*/manifest.json"))
+        except OSError as error:
+            raise _storage_failure(ref="runs") from error
         manifests: list[RunManifest] = []
-        for manifest_path in sorted(self.layout.runs_root.glob("*/manifest.json")):
-            manifests.append(_read_model(manifest_path, RunManifest))
+        for manifest_path in manifest_paths:
+            manifests.append(self.read_manifest(manifest_path.parent.name))
         return sorted(manifests, key=lambda manifest: manifest.created_at)
 
     def write_structured_run_inputs(
@@ -167,6 +199,7 @@ class LocalRunStore:
         )
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
+        self.read_manifest(run_id)
         return self.read_model(
             run_id, CONFIG_PROFILE_SNAPSHOT_REF, ConfigProfileSnapshot
         )
@@ -174,13 +207,43 @@ class LocalRunStore:
     def read_model[TModel: BaseModel](
         self, run_id: str, ref: str, model_type: type[TModel]
     ) -> TModel:
-        return _read_model(self.ref_path(run_id, ref), model_type)
+        path = self.ref_path(run_id, ref)
+        try:
+            return _read_model(path, model_type)
+        except FileNotFoundError as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_missing",
+                message="run is missing a referenced durable record",
+            ) from error
+        except (IsADirectoryError, UnicodeError, ValidationError) as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_invalid",
+                message="run record does not match its durable schema",
+            ) from error
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
 
     def write_model(self, run_id: str, ref: str, model: BaseModel) -> None:
-        _write_model(self.ref_path(run_id, ref), model)
+        path = self.ref_path(run_id, ref)
+        try:
+            _write_model(path, model)
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
+        except (PydanticSerializationError, TypeError, ValueError) as error:
+            raise _serialization_failure(run_id=run_id, ref=ref) from error
 
     def write_model_atomic(self, run_id: str, ref: str, model: BaseModel) -> None:
-        _write_model_atomic(self.ref_path(run_id, ref), model)
+        path = self.ref_path(run_id, ref)
+        try:
+            _write_model_atomic(path, model)
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
+        except (PydanticSerializationError, TypeError, ValueError) as error:
+            raise _serialization_failure(run_id=run_id, ref=ref) from error
 
     def write_model_if_absent(
         self,
@@ -188,24 +251,184 @@ class LocalRunStore:
         ref: str,
         model: BaseModel,
     ) -> bool:
-        return _write_model_if_absent(self.ref_path(run_id, ref), model)
+        path = self.ref_path(run_id, ref)
+        try:
+            return _write_model_if_absent(path, model)
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
+        except (PydanticSerializationError, TypeError, ValueError) as error:
+            raise _serialization_failure(run_id=run_id, ref=ref) from error
 
     def read_jsonl[TModel: BaseModel](
         self, run_id: str, ref: str, model_type: type[TModel]
     ) -> list[TModel]:
-        return _read_jsonl(self.ref_path(run_id, ref), model_type)
+        path = self.ref_path(run_id, ref)
+        try:
+            return _read_jsonl(path, model_type)
+        except FileNotFoundError as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_missing",
+                message="run is missing a referenced durable record",
+            ) from error
+        except (IsADirectoryError, UnicodeError, ValidationError) as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_invalid",
+                message="run record does not match its durable schema",
+            ) from error
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
 
     def write_jsonl(self, run_id: str, ref: str, records: Iterable[BaseModel]) -> None:
-        _write_jsonl(self.ref_path(run_id, ref), records)
+        path = self.ref_path(run_id, ref)
+        try:
+            _write_jsonl(path, records)
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
+        except (PydanticSerializationError, TypeError, ValueError) as error:
+            raise _serialization_failure(run_id=run_id, ref=ref) from error
 
     def read_text(self, run_id: str, ref: str) -> str:
-        return _read_text(self.ref_path(run_id, ref))
+        path = self.ref_path(run_id, ref)
+        try:
+            return _read_text(path)
+        except FileNotFoundError as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_missing",
+                message="run is missing a referenced durable record",
+            ) from error
+        except (IsADirectoryError, UnicodeError) as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_invalid",
+                message="run record is not valid text",
+            ) from error
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
+
+    def read_bytes(self, run_id: str, ref: str) -> bytes:
+        path = self.ref_path(run_id, ref)
+        try:
+            return path.read_bytes()
+        except FileNotFoundError as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_missing",
+                message="run is missing a referenced durable record",
+            ) from error
+        except IsADirectoryError as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_invalid",
+                message="run record is not a readable file",
+            ) from error
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
 
     def write_text(self, run_id: str, ref: str, content: str) -> None:
-        _write_text(self.ref_path(run_id, ref), content)
+        path = self.ref_path(run_id, ref)
+        try:
+            _write_text(path, content)
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+@contextmanager
+def _exclusive_lock(
+    path: Path,
+    *,
+    ref: str,
+    run_id: str | None = None,
+) -> Generator[None]:
+    lock_file = None
+    try:
+        ensure_durable_directory(path.parent)
+        lock_file = path.open("a+b")
+        flock(lock_file.fileno(), LOCK_EX)
+    except OSError as error:
+        if lock_file is not None:
+            with suppress(OSError):
+                lock_file.close()
+        raise _storage_failure(run_id=run_id, ref=ref) from error
+    assert lock_file is not None
+    try:
+        yield
+    finally:
+        try:
+            flock(lock_file.fileno(), LOCK_UN)
+            lock_file.close()
+        except OSError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
+
+
+def _serialization_failure(*, run_id: str, ref: str) -> DataIntegrityError:
+    return _integrity_failure(
+        run_id=run_id,
+        ref=ref,
+        code="run.ref_not_serializable",
+        message="run record cannot be represented by the durable format",
+    )
+
+
+def _integrity_failure(
+    *,
+    ref: str,
+    code: str,
+    message: str,
+    run_id: str | None = None,
+) -> DataIntegrityError:
+    return DataIntegrityError(
+        [
+            _run_problem(
+                run_id=run_id,
+                ref=ref,
+                code=code,
+                category=ProblemCategory.DATA_INTEGRITY,
+                message=message,
+            )
+        ]
+    )
+
+
+def _storage_failure(
+    *,
+    ref: str,
+    run_id: str | None = None,
+) -> StorageError:
+    return StorageError(
+        [
+            _run_problem(
+                run_id=run_id,
+                ref=ref,
+                code="storage.operation_failed",
+                category=ProblemCategory.STORAGE,
+                message="storage could not complete the run repository operation",
+            )
+        ]
+    )
+
+
+def _run_problem(
+    *,
+    ref: str,
+    code: str,
+    category: ProblemCategory,
+    message: str,
+    run_id: str | None = None,
+) -> Problem:
+    return Problem(
+        code=code,
+        impact=ProblemImpact.BLOCKING,
+        category=category,
+        phase=ProblemPhase.PERSISTENCE,
+        message=message,
+        location=StorageLocation(run_id=run_id, ref=ref),
+    )

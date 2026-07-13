@@ -2,24 +2,66 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
-from typing import Any
 
-from scopecat._execution.journal import ExecutionJournal, ExecutionJournalEntry
-from scopecat.instruments.events import (
+from pydantic import JsonValue
+
+from scopecat._execution.journal import ExecutionJournal, ExecutionTransition
+from scopecat.models.artifact import CommandPayload
+from scopecat.models.run import RunOutcome
+from scopecat.runtime import (
+    RunFinishedEvent,
+    RunStartedEvent,
     RuntimeEvent,
-    RuntimeEventKind,
     RuntimeEventSink,
     RuntimePayloadObservation,
     RuntimePayloadObserver,
+    RuntimeProgress,
+    RuntimeTransitionEvent,
 )
-from scopecat.models.artifact import CommandPayload
-from scopecat.models.run import RunStatus
+
+logger = logging.getLogger(__name__)
+
+_OBSERVATION_METRIC_KEYS = frozenset(
+    {
+        "channel_count",
+        "channel_order",
+        "changed_field_count",
+        "compute_evaluated_node_count",
+        "compute_payload_count",
+        "compute_reused_node_count",
+        "compute_step_count",
+        "compute_status",
+        "compiler_id",
+        "dependencies",
+        "dtype",
+        "entity_ids",
+        "field_count",
+        "fields",
+        "kernel_id",
+        "measurement_count",
+        "observable_ids",
+        "payload_count",
+        "payload_id",
+        "receipt_status",
+        "request_count",
+        "sample_dtype",
+        "sample_shape",
+        "schema_id",
+        "shape",
+        "skipped_field_count",
+        "source_program_id",
+        "state_command_count",
+        "type",
+        "value_count",
+    }
+)
 
 
 class ObservedExecutionJournal:
-    """Decorate the required journal with a lossy UI event stream."""
+    """Decorate the required journal with a lossy, non-authoritative stream."""
 
     def __init__(
         self,
@@ -35,50 +77,36 @@ class ObservedExecutionJournal:
         self._point_count = point_count
         self._completed_points: set[int] = set()
 
-    def append(self, entry: ExecutionJournalEntry) -> ExecutionJournalEntry:
+    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         committed = self._journal.append(entry)
         self._observe(committed)
         return committed
 
-    def _observe(self, entry: ExecutionJournalEntry) -> None:
-        event_kind: RuntimeEventKind | None = None
-        if entry.stage == "point" and entry.state == "started":
-            event_kind = "point_started"
-        elif entry.stage == "point" and entry.state != "started":
-            if entry.state == "completed" and entry.point_index is not None:
-                self._completed_points.add(entry.point_index)
-            event_kind = "point_finished"
-        elif entry.stage == "compute" and entry.state == "completed":
-            event_kind = "compute_finished"
-        elif entry.stage == "apply_state" and entry.state == "completed":
-            event_kind = "state_applied"
-        elif entry.stage == "apply_state" and entry.state != "started":
-            event_kind = "state_reconcile_finished"
-        elif entry.stage == "collect" and entry.state == "started":
-            event_kind = "collect_started"
-        elif entry.stage == "collect" and entry.state != "started":
-            event_kind = "collect_finished"
-        elif entry.stage == "commit_point" and entry.state == "completed":
-            event_kind = "record_emitted"
-        if event_kind is None:
-            return
+    def _observe(self, transition: ExecutionTransition) -> None:
+        if (
+            transition.stage == "point"
+            and transition.state == "completed"
+            and transition.point_index is not None
+        ):
+            self._completed_points.add(transition.point_index)
         _emit(
             self._event_sink,
-            RuntimeEvent(
-                kind=event_kind,
-                run_id=entry.run_id,
+            RuntimeTransitionEvent(
+                run_id=transition.run_id,
                 experiment_id=self._experiment_id,
-                point_index=entry.point_index,
-                instrument_id=entry.instrument_id,
-                progress={
-                    "completed_points": len(self._completed_points),
-                    "total_points": self._point_count,
-                },
-                summary={
-                    **entry.summary,
-                    "operation_id": entry.operation_id,
-                    "operation_state": entry.state,
-                },
+                sequence=transition.sequence,
+                occurred_at=transition.timestamp,
+                operation_id=transition.operation_id,
+                stage=transition.stage,
+                effect=transition.effect,
+                state=transition.state,
+                point_index=transition.point_index,
+                instrument_id=transition.instrument_id,
+                progress=RuntimeProgress(
+                    completed_points=len(self._completed_points),
+                    total_points=self._point_count,
+                ),
+                metrics=_observation_metrics(transition.evidence),
             ),
         )
 
@@ -94,15 +122,12 @@ def emit_run_started(
 ) -> None:
     _emit(
         event_sink,
-        RuntimeEvent(
-            kind="run_started",
+        RunStartedEvent(
             run_id=run_id,
             experiment_id=experiment_id,
-            progress={"completed_points": 0, "total_points": point_count},
-            summary={
-                "instrument_ids": instrument_ids,
-                "record_ids": output_ids,
-            },
+            progress=RuntimeProgress(completed_points=0, total_points=point_count),
+            instrument_ids=tuple(instrument_ids),
+            record_ids=tuple(output_ids),
         ),
     )
 
@@ -112,33 +137,32 @@ def emit_run_finished(
     event_sink: RuntimeEventSink | None,
     run_id: str,
     experiment_id: str,
-    status: RunStatus,
+    outcome: RunOutcome,
     completed_point_count: int,
     point_count: int,
     measurement_count: int,
-    diagnostic_count: int,
+    problem_count: int,
     compute_evaluated_node_count: int,
     compute_reused_node_count: int,
     compute_payload_count: int,
 ) -> None:
     _emit(
         event_sink,
-        RuntimeEvent(
-            kind="run_finished",
+        RunFinishedEvent(
             run_id=run_id,
             experiment_id=experiment_id,
-            progress={
-                "completed_points": completed_point_count,
-                "total_points": point_count,
-            },
-            summary={
-                "status": status,
-                "measurement_count": measurement_count,
-                "diagnostic_count": diagnostic_count,
-                "compute_evaluated_node_count": compute_evaluated_node_count,
-                "compute_reused_node_count": compute_reused_node_count,
-                "compute_payload_count": compute_payload_count,
-            },
+            progress=RuntimeProgress(
+                completed_points=completed_point_count,
+                total_points=point_count,
+            ),
+            result=outcome.result,
+            certainty=outcome.certainty,
+            termination_reason=outcome.termination_reason,
+            measurement_count=measurement_count,
+            problem_count=problem_count,
+            compute_evaluated_node_count=compute_evaluated_node_count,
+            compute_reused_node_count=compute_reused_node_count,
+            compute_payload_count=compute_payload_count,
         ),
     )
 
@@ -182,16 +206,20 @@ def observe_payload(
                 },
             )
         )
-    except Exception:
-        return
+    except BaseException as error:
+        _log_observer_failure(
+            error,
+            adapter="payload_observer",
+            run_id=run_id,
+        )
 
 
-def payload_summary(value: object) -> dict[str, Any]:
+def payload_summary(value: object) -> dict[str, JsonValue]:
     """Return bounded, JSON-safe structural metadata for an opaque payload."""
 
     if value is None:
         return {"type": "None"}
-    summary: dict[str, Any] = {
+    summary: dict[str, JsonValue] = {
         "type": f"{type(value).__module__}.{type(value).__qualname__}",
     }
     if is_dataclass(value) and not isinstance(value, type):
@@ -224,13 +252,32 @@ def payload_summary(value: object) -> dict[str, Any]:
     return summary
 
 
+def _observation_metrics(evidence: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    return {
+        key: value for key, value in evidence.items() if key in _OBSERVATION_METRIC_KEYS
+    }
+
+
 def _emit(sink: RuntimeEventSink | None, event: RuntimeEvent) -> None:
     if sink is None:
         return
     try:
         sink(event)
-    except Exception:
-        return
+    except BaseException as error:
+        _log_observer_failure(error, adapter="event_sink", run_id=event.run_id)
+
+
+def _log_observer_failure(
+    error: BaseException,
+    *,
+    adapter: str,
+    run_id: str,
+) -> None:
+    logger.error(
+        "runtime observation adapter failed",
+        extra={"adapter": adapter, "run_id": run_id},
+        exc_info=(type(error), error, error.__traceback__),
+    )
 
 
 __all__ = [

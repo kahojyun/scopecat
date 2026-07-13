@@ -24,11 +24,12 @@ def test_decide_online_convergence_stops_when_tail_is_stable() -> None:
     restored = EarlyStopDecision.model_validate_json(decision.model_dump_json())
 
     assert restored == decision
-    assert decision.schema_version == "scopecat.early_stop_decision.v2"
+    assert decision.schema_version == "scopecat.early_stop_decision.v3"
     assert decision.stop is True
-    assert decision.completed_point_indices == [0, 1, 2]
+    assert decision.evaluation_status == "evaluated"
+    assert decision.completed_point_indices == (0, 1, 2)
     assert decision.reason == "last 2 'score' values within 0.01"
-    assert decision.diagnostics == []
+    assert decision.problems == ()
 
 
 def test_decide_online_convergence_reports_insufficient_points() -> None:
@@ -45,10 +46,9 @@ def test_decide_online_convergence_reports_insufficient_points() -> None:
     )
 
     assert decision.stop is False
-    assert decision.completed_point_indices == [0]
-    assert [diagnostic.code for diagnostic in decision.diagnostics] == [
-        "insufficient_convergence_points",
-    ]
+    assert decision.evaluation_status == "collecting"
+    assert decision.completed_point_indices == (0,)
+    assert decision.problems == ()
 
 
 def test_decide_online_convergence_reports_invalid_rows() -> None:
@@ -66,8 +66,9 @@ def test_decide_online_convergence_reports_invalid_rows() -> None:
     )
 
     assert decision.stop is False
-    assert decision.completed_point_indices == [0, 1, 2]
-    assert [diagnostic.code for diagnostic in decision.diagnostics] == [
+    assert decision.evaluation_status == "invalid"
+    assert decision.completed_point_indices == (0, 1, 2)
+    assert [problem.code for problem in decision.problems] == [
         "missing_convergence_column",
         "invalid_convergence_value",
     ]

@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from scopecat._storage.local import LocalRunStore
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.run import RunManifest
+from scopecat.problems import ModelLocation, model_location
 from scopecat.results import (
     MeasurementDataset,
-    MeasurementDatasetInputDiagnostics,
+    MeasurementDatasetReadContract,
     MeasurementRecord,
 )
 from scopecat.runs.access import (
@@ -40,23 +41,24 @@ class StepInputArtifact:
 
 
 @dataclass(frozen=True)
-class ArtifactInputDiagnostics:
+class ArtifactInputContract:
     not_found_code: str
     invalid_kind_code: str
     path_escape_code: str
     not_found_message: str
     invalid_kind_message: str
     path_escape_message: str
-    diagnostic_path: str = "input"
+    location: ModelLocation = field(
+        default_factory=lambda: model_location("run_access", "input")
+    )
 
 
 @dataclass(frozen=True)
-class MeasurementInputDiagnostics:
+class MeasurementInputContract:
     missing_code: str
     empty_code: str
     invalid_code: str
     noun: str
-    diagnostic_path: str | None = None
 
 
 class StepInputResolver:
@@ -90,13 +92,13 @@ class StepInputResolver:
         *,
         path_escape_code: str,
         path_escape_message: str,
-        diagnostic_path: str,
+        location: ModelLocation,
     ) -> None:
         validate_run_entry_selector(
             ref,
             code=path_escape_code,
             message_prefix=path_escape_message,
-            path=diagnostic_path,
+            location=location,
         )
         self._append_input_record_ref(ref)
 
@@ -107,13 +109,13 @@ class StepInputResolver:
         ref: str,
         path_escape_code: str,
         path_escape_message: str,
-        diagnostic_path: str,
+        location: ModelLocation,
     ) -> StepInputArtifact:
         validate_run_entry_selector(
             ref,
             code=path_escape_code,
             message_prefix=path_escape_message,
-            path=diagnostic_path,
+            location=location,
         )
         self._append_input_artifact_id(artifact_id)
         return StepInputArtifact(
@@ -129,13 +131,13 @@ class StepInputResolver:
         ref: str,
         path_escape_code: str,
         path_escape_message: str,
-        diagnostic_path: str,
+        location: ModelLocation,
     ) -> StepInputArtifact:
         validate_run_entry_selector(
             ref,
             code=path_escape_code,
             message_prefix=path_escape_message,
-            path=diagnostic_path,
+            location=location,
         )
         self._append_input_dataset_id(dataset_id)
         dataset = get_dataset_by_id(self._manifest, dataset_id)
@@ -152,19 +154,19 @@ class StepInputResolver:
         *,
         selector: str,
         expected_kind: str,
-        diagnostics: ArtifactInputDiagnostics,
+        contract: ArtifactInputContract,
     ) -> StepInputArtifact:
         artifact = resolve_artifact(
             manifest=self._manifest,
             selector=selector,
             expected_kind=expected_kind,
-            not_found_code=diagnostics.not_found_code,
-            invalid_kind_code=diagnostics.invalid_kind_code,
-            path_escape_code=diagnostics.path_escape_code,
-            not_found_message=diagnostics.not_found_message,
-            invalid_kind_message=diagnostics.invalid_kind_message,
-            path_escape_message=diagnostics.path_escape_message,
-            diagnostic_path=diagnostics.diagnostic_path,
+            not_found_code=contract.not_found_code,
+            invalid_kind_code=contract.invalid_kind_code,
+            path_escape_code=contract.path_escape_code,
+            not_found_message=contract.not_found_message,
+            invalid_kind_message=contract.invalid_kind_message,
+            path_escape_message=contract.path_escape_message,
+            location=contract.location,
         )
         self._append_input_artifact_id(artifact.id)
         ref = artifact_storage_ref(artifact)
@@ -180,19 +182,19 @@ class StepInputResolver:
         *,
         selector: str,
         expected_kind: str,
-        diagnostics: ArtifactInputDiagnostics,
+        contract: ArtifactInputContract,
     ) -> StepInputArtifact:
         dataset = resolve_dataset(
             manifest=self._manifest,
             selector=selector,
             expected_kind=expected_kind,
-            not_found_code=diagnostics.not_found_code,
-            invalid_kind_code=diagnostics.invalid_kind_code,
-            path_escape_code=diagnostics.path_escape_code,
-            not_found_message=diagnostics.not_found_message,
-            invalid_kind_message=diagnostics.invalid_kind_message,
-            path_escape_message=diagnostics.path_escape_message,
-            diagnostic_path=diagnostics.diagnostic_path,
+            not_found_code=contract.not_found_code,
+            invalid_kind_code=contract.invalid_kind_code,
+            path_escape_code=contract.path_escape_code,
+            not_found_message=contract.not_found_message,
+            invalid_kind_message=contract.invalid_kind_message,
+            path_escape_message=contract.path_escape_message,
+            location=contract.location,
         )
         self._append_input_dataset_id(dataset.id)
         ref = dataset_storage_ref(dataset)
@@ -208,7 +210,7 @@ class StepInputResolver:
         self,
         input_artifact: StepInputArtifact,
         *,
-        diagnostics: MeasurementInputDiagnostics,
+        contract: MeasurementInputContract,
     ) -> list[MeasurementRecord]:
         if input_artifact.is_dataset:
             self._append_input_dataset_id(input_artifact.artifact_id)
@@ -217,18 +219,17 @@ class StepInputResolver:
         return read_measurement_records_path(
             path=input_artifact.path,
             ref=input_artifact.ref,
-            missing_code=diagnostics.missing_code,
-            empty_code=diagnostics.empty_code,
-            invalid_code=diagnostics.invalid_code,
-            noun=diagnostics.noun,
-            diagnostic_path=diagnostics.diagnostic_path or input_artifact.ref,
+            missing_code=contract.missing_code,
+            empty_code=contract.empty_code,
+            invalid_code=contract.invalid_code,
+            noun=contract.noun,
         )
 
     def read_measurement_dataset(
         self,
         input_artifact: StepInputArtifact,
         *,
-        diagnostics: MeasurementDatasetInputDiagnostics,
+        contract: MeasurementDatasetReadContract,
     ) -> MeasurementDataset:
         self._append_input_dataset_id(input_artifact.artifact_id)
         if input_artifact.dataset is None:
@@ -240,7 +241,7 @@ class StepInputResolver:
             ref=input_artifact.ref,
             schema_data=input_artifact.dataset.data_schema,
             metadata=input_artifact.dataset.metadata,
-            diagnostics=diagnostics,
+            contract=contract,
         )
 
     def _append_input_artifact_id(self, artifact_id: str) -> None:

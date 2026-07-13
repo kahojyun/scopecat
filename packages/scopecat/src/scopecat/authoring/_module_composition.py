@@ -10,8 +10,10 @@ from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
     ResourcePort,
     ResourceSelector,
+    prefix_resource_port,
 )
 from scopecat.authoring._frozen_values import empty_frozen_mapping
+from scopecat.authoring._handles import replace_handle
 from scopecat.authoring._intents import (
     ComputeNodeInputValue,
     ComputeNodeIntent,
@@ -25,7 +27,8 @@ from scopecat.authoring._module_handles import (
     ExperimentModule,
     ModuleInvocation,
     entity_input_ids_internal,
-    module_exposed_input_types_internal,
+    module_invocation_input_refs_internal,
+    module_invocation_origin_internal,
 )
 from scopecat.authoring._parameter_contracts import (
     ParameterContract,
@@ -37,22 +40,20 @@ from scopecat.authoring._record_intents import (
     RecordIntent,
     localize_product_input_refs,
     localize_record_input_refs,
+    prefix_product_port,
 )
 from scopecat.authoring._value_refs import (
     PointValueDependency,
     ValueRef,
     internal_bind_value_ref_inputs,
-    internal_literal_value_ref,
     internal_scope_compute_value_ref,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
-    require_assignable,
 )
 from scopecat.authoring.value_types import (
     Table as TableType,
 )
-from scopecat.authoring.value_types import ValueType
-from scopecat.authoring.values import MetadataValue
+from scopecat.authoring.values import MetadataValue, RouteRef
 
 
 @dataclass(frozen=True)
@@ -164,11 +165,19 @@ def assemble_module_internal(
     )
     if not module.invocations:
         return own
+    invocation_scopes = tuple(
+        source.instance_id or f"{source.module.id}[{index}]"
+        for index, source in enumerate(module.invocations)
+    )
+    duplicates = sorted(
+        scope for scope in set(invocation_scopes) if invocation_scopes.count(scope) > 1
+    )
+    if duplicates:
+        duplicate_list = ", ".join(repr(scope) for scope in duplicates)
+        msg = f"module {module.id!r} has duplicate instance ids: {duplicate_list}"
+        raise ValueError(msg)
     source_assemblies = tuple(
-        _localize_module_invocation_assembly(
-            source,
-            scope=(f"{source.module.id}[{index}]",),
-        )
+        _localize_module_invocation_assembly(source, scope=(invocation_scopes[index],))
         for index, source in enumerate(module.invocations)
     )
     combined = ExperimentAssemblyInternal.combine(
@@ -182,21 +191,18 @@ def assemble_module_internal(
 def assemble_invocation_internal(
     invocation: ModuleInvocation,
 ) -> ExperimentAssemblyInternal:
+    if invocation.instance_id is not None:
+        return _localize_module_invocation_assembly(
+            invocation,
+            scope=(invocation.instance_id,),
+        )
     return assemble_module_internal(invocation.module, **invocation.inputs)
 
 
 def _module_invocation_inputs(
     invocation: ModuleInvocation,
 ) -> dict[str, object]:
-    input_types = module_exposed_input_types_internal(invocation.module)
-    return {
-        input_id: _module_invocation_input_expr(
-            value,
-            input_id=input_id,
-            value_type=input_types[input_id],
-        )
-        for input_id, value in invocation.inputs.items()
-    }
+    return dict(module_invocation_input_refs_internal(invocation))
 
 
 def _module_parameter_contracts(
@@ -267,6 +273,7 @@ def _module_value_roots(module: ExperimentModule) -> tuple[object, ...]:
     values.extend(
         value for node in module.compute_nodes for _name, value in node.inputs
     )
+    values.extend(port.value for port in module.output_ports)
     values.extend(axis.size for record in module.records for axis in record.axes)
     values.extend(
         axis.size for product in module.product_ports for axis in product.axes
@@ -326,12 +333,15 @@ def _localize_module_invocation_assembly(
     *,
     scope: tuple[str, ...],
 ) -> ExperimentAssemblyInternal:
+    origin = (module_invocation_origin_internal(invocation),)
     local_inputs = _module_invocation_inputs(invocation)
     assembly = assemble_module_internal(invocation.module, **local_inputs)
-    resource_ports = _localize_resource_port_input_refs(
+    resource_ports, resource_ids = _localize_resource_port_input_refs(
         assembly.resource_ports,
         local_inputs,
         scope=scope,
+        origin=origin,
+        qualify=invocation.instance_id is not None,
     )
     return replace(
         assembly,
@@ -350,41 +360,85 @@ def _localize_module_invocation_assembly(
         ),
         resource_ports=resource_ports,
         bindings=tuple(
-            _localize_binding_input_refs(binding, local_inputs, scope=scope)
+            _localize_binding_input_refs(
+                binding,
+                local_inputs,
+                scope=scope,
+                origin=origin,
+                resource_ids=resource_ids,
+            )
             for binding in assembly.bindings
         ),
         state_intents=tuple(
-            _localize_state_input_refs(intent, local_inputs, scope=scope)
+            _localize_state_input_refs(
+                intent,
+                local_inputs,
+                scope=scope,
+                origin=origin,
+                resource_ids=resource_ids,
+            )
             for intent in assembly.state_intents
         ),
         compute_nodes=tuple(
-            _localize_compute_input_refs(node, local_inputs, scope=scope)
+            _localize_compute_input_refs(
+                node,
+                local_inputs,
+                scope=scope,
+                origin=origin,
+                resource_ids=resource_ids,
+            )
             for node in assembly.compute_nodes
         ),
         records=tuple(
-            localize_record_input_refs(
+            _localize_record(
                 record,
                 local_inputs,
-                localize_value_ref=lambda value, inputs: _localize_value_ref(
-                    value,
-                    inputs,
-                    scope=scope,
-                ),
+                scope=scope,
+                origin=origin,
+                resource_ids=resource_ids,
             )
             for record in assembly.records
         ),
         product_ports=tuple(
-            localize_product_input_refs(
+            _localize_product_port(
                 product,
                 local_inputs,
-                localize_value_ref=lambda value, inputs: _localize_value_ref(
-                    value,
-                    inputs,
-                    scope=scope,
-                ),
+                scope=scope,
+                origin=origin,
+                qualify=invocation.instance_id is not None,
+                resource_ids=resource_ids,
             )
             for product in assembly.product_ports
         ),
+    )
+
+
+def _localize_product_port(
+    product: ModuleProductPort,
+    inputs: Mapping[str, object],
+    *,
+    scope: tuple[str, ...],
+    origin: tuple[object, ...],
+    qualify: bool,
+    resource_ids: Mapping[str, str],
+) -> ModuleProductPort:
+    localized = localize_product_input_refs(
+        product,
+        inputs,
+        localize_value_ref=lambda value, selected_inputs: _localize_value_ref(
+            value,
+            selected_inputs,
+            scope=scope,
+            origin=origin,
+        ),
+    )
+    return prefix_product_port(
+        replace(
+            localized,
+            resource=_localized_resource_id(localized.resource, resource_ids),
+        ),
+        *(scope if qualify else ()),
+        origin=origin,
     )
 
 
@@ -393,12 +447,20 @@ def _localize_resource_port_input_refs(
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
-) -> tuple[ResourcePort, ...]:
+    origin: tuple[object, ...],
+    qualify: bool,
+) -> tuple[tuple[ResourcePort, ...], dict[str, str]]:
     localized_ports: list[ResourcePort] = []
+    resource_ids: dict[str, str] = {}
     for port in ports:
         entity_inputs: list[ValueRef] = []
         for source in port.selector.entity_inputs:
-            localized = _localize_value_ref(source, inputs, scope=scope)
+            localized = _localize_value_ref(
+                source,
+                inputs,
+                scope=scope,
+                origin=origin,
+            )
             if isinstance(localized.value_type, TableType):
                 msg = (
                     "resource entity source must be scalar or series-shaped; "
@@ -406,32 +468,40 @@ def _localize_resource_port_input_refs(
                 )
                 raise TypeError(msg)
             entity_inputs.append(localized)
-        localized_ports.append(
-            replace(
-                port,
-                selector=ResourceSelector(
-                    capabilities=port.selector.capabilities,
-                    entity_inputs=tuple(entity_inputs),
-                ),
-            )
+        localized = replace(
+            port,
+            selector=ResourceSelector(
+                capabilities=port.selector.capabilities,
+                entity_inputs=tuple(entity_inputs),
+            ),
         )
-    return tuple(localized_ports)
+        selected = prefix_resource_port(localized, *scope) if qualify else localized
+        localized_ports.append(selected)
+        resource_ids[port.qualified_id] = selected.qualified_id
+    return tuple(localized_ports), resource_ids
 
 
-def _module_invocation_input_expr(
-    value: object,
+def _localize_record(
+    record: RecordIntent,
+    inputs: Mapping[str, object],
     *,
-    input_id: str,
-    value_type: ValueType,
-) -> ValueRef:
-    path = f"inputs.{input_id}"
-    if isinstance(value, ValueRef):
-        require_assignable(value.value_type, value_type, path=path)
-        return value
-    return internal_literal_value_ref(
-        value,
-        value_type,
-        path=path,
+    scope: tuple[str, ...],
+    origin: tuple[object, ...],
+    resource_ids: Mapping[str, str],
+) -> RecordIntent:
+    localized = localize_record_input_refs(
+        record,
+        inputs,
+        localize_value_ref=lambda value, selected_inputs: _localize_value_ref(
+            value,
+            selected_inputs,
+            scope=scope,
+            origin=origin,
+        ),
+    )
+    return replace(
+        localized,
+        resource=_localized_resource_id(localized.resource, resource_ids),
     )
 
 
@@ -440,6 +510,7 @@ def _localize_value_ref(
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
+    origin: tuple[object, ...],
 ) -> ValueRef:
     """Attach a typed child-input environment without lowering its value graph."""
 
@@ -452,7 +523,7 @@ def _localize_value_ref(
         msg = "localized module inputs must remain typed values"
         raise TypeError(msg)
     return internal_bind_value_ref_inputs(
-        internal_scope_compute_value_ref(value, *scope),
+        internal_scope_compute_value_ref(value, *scope, origin=origin),
         typed_inputs,
     )
 
@@ -462,13 +533,22 @@ def _localize_binding_input_refs(
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
+    origin: tuple[object, ...],
+    resource_ids: Mapping[str, str],
 ) -> ExperimentBindingIntent:
+    port_id = resource_ids.get(binding.port_id, binding.port_id)
     if isinstance(binding.value, ValueRef):
         return replace(
             binding,
-            value=_localize_value_ref(binding.value, inputs, scope=scope),
+            port_id=port_id,
+            value=_localize_value_ref(
+                binding.value,
+                inputs,
+                scope=scope,
+                origin=origin,
+            ),
         )
-    return binding
+    return replace(binding, port_id=port_id)
 
 
 def _localize_state_input_refs(
@@ -476,30 +556,54 @@ def _localize_state_input_refs(
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
+    origin: tuple[object, ...],
+    resource_ids: Mapping[str, str],
 ) -> StateEachIntent:
-    relation = _localize_value_ref(intent.relation, inputs, scope=scope)
+    relation = _localize_value_ref(
+        intent.relation,
+        inputs,
+        scope=scope,
+        origin=origin,
+    )
     if not isinstance(relation.value_type, TableType):
         msg = "state_each relation must be table-shaped"
         raise TypeError(msg)
+    resource = intent.resource
+    if isinstance(intent.resource, ValueRef):
+        resource = _localize_value_ref(
+            intent.resource,
+            inputs,
+            scope=scope,
+            origin=origin,
+        )
+    elif intent.resource_port is not None:
+        resource = resource_ids.get(intent.resource_port, intent.resource)
     return replace(
         intent,
         relation=relation,
-        resource=(
-            _localize_value_ref(intent.resource, inputs, scope=scope)
-            if isinstance(intent.resource, ValueRef)
-            else intent.resource
-        ),
+        resource=resource,
         value=(
-            _localize_value_ref(intent.value, inputs, scope=scope)
+            _localize_value_ref(
+                intent.value,
+                inputs,
+                scope=scope,
+                origin=origin,
+            )
             if isinstance(intent.value, ValueRef)
             else intent.value
         ),
         route_entities=tuple(
-            _localize_value_ref(entity, inputs, scope=scope)
+            _localize_value_ref(
+                entity,
+                inputs,
+                scope=scope,
+                origin=origin,
+            )
             if isinstance(entity, ValueRef)
             else entity
             for entity in intent.route_entities
         ),
+        resource_port=_localized_resource_id(intent.resource_port, resource_ids),
     )
 
 
@@ -508,14 +612,23 @@ def _localize_compute_input_refs(
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
+    origin: tuple[object, ...],
+    resource_ids: Mapping[str, str],
 ) -> ComputeNodeIntent:
     return replace(
         node,
         scope=(*scope, *node.scope),
+        origin=(*origin, *node.origin),
         inputs=tuple(
             (
                 name,
-                _localize_compute_input_value(value, inputs, scope=scope),
+                _localize_compute_input_value(
+                    value,
+                    inputs,
+                    scope=scope,
+                    origin=origin,
+                    resource_ids=resource_ids,
+                ),
             )
             for name, value in node.inputs
         ),
@@ -527,18 +640,28 @@ def _localize_compute_input_value(
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
+    origin: tuple[object, ...],
+    resource_ids: Mapping[str, str],
 ) -> ComputeNodeInputValue:
     if isinstance(value, ValueRef):
-        return _localize_value_ref(value, inputs, scope=scope)
+        return _localize_value_ref(
+            value,
+            inputs,
+            scope=scope,
+            origin=origin,
+        )
+    if isinstance(value, RouteRef):
+        port_id = resource_ids.get(value.port_id, value.port_id)
+        return replace_handle(value, port_id=port_id)
     return value
 
 
 def _merge_resource_ports(roles: Sequence[ResourcePort]) -> tuple[ResourcePort, ...]:
     merged: dict[str, ResourcePort] = {}
     for role in roles:
-        existing = merged.get(role.id)
+        existing = merged.get(role.qualified_id)
         if existing is None:
-            merged[role.id] = role
+            merged[role.qualified_id] = role
             continue
         capabilities = tuple(
             dict.fromkeys(
@@ -550,14 +673,24 @@ def _merge_resource_ports(roles: Sequence[ResourcePort]) -> tuple[ResourcePort, 
                 (*existing.selector.entity_inputs, *role.selector.entity_inputs)
             )
         )
-        merged[role.id] = ResourcePort(
+        merged[role.qualified_id] = ResourcePort(
             id=role.id,
+            scope=role.scope,
             selector=ResourceSelector(
                 capabilities=capabilities,
                 entity_inputs=entity_inputs,
             ),
         )
     return tuple(merged.values())
+
+
+def _localized_resource_id(
+    resource_id: str | None,
+    resource_ids: Mapping[str, str],
+) -> str | None:
+    if resource_id is None:
+        return None
+    return resource_ids.get(resource_id, resource_id)
 
 
 def _unique_value_handles(values: Sequence[ValueRef]) -> list[ValueRef]:

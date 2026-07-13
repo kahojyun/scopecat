@@ -1,50 +1,45 @@
-"""Validation for config, experiments, and plans."""
+"""Structured configuration checks."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from scopecat._parameter_resolution import resolve_config_parameters
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 
-BLOCKING_SEVERITIES = {"error", "blocker"}
 
-
-def has_blocking_diagnostics(diagnostics: Sequence[Diagnostic]) -> bool:
-    return any(diagnostic.severity in BLOCKING_SEVERITIES for diagnostic in diagnostics)
-
-
-def format_diagnostics(diagnostics: Sequence[Diagnostic]) -> str:
-    if not diagnostics:
-        return "no diagnostics"
-    return "\n".join(
-        f"{item.severity.upper()} {item.code}: {item.message}"
-        + (f" ({item.path})" if item.path else "")
-        for item in diagnostics
+def _problem(
+    code: str,
+    message: str,
+    path: tuple[str | int, ...],
+) -> Problem:
+    return blocking_problem(
+        f"configuration.{code}",
+        message,
+        category=ProblemCategory.INVALID_INPUT,
+        phase=ProblemPhase.CONFIGURATION,
+        location=model_location("config_profile", *path),
     )
-
-
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
 
 
 def validate_config_profile(
     config: ConfigProfileSnapshot,
     *,
     include_parameter_values: bool = True,
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
+) -> tuple[Problem, ...]:
+    problems: list[Problem] = []
 
     if config.environment.workspace_id != config.system.workspace_id:
-        diagnostics.append(
-            _diagnostic(
-                "error",
+        problems.append(
+            _problem(
                 "config_profile_workspace_mismatch",
                 "environment workspace does not match system workspace",
-                "environment.workspace_id",
+                ("environment", "workspace_id"),
             )
         )
 
@@ -65,57 +60,52 @@ def validate_config_profile(
         and entity_ids
         and config.primary_entity_id not in entity_ids
     ):
-        diagnostics.append(
-            _diagnostic(
-                "error",
+        problems.append(
+            _problem(
                 "unknown_primary_entity",
                 "primary_entity_id references an unknown entity "
                 f"{config.primary_entity_id}",
-                "system.primary_entity_id",
+                ("system", "primary_entity_id"),
             )
         )
 
     for channel in config.topology.channels:
         if channel.device_id is not None and channel.device_id not in device_ids:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     "unknown_channel_device",
                     f"channel {channel.id} references unknown device "
                     f"{channel.device_id}",
-                    "topology.channels",
+                    ("topology", "channels"),
                 )
             )
         if channel.line_id is not None and channel.line_id not in line_ids:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     "unknown_channel_line",
                     f"channel {channel.id} references unknown line {channel.line_id}",
-                    "topology.channels",
+                    ("topology", "channels"),
                 )
             )
         elif channel.line_id is not None and channel.device_id is not None:
             line = lines_by_id[channel.line_id]
             if line.endpoints and channel.device_id not in line.endpoints:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "topology_channel_line_endpoint_mismatch",
                         f"channel {channel.id} references line {channel.line_id} "
                         f"and device {channel.device_id}, but the line endpoints "
                         "do not include that device",
-                        "topology.channels",
+                        ("topology", "channels"),
                     )
                 )
         for group_id in channel.group_ids:
             if group_id not in group_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_channel_group",
                         f"channel {channel.id} references unknown group {group_id}",
-                        "topology.channels",
+                        ("topology", "channels"),
                     )
                 )
             else:
@@ -127,49 +117,45 @@ def validate_config_profile(
                         channel.line_id is None or channel.line_id not in group.members
                     )
                 ):
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
+                    problems.append(
+                        _problem(
                             "topology_channel_group_mismatch",
                             f"channel {channel.id} references group {group_id}, "
                             "but that group does not list the channel or its line",
-                            "topology.channels",
+                            ("topology", "channels"),
                         )
                     )
 
     for line in config.topology.lines:
         for endpoint in line.endpoints:
             if endpoint not in entity_ids and endpoint not in device_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_line_endpoint",
                         f"line {line.id} references unknown endpoint {endpoint}",
-                        "topology.lines",
+                        ("topology", "lines"),
                     )
                 )
 
     for group in config.topology.groups:
         for member in group.members:
             if member not in channel_ids and member not in line_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_group_member",
                         f"group {group.id} references unknown member {member}",
-                        "topology.groups",
+                        ("topology", "groups"),
                     )
                 )
             elif member in channel_ids:
                 channel = channels_by_id[member]
                 if channel.group_ids and group.id not in channel.group_ids:
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
+                    problems.append(
+                        _problem(
                             "topology_group_member_mismatch",
                             f"group {group.id} lists channel {member}, but that "
                             "channel does not reference the group",
-                            "topology.groups",
+                            ("topology", "groups"),
                         )
                     )
             else:
@@ -177,71 +163,65 @@ def validate_config_profile(
                     if channel.line_id != member:
                         continue
                     if channel.group_ids and group.id not in channel.group_ids:
-                        diagnostics.append(
-                            _diagnostic(
-                                "error",
+                        problems.append(
+                            _problem(
                                 "topology_group_member_mismatch",
                                 f"group {group.id} lists line {member}, but channel "
                                 f"{channel.id} on that line does not reference the "
                                 "group",
-                                "topology.groups",
+                                ("topology", "groups"),
                             )
                         )
 
     for device in config.topology.devices:
         for channel_id in device.channels:
             if channel_id not in channel_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_device_channel",
                         f"device {device.id} references unknown channel {channel_id}",
-                        "topology.devices",
+                        ("topology", "devices"),
                     )
                 )
 
     for link in config.topology.links:
         for endpoint in link.endpoints:
             if endpoint not in entity_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_link_endpoint",
                         f"link {link.id} references unknown endpoint {endpoint}",
-                        "topology.links",
+                        ("topology", "links"),
                     )
                 )
 
     for resource in config.routing.resources:
         if resource.kind == "instrument" and resource.id not in instrument_ids:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     "unknown_routing_resource_instrument",
                     f"routing resource {resource.id} references unknown instrument",
-                    "system.routing.resources",
+                    ("system", "routing", "resources"),
                 )
             )
         for entity_id in resource.served_entities:
             if entity_id not in entity_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_routing_resource_served_entity",
                         f"routing resource {resource.id} serves unknown entity "
                         f"{entity_id}",
-                        "system.routing.resources",
+                        ("system", "routing", "resources"),
                     )
                 )
         for channel_id in resource.channels:
             if channel_id not in channel_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_routing_resource_channel",
                         f"routing resource {resource.id} references unknown channel "
                         f"{channel_id}",
-                        "system.routing.resources",
+                        ("system", "routing", "resources"),
                     )
                 )
 
@@ -249,23 +229,21 @@ def validate_config_profile(
     for edge in config.routing.edges:
         resource = routing_resources.get(edge.resource_id)
         if resource is None:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     "unknown_routing_edge_resource",
                     f"routing edge {edge.id} references unknown resource "
                     f"{edge.resource_id}",
-                    "system.routing.edges",
+                    ("system", "routing", "edges"),
                 )
             )
         for entity_id in edge.entity_ids:
             if entity_id not in entity_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_routing_edge_entity",
                         f"routing edge {edge.id} references unknown entity {entity_id}",
-                        "system.routing.edges",
+                        ("system", "routing", "edges"),
                     )
                 )
             elif (
@@ -273,24 +251,22 @@ def validate_config_profile(
                 and resource.served_entities
                 and entity_id not in resource.served_entities
             ):
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "routing_edge_resource_entity_mismatch",
                         f"routing edge {edge.id} references entity {entity_id}, "
                         f"but resource {edge.resource_id} does not serve it",
-                        "system.routing.edges",
+                        ("system", "routing", "edges"),
                     )
                 )
         for channel_id in edge.channels:
             if channel_id not in channel_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_routing_edge_channel",
                         f"routing edge {edge.id} references unknown channel "
                         f"{channel_id}",
-                        "system.routing.edges",
+                        ("system", "routing", "edges"),
                     )
                 )
             elif (
@@ -298,34 +274,31 @@ def validate_config_profile(
                 and resource.channels
                 and channel_id not in resource.channels
             ):
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "routing_edge_resource_channel_mismatch",
                         f"routing edge {edge.id} references channel {channel_id}, "
                         f"but resource {edge.resource_id} does not list it",
-                        "system.routing.edges",
+                        ("system", "routing", "edges"),
                     )
                 )
         for binding in edge.bindings:
             if binding.entity_id not in entity_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_routing_binding_entity",
                         f"routing edge {edge.id} binding references unknown entity "
                         f"{binding.entity_id}",
-                        "system.routing.edges",
+                        ("system", "routing", "edges"),
                     )
                 )
             elif edge.entity_ids and binding.entity_id not in edge.entity_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "routing_binding_edge_entity_mismatch",
                         f"routing edge {edge.id} binding references entity "
                         f"{binding.entity_id}, but the edge does not list it",
-                        "system.routing.edges",
+                        ("system", "routing", "edges"),
                     )
                 )
             elif (
@@ -333,25 +306,23 @@ def validate_config_profile(
                 and resource.served_entities
                 and binding.entity_id not in resource.served_entities
             ):
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "routing_binding_resource_entity_mismatch",
                         f"routing edge {edge.id} binding references entity "
                         f"{binding.entity_id}, but resource {edge.resource_id} "
                         "does not serve it",
-                        "system.routing.edges",
+                        ("system", "routing", "edges"),
                     )
                 )
             if binding.capability is not None:
                 if edge.capabilities and binding.capability not in edge.capabilities:
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
+                    problems.append(
+                        _problem(
                             "routing_binding_edge_capability_mismatch",
                             f"routing edge {edge.id} binding references capability "
                             f"{binding.capability}, but the edge does not list it",
-                            "system.routing.edges",
+                            ("system", "routing", "edges"),
                         )
                     )
                 if (
@@ -359,35 +330,32 @@ def validate_config_profile(
                     and resource.capabilities
                     and binding.capability not in resource.capabilities
                 ):
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
+                    problems.append(
+                        _problem(
                             "routing_binding_resource_capability_mismatch",
                             f"routing edge {edge.id} binding references capability "
                             f"{binding.capability}, but resource {edge.resource_id} "
                             "does not declare it",
-                            "system.routing.edges",
+                            ("system", "routing", "edges"),
                         )
                     )
             if binding.channel_id not in channel_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_routing_binding_channel",
                         f"routing edge {edge.id} binding references unknown channel "
                         f"{binding.channel_id}",
-                        "system.routing.edges",
+                        ("system", "routing", "edges"),
                     )
                 )
             else:
                 if edge.channels and binding.channel_id not in edge.channels:
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
+                    problems.append(
+                        _problem(
                             "routing_binding_edge_channel_mismatch",
                             f"routing edge {edge.id} binding references channel "
                             f"{binding.channel_id}, but the edge does not list it",
-                            "system.routing.edges",
+                            ("system", "routing", "edges"),
                         )
                     )
                 if (
@@ -395,14 +363,13 @@ def validate_config_profile(
                     and resource.channels
                     and binding.channel_id not in resource.channels
                 ):
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
+                    problems.append(
+                        _problem(
                             "routing_binding_resource_channel_mismatch",
                             f"routing edge {edge.id} binding references channel "
                             f"{binding.channel_id}, but resource "
                             f"{edge.resource_id} does not list it",
-                            "system.routing.edges",
+                            ("system", "routing", "edges"),
                         )
                     )
                 channel = channels_by_id[binding.channel_id]
@@ -411,14 +378,13 @@ def validate_config_profile(
                     and channel.line_id is not None
                     and binding.line_id != channel.line_id
                 ):
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
+                    problems.append(
+                        _problem(
                             "routing_binding_line_mismatch",
                             f"routing edge {edge.id} binding line {binding.line_id} "
                             f"does not match topology channel {binding.channel_id} "
                             f"line {channel.line_id}",
-                            "system.routing.edges",
+                            ("system", "routing", "edges"),
                         )
                     )
                 if (
@@ -426,69 +392,64 @@ def validate_config_profile(
                     and channel.group_ids
                     and set(binding.group_ids) != set(channel.group_ids)
                 ):
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
+                    problems.append(
+                        _problem(
                             "routing_binding_group_mismatch",
                             f"routing edge {edge.id} binding groups "
                             f"{sorted(binding.group_ids)} do not match topology "
                             f"channel {binding.channel_id} groups "
                             f"{sorted(channel.group_ids)}",
-                            "system.routing.edges",
+                            ("system", "routing", "edges"),
                         )
                     )
             if binding.line_id is not None and binding.line_id not in line_ids:
-                diagnostics.append(
-                    _diagnostic(
-                        "error",
+                problems.append(
+                    _problem(
                         "unknown_routing_binding_line",
                         f"routing edge {edge.id} binding references unknown line "
                         f"{binding.line_id}",
-                        "system.routing.edges",
+                        ("system", "routing", "edges"),
                     )
                 )
             for group_id in binding.group_ids:
                 if group_id not in group_ids:
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
+                    problems.append(
+                        _problem(
                             "unknown_routing_binding_group",
                             f"routing edge {edge.id} binding references unknown "
                             f"group {group_id}",
-                            "system.routing.edges",
+                            ("system", "routing", "edges"),
                         )
                     )
         if resource is not None:
             for capability in edge.capabilities:
                 if capability not in resource.capabilities:
-                    diagnostics.append(
-                        _diagnostic(
-                            "error",
+                    problems.append(
+                        _problem(
                             "unknown_routing_edge_capability",
                             f"routing edge {edge.id} references capability "
                             f"{capability} not declared by resource "
                             f"{edge.resource_id}",
-                            "system.routing.edges",
+                            ("system", "routing", "edges"),
                         )
                     )
 
     for connection in config.connection_profile.connections:
         if connection.instrument_id not in instrument_ids:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     "unknown_connection_instrument",
                     f"connection {connection.id} references unknown instrument "
                     f"{connection.instrument_id}",
-                    "connection_profile.connections",
+                    ("connection_profile", "connections"),
                 )
             )
 
     if include_parameter_values:
-        diagnostics.extend(resolve_config_parameters(config).diagnostics)
+        problems.extend(resolve_config_parameters(config).problems)
 
-    return diagnostics
+    return tuple(problems)
 
 
-def validate_config(config: ConfigProfileSnapshot) -> list[Diagnostic]:
+def validate_config(config: ConfigProfileSnapshot) -> tuple[Problem, ...]:
     return validate_config_profile(config)

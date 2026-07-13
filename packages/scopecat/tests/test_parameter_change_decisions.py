@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat._storage.refs import record_content_ref
-from scopecat.errors import ValidationFailed
+from scopecat.errors import DataIntegrityError
 from scopecat.parameter_changes import (
     invalidate_parameter_change_proposal,
     list_parameter_change_decisions,
@@ -136,14 +136,14 @@ def test_parameter_change_decision_history_fails_closed_on_corruption(
     payload["run_id"] = "different-run"
     path.write_text(json.dumps(payload))
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         list_parameter_change_decisions(
             run_id=run_id,
             selector="best-signal",
             workspace=tmp_path,
         )
 
-    assert error.value.diagnostics[0].code == (
+    assert error.value.problems[0].code == (
         "invalid_parameter_change_decision_identity"
     )
 

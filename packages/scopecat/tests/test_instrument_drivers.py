@@ -258,7 +258,7 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     assert description.capabilities[0].fields[0].value_type == Scalar(
         QuantityType(unit="GHz")
     )
-    assert result.diagnostics == []
+    assert result.problems == ()
     assert instrument.applied[0] == command
     assert updated.fields[0].value == quantity_state(5.0, "GHz")
     assert updated.fields[0].value is not command.fields[0].value
@@ -502,7 +502,7 @@ def test_provider_builds_fresh_drivers() -> None:
     description = provider.describe(context)
     assert description.provider_id == "tests.driver_provider"
     assert [item.instrument_id for item in description.instruments] == ["source-0"]
-    assert first.diagnostics == ()
+    assert first.problems == ()
     assert first.drivers[0] is not second.drivers[0]
 
 
@@ -511,7 +511,7 @@ def test_provider_description_resolves_instruments_from_config() -> None:
 
     description = TestSignalInstrumentProvider().describe(context)
 
-    assert description.diagnostics == ()
+    assert description.problems == ()
     assert [instrument.instrument_id for instrument in description.instruments] == [
         "source-0"
     ]
@@ -528,7 +528,7 @@ def test_provider_description_reports_dynamic_selection_errors() -> None:
     )
 
     assert description.instruments == ()
-    assert [diagnostic.code for diagnostic in description.diagnostics] == [
+    assert [problem.code for problem in description.problems] == [
         "test_signal_provider_unknown_instrument"
     ]
 

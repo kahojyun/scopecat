@@ -14,8 +14,7 @@ from typing import cast
 
 from pydantic import BaseModel, ValidationError
 
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import DataIntegrityError, StorageError
 from scopecat.models.analysis import AnalysisRecord
 from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
 from scopecat.models.execution import ExecutionSummary
@@ -25,6 +24,15 @@ from scopecat.models.run import RunManifest
 from scopecat.parameter_changes import (
     ParameterChangeDecisionRecord,
     list_parameter_change_decisions,
+)
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemLocation,
+    ProblemPhase,
+    StorageLocation,
+    blocking_problem,
+    model_location,
 )
 from scopecat.run_comparison import (
     RunComparisonResult,
@@ -99,6 +107,7 @@ def _read_execution_overview(
         storage.ref_path(run_id, summary_ref),
         ExecutionSummary,
         summary_ref,
+        run_id=run_id,
     )
     state = StateExecutionEntry(
         changed_field_count=summary.state.changed_field_count,
@@ -112,7 +121,7 @@ def _read_execution_overview(
         point_count=summary.point_count,
         measurement_count=summary.measurement_count,
         instrument_ids=list(summary.instrument_ids),
-        diagnostic_count=summary.diagnostic_count,
+        problem_count=summary.problem_count,
         runtime=_runtime_summary(summary),
         state=state,
     )
@@ -173,14 +182,17 @@ def _dataset_schema(dataset: RunDatasetEntry) -> MeasurementDatasetSchema | None
     try:
         return MeasurementDatasetSchema.model_validate(dataset.data_schema)
     except ValidationError as error:
-        ref = f"manifest.datasets.{dataset.id}.schema"
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _overview_problem(
                     "invalid_overview_input",
-                    f"overview input is not valid JSON for {ref}",
-                    ref,
+                    "overview input contains an invalid measurement schema",
+                    location=model_location(
+                        "run_manifest",
+                        "datasets",
+                        dataset.id,
+                        "schema",
+                    ),
                 )
             ]
         ) from error
@@ -205,6 +217,7 @@ def _read_analysis_records(
             storage.ref_path(run_id, record_ref),
             AnalysisRecord,
             record_ref,
+            run_id=run_id,
         )
         records.append(
             AnalysisRecordEntry(
@@ -236,6 +249,7 @@ def _read_parameter_change_proposals(
             proposal_path,
             ParameterChangeProposal,
             proposal_record_ref,
+            run_id=run_id,
         )
         decision_info = _read_parameter_change_decision(
             storage=storage,
@@ -303,6 +317,7 @@ def _read_run_comparisons(
             storage.ref_path(run_id, result_ref),
             RunComparisonResult,
             result_ref,
+            run_id=run_id,
         )
         review_record_id = f"{result.comparison_id}-review"
         review_record = next(
@@ -325,6 +340,7 @@ def _read_run_comparisons(
                 review_path,
                 RunComparisonReviewRecord,
                 review_ref or review_record_id,
+                run_id=run_id,
             )
         comparisons.append(
             RunComparisonEntry(
@@ -362,40 +378,55 @@ def _records_by_kind(manifest: RunManifest, kind: str) -> list[RunRecordEntry]:
 
 
 def _read_model[TModel: BaseModel](
-    path: Path, model_type: type[TModel], ref: str
+    path: Path,
+    model_type: type[TModel],
+    ref: str,
+    *,
+    run_id: str,
 ) -> TModel:
+    location = StorageLocation(run_id=run_id, ref=ref)
     if not path.exists():
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _overview_problem(
                     "missing_overview_input",
                     f"overview input is missing: {ref}",
-                    ref,
+                    location=location,
                 )
             ]
         )
     if path.is_dir():
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _overview_problem(
                     "overview_input_is_directory",
                     f"overview input is a directory: {ref}",
-                    ref,
+                    location=location,
                 )
             ]
         )
     try:
-        return model_type.model_validate_json(path.read_text())
-    except ValidationError as error:
-        raise ValidationFailed(
+        data = path.read_text()
+    except OSError as error:
+        raise StorageError(
             [
-                _diagnostic(
-                    "error",
+                _overview_problem(
+                    "overview_input_read_failed",
+                    "overview input could not be read",
+                    category=ProblemCategory.STORAGE,
+                    location=location,
+                )
+            ]
+        ) from error
+    try:
+        return model_type.model_validate_json(data)
+    except ValidationError as error:
+        raise DataIntegrityError(
+            [
+                _overview_problem(
                     "invalid_overview_input",
                     f"overview input is not valid JSON for {ref}",
-                    ref,
+                    location=location,
                 )
             ]
         ) from error
@@ -409,13 +440,15 @@ def _validate_manifest_entries(
         entry_storage_ref = storage_ref(entry)
         path = storage.ref_path(run_id, entry_storage_ref)
         if path.exists() and path.is_dir():
-            raise ValidationFailed(
+            raise DataIntegrityError(
                 [
-                    _diagnostic(
-                        "error",
+                    _overview_problem(
                         "overview_ref_is_directory",
                         f"overview input is a directory: {entry_storage_ref}",
-                        "manifest",
+                        location=StorageLocation(
+                            run_id=run_id,
+                            ref=entry_storage_ref,
+                        ),
                     )
                 ]
             )
@@ -448,7 +481,17 @@ def _output_ids(payload: AnalysisRecord) -> list[str]:
     return ids
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+def _overview_problem(
+    code: str,
+    message: str,
+    *,
+    category: ProblemCategory = ProblemCategory.DATA_INTEGRITY,
+    location: ProblemLocation,
+) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=category,
+        phase=ProblemPhase.ANALYSIS,
+        location=location,
+    )

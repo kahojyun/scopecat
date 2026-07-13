@@ -4,8 +4,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from scopecat._steps import ArtifactInputDiagnostics, StepArtifactDiagnostics
+from scopecat._steps import ArtifactInputContract, StepArtifactContract
 from scopecat.config_profiles import load_config_profile
+from scopecat.problems import model_location
 from tests.support.signal_testkit import execute_signal_run
 from tests.support.workflow_fixtures import load_invocation
 
@@ -18,25 +19,25 @@ class StepResult(BaseModel):
     value: int
 
 
-def artifact_diagnostics() -> StepArtifactDiagnostics:
-    return StepArtifactDiagnostics(
+def artifact_contract() -> StepArtifactContract:
+    return StepArtifactContract(
         missing_id_code="test_missing_id",
         duplicate_id_code="test_duplicate_artifact",
         missing_kind_code="test_missing_kind",
         noun="test artifact",
-        path_prefix="artifacts",
+        location_root="artifacts",
     )
 
 
-def input_diagnostics() -> ArtifactInputDiagnostics:
-    return ArtifactInputDiagnostics(
+def input_contract() -> ArtifactInputContract:
+    return ArtifactInputContract(
         not_found_code="test_input_not_found",
         invalid_kind_code="test_input_invalid_kind",
         path_escape_code="test_input_path_escape",
         not_found_message="test input artifact not found",
         invalid_kind_message="test input artifact kind is unsupported",
         path_escape_message="test input selector escapes run directory",
-        diagnostic_path="input",
+        location=model_location("run_access", "input"),
     )
 
 

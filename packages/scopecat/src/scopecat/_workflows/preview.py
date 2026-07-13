@@ -19,6 +19,7 @@ from scopecat.preview import (
     ExperimentPreviewRuntimeSummary,
     ExperimentPreviewStateChange,
     ExperimentPreviewStateField,
+    ExperimentPreviewStateTarget,
 )
 
 
@@ -94,7 +95,8 @@ def build_experiment_preview(plan: BoundPlan) -> ExperimentPreview:
             ExperimentPreviewStateChange(
                 point_index=change.point_index,
                 resource=change.resource,
-                field=change.field,
+                capability_id=change.capability_id,
+                field_path=change.field_path,
                 before=_preview_state_value(change.before),
                 after=_preview_state_value(change.after),
             )
@@ -167,7 +169,7 @@ def _preview_payloads(plan: BoundPlan) -> tuple[ExperimentPreviewPayload, ...]:
         for call in point.compute
         if call.payload_id is not None
     }
-    fields_by_node: dict[tuple[str, str], set[str]] = {}
+    fields_by_node: dict[tuple[str, str], set[tuple[str, str]]] = {}
     dependencies_by_node: dict[tuple[str, str], Mapping[str, tuple[str, ...]]] = {}
     for point in plan.points:
         for state in point.desired_state:
@@ -180,14 +182,20 @@ def _preview_payloads(plan: BoundPlan) -> tuple[ExperimentPreviewPayload, ...]:
                     continue
                 key = (call.node_id.qualified_name, call.payload_schema_id)
                 fields_by_node.setdefault(key, set()).add(
-                    f"{state.capability_id}.{field.field_path}"
+                    (state.capability_id, field.field_path)
                 )
                 dependencies_by_node.setdefault(key, call.dependencies)
     return tuple(
         ExperimentPreviewPayload(
             node_id=node_id,
             schema_id=schema_id,
-            state_fields=tuple(sorted(fields)),
+            state_fields=tuple(
+                ExperimentPreviewStateTarget(
+                    capability_id=capability_id,
+                    field_path=field_path,
+                )
+                for capability_id, field_path in sorted(fields)
+            ),
             dependencies=dict(dependencies_by_node.get((node_id, schema_id), {})),
         )
         for (node_id, schema_id), fields in sorted(fields_by_node.items())

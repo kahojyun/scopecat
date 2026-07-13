@@ -34,6 +34,11 @@ from scopecat.authoring._parameter_contracts import (
     ParameterContract,
     merge_parameter_contracts,
 )
+from scopecat.authoring._value_availability import (
+    ValueAvailability,
+    ValueRate,
+    ValueStage,
+)
 from scopecat.authoring._value_type_compatibility import (
     describe_value_type as describe_value_type,
 )
@@ -55,6 +60,7 @@ from scopecat.value_types import (
     TableColumn,
     ValueType,
 )
+from scopecat.value_validation import ValuePath, coerce_literal, format_value_path
 
 type _ValueExpression = ScalarExpr | SeriesExpr | RelationExpr
 type _ValueRefSource = Literal["input", "compute", "point", "expression"]
@@ -147,6 +153,11 @@ class ValueRef:
         repr=False,
         compare=False,
     )
+    _compute_origin: tuple[object, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+    )
     _input_binding_layers: tuple[tuple[tuple[str, ValueRef], ...], ...] = field(
         default=(),
         repr=False,
@@ -175,6 +186,7 @@ class ValueRef:
         source_id: str | NodeId | None,
         value_type: ValueType,
         expression: _ValueExpression | None = None,
+        compute_origin: tuple[object, ...] = (),
         input_binding_layers: tuple[tuple[tuple[str, ValueRef], ...], ...] = (),
         parameter_contracts: tuple[ParameterContract, ...] = (),
         point_dependencies: tuple[PointValueDependency, ...] = (),
@@ -184,6 +196,7 @@ class ValueRef:
         object.__setattr__(value, "_source_id", source_id)
         object.__setattr__(value, "_value_type", value_type)
         object.__setattr__(value, "_expression", expression)
+        object.__setattr__(value, "_compute_origin", compute_origin)
         object.__setattr__(value, "_input_binding_layers", input_binding_layers)
         object.__setattr__(value, "_parameter_contracts", parameter_contracts)
         object.__setattr__(
@@ -207,8 +220,15 @@ class ValueRef:
             if self._input_binding_layers:
                 msg = f"{self._source_kind} value reference cannot bind inputs"
                 raise ValueError(msg)
+            if self._source_kind != "compute" and self._compute_origin:
+                msg = f"{self._source_kind} value reference cannot own a compute"
+                raise ValueError(msg)
             return
-        if self._source_id is not None or self._expression is None:
+        if (
+            self._source_id is not None
+            or self._expression is None
+            or self._compute_origin
+        ):
             msg = "expression value reference requires an expression only"
             raise ValueError(msg)
         _require_expression_shape(self._expression, self._value_type)
@@ -697,6 +717,7 @@ def internal_compute_value_ref(
     node_id: NodeId | str,
     value_type: ValueType,
     *,
+    origin: tuple[object, ...] = (),
     point_dependencies: tuple[PointValueDependency, ...] = (),
 ) -> ValueRef:
     selected_node_id = (
@@ -706,6 +727,7 @@ def internal_compute_value_ref(
         source_kind="compute",
         source_id=selected_node_id,
         value_type=value_type,
+        compute_origin=origin,
         point_dependencies=_merge_point_dependencies(point_dependencies),
     )
 
@@ -748,10 +770,25 @@ def internal_value_ref_compute_node_id(value: ValueRef) -> NodeId | None:
     return cast("NodeId", object.__getattribute__(value, "_source_id"))
 
 
-def internal_scope_compute_value_ref(value: ValueRef, *scope: str) -> ValueRef:
+def internal_value_ref_compute_origin(value: ValueRef) -> tuple[object, ...]:
+    """Return the nominal producer identity for a direct compute edge."""
+
+    if internal_value_ref_source_kind(value) != "compute":
+        return ()
+    return cast(
+        "tuple[object, ...]",
+        object.__getattribute__(value, "_compute_origin"),
+    )
+
+
+def internal_scope_compute_value_ref(
+    value: ValueRef,
+    *scope: str,
+    origin: tuple[object, ...] = (),
+) -> ValueRef:
     """Prefix compute symbols owned by one expanded module instance."""
 
-    if not scope:
+    if not scope and not origin:
         return value
     source_kind = internal_value_ref_source_kind(value)
     if source_kind == "compute":
@@ -759,6 +796,10 @@ def internal_scope_compute_value_ref(value: ValueRef, *scope: str) -> ValueRef:
             source_kind="compute",
             source_id=_required_compute_node_id(value).prefixed(*scope),
             value_type=value.value_type,
+            compute_origin=(
+                *origin,
+                *internal_value_ref_compute_origin(value),
+            ),
             parameter_contracts=internal_value_ref_parameter_contracts(value),
             point_dependencies=internal_value_ref_point_dependencies(value),
         )
@@ -781,7 +822,14 @@ def internal_scope_compute_value_ref(value: ValueRef, *scope: str) -> ValueRef:
         expression=expression,
         input_binding_layers=tuple(
             tuple(
-                (input_id, internal_scope_compute_value_ref(bound, *scope))
+                (
+                    input_id,
+                    internal_scope_compute_value_ref(
+                        bound,
+                        *scope,
+                        origin=origin,
+                    ),
+                )
                 for input_id, bound in layer
             )
             for layer in layers
@@ -808,6 +856,49 @@ def internal_value_ref_point_dependencies(
     return cast(
         "tuple[PointValueDependency, ...]",
         object.__getattribute__(value, "_point_dependencies"),
+    )
+
+
+def internal_value_ref_availability(value: ValueRef) -> ValueAvailability:
+    """Return the stage and rate of a complete, possibly bound value graph."""
+
+    return _value_ref_availability(value, seen=frozenset())
+
+
+def _value_ref_availability(
+    value: ValueRef,
+    *,
+    seen: frozenset[int],
+) -> ValueAvailability:
+    marker = id(value)
+    if marker in seen:
+        return ValueAvailability(ValueStage.PLAN, ValueRate.RUN)
+    nested_seen = seen | {marker}
+    source_kind = internal_value_ref_source_kind(value)
+    if source_kind == "compute":
+        return ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
+    if source_kind == "point":
+        return ValueAvailability(ValueStage.PLAN, ValueRate.POINT)
+    if source_kind == "input":
+        return ValueAvailability(ValueStage.PLAN, ValueRate.RUN)
+
+    availability = ValueAvailability(
+        ValueStage.PLAN,
+        ValueRate.POINT
+        if internal_value_ref_point_dependencies(value)
+        else ValueRate.RUN,
+    )
+    layers = cast(
+        "tuple[tuple[tuple[str, ValueRef], ...], ...]",
+        object.__getattribute__(value, "_input_binding_layers"),
+    )
+    return ValueAvailability.combined(
+        availability,
+        *(
+            _value_ref_availability(bound, seen=nested_seen)
+            for layer in layers
+            for _input_id, bound in layer
+        ),
     )
 
 
@@ -892,7 +983,7 @@ def internal_literal_value_ref(
     value: object,
     value_type: ValueType,
     *,
-    path: str,
+    path: ValuePath,
 ) -> ValueRef:
     """Capture one closed literal as a typed edge without exposing raw IR."""
 
@@ -902,15 +993,15 @@ def internal_literal_value_ref(
         series_input_value,
         table_input_value,
     )
-    from scopecat.value_validation import coerce_literal
 
     coerced = coerce_literal(value_type, value, path=path)
+    input_name = format_value_path(path)
     expression = (
         literal_scalar(input_cell(coerced))
         if isinstance(value_type, Scalar)
-        else series_input_value(path, coerced)
+        else series_input_value(input_name, coerced)
         if isinstance(value_type, Series)
-        else table_input_value(path, coerced)
+        else table_input_value(input_name, coerced)
     )
     return internal_value_ref_from_expression(expression, value_type)
 

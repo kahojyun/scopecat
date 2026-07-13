@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from scopecat._compiler.diagnostics import compiler_diagnostic
+from scopecat._compiler.problems import compiler_problem
 from scopecat._compute_result import ComputeResultRef
 from scopecat._relations import (
     CellValue,
@@ -24,6 +24,7 @@ from scopecat._value_expressions import (
     as_scalar_or_series_value_expr,
 )
 from scopecat.models.entity import EntityRef
+from scopecat.problems import Problem, ProblemCategory, model_location
 
 type StateSpecKind = Literal["set", "for_each"]
 type RouteEntityValue = str | EntityRef
@@ -43,7 +44,8 @@ class StateSpec(BaseModel):
 
     kind: StateSpecKind
     resource: ScalarExpr | None = None
-    field: str | None = None
+    capability_id: str | None = Field(default=None, min_length=1)
+    field_path: str | None = Field(default=None, min_length=1)
     value: StateValueExpr | None = None
     route_entities: list[ScalarOrSeriesValueExpr] = Field(default_factory=list)
     relation: RelationExpr | None = None
@@ -66,16 +68,33 @@ class StateSpec(BaseModel):
     @model_validator(mode="after")
     def validate_shape(self) -> StateSpec:
         if self.kind == "set":
-            if self.resource is None or self.field is None or self.value is None:
-                msg = "set state requires resource, field, and value"
+            if (
+                self.resource is None
+                or self.capability_id is None
+                or self.field_path is None
+                or self.value is None
+            ):
+                msg = "set state requires resource, capability, field path, and value"
                 raise ValueError(msg)
             self._reject("relation", "state")
         elif self.kind == "for_each":
             if self.relation is None or not self.state:
                 msg = "for_each state requires relation and state"
                 raise ValueError(msg)
-            self._reject("resource", "field", "value", "route_entities")
+            self._reject(
+                "resource",
+                "capability_id",
+                "field_path",
+                "value",
+                "route_entities",
+            )
         return self
+
+    @property
+    def field(self) -> str | None:
+        if self.capability_id is None or self.field_path is None:
+            return None
+        return f"{self.capability_id}.{self.field_path}"
 
     def evaluate(self, *, point_index: int, ctx: EvalContext) -> list[StateRecord]:
         if self.kind == "set":
@@ -88,7 +107,8 @@ class StateSpec(BaseModel):
                 StateRecord(
                     point_index=point_index,
                     resource=resource,
-                    field=_required(self.field),
+                    capability_id=_required(self.capability_id),
+                    field_path=_required(self.field_path),
                     value=value
                     if isinstance(value, ComputeResultRef)
                     else value.eval(ctx),
@@ -129,9 +149,14 @@ class StateRecord(BaseModel):
 
     point_index: int
     resource: str
-    field: str
+    capability_id: str = Field(min_length=1)
+    field_path: str = Field(min_length=1)
     value: EvaluatedStateValue
     route_entities: list[RouteEntityValue] = Field(default_factory=list)
+
+    @property
+    def field(self) -> str:
+        return f"{self.capability_id}.{self.field_path}"
 
 
 class StatePatchRecord(BaseModel):
@@ -139,50 +164,74 @@ class StatePatchRecord(BaseModel):
 
     point_index: int
     resource: str
-    field: str
+    capability_id: str = Field(min_length=1)
+    field_path: str = Field(min_length=1)
     before: EvaluatedStateValue | None = None
     after: EvaluatedStateValue
 
+    @property
+    def field(self) -> str:
+        return f"{self.capability_id}.{self.field_path}"
 
-def validate_state_records(records: list[StateRecord]) -> list[dict[str, Any]]:
-    diagnostics: list[dict[str, Any]] = []
-    seen: dict[tuple[int, str, str, tuple[str, ...]], EvaluatedStateValue] = {}
+
+def validate_state_records(records: list[StateRecord]) -> list[Problem]:
+    problems: list[Problem] = []
+    seen: dict[
+        tuple[int, str, str, str, tuple[str, ...]],
+        EvaluatedStateValue,
+    ] = {}
     for record in records:
         key = (
             record.point_index,
             record.resource,
-            record.field,
+            record.capability_id,
+            record.field_path,
             _route_entity_key(record.route_entities),
         )
         if key in seen and seen[key] != record.value:
-            diagnostics.append(
-                compiler_diagnostic(
-                    "error",
+            problems.append(
+                compiler_problem(
                     "experiment_conflicting_desired_state",
                     (
                         "conflicting desired state for "
                         f"point={record.point_index} resource={record.resource!r} "
                         f"field={record.field!r}"
                     ),
-                    "state",
+                    model_location("state", record.point_index),
+                    category=ProblemCategory.CONFLICT,
+                    details={
+                        "point_index": record.point_index,
+                        "resource_id": record.resource,
+                        "capability_id": record.capability_id,
+                        "field_path": record.field_path,
+                    },
                 )
             )
         seen[key] = record.value
-    return diagnostics
+    return problems
 
 
 def state_patches(records: list[StateRecord]) -> list[StatePatchRecord]:
     patches: list[StatePatchRecord] = []
-    previous: dict[tuple[str, str, tuple[str, ...]], EvaluatedStateValue] = {}
+    previous: dict[
+        tuple[str, str, str, tuple[str, ...]],
+        EvaluatedStateValue,
+    ] = {}
     for record in records:
-        key = (record.resource, record.field, _route_entity_key(record.route_entities))
+        key = (
+            record.resource,
+            record.capability_id,
+            record.field_path,
+            _route_entity_key(record.route_entities),
+        )
         before = previous.get(key)
         if before != record.value:
             patches.append(
                 StatePatchRecord(
                     point_index=record.point_index,
                     resource=record.resource,
-                    field=record.field,
+                    capability_id=record.capability_id,
+                    field_path=record.field_path,
                     before=before,
                     after=record.value,
                 )

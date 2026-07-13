@@ -5,10 +5,8 @@ from pydantic import ValidationError
 
 from scopecat.config_profiles import load_config_profile
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.planning.validation import (
-    has_blocking_diagnostics,
-    validate_config,
-)
+from scopecat.planning.validation import validate_config
+from scopecat.problems import has_blocking_problems
 
 EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
@@ -17,12 +15,12 @@ def load_config() -> ConfigProfileSnapshot:
     return load_config_profile(EXAMPLE_DIR / "config-profile.json")
 
 
-def test_valid_example_has_no_blocking_diagnostics() -> None:
+def test_valid_example_has_no_blocking_problems() -> None:
     config = load_config()
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert not has_blocking_diagnostics(diagnostics)
+    assert not has_blocking_problems(problems)
 
 
 def test_primary_entity_must_be_declared_in_topology() -> None:
@@ -30,10 +28,10 @@ def test_primary_entity_must_be_declared_in_topology() -> None:
     config_data["system"]["primary_entity_id"] = "missing"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "unknown_primary_entity"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == "configuration.unknown_primary_entity"
 
 
 def test_channel_group_must_match_group_members() -> None:
@@ -44,10 +42,10 @@ def test_channel_group_must_match_group_members() -> None:
     config_data["system"]["topology"]["channels"][0]["group_ids"] = ["lo.xy0"]
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "topology_channel_group_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.topology_channel_group_mismatch"
     }
 
 
@@ -60,10 +58,10 @@ def test_group_member_must_match_channel_group_ids() -> None:
     config_data["system"]["topology"]["channels"][0]["group_ids"] = ["lo.xy1"]
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "topology_group_member_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.topology_group_member_mismatch"
     }
 
 
@@ -79,9 +77,9 @@ def test_group_member_can_reference_channel_line() -> None:
     config_data["system"]["topology"]["channels"][0]["group_ids"] = ["lo.xy0"]
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert not has_blocking_diagnostics(diagnostics)
+    assert not has_blocking_problems(problems)
 
 
 def test_channel_line_endpoint_must_include_channel_device() -> None:
@@ -101,10 +99,10 @@ def test_channel_line_endpoint_must_include_channel_device() -> None:
     config_data["system"]["topology"]["channels"][0]["device_id"] = "source-0"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "topology_channel_line_endpoint_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.topology_channel_line_endpoint_mismatch"
     }
 
 
@@ -125,9 +123,9 @@ def test_channel_line_endpoint_can_explain_channel_device() -> None:
     config_data["system"]["topology"]["channels"][0]["device_id"] = "source-0"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert not has_blocking_diagnostics(diagnostics)
+    assert not has_blocking_problems(problems)
 
 
 def test_routing_resource_served_entities_must_be_declared_in_topology() -> None:
@@ -143,10 +141,10 @@ def test_routing_resource_served_entities_must_be_declared_in_topology() -> None
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "unknown_routing_resource_served_entity"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == ("configuration.unknown_routing_resource_served_entity")
 
 
 def test_routing_resource_channels_must_be_declared_in_topology() -> None:
@@ -162,10 +160,10 @@ def test_routing_resource_channels_must_be_declared_in_topology() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "unknown_routing_resource_channel"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == "configuration.unknown_routing_resource_channel"
 
 
 def test_instrument_routing_resource_must_reference_registered_instrument() -> None:
@@ -180,10 +178,10 @@ def test_instrument_routing_resource_must_reference_registered_instrument() -> N
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "unknown_routing_resource_instrument"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == "configuration.unknown_routing_resource_instrument"
 
 
 def test_routing_edge_must_reference_declared_resource() -> None:
@@ -200,10 +198,10 @@ def test_routing_edge_must_reference_declared_resource() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "unknown_routing_edge_resource"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == "configuration.unknown_routing_edge_resource"
 
 
 def test_routing_edge_must_reference_declared_entities() -> None:
@@ -225,10 +223,10 @@ def test_routing_edge_must_reference_declared_entities() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "unknown_routing_edge_entity"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == "configuration.unknown_routing_edge_entity"
 
 
 def test_routing_edge_capabilities_must_be_declared_by_resource() -> None:
@@ -251,10 +249,10 @@ def test_routing_edge_capabilities_must_be_declared_by_resource() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "unknown_routing_edge_capability"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == "configuration.unknown_routing_edge_capability"
 
 
 def test_routing_edge_entities_must_match_resource_served_entities() -> None:
@@ -278,10 +276,10 @@ def test_routing_edge_entities_must_match_resource_served_entities() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "routing_edge_resource_entity_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.routing_edge_resource_entity_mismatch"
     }
 
 
@@ -307,10 +305,10 @@ def test_routing_edge_channels_must_match_resource_channels() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "routing_edge_resource_channel_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.routing_edge_resource_channel_mismatch"
     }
 
 
@@ -341,10 +339,10 @@ def test_routing_binding_entities_must_match_edge_entities() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "routing_binding_edge_entity_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.routing_binding_edge_entity_mismatch"
     }
 
 
@@ -375,10 +373,10 @@ def test_routing_binding_entities_must_match_resource_served_entities() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "routing_binding_resource_entity_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.routing_binding_resource_entity_mismatch"
     }
 
 
@@ -409,10 +407,10 @@ def test_routing_binding_capability_must_match_edge_capabilities() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "routing_binding_edge_capability_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.routing_binding_edge_capability_mismatch"
     }
 
 
@@ -442,10 +440,10 @@ def test_routing_binding_capability_must_match_resource_capabilities() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "routing_binding_resource_capability_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.routing_binding_resource_capability_mismatch"
     }
 
 
@@ -477,10 +475,10 @@ def test_routing_binding_channels_must_match_edge_channels() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "routing_binding_edge_channel_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.routing_binding_edge_channel_mismatch"
     }
 
 
@@ -517,10 +515,10 @@ def test_routing_binding_line_must_match_channel_topology() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "routing_binding_line_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.routing_binding_line_mismatch"
     }
 
 
@@ -557,10 +555,10 @@ def test_routing_binding_groups_must_match_channel_topology() -> None:
     }
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "routing_binding_group_mismatch"
+    assert {problem.code for problem in problems} >= {
+        "configuration.routing_binding_group_mismatch"
     }
 
 
@@ -577,10 +575,10 @@ def test_parameter_value_without_definition_is_error() -> None:
     config_data["system"]["parameter_catalog"]["definitions"] = []
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "unknown_parameter_definition"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == "unknown_parameter_definition"
 
 
 def test_duplicate_parameter_id_fails_model_validation() -> None:
@@ -598,10 +596,10 @@ def test_incompatible_parameter_value_unit_is_error() -> None:
     config_data["parameter_snapshot"]["values"][0]["value"]["unit"] = "dBm"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "incompatible_parameter_quantity_unit"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == "incompatible_parameter_quantity_unit"
 
 
 def test_parameter_value_outside_declared_bounds_is_error() -> None:
@@ -609,10 +607,10 @@ def test_parameter_value_outside_declared_bounds_is_error() -> None:
     config_data["parameter_snapshot"]["values"][0]["value"]["value"] = 7.0
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "invalid_parameter_quantity"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == "invalid_parameter_quantity"
 
 
 def test_parameter_table_rows_are_validated_against_catalog() -> None:
@@ -647,10 +645,10 @@ def test_parameter_table_rows_are_validated_against_catalog() -> None:
     )
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
-    assert has_blocking_diagnostics(diagnostics)
-    assert diagnostics[0].code == "incompatible_parameter_quantity_unit"
+    assert has_blocking_problems(problems)
+    assert problems[0].code == "incompatible_parameter_quantity_unit"
 
 
 def test_quantity_primary_keys_are_normalized_before_duplicate_detection() -> None:
@@ -685,8 +683,8 @@ def test_quantity_primary_keys_are_normalized_before_duplicate_detection() -> No
     )
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    diagnostics = validate_config(config)
+    problems = validate_config(config)
 
     assert "duplicate_parameter_table_primary_key" in {
-        diagnostic.code for diagnostic in diagnostics
+        problem.code for problem in problems
     }

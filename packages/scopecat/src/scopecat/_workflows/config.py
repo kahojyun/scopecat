@@ -5,10 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from scopecat._workflows._diagnostics import diagnostic as _diagnostic
 from scopecat.candidate_configs import (
     CandidateConfigInput,
-    resolve_candidate_config,
+    materialize_candidate_config,
 )
 from scopecat.config_profiles import load_config_profile
 from scopecat.config_registry import (
@@ -29,11 +28,18 @@ from scopecat.config_registry import (
 from scopecat.config_registry import (
     register_config_profile as registry_register_config_profile,
 )
-from scopecat.diagnostics import Diagnostic
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunConfigSource
-from scopecat.planning.validation import has_blocking_diagnostics, validate_config
+from scopecat.planning.validation import validate_config
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    has_blocking_problems,
+    model_location,
+)
 
 type ConfigProfileInput = str | Path | ConfigProfileSnapshot
 
@@ -47,7 +53,7 @@ class ResolvedConfig:
 @dataclass(frozen=True)
 class ValidateConfigProfileResult:
     config: ConfigProfileSnapshot
-    diagnostics: list[Diagnostic]
+    problems: tuple[Problem, ...]
 
 
 @dataclass(frozen=True)
@@ -72,24 +78,26 @@ def resolve_config_source(
     has_file_config = config_profile is not None
     has_config_entry = config_entry is not None
     if has_file_config and has_config_entry:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
-                    "conflicting_config_source",
-                    "provide either --config-profile or --config-entry, not both",
-                    "config",
+                blocking_problem(
+                    "config.source_conflict",
+                    "provide either a config profile or a registry entry, not both",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.CONFIGURATION,
+                    location=model_location("config_source"),
                 )
             ]
         )
     if not has_file_config and not has_config_entry:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
-                    "missing_config_source",
-                    "provide --config-profile or --config-entry",
-                    "config",
+                blocking_problem(
+                    "config.source_missing",
+                    "provide a config profile or a registry entry",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.CONFIGURATION,
+                    location=model_location("config_source"),
                 )
             ]
         )
@@ -122,10 +130,10 @@ def validate_config_profile(
         if isinstance(config_profile, ConfigProfileSnapshot)
         else load_config_profile(config_profile)
     )
-    diagnostics = validate_config(config)
-    if has_blocking_diagnostics(diagnostics):
-        raise ValidationFailed(diagnostics)
-    return ValidateConfigProfileResult(config=config, diagnostics=diagnostics)
+    problems = validate_config(config)
+    if has_blocking_problems(problems):
+        raise CheckFailed(problems)
+    return ValidateConfigProfileResult(config=config, problems=problems)
 
 
 def register_config_profile(
@@ -189,7 +197,7 @@ def register_and_activate_candidate_config(
         if expected_generation is None
         else expected_generation
     )
-    candidate_config = resolve_candidate_config(candidate, workspace=workspace)
+    candidate_config = materialize_candidate_config(candidate, workspace=workspace)
     selected_entry_id = entry_id or (
         f"{candidate_config.candidate_config_record_id}-"
         f"{candidate_config.candidate.source_run_id}"

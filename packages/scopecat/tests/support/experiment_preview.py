@@ -7,9 +7,9 @@ from scopecat._compiler.environment import validate_config_environment
 from scopecat._compiler.program import TypedProgram
 from scopecat._relations import ParameterRelationData
 from scopecat._workflows.preview import build_experiment_preview
-from scopecat.diagnostics import Diagnostic
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.preview import ExperimentPreview
+from scopecat.problems import Problem
 from tests.support.authoring import load_config
 
 
@@ -19,12 +19,12 @@ def preview_contract(
     *,
     config: ConfigProfileSnapshot | None = None,
 ) -> ExperimentPreview:
-    preview, diagnostics = preview_result(
+    preview, problems = preview_result(
         experiment,
         parameters,
         config=config,
     )
-    assert diagnostics == ()
+    assert problems == ()
     return preview
 
 
@@ -33,10 +33,10 @@ def preview_result(
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> tuple[ExperimentPreview, tuple[Diagnostic, ...]]:
+) -> tuple[ExperimentPreview, tuple[Problem, ...]]:
     environment = replace(
         validate_config_environment(config or load_config()),
         parameters=parameters,
     )
     plan = bind_program(experiment, environment)
-    return build_experiment_preview(plan), plan.diagnostics
+    return build_experiment_preview(plan), plan.problems

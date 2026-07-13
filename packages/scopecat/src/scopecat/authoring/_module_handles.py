@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from scopecat._frozen import freeze_json_mapping
+from scopecat._frozen import FrozenMapping, freeze_json_mapping
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
     ResourcePort,
     ResourceSelector,
-    bind,
     resource_port,
+)
+from scopecat.authoring._binding_intents import (
+    bind_field as binding_field,
 )
 from scopecat.authoring._frozen_values import (
     empty_frozen_mapping,
@@ -25,22 +27,31 @@ from scopecat.authoring._intents import (
     ComputeNodeIntent,
     ExperimentStateIntent,
     ModuleInputPort,
+    ModuleOutputPort,
     StateEachIntent,
     StateRouteValue,
 )
 from scopecat.authoring._record_intents import (
     ModuleProductPort,
+    ProductOutputs,
     RecordAxis,
     RecordIntent,
     RecordSource,
+    internal_product_outputs,
+    internal_product_ref,
     observable,
+    prefix_product_port,
     record_axis_intents,
 )
 from scopecat.authoring._value_refs import (
     TableRow,
     ValueRef,
+    internal_bind_value_ref_inputs,
+    internal_literal_value_ref,
+    internal_scope_compute_value_ref,
     internal_value_ref_input_id,
     internal_value_ref_source_kind,
+    require_assignable,
 )
 from scopecat.authoring.value_types import (
     Entity as EntityType,
@@ -59,6 +70,7 @@ from scopecat.authoring.values import (
     Compute,
     MetadataValue,
     ModuleInput,
+    compute_origin_internal,
     module_input_is_valid,
 )
 from scopecat.models.entity import EntityRef
@@ -126,6 +138,7 @@ class ModuleBuilder:
     id: str | None = None
     invocations: tuple[ModuleInvocation, ...] = ()
     input_ports: tuple[ModuleInputPort, ...] = ()
+    output_ports: tuple[ModuleOutputPort, ...] = ()
     resources: tuple[ResourcePort, ...] = ()
     bindings: tuple[ExperimentBindingIntent, ...] = ()
     state_intents: tuple[ExperimentStateIntent, ...] = ()
@@ -149,6 +162,7 @@ class ModuleBuilder:
                 self.resources,
                 self.invocations,
                 self.input_ports,
+                self.output_ports,
                 self.bindings,
                 self.state_intents,
                 self.compute_nodes,
@@ -164,7 +178,21 @@ class ModuleBuilder:
         from scopecat.authoring._module_construction import module_use_invocation
 
         invocations = tuple(module_use_invocation(module) for module in modules)
-        return replace_handle(self, invocations=(*self.invocations, *invocations))
+        combined = (*self.invocations, *invocations)
+        invocation_scopes = tuple(
+            invocation.instance_id or f"{invocation.module.id}[{index}]"
+            for index, invocation in enumerate(combined)
+        )
+        duplicates = sorted(
+            scope
+            for scope in set(invocation_scopes)
+            if invocation_scopes.count(scope) > 1
+        )
+        if duplicates:
+            duplicate_list = ", ".join(repr(scope) for scope in duplicates)
+            msg = f"module builder has duplicate instance ids: {duplicate_list}"
+            raise ValueError(msg)
+        return replace_handle(self, invocations=combined)
 
     def inputs(self, *values: ValueRef) -> ModuleBuilder:
         """Register typed input values declared with :func:`scopecat.input`."""
@@ -182,6 +210,38 @@ class ModuleBuilder:
             existing.add(input_id)
             ports.append(ModuleInputPort(id=input_id, value_type=value.value_type))
         return replace_handle(self, input_ports=(*self.input_ports, *ports))
+
+    def export(self, **values: ValueRef) -> ModuleBuilder:
+        """Export named typed values from each future module instance.
+
+        Exports are value edges for composition, not persisted measurement
+        products.  Instantiate the built module to obtain instance-owned
+        references through ``invocation.outputs``.
+        """
+
+        existing = {port.id for port in self.output_ports}
+        ports: list[ModuleOutputPort] = []
+        for output_id, value in values.items():
+            raw_value = cast("object", value)
+            if not output_id:
+                msg = "module output ids must be non-empty"
+                raise ValueError(msg)
+            if output_id in existing:
+                msg = f"module output {output_id!r} is already declared"
+                raise ValueError(msg)
+            if not isinstance(raw_value, ValueRef):
+                msg = f"module output {output_id!r} must be a typed value"
+                raise TypeError(msg)
+            value = raw_value
+            existing.add(output_id)
+            ports.append(
+                ModuleOutputPort(
+                    id=output_id,
+                    value=value,
+                    value_type=value.value_type,
+                )
+            )
+        return replace_handle(self, output_ports=(*self.output_ports, *ports))
 
     def resource(
         self,
@@ -214,11 +274,16 @@ class ModuleBuilder:
             ),
         )
 
-    def bind(
+    def bind_field(
         self,
-        port_path: str,
+        resource: str,
+        *,
+        capability: str,
+        field: str,
         value: BindingInput,
     ) -> ModuleBuilder:
+        """Bind state through structured resource/capability/field identities."""
+
         if not _is_public_binding_input(value):
             msg = "module bindings require a typed value or scalar literal"
             raise TypeError(msg)
@@ -226,9 +291,11 @@ class ModuleBuilder:
             self,
             bindings=(
                 *self.bindings,
-                bind(
-                    port_path,
-                    cast("BindingInput", _capture_state_literal(value)),
+                binding_field(
+                    resource,
+                    capability=capability,
+                    field=field,
+                    value=cast("BindingInput", _capture_state_literal(value)),
                 ),
             ),
         )
@@ -239,6 +306,7 @@ class ModuleBuilder:
         *,
         resource: StateScalarInput | None = None,
         resource_port: str | None = None,
+        capability: str,
         field: str,
         value: StateScalarInput,
         route_entities: Sequence[StateRouteInput] = (),
@@ -252,6 +320,9 @@ class ModuleBuilder:
         row = TableRow._from_value(  # pyright: ignore[reportPrivateUsage]
             relation
         )
+        if not capability or not field:
+            msg = "state capability and field ids must be non-empty"
+            raise ValueError(msg)
         selected_resource = resource_port if resource_port is not None else resource
         return replace_handle(
             self,
@@ -266,7 +337,8 @@ class ModuleBuilder:
                             path="state_each.resource",
                         )
                     ),
-                    field=field,
+                    capability_id=capability,
+                    field_path=field,
                     value=_state_value_expr(
                         _resolve_state_row_value(
                             value,
@@ -305,6 +377,7 @@ class ModuleBuilder:
                     fn=definition.fn,
                     inputs=definition.inputs,
                     output_type=definition.output_type,
+                    origin=(compute_origin_internal(definition),),
                 )
             )
         return replace_handle(self, compute_nodes=(*self.compute_nodes, *nodes))
@@ -361,6 +434,7 @@ class ModuleBuilder:
                 *(
                     ModuleProductPort(
                         id=product_id,
+                        origin=(object(),),
                         kind="observable",
                         source=source,
                         resource=resource,
@@ -418,7 +492,9 @@ class ModuleBuilder:
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class ModuleInvocation:
     module: ExperimentModule
+    instance_id: str | None = None
     inputs: Mapping[str, ModuleInput] = field(default_factory=empty_frozen_mapping)
+    _origin: object = field(default_factory=object, repr=False, compare=False)
 
     def __init__(self) -> None:
         msg = (
@@ -428,6 +504,9 @@ class ModuleInvocation:
         raise TypeError(msg)
 
     def __post_init__(self) -> None:
+        if self.instance_id is not None and not self.instance_id:
+            msg = "module instance id must be non-empty"
+            raise ValueError(msg)
         invalid_values = sorted(
             input_id
             for input_id, value in self.inputs.items()
@@ -440,12 +519,126 @@ class ModuleInvocation:
                 f"closed literal data: {invalid}"
             )
             raise TypeError(msg)
-        declared_inputs = set(module_exposed_input_types_internal(self.module))
+        input_types = module_exposed_input_types_internal(self.module)
+        declared_inputs = set(input_types)
         unknown_inputs = sorted(set(self.inputs) - declared_inputs)
         if unknown_inputs:
             unknown = ", ".join(repr(input_id) for input_id in unknown_inputs)
             msg = f"module {self.module.id!r} received undeclared inputs: {unknown}"
             raise ValueError(msg)
+        for input_id, value in self.inputs.items():
+            _module_input_value_ref(
+                value,
+                input_id=input_id,
+                value_type=input_types[input_id],
+            )
+        if self.instance_id is not None:
+            missing_inputs = sorted(declared_inputs - set(self.inputs))
+            if missing_inputs:
+                missing = ", ".join(repr(input_id) for input_id in missing_inputs)
+                msg = (
+                    f"module instance {self.instance_id!r} must connect all inputs: "
+                    f"{missing}"
+                )
+                raise ValueError(msg)
+
+    @property
+    def outputs(self) -> ModuleOutputs:
+        """Typed output values owned by this explicit module instance."""
+
+        if self.instance_id is None:
+            msg = (
+                f"module {self.module.id!r} outputs require an explicit instance; "
+                "use module.instantiate(instance_id, **inputs)"
+            )
+            raise ValueError(msg)
+        input_refs = module_invocation_input_refs_internal(self)
+        return create_handle(
+            ModuleOutputs,
+            _values=FrozenMapping(
+                (
+                    port.id,
+                    internal_bind_value_ref_inputs(
+                        internal_scope_compute_value_ref(
+                            port.value,
+                            self.instance_id,
+                            origin=(self._origin,),
+                        ),
+                        input_refs,
+                    ),
+                )
+                for port in self.module.output_ports
+            ),
+        )
+
+    @property
+    def products(self) -> ProductOutputs:
+        """Product references owned by this explicit module instance."""
+
+        if self.instance_id is None:
+            msg = (
+                f"module {self.module.id!r} products require an explicit instance; "
+                "use module.instantiate(instance_id, **inputs)"
+            )
+            raise ValueError(msg)
+        relative_ports = module_exposed_product_ports_internal(self.module)
+        relative_ids = tuple(port.qualified_id for port in relative_ports)
+        duplicates = sorted(
+            product_id
+            for product_id in set(relative_ids)
+            if relative_ids.count(product_id) > 1
+        )
+        if duplicates:
+            duplicate_list = ", ".join(repr(product_id) for product_id in duplicates)
+            msg = (
+                f"module {self.module.id!r} has duplicate exposed products: "
+                f"{duplicate_list}"
+            )
+            raise ValueError(msg)
+        return internal_product_outputs(
+            {
+                port.qualified_id: internal_product_ref(
+                    prefix_product_port(
+                        port,
+                        self.instance_id,
+                        origin=(self._origin,),
+                    )
+                )
+                for port in relative_ports
+            }
+        )
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class ModuleOutputs(Mapping[str, ValueRef]):
+    """Read-only attribute and mapping view of one invocation's exports."""
+
+    _values: Mapping[str, ValueRef]
+
+    def __init__(self) -> None:
+        msg = (
+            "ModuleOutputs is an opaque handle; obtain it from ModuleInvocation.outputs"
+        )
+        raise TypeError(msg)
+
+    def __getitem__(self, output_id: str) -> ValueRef:
+        return self._values[output_id]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __getattr__(self, output_id: str) -> ValueRef:
+        try:
+            return self._values[output_id]
+        except KeyError:
+            msg = f"module instance has no output {output_id!r}"
+            raise AttributeError(msg) from None
+
+    def __dir__(self) -> list[str]:
+        return sorted((*super().__dir__(), *self._values))
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -453,6 +646,7 @@ class ExperimentModule:
     id: str
     invocations: tuple[ModuleInvocation, ...] = ()
     input_ports: tuple[ModuleInputPort, ...] = ()
+    output_ports: tuple[ModuleOutputPort, ...] = ()
     resource_ports: tuple[ResourcePort, ...] = ()
     bindings: tuple[ExperimentBindingIntent, ...] = ()
     state_intents: tuple[ExperimentStateIntent, ...] = ()
@@ -466,6 +660,36 @@ class ExperimentModule:
         raise TypeError(msg)
 
     def __call__(self, **inputs: ModuleInput) -> ModuleInvocation:
+        """Create a legacy index-scoped invocation.
+
+        Legacy invocations remain composable through :meth:`ModuleBuilder.use`,
+        but their outputs cannot be referenced before composition because they
+        do not yet have a stable instance identity.
+        """
+
+        return self._invocation(None, inputs)
+
+    def instantiate(
+        self,
+        instance_id: str,
+        **inputs: ModuleInput,
+    ) -> ModuleInvocation:
+        """Create a hygienic, explicitly named module instance."""
+
+        if _module_has_fixed_records(self):
+            msg = (
+                f"module {self.id!r} contains fixed records and cannot be "
+                "instantiated; reusable modules must declare products and let "
+                "the template select them"
+            )
+            raise ValueError(msg)
+        return self._invocation(instance_id, inputs)
+
+    def _invocation(
+        self,
+        instance_id: str | None,
+        inputs: Mapping[str, ModuleInput],
+    ) -> ModuleInvocation:
         invalid_values = sorted(
             input_id
             for input_id, value in inputs.items()
@@ -481,7 +705,28 @@ class ExperimentModule:
         return create_handle(
             ModuleInvocation,
             module=self,
+            instance_id=instance_id,
             inputs=cast("Mapping[str, ModuleInput]", freeze_module_inputs(inputs)),
+            _origin=object(),
+        )
+
+    @property
+    def products(self) -> ProductOutputs:
+        """Typed product references at this module's template boundary."""
+
+        ports = module_exposed_product_ports_internal(self)
+        product_ids = tuple(port.qualified_id for port in ports)
+        duplicates = sorted(
+            product_id
+            for product_id in set(product_ids)
+            if product_ids.count(product_id) > 1
+        )
+        if duplicates:
+            duplicate_list = ", ".join(repr(product_id) for product_id in duplicates)
+            msg = f"module {self.id!r} has duplicate exposed products: {duplicate_list}"
+            raise ValueError(msg)
+        return internal_product_outputs(
+            {port.qualified_id: internal_product_ref(port) for port in ports}
         )
 
     def template(
@@ -525,6 +770,72 @@ def module_exposed_input_types_internal(
         )
     result.update({port.id: port.value_type for port in module.input_ports})
     return result
+
+
+def _module_has_fixed_records(module: ExperimentModule) -> bool:
+    return bool(module.records) or any(
+        _module_has_fixed_records(invocation.module)
+        for invocation in module.invocations
+    )
+
+
+def module_exposed_product_ports_internal(
+    module: ExperimentModule,
+) -> tuple[ModuleProductPort, ...]:
+    """Collect product ports with explicit nested instance scopes attached."""
+
+    result: list[ModuleProductPort] = []
+    for invocation in module.invocations:
+        nested = module_exposed_product_ports_internal(invocation.module)
+        result.extend(
+            prefix_product_port(
+                product,
+                *(
+                    (invocation.instance_id,)
+                    if invocation.instance_id is not None
+                    else ()
+                ),
+                origin=(module_invocation_origin_internal(invocation),),
+            )
+            for product in nested
+        )
+    result.extend(module.product_ports)
+    return tuple(result)
+
+
+def module_invocation_input_refs_internal(
+    invocation: ModuleInvocation,
+) -> dict[str, ValueRef]:
+    """Return supplied invocation inputs as validated typed value edges."""
+
+    input_types = module_exposed_input_types_internal(invocation.module)
+    return {
+        input_id: _module_input_value_ref(
+            value,
+            input_id=input_id,
+            value_type=input_types[input_id],
+        )
+        for input_id, value in invocation.inputs.items()
+    }
+
+
+def module_invocation_origin_internal(invocation: ModuleInvocation) -> object:
+    """Return the nominal identity owned by one invocation handle."""
+
+    return object.__getattribute__(invocation, "_origin")
+
+
+def _module_input_value_ref(
+    value: object,
+    *,
+    input_id: str,
+    value_type: ValueType,
+) -> ValueRef:
+    path = ("inputs", input_id)
+    if isinstance(value, ValueRef):
+        require_assignable(value.value_type, value_type, path=path)
+        return value
+    return internal_literal_value_ref(value, value_type, path=path)
 
 
 def _state_scalar_expr(value: object) -> ValueRef | ClosedScalarValue:
@@ -584,4 +895,5 @@ __all__ = [
     "ExperimentModule",
     "ModuleBuilder",
     "ModuleInvocation",
+    "ModuleOutputs",
 ]

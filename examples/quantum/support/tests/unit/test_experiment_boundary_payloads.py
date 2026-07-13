@@ -4,8 +4,9 @@ from pathlib import Path
 
 from demo_lab_experiment_testkit import load_experiment_config
 from scopecat.authoring import ExperimentInvocation
-from scopecat.instruments import PayloadRef, RuntimePayloadObservation
+from scopecat.instruments import PayloadRef
 from scopecat.models.artifact import CommandPayload
+from scopecat.runtime import RuntimePayloadObservation
 
 from quantum_lab_demo.experiments import SQG_RB_TEMPLATE
 from quantum_lab_demo.experiments.payloads import (

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
-from scopecat.models.run import RunManifest
+from scopecat.models.run import RunManifest, RunOutcome
 from scopecat.runs import (
     get_artifact_by_id,
     get_dataset_by_id,
@@ -117,7 +117,13 @@ def _manifest(
 ) -> RunManifest:
     return RunManifest(
         run_id="run_test",
-        status="completed",
+        lifecycle="terminal",
+        outcome=RunOutcome(
+            run_id="run_test",
+            result="succeeded",
+            certainty="known",
+            termination_reason="completed",
+        ),
         records=records,
         datasets=datasets,
         artifacts=artifacts,

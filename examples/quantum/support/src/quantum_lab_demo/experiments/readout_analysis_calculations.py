@@ -5,10 +5,16 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 from scopecat.results import ComplexQuantity, MeasurementRecord
 
 from quantum_lab_demo.experiments.readout_responses import (
@@ -82,26 +88,26 @@ def _process_measurement(
     )
     amplitude = round(abs(raw_iq), 12)
     if amplitude <= 0:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "invalid_readout_raw_observable",
                     "raw_iq amplitude must be greater than zero",
-                    _measurement_path(input_ref, measurement),
+                    input_ref=input_ref,
+                    measurement=measurement,
                 )
             ]
         )
     phase = round(math.atan2(raw_iq.imag, raw_iq.real), 12)
     frequency = measurement.coordinates.get(READOUT_PARAMETER_ID)
     if not isinstance(frequency, Quantity):
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "missing_readout_parameter",
                     "readout measurement is missing readout_frequency parameter",
-                    _measurement_path(input_ref, measurement),
+                    input_ref=input_ref,
+                    measurement=measurement,
                 )
             ]
         )
@@ -142,35 +148,35 @@ def _raw_complex(
 ) -> complex:
     observable = measurement.observables.get(observable_id)
     if observable is None:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "missing_readout_raw_observable",
                     f"readout measurement is missing {observable_id}",
-                    _measurement_path(input_ref, measurement),
+                    input_ref=input_ref,
+                    measurement=measurement,
                 )
             ]
         )
     if not isinstance(observable, ComplexQuantity):
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "invalid_readout_raw_observable",
                     f"readout observable {observable_id} must be scalar complex",
-                    _measurement_path(input_ref, measurement),
+                    input_ref=input_ref,
+                    measurement=measurement,
                 )
             ]
         )
     if observable.unit != "ratio":
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "invalid_readout_raw_observable",
                     f"readout observable {observable_id} must use ratio unit",
-                    _measurement_path(input_ref, measurement),
+                    input_ref=input_ref,
+                    measurement=measurement,
                 )
             ]
         )
@@ -188,13 +194,12 @@ def _minimum_s21_measurement(
         if measurement.observables.get("s21_db") is not None
     ]
     if not candidates:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "missing_readout_s21_observable",
                     "readout analysis input contains no s21_db observable",
-                    input_ref,
+                    input_ref=input_ref,
                 )
             ]
         )
@@ -212,13 +217,13 @@ def _minimum_s21_measurement(
 def _s21_observable(*, measurement: MeasurementRecord, input_ref: str) -> Quantity:
     observable = measurement.observables["s21_db"]
     if not isinstance(observable, Quantity) or observable.unit != "dB":
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "invalid_readout_s21_observable",
                     "readout s21_db observable must be a scalar dB quantity",
-                    _measurement_path(input_ref, measurement),
+                    input_ref=input_ref,
+                    measurement=measurement,
                 )
             ]
         )
@@ -230,30 +235,37 @@ def _readout_frequency_parameter(
 ) -> Quantity:
     parameter = measurement.coordinates.get(READOUT_PARAMETER_ID)
     if not isinstance(parameter, Quantity):
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "missing_readout_frequency_parameter",
                     "minimum S21 measurement is missing readout_frequency",
-                    _measurement_path(input_ref, measurement),
+                    input_ref=input_ref,
+                    measurement=measurement,
                 )
             ]
         )
     return parameter
 
 
-def _measurement_path(input_ref: str, measurement: MeasurementRecord) -> str:
-    return f"{input_ref}:point[{measurement.point_index}]"
-
-
-def _diagnostic(
-    severity: DiagnosticSeverity,
+def _problem(
     code: str,
     message: str,
-    path: str | None = None,
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+    *,
+    input_ref: str,
+    measurement: MeasurementRecord | None = None,
+) -> Problem:
+    path: tuple[str | int, ...] = (input_ref,)
+    if measurement is not None:
+        path = (*path, "points", measurement.point_index)
+    return blocking_problem(
+        code,
+        message,
+        category=ProblemCategory.INVALID_INPUT,
+        phase=ProblemPhase.ANALYSIS,
+        location=model_location("analysis_input", *path),
+        details={"input_ref": input_ref},
+    )
 
 
 __all__ = [

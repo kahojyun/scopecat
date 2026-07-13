@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
@@ -10,11 +11,26 @@ from pydantic import ValidationError
 
 from scopecat._manifest_updates import write_manifest_records
 from scopecat._storage.refs import dataset_content_ref, record_content_ref
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import (
+    CheckFailed,
+    Conflict,
+    DataIntegrityError,
+    NotFound,
+    StorageError,
+)
 from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
 from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunConfigSource, RunManifest
+from scopecat.problems import (
+    LocationPathItem,
+    Problem,
+    ProblemCategory,
+    ProblemLocation,
+    ProblemPhase,
+    StorageLocation,
+    blocking_problem,
+    model_location,
+)
 from scopecat.results import (
     ComplexQuantity,
     MeasurementDatasetSchema,
@@ -175,9 +191,7 @@ def review_run_comparison(
     note: str,
 ) -> tuple[RunComparisonResult, RunComparisonReviewRecord]:
     if state not in {"accepted", "rejected"}:
-        raise ValidationFailed(
-            [unsupported_run_comparison_review_state_diagnostic(state)]
-        )
+        raise CheckFailed([unsupported_run_comparison_review_state_problem(state)])
 
     storage = open_run_store(workspace)
     manifest = storage.read_manifest(run_id)
@@ -194,13 +208,14 @@ def review_run_comparison(
     )
     review_ref = record_storage_ref(review_record)
     if storage.exists(run_id, review_ref):
-        raise ValidationFailed(
+        raise Conflict(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "run_comparison_already_reviewed",
                     f"run comparison already reviewed: {result.comparison_id}",
-                    "comparison",
+                    category=ProblemCategory.CONFLICT,
+                    location=StorageLocation(run_id=run_id, ref=review_ref),
+                    details={"comparison_id": result.comparison_id},
                 )
             ]
         )
@@ -221,12 +236,12 @@ def review_run_comparison(
     return result, review
 
 
-def unsupported_run_comparison_review_state_diagnostic(state: str) -> Diagnostic:
-    return _diagnostic(
-        "error",
+def unsupported_run_comparison_review_state_problem(state: str) -> Problem:
+    return _problem(
         "unsupported_run_comparison_review_state",
         f"unsupported run comparison review state: {state}",
-        "state",
+        location=model_location("run_comparison", "state"),
+        details={"state": state},
     )
 
 
@@ -259,13 +274,13 @@ def _resolve_comparison(
     if selector in record_by_id:
         record = record_by_id[selector]
         if record.kind != "run_comparison_result":
-            raise ValidationFailed(
+            raise CheckFailed(
                 [
-                    _diagnostic(
-                        "error",
+                    _problem(
                         "invalid_run_comparison",
                         f"record is not a run comparison result: {selector}",
-                        "comparison",
+                        location=model_location("run_comparison", "selector"),
+                        details={"selector": selector, "record_kind": record.kind},
                     )
                 ]
             )
@@ -279,13 +294,13 @@ def _resolve_comparison(
     if selector in record_by_path:
         record = record_by_path[selector]
         if record.kind != "run_comparison_result":
-            raise ValidationFailed(
+            raise CheckFailed(
                 [
-                    _diagnostic(
-                        "error",
+                    _problem(
                         "invalid_run_comparison",
                         f"record is not a run comparison result: {selector}",
-                        "comparison",
+                        location=model_location("run_comparison", "selector"),
+                        details={"selector": selector, "record_kind": record.kind},
                     )
                 ]
             )
@@ -306,13 +321,14 @@ def _resolve_comparison(
         if result.comparison_id == selector:
             return record, result
 
-    raise ValidationFailed(
+    raise NotFound(
         [
-            _diagnostic(
-                "error",
+            _problem(
                 "run_comparison_not_found",
                 f"run comparison not found: {selector}",
-                "comparison",
+                category=ProblemCategory.NOT_FOUND,
+                location=StorageLocation(run_id=run_id, ref=selector),
+                details={"selector": selector},
             )
         ]
     )
@@ -328,37 +344,54 @@ def _load_comparison_record(
     record_ref = record_storage_ref(record)
     path = storage.ref_path(run_id, record_ref)
     if not path.exists():
-        raise ValidationFailed(
+        raise NotFound(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "run_comparison_not_found",
                     f"run comparison not found: {selector}",
-                    "comparison",
+                    category=ProblemCategory.NOT_FOUND,
+                    location=StorageLocation(run_id=run_id, ref=record_ref),
+                    details={"selector": selector},
                 )
             ]
         )
     if path.is_dir():
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "run_comparison_is_directory",
                     f"run comparison is a directory: {selector}",
-                    "comparison",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    location=StorageLocation(run_id=run_id, ref=record_ref),
+                    details={"selector": selector},
                 )
             ]
         )
     try:
-        return RunComparisonResult.model_validate_json(path.read_text())
-    except ValidationError as error:
-        raise ValidationFailed(
+        data = path.read_text()
+    except OSError as error:
+        raise StorageError(
             [
-                _diagnostic(
-                    "error",
+                _problem(
+                    "run_comparison_read_failed",
+                    "run comparison record could not be read",
+                    category=ProblemCategory.STORAGE,
+                    location=StorageLocation(run_id=run_id, ref=record_ref),
+                    details={"selector": selector},
+                )
+            ]
+        ) from error
+    try:
+        return RunComparisonResult.model_validate_json(data)
+    except ValidationError as error:
+        raise DataIntegrityError(
+            [
+                _problem(
                     "invalid_run_comparison",
                     f"run comparison is not valid JSON: {selector}",
-                    "comparison",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    location=StorageLocation(run_id=run_id, ref=record_ref),
+                    details={"selector": selector},
                 )
             ]
         ) from error
@@ -367,13 +400,13 @@ def _load_comparison_record(
 def _validate_selector_path(selector: str) -> None:
     path = PurePosixPath(selector)
     if path.is_absolute() or ".." in path.parts:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "run_comparison_path_escape",
                     f"run comparison path escapes run directory: {selector}",
-                    "comparison",
+                    location=model_location("run_comparison", "selector"),
+                    details={"selector": selector},
                 )
             ]
         )
@@ -426,16 +459,20 @@ def _resolve_observable_id(
     baseline_observable = baseline_observables[0]
     candidate_observable = candidate_observables[0]
     if baseline_observable != candidate_observable:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "run_comparison_primary_observable_mismatch",
                     (
                         "run comparison primary observables do not match: "
                         f"{baseline_observable} != {candidate_observable}"
                     ),
-                    "observable_id",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    location=model_location("run_comparison", "observable_id"),
+                    details={
+                        "baseline_observable_id": baseline_observable,
+                        "candidate_observable_id": candidate_observable,
+                    },
                 )
             ]
         )
@@ -450,28 +487,34 @@ def _primary_observables_from_manifest(
 ) -> list[str]:
     dataset = _raw_measurement_dataset(manifest)
     schema_data = dataset.data_schema
-    path = f"runs/{manifest.run_id}/manifest.datasets.{dataset.id}.schema"
+    location = StorageLocation(
+        run_id=manifest.run_id,
+        ref="manifest.json",
+        path=("datasets", dataset.id, "schema"),
+    )
     if schema_data is None:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "missing_run_comparison_dataset_schema",
                     f"{side} raw measurement dataset is missing schema",
-                    path,
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    location=location,
+                    details={"side": side, "dataset_id": dataset.id},
                 )
             ]
         )
     try:
         schema = MeasurementDatasetSchema.model_validate(schema_data)
     except ValidationError as error:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "invalid_run_comparison_dataset_schema",
                     f"{side} raw measurement dataset_schema is invalid",
-                    path,
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    location=location,
+                    details={"side": side, "dataset_id": dataset.id},
                 )
             ]
         ) from error
@@ -482,13 +525,17 @@ def _raw_measurement_dataset(manifest: RunManifest) -> RunDatasetEntry:
     dataset = get_dataset_by_id(manifest, MEASUREMENT_DATASET_ID)
     if dataset is not None:
         return dataset
-    raise ValidationFailed(
+    raise DataIntegrityError(
         [
-            _diagnostic(
-                "error",
+            _problem(
                 "missing_run_comparison_dataset_schema",
                 "run comparison input manifest is missing raw measurement dataset",
-                f"runs/{manifest.run_id}/manifest.datasets",
+                category=ProblemCategory.DATA_INTEGRITY,
+                location=StorageLocation(
+                    run_id=manifest.run_id,
+                    ref="manifest.json",
+                    path=("datasets",),
+                ),
             )
         ]
     )
@@ -502,57 +549,78 @@ def _validate_single_primary_observable(
     if len(observables) == 1:
         return
     if not observables:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "run_comparison_missing_primary_observable",
                     f"{side} raw measurement dataset has no primary observable",
-                    "observable_id",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    location=model_location("run_comparison", "observable_id"),
+                    details={"side": side},
                 )
             ]
         )
-    raise ValidationFailed(
+    raise DataIntegrityError(
         [
-            _diagnostic(
-                "error",
+            _problem(
                 "run_comparison_ambiguous_primary_observable",
                 (
                     f"{side} raw measurement dataset has multiple primary "
                     "observables; pass observable_id explicitly"
                 ),
-                "observable_id",
+                category=ProblemCategory.DATA_INTEGRITY,
+                location=model_location("run_comparison", "observable_id"),
+                details={"side": side, "observable_ids": observables},
             )
         ]
     )
 
 
-def _validate_safe_id(value: str, path: str) -> None:
+def _validate_safe_id(value: str, *path: LocationPathItem) -> None:
     if not SAFE_ID_RE.fullmatch(value):
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "run_comparison_invalid_id",
                     f"run comparison id is not safe: {value}",
-                    path,
+                    location=model_location("run_comparison", *path),
+                    details={"value": value},
                 )
             ]
         )
 
 
 def _read_measurements(*, storage: RunStore, run_id: str) -> list[MeasurementRecord]:
-    diagnostic_path = f"runs/{run_id}/{MEASUREMENT_DATA_REF}"
-    return read_measurement_records(
-        storage=storage,
-        run_id=run_id,
-        ref=MEASUREMENT_DATA_REF,
-        missing_code="missing_run_comparison_input",
-        empty_code="empty_run_comparison_input",
-        invalid_code="invalid_run_comparison_input",
-        noun="run comparison input",
-        diagnostic_path=diagnostic_path,
-    )
+    try:
+        return read_measurement_records(
+            storage=storage,
+            run_id=run_id,
+            ref=MEASUREMENT_DATA_REF,
+            missing_code="missing_run_comparison_input",
+            empty_code="empty_run_comparison_input",
+            invalid_code="invalid_run_comparison_input",
+            noun="run comparison input",
+        )
+    except NotFound as error:
+        source = error.problems[0]
+        related_locations = source.related_locations
+        if source.location is not None:
+            related_locations = (source.location, *related_locations)
+        raise DataIntegrityError(
+            [
+                source.model_copy(
+                    update={
+                        "category": ProblemCategory.DATA_INTEGRITY,
+                        "phase": ProblemPhase.ANALYSIS,
+                        "location": StorageLocation(
+                            run_id=run_id,
+                            ref=MEASUREMENT_DATA_REF,
+                        ),
+                        "related_locations": related_locations,
+                    }
+                )
+            ]
+        ) from error
 
 
 def _compare_measurements(
@@ -564,13 +632,26 @@ def _compare_measurements(
     candidate_measurements: list[MeasurementRecord],
 ) -> list[RunComparisonPoint]:
     if len(baseline_measurements) != len(candidate_measurements):
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "run_comparison_measurement_mismatch",
                     "run comparison measurement counts do not match",
-                    MEASUREMENT_DATA_REF,
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    location=StorageLocation(
+                        run_id=baseline_run_id,
+                        ref=MEASUREMENT_DATA_REF,
+                    ),
+                    related_locations=(
+                        StorageLocation(
+                            run_id=candidate_run_id,
+                            ref=MEASUREMENT_DATA_REF,
+                        ),
+                    ),
+                    details={
+                        "baseline_count": len(baseline_measurements),
+                        "candidate_count": len(candidate_measurements),
+                    },
                 )
             ]
         )
@@ -582,26 +663,66 @@ def _compare_measurements(
         strict=True,
     ):
         if baseline.point_index != candidate.point_index:
-            raise ValidationFailed(
+            raise DataIntegrityError(
                 [
-                    _diagnostic(
-                        "error",
+                    _problem(
                         "run_comparison_point_mismatch",
                         "run comparison point indexes do not match",
-                        "point_index",
+                        category=ProblemCategory.DATA_INTEGRITY,
+                        location=StorageLocation(
+                            run_id=baseline_run_id,
+                            ref=MEASUREMENT_DATA_REF,
+                            path=(baseline.point_index,),
+                        ),
+                        related_locations=(
+                            StorageLocation(
+                                run_id=candidate_run_id,
+                                ref=MEASUREMENT_DATA_REF,
+                                path=(candidate.point_index,),
+                            ),
+                        ),
+                        details={
+                            "baseline_point_index": baseline.point_index,
+                            "candidate_point_index": candidate.point_index,
+                        },
                     )
                 ]
             )
         baseline_value = _observable(baseline, baseline_run_id, observable_id)
         candidate_value = _observable(candidate, candidate_run_id, observable_id)
         if baseline_value.unit != candidate_value.unit:
-            raise ValidationFailed(
+            raise DataIntegrityError(
                 [
-                    _diagnostic(
-                        "error",
+                    _problem(
                         "run_comparison_unit_mismatch",
                         f"run comparison {observable_id} units do not match",
-                        f"observables.{observable_id}.unit",
+                        category=ProblemCategory.DATA_INTEGRITY,
+                        location=StorageLocation(
+                            run_id=baseline_run_id,
+                            ref=MEASUREMENT_DATA_REF,
+                            path=(
+                                baseline.point_index,
+                                "observables",
+                                observable_id,
+                                "unit",
+                            ),
+                        ),
+                        related_locations=(
+                            StorageLocation(
+                                run_id=candidate_run_id,
+                                ref=MEASUREMENT_DATA_REF,
+                                path=(
+                                    candidate.point_index,
+                                    "observables",
+                                    observable_id,
+                                    "unit",
+                                ),
+                            ),
+                        ),
+                        details={
+                            "baseline_unit": baseline_value.unit,
+                            "candidate_unit": candidate_value.unit,
+                        },
                     )
                 ]
             )
@@ -626,13 +747,22 @@ def _observable(
 ) -> Quantity:
     value = measurement.observables.get(observable_id)
     if value is None:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "run_comparison_missing_observable",
                     f"run comparison measurement is missing {observable_id}: {run_id}",
-                    f"observables.{observable_id}",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    location=StorageLocation(
+                        run_id=run_id,
+                        ref=MEASUREMENT_DATA_REF,
+                        path=(
+                            measurement.point_index,
+                            "observables",
+                            observable_id,
+                        ),
+                    ),
+                    details={"observable_id": observable_id},
                 )
             ]
         )
@@ -642,13 +772,22 @@ def _observable(
                 value=round(abs(complex(value.real, value.imag)), 12),
                 unit=value.unit,
             )
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "run_comparison_array_observable_unsupported",
                     f"run comparison observable must be scalar: {observable_id}",
-                    f"observables.{observable_id}",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    location=StorageLocation(
+                        run_id=run_id,
+                        ref=MEASUREMENT_DATA_REF,
+                        path=(
+                            measurement.point_index,
+                            "observables",
+                            observable_id,
+                        ),
+                    ),
+                    details={"observable_id": observable_id},
                 )
             ]
         )
@@ -678,7 +817,21 @@ def _read_config_source(*, storage: RunStore, run_id: str) -> RunConfigSource | 
     return manifest.config_source
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+def _problem(
+    code: str,
+    message: str,
+    *,
+    category: ProblemCategory = ProblemCategory.INVALID_INPUT,
+    location: ProblemLocation | None = None,
+    related_locations: Sequence[ProblemLocation] = (),
+    details: Mapping[str, object] | None = None,
+) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=category,
+        phase=ProblemPhase.ANALYSIS,
+        location=location,
+        related_locations=related_locations,
+        details={} if details is None else details,
+    )

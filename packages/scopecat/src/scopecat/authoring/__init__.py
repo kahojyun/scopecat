@@ -1,6 +1,8 @@
 """User-facing experiment authoring API."""
 
 from scopecat.authoring._record_intents import (
+    ProductOutputs,
+    ProductRef,
     RecordAxis,
     RecordSelection,
     entity_axis,
@@ -12,6 +14,7 @@ from scopecat.authoring.assembly import (
     ExperimentModule,
     ModuleBuilder,
     ModuleInvocation,
+    ModuleOutputs,
     module,
 )
 from scopecat.authoring.templates import (
@@ -95,8 +98,11 @@ __all__ = [
     "ModuleBuilder",
     "ModuleInput",
     "ModuleInvocation",
+    "ModuleOutputs",
     "ParameterKeyInput",
     "PayloadType",
+    "ProductOutputs",
+    "ProductRef",
     "QuantityType",
     "RecordAxis",
     "RecordField",

@@ -22,13 +22,19 @@ from scopecat._workflows.runs import (
     read_run_measurement_dataset,
     read_run_record_json,
 )
-from scopecat.diagnostics import Diagnostic
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.artifact import RunArtifactEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.run import RunManifest
 from scopecat.models.run_plan import RunPlanRecord
 from scopecat.models.run_request import RunRequest
+from scopecat.problems import (
+    LocationPathItem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 from scopecat.run_comparison import RunComparisonView
 from scopecat.run_data import (
     RunArtifactJsonResult,
@@ -43,6 +49,7 @@ from scopecat.session_data import Data
 
 if TYPE_CHECKING:
     from scopecat.run_overview import RunOverview
+    from scopecat.runs.execution import RunExecutionInspection
 
 
 class RunSession(Protocol):
@@ -168,19 +175,19 @@ class RunHandle:
     ) -> RunArtifactEntry:
         selected_sources = [path is not None, text is not None, content is not None]
         if selected_sources.count(True) != 1:
-            _raise_diagnostic(
+            _raise_run_problem(
                 "run_attachment_source_invalid",
                 "run attachment requires exactly one of path, text, or content",
                 "attachment",
             )
         if not key.strip():
-            _raise_diagnostic(
+            _raise_run_problem(
                 "run_attachment_key_invalid",
                 "run attachment key must be a non-empty string",
                 "key",
             )
         if not kind.strip():
-            _raise_diagnostic(
+            _raise_run_problem(
                 "run_attachment_kind_invalid",
                 "run attachment kind must be a non-empty string",
                 "kind",
@@ -189,7 +196,7 @@ class RunHandle:
         if path is not None:
             source_path = Path(path)
             if not source_path.is_file():
-                _raise_diagnostic(
+                _raise_run_problem(
                     "run_attachment_source_missing",
                     f"run attachment source file is missing: {source_path}",
                     "path",
@@ -200,7 +207,7 @@ class RunHandle:
             text=text,
         )
         if not _is_artifact_filename(selected_filename):
-            _raise_diagnostic(
+            _raise_run_problem(
                 "run_attachment_filename_invalid",
                 f"run attachment filename must be a basename: {selected_filename}",
                 "filename",
@@ -275,6 +282,13 @@ class RunHandle:
     def overview(self) -> RunOverview:
         return self.session.overview(self)
 
+    def inspect_execution(self) -> RunExecutionInspection:
+        """Read durable execution evidence without mutating or recovering the run."""
+
+        from scopecat.runs.execution import inspect_run_execution
+
+        return inspect_run_execution(run_id=self.id, workspace=self.session.workspace)
+
     def comparisons(self) -> tuple[RunComparisonView, ...]:
         return tuple(
             list_run_comparisons(run_id=self.id, workspace=self.session.workspace)
@@ -287,14 +301,19 @@ def run_handle_id(run: RunHandle | RunSelector) -> str:
     return selected_run_id(run)
 
 
-def _raise_diagnostic(code: str, message: str, path: str) -> NoReturn:
-    raise ValidationFailed(
+def _raise_run_problem(
+    code: str,
+    message: str,
+    *path: LocationPathItem,
+) -> NoReturn:
+    raise CheckFailed(
         [
-            Diagnostic(
-                severity="error",
-                code=code,
-                message=message,
-                path=path,
+            blocking_problem(
+                code,
+                message,
+                category=ProblemCategory.INVALID_INPUT,
+                phase=ProblemPhase.ANALYSIS,
+                location=model_location("run_attachment", *path),
             )
         ]
     )

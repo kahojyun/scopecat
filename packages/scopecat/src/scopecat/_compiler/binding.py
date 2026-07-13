@@ -25,10 +25,10 @@ from scopecat._compiler.dependencies import (
     ComputeDependencies,
     analyze_compute_dependencies,
 )
-from scopecat._compiler.diagnostics import CompilerDiagnosticError
 from scopecat._compiler.environment import ValidatedConfigEnvironment
 from scopecat._compiler.ids import NodeId
 from scopecat._compiler.parameter_overlays import apply_point_parameter_overlay
+from scopecat._compiler.problems import CompilerProblemError, compiler_problem
 from scopecat._compiler.program import (
     ComputeEdge,
     TypedComputeNode,
@@ -50,12 +50,19 @@ from scopecat._content_identity import content_fingerprint, stable_content_hash
 from scopecat._relations import EvalContext, ParameterRelationData, Row
 from scopecat._value_expressions import ScalarValueExpr, SeriesValueExpr, ValueExpr
 from scopecat.compute_values import ResolvedRoute
-from scopecat.diagnostics import Diagnostic
 from scopecat.models.config import RoutingChannelBinding
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
 from scopecat.models.state import PayloadRef, StateValue
 from scopecat.models.value import PayloadValue
+from scopecat.problems import (
+    ModelLocation,
+    Problem,
+    ProblemCategory,
+    has_blocking_problems,
+    model_location,
+)
+from scopecat.routing import RoutingError
 from scopecat.value_types import Scalar
 from scopecat.value_validation import (
     ValueValidationError,
@@ -78,11 +85,11 @@ def bind_program(
 ) -> BoundPlan:
     """Produce the single config-bound plan used by preview and execution."""
 
-    diagnostics = list(environment.diagnostics)
+    problems = list(environment.problems)
     if not environment.valid or environment.routing is None:
-        return _empty_plan(program, diagnostics)
+        return _empty_plan(program, problems)
 
-    rows = _materialize_point_rows(program, environment, diagnostics)
+    rows = _materialize_point_rows(program, environment, problems)
     planner_points = [_Point(index, row) for index, row in enumerate(rows)]
     coordinate_schema_valid = True
     try:
@@ -90,18 +97,19 @@ def bind_program(
     except ValueError as error:
         coordinate_schema_valid = False
         coordinate_ids = ()
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "experiment_point_schema_invalid",
                 f"experiment point schema is invalid: {error}",
-                "points",
+                model_location("points"),
             )
         )
     record_plans = plan_records(program.records, point_count=len(planner_points))
-    record_diagnostics = _as_diagnostics(
-        validate_record_plan(record_plans, coordinate_ids=coordinate_ids)
+    record_problems = validate_record_plan(
+        record_plans,
+        coordinate_ids=coordinate_ids,
     )
-    diagnostics.extend(record_diagnostics)
+    problems.extend(record_problems)
 
     state_records: list[StateRecord] = []
     point_parameters: dict[int, ParameterRelationData] = {}
@@ -112,7 +120,7 @@ def bind_program(
             environment.parameters,
             program=program,
             point=point,
-            diagnostics=diagnostics,
+            problems=problems,
         )
         if params is None:
             continue
@@ -123,24 +131,24 @@ def bind_program(
                 state_records.extend(
                     state.evaluate(point_index=point.point_index, ctx=ctx)
                 )
-            except Exception as error:
-                diagnostics.append(
-                    _diagnostic(
+            except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+                problems.append(
+                    _problem(
                         "experiment_state_evaluation_failed",
                         f"state binding failed for point {point.point_index}: {error}",
-                        f"state.{state_index}",
+                        model_location("state", state_index),
                     )
                 )
     if len(point_parameters) != len(planner_points):
-        return _empty_plan(program, diagnostics)
+        return _empty_plan(program, problems)
     routes_by_point = _bind_routes(
         program,
         environment,
         planner_points,
         point_parameters,
-        diagnostics,
+        problems,
     )
-    diagnostics.extend(
+    problems.extend(
         validate_route_constraints(routes_by_point, config=environment.config)
     )
     state_by_point: dict[int, list[StateRecord]] = {}
@@ -148,9 +156,7 @@ def bind_program(
         state_by_point.setdefault(record.point_index, []).append(record)
 
     schema = None
-    if coordinate_schema_valid and not any(
-        diagnostic.severity in {"error", "blocker"} for diagnostic in record_diagnostics
-    ):
+    if coordinate_schema_valid and not has_blocking_problems(record_problems):
         try:
             schema = expected_dataset_schema(
                 experiment_id=program.id,
@@ -158,17 +164,20 @@ def bind_program(
                 records=record_plans,
             )
         except ValueError as error:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "experiment_dataset_schema_invalid",
                     f"experiment output schema is invalid: {error}",
-                    "records",
+                    model_location("records"),
                 )
             )
     bound_records = tuple(_bound_record(record) for record in record_plans)
     occurrences: dict[str, int] = {}
     bound_points: list[BoundPoint] = []
-    previous_state: dict[tuple[str, str, _ChannelSignature], object] = {}
+    previous_state: dict[
+        tuple[str, str, str, _ChannelSignature],
+        object,
+    ] = {}
     state_changes: list[PlannedStateChange] = []
 
     for point in planner_points:
@@ -189,7 +198,7 @@ def bind_program(
             routes=routes,
             dependencies=compute_dependencies,
             demanded_payload_nodes=demanded_payload_nodes,
-            diagnostics=diagnostics,
+            problems=problems,
         )
         desired = _bind_desired_state(
             point_state_records,
@@ -197,21 +206,21 @@ def bind_program(
             payload_ids=payload_ids,
             known_compute_nodes={node.id for node in program.compute_nodes},
             point_index=point.point_index,
-            diagnostics=diagnostics,
+            problems=problems,
         )
         collect = _bind_collect(record_plans, routes)
         _validate_collect_products(
             collect,
             records=record_plans,
             point_index=point.point_index,
-            diagnostics=diagnostics,
+            problems=problems,
         )
         for resource in desired:
             for field in resource.fields:
-                field_name = f"{resource.capability_id}.{field.field_path}"
                 key = (
                     resource.resource_id,
-                    field_name,
+                    resource.capability_id,
+                    field.field_path,
                     _channel_signature(field.channel_bindings),
                 )
                 before = previous_state.get(key)
@@ -220,7 +229,8 @@ def bind_program(
                         PlannedStateChange(
                             point_index=point.point_index,
                             resource=resource.resource_id,
-                            field=field_name,
+                            capability_id=resource.capability_id,
+                            field_path=field.field_path,
                             before=before,
                             after=field.value,
                         )
@@ -228,15 +238,15 @@ def bind_program(
                 previous_state[key] = field.value
         try:
             point_key = stable_content_hash(content_fingerprint(point.row))
-        except Exception as error:
-            diagnostics.append(
-                _diagnostic(
+        except (TypeError, ValueError) as error:
+            problems.append(
+                _problem(
                     "experiment_point_identity_failed",
                     f"point {point.point_index} has no stable identity: {error}",
-                    f"points.{point.point_index}",
+                    model_location("points", point.point_index),
                 )
             )
-            return _empty_plan(program, diagnostics)
+            return _empty_plan(program, problems)
         occurrence = occurrences.get(point_key, 0)
         occurrences[point_key] = occurrence + 1
         point_uid = stable_content_hash(
@@ -274,7 +284,7 @@ def bind_program(
         route_intents=program.route_intents,
         state_changes=tuple(state_changes),
         expected_dataset_schema=schema,
-        diagnostics=tuple(diagnostics),
+        problems=tuple(problems),
     )
 
 
@@ -284,7 +294,7 @@ class _Point:
         self.row = row
 
 
-def _empty_plan(program: TypedProgram, diagnostics: Sequence[Diagnostic]) -> BoundPlan:
+def _empty_plan(program: TypedProgram, problems: Sequence[Problem]) -> BoundPlan:
     return BoundPlan(
         experiment_id=program.id,
         experiment_kind=program.kind,
@@ -294,23 +304,23 @@ def _empty_plan(program: TypedProgram, diagnostics: Sequence[Diagnostic]) -> Bou
         route_intents=program.route_intents,
         state_changes=(),
         expected_dataset_schema=None,
-        diagnostics=tuple(diagnostics),
+        problems=tuple(problems),
     )
 
 
 def _materialize_point_rows(
     program: TypedProgram,
     environment: ValidatedConfigEnvironment,
-    diagnostics: list[Diagnostic],
+    problems: list[Problem],
 ) -> list[Row]:
     try:
         rows = program.point_source.expr.evaluate(environment.parameters)
-    except Exception as error:
-        diagnostics.append(
-            _diagnostic(
+    except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+        problems.append(
+            _problem(
                 "experiment_points_evaluation_failed",
                 f"experiment point relation failed: {error}",
-                "points",
+                model_location("points"),
             )
         )
         return []
@@ -321,15 +331,15 @@ def _materialize_point_rows(
             coerce_literal(
                 program.point_source.value_type,
                 rows,
-                path="points",
+                path=("points",),
             ),
         )
     except ValueValidationError as error:
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "module_point_value_type_mismatch",
                 str(error),
-                error.path,
+                model_location("points"),
             )
         )
         return []
@@ -342,7 +352,7 @@ def _materialize_point_rows(
             value = selected.get(column_id)
             if value is None:
                 continue
-            entity = _resolve_entity(value, environment, diagnostics)
+            entity = _resolve_entity(value, environment, problems)
             if entity is not None:
                 selected[column_id] = entity
         materialized.append(selected)
@@ -352,15 +362,15 @@ def _materialize_point_rows(
             coerce_literal(
                 program.point_source.value_type,
                 materialized,
-                path="points",
+                path=("points",),
             ),
         )
     except ValueValidationError as error:
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "module_point_value_type_mismatch",
                 str(error),
-                error.path,
+                model_location("points"),
             )
         )
         return []
@@ -370,16 +380,17 @@ def _materialize_point_rows(
 def _resolve_entity(
     value: object,
     environment: ValidatedConfigEnvironment,
-    diagnostics: list[Diagnostic],
+    problems: list[Problem],
 ) -> EntityRef | None:
     selected = value if isinstance(value, EntityRef) else EntityRef(id=str(value))
     known = environment.config.topology.entity(selected.id)
     if known is None:
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "unknown_authoring_entity",
                 f"experiment references unknown entity {selected.id}",
-                "entity",
+                model_location("entity", selected.id),
+                category=ProblemCategory.NOT_FOUND,
             )
         )
         return None
@@ -388,11 +399,11 @@ def _resolve_entity(
         and known.kind is not None
         and selected.kind != known.kind
     ):
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "authoring_entity_kind_mismatch",
                 f"entity {selected.id} has kind {known.kind}, not {selected.kind}",
-                "entity",
+                model_location("entity", selected.id),
             )
         )
         return None
@@ -408,7 +419,7 @@ def _point_parameters(
     *,
     program: TypedProgram,
     point: _Point,
-    diagnostics: list[Diagnostic],
+    problems: list[Problem],
 ) -> ParameterRelationData | None:
     if not program.parameter_overlays:
         return base
@@ -425,21 +436,12 @@ def _point_parameters(
     )
     ctx = EvalContext(params=params, row=point.row)
     failed = False
-    for index, overlay in enumerate(program.parameter_overlays):
+    for overlay in program.parameter_overlays:
         try:
             apply_point_parameter_overlay(overlay, ctx=ctx, params=params)
-        except CompilerDiagnosticError as error:
+        except CompilerProblemError as error:
             failed = True
-            diagnostics.append(_diagnostic(error.code, str(error), f"overlays.{index}"))
-        except Exception as error:
-            failed = True
-            diagnostics.append(
-                _diagnostic(
-                    "experiment_parameter_overlay_failed",
-                    f"parameter overlay failed for point {point.point_index}: {error}",
-                    f"overlays.{index}",
-                )
-            )
+            problems.append(error.problem)
     return None if failed else params
 
 
@@ -448,7 +450,7 @@ def _bind_routes(
     environment: ValidatedConfigEnvironment,
     points: Sequence[_Point],
     point_parameters: Mapping[int, ParameterRelationData],
-    diagnostics: list[Diagnostic],
+    problems: list[Problem],
 ) -> dict[int, tuple[BoundRoute, ...]]:
     routing = environment.routing
     if routing is None:
@@ -466,14 +468,14 @@ def _bind_routes(
             for expression in intent.entity_exprs:
                 try:
                     entity_values.append(_evaluate_value_expr(expression, ctx))
-                except Exception as error:
+                except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                     failed = True
-                    diagnostics.append(
-                        _diagnostic(
+                    problems.append(
+                        _problem(
                             "experiment_route_entity_evaluation_failed",
                             f"route {intent.port_id} entity expression failed for "
                             f"point {point.point_index}: {error}",
-                            f"routes.{intent.port_id}",
+                            model_location("routes", intent.port_id),
                         )
                     )
             if failed:
@@ -485,12 +487,17 @@ def _bind_routes(
                     entity_values=entity_values,
                     resource_id=intent.resource_id,
                 )
-            except Exception as error:
-                diagnostics.append(
-                    _diagnostic(
-                        getattr(error, "code", "routing_failed"),
+            except RoutingError as error:
+                problems.append(
+                    _problem(
+                        error.code,
                         str(error),
-                        f"routes.{intent.port_id}",
+                        model_location("routes", intent.port_id),
+                        category=(
+                            ProblemCategory.CONFLICT
+                            if error.code.endswith("_ambiguous")
+                            else ProblemCategory.UNAVAILABLE
+                        ),
                     )
                 )
                 continue
@@ -516,7 +523,7 @@ def _bind_compute_calls(
     routes: Sequence[BoundRoute],
     dependencies: Mapping[NodeId, ComputeDependencies],
     demanded_payload_nodes: set[NodeId],
-    diagnostics: list[Diagnostic],
+    problems: list[Problem],
 ) -> tuple[tuple[BoundComputeCall, ...], dict[NodeId, str]]:
     calls: list[BoundComputeCall] = []
     signatures: dict[NodeId, str] = {}
@@ -533,7 +540,7 @@ def _bind_compute_calls(
                         coerce_literal(
                             input_spec.value_type,
                             _evaluate_value_expr(input_spec.value, ctx),
-                            path=f"compute.{node.id}.{name}",
+                            path=("compute", *node.id.scope, node.id.local_id, name),
                         )
                     )
                     inputs[name] = BoundValue(value)
@@ -574,23 +581,28 @@ def _bind_compute_calls(
                     )
                     inputs[name] = BoundValue(resolved)
                     signature_inputs[name] = content_fingerprint(resolved)
-            except Exception as error:
+            except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                 failed = True
-                diagnostics.append(
-                    _diagnostic(
+                problems.append(
+                    _problem(
                         "compute_node_input_binding_failed",
                         f"compute node {node.id} input {name!r} failed: {error}",
-                        f"compute.{node.id}.{name}",
+                        model_location(
+                            "compute",
+                            *node.id.scope,
+                            node.id.local_id,
+                            name,
+                        ),
                     )
                 )
         if failed:
             continue
         if node.fn is None:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "compute_node_function_missing",
                     f"compute node {node.id} has no in-memory function",
-                    f"compute.{node.id}",
+                    model_location("compute", *node.id.scope, node.id.local_id),
                 )
             )
             continue
@@ -643,7 +655,7 @@ def _bind_desired_state(
     payload_ids: Mapping[NodeId, str],
     known_compute_nodes: set[NodeId],
     point_index: int,
-    diagnostics: list[Diagnostic],
+    problems: list[Problem],
 ) -> tuple[BoundResourceState, ...]:
     grouped: dict[
         tuple[str, str],
@@ -651,45 +663,38 @@ def _bind_desired_state(
     ] = {}
     signatures: dict[tuple[str, str, str, _ChannelSignature], set[str]] = {}
     for record in records:
-        capability_id, separator, field_path = record.field.partition(".")
-        if not separator or not capability_id or not field_path:
-            diagnostics.append(
-                _diagnostic(
-                    "state_field_requires_capability",
-                    "state fields must use capability.field syntax",
-                    "desired_state.field",
-                )
-            )
-            continue
+        capability_id = record.capability_id
+        field_path = record.field_path
         if isinstance(record.value, ComputeResultRef):
             if record.value.node_id not in known_compute_nodes:
-                diagnostics.append(
-                    _diagnostic(
+                problems.append(
+                    _problem(
                         "compute_payload_unknown_node",
                         "state references unknown compute node "
                         f"{record.value.node_id.qualified_name!r}",
-                        "desired_state.value",
+                        model_location("desired_state", "value"),
+                        category=ProblemCategory.NOT_FOUND,
                     )
                 )
                 continue
             if record.value.node_id not in payload_ids:
-                diagnostics.append(
-                    _diagnostic(
+                problems.append(
+                    _problem(
                         "compute_payload_unavailable",
                         "state compute output is not an available payload: "
                         f"{record.value.node_id.qualified_name!r}",
-                        "desired_state.value",
+                        model_location("desired_state", "value"),
                     )
                 )
                 continue
         state_value = _state_value(record.value, payload_ids=payload_ids)
         if state_value is None:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "state_value_unsupported",
                     "state values must be finite numbers, quantities, "
                     "or payload outputs",
-                    "desired_state.value",
+                    model_location("desired_state", "value"),
                 )
             )
             continue
@@ -702,11 +707,12 @@ def _bind_desired_state(
             routes=routes,
         )
         if unbound:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "state_route_entity_unbound",
                     "state route entities are not bound: " + ", ".join(unbound),
-                    "desired_state.route_entities",
+                    model_location("desired_state", "route_entities"),
+                    category=ProblemCategory.UNAVAILABLE,
                 )
             )
             continue
@@ -725,12 +731,13 @@ def _bind_desired_state(
         )
     for (resource, capability, field_path, _channel), values in signatures.items():
         if len(values) > 1:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "experiment_conflicting_desired_state",
                     f"{resource}.{capability}.{field_path} receives multiple values "
                     f"at point {point_index}",
-                    f"points.{point_index}.desired_state",
+                    model_location("points", point_index, "desired_state"),
+                    category=ProblemCategory.CONFLICT,
                 )
             )
     return tuple(
@@ -889,7 +896,7 @@ def _validate_collect_products(
     *,
     records: Sequence[RecordPlan],
     point_index: int,
-    diagnostics: list[Diagnostic],
+    problems: list[Problem],
 ) -> None:
     for collect in collects:
         seen: set[str] = set()
@@ -914,12 +921,13 @@ def _validate_collect_products(
                 # not arise specifically from route resolution.
                 continue
             instrument = collect.instrument_id or "broadcast instruments"
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "experiment_record_product_duplicate",
                     f"instrument {instrument!r} receives product {product_key!r} "
                     f"more than once at point {point_index}",
-                    f"points.{point_index}.records",
+                    model_location("points", point_index, "records"),
+                    category=ProblemCategory.CONFLICT,
                 )
             )
     broadcast_keys = {
@@ -933,12 +941,13 @@ def _validate_collect_products(
             continue
         explicit_keys = {product.product_key for product in collect.products}
         for product_key in sorted(broadcast_keys & explicit_keys):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "experiment_record_product_duplicate",
                     f"instrument {collect.instrument_id!r} receives broadcast and "
                     f"explicit product {product_key!r} at point {point_index}",
-                    f"points.{point_index}.records",
+                    model_location("points", point_index, "records"),
+                    category=ProblemCategory.CONFLICT,
                 )
             )
 
@@ -999,12 +1008,14 @@ def _unwrap_payload_values(value: object) -> object:
     return value
 
 
-def _as_diagnostics(values: Sequence[dict[str, Any]]) -> list[Diagnostic]:
-    return [Diagnostic.model_validate(value) for value in values]
-
-
-def _diagnostic(code: str, message: str, path: str | None = None) -> Diagnostic:
-    return Diagnostic(severity="error", code=code, message=message, path=path)
+def _problem(
+    code: str,
+    message: str,
+    location: ModelLocation,
+    *,
+    category: ProblemCategory = ProblemCategory.INVALID_INPUT,
+) -> Problem:
+    return compiler_problem(code, message, location, category=category)
 
 
 __all__ = ["bind_program"]

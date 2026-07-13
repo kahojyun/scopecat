@@ -12,10 +12,14 @@ from scopecat.authoring._module_handles import (
 from scopecat.authoring._module_handles import (
     ModuleInvocation as ModuleInvocation,
 )
+from scopecat.authoring._module_handles import (
+    ModuleOutputs as ModuleOutputs,
+)
 
 __all__ = [
     "ExperimentModule",
     "ModuleBuilder",
     "ModuleInvocation",
+    "ModuleOutputs",
     "module",
 ]

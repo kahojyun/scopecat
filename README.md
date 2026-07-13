@@ -147,6 +147,18 @@ readout_module = (
     sc.module("readout")
     .inputs(qubits)
     .computes(program, execute)
+    .export(receipt=execute.output)
+    .product("iq")
+    .build()
+)
+
+readout = readout_module.instantiate("readout", qubits=qubits)
+experiment_module = (
+    sc.module("readout-experiment").inputs(qubits).use(readout).build()
+)
+readout_template = (
+    experiment_module.template("readout", kind="readout")
+    .record_product(readout.products.iq)
     .build()
 )
 ```
@@ -155,6 +167,11 @@ Use the same `frequency` handle in module bindings and
 `template.scan(frequency, ...)`. Scan targets are never stringly named columns,
 and authoring handles are created only by DSL factories rather than by filling
 compiler-facing dataclasses.
+
+Desired-state targets are likewise structural. Use
+`bind_field(resource, capability=..., field=..., value=...)`; for table-driven
+state use `state_each(..., capability=..., field=..., value=...)`. Packed paths
+such as `"resource.capability.field"` are not part of the authoring API.
 
 Values supplied through `template.bind(...)` or `Workspace.prepare(...).input(...)`
 belong to a closed, recursively typed runtime-input domain (quantities, entity
@@ -168,15 +185,40 @@ explicitly in `inputs`; no ambient runtime context is part of the authoring API.
 
 `program.output` is an ordinary typed value, so downstream computes and child
 modules consume the producer itself instead of reconstructing an edge from a
-node name.
+node name. A reusable module explicitly exports the values that cross its
+boundary. Each named invocation then owns hygienic `outputs` and `products`
+handles plus independently scoped logical resource ports, so two instances of
+the same module can be wired and recorded independently. Explicit instances
+must connect every declared input; shared inputs are therefore visible wiring
+in the parent module rather than an accidental same-name merge. Reusable
+modules declare products, while fixed records remain a template-root or scratch
+experiment concern. Product selection stays at the template boundary because
+it is a workflow persistence choice rather than reusable module behavior.
+
+Before Scopecat reads configuration, it validates template shape, invocation
+input types, product selection, the source compute graph, route capabilities,
+record schemas, and whether each value exists at the stage and rate where it is
+used. The linked typed program is verified again at the compiler boundary.
+Provider descriptions and execution ABI compatibility are likewise checked
+before a durable run is created; acquiring live drivers remains inside the
+resource lease after run acceptance.
+
+These boundaries are inspectable without executing a run. `template.check()`
+checks only the reusable definition, `template.bind(...).check()` compiles the
+complete config-free authoring graph, and `workspace.prepare(...).check()`
+reports the authoring, configuration, and planning phases separately. Each
+report exposes structured phase status and problems; `.explain()` renders
+the same report as deterministic text for notebooks and logs. Candidate configs
+are resolved read-only for system summaries, checks, validation, and previews;
+only a run or an explicit activation materializes candidate evidence.
 
 ## Persistence Boundary
 
 Stored structured runs contain the normalized `RunRequest`, the accepted
 configuration snapshot, the user-visible `RunPlanRecord`, and execution
-evidence such as measurements, outcomes, and diagnostics. These records answer
-what the operator requested, what configuration was accepted, what was planned,
-and what actually happened.
+evidence such as measurements, outcomes, journal transitions, and problems.
+These records answer what the operator requested, what configuration was
+accepted, what was planned, and what actually happened.
 
 Experiment modules, `TypedProgram`, `BoundPlan`, and `ExecutionProgram` are
 transient Python objects. They may change as the DSL, compiler, and execution

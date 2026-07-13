@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
-from scopecat.diagnostics import Diagnostic
 from scopecat.models.run import RunConfigSource
 from scopecat.models.state import StateLiteral
+from scopecat.problems import Problem, has_blocking_problems
 from scopecat.results import MeasurementDatasetSchema
+
+
+def _empty_inputs() -> Mapping[str, object]:
+    return {}
 
 
 @dataclass(frozen=True)
@@ -34,9 +40,14 @@ class ExperimentPreviewRecord:
 class ExperimentPreviewStateChange:
     point_index: int
     resource: str
-    field: str
+    capability_id: str
+    field_path: str
     before: object | None
     after: object
+
+    @property
+    def field(self) -> str:
+        return f"{self.capability_id}.{self.field_path}"
 
 
 @dataclass(frozen=True)
@@ -81,8 +92,18 @@ class ExperimentPreviewStateField:
 class ExperimentPreviewPayload:
     node_id: str
     schema_id: str
-    state_fields: tuple[str, ...]
+    state_fields: tuple[ExperimentPreviewStateTarget, ...]
     dependencies: dict[str, tuple[str, ...]]
+
+
+@dataclass(frozen=True, order=True)
+class ExperimentPreviewStateTarget:
+    capability_id: str
+    field_path: str
+
+    @property
+    def field(self) -> str:
+        return f"{self.capability_id}.{self.field_path}"
 
 
 @dataclass(frozen=True)
@@ -124,27 +145,40 @@ class ExperimentPreview:
 
 @dataclass(frozen=True)
 class ValidateExperimentResult:
-    diagnostics: tuple[Diagnostic, ...]
+    problems: tuple[Problem, ...]
     summary: ExperimentPreview | None = None
     template_id: str | None = None
-    inputs: dict[str, object] = field(default_factory=dict)
+    inputs: Mapping[str, object] = field(default_factory=_empty_inputs)
     config_source: RunConfigSource | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "problems", tuple(self.problems))
+        object.__setattr__(
+            self,
+            "inputs",
+            MappingProxyType(dict(self.inputs)),
+        )
 
     @property
     def ok(self) -> bool:
-        return not any(
-            diagnostic.severity in {"error", "blocker"}
-            for diagnostic in self.diagnostics
-        )
+        return not has_blocking_problems(self.problems)
 
 
 @dataclass(frozen=True)
 class PreviewExperimentResult:
     summary: ExperimentPreview
-    diagnostics: tuple[Diagnostic, ...]
+    problems: tuple[Problem, ...]
     template_id: str | None = None
-    inputs: dict[str, object] = field(default_factory=dict)
+    inputs: Mapping[str, object] = field(default_factory=_empty_inputs)
     config_source: RunConfigSource | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "problems", tuple(self.problems))
+        object.__setattr__(
+            self,
+            "inputs",
+            MappingProxyType(dict(self.inputs)),
+        )
 
     @property
     def experiment_id(self) -> str:
@@ -219,6 +253,7 @@ __all__ = [
     "ExperimentPreviewRuntimeSummary",
     "ExperimentPreviewStateChange",
     "ExperimentPreviewStateField",
+    "ExperimentPreviewStateTarget",
     "PreviewExperimentResult",
     "ValidateExperimentResult",
 ]

@@ -9,14 +9,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Self
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from scopecat._manifest_updates import write_manifest_records_locked
 from scopecat._parameter_resolution import validate_parameter_snapshot
 from scopecat._parameter_updates import ParameterUpdate, materialize_parameter_updates
 from scopecat._storage.refs import record_content_ref
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed, Conflict, DataIntegrityError, NotFound
 from scopecat.ids import artifact_slug
 from scopecat.models.artifact import RunRecordEntry
 from scopecat.models.config import (
@@ -26,6 +25,15 @@ from scopecat.models.config import (
 )
 from scopecat.models.parameter_change import ParameterChangeProposal
 from scopecat.models.run import RunManifest, utc_now
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemLocation,
+    ProblemPhase,
+    StorageLocation,
+    blocking_problem,
+    model_location,
+)
 from scopecat.runs import RunStore, list_records, open_run_store
 
 ParameterChangeReviewState = Literal["approved", "rejected"]
@@ -115,8 +123,18 @@ def parameter_change_proposal_from_updates(
 ) -> ParameterChangeProposal:
     selected_id = artifact_slug(proposal_id, fallback="analysis")
     if not is_safe_parameter_change_id(selected_id):
-        msg = f"parameter change proposal id is not safe: {selected_id}"
-        raise ValueError(msg)
+        raise CheckFailed(
+            [
+                _parameter_problem(
+                    "parameter_change_invalid_id",
+                    "parameter change proposal id is not safe for record paths",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location("parameter_change_proposal", "id"),
+                    details={"proposal_id": selected_id},
+                )
+            ]
+        )
     selected_reason = reason or (
         f"Parameter change {selected_id!r} from analysis {analysis_title!r}."
     )
@@ -126,12 +144,12 @@ def parameter_change_proposal_from_updates(
         updates=updates,
         candidate_id=f"{source_config.parameter_snapshot.id}.candidate.{selected_id}",
     )
-    diagnostics = validate_parameter_snapshot(
+    problems = validate_parameter_snapshot(
         source_config.parameter_catalog,
         candidate,
     )
-    if diagnostics:
-        raise ValidationFailed(list(diagnostics))
+    if problems:
+        raise CheckFailed(problems)
     return ParameterChangeProposal(
         id=selected_id,
         source_run_id=source_run_id,
@@ -245,8 +263,17 @@ def record_parameter_change_decision(
             selector=selector,
         )
         if not actor.strip():
-            msg = "parameter change decision actor must be non-empty"
-            raise ValueError(msg)
+            raise CheckFailed(
+                [
+                    _parameter_problem(
+                        "parameter_change_decision_actor_invalid",
+                        "parameter change decision actor must be non-empty",
+                        category=ProblemCategory.INVALID_INPUT,
+                        phase=ProblemPhase.ANALYSIS,
+                        location=model_location("parameter_change_decision", "actor"),
+                    )
+                ]
+            )
         for ref in related_refs or ():
             _validate_selector_path(ref)
         event_id = uuid4().hex
@@ -268,8 +295,18 @@ def record_parameter_change_decision(
             kind=decision_entry.kind,
         )
         if not storage.write_model_if_absent(run_id, decision_ref, record):
-            msg = f"parameter change decision event already exists: {event_id}"
-            raise RuntimeError(msg)
+            raise Conflict(
+                [
+                    _parameter_problem(
+                        "parameter_change_decision_conflict",
+                        "parameter change decision event already exists",
+                        category=ProblemCategory.CONFLICT,
+                        phase=ProblemPhase.PERSISTENCE,
+                        location=StorageLocation(run_id=run_id, ref=decision_ref),
+                        details={"event_id": event_id},
+                    )
+                ]
+            )
         write_manifest_records_locked(
             storage=storage,
             run_id=run_id,
@@ -301,29 +338,47 @@ def list_parameter_change_decisions(
                 record_content_ref(record_id=entry.id, kind=entry.kind),
                 ParameterChangeDecisionRecord,
             )
-        except (FileNotFoundError, ValidationError) as error:
-            raise ValidationFailed(
+        except DataIntegrityError as error:
+            raise DataIntegrityError(
                 [
-                    _diagnostic(
-                        "error",
+                    _parameter_problem(
                         "invalid_parameter_change_decision",
-                        f"invalid parameter change decision record: {entry.id}",
-                        "parameter_change_decision",
+                        "parameter change decision record is invalid",
+                        category=ProblemCategory.DATA_INTEGRITY,
+                        phase=ProblemPhase.PERSISTENCE,
+                        location=StorageLocation(
+                            run_id=run_id,
+                            ref=record_content_ref(
+                                record_id=entry.id,
+                                kind=entry.kind,
+                            ),
+                        ),
+                        details={"record_id": entry.id},
                     )
                 ]
             ) from error
         expected_entry_id = f"{decision.proposal_id}-decision-{decision.event_id}"
         if decision.run_id != run_id or entry.id != expected_entry_id:
-            raise ValidationFailed(
+            raise DataIntegrityError(
                 [
-                    _diagnostic(
-                        "error",
+                    _parameter_problem(
                         "invalid_parameter_change_decision_identity",
-                        (
-                            "parameter change decision identity does not match its "
-                            f"run record: {entry.id}"
+                        "parameter change decision identity does not match its "
+                        "run record",
+                        category=ProblemCategory.DATA_INTEGRITY,
+                        phase=ProblemPhase.PERSISTENCE,
+                        location=StorageLocation(
+                            run_id=run_id,
+                            ref=record_content_ref(
+                                record_id=entry.id,
+                                kind=entry.kind,
+                            ),
                         ),
-                        "parameter_change_decision",
+                        details={
+                            "record_id": entry.id,
+                            "decision_run_id": decision.run_id,
+                            "expected_record_id": expected_entry_id,
+                        },
                     )
                 ]
             )
@@ -393,16 +448,21 @@ def write_parameter_change_proposal_contents_locked(
     )
     for proposal, entry in zip(proposals, entries, strict=True):
         if proposal.source_run_id != run_id:
-            raise ValidationFailed(
+            raise CheckFailed(
                 [
-                    _diagnostic(
-                        "error",
+                    _parameter_problem(
                         "parameter_change_proposal_source_run_mismatch",
-                        (
-                            f"parameter change proposal {proposal.id} belongs to "
-                            f"run {proposal.source_run_id}, not {run_id}"
+                        "parameter change proposal belongs to a different source run",
+                        category=ProblemCategory.INVALID_INPUT,
+                        phase=ProblemPhase.PERSISTENCE,
+                        location=model_location(
+                            "parameter_change_proposal", "source_run_id"
                         ),
-                        "parameter_change_proposal.source_run_id",
+                        details={
+                            "proposal_id": proposal.id,
+                            "proposal_run_id": proposal.source_run_id,
+                            "target_run_id": run_id,
+                        },
                     )
                 ]
             )
@@ -414,16 +474,16 @@ def write_parameter_change_proposal_contents_locked(
                 proposal_record=entry,
             )
             if existing != proposal:
-                raise ValidationFailed(
+                raise Conflict(
                     [
-                        _diagnostic(
-                            "error",
+                        _parameter_problem(
                             "parameter_change_proposal_conflict",
-                            (
-                                "parameter change proposal record is immutable and "
-                                f"already contains different content: {proposal.id}"
-                            ),
-                            "parameter_change_proposal",
+                            "parameter change proposal record is immutable and "
+                            "already contains different content",
+                            category=ProblemCategory.CONFLICT,
+                            phase=ProblemPhase.PERSISTENCE,
+                            location=StorageLocation(run_id=run_id, ref=proposal_ref),
+                            details={"proposal_id": proposal.id},
                         )
                     ]
                 )
@@ -435,16 +495,16 @@ def write_parameter_change_proposal_contents_locked(
                 proposal_record=entry,
             )
             if existing != proposal:
-                raise ValidationFailed(
+                raise Conflict(
                     [
-                        _diagnostic(
-                            "error",
+                        _parameter_problem(
                             "parameter_change_proposal_conflict",
-                            (
-                                "parameter change proposal record is immutable and "
-                                f"already contains different content: {proposal.id}"
-                            ),
-                            "parameter_change_proposal",
+                            "parameter change proposal record is immutable and "
+                            "already contains different content",
+                            category=ProblemCategory.CONFLICT,
+                            phase=ProblemPhase.PERSISTENCE,
+                            location=StorageLocation(run_id=run_id, ref=proposal_ref),
+                            details={"proposal_id": proposal.id},
                         )
                     ]
                 )
@@ -472,13 +532,15 @@ def _resolve_proposal_ref(
             or record_ref == selector
         ):
             return proposal, proposal_record
-    raise ValidationFailed(
+    raise NotFound(
         [
-            _diagnostic(
-                "error",
+            _parameter_problem(
                 "parameter_change_proposal_not_found",
-                f"parameter change proposal not found: {selector}",
-                "parameter_change_proposal",
+                "parameter change proposal was not found",
+                category=ProblemCategory.NOT_FOUND,
+                phase=ProblemPhase.ANALYSIS,
+                location=model_location("parameter_change_selector"),
+                details={"selector": selector, "run_id": run_id},
             )
         ]
     )
@@ -491,42 +553,52 @@ def _load_proposal_record(
         record_id=proposal_record.id,
         kind=proposal_record.kind,
     )
-    path = storage.ref_path(run_id, proposal_ref)
-    if not path.exists() or path.is_dir():
-        raise ValidationFailed(
+    if not storage.exists(run_id, proposal_ref):
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
-                    "parameter_change_proposal_not_found",
-                    f"parameter change proposal not found: {proposal_ref}",
-                    "parameter_change_proposal",
+                _parameter_problem(
+                    "parameter_change_proposal_record_missing",
+                    "run manifest references a missing parameter change proposal",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    phase=ProblemPhase.PERSISTENCE,
+                    location=StorageLocation(run_id=run_id, ref=proposal_ref),
+                    details={"record_id": proposal_record.id},
                 )
             ]
         )
     try:
-        proposal = ParameterChangeProposal.model_validate_json(path.read_text())
-    except ValidationError as error:
-        raise ValidationFailed(
+        proposal = storage.read_model(
+            run_id,
+            proposal_ref,
+            ParameterChangeProposal,
+        )
+    except DataIntegrityError as error:
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _parameter_problem(
                     "invalid_parameter_change_proposal",
-                    f"invalid parameter change proposal: {proposal_ref}",
-                    "parameter_change_proposal",
+                    "parameter change proposal record is invalid",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    phase=ProblemPhase.PERSISTENCE,
+                    location=StorageLocation(run_id=run_id, ref=proposal_ref),
+                    details={"record_id": proposal_record.id},
                 )
             ]
         ) from error
     if proposal.id != proposal_record.id or proposal.source_run_id != run_id:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
+                _parameter_problem(
                     "invalid_parameter_change_proposal_identity",
-                    (
-                        "parameter change proposal identity does not match its run "
-                        f"record: {proposal_record.id}"
-                    ),
-                    "parameter_change_proposal",
+                    "parameter change proposal identity does not match its run record",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    phase=ProblemPhase.PERSISTENCE,
+                    location=StorageLocation(run_id=run_id, ref=proposal_ref),
+                    details={
+                        "record_id": proposal_record.id,
+                        "proposal_id": proposal.id,
+                        "proposal_run_id": proposal.source_run_id,
+                    },
                 )
             ]
         )
@@ -540,22 +612,37 @@ def _proposal_records(manifest: RunManifest) -> tuple[RunRecordEntry, ...]:
 def _validate_selector_path(value: str) -> None:
     path = PurePosixPath(value)
     if path.is_absolute() or ".." in path.parts:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _parameter_problem(
                     "parameter_change_path_escape",
-                    f"parameter change path escapes run directory: {value}",
-                    "parameter_change_proposal",
+                    "parameter change selector escapes the run directory",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location("parameter_change_selector"),
+                    details={"selector": value},
                 )
             ]
         )
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+def _parameter_problem(
+    code: str,
+    message: str,
+    *,
+    category: ProblemCategory,
+    phase: ProblemPhase,
+    location: ProblemLocation,
+    details: dict[str, object] | None = None,
+) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=category,
+        phase=phase,
+        location=location,
+        details=details,
+    )
 
 
 __all__ = [

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from scopecat._workflows.runs import read_run_record_json, start_run
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import (
     config_with_instrument_id,
@@ -37,11 +37,11 @@ def test_start_run_uses_provider_selected_config_instrument(
 def test_start_run_requires_explicit_instrument_provider(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         start_run(
             config=load_config(),
             experiment=load_prepared_invocation(),
             workspace=tmp_path,
         )
 
-    assert error.value.diagnostics[0].code == "missing_instrument_provider"
+    assert error.value.problems[0].code == "execution.instrument_provider_missing"

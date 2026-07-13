@@ -1,0 +1,229 @@
+{
+  "schema_version": "scopecat.run_plan_record.v3",
+  "experiment_id": "simple-scan",
+  "experiment_kind": "simple_scan",
+  "point_count": 3,
+  "expected_dataset_schema": {
+    "schema_version": "scopecat.measurement_dataset_schema.v0",
+    "dataset_id": "raw-measurements",
+    "dataset_role": "raw",
+    "record_schema": "scopecat.measurement_record.v0",
+    "dimensions": [
+      {
+        "id": "point",
+        "kind": "point",
+        "label": null,
+        "size": 3,
+        "unit": null,
+        "metadata": {}
+      }
+    ],
+    "variables": [
+      {
+        "id": "drive_frequency",
+        "role": "coordinate",
+        "dtype": "float64",
+        "unit": "GHz",
+        "dims": [
+          "point"
+        ],
+        "shape": [
+          3
+        ],
+        "label": null,
+        "uncertainty_of": null,
+        "status_of": null,
+        "mask_of": null,
+        "metadata": {}
+      },
+      {
+        "id": "signal",
+        "role": "observable",
+        "dtype": "float64",
+        "unit": "ratio",
+        "dims": [
+          "point"
+        ],
+        "shape": [
+          3
+        ],
+        "label": null,
+        "uncertainty_of": null,
+        "status_of": null,
+        "mask_of": null,
+        "metadata": {
+          "source": "instrument",
+          "resource": "source"
+        }
+      }
+    ],
+    "primary_coordinates": [
+      "drive_frequency"
+    ],
+    "primary_observables": [
+      "signal"
+    ],
+    "metadata": {
+      "experiment_id": "simple-scan"
+    }
+  },
+  "coordinate_ids": [
+    "drive_frequency"
+  ],
+  "points": [
+    {
+      "point_index": 0,
+      "point_uid": "5339f12eb536ca080c34e69ba260652b94d85cfec4816b79bd8df8dd04eea80d",
+      "coordinates": {
+        "drive_frequency": {
+          "value": 4.9,
+          "unit": "GHz"
+        }
+      }
+    },
+    {
+      "point_index": 1,
+      "point_uid": "17d781c62030cda43e27660b2534937de6f3da8bbbfd1dad2d663ae7e19cd2ad",
+      "coordinates": {
+        "drive_frequency": {
+          "value": 5.0,
+          "unit": "GHz"
+        }
+      }
+    },
+    {
+      "point_index": 2,
+      "point_uid": "6f2cf885482f37f2d93e7bbe22ff1822ceabb6e184cb08c403ac4610ab660fa4",
+      "coordinates": {
+        "drive_frequency": {
+          "value": 5.1,
+          "unit": "GHz"
+        }
+      }
+    }
+  ],
+  "records": [
+    {
+      "id": "signal",
+      "kind": "observable",
+      "source": "instrument",
+      "resource": "source",
+      "capability": null,
+      "unit": "ratio",
+      "dtype": "float64",
+      "dims": [
+        "point"
+      ],
+      "shape": [
+        3
+      ]
+    }
+  ],
+  "state_changes": [
+    {
+      "point_index": 0,
+      "resource": "source-0",
+      "capability_id": "set_frequency",
+      "field_path": "frequency",
+      "before": null,
+      "after": {
+        "value": 4.9,
+        "unit": "GHz"
+      }
+    },
+    {
+      "point_index": 1,
+      "resource": "source-0",
+      "capability_id": "set_frequency",
+      "field_path": "frequency",
+      "before": {
+        "value": 4.9,
+        "unit": "GHz"
+      },
+      "after": {
+        "value": 5.0,
+        "unit": "GHz"
+      }
+    },
+    {
+      "point_index": 2,
+      "resource": "source-0",
+      "capability_id": "set_frequency",
+      "field_path": "frequency",
+      "before": {
+        "value": 5.0,
+        "unit": "GHz"
+      },
+      "after": {
+        "value": 5.1,
+        "unit": "GHz"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "port_id": "source",
+      "capabilities": [
+        "set_frequency"
+      ],
+      "entity_expr_count": 0,
+      "fixed_resource": null,
+      "resolved": [
+        {
+          "point_index": 0,
+          "port_id": "source",
+          "resource_id": "source-0",
+          "entity_ids": [],
+          "product_axis_order": [],
+          "channel_bindings": [
+            {
+              "entity_id": "q0",
+              "channel_id": "drive-q0",
+              "line_id": null,
+              "capability": null,
+              "group_ids": []
+            }
+          ]
+        },
+        {
+          "point_index": 1,
+          "port_id": "source",
+          "resource_id": "source-0",
+          "entity_ids": [],
+          "product_axis_order": [],
+          "channel_bindings": [
+            {
+              "entity_id": "q0",
+              "channel_id": "drive-q0",
+              "line_id": null,
+              "capability": null,
+              "group_ids": []
+            }
+          ]
+        },
+        {
+          "point_index": 2,
+          "port_id": "source",
+          "resource_id": "source-0",
+          "entity_ids": [],
+          "product_axis_order": [],
+          "channel_bindings": [
+            {
+              "entity_id": "q0",
+              "channel_id": "drive-q0",
+              "line_id": null,
+              "capability": null,
+              "group_ids": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "dataset_dimensions": {
+    "point": 3
+  },
+  "primary_observables": [
+    "signal"
+  ]
+}

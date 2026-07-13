@@ -17,11 +17,12 @@ from scopecat.authoring._binding_intents import (
     ResourcePort,
 )
 from scopecat.authoring._context import ExperimentAuthoringContext
+from scopecat.authoring._value_availability import ValueStage
 from scopecat.authoring._value_binding import bind_value_input_refs
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_value_ref,
-    internal_value_ref_source_kind,
+    internal_value_ref_availability,
 )
 from scopecat.models.entity import EntityRef
 from scopecat.value_types import Entity, Scalar, Series
@@ -44,15 +45,14 @@ def lower_binding_intent(
 ) -> BindingSpec:
     """Lower one source binding after config-dependent port validation."""
 
-    port_id, capability_id, field_path = _parse_port_path(ctx, intent.port_path)
-    resource_port = resource_ports.get(port_id)
+    resource_port = resource_ports.get(intent.port_id)
     if resource_port is None:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_unknown_resource_port",
-            f"binding references unknown resource port {port_id}",
+            f"binding references unknown resource port {intent.port_id}",
             "bindings",
         )
-    require_port_capability(ctx, resource_port, capability_id)
+    require_port_capability(ctx, resource_port, intent.capability_id)
     value = intent.value
     if isinstance(value, ValueRef):
         value = internal_lower_value_ref(value)
@@ -60,9 +60,9 @@ def lower_binding_intent(
             msg = "state binding value must be scalar-shaped"
             raise TypeError(msg)
     return BindingSpec(
-        resource_id=port_id,
-        capability_id=capability_id,
-        field_path=field_path,
+        resource_id=intent.port_id,
+        capability_id=intent.capability_id,
+        field_path=intent.field_path,
         value=value if isinstance(value, ComputeResultRef) else as_scalar_expr(value),
     )
 
@@ -77,7 +77,7 @@ def build_route_intents(
     for port in ports:
         route_intents.append(
             ResourceRouteIntent(
-                port_id=port.id,
+                port_id=port.qualified_id,
                 capabilities=tuple(port.selector.capabilities),
                 entity_exprs=tuple(
                     as_scalar_or_series_value_expr(
@@ -97,13 +97,15 @@ def ports_by_id(
 ) -> dict[str, ResourcePort]:
     result: dict[str, ResourcePort] = {}
     for port in ports:
-        if port.id in result:
-            ctx.raise_diagnostic(
+        port_id = port.qualified_id
+        if port_id in result:
+            ctx.raise_problem(
                 "module_resource_port_duplicate",
-                f"duplicate resource port {port.id}",
-                f"resources.{port.id}",
+                f"duplicate resource port {port_id}",
+                "resources",
+                path=(port_id,),
             )
-        result[port.id] = port
+        result[port_id] = port
     return result
 
 
@@ -118,22 +120,25 @@ def _route_entity_expr(
     ) or (
         isinstance(value_type, Series) and isinstance(value_type.item_type.atom, Entity)
     )
-    if not is_entity_value or internal_value_ref_source_kind(source) == "compute":
-        ctx.raise_diagnostic(
+    if (
+        not is_entity_value
+        or internal_value_ref_availability(source).stage != ValueStage.PLAN
+    ):
+        ctx.raise_problem(
             "module_resource_entity_input_invalid",
-            "resource entity source must be a non-compute entity value",
+            "resource entity source must be a plan-stage entity value",
             "resources",
         )
     lowered = internal_lower_value_ref(source)
     if not isinstance(lowered, ScalarExpr | SeriesExpr):
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_resource_entity_input_invalid",
             "resource entity source must be scalar or series-shaped",
             "resources",
         )
     bound = bind_value_input_refs(lowered, inputs)
     if not isinstance(bound, ScalarExpr | SeriesExpr):
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_resource_entity_input_invalid",
             "resource entity source must be scalar or series-shaped",
             "resources",
@@ -161,25 +166,13 @@ def require_port_capability(
     capability_id: str,
 ) -> None:
     if port.selector.capabilities and capability_id not in port.selector.capabilities:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_resource_port_capability_missing",
-            f"resource port {port.id} does not declare capability {capability_id}",
-            f"resources.{port.id}",
+            "resource port "
+            f"{port.qualified_id} does not declare capability {capability_id}",
+            "resources",
+            path=(*port.scope, port.id),
         )
-
-
-def _parse_port_path(
-    ctx: ExperimentAuthoringContext,
-    port_path: str,
-) -> tuple[str, str, str]:
-    parts = port_path.split(".")
-    if len(parts) < 3:
-        ctx.raise_diagnostic(
-            "module_binding_path_invalid",
-            "binding path must be '<port>.<capability>.<field>'",
-            "bindings",
-        )
-    return parts[0], parts[1], ".".join(parts[2:])
 
 
 __all__ = [

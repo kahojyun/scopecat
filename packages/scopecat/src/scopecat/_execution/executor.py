@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from pydantic import JsonValue, TypeAdapter
@@ -14,7 +14,7 @@ from scopecat._content_identity import stable_content_hash
 from scopecat._execution.drivers import (
     cleanup_after_setup_failure,
     describe_instruments,
-    diagnostic_from_exception,
+    preflight_problem_from_exception,
     validate_instruments,
 )
 from scopecat._execution.engine import ExecutionEngine, ExecutionEngineResult
@@ -32,12 +32,18 @@ from scopecat._execution.evidence import (
     instrument_state_evidence_ref,
     raw_measurement_schema,
     raw_measurements_ref,
+    run_outcome_ref,
 )
-from scopecat._execution.journal import ExecutionJournalEntry
+from scopecat._execution.journal import ExecutionTransition
 from scopecat._execution.lowering import build_execution_program
 from scopecat._execution.persistence import (
     validate_measurement_index_shape,
     validate_raw_measurement_dataset,
+)
+from scopecat._execution.problems import (
+    contextualize_problems,
+    problem_from_exception,
+    runtime_problem,
 )
 from scopecat._execution.program import ExecutionProgram
 from scopecat._execution.validation import validate_execution_program_instruments
@@ -50,10 +56,16 @@ from scopecat._storage.local import (
     LocalResourceLeaseManager,
     LocalRunStore,
 )
-from scopecat.diagnostics import Diagnostic
-from scopecat.errors import RunExecutionFailed, ValidationFailed
+from scopecat._storage.refs import MANIFEST_REF
+from scopecat.errors import (
+    CheckFailed,
+    ProblemFailure,
+    ProviderContractError,
+    RunFailed,
+    RunIndeterminate,
+    RunPersistenceError,
+)
 from scopecat.ids import new_run_id
-from scopecat.instruments.events import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.instruments.sdk import (
     InstrumentDescription,
     InstrumentDriver,
@@ -64,14 +76,143 @@ from scopecat.instruments.sdk import (
     InstrumentStateSnapshot,
 )
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.execution import ExecutionSummary
+from scopecat.models.execution import ExecutionSummary, InstrumentStateEvidence
 from scopecat.models.measurement import MeasurementDatasetSchema
-from scopecat.models.run import RunConfigSource, RunManifest, RunStatus
+from scopecat.models.run import RunConfigSource, RunManifest, RunOutcome
 from scopecat.models.run_request import RunRequest
-from scopecat.planning.validation import has_blocking_diagnostics
+from scopecat.problems import (
+    LocationPathItem,
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    has_blocking_problems,
+    model_location,
+)
+from scopecat.results import MeasurementRecord
+from scopecat.runtime import RuntimeEventSink, RuntimePayloadObserver
 
 _PROVIDER_METADATA_ADAPTER = TypeAdapter(dict[str, JsonValue])
 _PROVIDER_DESCRIPTION_ADAPTER = TypeAdapter(InstrumentProviderDescription)
+_JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedExecution:
+    """Pure provider-ABI preflight result accepted before a durable run exists."""
+
+    context: InstrumentProviderContext
+    provider_id: str
+    provider_description: InstrumentProviderDescription
+    instrument_order: tuple[str, ...]
+    advertised_descriptions: dict[str, InstrumentDescription]
+    program: ExecutionProgram
+    problems: tuple[Problem, ...] = ()
+
+
+def prepare_execution(
+    *,
+    config: ConfigProfileSnapshot,
+    plan: BoundPlan,
+    instrument_provider: InstrumentProvider,
+) -> PreparedExecution:
+    """Validate the pure provider contract and lower an executable program.
+
+    ``InstrumentProvider.describe`` is the provider's config-specific, effect-free
+    ABI declaration.  Running it here keeps unsupported fields, products, units,
+    axes, and missing instruments on the validation side of durable run
+    acceptance.  ``provide`` remains inside the resource lease in
+    :func:`execute_run` because it may acquire live hardware.
+    """
+
+    problems = list(plan.problems)
+    if has_blocking_problems(problems):
+        raise CheckFailed(problems)
+
+    context = InstrumentProviderContext(config=config)
+    try:
+        provider_id = instrument_provider.provider_id
+        if type(provider_id) is not str or not provider_id:
+            msg = "instrument provider identity must be a non-empty string"
+            raise TypeError(msg)
+    except Exception as error:
+        problems.append(
+            preflight_problem_from_exception(
+                "instrument_provider_identity_failed",
+                "instrument provider identity lookup failed",
+                ("provider_id",),
+                error,
+            )
+        )
+        raise ProviderContractError(problems) from error
+
+    try:
+        provider_description = _normalize_provider_description(
+            instrument_provider.describe(context)
+        )
+    except Exception as error:
+        problems.append(
+            preflight_problem_from_exception(
+                "instrument_provider_description_failed",
+                f"instrument provider {provider_id} description failed",
+                ("description",),
+                error,
+            )
+        )
+        raise ProviderContractError(problems) from error
+
+    problems.extend(provider_description.problems)
+    if provider_description.provider_id != provider_id:
+        problems.append(
+            _preflight_problem(
+                "instrument_provider_id_mismatch",
+                f"provider identity {provider_id!r} does not match "
+                f"description {provider_description.provider_id!r}",
+                "provider_id",
+            )
+        )
+    instrument_order = tuple(
+        item.instrument_id for item in provider_description.instruments
+    )
+    advertised_descriptions = {
+        item.instrument_id: item for item in provider_description.instruments
+    }
+    lowering_instrument_order = (
+        *instrument_order,
+        *(
+            instrument_id
+            for instrument_id in _planned_instrument_ids(plan)
+            if instrument_id not in advertised_descriptions
+        ),
+    )
+    problems.extend(
+        _validate_described_instruments(
+            config=config,
+            descriptions=provider_description.instruments,
+        )
+    )
+    program = build_execution_program(
+        plan,
+        instrument_order=lowering_instrument_order,
+    )
+    problems.extend(
+        validate_execution_program_instruments(
+            program,
+            descriptions=advertised_descriptions,
+        )
+    )
+
+    if has_blocking_problems(problems):
+        raise ProviderContractError(problems)
+    return PreparedExecution(
+        context=context,
+        provider_id=provider_id,
+        provider_description=provider_description,
+        instrument_order=instrument_order,
+        advertised_descriptions=advertised_descriptions,
+        program=program,
+        problems=(),
+    )
 
 
 def execute_run(
@@ -85,23 +226,32 @@ def execute_run(
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> tuple[RunManifest, ExecutionSummary]:
-    """Execute one bound plan with durable acceptance before provisioning.
+    """Preflight one provider ABI, durably accept the run, then provision it."""
 
-    The provider is deliberately invoked inside this function: creating live
-    driver objects may open connections or reserve hardware, so the run skeleton
-    and provider intent journal entry must already exist.
-    """
-
-    preflight_diagnostics = list(plan.diagnostics)
-    if has_blocking_diagnostics(preflight_diagnostics):
-        raise ValidationFailed(preflight_diagnostics)
+    prepared = prepare_execution(
+        config=config,
+        plan=plan,
+        instrument_provider=instrument_provider,
+    )
+    context = prepared.context
+    provider_id = prepared.provider_id
+    instrument_order = prepared.instrument_order
+    advertised_descriptions = prepared.advertised_descriptions
+    program = prepared.program
 
     run_id = new_run_id()
+    preflight_problems = list(
+        contextualize_problems(
+            prepared.problems,
+            run_id=run_id,
+            operation_id="provider.preflight",
+        )
+    )
     storage = LocalRunStore(Path(workspace))
     plan_record = build_run_plan_record(plan)
     planned_manifest = RunManifest(
         run_id=run_id,
-        status="planned",
+        lifecycle="accepted",
         config_source=config_source,
     )
     storage.write_run_skeleton(
@@ -119,7 +269,7 @@ def execute_run(
         point_count=plan.point_count,
     )
     # A run becomes active before any provider lifecycle effect can begin.
-    storage.write_manifest(planned_manifest.model_copy(update={"status": "running"}))
+    storage.write_manifest(planned_manifest.model_copy(update={"lifecycle": "running"}))
     emit_run_started(
         event_sink=event_sink,
         run_id=run_id,
@@ -129,253 +279,221 @@ def execute_run(
         output_ids=sorted(plan.expected_output_ids),
     )
 
-    context = InstrumentProviderContext(config=config)
-    setup_diagnostics = list(preflight_diagnostics)
-    provider_id = (
-        f"{type(instrument_provider).__module__}."
-        f"{type(instrument_provider).__qualname__}"
-    )
-    interruption: BaseException | None = None
-    try:
-        provider_id = instrument_provider.provider_id
-    except Exception as error:
-        setup_diagnostics.append(
-            diagnostic_from_exception(
-                "instrument_provider_identity_failed",
-                "instrument provider identity lookup failed",
-                "instrument_provider.provider_id",
-                error,
-            )
-        )
-    except BaseException as error:
-        interruption = error
-        setup_diagnostics.append(
-            _interruption_diagnostic(error, "instrument_provider.provider_id")
-        )
-
-    provider_description: InstrumentProviderDescription | None = None
-    if not has_blocking_diagnostics(setup_diagnostics) and interruption is None:
-        try:
-            provider_description = _normalize_provider_description(
-                instrument_provider.describe(context)
-            )
-        except Exception as error:
-            setup_diagnostics.append(
-                diagnostic_from_exception(
-                    "instrument_provider_description_failed",
-                    f"instrument provider {provider_id} description failed",
-                    "instrument_provider.description",
-                    error,
-                )
-            )
-        except BaseException as error:
-            interruption = error
-            setup_diagnostics.append(
-                _interruption_diagnostic(error, "instrument_provider.description")
-            )
-
-    instrument_order: tuple[str, ...] = ()
-    advertised_descriptions: dict[str, InstrumentDescription] = {}
-    if provider_description is not None:
-        try:
-            setup_diagnostics.extend(provider_description.diagnostics)
-            if provider_description.provider_id != provider_id:
-                setup_diagnostics.append(
-                    _diagnostic(
-                        "instrument_provider_id_mismatch",
-                        f"provider identity {provider_id!r} does not match "
-                        f"description {provider_description.provider_id!r}",
-                        "instrument_provider.provider_id",
-                    )
-                )
-            instrument_order = tuple(
-                item.instrument_id for item in provider_description.instruments
-            )
-            advertised_descriptions = {
-                item.instrument_id: item for item in provider_description.instruments
-            }
-            setup_diagnostics.extend(
-                _validate_described_instruments(
-                    config=config,
-                    descriptions=provider_description.instruments,
-                )
-            )
-        except Exception as error:
-            setup_diagnostics.append(
-                diagnostic_from_exception(
-                    "instrument_provider_description_invalid",
-                    f"instrument provider {provider_id} description is invalid",
-                    "instrument_provider.description",
-                    error,
-                )
-            )
-        except BaseException as error:
-            interruption = error
-            setup_diagnostics.append(
-                _interruption_diagnostic(error, "instrument_provider.description")
-            )
-
-    program = None
-    if (
-        provider_description is not None
-        and not has_blocking_diagnostics(setup_diagnostics)
-        and interruption is None
-    ):
-        try:
-            program = build_execution_program(
-                plan,
-                instrument_order=instrument_order,
-            )
-            setup_diagnostics.extend(
-                validate_execution_program_instruments(
-                    program,
-                    descriptions=advertised_descriptions,
-                )
-            )
-        except Exception as error:
-            program = None
-            setup_diagnostics.append(
-                diagnostic_from_exception(
-                    "execution_program_lowering_failed",
-                    "failed to lower the bound execution plan",
-                    "execution_program",
-                    error,
-                )
-            )
-        except BaseException as error:
-            program = None
-            interruption = error
-            setup_diagnostics.append(
-                _interruption_diagnostic(error, "execution_program")
-            )
+    setup_problems = list(preflight_problems)
     result: ExecutionEngineResult | None = None
-    if (
-        program is None
-        or has_blocking_diagnostics(setup_diagnostics)
-        or interruption is not None
-    ):
-        result = _setup_result(
-            run_id=run_id,
-            experiment_id=plan.experiment_id,
-            diagnostics=setup_diagnostics,
-            interruption=interruption,
-        )
-    else:
-        lease_manager = LocalResourceLeaseManager(workspace)
-        try:
-            lease = lease_manager.acquire(program.resource_claims)
-            with lease:
-                result = _provision_and_execute(
-                    run_id=run_id,
-                    experiment_id=plan.experiment_id,
-                    config=config,
-                    context=context,
-                    provider=instrument_provider,
-                    provider_id=provider_id,
-                    advertised_descriptions=advertised_descriptions,
-                    program=program,
-                    setup_diagnostics=setup_diagnostics,
-                    journal=journal,
-                    workspace=workspace,
-                    payload_observer=payload_observer,
-                )
-        except Exception as error:
-            setup_diagnostics.append(
-                diagnostic_from_exception(
-                    "resource_lease_failed",
-                    "failed to acquire or release execution resources",
-                    "execution.resources",
-                    error,
-                )
+    lease_manager = LocalResourceLeaseManager(workspace)
+    try:
+        lease = lease_manager.acquire(program.resource_claims)
+        with lease:
+            result = _provision_and_execute(
+                run_id=run_id,
+                experiment_id=plan.experiment_id,
+                config=config,
+                context=context,
+                provider=instrument_provider,
+                provider_id=provider_id,
+                advertised_descriptions=advertised_descriptions,
+                program=program,
+                setup_problems=setup_problems,
+                journal=journal,
+                workspace=workspace,
+                payload_observer=payload_observer,
             )
-            if result is None:
-                result = _setup_result(
-                    run_id=run_id,
-                    experiment_id=plan.experiment_id,
-                    diagnostics=setup_diagnostics,
-                )
-        except BaseException as error:
-            diagnostic = _interruption_diagnostic(error, "execution.resources")
-            setup_diagnostics.append(diagnostic)
-            if result is None:
-                result = _setup_result(
-                    run_id=run_id,
-                    experiment_id=plan.experiment_id,
-                    diagnostics=setup_diagnostics,
-                    interruption=error,
-                )
-            else:
-                result = replace(
-                    result,
-                    status="interrupted",
-                    diagnostics=(*result.diagnostics, diagnostic),
-                    interruption=result.interruption or error,
-                )
+    except Exception as error:
+        setup_problems.append(
+            problem_from_exception(
+                "resource_lease_failed",
+                "failed to acquire or release execution resources",
+                run_id=run_id,
+                operation_id="execution.resources",
+                error=error,
+            )
+        )
+        if result is None:
+            result = _setup_result(
+                run_id=run_id,
+                experiment_id=plan.experiment_id,
+                problems=setup_problems,
+            )
+    except BaseException as error:
+        problem = _interruption_problem(
+            error,
+            run_id=run_id,
+            operation_id="execution.resources",
+        )
+        setup_problems.append(problem)
+        if result is None:
+            result = _setup_result(
+                run_id=run_id,
+                experiment_id=plan.experiment_id,
+                problems=setup_problems,
+                interruption=error,
+            )
+        else:
+            result = replace(
+                result,
+                result="cancelled",
+                certainty=("indeterminate" if result.uncertain else result.certainty),
+                termination_reason="interrupted",
+                problems=(*result.problems, problem),
+                interruption=result.interruption or error,
+            )
 
     assert result is not None
 
-    diagnostics = _execution_diagnostics(
-        setup_diagnostics=setup_diagnostics,
+    problems = _execution_problems(
+        setup_problems=setup_problems,
         result=result,
         expected_schema=raw_measurement_schema(plan.expected_dataset_schema),
         expected_indices=set(range(plan.point_count)),
     )
-    status: RunStatus = (
-        "interrupted"
-        if result.interruption is not None
-        else "unknown"
-        if result.uncertain
-        else "failed"
-        if has_blocking_diagnostics(diagnostics)
-        else "completed"
+    outcome = RunOutcome(
+        run_id=run_id,
+        result=(
+            "cancelled"
+            if result.interruption is not None
+            else "failed"
+            if result.uncertain or has_blocking_problems(problems)
+            else "succeeded"
+        ),
+        certainty=("indeterminate" if result.uncertain else "known"),
+        termination_reason=(
+            "interrupted"
+            if result.interruption is not None
+            else "effect_outcome_unknown"
+            if result.uncertain
+            else "blocking_problem"
+            if has_blocking_problems(problems)
+            else "completed"
+        ),
+        problems=tuple(problems),
     )
     summary = build_execution_summary(
         result=result,
-        status=status,
+        outcome=outcome,
         instrument_ids=list(instrument_order),
         point_count=plan.point_count,
-        diagnostics=diagnostics,
+        problems=problems,
     )
     instrument_state = build_instrument_state_evidence(result)
     manifest = build_execution_manifest(
         run_id=run_id,
-        status=status,
+        outcome=outcome,
         measurements=list(result.measurements),
         expected_schema=raw_measurement_schema(plan.expected_dataset_schema),
         config_source=config_source,
     ).model_copy(update={"created_at": planned_manifest.created_at})
 
-    # Result content first; the terminal manifest is the final commit marker.
-    storage.write_model_atomic(run_id, execution_summary_ref(), summary)
-    storage.write_model_atomic(
-        run_id,
-        instrument_state_evidence_ref(),
-        instrument_state,
+    _commit_terminal_evidence(
+        storage=storage,
+        run_id=run_id,
+        outcome=outcome,
+        summary=summary,
+        instrument_state=instrument_state,
+        measurements=list(result.measurements),
+        manifest=manifest,
     )
-    if result.measurements:
-        write_measurement_records_path(
-            path=storage.ref_path(run_id, raw_measurements_ref()),
-            records=list(result.measurements),
-        )
-    storage.write_manifest(manifest)
     emit_run_finished(
         event_sink=event_sink,
         run_id=run_id,
         experiment_id=plan.experiment_id,
-        status=status,
+        outcome=outcome,
         completed_point_count=result.completed_point_count,
         point_count=plan.point_count,
         measurement_count=len(result.measurements),
-        diagnostic_count=len(diagnostics),
+        problem_count=len(problems),
         compute_evaluated_node_count=result.compute_evaluated_node_count,
         compute_reused_node_count=result.compute_reused_node_count,
         compute_payload_count=result.compute_payload_count,
     )
     if result.interruption is not None:
+        result.interruption.add_note(f"Scopecat run_id: {run_id}")
         raise result.interruption
-    if status != "completed":
-        raise RunExecutionFailed(run_id, diagnostics)
+    if outcome.result != "succeeded":
+        if outcome.certainty == "indeterminate":
+            raise RunIndeterminate(run_id=run_id, outcome=outcome)
+        raise RunFailed(run_id=run_id, outcome=outcome)
     return manifest, summary
+
+
+def _commit_terminal_evidence(
+    *,
+    storage: LocalRunStore,
+    run_id: str,
+    outcome: RunOutcome,
+    summary: ExecutionSummary,
+    instrument_state: InstrumentStateEvidence,
+    measurements: list[MeasurementRecord],
+    manifest: RunManifest,
+) -> None:
+    """Commit terminal content before publishing the terminal manifest marker."""
+
+    committed_refs: list[str] = []
+    phase = "run_outcome"
+    pending_ref = run_outcome_ref()
+    try:
+        storage.write_model_atomic(run_id, pending_ref, outcome)
+        committed_refs.append(pending_ref)
+        phase = "execution_summary"
+        pending_ref = execution_summary_ref()
+        storage.write_model_atomic(run_id, pending_ref, summary)
+        committed_refs.append(pending_ref)
+        phase = "instrument_state_evidence"
+        pending_ref = instrument_state_evidence_ref()
+        storage.write_model_atomic(
+            run_id,
+            pending_ref,
+            instrument_state,
+        )
+        committed_refs.append(pending_ref)
+        if measurements:
+            phase = "measurement_dataset"
+            pending_ref = raw_measurements_ref()
+            write_measurement_records_path(
+                path=storage.ref_path(run_id, pending_ref),
+                records=measurements,
+            )
+            committed_refs.append(pending_ref)
+        phase = "terminal_manifest"
+        pending_ref = MANIFEST_REF
+        storage.write_manifest(manifest)
+        committed_refs.append(pending_ref)
+    except ProblemFailure as error:
+        problems = contextualize_problems(
+            error.problems,
+            run_id=run_id,
+            operation_id=f"terminalize.{phase}",
+        )
+        raise RunPersistenceError(
+            problems,
+            run_id=run_id,
+            phase=phase,
+            reconciliation="inspect_run_execution before retrying terminalization",
+            retry="after_reconciliation",
+            certainty=outcome.certainty,
+            committed_refs=committed_refs,
+            pending_ref=pending_ref,
+        ) from error
+    except Exception as error:
+        problem = problem_from_exception(
+            "run_terminal_persistence_failed",
+            f"terminal run evidence could not be committed during {phase}",
+            run_id=run_id,
+            operation_id=f"terminalize.{phase}",
+            error=error,
+            phase=ProblemPhase.PERSISTENCE,
+            category=ProblemCategory.STORAGE,
+        )
+        raise RunPersistenceError(
+            (problem,),
+            run_id=run_id,
+            phase=phase,
+            reconciliation="inspect_run_execution before retrying terminalization",
+            retry="after_reconciliation",
+            certainty=outcome.certainty,
+            committed_refs=committed_refs,
+            pending_ref=pending_ref,
+        ) from error
 
 
 def _provision_and_execute(
@@ -388,20 +506,20 @@ def _provision_and_execute(
     provider_id: str,
     advertised_descriptions: dict[str, InstrumentDescription],
     program: ExecutionProgram,
-    setup_diagnostics: list[Diagnostic],
+    setup_problems: list[Problem],
     journal: ObservedExecutionJournal,
     workspace: str | Path,
     payload_observer: RuntimePayloadObserver | None,
 ) -> ExecutionEngineResult:
     """Provision, verify, execute, and finalize while the caller holds leases."""
 
-    provider_entry = ExecutionJournalEntry(
+    provider_entry = ExecutionTransition(
         run_id=run_id,
         operation_id="lifecycle.provide-instruments",
         stage="provide_instruments",
         effect="lifecycle",
         state="started",
-        summary={
+        evidence={
             "provider_id": provider_id,
             "advertised_instrument_ids": list(advertised_descriptions),
         },
@@ -409,55 +527,60 @@ def _provision_and_execute(
     provider_intent_committed, journal_interruption = _append_provider_transition(
         journal,
         provider_entry,
-        setup_diagnostics,
+        setup_problems,
     )
     if not provider_intent_committed:
         return _setup_result(
             run_id=run_id,
             experiment_id=experiment_id,
-            diagnostics=setup_diagnostics,
+            problems=setup_problems,
             interruption=journal_interruption,
         )
 
     try:
         provider_result = provider.provide(context)
     except Exception as error:
-        diagnostic = diagnostic_from_exception(
+        problem = problem_from_exception(
             "instrument_provider_failed",
             f"instrument provider {provider_id} failed",
-            "instrument_provider",
-            error,
+            run_id=run_id,
+            operation_id=provider_entry.operation_id,
+            error=error,
         )
-        setup_diagnostics.append(diagnostic)
+        setup_problems.append(problem)
         _, journal_interruption = _append_provider_transition(
             journal,
             provider_entry.model_copy(
-                update={"state": "unknown", "diagnostics": [diagnostic]}
+                update={"state": "unknown", "problems": (problem,)}
             ),
-            setup_diagnostics,
+            setup_problems,
         )
         return _setup_result(
             run_id=run_id,
             experiment_id=experiment_id,
-            diagnostics=setup_diagnostics,
-            uncertain=True,
+            problems=setup_problems,
+            indeterminate=True,
             interruption=journal_interruption,
         )
     except BaseException as error:
-        diagnostic = _interruption_diagnostic(error, "instrument_provider")
-        setup_diagnostics.append(diagnostic)
+        problem = _interruption_problem(
+            error,
+            run_id=run_id,
+            operation_id=provider_entry.operation_id,
+        )
+        setup_problems.append(problem)
         _, journal_interruption = _append_provider_transition(
             journal,
             provider_entry.model_copy(
-                update={"state": "unknown", "diagnostics": [diagnostic]}
+                update={"state": "unknown", "problems": (problem,)}
             ),
-            setup_diagnostics,
+            setup_problems,
         )
         return _setup_result(
             run_id=run_id,
             experiment_id=experiment_id,
-            diagnostics=setup_diagnostics,
-            uncertain=True,
+            problems=setup_problems,
+            indeterminate=True,
             interruption=error,
         )
 
@@ -470,7 +593,7 @@ def _provision_and_execute(
         provider_entry=provider_entry,
         advertised_descriptions=advertised_descriptions,
         program=program,
-        setup_diagnostics=setup_diagnostics,
+        setup_problems=setup_problems,
         journal=journal,
         workspace=workspace,
         payload_observer=payload_observer,
@@ -484,10 +607,10 @@ def _execute_provider_result(
     config: ConfigProfileSnapshot,
     provider_id: str,
     provider_result: InstrumentProviderResult,
-    provider_entry: ExecutionJournalEntry,
+    provider_entry: ExecutionTransition,
     advertised_descriptions: dict[str, InstrumentDescription],
     program: ExecutionProgram,
-    setup_diagnostics: list[Diagnostic],
+    setup_problems: list[Problem],
     journal: ObservedExecutionJournal,
     workspace: str | Path,
     payload_observer: RuntimePayloadObserver | None,
@@ -497,7 +620,7 @@ def _execute_provider_result(
     instruments: list[InstrumentDriver] = []
     provider_transition_attempted = False
     engine: ExecutionEngine | None = None
-    uncertain = False
+    indeterminate = False
     interruption: BaseException | None = None
     try:
         # Ownership is acquired one driver at a time before touching any driver
@@ -505,15 +628,21 @@ def _execute_provider_result(
         # that fails part-way through cannot orphan already yielded drivers.
         for instrument in provider_result.drivers:
             instruments.append(instrument)
-        provider_diagnostics = list(provider_result.diagnostics)
-        setup_diagnostics.extend(provider_diagnostics)
-        provider_summary = {
-            **provider_entry.summary,
+        provider_problems = list(
+            contextualize_problems(
+                provider_result.problems,
+                run_id=run_id,
+                operation_id=provider_entry.operation_id,
+            )
+        )
+        setup_problems.extend(provider_problems)
+        provider_evidence = {
+            **provider_entry.evidence,
             **_provider_result_evidence(
                 provider_id=provider_id,
                 provider_result=provider_result,
                 instruments=instruments,
-                diagnostics=provider_diagnostics,
+                problems=provider_problems,
             ),
         }
         provider_transition_attempted = True
@@ -523,30 +652,30 @@ def _execute_provider_result(
                 update={
                     "state": (
                         "failed"
-                        if has_blocking_diagnostics(provider_diagnostics)
+                        if has_blocking_problems(provider_problems)
                         else "completed"
                     ),
-                    "diagnostics": provider_diagnostics,
-                    "summary": provider_summary,
+                    "problems": tuple(provider_problems),
+                    "evidence": provider_evidence,
                 }
             ),
-            setup_diagnostics,
+            setup_problems,
         )
         if not transition_committed or journal_interruption is not None:
-            uncertain = True
+            indeterminate = True
             interruption = journal_interruption
         else:
             actual_descriptions: list[InstrumentDescription] = []
-            if instruments and not has_blocking_diagnostics(setup_diagnostics):
-                setup_diagnostics.extend(
+            if instruments and not has_blocking_problems(setup_problems):
+                setup_problems.extend(
                     validate_instruments(config=config, instruments=instruments)
                 )
-                actual_descriptions, description_diagnostics = describe_instruments(
+                actual_descriptions, description_problems = describe_instruments(
                     instruments
                 )
-                setup_diagnostics.extend(description_diagnostics)
-                if not has_blocking_diagnostics(setup_diagnostics):
-                    setup_diagnostics.extend(
+                setup_problems.extend(description_problems)
+                if not has_blocking_problems(setup_problems):
+                    setup_problems.extend(
                         validate_execution_program_instruments(
                             program,
                             descriptions={
@@ -554,13 +683,14 @@ def _execute_provider_result(
                             },
                         )
                     )
-            setup_diagnostics.extend(
+            setup_problems.extend(
                 _validate_provided_descriptions(
+                    run_id=run_id,
                     advertised=advertised_descriptions,
                     actual=actual_descriptions,
                 )
             )
-            if not has_blocking_diagnostics(setup_diagnostics):
+            if not has_blocking_problems(setup_problems):
                 engine = ExecutionEngine(
                     run_id=run_id,
                     program=program,
@@ -586,36 +716,38 @@ def _execute_provider_result(
                     ),
                 )
     except Exception as error:
-        diagnostic = diagnostic_from_exception(
+        problem = problem_from_exception(
             "instrument_provider_result_invalid",
             f"instrument provider {provider_id} returned an invalid result",
-            "instrument_provider.result",
-            error,
+            run_id=run_id,
+            operation_id=provider_entry.operation_id,
+            error=error,
         )
-        setup_diagnostics.append(diagnostic)
+        setup_problems.append(problem)
         if not provider_transition_attempted:
             _append_provider_transition(
                 journal,
                 provider_entry.model_copy(
-                    update={"state": "failed", "diagnostics": [diagnostic]}
+                    update={"state": "failed", "problems": (problem,)}
                 ),
-                setup_diagnostics,
+                setup_problems,
             )
     except BaseException as error:
-        diagnostic = _interruption_diagnostic(
+        problem = _interruption_problem(
             error,
-            "instrument_provider.result",
+            run_id=run_id,
+            operation_id=provider_entry.operation_id,
         )
-        setup_diagnostics.append(diagnostic)
+        setup_problems.append(problem)
         if not provider_transition_attempted:
             _append_provider_transition(
                 journal,
                 provider_entry.model_copy(
-                    update={"state": "unknown", "diagnostics": [diagnostic]}
+                    update={"state": "unknown", "problems": (problem,)}
                 ),
-                setup_diagnostics,
+                setup_problems,
             )
-        uncertain = True
+        indeterminate = True
         interruption = error
 
     if engine is not None:
@@ -626,9 +758,9 @@ def _execute_provider_result(
         run_id=run_id,
         experiment_id=experiment_id,
         instruments=instruments,
-        diagnostics=setup_diagnostics,
+        problems=setup_problems,
         journal=journal,
-        uncertain=uncertain,
+        indeterminate=indeterminate,
         interruption=interruption,
     )
 
@@ -638,23 +770,23 @@ def _finalize_owned_setup(
     run_id: str,
     experiment_id: str,
     instruments: list[InstrumentDriver],
-    diagnostics: list[Diagnostic],
+    problems: list[Problem],
     journal: ObservedExecutionJournal,
-    uncertain: bool = False,
+    indeterminate: bool = False,
     interruption: BaseException | None = None,
 ) -> ExecutionEngineResult:
     final_state, cleanup_interruption = cleanup_after_setup_failure(
         instruments,
-        diagnostics,
+        problems,
         run_id=run_id,
         journal=journal,
     )
     return _setup_result(
         run_id=run_id,
         experiment_id=experiment_id,
-        diagnostics=diagnostics,
+        problems=problems,
         final_state=final_state,
-        uncertain=uncertain,
+        indeterminate=indeterminate,
         interruption=(
             interruption if interruption is not None else cleanup_interruption
         ),
@@ -665,27 +797,28 @@ def _setup_result(
     *,
     run_id: str,
     experiment_id: str,
-    diagnostics: list[Diagnostic],
+    problems: list[Problem],
     final_state: Sequence[InstrumentStateSnapshot] = (),
-    uncertain: bool = False,
+    indeterminate: bool = False,
     interruption: BaseException | None = None,
 ) -> ExecutionEngineResult:
     return ExecutionEngineResult(
         run_id=run_id,
         experiment_id=experiment_id,
-        status=(
+        result="cancelled" if interruption is not None else "failed",
+        certainty="indeterminate" if indeterminate else "known",
+        termination_reason=(
             "interrupted"
             if interruption is not None
-            else "unknown"
-            if uncertain
-            else "failed"
+            else "provider_outcome_unknown"
+            if indeterminate
+            else "provider_setup_failed"
         ),
-        diagnostics=tuple(diagnostics),
+        problems=tuple(problems),
         measurements=(),
         initial_state=(),
         final_state=tuple(final_state),
         points=(),
-        uncertain=uncertain,
         interruption=interruption,
     )
 
@@ -694,141 +827,176 @@ def _validate_described_instruments(
     *,
     config: ConfigProfileSnapshot,
     descriptions: tuple[InstrumentDescription, ...],
-) -> list[Diagnostic]:
+) -> list[Problem]:
     configured_ids = {
         instrument.id for instrument in config.instrument_registry.instruments
     }
-    diagnostics: list[Diagnostic] = []
-    for description in descriptions:
+    problems: list[Problem] = []
+    for description_index, description in enumerate(descriptions):
         if not description.instrument_id:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _preflight_problem(
                     "instrument_missing_id",
                     "instrument_id must be non-empty",
-                    "instruments.instrument_id",
+                    "instruments",
+                    description_index,
+                    "instrument_id",
                 )
             )
         if not description.implementation_id:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _preflight_problem(
                     "instrument_missing_implementation_id",
                     "implementation_id must be non-empty",
-                    f"instruments.{description.instrument_id}",
+                    "instruments",
+                    description_index,
+                    "implementation_id",
                 )
             )
         if not description.implementation_version:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _preflight_problem(
                     "instrument_missing_implementation_version",
                     "implementation_version must be non-empty",
-                    f"instruments.{description.instrument_id}",
+                    "instruments",
+                    description_index,
+                    "implementation_version",
                 )
             )
         if description.instrument_id not in configured_ids:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _preflight_problem(
                     "instrument_not_in_config",
                     f"instrument {description.instrument_id} is not in config",
-                    f"instruments.{description.instrument_id}",
+                    "instruments",
+                    description_index,
+                    "instrument_id",
                 )
             )
-    return diagnostics
+    return problems
 
 
 def _validate_provided_descriptions(
     *,
+    run_id: str,
     advertised: dict[str, InstrumentDescription],
     actual: list[InstrumentDescription],
-) -> list[Diagnostic]:
+) -> list[Problem]:
     actual_by_id = {item.instrument_id: item for item in actual}
-    diagnostics: list[Diagnostic] = []
+    problems: list[Problem] = []
     for instrument_id in sorted(set(advertised) - set(actual_by_id)):
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            runtime_problem(
                 "instrument_provider_missing_advertised_instrument",
                 f"provider did not create advertised instrument {instrument_id}",
-                f"instruments.{instrument_id}",
+                run_id=run_id,
+                operation_id="lifecycle.provide-instruments",
+                instrument_id=instrument_id,
+                category=ProblemCategory.PROVIDER_CONTRACT,
             )
         )
     for instrument_id in sorted(set(actual_by_id) - set(advertised)):
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            runtime_problem(
                 "instrument_provider_unadvertised_instrument",
                 f"provider created unadvertised instrument {instrument_id}",
-                f"instruments.{instrument_id}",
+                run_id=run_id,
+                operation_id="lifecycle.provide-instruments",
+                instrument_id=instrument_id,
+                category=ProblemCategory.PROVIDER_CONTRACT,
             )
         )
     for instrument_id in sorted(set(advertised) & set(actual_by_id)):
         if advertised[instrument_id] != actual_by_id[instrument_id]:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                runtime_problem(
                     "instrument_description_changed_after_provision",
                     f"instrument {instrument_id} differs from its advertised contract",
-                    f"instruments.{instrument_id}",
+                    run_id=run_id,
+                    operation_id="lifecycle.provide-instruments",
+                    instrument_id=instrument_id,
+                    category=ProblemCategory.PROVIDER_CONTRACT,
                 )
             )
-    return diagnostics
+    return problems
 
 
-def _interruption_diagnostic(error: BaseException, path: str) -> Diagnostic:
-    return _diagnostic(
+def _interruption_problem(
+    error: BaseException,
+    *,
+    run_id: str,
+    operation_id: str,
+) -> Problem:
+    return runtime_problem(
         "execution_interrupted",
-        f"execution interrupted by {type(error).__name__}: {error}",
-        path,
+        f"execution interrupted by {type(error).__name__}",
+        run_id=run_id,
+        operation_id=operation_id,
+        category=ProblemCategory.INTERRUPTED,
+        details={
+            "exception_type": f"{type(error).__module__}.{type(error).__qualname__}"
+        },
     )
 
 
-def _diagnostic(code: str, message: str, path: str) -> Diagnostic:
-    return Diagnostic(severity="error", code=code, message=message, path=path)
+def _preflight_problem(
+    code: str,
+    message: str,
+    *path: LocationPathItem,
+) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=ProblemCategory.PROVIDER_CONTRACT,
+        phase=ProblemPhase.PROVIDER_PREFLIGHT,
+        location=model_location("instrument_provider", *path),
+    )
 
 
-def _execution_diagnostics(
+def _execution_problems(
     *,
-    setup_diagnostics: list[Diagnostic],
+    setup_problems: list[Problem],
     result: ExecutionEngineResult,
     expected_schema: MeasurementDatasetSchema | None,
     expected_indices: set[int],
-) -> list[Diagnostic]:
-    diagnostics = [*setup_diagnostics, *result.diagnostics]
-    measurements = list(result.measurements)
-    diagnostics.extend(
-        validate_measurement_index_shape(
-            measurements=measurements,
-            expected_indices=expected_indices,
-            duplicate_code="duplicate_measurement_index",
-            duplicate_message="run recorded duplicate measurement",
-            unknown_code="unknown_measurement_index",
-            unknown_message="run recorded unknown measurement",
-            missing_observables_code="missing_observables",
-            missing_observables_message="measurement has no observables",
+) -> list[Problem]:
+    problems = list(
+        contextualize_problems(
+            (*setup_problems, *result.problems),
+            run_id=result.run_id,
+            operation_id="execution.outcome",
         )
     )
-    if not has_blocking_diagnostics(diagnostics):
-        diagnostics.extend(
-            validate_raw_measurement_dataset(
-                records=measurements,
-                expected_schema=expected_schema,
-                dataset_id="raw-measurements",
+    measurements = list(result.measurements)
+    problems.extend(
+        contextualize_problems(
+            validate_measurement_index_shape(
+                measurements=measurements,
+                expected_indices=expected_indices,
+                duplicate_code="duplicate_measurement_index",
+                duplicate_message="run recorded duplicate measurement",
+                unknown_code="unknown_measurement_index",
+                unknown_message="run recorded unknown measurement",
+                missing_observables_code="missing_observables",
+                missing_observables_message="measurement has no observables",
+            ),
+            run_id=result.run_id,
+            operation_id="execution.validate-measurements",
+        )
+    )
+    if not has_blocking_problems(problems):
+        problems.extend(
+            contextualize_problems(
+                validate_raw_measurement_dataset(
+                    records=measurements,
+                    expected_schema=expected_schema,
+                    dataset_id="raw-measurements",
+                ),
+                run_id=result.run_id,
+                operation_id="execution.validate-dataset",
             )
         )
-    return _deduplicate_diagnostics(diagnostics)
-
-
-def _deduplicate_diagnostics(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
-    selected: list[Diagnostic] = []
-    seen: set[tuple[str, str, str, str | None]] = set()
-    for diagnostic in diagnostics:
-        key = (
-            diagnostic.severity,
-            diagnostic.code,
-            diagnostic.message,
-            diagnostic.path,
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        selected.append(diagnostic)
-    return selected
+    return problems
 
 
 def _planned_instrument_ids(plan: BoundPlan) -> list[str]:
@@ -845,23 +1013,32 @@ def _planned_instrument_ids(plan: BoundPlan) -> list[str]:
 
 def _append_provider_transition(
     journal: ObservedExecutionJournal,
-    entry: ExecutionJournalEntry,
-    diagnostics: list[Diagnostic],
+    entry: ExecutionTransition,
+    problems: list[Problem],
 ) -> tuple[bool, BaseException | None]:
     try:
         journal.append(entry)
     except Exception as error:
-        diagnostics.append(
-            diagnostic_from_exception(
+        problems.append(
+            problem_from_exception(
                 "execution_journal_commit_failed",
                 f"failed to journal {entry.operation_id}",
-                "execution.journal",
-                error,
+                run_id=entry.run_id,
+                operation_id=entry.operation_id,
+                error=error,
+                phase=ProblemPhase.PERSISTENCE,
+                category=ProblemCategory.STORAGE,
             )
         )
         return False, None
     except BaseException as error:
-        diagnostics.append(_interruption_diagnostic(error, "execution.journal"))
+        problems.append(
+            _interruption_problem(
+                error,
+                run_id=entry.run_id,
+                operation_id=entry.operation_id,
+            )
+        )
         return False, error
     return True, None
 
@@ -871,8 +1048,8 @@ def _provider_result_evidence(
     provider_id: str,
     provider_result: InstrumentProviderResult,
     instruments: list[InstrumentDriver],
-    diagnostics: list[Diagnostic],
-) -> dict[str, object]:
+    problems: list[Problem],
+) -> dict[str, JsonValue]:
     instrument_ids = sorted(instrument.instrument_id for instrument in instruments)
     validated_metadata = _PROVIDER_METADATA_ADAPTER.validate_python(
         provider_result.metadata
@@ -884,14 +1061,18 @@ def _provider_result_evidence(
     receipt = {
         "provider_id": provider_id,
         "instrument_ids": instrument_ids,
-        "diagnostics": [item.model_dump(mode="json") for item in diagnostics],
+        "problems": [item.model_dump(mode="json") for item in problems],
         "metadata": metadata,
     }
-    return {
+    evidence = {
         "instrument_ids": instrument_ids,
         "provisioning_receipt": receipt,
         "provisioning_receipt_content_hash": stable_content_hash(receipt),
     }
+    return _JSON_OBJECT_ADAPTER.dump_python(
+        _JSON_OBJECT_ADAPTER.validate_python(evidence),
+        mode="json",
+    )
 
 
 def _normalize_provider_description(value: object) -> InstrumentProviderDescription:
@@ -905,4 +1086,4 @@ def _normalize_provider_description(value: object) -> InstrumentProviderDescript
     return _PROVIDER_DESCRIPTION_ADAPTER.validate_python(wire)
 
 
-__all__ = ["execute_run"]
+__all__ = ["PreparedExecution", "execute_run", "prepare_execution"]

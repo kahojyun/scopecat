@@ -16,7 +16,7 @@ from scopecat._compiler.program import (
     TypedPointSource,
     TypedProgram,
     observable,
-    set_state,
+    set_state_field,
     typed_program,
 )
 from scopecat._execution.lowering import build_execution_program
@@ -273,10 +273,11 @@ def test_multi_channel_entity_binding_reaches_state_and_collect_commands() -> No
             )
         ],
         state=[
-            set_state(
+            set_state_field(
                 "signal",
-                "signal.level",
-                1.0,
+                capability_id="signal",
+                field_path="level",
+                value=1.0,
                 route_entities=("q0",),
             )
         ],
@@ -454,9 +455,9 @@ def test_bound_plan_reports_shared_group_resource_conflict() -> None:
         ],
     )
 
-    diagnostics = _bind(_two_route_experiment(), config=config).diagnostics
+    problems = _bind(_two_route_experiment(), config=config).problems
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
+    assert {problem.code for problem in problems} >= {
         "routing_shared_group_resource_conflict"
     }
 
@@ -505,10 +506,10 @@ def test_bound_plan_allows_configured_shared_group_resource_fanout() -> None:
         ],
     )
 
-    diagnostics = _bind(_two_route_experiment(), config=config).diagnostics
+    problems = _bind(_two_route_experiment(), config=config).problems
 
     assert "routing_shared_group_resource_conflict" not in {
-        diagnostic.code for diagnostic in diagnostics
+        problem.code for problem in problems
     }
 
 
@@ -543,11 +544,9 @@ def test_bound_plan_reports_channel_shared_by_multiple_ports() -> None:
         ],
     )
 
-    diagnostics = _bind(_two_route_experiment(), config=config).diagnostics
+    problems = _bind(_two_route_experiment(), config=config).problems
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
-        "routing_channel_shared_by_ports"
-    }
+    assert {problem.code for problem in problems} >= {"routing_channel_shared_by_ports"}
 
 
 def test_bound_plan_allows_configured_channel_route_port_fanout() -> None:
@@ -590,10 +589,10 @@ def test_bound_plan_allows_configured_channel_route_port_fanout() -> None:
         ],
     )
 
-    diagnostics = _bind(_two_route_experiment(), config=config).diagnostics
+    problems = _bind(_two_route_experiment(), config=config).problems
 
     assert "routing_channel_shared_by_ports" not in {
-        diagnostic.code for diagnostic in diagnostics
+        problem.code for problem in problems
     }
 
 
@@ -624,7 +623,7 @@ def test_bound_plan_rejects_product_duplicates_after_route_resolution() -> None:
     plan = _bind(experiment, config=selected_config)
 
     assert not plan.valid
-    assert [diagnostic.code for diagnostic in plan.diagnostics] == [
+    assert [problem.code for problem in plan.problems] == [
         "experiment_record_product_duplicate"
     ]
 
@@ -647,7 +646,7 @@ def test_bound_plan_rejects_broadcast_and_explicit_product_duplicates() -> None:
     plan = _bind(experiment)
 
     assert not plan.valid
-    assert [diagnostic.code for diagnostic in plan.diagnostics] == [
+    assert [problem.code for problem in plan.problems] == [
         "experiment_record_product_duplicate"
     ]
 
@@ -658,14 +657,24 @@ def test_bound_plan_reports_conflicting_state_field_values() -> None:
         kind="routing_test",
         point_source=_empty_point_source(),
         state=[
-            set_state("source-0", "set_frequency.frequency", 1.0),
-            set_state("source-0", "set_frequency.frequency", 2.0),
+            set_state_field(
+                "source-0",
+                capability_id="set_frequency",
+                field_path="frequency",
+                value=1.0,
+            ),
+            set_state_field(
+                "source-0",
+                capability_id="set_frequency",
+                field_path="frequency",
+                value=2.0,
+            ),
         ],
     )
 
-    diagnostics = _bind(experiment).diagnostics
+    problems = _bind(experiment).problems
 
-    assert {diagnostic.code for diagnostic in diagnostics} >= {
+    assert {problem.code for problem in problems} >= {
         "experiment_conflicting_desired_state"
     }
 
@@ -699,9 +708,9 @@ def test_bound_plan_reports_invalid_route_entity_member() -> None:
         ],
     )
 
-    diagnostics = _bind(experiment).diagnostics
+    problems = _bind(experiment).problems
 
-    assert [diagnostic.code for diagnostic in diagnostics].count(
+    assert [problem.code for problem in problems].count(
         "module_resource_entity_invalid"
     ) == 2
 
@@ -722,7 +731,7 @@ def test_route_entity_evaluation_failure_does_not_create_wildcard_binding() -> N
     plan = _bind(experiment)
 
     assert plan.points[0].routes == ()
-    assert {diagnostic.code for diagnostic in plan.diagnostics} == {
+    assert {problem.code for problem in plan.problems} == {
         "experiment_route_entity_evaluation_failed"
     }
 

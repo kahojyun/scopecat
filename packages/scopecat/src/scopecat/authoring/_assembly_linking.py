@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from scopecat._compiler.graph import ComputeGraphError, order_compute_nodes
 from scopecat._compiler.program import TypedProgram
+from scopecat._compiler.verification import verify_typed_program
 from scopecat.authoring._assembly_lowering import (
     coerce_assembly_inputs,
     input_row,
@@ -22,6 +23,7 @@ from scopecat.authoring._binding_lowering import (
     ports_by_id,
 )
 from scopecat.authoring._context import ExperimentAuthoringContext
+from scopecat.authoring._graph_validation import verify_assembly_graph
 from scopecat.authoring._module_composition import ExperimentAssemblyInternal
 from scopecat.authoring._parameter_contract_validation import (
     validate_parameter_contracts,
@@ -41,17 +43,18 @@ def link_experiment_assembly_internal(
     ctx: ExperimentAuthoringContext,
 ) -> TypedProgram:
     if not assembly.experiment_id:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "experiment_assembly_entrypoint_missing_id",
             "experiment assembly must be linked with an experiment id",
             "experiment_id",
         )
     if not assembly.kind:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "experiment_assembly_entrypoint_missing_kind",
             "experiment assembly must be linked with an experiment kind",
             "kind",
         )
+    verified_graph = verify_assembly_graph(assembly)
     validate_parameter_contracts(ctx, assembly.parameter_contracts)
     validate_assembly_conflicts(ctx, assembly)
     inputs = coerce_assembly_inputs(ctx, assembly.input_ports, assembly.inputs)
@@ -92,13 +95,18 @@ def link_experiment_assembly_internal(
         ),
     ]
     lowered_compute_nodes = tuple(
-        lower_compute_node_intent(node, inputs) for node in assembly.compute_nodes
+        lower_compute_node_intent(node, inputs) for node in verified_graph.compute_nodes
     )
     try:
         compute_nodes = order_compute_nodes(lowered_compute_nodes)
     except ComputeGraphError as error:
-        ctx.raise_diagnostic(error.code, str(error), error.path)
-    return TypedProgram(
+        ctx.raise_problem(
+            error.code,
+            str(error),
+            error.location.root,
+            path=error.location.path,
+        )
+    program = TypedProgram(
         id=assembly.experiment_id,
         kind=assembly.kind,
         point_source=point_source,
@@ -118,6 +126,7 @@ def link_experiment_assembly_internal(
         records=tuple(records),
         metadata=dict(assembly.metadata),
     )
+    return verify_typed_program(program)
 
 
 __all__ = ["link_experiment_assembly_internal"]

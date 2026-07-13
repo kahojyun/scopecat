@@ -9,6 +9,7 @@ from scopecat._compiler.graph import ComputeGraphError, order_compute_nodes
 from scopecat._compiler.ids import NodeId
 from scopecat._compiler.program import ComputeEdge, TypedComputeNode
 from scopecat.authoring._resolution import resolve_experiment
+from scopecat.problems import model_location
 from scopecat.value_types import Float, Int, Payload, Scalar
 from tests.support.authoring import load_config
 
@@ -53,12 +54,27 @@ def test_node_qualified_name_encodes_structural_segments_injectively() -> None:
     assert separate_segments.qualified_name == "a/b/c"
 
 
+def test_compute_problem_location_keeps_node_scope_structural() -> None:
+    node = TypedComputeNode(
+        id=NodeId(scope=("a/b",), local_id="c"),
+        output_type=FLOAT,
+        fn=lambda: 0.0,
+    )
+
+    with pytest.raises(ComputeGraphError) as error:
+        order_compute_nodes((node, node))
+
+    assert error.value.location == model_location("compute_nodes", "a/b", "c")
+
+
 def test_compute_graph_rejects_missing_producer() -> None:
     with pytest.raises(ComputeGraphError) as error:
         order_compute_nodes((_node("consumer", "missing"),))
 
     assert error.value.code == "compute_producer_missing"
-    assert error.value.path == "compute_nodes.consumer.inputs.input_0"
+    assert error.value.location == model_location(
+        "compute_nodes", "consumer", "inputs", "input_0"
+    )
 
 
 def test_compute_graph_rejects_duplicate_producers() -> None:
@@ -66,7 +82,7 @@ def test_compute_graph_rejects_duplicate_producers() -> None:
         order_compute_nodes((_node("duplicate"), _node("duplicate")))
 
     assert error.value.code == "compute_producer_duplicate"
-    assert error.value.path == "compute_nodes.duplicate"
+    assert error.value.location == model_location("compute_nodes", "duplicate")
 
 
 def test_compute_graph_rejects_edge_type_mismatch() -> None:
@@ -86,7 +102,9 @@ def test_compute_graph_rejects_edge_type_mismatch() -> None:
         order_compute_nodes((producer, consumer))
 
     assert error.value.code == "compute_edge_type_mismatch"
-    assert error.value.path == "compute_nodes.consumer.inputs.value"
+    assert error.value.location == model_location(
+        "compute_nodes", "consumer", "inputs", "value"
+    )
 
 
 @pytest.mark.parametrize(

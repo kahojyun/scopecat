@@ -32,9 +32,11 @@ SIMPLE_MODULE = (
     authoring.module("test.simple_scan", metadata={"assembled_by": "module"})
     .inputs(_SIMPLE_SUBJECT)
     .resource("source", requires=("set_frequency",))
-    .bind(
-        "source.set_frequency.frequency",
-        DRIVE_FREQUENCY_POINT,
+    .bind_field(
+        "source",
+        capability="set_frequency",
+        field="frequency",
+        value=DRIVE_FREQUENCY_POINT,
     )
     .record("signal", resource="source", unit="ratio")
     .build()

@@ -4,11 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from scopecat._steps import MeasurementInputDiagnostics, StepInputResolver
-from scopecat.errors import ValidationFailed
-from scopecat.results import MeasurementDatasetInputDiagnostics
+from scopecat._steps import MeasurementInputContract, StepInputResolver
+from scopecat.errors import DataIntegrityError
+from scopecat.problems import model_location
+from scopecat.results import MeasurementDatasetReadContract
 from scopecat.runs import dataset_storage_ref, get_dataset_by_id, open_run_store
-from tests.support.steps import input_diagnostics, make_signal_run
+from tests.support.steps import input_contract, make_signal_run
 
 
 def test_step_input_resolver_reads_measurement_records(tmp_path: Path) -> None:
@@ -27,12 +28,12 @@ def test_step_input_resolver_reads_measurement_records(tmp_path: Path) -> None:
         ref=dataset_storage_ref(raw_dataset),
         path_escape_code="test_input_escape",
         path_escape_message="test input escaped",
-        diagnostic_path="input",
+        location=model_location("run_access", "input"),
     )
 
     measurements = resolver.read_measurement_records(
         source,
-        diagnostics=MeasurementInputDiagnostics(
+        contract=MeasurementInputContract(
             missing_code="missing",
             empty_code="empty",
             invalid_code="invalid",
@@ -57,12 +58,12 @@ def test_step_input_resolver_reads_measurement_dataset(tmp_path: Path) -> None:
     source = resolver.resolve_dataset(
         selector="raw-measurements",
         expected_kind="measurement_dataset",
-        diagnostics=input_diagnostics(),
+        contract=input_contract(),
     )
 
     dataset = resolver.read_measurement_dataset(
         source,
-        diagnostics=MeasurementDatasetInputDiagnostics(
+        contract=MeasurementDatasetReadContract(
             missing_code="missing",
             empty_code="empty",
             invalid_code="invalid",
@@ -99,13 +100,13 @@ def test_step_input_resolver_requires_measurement_dataset_schema(
     source = resolver.resolve_dataset(
         selector="raw-measurements",
         expected_kind="measurement_dataset",
-        diagnostics=input_diagnostics(),
+        contract=input_contract(),
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         resolver.read_measurement_dataset(
             source,
-            diagnostics=MeasurementDatasetInputDiagnostics(
+            contract=MeasurementDatasetReadContract(
                 missing_code="missing",
                 empty_code="empty",
                 invalid_code="invalid",
@@ -115,7 +116,7 @@ def test_step_input_resolver_requires_measurement_dataset_schema(
             ),
         )
 
-    assert error.value.diagnostics[0].code == "missing_schema"
+    assert error.value.problems[0].code == "missing_schema"
 
 
 def test_step_input_resolver_rejects_invalid_measurement_dataset_schema(
@@ -136,13 +137,13 @@ def test_step_input_resolver_rejects_invalid_measurement_dataset_schema(
     source = resolver.resolve_dataset(
         selector="raw-measurements",
         expected_kind="measurement_dataset",
-        diagnostics=input_diagnostics(),
+        contract=input_contract(),
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         resolver.read_measurement_dataset(
             source,
-            diagnostics=MeasurementDatasetInputDiagnostics(
+            contract=MeasurementDatasetReadContract(
                 missing_code="missing",
                 empty_code="empty",
                 invalid_code="invalid",
@@ -152,4 +153,4 @@ def test_step_input_resolver_rejects_invalid_measurement_dataset_schema(
             ),
         )
 
-    assert error.value.diagnostics[0].code == "invalid_schema"
+    assert error.value.problems[0].code == "invalid_schema"

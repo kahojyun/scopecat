@@ -38,7 +38,12 @@ FLUX_BACKGROUND_MODULE = (
         requires=("set_flux_bias",),
         for_entities=(_FLUX_COUPLER,),
     )
-    .bind("coupler_bias.set_flux_bias.offset", _FLUX_BIAS)
+    .bind_field(
+        "coupler_bias",
+        capability="set_flux_bias",
+        field="offset",
+        value=_FLUX_BIAS,
+    )
     .build()
 )
 
@@ -55,7 +60,12 @@ SPECTATOR_FLUX_BACKGROUND_MODULE = (
         requires=("set_flux_bias",),
         for_entities=(_BACKGROUND_COUPLERS,),
     )
-    .bind("spectator_bias.set_flux_bias.offset", _SPECTATOR_FLUX_BIAS)
+    .bind_field(
+        "spectator_bias",
+        capability="set_flux_bias",
+        field="offset",
+        value=_SPECTATOR_FLUX_BIAS,
+    )
     .build()
 )
 
@@ -71,7 +81,8 @@ SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE = (
     .state_each(
         _SYSTEM_COUPLER_PARAMETERS,
         resource_port="coupler_bias",
-        field="set_flux_bias.offset",
+        capability="set_flux_bias",
+        field="offset",
         value=lambda row: row["coupler_parking_flux"],
         route_entities=(lambda row: row["coupler"],),
     )

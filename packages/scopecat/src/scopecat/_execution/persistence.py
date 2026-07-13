@@ -12,9 +12,16 @@ from scopecat._measurement_storage import (
     validate_measurement_dataset_records,
 )
 from scopecat._storage.refs import dataset_content_ref
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.models.artifact import RunDatasetEntry, RunRecordEntry
-from scopecat.models.run import RunConfigSource, RunManifest, RunStatus
+from scopecat.models.run import RunConfigSource, RunLifecycle, RunManifest, RunOutcome
+from scopecat.problems import (
+    LocationPathItem,
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 from scopecat.results import (
     MeasurementDatasetRole,
     MeasurementDatasetSchema,
@@ -32,7 +39,7 @@ def ref_for_dataset(
 
 def parse_expected_dataset_schema(
     expected_dataset_schema: MeasurementDatasetSchema | dict[str, object] | None,
-) -> tuple[MeasurementDatasetSchema | None, list[Diagnostic]]:
+) -> tuple[MeasurementDatasetSchema | None, list[Problem]]:
     if expected_dataset_schema is None:
         return None, []
     if isinstance(expected_dataset_schema, MeasurementDatasetSchema):
@@ -41,8 +48,7 @@ def parse_expected_dataset_schema(
         return MeasurementDatasetSchema.model_validate(expected_dataset_schema), []
     except ValueError as error:
         return None, [
-            _diagnostic(
-                "error",
+            _problem(
                 "invalid_expected_dataset_schema",
                 f"expected dataset schema is invalid: {error}",
                 "expected_dataset_schema",
@@ -60,14 +66,13 @@ def validate_measurement_index_shape(
     unknown_message: str,
     missing_observables_code: str,
     missing_observables_message: str,
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
+) -> list[Problem]:
+    problems: list[Problem] = []
     seen_indices: set[int] = set()
     for measurement in measurements:
         if measurement.point_index in seen_indices:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     duplicate_code,
                     f"{duplicate_message} {measurement.point_index}",
                     "point_index",
@@ -75,24 +80,22 @@ def validate_measurement_index_shape(
             )
         seen_indices.add(measurement.point_index)
         if measurement.point_index not in expected_indices:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     unknown_code,
                     f"{unknown_message} {measurement.point_index}",
                     "point_index",
                 )
             )
         if not measurement.observables:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
+            problems.append(
+                _problem(
                     missing_observables_code,
                     missing_observables_message,
                     "observables",
                 )
             )
-    return diagnostics
+    return problems
 
 
 def validate_raw_measurement_dataset(
@@ -101,7 +104,7 @@ def validate_raw_measurement_dataset(
     expected_schema: MeasurementDatasetSchema | None,
     dataset_id: str,
     dataset_role: MeasurementDatasetRole = "raw",
-) -> list[Diagnostic]:
+) -> list[Problem]:
     if expected_schema is None:
         return []
     return validate_measurement_dataset_records(
@@ -131,21 +134,31 @@ def build_raw_measurement_dataset(
 def build_run_manifest(
     *,
     run_id: str,
-    status: RunStatus,
+    lifecycle: RunLifecycle,
+    outcome: RunOutcome | None = None,
     config_source: RunConfigSource | None = None,
     records: Sequence[RunRecordEntry] = (),
     datasets: Sequence[RunDatasetEntry] = (),
 ) -> RunManifest:
     return RunManifest(
         run_id=run_id,
-        status=status,
+        lifecycle=lifecycle,
+        outcome=outcome,
         config_source=config_source,
         records=list(records),
         datasets=list(datasets),
     )
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+def _problem(
+    code: str,
+    message: str,
+    *path: LocationPathItem,
+) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=ProblemCategory.DATA_INTEGRITY,
+        phase=ProblemPhase.PERSISTENCE,
+        location=model_location("measurement_dataset", *path),
+    )

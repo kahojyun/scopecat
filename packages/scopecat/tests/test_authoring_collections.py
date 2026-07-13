@@ -23,7 +23,7 @@ from scopecat._value_expressions import (
 from scopecat.authoring._module_composition import assemble_module_internal
 from scopecat.authoring._resolution import ResolvedExperiment, resolve_experiment
 from scopecat.authoring._value_refs import internal_value_ref_from_expression
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.entity import EntityRef
 from tests.support.authoring import load_config
 from tests.support.experiment_preview import preview_contract
@@ -446,7 +446,7 @@ def test_scan_points_reject_same_named_scalar_input_constraint_violation() -> No
             .build()
         )
 
-    assert error.value.path == "scan.values[0]"
+    assert error.value.path == ("scan", "values", 0)
     assert error.value.reason == "value must be at least 1"
 
 
@@ -457,18 +457,11 @@ def test_module_invocation_rejects_collection_shape_mismatch() -> None:
         "items",
         authoring.SeriesType(_entity_scalar()),
     )
-    parent = (
-        authoring.module("test.collection_shape.parent")
-        .inputs(items)
-        .use(child(rows=items))
-        .build()
-    )
-
     with pytest.raises(
         authoring.ValueValidationError,
         match=r"expected Table\{.*\}, got Series\[Scalar\[Entity\]\]",
     ):
-        assemble_module_internal(parent, items=("q0",))
+        child(rows=items)
 
 
 def test_module_invocation_rejects_same_shape_atom_mismatch() -> None:
@@ -481,18 +474,11 @@ def test_module_invocation_rejects_same_shape_atom_mismatch() -> None:
         "numbers",
         authoring.SeriesType(authoring.ScalarType(authoring.FloatType())),
     )
-    parent = (
-        authoring.module("test.collection_atom.parent")
-        .inputs(numbers)
-        .use(child(entities=numbers))
-        .build()
-    )
-
     with pytest.raises(
         authoring.ValueValidationError,
         match=r"expected Series\[Scalar\[Entity\]\], got Series\[Scalar\[Float\]\]",
     ):
-        assemble_module_internal(parent, numbers=(1.0,))
+        child(entities=numbers)
 
 
 def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> None:
@@ -507,15 +493,8 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
         "duration",
         authoring.ScalarType(authoring.QuantityType(unit="ns")),
     )
-    quantity_parent = (
-        authoring.module("test.quantity_type.parent")
-        .inputs(duration)
-        .use(quantity_child(frequency=duration))
-        .build()
-    )
-
     with pytest.raises(authoring.ValueValidationError, match=r"Quantity\[GHz\]"):
-        assemble_module_internal(quantity_parent, duration=1.0)
+        quantity_child(frequency=duration)
 
     float_gate_table = authoring.TableType(
         columns=(
@@ -532,18 +511,11 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
     gates = authoring.input("gates", _gate_table_type())
     table_child = authoring.module("test.table_type.child").inputs(gates).build()
     rows = authoring.input("rows", float_gate_table)
-    table_parent = (
-        authoring.module("test.table_type.parent")
-        .inputs(rows)
-        .use(table_child(gates=rows))
-        .build()
-    )
-
     with pytest.raises(
         authoring.ValueValidationError,
         match=r"control: Scalar\[Entity\]",
     ):
-        assemble_module_internal(table_parent, rows=({"control": 0.0, "target": 1.0},))
+        table_child(gates=rows)
 
 
 def test_compute_output_is_a_typed_child_input_edge() -> None:
@@ -613,17 +585,8 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         fn=_empty_payload,
         output_type=pulse,
     )
-    incompatible_parent = (
-        authoring.module("test.compute_edge.incompatible_parent")
-        .computes(incompatible_produce)
-        .use(incompatible_child(program=incompatible_produce.output))
-        .build()
-    )
-
     with pytest.raises(authoring.ValueValidationError, match=r"Payload\[waveform\]"):
-        assemble_module_internal(
-            incompatible_parent,
-        )
+        incompatible_child(program=incompatible_produce.output)
 
 
 def test_series_compute_output_is_a_first_class_typed_value() -> None:
@@ -687,14 +650,14 @@ def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
         .build()
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             required.bind(label=None),
             workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
-    assert error.value.diagnostics[0].code == "module_input_type_mismatch"
-    assert "value must not be null" in error.value.diagnostics[0].message
+    assert error.value.problems[0].code == "module_input_type_mismatch"
+    assert "value must not be null" in error.value.problems[0].message
 
     label = authoring.input(
         "label",
@@ -743,7 +706,8 @@ def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
         .state_each(
             rows,
             resource=lambda row: row["resource_id"],
-            field="set_offset.offset",
+            capability="set_offset",
+            field="offset",
             value=lambda row: row["base"] + bias,
         )
         .build()
@@ -807,7 +771,8 @@ def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
                 resource_id=authoring.ScalarType(authoring.StringType()),
             ),
             resource=lambda row: row["resource_id"],
-            field="set_frequency.frequency",
+            capability="set_frequency",
+            field="frequency",
             value=1.0,
             route_entities=(EntityRef(id="q0"), qubits),
         )
@@ -856,7 +821,8 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
                 slot=authoring.ScalarType(authoring.IntType()),
             ),
             resource=resource_id,
-            field="play_waveforms.program",
+            capability="play_waveforms",
+            field="program",
             value=build_program.output,
         )
         .build()
@@ -896,7 +862,8 @@ def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:
         .state_each(
             rows,
             resource=lambda row: row["resource_id"],
-            field="set_offset.offset",
+            capability="set_offset",
+            field="offset",
             value=lambda row: row["adjusted"],
         )
         .build()
@@ -952,7 +919,8 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
         .state_each(
             writer_rows,
             resource=lambda row: row["resource_id"],
-            field="set_offset.offset",
+            capability="set_offset",
+            field="offset",
             value=lambda row: row["adjusted"],
         )
         .build()
@@ -1025,7 +993,8 @@ def test_state_each_treats_resource_string_as_a_fixed_resource_id() -> None:
                 value=authoring.ScalarType(authoring.FloatType()),
             ),
             resource="fixed-source",
-            field="set_offset.offset",
+            capability="set_offset",
+            field="offset",
             value=lambda row: row["value"],
         )
         .build()
@@ -1054,7 +1023,8 @@ def test_state_each_validates_resource_port_capability() -> None:
                 value=authoring.ScalarType(authoring.FloatType()),
             ),
             resource_port="source",
-            field="set_power.value",
+            capability="set_power",
+            field="value",
             value=lambda row: row["value"],
         )
         .build()
@@ -1064,13 +1034,11 @@ def test_state_each_validates_resource_port_capability() -> None:
         kind="collection_state",
     ).build()
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             template.bind(),
             workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
 
-    assert error.value.diagnostics[0].code == (
-        "module_resource_port_capability_missing"
-    )
+    assert error.value.problems[0].code == ("module_resource_port_capability_missing")

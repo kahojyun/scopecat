@@ -36,6 +36,7 @@ from scopecat.authoring.values import MetadataValue
 from scopecat.models._run_request_values import normalize_json_value
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
+from scopecat.problems import ModelLocation
 
 type BindSeriesInputRefs = Callable[[SeriesExpr, Mapping[str, object]], SeriesExpr]
 type BindRelationInputRefs = Callable[
@@ -81,7 +82,7 @@ def lower_product_selections(
     for selection in selections:
         product = product_by_id.get(selection.product_id)
         if product is None:
-            ctx.raise_diagnostic(
+            ctx.raise_problem(
                 "module_product_unknown",
                 f"experiment selects unknown product {selection.product_id}",
                 "records",
@@ -99,7 +100,11 @@ def lower_product_selections(
             record.model_copy(
                 update={
                     "metadata": _durable_metadata(
-                        {**record.metadata, **selection.metadata}
+                        {
+                            **record.metadata,
+                            **selection.metadata,
+                            "product_id": product.qualified_id,
+                        }
                     )
                 }
             )
@@ -111,15 +116,15 @@ def _product_ports_by_id(
     ctx: ExperimentAuthoringContext,
     product_ports: Sequence[ModuleProductPort],
 ) -> dict[str, ModuleProductPort]:
-    ids = [product.id for product in product_ports]
+    ids = [product.qualified_id for product in product_ports]
     duplicates = sorted({item for item in ids if ids.count(item) > 1})
     if duplicates:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_product_duplicate",
             "experiment assembly defines duplicate products: " + ", ".join(duplicates),
             "products",
         )
-    return {product.id: product for product in product_ports}
+    return {product.qualified_id: product for product in product_ports}
 
 
 def _lower_record_axis_intent(
@@ -136,7 +141,10 @@ def _lower_record_axis_intent(
         ctx,
         axis.size,
         default=1,
-        path=f"records.{record_id}.axes.{axis.id}.size",
+        location=ModelLocation(
+            root="records",
+            path=(record_id, "axes", axis.id, "size"),
+        ),
         inputs=inputs,
         entity_axis=axis.entity_values,
         bind_series_input_refs=bind_series_input_refs,
@@ -204,11 +212,11 @@ def _lower_product_port(
             source=product.source,
             resource=product.resource,
             capability=product.capability,
-            product_key=product.product_key,
+            product_key=(product.product_key or product.capability or product.id),
             unit=product.unit,
             dtype=product.dtype,
             axes=product.axes,
-            metadata={"product_id": product.id, **product.metadata},
+            metadata={**product.metadata, "product_id": product.qualified_id},
         ),
         inputs,
         bind_series_input_refs=bind_series_input_refs,
@@ -222,7 +230,7 @@ def _static_positive_int(
     value: ScalarExpr | Quantity | float | None,
     *,
     default: int,
-    path: str,
+    location: ModelLocation,
     inputs: Mapping[str, object],
     input_row: InputRow,
 ) -> int:
@@ -236,27 +244,30 @@ def _static_positive_int(
                 inputs=input_row(inputs),
             )
         )
-    except Exception as error:
-        ctx.raise_diagnostic(
+    except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+        ctx.raise_problem(
             "module_records_value_invalid",
             f"records value must resolve from config at authoring time: {error}",
-            path,
+            location.root,
+            path=location.path,
         )
     if isinstance(evaluated, Quantity):
         number = evaluated.value
     elif isinstance(evaluated, int | float) and not isinstance(evaluated, bool):
         number = float(evaluated)
     else:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_records_value_invalid",
             "records value must resolve to a numeric count",
-            path,
+            location.root,
+            path=location.path,
         )
     if number <= 0 or int(number) != number:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_records_value_invalid",
             "records value must be a positive integer",
-            path,
+            location.root,
+            path=location.path,
         )
     return int(number)
 
@@ -266,7 +277,7 @@ def _static_axis_size(
     value: AxisSizeInput | None,
     *,
     default: int,
-    path: str,
+    location: ModelLocation,
     inputs: Mapping[str, object],
     entity_axis: bool = False,
     bind_series_input_refs: BindSeriesInputRefs,
@@ -277,10 +288,11 @@ def _static_axis_size(
     if isinstance(value, ValueRef):
         lowered = internal_lower_value_ref(value)
         if isinstance(lowered, ComputeResultRef):
-            ctx.raise_diagnostic(
+            ctx.raise_problem(
                 "module_record_axis_compute_value_invalid",
                 "record axis size cannot depend on a point-local compute result",
-                path,
+                location.root,
+                path=location.path,
             )
         selected_value = lowered
     if isinstance(selected_value, SeriesExpr):
@@ -292,14 +304,15 @@ def _static_axis_size(
         )
         if not entity_axis:
             return len(evaluated), {}
-        entities = _axis_entities(ctx, evaluated, path=path)
+        entities = _axis_entities(ctx, evaluated, location=location)
         return len(entities), _entity_axis_metadata(entities)
     if isinstance(selected_value, RelationExpr):
         if entity_axis:
-            ctx.raise_diagnostic(
+            ctx.raise_problem(
                 "module_record_entity_axis_invalid",
                 "entity record axis must be scalar or series-shaped",
-                path,
+                location.root,
+                path=location.path,
             )
         evaluated_rows = bind_relation_input_refs(selected_value, inputs).evaluate(
             ctx.parameters,
@@ -314,15 +327,16 @@ def _static_axis_size(
         entities = _axis_entities(
             ctx,
             cast("Sequence[object]", selected_value),
-            path=path,
+            location=location,
         )
         return len(entities), _entity_axis_metadata(entities)
     if entity_axis:
         if not isinstance(selected_value, ScalarExpr):
-            ctx.raise_diagnostic(
+            ctx.raise_problem(
                 "module_record_entity_axis_invalid",
                 "entity record axis must resolve to an entity series",
-                path,
+                location.root,
+                path=location.path,
             )
         try:
             evaluated_entity = selected_value.eval(
@@ -331,13 +345,14 @@ def _static_axis_size(
                     inputs=input_row(inputs),
                 )
             )
-        except Exception as error:
-            ctx.raise_diagnostic(
+        except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+            ctx.raise_problem(
                 "module_record_entity_axis_invalid",
                 f"entity record axis could not be evaluated: {error}",
-                path,
+                location.root,
+                path=location.path,
             )
-        entities = _axis_entities(ctx, [evaluated_entity], path=path)
+        entities = _axis_entities(ctx, [evaluated_entity], location=location)
         return len(entities), _entity_axis_metadata(entities)
     if not isinstance(selected_value, ScalarExpr) and selected_value is not None:
         _validate_axis_size_literal(cast("AxisSizeInput", selected_value))
@@ -347,7 +362,7 @@ def _static_axis_size(
             ctx,
             positive_value,
             default=default,
-            path=path,
+            location=location,
             inputs=inputs,
             input_row=input_row,
         ),
@@ -366,19 +381,21 @@ def _axis_entities(
     ctx: ExperimentAuthoringContext,
     values: Sequence[object],
     *,
-    path: str,
+    location: ModelLocation,
 ) -> tuple[EntityRef, ...]:
     if not values:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_record_entity_axis_invalid",
             "entity record axis must not be empty",
-            path,
+            location.root,
+            path=location.path,
         )
     if not all(isinstance(value, EntityRef | str) and bool(value) for value in values):
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_record_entity_axis_invalid",
             "entity record axis values must be entity references",
-            path,
+            location.root,
+            path=location.path,
         )
     resolved = ctx.require_entities(cast("Sequence[EntityRef | str]", values))
     entity_ids = [entity.id for entity in resolved]
@@ -386,10 +403,11 @@ def _axis_entities(
         entity_id for entity_id, count in Counter(entity_ids).items() if count > 1
     )
     if duplicates:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_record_entity_axis_duplicate",
             "entity record axis contains duplicate entities: " + ", ".join(duplicates),
-            path,
+            location.root,
+            path=location.path,
         )
     return resolved
 

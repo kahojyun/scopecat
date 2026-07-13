@@ -69,19 +69,19 @@ def test_notebook_style_examples_execute_user_workflows(
                 "quantum_lab_demo.experiments.two_qubit.cz_chevron[0]/"
                 "build-cz-chevron-program",
                 "gate_sequence",
-                ("play_gate_sequence.sequence",),
+                (("play_gate_sequence", "sequence"),),
             ),
             (
                 "quantum_lab_demo.experiments.two_qubit.cz_chevron[0]/"
                 "render-cz-chevron-coupler-waveforms",
                 "pulse_program",
-                ("play_coupler_pulse.program",),
+                (("play_coupler_pulse", "program"),),
             ),
             (
                 "quantum_lab_demo.experiments.two_qubit.cz_chevron[0]/"
                 "render-cz-chevron-drive-waveforms",
                 "pulse_program",
-                ("play_pulse_program.program",),
+                (("play_pulse_program", "program"),),
             ),
         ],
         "waveform_build_dependencies": {

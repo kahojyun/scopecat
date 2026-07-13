@@ -12,7 +12,7 @@ from scopecat.models.entity import EntityRef
 from scopecat.models.measurement import CoordinateValue, MeasurementDatasetSchema
 from scopecat.models.parameter import Quantity
 
-RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v2"
+RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v3"
 
 
 class _RunPlanModel(BaseModel):
@@ -136,9 +136,14 @@ class RunPlanOutput(_RunPlanModel):
 class RunPlanStateChange(_RunPlanModel):
     point_index: int = Field(ge=0)
     resource: str
-    field: str
+    capability_id: str = Field(min_length=1)
+    field_path: str = Field(min_length=1)
     before: RunPlanValue = None
     after: RunPlanValue
+
+    @property
+    def field(self) -> str:
+        return f"{self.capability_id}.{self.field_path}"
 
     @model_validator(mode="after")
     def validate_values(self) -> RunPlanStateChange:
@@ -177,7 +182,7 @@ class RunPlanRoute(_RunPlanModel):
 class RunPlanRecord(_RunPlanModel):
     """Stable projection of the plan accepted for one execution."""
 
-    schema_version: Literal["scopecat.run_plan_record.v2"] = (
+    schema_version: Literal["scopecat.run_plan_record.v3"] = (
         RUN_PLAN_RECORD_SCHEMA_VERSION
     )
     experiment_id: str

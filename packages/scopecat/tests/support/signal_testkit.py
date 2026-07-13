@@ -11,18 +11,24 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
 from scopecat._workflows.runs import start_run
 from scopecat.authoring import ExperimentInvocation
 from scopecat.authoring._invocation_plan import prepare_invocation
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.execution import ExecutionSummary
 from scopecat.models.parameter import Quantity, ScalarParameterValue
 from scopecat.models.run import RunConfigSource, RunManifest
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    StorageLocation,
+    blocking_problem,
+)
 from scopecat.results import MeasurementArray, MeasurementRecord, MeasurementValue
 from scopecat.runs import dataset_storage_ref, open_run_store, record_storage_ref
 from tests.support.signal_instruments import TestSignalInstrumentProvider
@@ -66,19 +72,19 @@ class SummaryStatsObservable(BaseModel):
 class SummaryStatsResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.test_summary_stats_result.v0"
+    schema_version: str = "scopecat.test_summary_stats_result.v1"
     run_id: str
     step: str = SUMMARY_STATS_STEP
     input_ref: str
     measurement_count: int
     observables: dict[str, SummaryStatsObservable]
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
+    problems: tuple[Problem, ...] = ()
 
 
 class BestSignalAnalysisResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.test_best_signal_analysis_result.v0"
+    schema_version: str = "scopecat.test_best_signal_analysis_result.v1"
     run_id: str
     step: str = BEST_SIGNAL_ANALYSIS_STEP
     input_ref: str = BEST_SIGNAL_INPUT_REF
@@ -87,7 +93,7 @@ class BestSignalAnalysisResult(BaseModel):
     best_signal: Quantity
     old_value: Quantity
     proposed_value: Quantity
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
+    problems: tuple[Problem, ...] = ()
 
 
 @dataclass
@@ -128,7 +134,6 @@ class SummaryStatsAnalysisStep:
             run_id=context.run.id,
             step=SUMMARY_STATS_STEP,
             input_ref=input_ref,
-            diagnostic_path=input_ref,
             measurements=raw.dataset.records,
         )
         return (
@@ -175,7 +180,7 @@ class BestSignalAnalysisStep:
         )
         best_signal = _signal_quantity(
             measurement=best_measurement,
-            diagnostic_path=BEST_SIGNAL_INPUT_REF,
+            problem_ref=BEST_SIGNAL_INPUT_REF,
         )
         reason = f"Best signal observed at point {best_measurement.point_index}."
         result = BestSignalAnalysisResult(
@@ -234,7 +239,6 @@ class TestSignalAnalysisStep:
             run_id=context.run.id,
             step=BEST_SIGNAL_ANALYSIS_STEP,
             input_ref=input_ref,
-            diagnostic_path=input_ref,
             measurements=raw.dataset.records,
         )
         parameter_id = _scan_parameter_id(context.data.schema())
@@ -365,7 +369,6 @@ def _build_summary_result(
     run_id: str,
     step: str,
     input_ref: str,
-    diagnostic_path: str,
     measurements: Sequence[_MeasurementWithObservables],
 ) -> SummaryStatsResult:
     accumulators: dict[str, _Accumulator] = {}
@@ -374,7 +377,7 @@ def _build_summary_result(
             values, unit = _numeric_observable_values(
                 name=name,
                 observable=observable,
-                diagnostic_path=diagnostic_path,
+                problem_ref=input_ref,
             )
             accumulator = accumulators.get(name)
             if accumulator is None:
@@ -392,25 +395,23 @@ def _build_summary_result(
                 try:
                     accumulator.add(value, unit)
                 except ValueError as error:
-                    raise ValidationFailed(
+                    raise CheckFailed(
                         [
-                            _diagnostic(
-                                "error",
+                            _problem(
                                 "invalid_analysis_input",
                                 f"observable {name} uses inconsistent units",
-                                diagnostic_path,
+                                input_ref,
                             )
                         ]
                     ) from error
 
     if not accumulators:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "missing_observables",
                     "analysis input contains no observables",
-                    diagnostic_path,
+                    input_ref,
                 )
             ]
         )
@@ -431,65 +432,60 @@ def _numeric_observable_values(
     *,
     name: str,
     observable: MeasurementValue,
-    diagnostic_path: str,
+    problem_ref: str,
 ) -> tuple[list[float], str]:
     unit = observable.unit
     if unit is None:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "invalid_analysis_input",
                     f"observable {name} is missing unit",
-                    diagnostic_path,
+                    problem_ref,
                 )
             ]
         )
     if isinstance(observable, Quantity):
         return [observable.value], unit
     if not isinstance(observable, MeasurementArray):
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "invalid_analysis_input",
                     f"observable {name} must use numeric values",
-                    diagnostic_path,
+                    problem_ref,
                 )
             ]
         )
     if observable.dtype not in {"float64", "int64"}:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "invalid_analysis_input",
                     f"observable {name} must use numeric values",
-                    diagnostic_path,
+                    problem_ref,
                 )
             ]
         )
     try:
         values = _flatten_numeric_array_values(observable.values)
     except ValueError as error:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "invalid_analysis_input",
                     f"observable {name} must use numeric values",
-                    diagnostic_path,
+                    problem_ref,
                 )
             ]
         ) from error
     if not values:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "invalid_analysis_input",
                     f"observable {name} contains no values",
-                    diagnostic_path,
+                    problem_ref,
                 )
             ]
         )
@@ -512,10 +508,9 @@ def _flatten_numeric_array_values(values: Sequence[object]) -> list[float]:
 def _scan_parameter_id(schema: sc.MeasurementDatasetSchema) -> str:
     coordinate_ids = list(schema.primary_coordinates)
     if len(coordinate_ids) != 1 or not coordinate_ids[0]:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "missing_scan_coordinate",
                     "analysis requires exactly one scan coordinate",
                     BEST_SIGNAL_SCHEMA_REF,
@@ -528,10 +523,9 @@ def _scan_parameter_id(schema: sc.MeasurementDatasetSchema) -> str:
 def _old_parameter_value(config: ConfigProfileSnapshot, parameter_id: str) -> Quantity:
     parameter = config.parameter_snapshot.get(parameter_id)
     if not isinstance(parameter, ScalarParameterValue):
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "missing_parameter_value",
                     f"config snapshot has no scalar parameter for {parameter_id}",
                     "config-profile.snapshot.json",
@@ -539,10 +533,9 @@ def _old_parameter_value(config: ConfigProfileSnapshot, parameter_id: str) -> Qu
             ]
         )
     if not isinstance(parameter.value, Quantity):
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "parameter_value_type_mismatch",
                     f"config parameter {parameter_id} is not a quantity",
                     "config-profile.snapshot.json",
@@ -561,10 +554,9 @@ def _best_signal_measurement(
         if isinstance(measurement.observables.get("signal"), Quantity)
     ]
     if not candidates:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "missing_signal_observable",
                     "analysis input contains no signal observable",
                     BEST_SIGNAL_INPUT_REF,
@@ -576,7 +568,7 @@ def _best_signal_measurement(
         key=lambda measurement: (
             _signal_quantity(
                 measurement=measurement,
-                diagnostic_path=BEST_SIGNAL_INPUT_REF,
+                problem_ref=BEST_SIGNAL_INPUT_REF,
             ).value,
             -measurement.point_index,
         ),
@@ -586,18 +578,17 @@ def _best_signal_measurement(
 def _signal_quantity(
     *,
     measurement: MeasurementRecord,
-    diagnostic_path: str,
+    problem_ref: str,
 ) -> Quantity:
     signal = measurement.observables.get("signal")
     if isinstance(signal, Quantity):
         return signal
-    raise ValidationFailed(
+    raise CheckFailed(
         [
-            _diagnostic(
-                "error",
+            _problem(
                 "invalid_signal_observable",
                 "signal observable must be scalar",
-                diagnostic_path,
+                problem_ref,
             )
         ]
     )
@@ -611,10 +602,9 @@ def _proposed_value(
 ) -> Quantity:
     quantity = measurement.coordinates.get(parameter_id)
     if not isinstance(quantity, Quantity):
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
+                _problem(
                     "missing_parameter_value",
                     f"best point has no parameter for {parameter_id}",
                     BEST_SIGNAL_INPUT_REF,
@@ -628,7 +618,11 @@ def _proposed_value(
     return Quantity(value=old_value.value + 0.01, unit=old_value.unit)
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+def _problem(code: str, message: str, ref: str) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=ProblemCategory.INVALID_INPUT,
+        phase=ProblemPhase.ANALYSIS,
+        location=StorageLocation(ref=ref),
+    )

@@ -73,7 +73,8 @@ def build_run_plan_record(plan: BoundPlan) -> RunPlanRecord:
             RunPlanStateChange(
                 point_index=change.point_index,
                 resource=change.resource,
-                field=change.field,
+                capability_id=change.capability_id,
+                field_path=change.field_path,
                 before=cast("RunPlanValue", _run_plan_state_value(change.before)),
                 after=cast("RunPlanValue", _run_plan_state_value(change.after)),
             )

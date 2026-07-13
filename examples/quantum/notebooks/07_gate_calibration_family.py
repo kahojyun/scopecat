@@ -214,11 +214,17 @@ waveform_run = waveform_plan.run(
 )
 
 # %%
-compute_events = [event for event in events if event["kind"] == "compute_finished"]
+compute_events = [
+    event
+    for event in events
+    if event["kind"] == "transition"
+    and event["stage"] == "compute"
+    and event["state"] == "completed"
+]
 waveform_summaries = [
-    event["summary"]
+    event["metrics"]
     for event in compute_events
-    if event["summary"].get("schema_id") == "pulse_program"
+    if event["metrics"].get("schema_id") == "pulse_program"
 ]
 build_preview = next(
     payload
@@ -228,7 +234,7 @@ build_preview = next(
 drive_event = next(
     event
     for event in compute_events
-    if str(event["summary"].get("kernel_id", "")).endswith(
+    if str(event["metrics"].get("kernel_id", "")).endswith(
         "/render-cz-chevron-drive-waveforms"
     )
 )
@@ -286,11 +292,18 @@ gate_family_summary = {
     "spectator_cz_points": spectator_cz_preview.point_count,
     "parallel_gate_points": parallel_gate_preview.point_count,
     "waveform_preview_payloads": [
-        (payload.node_id, payload.schema_id, payload.state_fields)
+        (
+            payload.node_id,
+            payload.schema_id,
+            tuple(
+                (target.capability_id, target.field_path)
+                for target in payload.state_fields
+            ),
+        )
         for payload in waveform_preview.payloads
     ],
     "waveform_build_dependencies": build_preview.dependencies,
-    "waveform_drive_runtime_dependencies": drive_event["summary"].get("dependencies"),
+    "waveform_drive_runtime_dependencies": drive_event["metrics"].get("dependencies"),
     "waveform_run_status": waveform_run.manifest.status,
     "waveform_compute_event_count": len(compute_events),
     "waveform_shapes": [summary.get("sample_shape") for summary in waveform_summaries],

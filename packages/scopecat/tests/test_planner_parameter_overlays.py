@@ -6,7 +6,7 @@ from scopecat._compiler.program import (
     TypedPointSource,
     bind_each,
     overlay_parameter_cell,
-    set_state,
+    set_state_field,
     typed_program,
 )
 from scopecat._relations import RelationExpr, col, grid, literal_rows, outer, table
@@ -67,10 +67,11 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
         state=[
             bind_each(
                 table("readout_devices"),
-                set_state(
+                set_state_field(
                     col("resource_id"),
-                    "readout.frequency",
-                    col("frequency"),
+                    capability_id="readout",
+                    field_path="frequency",
+                    value=col("frequency"),
                     route_entities=(outer("device_id"),),
                 ),
             )
@@ -97,7 +98,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
 def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> None:
     spec = typed_program(
         id="missing-overlay-row",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(device_id=["missing"])),
         parameter_overlays=[
             _frequency_overlay(
@@ -105,12 +106,19 @@ def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> N
                 value=Quantity(value=5.9, unit="GHz"),
             )
         ],
-        state=[set_state("readout-a", "frequency", col("device_id"))],
+        state=[
+            set_state_field(
+                "readout-a",
+                capability_id="readout",
+                field_path="frequency",
+                value=col("device_id"),
+            )
+        ],
     )
 
     plan = bind_program(spec, _environment())
 
-    assert [diagnostic.code for diagnostic in plan.diagnostics] == [
+    assert [problem.code for problem in plan.problems] == [
         "experiment_parameter_overlay_row_not_found"
     ]
     assert plan.points == ()
@@ -122,7 +130,7 @@ def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> N
 def test_point_parameter_overlay_validates_value_against_catalog_type() -> None:
     spec = typed_program(
         id="invalid-overlay-value",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(
             grid(device_id=["r0"], frequency=["not-a-frequency"])
         ),
@@ -133,7 +141,7 @@ def test_point_parameter_overlay_validates_value_against_catalog_type() -> None:
 
     plan = bind_program(spec, _environment())
 
-    assert [diagnostic.code for diagnostic in plan.diagnostics] == [
+    assert [problem.code for problem in plan.problems] == [
         "experiment_parameter_overlay_value_invalid"
     ]
 
@@ -141,7 +149,7 @@ def test_point_parameter_overlay_validates_value_against_catalog_type() -> None:
 def test_point_parameter_overlay_reports_missing_table() -> None:
     spec = typed_program(
         id="missing-overlay-table",
-        kind="diagnostic",
+        kind="problem",
         point_source=_point_source(grid(device_id=["r0"])),
         parameter_overlays=[
             overlay_parameter_cell(
@@ -157,6 +165,6 @@ def test_point_parameter_overlay_reports_missing_table() -> None:
 
     plan = bind_program(spec, _environment())
 
-    assert [diagnostic.code for diagnostic in plan.diagnostics] == [
+    assert [problem.code for problem in plan.problems] == [
         "experiment_parameter_overlay_table_missing"
     ]

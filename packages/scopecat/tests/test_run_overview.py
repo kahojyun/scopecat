@@ -26,7 +26,7 @@ def test_build_run_overview_for_signal_run_does_not_update_manifest(
 
     overview = build_run_overview(run_id=run_id, workspace=tmp_path)
 
-    assert overview.schema_version == "scopecat.run_overview.v3"
+    assert overview.schema_version == "scopecat.run_overview.v4"
     assert overview.config_source is None
     assert overview.execution is not None
     assert overview.execution.status == "completed"

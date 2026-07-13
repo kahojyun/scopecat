@@ -87,7 +87,8 @@ def _valid_run_plan_data() -> dict[str, Any]:
             {
                 "point_index": 1,
                 "resource": "source",
-                "field": "amplitude",
+                "capability_id": "set_amplitude",
+                "field_path": "amplitude",
                 "after": 0.5,
             }
         ],
@@ -418,7 +419,8 @@ def test_run_plan_state_change_preserves_boolean_values() -> None:
     change = RunPlanStateChange(
         point_index=0,
         resource="switch-0",
-        field="enabled",
+        capability_id="switch",
+        field_path="enabled",
         after=True,
     )
 
@@ -438,7 +440,8 @@ def test_run_plan_state_change_accepts_only_durable_descriptors() -> None:
                 {
                     "point_index": 0,
                     "resource": "source",
-                    "field": "program",
+                    "capability_id": "execute",
+                    "field_path": "program",
                     "after": value,
                 }
             )
@@ -446,13 +449,15 @@ def test_run_plan_state_change_accepts_only_durable_descriptors() -> None:
     compute = RunPlanStateChange(
         point_index=0,
         resource="source",
-        field="program",
+        capability_id="execute",
+        field_path="program",
         after=RunPlanDeferredValue(),
     )
     payload = RunPlanStateChange(
         point_index=0,
         resource="source",
-        field="program",
+        capability_id="execute",
+        field_path="program",
         after=RunPlanPayloadValue(schema_id="pulse"),
     )
 
@@ -474,7 +479,8 @@ def test_run_plan_models_reject_non_finite_numbers(value: float) -> None:
         RunPlanStateChange(
             point_index=0,
             resource="source",
-            field="amplitude",
+            capability_id="set_amplitude",
+            field_path="amplitude",
             after=value,
         )
 
@@ -495,7 +501,8 @@ def test_run_plan_models_reject_nested_non_finite_numbers(value: float) -> None:
             RunPlanStateChange(
                 point_index=0,
                 resource="source",
-                field="value",
+                capability_id="set_value",
+                field_path="value",
                 before=invalid_value,
                 after=0.0,
             )
@@ -503,7 +510,8 @@ def test_run_plan_models_reject_nested_non_finite_numbers(value: float) -> None:
             RunPlanStateChange(
                 point_index=0,
                 resource="source",
-                field="value",
+                capability_id="set_value",
+                field_path="value",
                 after=invalid_value,
             )
 
@@ -525,7 +533,8 @@ def test_run_plan_nested_values_round_trip_safely() -> None:
     change = RunPlanStateChange(
         point_index=0,
         resource="source",
-        field="subject",
+        capability_id="set_subject",
+        field_path="subject",
         before=entity,
         after=Quantity(value=5.0, unit="GHz"),
     )

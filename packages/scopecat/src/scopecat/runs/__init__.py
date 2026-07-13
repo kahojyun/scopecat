@@ -47,6 +47,7 @@ from scopecat.runs.access import (
     upsert_datasets,
     upsert_records,
 )
+from scopecat.runs.execution import RunExecutionInspection, inspect_run_execution
 from scopecat.runs.measurements import (
     MEASUREMENT_DATA_REF,
     MEASUREMENT_DATASET_ID,
@@ -61,6 +62,7 @@ from scopecat.runs.measurements import (
 __all__ = [
     "MEASUREMENT_DATASET_ID",
     "MEASUREMENT_DATA_REF",
+    "RunExecutionInspection",
     "RunStore",
     "append_unique",
     "artifact_storage_ref",
@@ -71,6 +73,7 @@ __all__ = [
     "get_artifact_by_id",
     "get_dataset_by_id",
     "get_record_by_id",
+    "inspect_run_execution",
     "list_artifacts",
     "list_artifacts_by_kind",
     "list_artifacts_by_metadata",

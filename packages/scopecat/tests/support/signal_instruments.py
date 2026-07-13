@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
 from scopecat.instruments import (
     ApplyReceipt,
     CollectCommand,
+    CollectReceipt,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -23,6 +23,13 @@ from scopecat.instruments import (
 from scopecat.models.parameter import Quantity
 from scopecat.models.provider import ProviderOptionDescription
 from scopecat.models.state import StateValue
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 
 
 @dataclass(frozen=True)
@@ -35,15 +42,15 @@ class TestSignalInstrumentProvider:
     def describe(
         self, context: InstrumentProviderContext
     ) -> InstrumentProviderDescription:
-        instrument_id, diagnostics = self._resolve_instrument_id(context)
+        instrument_id, problems = self._resolve_instrument_id(context)
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=(
                 (TestSignalInstrument(instrument_id=instrument_id).describe(),)
-                if not diagnostics
+                if not problems
                 else ()
             ),
-            diagnostics=tuple(diagnostics),
+            problems=tuple(problems),
             label="Test signal instrument provider",
             description="Provides a fresh offline test signal instrument driver.",
             options=(
@@ -64,11 +71,11 @@ class TestSignalInstrumentProvider:
         )
 
     def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
-        instrument_id, diagnostics = self._resolve_instrument_id(context)
-        if diagnostics:
+        instrument_id, problems = self._resolve_instrument_id(context)
+        if problems:
             return InstrumentProviderResult(
                 drivers=(),
-                diagnostics=tuple(diagnostics),
+                problems=tuple(problems),
                 metadata={"provider_id": self.provider_id},
             )
         return InstrumentProviderResult(
@@ -81,7 +88,7 @@ class TestSignalInstrumentProvider:
 
     def _resolve_instrument_id(
         self, context: InstrumentProviderContext
-    ) -> tuple[str, list[Diagnostic]]:
+    ) -> tuple[str, list[Problem]]:
         instruments = context.config.instrument_registry.instruments
         routable_instrument_ids = {
             resource.id
@@ -96,8 +103,7 @@ class TestSignalInstrumentProvider:
             )
             if instrument is None:
                 return self.instrument_id, [
-                    _diagnostic(
-                        "error",
+                    _problem(
                         "test_signal_provider_unknown_instrument",
                         "test signal provider instrument is not in config: "
                         f"{self.instrument_id}",
@@ -106,8 +112,7 @@ class TestSignalInstrumentProvider:
                 ]
             if self.instrument_id not in routable_instrument_ids:
                 return self.instrument_id, [
-                    _diagnostic(
-                        "error",
+                    _problem(
                         "test_signal_provider_unsupported_instrument",
                         "test signal provider instrument must be routable for "
                         "set_frequency: "
@@ -121,8 +126,7 @@ class TestSignalInstrumentProvider:
         matches = sorted(routable_instrument_ids & config_instrument_ids)
         if not matches:
             return "", [
-                _diagnostic(
-                    "error",
+                _problem(
                     "test_signal_provider_missing_instrument",
                     "test signal provider requires one routable instrument exposing "
                     "set_frequency",
@@ -131,8 +135,7 @@ class TestSignalInstrumentProvider:
             ]
         if len(matches) > 1:
             return "", [
-                _diagnostic(
-                    "error",
+                _problem(
                     "test_signal_provider_ambiguous_instrument",
                     "test signal provider found multiple set_frequency instruments: "
                     f"{', '.join(matches)}",
@@ -193,25 +196,27 @@ class TestSignalInstrument:
             self._state[(field.capability_id, field.field_path)] = field.value
         return ApplyReceipt(status="applied")
 
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
         if "signal" not in {request.id for request in command.requests}:
-            return InstrumentReadback()
-        return InstrumentReadback(
-            values={
-                "signal": Quantity(
-                    value=_test_signal(
-                        command.point_index,
-                        command.point_count,
-                    ),
-                    unit="ratio",
-                )
-            },
-            metadata={
-                "instrument": self.instrument_id,
-                "implementation": self.implementation_id,
-                "test_offline": True,
-            },
+            return CollectReceipt(readback=InstrumentReadback())
+        return CollectReceipt(
+            readback=InstrumentReadback(
+                values={
+                    "signal": Quantity(
+                        value=_test_signal(
+                            command.point_index,
+                            command.point_count,
+                        ),
+                        unit="ratio",
+                    )
+                },
+                metadata={
+                    "instrument": self.instrument_id,
+                    "implementation": self.implementation_id,
+                    "test_offline": True,
+                },
+            )
         )
 
     def cleanup(self) -> None:
@@ -229,7 +234,11 @@ def _test_signal(point_index: int, point_count: int) -> float:
     return round(1.0 - 0.5 * distance, 12)
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+def _problem(code: str, message: str, path: str) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=ProblemCategory.PROVIDER_CONTRACT,
+        phase=ProblemPhase.PROVIDER_PREFLIGHT,
+        location=model_location("test_signal_provider", path),
+    )

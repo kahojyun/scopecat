@@ -9,6 +9,7 @@ from scopecat.authoring import (
     ExperimentTemplate,
 )
 from scopecat.models.parameter import Quantity
+from scopecat.runtime import RuntimeEvent, RuntimeTransitionEvent
 from tests.support.authoring import DRIVE_FREQUENCY_POINT
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import load_invocation
@@ -19,9 +20,11 @@ EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 SIMPLE_FREQUENCY_SCAN = (
     authoring.module("test.session.simple_frequency_scan")
     .resource("source", requires=("set_frequency",))
-    .bind(
-        "source.set_frequency.frequency",
-        DRIVE_FREQUENCY_POINT,
+    .bind_field(
+        "source",
+        capability="set_frequency",
+        field="frequency",
+        value=DRIVE_FREQUENCY_POINT,
     )
     .record("signal", resource="source", unit="ratio")
     .build()
@@ -116,16 +119,27 @@ def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> N
         config_profile=EXAMPLE_DIR / "config-profile.json",
         instrument_provider=TestSignalInstrumentProvider(),
     )
-    event_kinds: list[str] = []
+    events: list[RuntimeEvent] = []
 
     run = lab.prepare(load_invocation()).run(
-        event_sink=lambda event: event_kinds.append(event.kind),
+        event_sink=events.append,
     )
 
     assert run.manifest.status == "completed"
-    assert event_kinds[0] == "run_started"
-    assert event_kinds[-1] == "run_finished"
-    assert event_kinds.count("record_emitted") == 3
+    assert events[0].kind == "run_started"
+    assert events[-1].kind == "run_finished"
+    assert (
+        len(
+            [
+                event
+                for event in events
+                if isinstance(event, RuntimeTransitionEvent)
+                and event.stage == "commit_point"
+                and event.state == "completed"
+            ]
+        )
+        == 3
+    )
 
 
 def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(

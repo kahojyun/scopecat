@@ -14,7 +14,7 @@ from scopecat._workflows.config import (
     validate_config_profile,
 )
 from scopecat.config_registry import DirectConfigRegistrySource
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed
 from tests.support.workflow_fixtures import (
     WORKFLOW_FIXTURE_DIR as EXAMPLE_DIR,
 )
@@ -56,11 +56,11 @@ def test_config_workflow_validates_file_and_config_object() -> None:
 
     assert file_result.config.workspace_id == "example-workspace"
     assert object_result.config == file_result.config
-    assert file_result.diagnostics == []
-    assert object_result.diagnostics == []
+    assert file_result.problems == ()
+    assert object_result.problems == ()
 
 
-def test_config_workflow_validation_rejects_blocking_diagnostics() -> None:
+def test_config_workflow_validation_rejects_blocking_problems() -> None:
     config = load_config()
     invalid_connection = config.connection_profile.connections[0].model_copy(
         update={"instrument_id": "missing-source"}
@@ -74,10 +74,10 @@ def test_config_workflow_validation_rejects_blocking_diagnostics() -> None:
     )
     invalid_config = config.model_copy(update={"environment": invalid_environment})
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         validate_config_profile(invalid_config)
 
-    assert error.value.diagnostics[0].code == "unknown_connection_instrument"
+    assert error.value.problems[0].code == "configuration.unknown_connection_instrument"
 
 
 def test_config_workflow_registers_direct_entry_idempotently(
@@ -154,8 +154,8 @@ def test_config_workflow_register_activate_activate_and_rollback(
 @pytest.mark.parametrize(
     ("config_profile", "config_entry", "code"),
     [
-        (EXAMPLE_DIR / "config-profile.json", "active", "conflicting_config_source"),
-        (None, None, "missing_config_source"),
+        (EXAMPLE_DIR / "config-profile.json", "active", "config.source_conflict"),
+        (None, None, "config.source_missing"),
     ],
 )
 def test_resolve_config_source_rejects_invalid_source_selection(
@@ -164,11 +164,11 @@ def test_resolve_config_source_rejects_invalid_source_selection(
     config_entry: str | None,
     code: str,
 ) -> None:
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         resolve_config_source(
             workspace=tmp_path,
             config_profile=config_profile,
             config_entry=config_entry,
         )
 
-    assert error.value.diagnostics[0].code == code
+    assert error.value.problems[0].code == code

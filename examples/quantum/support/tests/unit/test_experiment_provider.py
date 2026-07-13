@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 from demo_lab_test_paths import (
@@ -16,9 +17,9 @@ from scopecat.authoring import (
 )
 from scopecat.authoring._resolution import resolve_experiment
 from scopecat.config_profiles import load_config_profile
-from scopecat.errors import ValidationFailed
-from scopecat.instruments import RuntimeEvent
+from scopecat.errors import ProviderContractError
 from scopecat.models.config import ConfigProfileSnapshot
+from scopecat.runtime import RuntimeEvent, RuntimeTransitionEvent
 
 from quantum_lab_demo.experiments import (
     BACKEND_BATCH_TEMPLATE,
@@ -124,27 +125,33 @@ def test_cz_chevron_emits_scoped_compute_lifecycle_summaries(
         )
     )
 
-    compute_summaries = [
-        event.summary for event in events if event.kind == "compute_finished"
+    compute_events = [
+        event
+        for event in events
+        if isinstance(event, RuntimeTransitionEvent)
+        and event.stage == "compute"
+        and event.state == "completed"
     ]
-    drive_summary = next(
-        summary
-        for summary in compute_summaries
-        if summary.get("kernel_id")
+    drive_event = next(
+        event
+        for event in compute_events
+        if event.metrics.get("kernel_id")
         == f"{_CZ_CHEVRON_SCOPE}/render-cz-chevron-drive-waveforms"
     )
-    program_summary = next(
-        summary
-        for summary in compute_summaries
-        if summary.get("kernel_id") == f"{_CZ_CHEVRON_SCOPE}/build-cz-chevron-program"
+    program_event = next(
+        event
+        for event in compute_events
+        if event.metrics.get("kernel_id")
+        == f"{_CZ_CHEVRON_SCOPE}/build-cz-chevron-program"
     )
 
     assert run.manifest.status == "completed"
-    for summary in (program_summary, drive_summary):
-        kernel_id = summary["kernel_id"]
-        assert summary["compute_status"] == "evaluated"
-        assert summary["payload_id"].startswith(f"{kernel_id}.payload.")
-        assert summary["operation_id"].endswith(f".compute.{kernel_id}")
+    for event in (program_event, drive_event):
+        kernel_id = cast("str", event.metrics["kernel_id"])
+        payload_id = cast("str", event.metrics["payload_id"])
+        assert event.metrics["compute_status"] == "evaluated"
+        assert payload_id.startswith(f"{kernel_id}.payload.")
+        assert event.operation_id.endswith(f".compute.{kernel_id}")
 
 
 @pytest.mark.parametrize(
@@ -194,15 +201,18 @@ def test_array_record_cases_run_provider_python_api(
     assert len(measurements.dataset.records) == 1
     assert observable.shape == shape
     if observable_id == "backend_probabilities":
-        batch_summary = next(
-            event.summary
+        batch_event = next(
+            event
             for event in events
-            if event.kind == "compute_finished"
-            and event.summary.get("kernel_id")
+            if isinstance(event, RuntimeTransitionEvent)
+            and event.stage == "compute"
+            and event.state == "completed"
+            and event.metrics.get("kernel_id")
             == f"{_BACKEND_BATCH_SCOPE}/build-backend-batch-job"
         )
-        assert batch_summary["compute_status"] == "evaluated"
-        assert batch_summary["payload_id"].startswith(
+        assert batch_event.metrics["compute_status"] == "evaluated"
+        payload_id = cast("str", batch_event.metrics["payload_id"])
+        assert payload_id.startswith(
             f"{_BACKEND_BATCH_SCOPE}/build-backend-batch-job.payload."
         )
 
@@ -232,7 +242,7 @@ def test_rejects_invalid_payload_schema(
     lab = _lab(tmp_path)
     assert lab.instrument_provider is not None
     plan = bind_program(experiment, resolved.environment)
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(ProviderContractError) as error:
         execute_run(
             config=resolved.config,
             plan=plan,
@@ -242,7 +252,7 @@ def test_rejects_invalid_payload_schema(
             config_source=resolved.config_source,
         )
 
-    assert error.value.diagnostics[0].code == "instrument_driver_field_value_mismatch"
+    assert error.value.problems[0].code == "instrument_driver_field_value_mismatch"
 
 
 def _lab(tmp_path: Path):

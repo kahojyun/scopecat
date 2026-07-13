@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import cast
 
 from scopecat._relations import CellValue, ParameterRelationData, Row
-from scopecat.diagnostics import Diagnostic
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import (
     ParameterCatalog,
@@ -19,6 +18,13 @@ from scopecat.parameter_validation import (
     ParameterValueValidationError,
     coerce_stored_parameter_value,
 )
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,17 +32,17 @@ class ResolvedConfigParameters:
     """Transient executable parameter data and validation findings."""
 
     data: ParameterRelationData
-    diagnostics: tuple[Diagnostic, ...]
+    problems: tuple[Problem, ...]
 
 
 def validate_parameter_snapshot(
     catalog: ParameterCatalog,
     snapshot: ParameterSnapshot,
-) -> tuple[Diagnostic, ...]:
+) -> tuple[Problem, ...]:
     """Cross-validate a durable snapshot against its catalog."""
 
-    _normalized, diagnostics = _normalize_snapshot(catalog, snapshot)
-    return diagnostics
+    _normalized, problems = _normalize_snapshot(catalog, snapshot)
+    return problems
 
 
 def resolve_config_parameters(
@@ -44,7 +50,7 @@ def resolve_config_parameters(
 ) -> ResolvedConfigParameters:
     """Normalize config parameters and project them into executable data."""
 
-    normalized, diagnostics = _normalize_snapshot(
+    normalized, problems = _normalize_snapshot(
         config.parameter_catalog,
         config.parameter_snapshot,
     )
@@ -64,38 +70,40 @@ def resolve_config_parameters(
             series=series,
             tables=tables,
         ),
-        diagnostics=diagnostics,
+        problems=problems,
     )
 
 
 def _normalize_snapshot(
     catalog: ParameterCatalog,
     snapshot: ParameterSnapshot,
-) -> tuple[tuple[StoredParameterValue, ...], tuple[Diagnostic, ...]]:
+) -> tuple[tuple[StoredParameterValue, ...], tuple[Problem, ...]]:
     definitions = {definition.id: definition for definition in catalog.definitions}
     stored = {value.id: value for value in snapshot.values}
-    diagnostics: list[Diagnostic] = []
+    problems: list[Problem] = []
 
     for definition in catalog.definitions:
         if definition.id not in stored:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "missing_parameter_value",
                     f"parameter value {definition.id} is missing",
-                    "parameter_snapshot.values",
+                    ("values",),
+                    details={"parameter_id": definition.id},
                 )
             )
 
     normalized: list[StoredParameterValue] = []
     for value in snapshot.values:
         definition = definitions.get(value.id)
-        path = f"parameter_snapshot.values.{value.id}"
+        path = ("values", value.id)
         if definition is None:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "unknown_parameter_definition",
                     f"parameter value {value.id} has no definition",
                     path,
+                    details={"parameter_id": value.id},
                 )
             )
             continue
@@ -103,17 +111,41 @@ def _normalize_snapshot(
             selected = coerce_stored_parameter_value(
                 definition,
                 value,
-                path=path,
+                path=("parameter_snapshot", *path),
             )
         except ParameterValueValidationError as error:
-            diagnostics.append(_diagnostic(error.code, str(error), error.path or path))
+            problems.append(
+                _problem(
+                    error.code,
+                    str(error),
+                    (
+                        error.path[1:]
+                        if error.path and error.path[0] == "parameter_snapshot"
+                        else error.path or path
+                    ),
+                    details={"parameter_id": value.id},
+                )
+            )
             continue
         normalized.append(selected)
-    return tuple(normalized), tuple(diagnostics)
+    return tuple(normalized), tuple(problems)
 
 
-def _diagnostic(code: str, message: str, path: str) -> Diagnostic:
-    return Diagnostic(severity="error", code=code, message=message, path=path)
+def _problem(
+    code: str,
+    message: str,
+    path: tuple[str | int, ...],
+    *,
+    details: dict[str, object],
+) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=ProblemCategory.INVALID_INPUT,
+        phase=ProblemPhase.CONFIGURATION,
+        location=model_location("parameter_snapshot", *path),
+        details=details,
+    )
 
 
 __all__ = [

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from scopecat._storage.refs import record_content_ref
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed, Conflict, DataIntegrityError
 from scopecat.run_comparison import (
     execute_run_comparison,
     list_run_comparisons,
@@ -65,7 +65,7 @@ def test_review_run_comparison_rejects_second_review(tmp_path: Path) -> None:
         note="first decision",
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(Conflict) as error:
         review_run_comparison(
             run_id=baseline_run_id,
             selector=comparison_id,
@@ -75,13 +75,13 @@ def test_review_run_comparison_rejects_second_review(tmp_path: Path) -> None:
             note="second decision",
         )
 
-    assert error.value.diagnostics[0].code == "run_comparison_already_reviewed"
+    assert error.value.problems[0].code == "run_comparison_already_reviewed"
 
 
 def test_review_run_comparison_rejects_path_escape(tmp_path: Path) -> None:
     baseline_run_id = run_signal_experiment(tmp_path)
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         review_run_comparison(
             run_id=baseline_run_id,
             selector="../escape.json",
@@ -91,7 +91,7 @@ def test_review_run_comparison_rejects_path_escape(tmp_path: Path) -> None:
             note="",
         )
 
-    assert error.value.diagnostics[0].code == "run_comparison_path_escape"
+    assert error.value.problems[0].code == "run_comparison_path_escape"
 
 
 def test_review_run_comparison_rejects_invalid_json(tmp_path: Path) -> None:
@@ -104,7 +104,7 @@ def test_review_run_comparison_rejects_invalid_json(tmp_path: Path) -> None:
         ),
     ).write_text("{}\n")
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(DataIntegrityError) as error:
         review_run_comparison(
             run_id=baseline_run_id,
             selector=comparison_id,
@@ -114,7 +114,7 @@ def test_review_run_comparison_rejects_invalid_json(tmp_path: Path) -> None:
             note="",
         )
 
-    assert error.value.diagnostics[0].code == "invalid_run_comparison"
+    assert error.value.problems[0].code == "invalid_run_comparison"
 
 
 def _write_comparison(tmp_path: Path) -> tuple[str, str]:

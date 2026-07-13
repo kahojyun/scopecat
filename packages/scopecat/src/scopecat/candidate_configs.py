@@ -10,8 +10,7 @@ from scopecat._manifest_updates import write_manifest_records_locked
 from scopecat._parameter_resolution import validate_parameter_snapshot
 from scopecat._parameter_updates import merge_candidate_parameter_snapshots
 from scopecat._storage.refs import record_content_ref
-from scopecat.diagnostics import Diagnostic
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed, Conflict, DataIntegrityError
 from scopecat.ids import artifact_slug
 from scopecat.models.artifact import RunRecordEntry
 from scopecat.models.config import ConfigProfileSnapshot, config_content_hash
@@ -19,6 +18,15 @@ from scopecat.models.parameter_change import ParameterChangeProposal
 from scopecat.parameter_changes import (
     is_safe_parameter_change_id,
     write_parameter_change_proposal_contents_locked,
+)
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemLocation,
+    ProblemPhase,
+    StorageLocation,
+    blocking_problem,
+    model_location,
 )
 from scopecat.runs.access import open_run_store
 
@@ -67,14 +75,44 @@ class ResolvedCandidateConfig:
         return self.candidate_config_record.id
 
 
-def resolve_candidate_config(
+def resolve_candidate_config_snapshot(
+    candidate: CandidateConfigInput,
+    *,
+    workspace: str | Path,
+) -> ConfigProfileSnapshot:
+    """Resolve a candidate into a config snapshot without writing run state."""
+
+    if isinstance(candidate, ResolvedCandidateConfig):
+        return candidate.config
+    _validate_candidate(candidate)
+    source_config = open_run_store(workspace).read_config_profile_snapshot(
+        candidate.source_run_id
+    )
+    return _build_candidate_config_snapshot(
+        config=source_config,
+        candidate=candidate,
+        candidate_id=_candidate_config_id(candidate),
+    )
+
+
+def materialize_candidate_config(
     candidate: CandidateConfigInput,
     *,
     workspace: str | Path,
 ) -> ResolvedCandidateConfig:
-    if isinstance(candidate, CandidateConfig):
-        return _resolve_candidate_config(candidate, workspace=workspace)
-    return candidate
+    """Resolve a candidate and durably record its proposals and merged config."""
+
+    if isinstance(candidate, ResolvedCandidateConfig):
+        return candidate
+    candidate_config = resolve_candidate_config_snapshot(
+        candidate,
+        workspace=workspace,
+    )
+    return _materialize_candidate_config(
+        candidate,
+        config=candidate_config,
+        workspace=workspace,
+    )
 
 
 def _build_candidate_config_snapshot(
@@ -85,28 +123,34 @@ def _build_candidate_config_snapshot(
 ) -> ConfigProfileSnapshot:
     actual_hash = config_content_hash(config)
     if actual_hash != candidate.base_config_content_hash:
-        raise ValidationFailed(
+        raise Conflict(
             [
-                Diagnostic(
-                    severity="error",
-                    code="parameter_change_proposal_base_mismatch",
-                    message=(
-                        "parameter change proposal was derived from a different "
-                        "source config snapshot"
-                    ),
-                    path="candidate.parameter_proposals",
+                _candidate_problem(
+                    "parameter_change_proposal_base_mismatch",
+                    "parameter change proposal was derived from a different "
+                    "source config snapshot",
+                    category=ProblemCategory.CONFLICT,
+                    location=model_location("candidate_config", "parameter_proposals"),
+                    details={
+                        "expected_content_hash": candidate.base_config_content_hash,
+                        "actual_content_hash": actual_hash,
+                    },
                 )
             ]
         )
     base_ids = {proposal.base_config_id for proposal in candidate.parameter_proposals}
     if base_ids != {config.id}:
-        raise ValidationFailed(
+        raise Conflict(
             [
-                Diagnostic(
-                    severity="error",
-                    code="parameter_change_proposal_base_id_mismatch",
-                    message="parameter change proposal base config id is stale",
-                    path="candidate.parameter_proposals",
+                _candidate_problem(
+                    "parameter_change_proposal_base_id_mismatch",
+                    "parameter change proposal base config id is stale",
+                    category=ProblemCategory.CONFLICT,
+                    location=model_location("candidate_config", "parameter_proposals"),
+                    details={
+                        "expected_config_id": config.id,
+                        "proposal_config_ids": sorted(base_ids),
+                    },
                 )
             ]
         )
@@ -120,22 +164,22 @@ def _build_candidate_config_snapshot(
             candidate_id=f"{candidate_id}.parameters",
         )
     except ValueError as error:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                Diagnostic(
-                    severity="error",
-                    code="parameter_change_proposal_merge_invalid",
-                    message=f"parameter change proposals cannot be merged: {error}",
-                    path="candidate.parameter_proposals",
+                _candidate_problem(
+                    "parameter_change_proposal_merge_invalid",
+                    f"parameter change proposals cannot be merged: {error}",
+                    category=ProblemCategory.INVALID_INPUT,
+                    location=model_location("candidate_config", "parameter_proposals"),
                 )
             ]
         ) from error
-    diagnostics = validate_parameter_snapshot(
+    problems = validate_parameter_snapshot(
         config.parameter_catalog,
         parameter_snapshot,
     )
-    if diagnostics:
-        raise ValidationFailed(list(diagnostics))
+    if problems:
+        raise CheckFailed(problems)
     return ConfigProfileSnapshot.model_validate(
         config.model_dump(mode="python")
         | {
@@ -145,21 +189,15 @@ def _build_candidate_config_snapshot(
     )
 
 
-def _resolve_candidate_config(
+def _materialize_candidate_config(
     candidate: CandidateConfig,
     *,
+    config: ConfigProfileSnapshot,
     workspace: str | Path,
 ) -> ResolvedCandidateConfig:
-    _validate_candidate(candidate)
     storage = open_run_store(workspace)
-    source_config = storage.read_config_profile_snapshot(candidate.source_run_id)
     candidate_id = _candidate_config_id(candidate)
     candidate_record_id = f"{candidate_id}-candidate-config"
-    candidate_config = _build_candidate_config_snapshot(
-        config=source_config,
-        candidate=candidate,
-        candidate_id=candidate_id,
-    )
     candidate_record = RunRecordEntry(
         id=candidate_record_id,
         kind="candidate_config",
@@ -179,7 +217,7 @@ def _resolve_candidate_config(
         if candidate_path.exists() or not storage.write_model_if_absent(
             candidate.source_run_id,
             candidate_ref,
-            candidate_config,
+            config,
         ):
             try:
                 existing = storage.read_model(
@@ -187,31 +225,36 @@ def _resolve_candidate_config(
                     candidate_ref,
                     ConfigProfileSnapshot,
                 )
-            except (OSError, ValueError) as error:
-                raise ValidationFailed(
+            except DataIntegrityError as error:
+                raise DataIntegrityError(
                     [
-                        Diagnostic(
-                            severity="error",
-                            code="invalid_candidate_config_record",
-                            message=(
-                                "candidate config record exists but is invalid: "
-                                f"{candidate_record.id}"
+                        _candidate_problem(
+                            "invalid_candidate_config_record",
+                            "candidate config record exists but is invalid",
+                            category=ProblemCategory.DATA_INTEGRITY,
+                            phase=ProblemPhase.PERSISTENCE,
+                            location=StorageLocation(
+                                run_id=candidate.source_run_id,
+                                ref=candidate_ref,
                             ),
-                            path="candidate_config",
+                            details={"record_id": candidate_record.id},
                         )
                     ]
                 ) from error
-            if existing != candidate_config:
-                raise ValidationFailed(
+            if existing != config:
+                raise Conflict(
                     [
-                        Diagnostic(
-                            severity="error",
-                            code="candidate_config_record_conflict",
-                            message=(
-                                "candidate config record is immutable and already "
-                                f"contains different content: {candidate_record.id}"
+                        _candidate_problem(
+                            "candidate_config_record_conflict",
+                            "candidate config record is immutable and already "
+                            "contains different content",
+                            category=ProblemCategory.CONFLICT,
+                            phase=ProblemPhase.PERSISTENCE,
+                            location=StorageLocation(
+                                run_id=candidate.source_run_id,
+                                ref=candidate_ref,
                             ),
-                            path="candidate_config",
+                            details={"record_id": candidate_record.id},
                         )
                     ]
                 )
@@ -222,7 +265,7 @@ def _resolve_candidate_config(
         )
     return ResolvedCandidateConfig(
         candidate=candidate,
-        config=candidate_config,
+        config=config,
         proposal_records=proposal_records,
         candidate_config_record=candidate_record,
     )
@@ -230,25 +273,26 @@ def _resolve_candidate_config(
 
 def _validate_candidate(candidate: CandidateConfig) -> None:
     if not candidate.parameter_proposals:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                Diagnostic(
-                    severity="error",
-                    code="candidate_config_empty",
-                    message="candidate config requires at least one proposal",
-                    path="candidate",
+                _candidate_problem(
+                    "candidate_config_empty",
+                    "candidate config requires at least one proposal",
+                    category=ProblemCategory.INVALID_INPUT,
+                    location=model_location("candidate_config"),
                 )
             ]
         )
     run_ids = {proposal.source_run_id for proposal in candidate.parameter_proposals}
     if len(run_ids) != 1:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                Diagnostic(
-                    severity="error",
-                    code="candidate_config_source_run_mismatch",
-                    message="candidate config proposals must come from one source run",
-                    path="candidate.parameter_proposals",
+                _candidate_problem(
+                    "candidate_config_source_run_mismatch",
+                    "candidate config proposals must come from one source run",
+                    category=ProblemCategory.INVALID_INPUT,
+                    location=model_location("candidate_config", "parameter_proposals"),
+                    details={"source_run_ids": sorted(run_ids)},
                 )
             ]
         )
@@ -256,40 +300,42 @@ def _validate_candidate(candidate: CandidateConfig) -> None:
         proposal.base_config_content_hash for proposal in candidate.parameter_proposals
     }
     if len(hashes) != 1:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                Diagnostic(
-                    severity="error",
-                    code="candidate_config_base_mismatch",
-                    message="candidate config proposals must share one base config",
-                    path="candidate.parameter_proposals",
+                _candidate_problem(
+                    "candidate_config_base_mismatch",
+                    "candidate config proposals must share one base config",
+                    category=ProblemCategory.INVALID_INPUT,
+                    location=model_location("candidate_config", "parameter_proposals"),
+                    details={"base_content_hashes": sorted(hashes)},
                 )
             ]
         )
     seen: set[str] = set()
     for proposal in candidate.parameter_proposals:
         if not is_safe_parameter_change_id(proposal.id):
-            raise ValidationFailed(
+            raise CheckFailed(
                 [
-                    Diagnostic(
-                        severity="error",
-                        code="parameter_change_invalid_id",
-                        message=(
-                            "parameter change proposal id is not safe for record "
-                            f"paths: {proposal.id}"
-                        ),
-                        path="parameter_change_proposal.id",
+                    _candidate_problem(
+                        "parameter_change_invalid_id",
+                        "parameter change proposal id is not safe for record paths",
+                        category=ProblemCategory.INVALID_INPUT,
+                        location=model_location("parameter_change_proposal", "id"),
+                        details={"proposal_id": proposal.id},
                     )
                 ]
             )
         if proposal.id in seen:
-            raise ValidationFailed(
+            raise CheckFailed(
                 [
-                    Diagnostic(
-                        severity="error",
-                        code="candidate_config_duplicate_proposal",
-                        message=f"duplicate parameter proposal id: {proposal.id}",
-                        path="candidate.parameter_proposals",
+                    _candidate_problem(
+                        "candidate_config_duplicate_proposal",
+                        "candidate config contains a duplicate parameter proposal",
+                        category=ProblemCategory.INVALID_INPUT,
+                        location=model_location(
+                            "candidate_config", "parameter_proposals"
+                        ),
+                        details={"proposal_id": proposal.id},
                     )
                 ]
             )
@@ -303,10 +349,30 @@ def _candidate_config_id(candidate: CandidateConfig) -> str:
     return f"candidate-{artifact_slug(candidate.analysis_key)}-{selected}"
 
 
+def _candidate_problem(
+    code: str,
+    message: str,
+    *,
+    category: ProblemCategory,
+    location: ProblemLocation,
+    phase: ProblemPhase = ProblemPhase.CONFIGURATION,
+    details: dict[str, object] | None = None,
+) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=category,
+        phase=phase,
+        location=location,
+        details=details,
+    )
+
+
 __all__ = [
     "CandidateConfig",
     "CandidateConfigInput",
     "CandidateSelection",
     "ResolvedCandidateConfig",
-    "resolve_candidate_config",
+    "materialize_candidate_config",
+    "resolve_candidate_config_snapshot",
 ]

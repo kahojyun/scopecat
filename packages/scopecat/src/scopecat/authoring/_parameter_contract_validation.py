@@ -12,6 +12,7 @@ from scopecat.authoring._parameter_contracts import (
 )
 from scopecat.authoring._value_refs import describe_value_type, is_assignable
 from scopecat.models.parameter import ParameterDefinition
+from scopecat.problems import ProblemCategory
 from scopecat.value_types import Entity, String, Table, ValueType
 
 
@@ -33,13 +34,15 @@ def _validate_parameter(
     contract: ParameterValueContract,
 ) -> None:
     definition = ctx.config.parameter_catalog.get(contract.parameter_id)
-    path = f"parameters.{contract.parameter_id}"
+    path = (contract.parameter_id,)
     if definition is None:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "unknown_authoring_parameter",
             "experiment authoring references unknown parameter "
             f"{contract.parameter_id}",
-            path,
+            "parameters",
+            path=path,
+            category=ProblemCategory.NOT_FOUND,
         )
     _require_declared_type(
         ctx,
@@ -56,13 +59,15 @@ def _validate_parameter_lookup(
     contract: ParameterLookupContract,
 ) -> None:
     definition = ctx.config.parameter_catalog.get(contract.parameter_id)
-    table_path = f"parameters.{contract.parameter_id}"
+    table_path = (contract.parameter_id,)
     if definition is None:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "unknown_authoring_parameter",
             "experiment authoring references unknown parameter "
             f"{contract.parameter_id}",
-            table_path,
+            "parameters",
+            path=table_path,
+            category=ProblemCategory.NOT_FOUND,
         )
     table_type = _require_table_definition(ctx, definition, table_path)
     _validate_parameter_lookup_key(ctx, contract, table_type)
@@ -74,13 +79,15 @@ def _validate_parameter_lookup(
         ),
         None,
     )
-    column_path = f"{table_path}.columns.{contract.column_id}"
+    column_path = (*table_path, "columns", contract.column_id)
     if column is None:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "unknown_authoring_parameter_column",
             f"parameter table {contract.parameter_id} has no column "
             f"{contract.column_id}",
-            column_path,
+            "parameters",
+            path=column_path,
+            category=ProblemCategory.NOT_FOUND,
         )
     _require_declared_type(
         ctx,
@@ -95,14 +102,15 @@ def _validate_parameter_lookup(
 def _require_table_definition(
     ctx: ExperimentAuthoringContext,
     definition: ParameterDefinition,
-    path: str,
+    path: tuple[str | int, ...],
 ) -> Table:
     if isinstance(definition.value_type, Table):
         return definition.value_type
-    ctx.raise_diagnostic(
+    ctx.raise_problem(
         "authoring_parameter_shape_mismatch",
         f"parameter {definition.id} is not table-shaped",
-        path,
+        "parameters",
+        path=path,
     )
 
 
@@ -111,16 +119,17 @@ def _validate_parameter_lookup_key(
     contract: ParameterLookupContract,
     table_type: Table,
 ) -> None:
-    table_path = f"parameters.{contract.parameter_id}"
+    table_path = (contract.parameter_id,)
     if set(contract.key_columns) != set(table_type.primary_key) or len(
         contract.key_columns
     ) != len(table_type.primary_key):
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "authoring_parameter_lookup_key_mismatch",
             f"parameter table {contract.parameter_id} lookup requires exactly the "
             f"primary key columns {table_type.primary_key!r}; got "
             f"{contract.key_columns!r}",
-            f"{table_path}.key",
+            "parameters",
+            path=(*table_path, "key"),
         )
     columns = {column.id: column for column in table_type.columns}
     for column_id, source_type in contract.key_types:
@@ -132,12 +141,13 @@ def _validate_parameter_lookup_key(
             and isinstance(target_type.atom, Entity)
         ):
             continue
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "authoring_parameter_lookup_key_type_mismatch",
             f"parameter table {contract.parameter_id} key column {column_id} requires "
             f"{describe_value_type(target_type)}, got "
             f"{describe_value_type(source_type)}",
-            f"{table_path}.key.{column_id}",
+            "parameters",
+            path=(*table_path, "key", column_id),
         )
 
 
@@ -148,15 +158,16 @@ def _require_declared_type(
     declared: ValueType,
     code: str,
     label: str,
-    path: str,
+    path: tuple[str | int, ...],
 ) -> None:
     if is_assignable(actual, declared):
         return
-    ctx.raise_diagnostic(
+    ctx.raise_problem(
         code,
         f"{label} has catalog type {describe_value_type(actual)}, which is not "
         f"compatible with declared type {describe_value_type(declared)}",
-        path,
+        "parameters",
+        path=path,
     )
 
 

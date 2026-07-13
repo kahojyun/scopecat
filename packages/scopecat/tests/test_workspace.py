@@ -6,7 +6,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed, NotFound
 from scopecat.models.parameter import Quantity
 from scopecat.models.run_plan import RunPlanRecord
 from scopecat.models.run_request import (
@@ -113,7 +113,7 @@ def test_workspace_system_summary_describes_active_config(tmp_path: Path) -> Non
     assert source.channels == ("drive-q0",)
 
 
-def test_data_selectors_report_notebook_friendly_diagnostics(tmp_path: Path) -> None:
+def test_data_selectors_report_structured_problems(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
@@ -124,13 +124,13 @@ def test_data_selectors_report_notebook_friendly_diagnostics(tmp_path: Path) -> 
 
     assert data.list(metadata={"source_step": "unknown"}) == ()
 
-    with pytest.raises(ValidationFailed) as missing_error:
+    with pytest.raises(NotFound) as missing_error:
         data.artifact("missing-artifact")
-    assert missing_error.value.diagnostics[0].code == "artifact_not_found"
+    assert missing_error.value.problems[0].code == "run.artifact_not_found"
 
-    with pytest.raises(ValidationFailed) as escape_error:
+    with pytest.raises(CheckFailed) as escape_error:
         data.artifact("../workspace.json")
-    assert escape_error.value.diagnostics[0].code == "artifact_selector_path_escape"
+    assert escape_error.value.problems[0].code == "run.artifact_selector_path_escape"
 
 
 def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
@@ -224,7 +224,7 @@ def test_workspace_experiment_composes_module_source_with_fragments(
     assert preview.primary_observables == ("signal", "manual_signal")
 
 
-def test_prepared_experiment_validate_returns_authoring_diagnostics(
+def test_prepared_experiment_validate_returns_authoring_problems(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -236,33 +236,37 @@ def test_prepared_experiment_validate_returns_authoring_diagnostics(
 
     assert validation.ok is False
     assert validation.summary is None
-    assert [diagnostic.code for diagnostic in validation.diagnostics] == [
+    assert [problem.code for problem in validation.problems] == [
         "experiment_template_missing_input"
     ]
 
 
-def test_prepared_experiment_validate_returns_config_selection_diagnostics(
+def test_prepared_experiment_validate_returns_config_selection_problems(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(tmp_path)
 
-    validation = lab.prepare(
-        simple_template(),
-        config=load_config(),
-        config_profile=EXAMPLE_DIR / "config-profile.json",
-    ).validate()
+    validation = (
+        lab.prepare(
+            simple_template(),
+            config=load_config(),
+            config_profile=EXAMPLE_DIR / "config-profile.json",
+        )
+        .input("subject", "q0")
+        .validate()
+    )
 
     assert validation.ok is False
     assert validation.summary is None
     assert validation.template_id is None
     assert validation.inputs == {}
     assert validation.config_source is None
-    assert [diagnostic.code for diagnostic in validation.diagnostics] == [
-        "conflicting_experiment_run_config_source"
+    assert [problem.code for problem in validation.problems] == [
+        "config.source_conflict"
     ]
 
 
-def test_prepared_experiment_validate_returns_record_schema_diagnostics(
+def test_prepared_experiment_validate_returns_record_schema_problems(
     tmp_path: Path,
 ) -> None:
     module = (
@@ -272,7 +276,7 @@ def test_prepared_experiment_validate_returns_record_schema_diagnostics(
     )
     template = module.template(
         "test.invalid-record-unit",
-        kind="diagnostic",
+        kind="invalid_record",
     ).build()
     lab = sc.open(
         tmp_path,
@@ -283,12 +287,12 @@ def test_prepared_experiment_validate_returns_record_schema_diagnostics(
 
     assert validation.ok is False
     assert validation.summary is None
-    assert [diagnostic.code for diagnostic in validation.diagnostics] == [
+    assert [problem.code for problem in validation.problems] == [
         "experiment_record_unit_unsupported"
     ]
 
 
-def test_prepared_experiment_validate_returns_candidate_config_diagnostics(
+def test_prepared_experiment_validate_returns_candidate_config_problems(
     tmp_path: Path,
 ) -> None:
     candidate = sc.CandidateConfig(
@@ -296,7 +300,11 @@ def test_prepared_experiment_validate_returns_candidate_config_diagnostics(
         analysis_key="invalid-candidate",
         parameter_proposals=(),
     )
-    prepared = sc.open(tmp_path).prepare(simple_template(), config=candidate)
+    prepared = (
+        sc.open(tmp_path)
+        .prepare(simple_template(), config=candidate)
+        .input("subject", "q0")
+    )
 
     validation = prepared.validate()
 
@@ -305,12 +313,12 @@ def test_prepared_experiment_validate_returns_candidate_config_diagnostics(
     assert validation.template_id is None
     assert validation.inputs == {}
     assert validation.config_source is None
-    assert [diagnostic.code for diagnostic in validation.diagnostics] == [
+    assert [problem.code for problem in validation.problems] == [
         "candidate_config_empty"
     ]
-    with pytest.raises(ValidationFailed) as preview_error:
+    with pytest.raises(CheckFailed) as preview_error:
         prepared.preview()
-    assert [diagnostic.code for diagnostic in preview_error.value.diagnostics] == [
+    assert [problem.code for problem in preview_error.value.problems] == [
         "candidate_config_empty"
     ]
 
@@ -646,7 +654,7 @@ def test_invocation_scan_group_rejects_mixed_default_override(
         .scan(DRIVE_FREQUENCY_POINT, [4.9, 5.0], unit="GHz")
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         (
             lab.prepare(template)
             .input("subject", "q0")
@@ -659,7 +667,7 @@ def test_invocation_scan_group_rejects_mixed_default_override(
             .preview()
         )
 
-    assert error.value.diagnostics[0].code == "scan_group_mixed_override"
+    assert error.value.problems[0].code == "scan_group_mixed_override"
 
 
 def test_workspace_experiment_supports_active_center_scan(
@@ -699,9 +707,11 @@ def test_workspace_experiment_defines_complete_experiment(
         lab.experiment("complete scripted scan")
         .resource("source", requires=("set_frequency",))
         .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
-        .bind(
-            "source.set_frequency.frequency",
-            DRIVE_FREQUENCY_POINT,
+        .bind_field(
+            "source",
+            capability="set_frequency",
+            field="frequency",
+            value=DRIVE_FREQUENCY_POINT,
         )
         .record("signal", resource="source")
     )
@@ -737,9 +747,11 @@ def test_workspace_module_can_be_composed(
         sc.module("workspace.signal_scan")
         .inputs(drive_frequency)
         .resource("source", requires=("set_frequency",))
-        .bind(
-            "source.set_frequency.frequency",
-            drive_frequency,
+        .bind_field(
+            "source",
+            capability="set_frequency",
+            field="frequency",
+            value=drive_frequency,
         )
         .product("signal", resource="source")
         .build()
@@ -757,6 +769,33 @@ def test_workspace_module_can_be_composed(
     assert run.record_json("execution-summary").content["experiment_id"] == (
         "composed-signal-scan"
     )
+
+
+def test_workspace_preserves_nominal_product_refs(tmp_path: Path) -> None:
+    lab = sc.open(tmp_path, config_profile=EXAMPLE_DIR / "config-profile.json")
+    definition = sc.module("workspace.nominal-product").product("signal").build()
+    foreign = definition.instantiate("same")
+    selected = definition.instantiate("same")
+
+    accepted = (
+        lab.experiment("accepted nominal product")
+        .use(selected)
+        .record_product(selected.products.signal)
+        .to_invocation()
+    )
+    assert accepted.template.record_selections[0].product_origin is not None
+
+    with pytest.raises(CheckFailed) as error:
+        (
+            lab.experiment("foreign nominal product")
+            .use(selected)
+            .record_product(foreign.products.signal)
+            .to_invocation()
+        )
+
+    assert [problem.code for problem in error.value.problems] == [
+        "module_product_foreign_instance"
+    ]
 
 
 def test_run_analysis_collects_notebook_outputs_and_candidate_config(
@@ -953,7 +992,7 @@ def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
     )
     run = lab.prepare(load_invocation()).run()
 
-    with pytest.raises(ValidationFailed) as duplicate_id:
+    with pytest.raises(CheckFailed) as duplicate_id:
         (
             run.analysis("artifact review")
             .artifact(
@@ -972,7 +1011,7 @@ def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
             )
             .save()
         )
-    assert duplicate_id.value.diagnostics[0].code == "analysis_artifact_id_duplicated"
+    assert duplicate_id.value.problems[0].code == "analysis_artifact_id_duplicated"
 
     saved = (
         run.analysis("artifact review")
@@ -1117,10 +1156,10 @@ def test_analysis_rejects_invalid_notebook_payloads(
     )
     run = lab.prepare(load_invocation()).run()
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(CheckFailed) as error:
         action(run.analysis("manual review"))
 
-    assert error.value.diagnostics[0].code == expected_code
+    assert error.value.problems[0].code == expected_code
 
 
 def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:

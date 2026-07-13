@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Literal, cast
 
-from scopecat._frozen import freeze_json_mapping
+from scopecat._frozen import FrozenMapping, freeze_json_mapping
+from scopecat._qualified_name import qualified_name
 from scopecat.authoring._frozen_values import (
     empty_frozen_mapping,
     freeze_runtime_input,
 )
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_value_ref_source_kind,
-)
+from scopecat.authoring._handles import create_handle
+from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.values import MetadataValue
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
@@ -64,6 +63,8 @@ class RecordIntent:
 @dataclass(frozen=True)
 class ModuleProductPort:
     id: str
+    scope: tuple[str, ...] = ()
+    origin: tuple[object, ...] = field(default=(), repr=False, compare=False)
     kind: RecordKind = "observable"
     source: RecordSource = "instrument"
     resource: str | None = None
@@ -75,7 +76,84 @@ class ModuleProductPort:
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
     def __post_init__(self) -> None:
+        if not self.id:
+            msg = "module product id must be non-empty"
+            raise ValueError(msg)
+        if any(not segment for segment in self.scope):
+            msg = "module product scope segments must be non-empty"
+            raise ValueError(msg)
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
+
+    @property
+    def qualified_id(self) -> str:
+        return _qualified_product_id(self.scope, self.id)
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class ProductRef:
+    """Opaque hygienic reference to one module or module-instance product."""
+
+    _scope: tuple[str, ...]
+    _local_id: str
+    _origin: tuple[object, ...] = field(repr=False, compare=False)
+
+    def __init__(self) -> None:
+        msg = (
+            "ProductRef is an opaque handle; obtain products from "
+            "ExperimentModule.products or ModuleInvocation.products"
+        )
+        raise TypeError(msg)
+
+    def __post_init__(self) -> None:
+        if not self._local_id:
+            msg = "product reference local id must be non-empty"
+            raise ValueError(msg)
+        if any(not segment for segment in self._scope):
+            msg = "product reference scope segments must be non-empty"
+            raise ValueError(msg)
+
+    @property
+    def id(self) -> str:
+        """The injective, scope-qualified identity used during linking."""
+
+        return _qualified_product_id(self._scope, self._local_id)
+
+    @property
+    def local_id(self) -> str:
+        return self._local_id
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class ProductOutputs(Mapping[str, ProductRef]):
+    """Read-only attribute and mapping view of exposed module products."""
+
+    _values: Mapping[str, ProductRef]
+
+    def __init__(self) -> None:
+        msg = (
+            "ProductOutputs is an opaque handle; obtain it from "
+            "ExperimentModule.products or ModuleInvocation.products"
+        )
+        raise TypeError(msg)
+
+    def __getitem__(self, product_id: str) -> ProductRef:
+        return self._values[product_id]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __getattr__(self, product_id: str) -> ProductRef:
+        try:
+            return self._values[product_id]
+        except KeyError:
+            msg = f"module instance has no product {product_id!r}"
+            raise AttributeError(msg) from None
+
+    def __dir__(self) -> list[str]:
+        return sorted((*super().__dir__(), *self._values))
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -92,6 +170,11 @@ class RecordSelection:
 @dataclass(frozen=True, slots=True, repr=False)
 class ProductSelectionIntent(RecordSelection):
     product_id: str
+    product_origin: tuple[object, ...] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     record_id: str | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
@@ -164,16 +247,79 @@ def observable(
 
 
 def record_product(
-    product_id: str,
+    product_id: str | ProductRef,
     *,
     record_id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> RecordSelection:
+    selected_product_id = (
+        product_id.id if isinstance(product_id, ProductRef) else product_id
+    )
+    selected_product_origin = (
+        internal_product_ref_origin(product_id)
+        if isinstance(product_id, ProductRef)
+        else None
+    )
+    if not selected_product_id:
+        msg = "record product id must be non-empty"
+        raise ValueError(msg)
     return ProductSelectionIntent(
-        product_id=product_id,
+        product_id=selected_product_id,
+        product_origin=selected_product_origin,
         record_id=record_id,
         metadata=freeze_json_mapping(metadata or {}),
     )
+
+
+def internal_product_ref(product: ModuleProductPort) -> ProductRef:
+    """Create the public reference corresponding to one localized port."""
+
+    return create_handle(
+        ProductRef,
+        _scope=product.scope,
+        _local_id=product.id,
+        _origin=product.origin,
+    )
+
+
+def internal_product_ref_origin(product: ProductRef) -> tuple[object, ...]:
+    """Return the nominal origin retained by one opaque product reference."""
+
+    return cast(
+        "tuple[object, ...]",
+        object.__getattribute__(product, "_origin"),
+    )
+
+
+def internal_product_outputs(
+    values: Mapping[str, ProductRef],
+) -> ProductOutputs:
+    """Create an immutable product accessor at the private DSL boundary."""
+
+    return create_handle(
+        ProductOutputs,
+        _values=FrozenMapping(values.items()),
+    )
+
+
+def prefix_product_port(
+    product: ModuleProductPort,
+    *scope: str,
+    origin: tuple[object, ...] = (),
+) -> ModuleProductPort:
+    """Prefix a product identity while preserving its local instrument intent."""
+
+    if not scope and not origin:
+        return product
+    return replace(
+        product,
+        scope=(*scope, *product.scope),
+        origin=(*origin, *product.origin),
+    )
+
+
+def _qualified_product_id(scope: tuple[str, ...], local_id: str) -> str:
+    return qualified_name(scope, local_id)
 
 
 def record_axis_intents(
@@ -243,9 +389,6 @@ def _localize_record_axis_input_refs(
 ) -> RecordAxisIntent:
     if isinstance(axis.size, ValueRef):
         localized = localize_value_ref(axis.size, inputs)
-        if internal_value_ref_source_kind(localized) == "compute":
-            msg = "record axis cannot depend on a point-local compute result"
-            raise TypeError(msg)
         return replace(axis, size=localized)
     return axis
 
@@ -253,6 +396,8 @@ def _localize_record_axis_input_refs(
 __all__ = [
     "AxisSizeInput",
     "ModuleProductPort",
+    "ProductOutputs",
+    "ProductRef",
     "ProductSelectionIntent",
     "RecordAxis",
     "RecordAxisIntent",
@@ -264,6 +409,7 @@ __all__ = [
     "localize_product_input_refs",
     "localize_record_input_refs",
     "observable",
+    "prefix_product_port",
     "product_selection_intent",
     "record_axis",
     "record_axis_intents",

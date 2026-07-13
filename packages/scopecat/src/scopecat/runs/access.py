@@ -15,12 +15,20 @@ from scopecat._storage.refs import (
     dataset_content_ref,
     record_content_ref,
 )
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed, DataIntegrityError, NotFound
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.models.run import RunManifest
+from scopecat.problems import (
+    ModelLocation,
+    Problem,
+    ProblemCategory,
+    ProblemImpact,
+    ProblemPhase,
+    StorageLocation,
+    model_location,
+)
 
 RunStore = LocalRunStore
 type RunPayloadEntry = RunArtifactEntry | RunDatasetEntry
@@ -207,17 +215,18 @@ def validate_run_entry_selector(
     *,
     code: str,
     message_prefix: str,
-    path: str,
+    location: ModelLocation,
 ) -> None:
     relative = PurePosixPath(value)
     if relative.is_absolute() or ".." in relative.parts:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
-                    code,
-                    f"{message_prefix}: {value}",
-                    path,
+                _access_problem(
+                    code=code,
+                    category=ProblemCategory.INVALID_INPUT,
+                    message=message_prefix,
+                    location=location,
+                    details={"selector": value},
                 )
             ]
         )
@@ -234,13 +243,13 @@ def resolve_artifact(
     not_found_message: str,
     invalid_kind_message: str,
     path_escape_message: str,
-    diagnostic_path: str,
+    location: ModelLocation,
 ) -> RunArtifactEntry:
     validate_run_entry_selector(
         selector,
         code=path_escape_code,
         message_prefix=path_escape_message,
-        path=diagnostic_path,
+        location=location,
     )
     for artifact in manifest.artifacts:
         if artifact.id == selector:
@@ -249,15 +258,19 @@ def resolve_artifact(
                 expected_kind=expected_kind,
                 code=invalid_kind_code,
                 message=invalid_kind_message,
-                path=diagnostic_path,
+                location=location,
             )
-    raise ValidationFailed(
+    raise NotFound(
         [
-            _diagnostic(
-                "error",
-                not_found_code,
-                f"{not_found_message}: {selector}",
-                diagnostic_path,
+            _access_problem(
+                code=not_found_code,
+                category=ProblemCategory.NOT_FOUND,
+                message=not_found_message,
+                location=ModelLocation(
+                    root="run_manifest",
+                    path=("artifacts", selector),
+                ),
+                details={"selector": selector, "expected_kind": expected_kind},
             )
         ]
     )
@@ -274,13 +287,13 @@ def resolve_dataset(
     not_found_message: str,
     invalid_kind_message: str,
     path_escape_message: str,
-    diagnostic_path: str,
+    location: ModelLocation,
 ) -> RunDatasetEntry:
     validate_run_entry_selector(
         selector,
         code=path_escape_code,
         message_prefix=path_escape_message,
-        path=diagnostic_path,
+        location=location,
     )
     for dataset in manifest.datasets:
         if dataset.id == selector:
@@ -289,15 +302,19 @@ def resolve_dataset(
                 expected_kind=expected_kind,
                 code=invalid_kind_code,
                 message=invalid_kind_message,
-                path=diagnostic_path,
+                location=location,
             )
-    raise ValidationFailed(
+    raise NotFound(
         [
-            _diagnostic(
-                "error",
-                not_found_code,
-                f"{not_found_message}: {selector}",
-                diagnostic_path,
+            _access_problem(
+                code=not_found_code,
+                category=ProblemCategory.NOT_FOUND,
+                message=not_found_message,
+                location=ModelLocation(
+                    root="run_manifest",
+                    path=("datasets", selector),
+                ),
+                details={"selector": selector, "expected_kind": expected_kind},
             )
         ]
     )
@@ -306,9 +323,9 @@ def resolve_dataset(
 def find_artifact(manifest: RunManifest, selector: str) -> RunArtifactEntry | None:
     validate_run_entry_selector(
         selector,
-        code="artifact_selector_path_escape",
-        message_prefix="artifact selector escapes run directory",
-        path="artifact",
+        code="run.artifact_selector_path_escape",
+        message_prefix="artifact selector must stay within the run namespace",
+        location=model_location("run_access", "artifact"),
     )
     artifact = get_artifact_by_id(manifest, selector)
     if artifact is not None:
@@ -319,9 +336,9 @@ def find_artifact(manifest: RunManifest, selector: str) -> RunArtifactEntry | No
 def find_dataset(manifest: RunManifest, selector: str) -> RunDatasetEntry | None:
     validate_run_entry_selector(
         selector,
-        code="dataset_selector_path_escape",
-        message_prefix="dataset selector escapes run directory",
-        path="dataset",
+        code="run.dataset_selector_path_escape",
+        message_prefix="dataset selector must stay within the run namespace",
+        location=model_location("run_access", "dataset"),
     )
     dataset = get_dataset_by_id(manifest, selector)
     if dataset is not None:
@@ -332,9 +349,9 @@ def find_dataset(manifest: RunManifest, selector: str) -> RunDatasetEntry | None
 def find_record(manifest: RunManifest, selector: str) -> RunRecordEntry | None:
     validate_run_entry_selector(
         selector,
-        code="record_selector_path_escape",
-        message_prefix="record selector escapes run directory",
-        path="record",
+        code="run.record_selector_path_escape",
+        message_prefix="record selector must stay within the run namespace",
+        location=model_location("run_access", "record"),
     )
     record = get_record_by_id(manifest, selector)
     if record is not None:
@@ -350,25 +367,36 @@ def require_artifact(
 ) -> RunArtifactEntry:
     artifact = find_artifact(manifest, selector)
     if artifact is None:
-        raise ValidationFailed(
+        raise NotFound(
             [
-                _diagnostic(
-                    "error",
-                    "artifact_not_found",
-                    f"artifact not found: {selector}",
-                    "artifact",
+                _access_problem(
+                    code="run.artifact_not_found",
+                    category=ProblemCategory.NOT_FOUND,
+                    message="run artifact was not found",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=("artifacts", selector),
+                    ),
+                    details={"selector": selector},
                 )
             ]
         )
     if expected_kind is not None and artifact.kind != expected_kind:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
-                    "artifact_kind_mismatch",
-                    f"artifact {selector} has kind {artifact.kind}, "
-                    f"expected {expected_kind}",
-                    "artifact",
+                _access_problem(
+                    code="run.artifact_kind_mismatch",
+                    category=ProblemCategory.INVALID_INPUT,
+                    message="run artifact does not have the requested kind",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=("artifacts", selector, "kind"),
+                    ),
+                    details={
+                        "selector": selector,
+                        "actual_kind": artifact.kind,
+                        "expected_kind": expected_kind,
+                    },
                 )
             ]
         )
@@ -383,25 +411,36 @@ def require_dataset(
 ) -> RunDatasetEntry:
     dataset = find_dataset(manifest, selector)
     if dataset is None:
-        raise ValidationFailed(
+        raise NotFound(
             [
-                _diagnostic(
-                    "error",
-                    "dataset_not_found",
-                    f"dataset not found: {selector}",
-                    "dataset",
+                _access_problem(
+                    code="run.dataset_not_found",
+                    category=ProblemCategory.NOT_FOUND,
+                    message="run dataset was not found",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=("datasets", selector),
+                    ),
+                    details={"selector": selector},
                 )
             ]
         )
     if expected_kind is not None and dataset.kind != expected_kind:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
-                    "dataset_kind_mismatch",
-                    f"dataset {selector} has kind {dataset.kind}, "
-                    f"expected {expected_kind}",
-                    "dataset",
+                _access_problem(
+                    code="run.dataset_kind_mismatch",
+                    category=ProblemCategory.INVALID_INPUT,
+                    message="run dataset does not have the requested kind",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=("datasets", selector, "kind"),
+                    ),
+                    details={
+                        "selector": selector,
+                        "actual_kind": dataset.kind,
+                        "expected_kind": expected_kind,
+                    },
                 )
             ]
         )
@@ -416,25 +455,36 @@ def require_record(
 ) -> RunRecordEntry:
     record = find_record(manifest, selector)
     if record is None:
-        raise ValidationFailed(
+        raise NotFound(
             [
-                _diagnostic(
-                    "error",
-                    "record_not_found",
-                    f"record not found: {selector}",
-                    "record",
+                _access_problem(
+                    code="run.record_not_found",
+                    category=ProblemCategory.NOT_FOUND,
+                    message="run record was not found",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=("records", selector),
+                    ),
+                    details={"selector": selector},
                 )
             ]
         )
     if expected_kind is not None and record.kind != expected_kind:
-        raise ValidationFailed(
+        raise CheckFailed(
             [
-                _diagnostic(
-                    "error",
-                    "record_kind_mismatch",
-                    f"record {selector} has kind {record.kind}, "
-                    f"expected {expected_kind}",
-                    "record",
+                _access_problem(
+                    code="run.record_kind_mismatch",
+                    category=ProblemCategory.INVALID_INPUT,
+                    message="run record does not have the requested kind",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=("records", selector, "kind"),
+                    ),
+                    details={
+                        "selector": selector,
+                        "actual_kind": record.kind,
+                        "expected_kind": expected_kind,
+                    },
                 )
             ]
         )
@@ -453,7 +503,7 @@ def read_artifact_bytes(
         selector=selector,
         expected_kind=expected_kind,
     )
-    return storage.ref_path(run_id, artifact_storage_ref(artifact)).read_bytes()
+    return storage.read_bytes(run_id, artifact_storage_ref(artifact))
 
 
 def read_artifact_text(
@@ -468,7 +518,7 @@ def read_artifact_text(
         selector=selector,
         expected_kind=expected_kind,
     )
-    return storage.ref_path(run_id, artifact_storage_ref(artifact)).read_text()
+    return storage.read_text(run_id, artifact_storage_ref(artifact))
 
 
 def read_artifact_json(
@@ -488,13 +538,17 @@ def read_artifact_json(
             )
         )
     except json.JSONDecodeError as error:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
-                    "artifact_invalid_json",
-                    f"artifact is not valid JSON: {selector}",
-                    "artifact",
+                _access_problem(
+                    code="run.artifact_invalid_json",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    message="run artifact is not valid JSON",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=("artifacts", selector),
+                    ),
+                    details={"selector": selector},
                 )
             ]
         ) from error
@@ -512,7 +566,7 @@ def read_record_text(
         selector=selector,
         expected_kind=expected_kind,
     )
-    return storage.ref_path(run_id, record_storage_ref(record)).read_text()
+    return storage.read_text(run_id, record_storage_ref(record))
 
 
 def read_record_json(
@@ -532,13 +586,17 @@ def read_record_json(
             )
         )
     except json.JSONDecodeError as error:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
-                    "record_invalid_json",
-                    f"record is not valid JSON: {selector}",
-                    "record",
+                _access_problem(
+                    code="run.record_invalid_json",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    message="run record is not valid JSON",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=("records", selector),
+                    ),
+                    details={"selector": selector},
                 )
             ]
         ) from error
@@ -562,13 +620,20 @@ def read_model_artifact[TModel: BaseModel](
             )
         )
     except ValidationError as error:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
-                    "artifact_invalid_model",
-                    f"artifact does not match {model_type.__name__}: {selector}",
-                    "artifact",
+                _access_problem(
+                    code="run.artifact_invalid_model",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    message="run artifact does not match its expected schema",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=("artifacts", selector),
+                    ),
+                    details={
+                        "selector": selector,
+                        "model": model_type.__name__,
+                    },
                 )
             ]
         ) from error
@@ -592,13 +657,20 @@ def read_model_record[TModel: BaseModel](
             )
         )
     except ValidationError as error:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
-                    "record_invalid_model",
-                    f"record does not match {model_type.__name__}: {selector}",
-                    "record",
+                _access_problem(
+                    code="run.record_invalid_model",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    message="run record does not match its expected schema",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=("records", selector),
+                    ),
+                    details={
+                        "selector": selector,
+                        "model": model_type.__name__,
+                    },
                 )
             ]
         ) from error
@@ -614,16 +686,20 @@ def read_data_table_artifact(
     )
     try:
         return DataTableArtifact.model_validate_json(
-            storage.ref_path(run_id, dataset_storage_ref(dataset)).read_text()
+            storage.read_text(run_id, dataset_storage_ref(dataset))
         )
     except ValidationError as error:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
-                    "dataset_invalid_model",
-                    f"dataset does not match DataTableArtifact: {selector}",
-                    "dataset",
+                _access_problem(
+                    code="run.dataset_invalid_model",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    message="run dataset does not match the data-table schema",
+                    location=StorageLocation(
+                        run_id=run_id,
+                        ref=dataset_storage_ref(dataset),
+                    ),
+                    details={"selector": selector, "model": "DataTableArtifact"},
                 )
             ]
         ) from error
@@ -639,16 +715,20 @@ def read_data_array_artifact(
     )
     try:
         return DataArrayArtifact.model_validate_json(
-            storage.ref_path(run_id, dataset_storage_ref(dataset)).read_text()
+            storage.read_text(run_id, dataset_storage_ref(dataset))
         )
     except ValidationError as error:
-        raise ValidationFailed(
+        raise DataIntegrityError(
             [
-                _diagnostic(
-                    "error",
-                    "dataset_invalid_model",
-                    f"dataset does not match DataArrayArtifact: {selector}",
-                    "dataset",
+                _access_problem(
+                    code="run.dataset_invalid_model",
+                    category=ProblemCategory.DATA_INTEGRITY,
+                    message="run dataset does not match the data-array schema",
+                    location=StorageLocation(
+                        run_id=run_id,
+                        ref=dataset_storage_ref(dataset),
+                    ),
+                    details={"selector": selector, "model": "DataArrayArtifact"},
                 )
             ]
         ) from error
@@ -660,10 +740,28 @@ def ensure_artifact_kind(
     expected_kind: str,
     code: str,
     message: str,
-    path: str,
+    location: ModelLocation,
 ) -> RunArtifactEntry:
     if artifact.kind != expected_kind:
-        raise ValidationFailed([_diagnostic("error", code, message, path)])
+        raise CheckFailed(
+            [
+                _access_problem(
+                    code=code,
+                    category=ProblemCategory.INVALID_INPUT,
+                    message=message,
+                    location=model_location(
+                        location.root,
+                        *location.path,
+                        "kind",
+                    ),
+                    details={
+                        "artifact_id": artifact.id,
+                        "actual_kind": artifact.kind,
+                        "expected_kind": expected_kind,
+                    },
+                )
+            ]
+        )
     return artifact
 
 
@@ -673,10 +771,28 @@ def ensure_dataset_kind(
     expected_kind: str,
     code: str,
     message: str,
-    path: str,
+    location: ModelLocation,
 ) -> RunDatasetEntry:
     if dataset.kind != expected_kind:
-        raise ValidationFailed([_diagnostic("error", code, message, path)])
+        raise CheckFailed(
+            [
+                _access_problem(
+                    code=code,
+                    category=ProblemCategory.INVALID_INPUT,
+                    message=message,
+                    location=model_location(
+                        location.root,
+                        *location.path,
+                        "kind",
+                    ),
+                    details={
+                        "dataset_id": dataset.id,
+                        "actual_kind": dataset.kind,
+                        "expected_kind": expected_kind,
+                    },
+                )
+            ]
+        )
     return dataset
 
 
@@ -686,7 +802,20 @@ def _entry_metadata_matches(
     return all(entry.metadata.get(key) == value for key, value in expected.items())
 
 
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)
+def _access_problem(
+    *,
+    code: str,
+    category: ProblemCategory,
+    message: str,
+    location: ModelLocation | StorageLocation,
+    details: Mapping[str, object] | None = None,
+) -> Problem:
+    return Problem(
+        code=code,
+        impact=ProblemImpact.BLOCKING,
+        category=category,
+        phase=ProblemPhase.ANALYSIS,
+        message=message,
+        location=location,
+        details={} if details is None else details,
+    )

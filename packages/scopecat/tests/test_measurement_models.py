@@ -6,7 +6,7 @@ from scopecat.models.measurement import (
     ComplexQuantity,
     MeasurementArray,
     MeasurementDataset,
-    MeasurementDatasetInputDiagnostics,
+    MeasurementDatasetReadContract,
     MeasurementRecord,
     infer_measurement_dataset_schema,
 )
@@ -175,15 +175,14 @@ def test_measurement_dataset_round_trip() -> None:
     )
 
 
-def test_measurement_dataset_input_diagnostics_is_typed() -> None:
-    diagnostics = MeasurementDatasetInputDiagnostics(
+def test_measurement_dataset_read_contract_is_typed() -> None:
+    contract = MeasurementDatasetReadContract(
         missing_code="missing",
         empty_code="empty",
         invalid_code="invalid",
         missing_schema_code="missing_schema",
         invalid_schema_code="invalid_schema",
         noun="measurement dataset",
-        diagnostic_path="input",
     )
 
-    assert diagnostics.missing_schema_code == "missing_schema"
+    assert contract.missing_schema_code == "missing_schema"

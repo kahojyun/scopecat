@@ -11,7 +11,6 @@ from scopecat._execution.program import (
     ExecutionProgram,
     ExecutionStage,
 )
-from scopecat.diagnostics import Diagnostic
 from scopecat.instruments.sdk import (
     CollectProductRequest,
     InstrumentDescription,
@@ -22,6 +21,14 @@ from scopecat.instruments.sdk import (
 )
 from scopecat.models.artifact import CommandPayload
 from scopecat.models.state import PayloadRef
+from scopecat.problems import (
+    LocationPathItem,
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 from scopecat.units import compatible_units
 
 
@@ -29,15 +36,17 @@ def validate_execution_program_instruments(
     program: ExecutionProgram,
     *,
     descriptions: Mapping[str, InstrumentDescription],
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
+) -> list[Problem]:
+    problems: list[Problem] = []
     for instrument_id in program.resource_order:
         if instrument_id not in descriptions:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "missing_instrument_description",
                     f"instrument {instrument_id} did not provide a description",
-                    f"instruments.{instrument_id}",
+                    "instruments",
+                    instrument_id,
+                    "description",
                 )
             )
     for point in program.points:
@@ -52,7 +61,7 @@ def validate_execution_program_instruments(
                         target.command_field(resource_id=operation.instrument_id)
                         for target in operation.targets
                     ]
-                    diagnostics.extend(
+                    problems.extend(
                         validate_state_command(
                             command=InstrumentStateCommand(
                                 operation_id=operation.operation_id,
@@ -76,16 +85,19 @@ def validate_execution_program_instruments(
                             product_key=request.id,
                         )
                         if product is None:
-                            diagnostics.append(
-                                _diagnostic(
+                            problems.append(
+                                _problem(
                                     "instrument_product_unsupported",
                                     f"instrument {operation.instrument_id} does not "
                                     f"support product {request.id}",
-                                    f"operations.{operation.operation_id}.{request.id}",
+                                    "operations",
+                                    operation.operation_id,
+                                    "requests",
+                                    request.id,
                                 )
                             )
                             continue
-                        diagnostics.extend(
+                        problems.extend(
                             _validate_product(
                                 operation_id=operation.operation_id,
                                 instrument_id=operation.instrument_id,
@@ -93,7 +105,7 @@ def validate_execution_program_instruments(
                                 product=product,
                             )
                         )
-    return diagnostics
+    return problems
 
 
 def _payload_stubs(stages: tuple[ExecutionStage, ...]) -> dict[str, CommandPayload]:
@@ -150,43 +162,50 @@ def _validate_product(
     instrument_id: str,
     request: CollectProductRequest,
     product: ProductDescription,
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
-    path = f"operations.{operation_id}.{request.id}"
+) -> list[Problem]:
+    problems: list[Problem] = []
+    path: tuple[LocationPathItem, ...] = (
+        "operations",
+        operation_id,
+        "requests",
+        request.id,
+    )
     if request.dtype != product.dtype:
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "instrument_product_dtype_mismatch",
                 f"instrument {instrument_id} product {product.key} dtype "
                 f"{product.dtype!r} does not match requested "
                 f"{request.dtype!r}",
-                path,
+                *path,
+                "dtype",
             )
         )
     requested_unit = request.unit
-    if (
-        requested_unit is not None
-        and product.unit is not None
-        and not compatible_units(requested_unit, product.unit)
+    if requested_unit is not None and (
+        product.unit is None or not compatible_units(requested_unit, product.unit)
     ):
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "instrument_product_unit_mismatch",
                 f"instrument {instrument_id} product {product.key} unit "
-                f"{product.unit!r} is incompatible with {requested_unit!r}",
-                path,
+                f"{product.unit!r} does not satisfy requested "
+                f"unit {requested_unit!r}",
+                *path,
+                "unit",
             )
         )
     dimensions = request.dimensions
     if len(dimensions) != len(product.axes):
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "instrument_product_axes_mismatch",
                 f"instrument {instrument_id} product {product.key} axes do not match",
-                path,
+                *path,
+                "dimensions",
             )
         )
-        return diagnostics
+        return problems
     for index, (requested_axis, declared_axis) in enumerate(
         zip(dimensions, product.axes, strict=True)
     ):
@@ -198,19 +217,48 @@ def _validate_product(
                 and requested_axis.size != declared_axis.size
             )
         ):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "instrument_product_axis_mismatch",
                     f"instrument {instrument_id} product {product.key} axis "
                     f"{declared_axis.id!r} does not match the request",
-                    f"{path}.axes.{index}",
+                    *path,
+                    "axes",
+                    index,
                 )
             )
-    return diagnostics
+        requested_axis_unit = requested_axis.unit
+        if requested_axis_unit is not None and (
+            declared_axis.unit is None
+            or not compatible_units(requested_axis_unit, declared_axis.unit)
+        ):
+            problems.append(
+                _problem(
+                    "instrument_product_axis_unit_mismatch",
+                    f"instrument {instrument_id} product {product.key} axis "
+                    f"{requested_axis.id!r} unit {declared_axis.unit!r} does not "
+                    f"satisfy requested unit {requested_axis_unit!r}",
+                    *path,
+                    "axes",
+                    index,
+                    "unit",
+                )
+            )
+    return problems
 
 
-def _diagnostic(code: str, message: str, path: str) -> Diagnostic:
-    return Diagnostic(severity="error", code=code, message=message, path=path)
+def _problem(
+    code: str,
+    message: str,
+    *path: LocationPathItem,
+) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=ProblemCategory.PROVIDER_CONTRACT,
+        phase=ProblemPhase.PROVIDER_PREFLIGHT,
+        location=model_location("execution_program", *path),
+    )
 
 
 __all__ = ["validate_execution_program_instruments"]

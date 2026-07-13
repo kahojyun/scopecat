@@ -38,7 +38,7 @@ from scopecat.instruments.sdk import (
     CommandChannelBinding,
 )
 from scopecat.models.config import RoutingChannelBinding
-from scopecat.planning.validation import has_blocking_diagnostics
+from scopecat.problems import has_blocking_problems
 
 
 def build_execution_program(
@@ -53,8 +53,8 @@ def build_execution_program(
     intentionally broadcast (``BoundCollect.instrument_id is None``).
     """
 
-    if has_blocking_diagnostics(plan.diagnostics):
-        msg = "cannot build an execution program from a plan with blocking diagnostics"
+    if has_blocking_problems(plan.problems):
+        msg = "cannot build an execution program from a plan with blocking problems"
         raise ValueError(msg)
     selected_instrument_order = _explicit_instrument_order(
         plan,

@@ -50,7 +50,7 @@ class ExecutionOverviewEntry(BaseModel):
     point_count: int
     measurement_count: int
     instrument_ids: list[str]
-    diagnostic_count: int
+    problem_count: int
     runtime: RuntimeExecutionEntry = Field(default_factory=RuntimeExecutionEntry)
     state: StateExecutionEntry = Field(default_factory=StateExecutionEntry)
 
@@ -187,7 +187,7 @@ class RunComparisonEntry(BaseModel):
 class RunOverview(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.run_overview.v3"] = "scopecat.run_overview.v3"
+    schema_version: Literal["scopecat.run_overview.v4"] = "scopecat.run_overview.v4"
     run_id: str
     generated_at: datetime = Field(default_factory=utc_now)
     run: RunHeader

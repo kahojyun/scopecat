@@ -15,7 +15,6 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.diagnostics import Diagnostic
 from scopecat.models._schema_utils import (
     ensure_unique_ids,
     missing_references,
@@ -24,6 +23,13 @@ from scopecat.models._schema_utils import (
 )
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 from scopecat.units import compatible_units
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v0"
@@ -211,14 +217,15 @@ class MeasurementDataset(BaseModel):
 
 
 @dataclass(frozen=True)
-class MeasurementDatasetInputDiagnostics:
+class MeasurementDatasetReadContract:
+    """Caller-specific codes and wording for a stored measurement dataset."""
+
     missing_code: str
     empty_code: str
     invalid_code: str
     missing_schema_code: str
     invalid_schema_code: str
     noun: str
-    diagnostic_path: str | None = None
 
 
 def infer_measurement_dataset_schema(
@@ -285,37 +292,37 @@ def validate_measurement_records_against_schema(
     schema: MeasurementDatasetSchema,
     dataset_id: str,
     dataset_role: MeasurementDatasetRole,
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
+) -> list[Problem]:
+    problems: list[Problem] = []
     if schema.dataset_id != dataset_id:
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "measurement_dataset_id_mismatch",
                 f"measurement dataset schema id {schema.dataset_id} "
                 f"does not match artifact id {dataset_id}",
-                "dataset_schema.dataset_id",
+                ("dataset_schema", "dataset_id"),
             )
         )
     if schema.dataset_role != dataset_role:
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "measurement_dataset_role_mismatch",
                 f"measurement dataset schema role {schema.dataset_role} "
                 f"does not match artifact role {dataset_role}",
-                "dataset_schema.dataset_role",
+                ("dataset_schema", "dataset_role"),
             )
         )
     if schema.record_schema != MEASUREMENT_RECORD_SCHEMA_VERSION:
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "measurement_record_schema_mismatch",
                 f"measurement dataset record_schema {schema.record_schema} "
                 f"does not match {MEASUREMENT_RECORD_SCHEMA_VERSION}",
-                "dataset_schema.record_schema",
+                ("dataset_schema", "record_schema"),
             )
         )
 
-    diagnostics.extend(_validate_dimension_sizes(records=records, schema=schema))
+    problems.extend(_validate_dimension_sizes(records=records, schema=schema))
     coordinate_variables = {
         variable.id: variable
         for variable in schema.variables
@@ -328,24 +335,24 @@ def validate_measurement_records_against_schema(
     }
     for variable in schema.variables:
         if variable.role not in {"coordinate", "observable"}:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "measurement_dataset_unsupported_variable_role",
                     "MeasurementRecord v0 supports coordinate and observable "
                     f"variables only, got {variable.role} for {variable.id}",
-                    f"dataset_schema.variables.{variable.id}.role",
+                    ("dataset_schema", "variables", variable.id, "role"),
                 )
             )
         if variable.role != "coordinate" and variable.dtype in {"bool", "string"}:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "measurement_dataset_unsupported_dtype",
                     "MeasurementRecord v0 stores numeric scalar or array values "
                     f"and does not support {variable.dtype} for {variable.id}",
-                    f"dataset_schema.variables.{variable.id}.dtype",
+                    ("dataset_schema", "variables", variable.id, "dtype"),
                 )
             )
-        diagnostics.extend(
+        problems.extend(
             _validate_variable_shape(
                 variable=variable,
                 record_count=len(records),
@@ -353,7 +360,7 @@ def validate_measurement_records_against_schema(
         )
 
     for record in records:
-        diagnostics.extend(
+        problems.extend(
             _validate_record_variables(
                 record=record,
                 variables=coordinate_variables,
@@ -361,7 +368,7 @@ def validate_measurement_records_against_schema(
                 role="coordinate",
             )
         )
-        diagnostics.extend(
+        problems.extend(
             _validate_record_variables(
                 record=record,
                 variables=observable_variables,
@@ -371,67 +378,67 @@ def validate_measurement_records_against_schema(
         )
         extra_coordinates = set(record.coordinates) - set(coordinate_variables)
         for variable_id in sorted(extra_coordinates):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "measurement_record_unexpected_coordinate",
                     f"measurement record {record.point_index} has unexpected "
                     f"coordinate {variable_id}",
-                    f"records.{record.point_index}.coordinates.{variable_id}",
+                    ("records", record.point_index, "coordinates", variable_id),
                 )
             )
         extra_observables = set(record.observables) - set(observable_variables)
         for variable_id in sorted(extra_observables):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "measurement_record_unexpected_observable",
                     f"measurement record {record.point_index} has unexpected "
                     f"observable {variable_id}",
-                    f"records.{record.point_index}.observables.{variable_id}",
+                    ("records", record.point_index, "observables", variable_id),
                 )
             )
-    return diagnostics
+    return problems
 
 
 def _validate_dimension_sizes(
     *, records: Sequence[MeasurementRecord], schema: MeasurementDatasetSchema
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
+) -> list[Problem]:
+    problems: list[Problem] = []
     for dimension in schema.dimensions:
         if dimension.size is None:
             continue
         if dimension.kind != "point" and dimension.id != "point":
             continue
         if dimension.size != len(records):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "measurement_dataset_record_count_mismatch",
                     f"measurement dataset dimension {dimension.id} size "
                     f"{dimension.size} does not match {len(records)} records",
-                    f"dataset_schema.dimensions.{dimension.id}.size",
+                    ("dataset_schema", "dimensions", dimension.id, "size"),
                 )
             )
-    return diagnostics
+    return problems
 
 
 def _validate_variable_shape(
     *, variable: MeasurementVariable, record_count: int
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
+) -> list[Problem]:
+    problems: list[Problem] = []
     if (
         variable.shape
         and variable.dims
         and variable.dims[0] == "point"
         and variable.shape[0] != record_count
     ):
-        diagnostics.append(
-            _diagnostic(
+        problems.append(
+            _problem(
                 "measurement_dataset_variable_shape_mismatch",
                 f"measurement variable {variable.id} shape {variable.shape} "
                 f"does not match {record_count} records",
-                f"dataset_schema.variables.{variable.id}.shape",
+                ("dataset_schema", "variables", variable.id, "shape"),
             )
         )
-    return diagnostics
+    return problems
 
 
 def _validate_record_variables(
@@ -440,8 +447,8 @@ def _validate_record_variables(
     variables: dict[str, MeasurementVariable],
     actual: Mapping[str, MeasurementValue | CoordinateValue],
     role: Literal["coordinate", "observable"],
-) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
+) -> list[Problem]:
+    problems: list[Problem] = []
     field_name = "coordinates" if role == "coordinate" else "observables"
     missing_code = (
         "measurement_record_missing_coordinate"
@@ -451,12 +458,12 @@ def _validate_record_variables(
     for variable_id, variable in variables.items():
         value = actual.get(variable_id)
         if value is None:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     missing_code,
                     f"measurement record {record.point_index} is missing "
                     f"{role} {variable_id}",
-                    f"records.{record.point_index}.{field_name}.{variable_id}",
+                    ("records", record.point_index, field_name, variable_id),
                 )
             )
             continue
@@ -464,45 +471,55 @@ def _validate_record_variables(
         if variable.unit is not None and (
             value_unit is None or not compatible_units(variable.unit, value_unit)
         ):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "measurement_record_unit_mismatch",
                     f"measurement record {record.point_index} variable "
                     f"{variable_id} uses unit {value_unit}, expected "
                     f"{variable.unit}-compatible units",
-                    f"records.{record.point_index}.{field_name}.{variable_id}.unit",
+                    ("records", record.point_index, field_name, variable_id, "unit"),
                 )
             )
         value_dtype = _measurement_value_dtype(value)
         if variable.dtype != value_dtype and not _dtype_compatible(
             variable.dtype, value
         ):
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "measurement_record_dtype_mismatch",
                     f"measurement record {record.point_index} variable "
                     f"{variable_id} has dtype {value_dtype}, expected "
                     f"{variable.dtype}",
-                    f"records.{record.point_index}.{field_name}.{variable_id}",
+                    ("records", record.point_index, field_name, variable_id),
                 )
             )
         expected_shape = _per_record_shape(variable)
         value_shape = _measurement_value_shape(value)
         if value_shape != expected_shape:
-            diagnostics.append(
-                _diagnostic(
+            problems.append(
+                _problem(
                     "measurement_record_shape_mismatch",
                     f"measurement record {record.point_index} variable "
                     f"{variable_id} has shape {value_shape}, expected "
                     f"{expected_shape}",
-                    f"records.{record.point_index}.{field_name}.{variable_id}",
+                    ("records", record.point_index, field_name, variable_id),
                 )
             )
-    return diagnostics
+    return problems
 
 
-def _diagnostic(code: str, message: str, path: str | None = None) -> Diagnostic:
-    return Diagnostic(severity="error", code=code, message=message, path=path)
+def _problem(
+    code: str,
+    message: str,
+    path: tuple[str | int, ...],
+) -> Problem:
+    return blocking_problem(
+        code,
+        message,
+        category=ProblemCategory.DATA_INTEGRITY,
+        phase=ProblemPhase.ANALYSIS,
+        location=model_location("measurement_dataset", *path),
+    )
 
 
 def _values_by_id(

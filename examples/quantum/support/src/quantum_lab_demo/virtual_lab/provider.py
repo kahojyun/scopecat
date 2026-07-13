@@ -7,7 +7,8 @@ from typing import Any
 from scopecat.instruments import (
     ApplyReceipt,
     CollectCommand,
-    DriverDiagnostic,
+    CollectReceipt,
+    DriverFault,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -85,9 +86,9 @@ class _VirtualInstrumentDriver:
         self._device.apply(command)
         return ApplyReceipt(status="applied")
 
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         del command
-        return InstrumentReadback()
+        return CollectReceipt(readback=InstrumentReadback())
 
     def cleanup(self) -> None:
         return None
@@ -202,14 +203,16 @@ class QuantumReadoutStack(_VirtualInstrumentDriver):
             metadata={"mode": "virtual_lab", "source": "quantum-lab-demo"},
         )
 
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         if not command.requests:
-            return InstrumentReadback()
-        return InstrumentReadback(
-            values=record_quantum_measurement(
-                command=command,
-                readout=self.virtual_device,
-                implementation_id=self.implementation_id,
+            return CollectReceipt(readback=InstrumentReadback())
+        return CollectReceipt(
+            readback=InstrumentReadback(
+                values=record_quantum_measurement(
+                    command=command,
+                    readout=self.virtual_device,
+                    implementation_id=self.implementation_id,
+                )
             )
         )
 
@@ -274,19 +277,19 @@ class _VirtualLabProvider:
         self, context: InstrumentProviderContext
     ) -> InstrumentProviderDescription:
         del context
-        diagnostics = []
+        problems = []
         try:
             instruments = tuple(
                 driver.describe()
                 for driver in self._build_virtual_instruments(self._lab())
             )
-        except DriverDiagnostic as error:
-            diagnostics.append(error.to_diagnostic())
+        except DriverFault as error:
+            problems.append(error.problem)
             instruments = ()
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=instruments,
-            diagnostics=tuple(diagnostics),
+            problems=tuple(problems),
             label=self._label,
             description=self._description,
             options=self._options,
@@ -295,15 +298,15 @@ class _VirtualLabProvider:
 
     def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
         del context
-        diagnostics = []
+        problems = []
         try:
             drivers = tuple(self._build_virtual_instruments(self._lab()))
-        except DriverDiagnostic as error:
-            diagnostics.append(error.to_diagnostic())
+        except DriverFault as error:
+            problems.append(error.problem)
             drivers = ()
         return InstrumentProviderResult(
             drivers=drivers,
-            diagnostics=tuple(diagnostics),
+            problems=tuple(problems),
             metadata={
                 "provider_id": self.provider_id,
                 **self._metadata,

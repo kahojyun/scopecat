@@ -19,14 +19,21 @@ from scopecat._measurement_storage import (
 )
 from scopecat._storage.local.io import ensure_durable_directory
 from scopecat._storage.refs import artifact_content_ref, dataset_content_ref
-from scopecat.diagnostics import Diagnostic, DiagnosticSeverity
-from scopecat.errors import ValidationFailed
+from scopecat.errors import CheckFailed, StorageError
 from scopecat.models.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.models.data_artifact import (
     DataArrayArtifact,
     DataArraySchema,
     DataTableArtifact,
     DataTableSchema,
+)
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    StorageLocation,
+    blocking_problem,
+    model_location,
 )
 from scopecat.results import (
     MeasurementDatasetRole,
@@ -36,12 +43,14 @@ from scopecat.results import (
 
 
 @dataclass(frozen=True)
-class StepArtifactDiagnostics:
+class StepArtifactContract:
+    """Caller-specific codes and model root for step artifact allocation."""
+
     missing_id_code: str
     duplicate_id_code: str
     missing_kind_code: str
     noun: str
-    path_prefix: str
+    location_root: str
 
 
 @dataclass(frozen=True)
@@ -195,10 +204,10 @@ class StepArtifactStore:
         self,
         *,
         root_dir: Path,
-        diagnostics: StepArtifactDiagnostics,
+        contract: StepArtifactContract,
     ) -> None:
         self._root_dir = root_dir
-        self._diagnostics = diagnostics
+        self._contract = contract
         self._handles: list[StepArtifactHandle] = []
         self._seen_ids: set[str] = set()
 
@@ -251,7 +260,7 @@ class StepArtifactStore:
             dataset_schema=None,
             produced_by=None,
         )
-        ensure_durable_directory(handle.path.parent)
+        self._ensure_parent(handle.path)
         return handle
 
     def write_model(
@@ -270,7 +279,7 @@ class StepArtifactStore:
             metadata=metadata,
         )
         content = json.dumps(model.model_dump(mode="json"), indent=2) + "\n"
-        handle.path.write_text(content)
+        self._write_text_path(handle.path, content)
         return handle
 
     def write_jsonl(
@@ -288,9 +297,7 @@ class StepArtifactStore:
             media_type=media_type,
             metadata=metadata,
         )
-        with handle.path.open("w") as data_file:
-            for record in records:
-                data_file.write(record.model_dump_json() + "\n")
+        self._write_jsonl_path(handle.path, records)
         return handle
 
     def write_measurement_dataset(
@@ -306,14 +313,14 @@ class StepArtifactStore:
     ) -> StepArtifactHandle:
         record_list = list(records)
         if schema is not None:
-            diagnostics = validate_measurement_dataset_records(
+            problems = validate_measurement_dataset_records(
                 records=record_list,
                 schema=schema,
                 dataset_id=id,
                 dataset_role=dataset_role,
             )
-            if diagnostics:
-                raise ValidationFailed(diagnostics)
+            if problems:
+                raise CheckFailed(problems)
         dataset_schema = measurement_dataset_schema(
             dataset_id=id,
             dataset_role=dataset_role,
@@ -347,13 +354,12 @@ class StepArtifactStore:
         try:
             artifact = DataTableArtifact(schema=schema, rows=row_list)
         except ValidationError as error:
-            raise ValidationFailed(
+            raise CheckFailed(
                 [
-                    _diagnostic(
-                        "error",
+                    self._problem(
                         "invalid_data_table_artifact",
-                        f"data table artifact is invalid: {error}",
-                        f"{self._diagnostics.path_prefix}.{id}",
+                        "data table artifact is invalid",
+                        id,
                     )
                 ]
             ) from error
@@ -380,13 +386,12 @@ class StepArtifactStore:
         try:
             artifact = DataArrayArtifact(schema=schema, variables=dict(variables))
         except ValidationError as error:
-            raise ValidationFailed(
+            raise CheckFailed(
                 [
-                    _diagnostic(
-                        "error",
+                    self._problem(
                         "invalid_data_array_artifact",
-                        f"data array artifact is invalid: {error}",
-                        f"{self._diagnostics.path_prefix}.{id}",
+                        "data array artifact is invalid",
+                        id,
                     )
                 ]
             ) from error
@@ -417,7 +422,7 @@ class StepArtifactStore:
         )
         if content and not content.endswith("\n"):
             content = f"{content}\n"
-        handle.path.write_text(content)
+        self._write_text_path(handle.path, content)
         return handle
 
     def write_bytes(
@@ -435,7 +440,7 @@ class StepArtifactStore:
             media_type=media_type,
             metadata=metadata,
         )
-        handle.path.write_bytes(content)
+        self._write_bytes_path(handle.path, content)
         return handle
 
     def _write_jsonl_dataset(
@@ -459,10 +464,8 @@ class StepArtifactStore:
             dataset_schema=schema,
             produced_by=produced_by,
         )
-        ensure_durable_directory(handle.path.parent)
-        with handle.path.open("w") as data_file:
-            for record in records:
-                data_file.write(record.model_dump_json() + "\n")
+        self._ensure_parent(handle.path)
+        self._write_jsonl_path(handle.path, records)
         return handle
 
     def _write_text_dataset(
@@ -485,10 +488,10 @@ class StepArtifactStore:
             dataset_schema=schema,
             produced_by=produced_by,
         )
-        ensure_durable_directory(handle.path.parent)
+        self._ensure_parent(handle.path)
         if content and not content.endswith("\n"):
             content = f"{content}\n"
-        handle.path.write_text(content)
+        self._write_text_path(handle.path, content)
         return handle
 
     def _register(
@@ -502,12 +505,12 @@ class StepArtifactStore:
         dataset_schema: dict[str, Any] | None,
         produced_by: str | None,
     ) -> StepArtifactHandle:
-        diagnostics = self._registration_diagnostics(
+        problems = self._registration_problems(
             id=id,
             kind=kind,
         )
-        if diagnostics:
-            raise ValidationFailed(diagnostics)
+        if problems:
+            raise CheckFailed(problems)
         handle = StepArtifactHandle(
             id=id,
             kind=kind,
@@ -527,45 +530,109 @@ class StepArtifactStore:
         self._handles.append(handle)
         return handle
 
-    def _registration_diagnostics(
+    def _registration_problems(
         self,
         *,
         id: str,  # noqa: A002
         kind: str,
-    ) -> list[Diagnostic]:
-        diagnostics: list[Diagnostic] = []
+    ) -> list[Problem]:
+        problems: list[Problem] = []
         if not id:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    self._diagnostics.missing_id_code,
-                    f"{self._diagnostics.noun} id must be non-empty",
-                    f"{self._diagnostics.path_prefix}.id",
+            problems.append(
+                self._problem(
+                    self._contract.missing_id_code,
+                    f"{self._contract.noun} id must be non-empty",
+                    "id",
                 )
             )
         elif id in self._seen_ids:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    self._diagnostics.duplicate_id_code,
-                    f"{self._diagnostics.noun} id is duplicated: {id}",
-                    f"{self._diagnostics.path_prefix}.{id}",
+            problems.append(
+                self._problem(
+                    self._contract.duplicate_id_code,
+                    f"{self._contract.noun} id is duplicated: {id}",
+                    id,
                 )
             )
         if not kind:
-            diagnostics.append(
-                _diagnostic(
-                    "error",
-                    self._diagnostics.missing_kind_code,
-                    f"{self._diagnostics.noun} kind must be non-empty",
-                    (
-                        f"{self._diagnostics.path_prefix}.{id}.kind"
-                        if id
-                        else f"{self._diagnostics.path_prefix}.kind"
-                    ),
+            problems.append(
+                self._problem(
+                    self._contract.missing_kind_code,
+                    f"{self._contract.noun} kind must be non-empty",
+                    *((id, "kind") if id else ("kind",)),
                 )
             )
-        return diagnostics
+        return problems
+
+    def _problem(
+        self,
+        code: str,
+        message: str,
+        *path: str | int,
+    ) -> Problem:
+        return blocking_problem(
+            code,
+            message,
+            category=ProblemCategory.INVALID_INPUT,
+            phase=ProblemPhase.ANALYSIS,
+            location=model_location(self._contract.location_root, *path),
+        )
+
+    def _ensure_parent(self, path: Path) -> None:
+        try:
+            ensure_durable_directory(path.parent)
+        except OSError as error:
+            failure = self._storage_error(
+                path,
+                "step artifact directory could not be created",
+            )
+            raise failure from error
+
+    def _write_text_path(self, path: Path, content: str) -> None:
+        try:
+            path.write_text(content)
+        except OSError as error:
+            raise self._storage_error(
+                path,
+                "step artifact could not be written",
+            ) from error
+
+    def _write_bytes_path(self, path: Path, content: bytes) -> None:
+        try:
+            path.write_bytes(content)
+        except OSError as error:
+            raise self._storage_error(
+                path,
+                "step artifact could not be written",
+            ) from error
+
+    def _write_jsonl_path(
+        self,
+        path: Path,
+        records: Iterable[BaseModel],
+    ) -> None:
+        try:
+            with path.open("w") as data_file:
+                for record in records:
+                    data_file.write(record.model_dump_json() + "\n")
+        except OSError as error:
+            raise self._storage_error(
+                path,
+                "step artifact could not be written",
+            ) from error
+
+    @staticmethod
+    def _storage_error(path: Path, message: str) -> StorageError:
+        return StorageError(
+            [
+                blocking_problem(
+                    "step_artifact_write_failed",
+                    message,
+                    category=ProblemCategory.STORAGE,
+                    phase=ProblemPhase.PERSISTENCE,
+                    location=StorageLocation(ref=str(path)),
+                )
+            ]
+        )
 
 
 def _output_produced_by(
@@ -579,9 +646,3 @@ def _content_ref(*, id: str, kind: str, is_dataset: bool) -> str:  # noqa: A002
     if is_dataset:
         return dataset_content_ref(dataset_id=id, kind=kind)
     return artifact_content_ref(artifact_id=id, kind=kind)
-
-
-def _diagnostic(
-    severity: DiagnosticSeverity, code: str, message: str, path: str | None = None
-) -> Diagnostic:
-    return Diagnostic(severity=severity, code=code, message=message, path=path)

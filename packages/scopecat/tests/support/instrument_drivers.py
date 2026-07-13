@@ -6,7 +6,8 @@ from scopecat.config_profiles import load_config_profile
 from scopecat.instruments import (
     ApplyReceipt,
     CollectCommand,
-    DriverDiagnostic,
+    CollectReceipt,
+    DriverFault,
     InstrumentDescription,
     InstrumentReadback,
     InstrumentStateCommand,
@@ -21,6 +22,12 @@ from scopecat.instruments import (
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from scopecat.models.state import PayloadRef, StateValue
+from scopecat.problems import (
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 
 EXAMPLE_DIR = Path(__file__).parents[4] / "fixtures" / "core" / "simple_scan"
 
@@ -77,13 +84,15 @@ class SignalInstrumentDriver:
             self._state[(field.capability_id, field.field_path)] = field.value
         return ApplyReceipt(status="applied")
 
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
         if "signal" not in {request.id for request in command.requests}:
-            return InstrumentReadback()
-        return InstrumentReadback(
-            values={"signal": Quantity(value=1.0, unit="ratio")},
-            metadata={"implementation": self.implementation_id},
+            return CollectReceipt(readback=InstrumentReadback())
+        return CollectReceipt(
+            readback=InstrumentReadback(
+                values={"signal": Quantity(value=1.0, unit="ratio")},
+                metadata={"implementation": self.implementation_id},
+            )
         )
 
     def cleanup(self) -> None:
@@ -98,25 +107,29 @@ class BlockingSignalInstrumentDriver(SignalInstrumentDriver):
         del command
         return ApplyReceipt(
             status="not_applied",
-            diagnostics=[
-                DriverDiagnostic(
-                    severity="error",
+            problems=(
+                blocking_problem(
                     code="instrument_driver_blocked",
                     message="driver blocked",
-                    path="driver",
-                ).to_diagnostic()
-            ],
+                    category=ProblemCategory.EXTERNAL_FAILURE,
+                    phase=ProblemPhase.EXECUTION,
+                    location=model_location("driver", "apply_state"),
+                ),
+            ),
         )
 
 
 class FailingSignalInstrumentDriver(SignalInstrumentDriver):
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         del command
-        raise DriverDiagnostic(
-            severity="error",
-            code="instrument_record_collection_failed",
-            message="record collection failed",
-            path="collect",
+        raise DriverFault(
+            blocking_problem(
+                code="instrument_record_collection_failed",
+                message="record collection failed",
+                category=ProblemCategory.EXTERNAL_FAILURE,
+                phase=ProblemPhase.EXECUTION,
+                location=model_location("driver", "collect"),
+            )
         )
 
 

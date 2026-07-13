@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from scopecat._frozen import freeze_json_mapping
 from scopecat.authoring._frozen_values import (
@@ -14,6 +14,10 @@ from scopecat.authoring._frozen_values import (
     freeze_runtime_inputs,
 )
 from scopecat.authoring._handles import create_handle, replace_handle
+from scopecat.authoring._validation import (
+    validate_template_bound_inputs,
+    validate_template_definition,
+)
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.scans import (
     Scan,
@@ -30,8 +34,13 @@ from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 
 if TYPE_CHECKING:
-    from scopecat.authoring._record_intents import ProductSelectionIntent
+    from scopecat.authoring._record_intents import (
+        ProductRef,
+        ProductSelectionIntent,
+        RecordSelection,
+    )
     from scopecat.authoring.assembly import ExperimentModule
+    from scopecat.checks import ExperimentCheckReport
 
     type TemplateModule = ExperimentModule
     type TemplateRecordSelection = ProductSelectionIntent
@@ -106,11 +115,32 @@ class ExperimentTemplate:
 
     def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
         _validate_runtime_inputs(inputs)
+        if self.module is None:
+            msg = "experiment template requires a module"
+            raise ValueError(msg)
+        validate_template_bound_inputs(
+            module=self.module,
+            descriptions=self.inputs,
+            default_scans=self.default_scans,
+            inputs=inputs,
+        )
         return create_handle(
             ExperimentInvocation,
             template=self,
             inputs=freeze_runtime_inputs(inputs),
         )
+
+    def check(self) -> ExperimentCheckReport:
+        """Check this reusable definition without config or a provider."""
+
+        from scopecat.authoring._checks import check_template
+
+        return check_template(self)
+
+    def explain(self) -> str:
+        """Explain the config-free definition check."""
+
+        return self.check().explain()
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -130,10 +160,32 @@ class ExperimentInvocation:
         _validate_runtime_inputs(inputs)
         selected = dict(self.inputs)
         selected.update(inputs)
+        module = self.template.module
+        if module is None:
+            msg = "experiment template requires a module"
+            raise ValueError(msg)
+        validate_template_bound_inputs(
+            module=module,
+            descriptions=self.template.inputs,
+            default_scans=self.template.default_scans,
+            inputs=selected,
+        )
         return replace_handle(
             self,
             inputs=freeze_runtime_inputs(selected),
         )
+
+    def check(self) -> ExperimentCheckReport:
+        """Compile this invocation through the config-free authoring pass."""
+
+        from scopecat.authoring._checks import check_invocation
+
+        return check_invocation(self)
+
+    def explain(self) -> str:
+        """Explain the config-free authoring check."""
+
+        return self.check().explain()
 
     def scan(
         self,
@@ -191,8 +243,20 @@ class TemplateBuilder:
     def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
         return self.build().bind(**inputs)
 
+    def check(self) -> ExperimentCheckReport:
+        """Check the current template definition without raising problems."""
+
+        from scopecat.authoring._checks import check_template_builder
+
+        return check_template_builder(self)
+
+    def explain(self) -> str:
+        """Explain the config-free definition check."""
+
+        return self.check().explain()
+
     def build(self) -> ExperimentTemplate:
-        return create_handle(
+        template = create_handle(
             ExperimentTemplate,
             id=self.id,
             experiment_id=self._experiment_id,
@@ -205,6 +269,16 @@ class TemplateBuilder:
             description=self._description,
             metadata=freeze_json_mapping(self._metadata),
         )
+        if template.module is None:
+            msg = "experiment template requires a module"
+            raise ValueError(msg)
+        validate_template_definition(
+            module=template.module,
+            inputs=template.inputs,
+            default_scans=template.default_scans,
+            record_selections=template.record_selections,
+        )
+        return template
 
     def experiment_id(self, experiment_id: str) -> TemplateBuilder:
         return replace_handle(self, _experiment_id=experiment_id)
@@ -260,11 +334,11 @@ class TemplateBuilder:
 
     def record_product(
         self,
-        *product_ids: str,
+        *products: str | ProductRef,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> TemplateBuilder:
-        if record_id is not None and len(product_ids) != 1:
+        if record_id is not None and len(products) != 1:
             msg = "record_id can only be used with one product"
             raise ValueError(msg)
         from scopecat.authoring._record_intents import (
@@ -279,12 +353,12 @@ class TemplateBuilder:
                 *(
                     product_selection_intent(
                         record_product(
-                            product_id,
+                            product,
                             record_id=record_id,
                             metadata=metadata,
                         )
                     )
-                    for product_id in product_ids
+                    for product in products
                 ),
             ),
         )
@@ -321,6 +395,25 @@ def template_builder_from_module(
         _label=label,
         _description=description,
         _metadata=freeze_json_mapping(metadata or {}),
+    )
+
+
+def template_builder_with_record_selections_internal(
+    builder: TemplateBuilder,
+    selections: Sequence[RecordSelection],
+) -> TemplateBuilder:
+    """Retain already-normalized selections across facade adaptation layers."""
+
+    from scopecat.authoring._record_intents import product_selection_intent
+
+    normalized = tuple(product_selection_intent(selection) for selection in selections)
+    existing = cast(
+        "tuple[ProductSelectionIntent, ...]",
+        object.__getattribute__(builder, "_record_selections"),
+    )
+    return replace_handle(
+        builder,
+        _record_selections=(*existing, *normalized),
     )
 
 

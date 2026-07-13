@@ -6,11 +6,11 @@ from datetime import UTC, datetime
 from threading import Lock
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from scopecat._content_identity import model_wire_content_hash
-from scopecat.diagnostics import Diagnostic
 from scopecat.instruments.sdk import InstrumentReadback
+from scopecat.problems import Problem
 from scopecat.results import MeasurementRecord
 
 type ExecutionEffect = Literal[
@@ -28,34 +28,58 @@ type JournalEntryState = Literal[
     "unknown",
     "skipped",
 ]
+type ExecutionStage = Literal[
+    "provide_instruments",
+    "setup_cleanup",
+    "setup_terminal_readback",
+    "initial_readback",
+    "point",
+    "compute",
+    "apply_state",
+    "collect",
+    "commit_point",
+    "abort",
+    "cleanup",
+    "terminal_readback",
+    "terminalize",
+]
 
 
-class ExecutionJournalEntry(BaseModel):
+class ExecutionTransition(BaseModel):
     """Immutable evidence for one execution operation transition."""
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        revalidate_instances="always",
+    )
 
-    schema_version: Literal["scopecat.execution_journal_entry.v1"] = (
-        "scopecat.execution_journal_entry.v1"
+    schema_version: Literal["scopecat.execution_transition.v2"] = (
+        "scopecat.execution_transition.v2"
     )
     sequence: int | None = Field(default=None, ge=0)
     run_id: str
     operation_id: str
-    stage: str
+    stage: ExecutionStage
     effect: ExecutionEffect
     state: JournalEntryState
     attempt: int = Field(default=1, ge=1)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     point_index: int | None = Field(default=None, ge=0)
     instrument_id: str | None = None
-    diagnostics: list[Diagnostic] = Field(default_factory=list)
-    summary: dict[str, Any] = Field(default_factory=dict)
+    problems: tuple[Problem, ...] = ()
+    evidence: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+# The local storage adapter still consumes this runtime class name.  It is an
+# internal spelling, not an additional wire schema.
+ExecutionJournalEntry = ExecutionTransition
 
 
 class ExecutionJournal(Protocol):
     """Mandatory journal used before and after external effects."""
 
-    def append(self, entry: ExecutionJournalEntry) -> ExecutionJournalEntry: ...
+    def append(self, entry: ExecutionTransition) -> ExecutionTransition: ...
 
 
 class ExecutionJournalError(RuntimeError):
@@ -135,21 +159,22 @@ class MemoryExecutionJournal:
     """Deterministic in-memory journal for tests and embedded execution."""
 
     def __init__(self) -> None:
-        self._entries: list[ExecutionJournalEntry] = []
+        self._entries: list[ExecutionTransition] = []
         self._lock = Lock()
 
     @property
-    def entries(self) -> tuple[ExecutionJournalEntry, ...]:
+    def entries(self) -> tuple[ExecutionTransition, ...]:
         with self._lock:
             return tuple(self._entries)
 
-    def append(self, entry: ExecutionJournalEntry) -> ExecutionJournalEntry:
+    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         with self._lock:
             committed = entry.model_copy(
                 update={
                     "sequence": len(self._entries),
                     "timestamp": datetime.now(UTC),
-                }
+                },
+                deep=True,
             )
             self._entries.append(committed)
             return committed
@@ -158,7 +183,7 @@ class MemoryExecutionJournal:
 class NullExecutionJournal:
     """Explicit opt-out intended only for pure engine unit tests."""
 
-    def append(self, entry: ExecutionJournalEntry) -> ExecutionJournalEntry:
+    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         return entry
 
 
@@ -253,6 +278,8 @@ __all__ = [
     "ExecutionJournal",
     "ExecutionJournalEntry",
     "ExecutionJournalError",
+    "ExecutionStage",
+    "ExecutionTransition",
     "JournalEntryState",
     "MeasurementCommitter",
     "MemoryCollectionCommitter",

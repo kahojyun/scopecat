@@ -16,7 +16,7 @@ from scopecat._compiler.program import (
     TypedPointSource,
     ValueInput,
     bind_each,
-    set_state,
+    set_state_field,
 )
 from scopecat._compiler.state import StateSpec
 from scopecat._compute_result import ComputeResultRef
@@ -130,10 +130,11 @@ def validate_entity_inputs(
             selected = cast("Sequence[EntityRef | str]", value)
             ctx.require_entities(selected)
             continue
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_entity_input_invalid",
             f"module entity input {input_id} must be an entity or entity series",
-            input_id,
+            "inputs",
+            path=(input_id,),
         )
 
 
@@ -161,31 +162,31 @@ def lower_state_intent(
     resource_ports: Mapping[str, ResourcePort],
     inputs: Mapping[str, object],
 ) -> StateSpec:
-    capability_id = _state_field_capability(ctx, intent.field)
     if intent.resource_port is not None:
         port = resource_ports.get(intent.resource_port)
         if port is None:
-            ctx.raise_diagnostic(
+            ctx.raise_problem(
                 "module_unknown_resource_port",
                 "state binding references unknown resource port "
                 f"{intent.resource_port}",
                 "state",
             )
-        require_port_capability(ctx, port, capability_id)
+        require_port_capability(ctx, port, intent.capability_id)
     return bind_each(
         bind_relation_input_refs(
             internal_lower_table_value_ref(intent.relation),
             inputs,
             unbound_to_outer=True,
         ),
-        set_state(
+        set_state_field(
             _bind_scalar_value_ref(
                 intent.resource,
                 inputs,
                 unbound_to_outer=True,
             ),
-            intent.field,
-            _bind_state_value(
+            capability_id=intent.capability_id,
+            field_path=intent.field_path,
+            value=_bind_state_value(
                 intent.value,
                 inputs,
                 unbound_to_outer=True,
@@ -222,7 +223,7 @@ def validate_assembly_conflicts(
     )
     _reject_duplicates(
         ctx,
-        ids=[product.id for product in assembly.product_ports],
+        ids=[product.qualified_id for product in assembly.product_ports],
         code="module_product_duplicate",
         message="experiment assembly defines duplicate products",
         path="products",
@@ -245,10 +246,11 @@ def coerce_assembly_inputs(
     for port in ports:
         existing = declared.get(port.id)
         if existing is not None and existing != port.value_type:
-            ctx.raise_diagnostic(
+            ctx.raise_problem(
                 "module_input_type_conflict",
                 f"module input {port.id} has incompatible value types",
-                f"inputs.{port.id}",
+                "inputs",
+                path=(port.id,),
             )
         declared[port.id] = port.value_type
     result = dict(inputs)
@@ -261,26 +263,28 @@ def coerce_assembly_inputs(
                 require_assignable(
                     value.value_type,
                     value_type,
-                    path=f"inputs.{input_id}",
+                    path=("inputs", input_id),
                 )
             except ValueValidationError as error:
-                ctx.raise_diagnostic(
+                ctx.raise_problem(
                     "module_input_type_mismatch",
                     str(error),
-                    error.path,
+                    "inputs",
+                    path=(input_id,),
                 )
             continue
         try:
             result[input_id] = coerce_literal(
                 value_type,
                 value,
-                path=f"inputs.{input_id}",
+                path=("inputs", input_id),
             )
         except ValueValidationError as error:
-            ctx.raise_diagnostic(
+            ctx.raise_problem(
                 "module_input_type_mismatch",
                 str(error),
-                error.path,
+                "inputs",
+                path=(input_id,),
             )
     return result
 
@@ -338,7 +342,7 @@ def validate_consumed_inputs(
         | (consumed_dependencies - provided - point_input_ids)
     )
     if missing:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_input_binding_missing",
             "experiment assembly consumes module inputs without bindings or point "
             "values: " + ", ".join(missing),
@@ -408,7 +412,7 @@ def _reject_duplicates(
 ) -> None:
     duplicates = sorted({item for item in ids if ids.count(item) > 1})
     if duplicates:
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             code,
             f"{message}: {', '.join(duplicates)}",
             path,
@@ -479,10 +483,11 @@ def state_specs(
     for binding in bindings:
         value = binding.value
         specs.append(
-            set_state(
+            set_state_field(
                 binding.resource_id,
-                f"{binding.capability_id}.{binding.field_path}",
-                (
+                capability_id=binding.capability_id,
+                field_path=binding.field_path,
+                value=(
                     value
                     if isinstance(value, ComputeResultRef)
                     else bind_scalar_input_refs(value, inputs)
@@ -546,10 +551,11 @@ def _bind_state_route_expr(
     if isinstance(expression, ValueRef):
         lowered = internal_lower_value_ref(expression)
         if isinstance(lowered, ComputeResultRef | RelationExpr):
-            ctx.raise_diagnostic(
+            ctx.raise_problem(
                 "module_resource_entity_input_invalid",
                 "state route entity source must be scalar or series-shaped",
-                "state.route_entities",
+                "state",
+                path=("route_entities",),
             )
         selected_expression = lowered
     elif isinstance(expression, tuple):
@@ -562,26 +568,13 @@ def _bind_state_route_expr(
         unbound_to_outer=unbound_to_outer,
     )
     if isinstance(bound, RelationExpr):
-        ctx.raise_diagnostic(
+        ctx.raise_problem(
             "module_state_route_entity_invalid",
             "state route entity source must be scalar or series-shaped",
-            "state.route_entities",
+            "state",
+            path=("route_entities",),
         )
     return bound
-
-
-def _state_field_capability(
-    ctx: ExperimentAuthoringContext,
-    field: str,
-) -> str:
-    capability_id, separator, field_path = field.partition(".")
-    if not separator or not capability_id or not field_path:
-        ctx.raise_diagnostic(
-            "module_state_field_invalid",
-            "state field must use 'capability.field' syntax",
-            "state.field",
-        )
-    return capability_id
 
 
 def input_row(inputs: Mapping[str, object]) -> dict[str, CellValue]:

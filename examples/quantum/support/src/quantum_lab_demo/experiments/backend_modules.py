@@ -33,13 +33,17 @@ BACKEND_BATCH_MODULE = (
         requires=("submit_backend_batch", "acquire_iq"),
     )
     .computes(_BUILD_BACKEND_BATCH_JOB)
-    .bind(
-        "readout.submit_backend_batch.job",
-        _BUILD_BACKEND_BATCH_JOB.output,
+    .bind_field(
+        "readout",
+        capability="submit_backend_batch",
+        field="job",
+        value=_BUILD_BACKEND_BATCH_JOB.output,
     )
-    .bind(
-        "readout.acquire_iq.repetitions",
-        _LOGICAL_POINTS * sc.Quantity(value=1.0, unit="count"),
+    .bind_field(
+        "readout",
+        capability="acquire_iq",
+        field="repetitions",
+        value=_LOGICAL_POINTS * sc.Quantity(value=1.0, unit="count"),
     )
     .build()
 )

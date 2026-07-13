@@ -6,9 +6,10 @@ from pathlib import Path
 import pytest
 
 from scopecat._workflows.runs import read_run_record_json
-from scopecat.errors import ValidationFailed
+from scopecat.errors import ProviderContractError, RunFailed, RunIndeterminate
 from scopecat.instruments.sdk import (
     CollectCommand,
+    CollectReceipt,
     InstrumentReadback,
 )
 from scopecat.models.measurement import MeasurementDatasetSchema
@@ -23,7 +24,7 @@ from tests.support.workflow_fixtures import load_config, load_experiment
 class FailingCollectInstrument(TestSignalInstrument):
     implementation_id = "test.failing_instrument"
 
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         del command
         raise RuntimeError("boom")
 
@@ -31,13 +32,15 @@ class FailingCollectInstrument(TestSignalInstrument):
 class UnexpectedProductInstrument(TestSignalInstrument):
     implementation_id = "test.unexpected_product_instrument"
 
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         del command
-        return InstrumentReadback(
-            values={
-                "signal": Quantity(value=1.0, unit="ratio"),
-                "unexpected": Quantity(value=1.0, unit="ratio"),
-            }
+        return CollectReceipt(
+            readback=InstrumentReadback(
+                values={
+                    "signal": Quantity(value=1.0, unit="ratio"),
+                    "unexpected": Quantity(value=1.0, unit="ratio"),
+                }
+            )
         )
 
 
@@ -48,7 +51,7 @@ class InterruptingCollectInstrument(TestSignalInstrument):
         super().__init__()
         self.aborted = False
 
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         del command
         raise KeyboardInterrupt("operator cancelled")
 
@@ -63,7 +66,7 @@ class FailAfterFirstCollectInstrument(TestSignalInstrument):
         super().__init__()
         self.collect_count = 0
 
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_count += 1
         if self.collect_count > 1:
             raise RuntimeError("second collection failed")
@@ -71,7 +74,7 @@ class FailAfterFirstCollectInstrument(TestSignalInstrument):
 
 
 def test_run_rejects_missing_instrument(tmp_path: Path) -> None:
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
             config=load_config(),
             experiment=load_experiment(),
@@ -79,15 +82,16 @@ def test_run_rejects_missing_instrument(tmp_path: Path) -> None:
             workspace=tmp_path,
         )
 
-    assert error.value.diagnostics[-1].code == "missing_instrument_description"
+    assert error.value.problems[-1].code == "missing_instrument_description"
+    assert open_run_store(tmp_path).list_runs() == []
 
 
 def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
     experiment = load_experiment()
-    state = experiment.state[0].model_copy(update={"field": "set_frequency.amplitude"})
+    state = experiment.state[0].model_copy(update={"field_path": "amplitude"})
     experiment = experiment.model_copy(update={"state": [state]})
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
             config=load_config(),
             experiment=experiment,
@@ -95,7 +99,8 @@ def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
             workspace=tmp_path,
         )
 
-    assert error.value.diagnostics[-1].code == "instrument_driver_unsupported_field"
+    assert error.value.problems[-1].code == "instrument_driver_unsupported_field"
+    assert open_run_store(tmp_path).list_runs() == []
 
 
 def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
@@ -108,7 +113,7 @@ def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
         }
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
             config=load_config(),
             experiment=experiment,
@@ -116,7 +121,8 @@ def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
             workspace=tmp_path,
         )
 
-    assert error.value.diagnostics[-1].code == "instrument_product_unsupported"
+    assert error.value.problems[-1].code == "instrument_product_unsupported"
+    assert open_run_store(tmp_path).list_runs() == []
 
 
 def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
@@ -127,7 +133,7 @@ def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
         }
     )
 
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
             config=load_config(),
             experiment=experiment,
@@ -135,11 +141,12 @@ def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
             workspace=tmp_path,
         )
 
-    assert error.value.diagnostics[-1].code == "instrument_product_dtype_mismatch"
+    assert error.value.problems[-1].code == "instrument_product_dtype_mismatch"
+    assert open_run_store(tmp_path).list_runs() == []
 
 
 def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(RunIndeterminate) as error:
         execute_bound_run(
             config=load_config(),
             experiment=load_experiment(),
@@ -148,7 +155,7 @@ def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
         )
 
     assert "instrument_collect_unknown" in {
-        diagnostic.code for diagnostic in error.value.diagnostics
+        problem.code for problem in error.value.problems
     }
     manifests = open_run_store(tmp_path).list_runs()
     assert len(manifests) == 1
@@ -159,14 +166,15 @@ def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
         workspace=tmp_path,
         expected_kind="execution_summary",
     )
-    assert snapshot.content["status"] == "unknown"
-    assert {diagnostic["code"] for diagnostic in snapshot.content["diagnostics"]} >= {
+    assert snapshot.content["outcome"]["result"] == "failed"
+    assert snapshot.content["outcome"]["certainty"] == "indeterminate"
+    assert {problem["code"] for problem in snapshot.content["problems"]} >= {
         "instrument_collect_unknown"
     }
 
 
 def test_run_rejects_unexpected_instrument_products(tmp_path: Path) -> None:
-    with pytest.raises(ValidationFailed) as error:
+    with pytest.raises(RunFailed) as error:
         execute_bound_run(
             config=load_config(),
             experiment=load_experiment(),
@@ -174,7 +182,7 @@ def test_run_rejects_unexpected_instrument_products(tmp_path: Path) -> None:
             workspace=tmp_path,
         )
 
-    assert error.value.diagnostics[-1].code == "instrument_unexpected_product"
+    assert error.value.problems[-1].code == "instrument_unexpected_product"
     manifest = open_run_store(tmp_path).list_runs()[0]
     assert manifest.status == "failed"
 
@@ -200,9 +208,9 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
         workspace=tmp_path,
         expected_kind="execution_summary",
     )
-    assert snapshot.content["status"] == "interrupted"
+    assert snapshot.content["outcome"]["result"] == "cancelled"
     assert "execution_interrupted" in {
-        diagnostic["code"] for diagnostic in snapshot.content["diagnostics"]
+        problem["code"] for problem in snapshot.content["problems"]
     }
     journal_entries = [
         json.loads(path.read_text())
@@ -221,7 +229,7 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
 def test_failed_run_exposes_readable_partial_dataset(tmp_path: Path) -> None:
     instrument = FailAfterFirstCollectInstrument()
 
-    with pytest.raises(ValidationFailed):
+    with pytest.raises(RunIndeterminate):
         execute_bound_run(
             config=load_config(),
             experiment=load_experiment(),

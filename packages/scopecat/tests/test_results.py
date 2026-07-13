@@ -22,7 +22,7 @@ def test_summarize_point_attempts_selects_first_target_attempt() -> None:
 
     restored = assert_model_round_trip(
         summary,
-        schema_version="scopecat.point_attempt_summary.v2",
+        schema_version="scopecat.point_attempt_summary.v3",
     )
 
     assert restored == summary
@@ -32,7 +32,7 @@ def test_summarize_point_attempts_selects_first_target_attempt() -> None:
     assert summary.selected_attempt == 1
     assert summary.final_value == "ready"
     assert summary.value_label == "state"
-    assert summary.diagnostics == []
+    assert summary.problems == ()
 
 
 def test_summarize_point_attempts_reports_failed_target() -> None:
@@ -51,9 +51,7 @@ def test_summarize_point_attempts_reports_failed_target() -> None:
     assert summary.attempts == 2
     assert summary.selected_attempt is None
     assert summary.final_value == "failed"
-    assert [diagnostic.code for diagnostic in summary.diagnostics] == [
-        "point_attempt_target_not_reached",
-    ]
+    assert summary.problems == ()
 
 
 def test_summarize_point_attempts_reports_invalid_attempt_rows() -> None:
@@ -74,12 +72,11 @@ def test_summarize_point_attempts_reports_invalid_attempt_rows() -> None:
     assert summary.success is False
     assert summary.attempts == 2
     assert summary.final_value == "pending"
-    assert [diagnostic.code for diagnostic in summary.diagnostics] == [
+    assert [problem.code for problem in summary.problems] == [
         "invalid_point_attempt",
         "invalid_point_attempt",
         "duplicate_point_attempt",
         "invalid_attempt_value",
-        "point_attempt_target_not_reached",
     ]
 
 

@@ -4,14 +4,16 @@ import json
 import math
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
 import pytest
-from pydantic import JsonValue
+from pydantic import BaseModel, JsonValue
 
 import scopecat._execution.executor as execution_executor
 from scopecat._compiler.binding import bind_program
+from scopecat._compiler.bound import BoundAxis
 from scopecat._compiler.environment import validate_config_environment
 from scopecat._compiler.ids import NodeId
 from scopecat._compiler.program import (
@@ -20,24 +22,26 @@ from scopecat._compiler.program import (
     ValueInput,
     compute_result,
     observable,
-    set_state,
+    set_state_field,
     typed_program,
 )
 from scopecat._content_identity import stable_content_hash
-from scopecat._execution.evidence import instrument_state_evidence_ref
+from scopecat._execution.evidence import (
+    execution_summary_ref,
+    instrument_state_evidence_ref,
+    run_outcome_ref,
+)
 from scopecat._execution.executor import execute_run
 from scopecat._execution.program import ResourceClaim
 from scopecat._relations import col, literal_rows
+from scopecat._storage.local import LocalRunStore
 from scopecat._value_expressions import as_value_expr
-from scopecat.errors import RunExecutionFailed
-from scopecat.instruments import (
-    RuntimeEvent,
-    RuntimePayloadObservation,
-)
+from scopecat.errors import ProviderContractError, RunFailed, RunPersistenceError
 from scopecat.instruments.sdk import (
     CapabilityDescription,
     CapabilityField,
     CollectCommand,
+    CollectReceipt,
     CommandChannelBinding,
     InstrumentDescription,
     InstrumentDriver,
@@ -49,6 +53,7 @@ from scopecat.instruments.sdk import (
     InstrumentStateCommandField,
     InstrumentStateField,
     InstrumentStateSnapshot,
+    product_axis,
 )
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.execution import InstrumentStateEvidence
@@ -56,7 +61,20 @@ from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunManifest
 from scopecat.models.run_plan import RunPlanDeferredValue, RunPlanRecord
 from scopecat.models.state import StateValue
+from scopecat.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemImpact,
+    ProblemPhase,
+    model_location,
+)
 from scopecat.runs import dataset_storage_ref, open_run_store
+from scopecat.runtime import (
+    RunFinishedEvent,
+    RuntimeEvent,
+    RuntimePayloadObservation,
+    RuntimeTransitionEvent,
+)
 from scopecat.value_types import Payload, Scalar
 from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Table as TableType
@@ -160,6 +178,7 @@ def test_execute_run_persists_measurements_and_run_files(
     assert {record.id for record in manifest.records} == {
         "execution-summary",
         "instrument-state-evidence",
+        "run-outcome",
     }
     assert {dataset.id for dataset in manifest.datasets} == {"raw-measurements"}
     raw_dataset = manifest.datasets[0]
@@ -187,7 +206,7 @@ def test_execute_run_persists_measurements_and_run_files(
     assert persisted_manifest == manifest
     assert persisted_config == config
     assert persisted_plan.experiment_id == summary.experiment_id
-    assert persisted_plan.schema_version == "scopecat.run_plan_record.v2"
+    assert persisted_plan.schema_version == "scopecat.run_plan_record.v3"
     assert persisted_plan.point_count == summary.point_count
     assert not (run_dir / "experiment-spec.json").exists()
     assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v2"
@@ -229,18 +248,67 @@ def test_execute_run_persists_measurements_and_run_files(
     ]
 
 
+def test_terminal_persistence_error_reports_committed_and_pending_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pending_ref = instrument_state_evidence_ref()
+    original_write = LocalRunStore.write_model_atomic
+
+    def fail_instrument_state_write(
+        storage: LocalRunStore,
+        run_id: str,
+        ref: str,
+        model: BaseModel,
+    ) -> None:
+        if ref == pending_ref:
+            raise OSError("injected instrument-state persistence failure")
+        original_write(storage, run_id, ref, model)
+
+    monkeypatch.setattr(
+        LocalRunStore,
+        "write_model_atomic",
+        fail_instrument_state_write,
+    )
+
+    with pytest.raises(RunPersistenceError) as captured:
+        execute_bound_run(
+            config=load_config(),
+            experiment=load_experiment(),
+            instruments=[TestSignalInstrument()],
+            workspace=tmp_path,
+        )
+
+    error = captured.value
+    assert error.run_id
+    assert error.phase == "instrument_state_evidence"
+    assert error.retry == "after_reconciliation"
+    assert error.certainty == "known"
+    assert "inspect_run_execution" in error.reconciliation
+    assert error.committed_refs == (run_outcome_ref(), execution_summary_ref())
+    assert error.pending_ref == pending_ref
+    storage = open_run_store(tmp_path)
+    manifest = storage.read_manifest(error.run_id)
+    assert manifest.lifecycle == "running"
+    assert storage.exists(error.run_id, run_outcome_ref())
+    assert storage.exists(error.run_id, execution_summary_ref())
+    assert not storage.exists(error.run_id, pending_ref)
+
+
 class _NonFiniteSignalInstrument(TestSignalInstrument):
-    def collect(self, command: CollectCommand) -> InstrumentReadback:
+    def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
         values = (float("nan"), float("inf"), float("-inf"))
-        return InstrumentReadback(
-            values={
-                "signal": Quantity(
-                    value=values[command.point_index],
-                    unit="ratio",
-                )
-            },
-            metadata={"encoding": "ieee-754"},
+        return CollectReceipt(
+            readback=InstrumentReadback(
+                values={
+                    "signal": Quantity(
+                        value=values[command.point_index],
+                        unit="ratio",
+                    )
+                },
+                metadata={"encoding": "ieee-754"},
+            )
         )
 
 
@@ -312,6 +380,8 @@ class _LeaseOrderProvider:
     ) -> InstrumentProviderDescription:
         del context
         self.events.append("provider.describe")
+        assert not self.leases.active
+        assert open_run_store(self.workspace).list_runs() == []
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=(self.driver.describe(),),
@@ -456,6 +526,197 @@ class _MalformedDescriptionProvider:
         return InstrumentProviderResult(drivers=())
 
 
+class _OrderedAbiProblemProvider:
+    provider_id = "tests.ordered_abi_provider"
+
+    def __init__(self) -> None:
+        self.provide_called = False
+
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        del context
+        source_description = TestSignalInstrument().describe()
+        source_description = source_description.model_copy(
+            update={
+                "capabilities": [
+                    capability
+                    for capability in source_description.capabilities
+                    if capability.id != "scalar_signal"
+                ]
+            }
+        )
+        unknown_description = (
+            TestSignalInstrument()
+            .describe()
+            .model_copy(update={"instrument_id": "not-in-config"})
+        )
+        return InstrumentProviderDescription(
+            provider_id="tests.different_provider_id",
+            instruments=(source_description, unknown_description),
+            problems=(
+                Problem(
+                    code="provider_abi_warning",
+                    impact=ProblemImpact.ADVISORY,
+                    category=ProblemCategory.PROVIDER_CONTRACT,
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                    message="provider ABI warning",
+                    location=model_location("instrument_provider", "description"),
+                ),
+            ),
+        )
+
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        del context
+        self.provide_called = True
+        return InstrumentProviderResult(drivers=())
+
+
+class _PartialDescriptionProvider:
+    provider_id = "tests.partial_description_provider"
+
+    def __init__(self) -> None:
+        self.provide_called = False
+
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        del context
+        description = (
+            TestSignalInstrument()
+            .describe()
+            .model_copy(update={"instrument_id": "not-in-config"})
+        )
+        return InstrumentProviderDescription(
+            provider_id=self.provider_id,
+            instruments=(description,),
+        )
+
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        del context
+        self.provide_called = True
+        return InstrumentProviderResult(drivers=())
+
+
+class _FailingDescriptionProvider:
+    provider_id = "tests.failing_description_provider"
+
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+        self.provide_called = False
+
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        del context
+        raise self.error
+
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        del context
+        self.provide_called = True
+        return InstrumentProviderResult(drivers=())
+
+
+class _InvalidIdentityProvider:
+    def __init__(self) -> None:
+        self.describe_called = False
+        self.provide_called = False
+
+    @property
+    def provider_id(self) -> str:
+        return ""
+
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        del context
+        self.describe_called = True
+        raise AssertionError("describe must not follow an invalid provider identity")
+
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        del context
+        self.provide_called = True
+        return InstrumentProviderResult(drivers=())
+
+
+class _UnitAbiProvider:
+    provider_id = "tests.unit_abi_provider"
+
+    def __init__(
+        self,
+        *,
+        product_unit: str | None,
+        axis_unit: str | None = None,
+        include_axis: bool = False,
+    ) -> None:
+        self.product_unit = product_unit
+        self.axis_unit = axis_unit
+        self.include_axis = include_axis
+        self.provide_called = False
+
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        del context
+        description = TestSignalInstrument().describe()
+        capabilities: list[CapabilityDescription] = []
+        for capability in description.capabilities:
+            if capability.id != "scalar_signal":
+                capabilities.append(capability)
+                continue
+            advertised_product = capability.products[0].model_copy(
+                update={
+                    "unit": self.product_unit,
+                    "axes": (
+                        [
+                            product_axis(
+                                "sample",
+                                kind="sample",
+                                size=2,
+                                unit=self.axis_unit,
+                            )
+                        ]
+                        if self.include_axis
+                        else []
+                    ),
+                }
+            )
+            capabilities.append(
+                capability.model_copy(update={"products": [advertised_product]})
+            )
+        return InstrumentProviderDescription(
+            provider_id=self.provider_id,
+            instruments=(
+                description.model_copy(update={"capabilities": capabilities}),
+            ),
+        )
+
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        del context
+        self.provide_called = True
+        return InstrumentProviderResult(drivers=())
+
+
 def test_provider_lifecycle_is_inside_resource_lease(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -510,13 +771,13 @@ def test_provider_lifecycle_is_inside_resource_lease(
         for entry in journal_entries
         if entry["stage"] == "provide_instruments" and entry["state"] == "completed"
     )
-    receipt = provisioned["summary"]["provisioning_receipt"]
+    receipt = provisioned["evidence"]["provisioning_receipt"]
     assert receipt["provider_id"] == provider.provider_id
     assert receipt["instrument_ids"] == ["source-0"]
     assert receipt["metadata"] == {
         "allocation": {"rack": "virtual-0", "exclusive": True}
     }
-    assert provisioned["summary"]["provisioning_receipt_content_hash"] == (
+    assert provisioned["evidence"]["provisioning_receipt_content_hash"] == (
         stable_content_hash(receipt)
     )
 
@@ -572,7 +833,7 @@ def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
         validate_config_environment(config),
     )
 
-    with pytest.raises(RunExecutionFailed) as captured:
+    with pytest.raises(RunFailed) as captured:
         execute_run(
             config=config,
             plan=plan,
@@ -582,7 +843,7 @@ def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
         )
 
     assert "instrument_provider_result_invalid" in {
-        diagnostic.code for diagnostic in captured.value.diagnostics
+        problem.code for problem in captured.value.problems
     }
     assert driver.cleanup_count == 1
     assert driver.terminal_read_count == 1
@@ -590,7 +851,7 @@ def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
     assert manifest.status == "failed"
 
 
-def test_malformed_provider_description_commits_failed_terminal_run(
+def test_malformed_provider_description_is_rejected_before_run_acceptance(
     tmp_path: Path,
 ) -> None:
     provider = _MalformedDescriptionProvider()
@@ -600,7 +861,7 @@ def test_malformed_provider_description_commits_failed_terminal_run(
         validate_config_environment(config),
     )
 
-    with pytest.raises(RunExecutionFailed) as captured:
+    with pytest.raises(ProviderContractError) as captured:
         execute_run(
             config=config,
             plan=plan,
@@ -610,12 +871,264 @@ def test_malformed_provider_description_commits_failed_terminal_run(
         )
 
     assert "instrument_provider_description_failed" in {
-        diagnostic.code for diagnostic in captured.value.diagnostics
+        problem.code for problem in captured.value.problems
     }
     assert not provider.provide_called
-    manifests = open_run_store(tmp_path).list_runs()
-    assert len(manifests) == 1
-    assert manifests[0].status == "failed"
+    assert open_run_store(tmp_path).list_runs() == []
+
+
+def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
+    tmp_path: Path,
+) -> None:
+    provider = _OrderedAbiProblemProvider()
+    config = load_config()
+    plan = bind_program(
+        load_experiment(),
+        validate_config_environment(config),
+    )
+    plan = replace(
+        plan,
+        points=plan.points[:1],
+        problems=(
+            Problem(
+                code="plan_warning",
+                impact=ProblemImpact.ADVISORY,
+                category=ProblemCategory.INVALID_INPUT,
+                phase=ProblemPhase.PLANNING,
+                message="bound plan warning",
+                location=model_location("bound_plan"),
+            ),
+        ),
+    )
+
+    with pytest.raises(ProviderContractError) as captured:
+        execute_run(
+            config=config,
+            plan=plan,
+            request=None,
+            instrument_provider=provider,
+            workspace=tmp_path,
+        )
+
+    assert [problem.code for problem in captured.value.problems] == [
+        "plan_warning",
+        "provider_abi_warning",
+        "instrument_provider_id_mismatch",
+        "instrument_not_in_config",
+        "instrument_product_unsupported",
+    ]
+    assert not provider.provide_called
+    assert open_run_store(tmp_path).list_runs() == []
+
+
+def test_partial_provider_description_reports_missing_bound_instrument_before_run(
+    tmp_path: Path,
+) -> None:
+    provider = _PartialDescriptionProvider()
+    config = load_config()
+    plan = bind_program(
+        load_experiment(),
+        validate_config_environment(config),
+    )
+
+    with pytest.raises(ProviderContractError) as captured:
+        execute_run(
+            config=config,
+            plan=plan,
+            request=None,
+            instrument_provider=provider,
+            workspace=tmp_path,
+        )
+
+    assert [problem.code for problem in captured.value.problems] == [
+        "instrument_not_in_config",
+        "missing_instrument_description",
+    ]
+    assert not provider.provide_called
+    assert open_run_store(tmp_path).list_runs() == []
+
+
+def test_provider_description_exception_preserves_cause_and_preflight_order(
+    tmp_path: Path,
+) -> None:
+    failure = RuntimeError("description unavailable")
+    provider = _FailingDescriptionProvider(failure)
+    config = load_config()
+    plan = bind_program(
+        load_experiment(),
+        validate_config_environment(config),
+    )
+    plan = replace(
+        plan,
+        problems=(
+            Problem(
+                code="plan_warning",
+                impact=ProblemImpact.ADVISORY,
+                category=ProblemCategory.INVALID_INPUT,
+                phase=ProblemPhase.PLANNING,
+                message="bound plan warning",
+                location=model_location("bound_plan"),
+            ),
+        ),
+    )
+
+    with pytest.raises(ProviderContractError) as captured:
+        execute_run(
+            config=config,
+            plan=plan,
+            request=None,
+            instrument_provider=provider,
+            workspace=tmp_path,
+        )
+
+    assert [problem.code for problem in captured.value.problems] == [
+        "plan_warning",
+        "instrument_provider_description_failed",
+    ]
+    assert captured.value.__cause__ is failure
+    assert not provider.provide_called
+    assert open_run_store(tmp_path).list_runs() == []
+
+
+def test_invalid_provider_identity_stops_before_description_and_run(
+    tmp_path: Path,
+) -> None:
+    provider = _InvalidIdentityProvider()
+    config = load_config()
+    plan = bind_program(
+        load_experiment(),
+        validate_config_environment(config),
+    )
+
+    with pytest.raises(ProviderContractError) as captured:
+        execute_run(
+            config=config,
+            plan=plan,
+            request=None,
+            instrument_provider=provider,
+            workspace=tmp_path,
+        )
+
+    assert [problem.code for problem in captured.value.problems] == [
+        "instrument_provider_identity_failed"
+    ]
+    assert isinstance(captured.value.__cause__, TypeError)
+    assert not provider.describe_called
+    assert not provider.provide_called
+    assert open_run_store(tmp_path).list_runs() == []
+
+
+@pytest.mark.parametrize("advertised_unit", [None, "GHz"])
+def test_provider_product_unit_mismatch_is_rejected_before_run(
+    tmp_path: Path,
+    advertised_unit: str | None,
+) -> None:
+    provider = _UnitAbiProvider(product_unit=advertised_unit)
+    config = load_config()
+    plan = bind_program(
+        load_experiment(),
+        validate_config_environment(config),
+    )
+    plan = replace(plan, points=plan.points[:1])
+
+    with pytest.raises(ProviderContractError) as captured:
+        execute_run(
+            config=config,
+            plan=plan,
+            request=None,
+            instrument_provider=provider,
+            workspace=tmp_path,
+        )
+
+    problem = captured.value.problems[0]
+    assert len(captured.value.problems) == 1
+    assert problem.code == "instrument_product_unit_mismatch"
+    assert problem.location == model_location(
+        "execution_program",
+        "operations",
+        f"{plan.points[0].point_uid}.collect.source-0",
+        "requests",
+        "signal",
+        "unit",
+    )
+    assert not provider.provide_called
+    assert open_run_store(tmp_path).list_runs() == []
+
+
+@pytest.mark.parametrize("advertised_unit", [None, "GHz"])
+def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
+    tmp_path: Path,
+    advertised_unit: str | None,
+) -> None:
+    provider = _UnitAbiProvider(
+        product_unit="ratio",
+        axis_unit=advertised_unit,
+        include_axis=True,
+    )
+    config = load_config()
+    plan = bind_program(
+        load_experiment(),
+        validate_config_environment(config),
+    )
+    point = plan.points[0]
+    collect = point.collect[0]
+    product = replace(
+        collect.products[0],
+        axes=(BoundAxis(id="sample", kind="sample", size=2, unit="ns"),),
+    )
+    point = replace(
+        point,
+        collect=(replace(collect, products=(product,)),),
+    )
+    plan = replace(plan, points=(point,))
+
+    with pytest.raises(ProviderContractError) as captured:
+        execute_run(
+            config=config,
+            plan=plan,
+            request=None,
+            instrument_provider=provider,
+            workspace=tmp_path,
+        )
+
+    problem = captured.value.problems[0]
+    assert len(captured.value.problems) == 1
+    assert problem.code == "instrument_product_axis_unit_mismatch"
+    assert problem.location == model_location(
+        "execution_program",
+        "operations",
+        f"{point.point_uid}.collect.source-0",
+        "requests",
+        "signal",
+        "axes",
+        0,
+        "unit",
+    )
+    assert not provider.provide_called
+    assert open_run_store(tmp_path).list_runs() == []
+
+
+def test_provider_description_interruption_precedes_run_acceptance(
+    tmp_path: Path,
+) -> None:
+    provider = _FailingDescriptionProvider(KeyboardInterrupt("description cancelled"))
+    config = load_config()
+    plan = bind_program(
+        load_experiment(),
+        validate_config_environment(config),
+    )
+
+    with pytest.raises(KeyboardInterrupt, match="description cancelled"):
+        execute_run(
+            config=config,
+            plan=plan,
+            request=None,
+            instrument_provider=provider,
+            workspace=tmp_path,
+        )
+
+    assert not provider.provide_called
+    assert open_run_store(tmp_path).list_runs() == []
 
 
 def test_execute_run_emits_transient_runtime_events(tmp_path: Path) -> None:
@@ -638,18 +1151,40 @@ def test_execute_run_emits_transient_runtime_events(tmp_path: Path) -> None:
         "run_started",
         "run_finished",
     ]
-    assert [event.kind for event in events].count("point_started") == 3
-    assert [event.kind for event in events].count("point_finished") == 3
-    assert [event.kind for event in events].count("record_emitted") == 3
-    point_events = [event for event in events if event.kind == "point_started"]
-    assert [event.summary["compute_step_count"] for event in point_events] == [0, 0, 0]
-    point_finished = [event for event in events if event.kind == "point_finished"]
-    assert [event.progress["completed_points"] for event in point_finished] == [1, 2, 3]
-    assert {event.summary["operation_state"] for event in point_finished} == {
-        "completed"
-    }
-    assert events[-1].summary["status"] == "completed"
-    assert events[-1].progress == {"completed_points": 3, "total_points": 3}
+    transitions = [
+        event for event in events if isinstance(event, RuntimeTransitionEvent)
+    ]
+    point_started = [
+        event
+        for event in transitions
+        if event.stage == "point" and event.state == "started"
+    ]
+    point_finished = [
+        event
+        for event in transitions
+        if event.stage == "point" and event.state == "completed"
+    ]
+    committed_records = [
+        event
+        for event in transitions
+        if event.stage == "commit_point" and event.state == "completed"
+    ]
+    assert len(point_started) == 3
+    assert len(point_finished) == 3
+    assert len(committed_records) == 3
+    assert [event.metrics["compute_step_count"] for event in point_started] == [
+        0,
+        0,
+        0,
+    ]
+    assert [event.progress.completed_points for event in point_finished] == [1, 2, 3]
+    assert all(event.state == "completed" for event in point_finished)
+    finished = events[-1]
+    assert isinstance(finished, RunFinishedEvent)
+    assert finished.result == "succeeded"
+    assert finished.certainty == "known"
+    assert finished.progress.completed_points == 3
+    assert finished.progress.total_points == 3
 
 
 def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
@@ -662,7 +1197,7 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
 
     spec = typed_program(
         id="cached-compute-run",
-        kind="diagnostic",
+        kind="cached_compute",
         point_source=TypedPointSource(
             expr=literal_rows(
                 [
@@ -683,10 +1218,11 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
             value_type=TableType(columns=(), allow_extra_columns=True),
         ),
         state=[
-            set_state(
+            set_state_field(
                 "source-0",
-                "play_program.program",
-                compute_result("build-program"),
+                capability_id="play_program",
+                field_path="program",
+                value=compute_result("build-program"),
             )
         ],
         records=[observable("signal", resource="source-0")],
@@ -717,10 +1253,23 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
         payload_observer=payload_observations.append,
     )
 
-    compute_events = [event for event in events if event.kind == "compute_finished"]
-    state_events = [event for event in events if event.kind == "state_applied"]
+    transitions = [
+        event for event in events if isinstance(event, RuntimeTransitionEvent)
+    ]
+    compute_events = [
+        event
+        for event in transitions
+        if event.stage == "compute" and event.state == "completed"
+    ]
+    state_events = [
+        event
+        for event in transitions
+        if event.stage == "apply_state" and event.state == "completed"
+    ]
     state_reconciled = [
-        event for event in events if event.kind == "state_reconcile_finished"
+        event
+        for event in transitions
+        if event.stage == "apply_state" and event.state == "skipped"
     ]
 
     assert manifest.status == "completed"
@@ -728,12 +1277,15 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
         Quantity(value=4.9, unit="GHz"),
         Quantity(value=5.1, unit="GHz"),
     ]
-    assert [event.summary["compute_status"] for event in compute_events] == [
+    assert [event.metrics["compute_status"] for event in compute_events] == [
         "evaluated",
         "reused",
         "evaluated",
     ]
-    payload_ids = [event.summary["payload_id"] for event in compute_events]
+    payload_ids = cast(
+        "list[str]",
+        [event.metrics["payload_id"] for event in compute_events],
+    )
     assert payload_ids[0] == payload_ids[1]
     assert payload_ids[2] != payload_ids[0]
     assert all(
@@ -754,25 +1306,25 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
     ]
     assert payload_observations[0].summary["payload_id"] == payload_ids[0]
     assert [
-        event.summary["compute_evaluated_node_count"] for event in state_events
+        event.metrics["compute_evaluated_node_count"] for event in state_events
     ] == [1, 1]
-    assert [event.summary["compute_reused_node_count"] for event in state_events] == [
+    assert [event.metrics["compute_reused_node_count"] for event in state_events] == [
         0,
         0,
     ]
-    assert [event.summary["operation_state"] for event in state_reconciled] == [
-        "skipped"
-    ]
+    assert [event.state for event in state_reconciled] == ["skipped"]
     assert [
-        event.summary["compute_reused_node_count"] for event in state_reconciled
+        event.metrics["compute_reused_node_count"] for event in state_reconciled
     ] == [1]
     assert summary.compute.evaluated_node_count == 2
     assert summary.compute.reused_node_count == 1
     assert summary.compute.payload_count == 3
     assert summary.state.payload_count == 2
-    assert events[-1].summary["compute_evaluated_node_count"] == 2
-    assert events[-1].summary["compute_reused_node_count"] == 1
-    assert events[-1].summary["compute_payload_count"] == 3
+    finished = events[-1]
+    assert isinstance(finished, RunFinishedEvent)
+    assert finished.compute_evaluated_node_count == 2
+    assert finished.compute_reused_node_count == 1
+    assert finished.compute_payload_count == 3
     persisted_plan = read_model(
         tmp_path / "runs" / manifest.run_id / "run-plan.json",
         RunPlanRecord,
@@ -795,10 +1347,11 @@ def test_execute_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
     experiment = load_experiment().model_copy(
         update={
             "state": [
-                set_state(
+                set_state_field(
                     "source-0",
-                    "set_frequency.frequency",
-                    Quantity(value=5.9, unit="GHz"),
+                    capability_id="set_frequency",
+                    field_path="frequency",
+                    value=Quantity(value=5.9, unit="GHz"),
                 )
             ]
         }
@@ -818,17 +1371,26 @@ def test_execute_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
     assert summary.state.changed_field_count == 1
     assert summary.state.skipped_field_count == 2
     assert summary.state.state_command_count == 1
-    state_events = [event for event in events if event.kind == "state_applied"]
+    transitions = [
+        event for event in events if isinstance(event, RuntimeTransitionEvent)
+    ]
+    state_events = [
+        event
+        for event in transitions
+        if event.stage == "apply_state" and event.state == "completed"
+    ]
     reconciled_events = [
-        event for event in events if event.kind == "state_reconcile_finished"
+        event
+        for event in transitions
+        if event.stage == "apply_state" and event.state == "skipped"
     ]
-    assert [event.summary["changed_field_count"] for event in state_events] == [1]
-    assert [event.summary["skipped_field_count"] for event in state_events] == [0]
-    assert [event.summary["operation_state"] for event in reconciled_events] == [
+    assert [event.metrics["changed_field_count"] for event in state_events] == [1]
+    assert [event.metrics["skipped_field_count"] for event in state_events] == [0]
+    assert [event.state for event in reconciled_events] == [
         "skipped",
         "skipped",
     ]
-    assert [event.summary["skipped_field_count"] for event in reconciled_events] == [
+    assert [event.metrics["skipped_field_count"] for event in reconciled_events] == [
         1,
         1,
     ]

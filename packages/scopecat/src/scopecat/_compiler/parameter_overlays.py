@@ -6,7 +6,7 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat._compiler.diagnostics import CompilerDiagnosticError
+from scopecat._compiler.problems import CompilerProblemError, compiler_problem
 from scopecat._relations import (
     CellValue,
     EvalContext,
@@ -15,6 +15,7 @@ from scopecat._relations import (
 )
 from scopecat._scalar_operators import runtime_values_equal
 from scopecat.models.entity import EntityRef, same_entity_identity
+from scopecat.problems import ModelLocation, ProblemCategory, model_location
 from scopecat.value_types import Scalar
 from scopecat.value_validation import ValueValidationError, coerce_literal
 
@@ -66,9 +67,13 @@ def apply_point_parameter_overlay(
         rows = params.tables[overlay.table_id]
     except KeyError as error:
         msg = f"unknown parameter table {overlay.table_id!r}"
-        raise CompilerDiagnosticError(
-            "experiment_parameter_overlay_table_missing",
-            msg,
+        raise CompilerProblemError(
+            compiler_problem(
+                "experiment_parameter_overlay_table_missing",
+                msg,
+                model_location("parameters", overlay.table_id),
+                category=ProblemCategory.NOT_FOUND,
+            )
         ) from error
 
     key = {
@@ -76,7 +81,12 @@ def apply_point_parameter_overlay(
             expression.expr.eval(ctx),
             expression.value_type,
             code="experiment_parameter_overlay_key_invalid",
-            path=f"{overlay.table_id}.key.{column_id}",
+            location=model_location(
+                "parameters",
+                overlay.table_id,
+                "key",
+                column_id,
+            ),
         )
         for column_id, expression in overlay.key.items()
     }
@@ -89,15 +99,24 @@ def apply_point_parameter_overlay(
     ]
     if not matches:
         msg = f"{overlay.table_id!r} key {key!r} matched no rows"
-        raise CompilerDiagnosticError(
-            "experiment_parameter_overlay_row_not_found",
-            msg,
+        raise CompilerProblemError(
+            compiler_problem(
+                "experiment_parameter_overlay_row_not_found",
+                msg,
+                model_location("parameters", overlay.table_id),
+                category=ProblemCategory.NOT_FOUND,
+            )
         )
     if len(matches) > 1:
         msg = f"{overlay.table_id!r} key {key!r} matched {len(matches)} rows"
-        raise CompilerDiagnosticError(
-            "experiment_parameter_overlay_row_ambiguous",
-            msg,
+        raise CompilerProblemError(
+            compiler_problem(
+                "experiment_parameter_overlay_row_ambiguous",
+                msg,
+                model_location("parameters", overlay.table_id),
+                category=ProblemCategory.CONFLICT,
+                details={"match_count": len(matches)},
+            )
         )
 
     row = matches[0]
@@ -106,21 +125,40 @@ def apply_point_parameter_overlay(
             f"parameter table {overlay.table_id!r} row does not contain "
             f"column {overlay.column_id!r}"
         )
-        raise CompilerDiagnosticError(
-            "experiment_parameter_overlay_column_missing",
-            msg,
+        raise CompilerProblemError(
+            compiler_problem(
+                "experiment_parameter_overlay_column_missing",
+                msg,
+                model_location(
+                    "parameters",
+                    overlay.table_id,
+                    "columns",
+                    overlay.column_id,
+                ),
+                category=ProblemCategory.NOT_FOUND,
+            )
         )
     _coerce_overlay_value(
         row[overlay.column_id],
         overlay.value.value_type,
         code="experiment_parameter_overlay_resolved_value_invalid",
-        path=f"{overlay.table_id}.{overlay.column_id}",
+        location=model_location(
+            "parameters",
+            overlay.table_id,
+            "columns",
+            overlay.column_id,
+        ),
     )
     row[overlay.column_id] = _coerce_overlay_value(
         overlay.value.expr.eval(ctx),
         overlay.value.value_type,
         code="experiment_parameter_overlay_value_invalid",
-        path=f"{overlay.table_id}.{overlay.column_id}",
+        location=model_location(
+            "parameters",
+            overlay.table_id,
+            "columns",
+            overlay.column_id,
+        ),
     )
 
 
@@ -129,12 +167,21 @@ def _coerce_overlay_value(
     value_type: Scalar,
     *,
     code: str,
-    path: str,
+    location: ModelLocation,
 ) -> CellValue:
     try:
-        return cast("CellValue", coerce_literal(value_type, value, path=path))
+        return cast(
+            "CellValue",
+            coerce_literal(
+                value_type,
+                value,
+                path=(location.root, *location.path),
+            ),
+        )
     except ValueValidationError as error:
-        raise CompilerDiagnosticError(code, str(error)) from error
+        raise CompilerProblemError(
+            compiler_problem(code, str(error), location)
+        ) from error
 
 
 def _cell_matches(left: CellValue | None, right: CellValue) -> bool:
