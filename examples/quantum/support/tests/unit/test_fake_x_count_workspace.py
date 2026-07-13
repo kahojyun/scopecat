@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from inspect import signature
 from pathlib import Path
 from typing import cast
 
@@ -13,7 +12,7 @@ from scopecat._storage.local import (
     LocalMeasurementRecordCommitter,
 )
 from scopecat._workflows.runs import load_run_plan
-from scopecat.domain_execution import PreparedDomainExecution
+from scopecat.domain_execution import DomainExecutionRequest, PreparedDomainExecution
 from scopecat.domain_invocation import DomainInvocationIntent
 from scopecat.domain_runtime import (
     DomainFetchCandidate,
@@ -99,6 +98,7 @@ class _UnknownFetchFakeListDomainRuntime(FakeListDomainRuntime):
 
 class _PendingFakeXCountAdapter(FakeXCountDomainExecutionAdapter):
     def __init__(self) -> None:
+        super().__init__()
         self.runtime = _PendingFakeListDomainRuntime()
 
 
@@ -114,51 +114,28 @@ class _IndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
 
 class _IndeterminateFakeXCountAdapter(FakeXCountDomainExecutionAdapter):
     def __init__(self) -> None:
+        super().__init__()
         self.runtime = _IndeterminateFakeListDomainRuntime()
 
 
-class _RaisingAdapter:
-    adapter_id = "tests.raising-domain-adapter"
+class _RaisingAdapter(FakeXCountDomainExecutionAdapter):
+    @property
+    def adapter_id(self) -> str:
+        return "tests.raising-domain-adapter"
 
-    def prepare(self, _linked: object) -> PreparedDomainExecution:
+    def prepare(self, request: DomainExecutionRequest) -> PreparedDomainExecution:
+        del request
         raise RuntimeError("adapter implementation defect")
 
 
-class _WrongResultAdapter:
-    adapter_id = "tests.wrong-result-domain-adapter"
+class _WrongResultAdapter(FakeXCountDomainExecutionAdapter):
+    @property
+    def adapter_id(self) -> str:
+        return "tests.wrong-result-domain-adapter"
 
-    def prepare(self, _linked: object) -> PreparedDomainExecution:
+    def prepare(self, request: DomainExecutionRequest) -> PreparedDomainExecution:
+        del request
         return cast("PreparedDomainExecution", object())
-
-
-def test_execution_backend_is_selected_at_workspace_or_prepare_boundary() -> None:
-    assert "execution_backend" in signature(sc.open).parameters
-    assert "execution_backend" not in signature(quantum_lab).parameters
-    assert "execution_backend" in signature(sc.Workspace.prepare).parameters
-
-
-def test_prepare_accepts_explicit_composite_backend(tmp_path: Path) -> None:
-    lab = quantum_lab(workspace=tmp_path)
-    point = lab.execution_backend
-    assert isinstance(point, sc.PointInstrumentBackend)
-    adapter = FakeXCountDomainExecutionAdapter()
-    backend = sc.CompositeExecutionBackend(
-        point=point,
-        domains=(sc.DomainProgramBackend(adapter),),
-    )
-
-    experiment = lab.prepare(
-        FAKE_X_COUNT_TEMPLATE,
-        execution_backend=backend,
-    )
-    report = experiment.check()
-    run = experiment.run()
-    plan = load_run_plan(run_id=run.id, workspace=lab.workspace)
-
-    assert report.ok
-    assert run.manifest.status == "completed"
-    assert [unit.kind for unit in plan.execution_units] == ["domain_job"]
-    assert adapter.runtime.physical_execution_count == 1
 
 
 def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
@@ -180,7 +157,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         experiment = (
             lab.prepare(
                 FAKE_X_COUNT_TEMPLATE,
-                execution_backend=sc.DomainProgramBackend(adapter),
+                execution_backend=_domain_only(adapter),
             )
             if authoring == "template"
             else lab.prepare(
@@ -188,7 +165,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
                     lab,
                     x_counts=(0, 1, 2, 4),
                 ),
-                execution_backend=sc.DomainProgramBackend(adapter),
+                execution_backend=_domain_only(adapter),
             )
         )
 
@@ -232,14 +209,14 @@ def test_explicit_domain_adapter_rejection_does_not_fall_back_to_local_provider(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         READOUT_TEMPLATE,
-        execution_backend=sc.DomainProgramBackend(FakeXCountDomainExecutionAdapter()),
+        execution_backend=_domain_only(FakeXCountDomainExecutionAdapter()),
     )
     experiment = experiment.input("qubit", "q0")
 
     report = experiment.check()
 
     assert not report.ok
-    assert report.problems[0].code == "execution_backend_prepare_failed"
+    assert report.problems[0].code == "execution_task_claim_missing"
     with pytest.raises(CheckFailed):
         experiment.run()
     assert lab.runs() == ()
@@ -253,8 +230,8 @@ def test_adapter_boundary_normalizes_ordinary_contract_defects_before_run(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=sc.DomainProgramBackend(
-            cast("sc.DomainExecutionAdapter", adapter)
+        execution_backend=_domain_only(
+            cast("sc.DomainExecutionAdapter", adapter),
         ),
     )
 
@@ -274,7 +251,7 @@ def test_synchronous_adapter_pending_result_terminalizes_as_indeterminate(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=sc.DomainProgramBackend(adapter),
+        execution_backend=_domain_only(adapter),
     )
 
     with pytest.raises(RunIndeterminate) as caught:
@@ -304,7 +281,7 @@ def test_indeterminate_submit_retains_durable_target_reconciliation_context(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=sc.DomainProgramBackend(adapter),
+        execution_backend=_domain_only(adapter),
     )
 
     with pytest.raises(RunIndeterminate) as caught:
@@ -320,7 +297,7 @@ def test_indeterminate_submit_retains_durable_target_reconciliation_context(
     assert recovery.details["automatic_resume"] is False
     assert recovery.details["submission_key"]
     plan = load_run_plan(run_id=caught.value.run_id, workspace=lab.workspace)
-    assert _domain_execution(plan).target_id
+    assert _domain_execution(plan).batches[0].target_id
     journal = LocalExecutionJournal(lab.workspace, run_id=caught.value.run_id)
     assert any(
         entry.stage == "domain_submit" and entry.state == "unknown"
@@ -341,7 +318,7 @@ def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=sc.DomainProgramBackend(adapter),
+        execution_backend=_domain_only(adapter),
     )
 
     with pytest.raises(RunIndeterminate) as caught:
@@ -380,7 +357,7 @@ def test_uncertain_measurement_write_retains_reconciliation_context(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=sc.DomainProgramBackend(adapter),
+        execution_backend=_domain_only(adapter),
     )
 
     with pytest.raises(RunIndeterminate) as caught:
@@ -416,7 +393,7 @@ def test_measurement_reload_failure_still_publishes_indeterminate_terminal_run(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=sc.DomainProgramBackend(adapter),
+        execution_backend=_domain_only(adapter),
     )
 
     with pytest.raises(RunIndeterminate) as caught:
@@ -425,7 +402,7 @@ def test_measurement_reload_failure_still_publishes_indeterminate_terminal_run(
     recovery = next(
         problem
         for problem in caught.value.outcome.problems
-        if problem.code == "domain_measurement_reload_terminalized"
+        if problem.code == "execution_plan_measurement_reload_terminalized"
     )
     assert recovery.details["storage_ref"] == "execution-measurements"
     assert recovery.details["automatic_resume"] is False
@@ -433,25 +410,6 @@ def test_measurement_reload_failure_still_publishes_indeterminate_terminal_run(
     [persisted] = lab.runs()
     assert persisted.id == caught.value.run_id
     assert persisted.manifest.status == "unknown"
-
-
-def test_one_workspace_can_mix_local_and_whole_program_domain_runs(
-    tmp_path: Path,
-) -> None:
-    lab = quantum_lab(workspace=tmp_path)
-    adapter = FakeXCountDomainExecutionAdapter()
-
-    domain_run = lab.prepare(
-        FAKE_X_COUNT_TEMPLATE,
-        execution_backend=sc.DomainProgramBackend(adapter),
-    ).run()
-    local_run = lab.prepare(READOUT_TEMPLATE).input("qubit", "q0").run()
-
-    assert domain_run.manifest.status == "completed"
-    assert local_run.manifest.status == "completed"
-    assert domain_run.id != local_run.id
-    assert adapter.runtime.physical_execution_count == 1
-    assert {run.id for run in lab.runs()} == {domain_run.id, local_run.id}
 
 
 def _standard_domain_semantics(
@@ -467,17 +425,18 @@ def _standard_domain_semantics(
         submit_intent.evidence["invocation_intent"]
     )
     execution = _domain_execution(plan)
+    [batch] = execution.batches
     assert execution.adapter_id == FAKE_X_COUNT_ADAPTER_ID
-    assert execution.semantic_operation_id == FAKE_X_COUNT_EXPERIMENT_ID
-    assert execution.completion_contract == "synchronous"
-    assert execution.invocation_id == intent.invocation_id
-    assert execution.intent_fingerprint == intent.intent_fingerprint
-    assert execution.target_id == intent.target_id
-    assert execution.compiler_id == intent.compiler_id
-    assert execution.capability_fingerprint == intent.capability_fingerprint
-    assert execution.artifact_id == intent.artifact_id
-    assert execution.artifact_fingerprint == intent.artifact_fingerprint
-    assert set(execution.model_dump(mode="json")).isdisjoint(
+    assert batch.semantic_operation_id == FAKE_X_COUNT_EXPERIMENT_ID
+    assert batch.completion_contract == "synchronous"
+    assert batch.invocation_id == intent.invocation_id
+    assert batch.intent_fingerprint == intent.intent_fingerprint
+    assert batch.target_id == intent.target_id
+    assert batch.compiler_id == intent.compiler_id
+    assert batch.capability_fingerprint == intent.capability_fingerprint
+    assert batch.artifact_id == intent.artifact_id
+    assert batch.artifact_fingerprint == intent.artifact_fingerprint
+    assert set(batch.model_dump(mode="json")).isdisjoint(
         {"payload", "entry_address", "result_address", "target_address"}
     )
     return (
@@ -498,3 +457,7 @@ def _domain_execution(plan: RunPlanRecord) -> RunPlanDomainExecution:
     ]
     assert len(executions) == 1
     return executions[0]
+
+
+def _domain_only(adapter: sc.DomainExecutionAdapter) -> sc.ExecutionBackend:
+    return sc.ExecutionBackend(domain_adapters=(adapter,))

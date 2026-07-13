@@ -16,7 +16,10 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, cast
 
-from scopecat._compiler.linked import LinkedPlan, MaterializedLinkedPoints
+from scopecat._compiler.linked import (
+    MaterializedLinkedPointBatch,
+    MaterializedLinkedPoints,
+)
 from scopecat.domain_invocation import (
     ClosedDomainInvocation,
     ClosedDomainOutputValues,
@@ -32,7 +35,7 @@ from scopecat.execution_coverage import (
 from scopecat.measurement_projection import BoundMeasurementProjection
 from scopecat.measurement_transforms import BoundHostMeasurementTransformPlan
 from scopecat.measurement_values import BoundDomainMeasurementValueFragment
-from scopecat.models.run_plan import RunPlanDomainExecution
+from scopecat.models.run_plan import RunPlanDomainBatch
 
 type ErasedDomainInvocation = ClosedDomainInvocation[Hashable, Hashable, object]
 type ErasedDomainRuntime = DomainRuntime[
@@ -48,6 +51,96 @@ type ErasedDomainRealizer = Callable[
 
 
 @dataclass(frozen=True, slots=True)
+class DomainExecutionCapabilities:
+    """One adapter's exact offer for a fully materialized linked program.
+
+    Product and non-product ownership are plan-specific. Direct domain products
+    are distinguished from adapter-owned host transforms so even a zero-point
+    run retains correct producer evidence. Batch capacity is a stable
+    adapter/target limit which the unified backend may further reduce using run
+    options or host-owned effect barriers.
+    """
+
+    product_use_ids: tuple[ProductUseId, ...]
+    domain_product_use_ids: tuple[ProductUseId, ...]
+    claimed_tasks: tuple[ExecutionTask, ...] = ()
+    max_points_per_batch: int = 1
+
+    def __post_init__(self) -> None:
+        product_use_ids = tuple(self.product_use_ids)
+        if any(
+            not isinstance(cast("object", use_id), ProductUseId)
+            for use_id in product_use_ids
+        ):
+            msg = "domain execution capabilities require ProductUseId values"
+            raise TypeError(msg)
+        if len(product_use_ids) != len(set(product_use_ids)):
+            msg = "domain execution capabilities require unique product uses"
+            raise ValueError(msg)
+        domain_product_use_ids = tuple(self.domain_product_use_ids)
+        if any(
+            not isinstance(cast("object", use_id), ProductUseId)
+            for use_id in domain_product_use_ids
+        ):
+            msg = "domain execution capabilities require direct ProductUseId values"
+            raise TypeError(msg)
+        if len(domain_product_use_ids) != len(set(domain_product_use_ids)):
+            msg = "domain execution capabilities require unique direct product uses"
+            raise ValueError(msg)
+        if not set(domain_product_use_ids) <= set(product_use_ids):
+            msg = "direct domain products must be owned by the adapter"
+            raise ValueError(msg)
+        claimed_tasks = tuple(self.claimed_tasks)
+        coverage = ExecutionCoverage(claimed_tasks)
+        if any(task.kind == "product" for task in coverage.tasks):
+            msg = (
+                "domain execution capability product ownership belongs in "
+                "product_use_ids"
+            )
+            raise ValueError(msg)
+        if not product_use_ids and not coverage.tasks:
+            msg = "domain execution capabilities must own at least one task"
+            raise ValueError(msg)
+        if type(self.max_points_per_batch) is not int:
+            msg = "domain max_points_per_batch must be an integer"
+            raise TypeError(msg)
+        if self.max_points_per_batch <= 0:
+            msg = "domain max_points_per_batch must be positive"
+            raise ValueError(msg)
+        object.__setattr__(self, "product_use_ids", product_use_ids)
+        object.__setattr__(self, "domain_product_use_ids", domain_product_use_ids)
+        object.__setattr__(self, "claimed_tasks", coverage.tasks)
+
+    @property
+    def coverage(self) -> ExecutionCoverage:
+        products = product_execution_coverage(self.product_use_ids)
+        return ExecutionCoverage((*self.claimed_tasks, *products.tasks))
+
+
+@dataclass(frozen=True, slots=True)
+class DomainExecutionRequest:
+    """Backend-selected contiguous logical points for one adapter invocation."""
+
+    batch: MaterializedLinkedPointBatch = field(repr=False)
+    batch_ordinal: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(cast("object", self.batch), MaterializedLinkedPointBatch):
+            msg = "domain execution requests require a linked point batch"
+            raise TypeError(msg)
+        if type(self.batch_ordinal) is not int:
+            msg = "domain execution batch ordinals must be integers"
+            raise TypeError(msg)
+        if self.batch_ordinal < 0:
+            msg = "domain execution batch ordinals must be non-negative"
+            raise ValueError(msg)
+
+    @property
+    def linked_points(self) -> MaterializedLinkedPointBatch:
+        return self.batch
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedDomainExecution:
     """A pure proof that one linked program is ready for domain effects.
 
@@ -58,7 +151,7 @@ class PreparedDomainExecution:
 
     adapter_id: str
     semantic_operation_id: str
-    linked_points: MaterializedLinkedPoints = field(repr=False)
+    linked_points: MaterializedLinkedPointBatch = field(repr=False)
     invocation: ErasedDomainInvocation = field(repr=False)
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
     realize: ErasedDomainRealizer = field(repr=False, compare=False)
@@ -76,6 +169,12 @@ class PreparedDomainExecution:
     completion_contract: Literal["synchronous"] = "synchronous"
 
     def __post_init__(self) -> None:
+        if not isinstance(
+            cast("object", self.linked_points),
+            MaterializedLinkedPointBatch,
+        ):
+            msg = "prepared domain executions require a linked point batch"
+            raise TypeError(msg)
         if not self.adapter_id:
             msg = "domain execution adapter_id must be non-empty"
             raise ValueError(msg)
@@ -176,20 +275,29 @@ class DomainExecutionAdapter(Protocol):
     @property
     def adapter_id(self) -> str: ...
 
-    def prepare(self, linked: LinkedPlan) -> PreparedDomainExecution: ...
+    def capabilities(
+        self,
+        linked_points: MaterializedLinkedPoints,
+    ) -> DomainExecutionCapabilities | None: ...
+
+    def prepare(self, request: DomainExecutionRequest) -> PreparedDomainExecution: ...
 
 
-def project_domain_run_plan_execution(
+def project_domain_run_plan_batch(
     prepared: PreparedDomainExecution,
     *,
-    unit_id: str,
-) -> RunPlanDomainExecution:
-    """Project accepted target identity without retaining adapter payloads."""
+    request: DomainExecutionRequest,
+) -> RunPlanDomainBatch:
+    """Project one accepted batch identity without adapter payloads."""
+
+    if prepared.linked_points is not request.batch:
+        msg = "domain run-plan batches must retain their execution request"
+        raise ValueError(msg)
 
     intent = prepared.invocation.intent
-    return RunPlanDomainExecution(
-        unit_id=unit_id,
-        adapter_id=prepared.adapter_id,
+    return RunPlanDomainBatch(
+        batch_ordinal=request.batch_ordinal,
+        point_indices=list(request.batch.point_indices),
         semantic_operation_id=prepared.semantic_operation_id,
         completion_contract=prepared.completion_contract,
         invocation_id=intent.invocation_id,
@@ -211,7 +319,7 @@ def erase_prepared_domain_execution[
     *,
     adapter_id: str,
     semantic_operation_id: str,
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointBatch,
     invocation: ClosedDomainInvocation[EntryAddressT, ResultAddressT, PayloadT],
     runtime: DomainRuntime[EntryAddressT, ResultAddressT, PayloadT, ResultT],
     realize: Callable[
@@ -249,7 +357,9 @@ def erase_prepared_domain_execution[
 
 __all__ = [
     "DomainExecutionAdapter",
+    "DomainExecutionCapabilities",
+    "DomainExecutionRequest",
     "PreparedDomainExecution",
     "erase_prepared_domain_execution",
-    "project_domain_run_plan_execution",
+    "project_domain_run_plan_batch",
 ]

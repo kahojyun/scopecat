@@ -20,7 +20,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     tmp_path: Path,
 ) -> None:
     run = start_run(
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
         workspace=tmp_path,
@@ -43,7 +43,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     )
     active_config = load_active_config(workspace=tmp_path)
     next_run = start_run(
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=active_config.config,
         experiment=load_prepared_invocation(),
         workspace=tmp_path,

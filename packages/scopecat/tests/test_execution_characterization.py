@@ -165,7 +165,7 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
     lab = sc.open(
         tmp_path,
         config=config_with_physical_resources({"source-0": ("play_program",)}),
-        execution_backend=sc.PointInstrumentBackend(_SingleDriverProvider(driver)),
+        execution_backend=sc.ExecutionBackend(provider=_SingleDriverProvider(driver)),
     )
 
     run = lab.prepare(template).run()

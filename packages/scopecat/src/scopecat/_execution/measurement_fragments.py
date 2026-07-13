@@ -343,7 +343,6 @@ def _collect_program_contract(
     collection_use_ids: tuple[ProductUseId, ...],
 ) -> tuple[tuple[_LocalCollectionOperationBinding, ...], tuple[Problem, ...]]:
     points = selection.linked_points.point_domain.points
-    coordinate_ids = selection.linked_points.linked_plan.coordinate_ids
     problems: list[Problem] = []
     operations: list[_LocalCollectionOperationBinding] = []
     operation_ids: set[str] = set()
@@ -369,7 +368,8 @@ def _collect_program_contract(
         zip(points, program.points, strict=False)
     ):
         expected_coordinates = {
-            coordinate_id: point.row[coordinate_id] for coordinate_id in coordinate_ids
+            coordinate_id: point.row[coordinate_id]
+            for coordinate_id in point_program.coordinates
         }
         if (
             point_program.point_index != point.logical_ordinal

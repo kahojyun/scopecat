@@ -324,8 +324,8 @@ namespace and its canonical logical ordinal. A local `point_index` is currently
 the same ordinal, but is only a local execution projection. Point identity does
 not depend on whether every row value has a content fingerprint. Optional row
 content keys may support comparison or caching, but cannot define whether a
-logical point exists. Future batches and target result mappings must carry the
-already assigned identity and must never enumerate a batch into a new identity
+logical point exists. Backend-selected batches and target result mappings carry
+the already assigned identity and never enumerate a batch into a new identity
 space.
 
 Authoring scan dependencies now have a config-free proof boundary before that
@@ -681,11 +681,12 @@ The existing local `ExecutionProgram` remains a valid target-specific lowering
 for synchronous execution. It ceases to define all legal execution semantics.
 Nor does Scopecat need a universal replacement for it: a domain adapter may
 keep its internal control IR private and expose only a checked invocation
-boundary. The core does not prescribe a hardware placement model, target
-capability description, quantum dialect ABI, compiled-artifact format, or
-provider transport/scheduling protocol. Those boundaries remain driven by a
-concrete offload or domain-integration workflow rather than speculative fields
-on the current contract.
+boundary. The core prescribes only generic exact task/product ownership and a
+maximum point-batch size. It does not prescribe a hardware placement model,
+target-specific capability description, quantum dialect ABI, compiled-artifact
+format, or provider transport/scheduling protocol. Those boundaries remain
+driven by a concrete offload or domain-integration workflow rather than
+speculative fields on the neutral IR.
 
 The current synchronous `CollectReceipt` remains correlated to its command only
 by the in-process call stack and must not be reused for remote/offloaded work.
@@ -1198,8 +1199,9 @@ code and tests decisively rather than maintaining parallel legacy IRs.
    `scopecat-quantum` maps prepared target entry/acquisition addresses through
    this SPI without importing core private modules or teaching core about
    quantum slots, pulse events, or physical list indexes. Loops, branches,
-   feedback, shots, and timing remain inside the domain program. Resource
-   leasing and aggregate local/domain coverage belong to a later host plan.
+   feedback, shots, and timing remain inside the domain program. The unified
+   host execution plan now proves aggregate local/domain coverage and owns the
+   shared resource-lease lifetime described in slice 17.
 12. **Target runtime protocol (first synchronous slice implemented).** The
    quantum package now binds a checked artifact to its exact
    circuit result mapping, and the demo fake target correlates complete raw
@@ -1274,13 +1276,34 @@ code and tests decisively rather than maintaining parallel legacy IRs.
    A three-point vertical test performs real fake instrument collection,
    applies one typed `POINT` transform, projects a derived value plus alias, and
    writes one receipt-bearing record per point.
-   This whole-batch adapter deliberately does not replace the existing engine's
-   incremental point recording or establish aggregate local/domain/transform
-   ownership. Point-scoped closure, full state/context and run-provenance proofs,
-   aggregate `BoundPlan`/authoring lowering, lease lifetime, and full
-   local-engine migration remain later work.
+   The unified execution backend now consumes this seam when local collection
+   surrounds domain batches. Mixed plans still reject point-local compute and
+   one-shot actions until their placement and barrier semantics are explicit.
+17. **Unified execution backend and partial fusion (implemented).** One public
+   `ExecutionBackend` combines an optional point-instrument provider with zero
+   or more domain adapters; fusion is no longer selected by choosing a second
+   backend type. Each adapter inspects the complete materialized point set and
+   either declines it or declares exact product/task ownership plus a maximum
+   point count per invocation. Per-experiment `ExecutionOptions` may further
+   cap that count or disable fusion. When several adapters are selected, the
+   unified schedule conservatively uses their most restrictive bound so every
+   lane shares the same state barriers and batch partition. Planning proves
+   exact, non-overlapping semantic and resource coverage before adapter
+   preparation, then partitions
+   canonical contiguous points at local desired-state changes and capability or
+   user limits. Every adapter receives an explicit point-batch proof retaining
+   the parent plan and original logical identities. The executor holds local
+   drivers and domain resources for one run, applies scalar state once per
+   invariant batch, executes the selected domain jobs, collects point-local
+   products, and assembles all fragments by logical point/product identity.
+   Run-plan v7 records the unified backend identity, requested and resolved
+   fusion policy, adapter capabilities, and every physical batch without target
+   payloads. Aggregate measurement closure remains exact across the complete
+   logical point set: if a later batch fails, earlier successful effects remain
+   durably correlated in the journal but no incomplete logical dataset is
+   published.
 
-The first sixteen slices now form the compiler/runtime baseline. `LinkedPlan` is
+The first seventeen slices now form the compiler/runtime baseline. `LinkedPlan` is
 target-neutral with respect to relation backend, compute meaning, and local
 Python coverage, but it is not a target-selected orchestration plan. The current
 local lowering owns its sealed backend and implementation selections, and
@@ -1288,10 +1311,9 @@ relation and product selections are keyed by nominal occurrence identity. The
 product/use/record boundary now feeds an executable domain invocation with
 explicit partial use ownership and a producer-neutral host value plane. Typed
 `POINT` transforms occupy the pure boundary before record projection without
-making host callables or quantum vocabulary semantic IR. Full host
-orchestration, lease lifetime, aggregate source ownership and local-engine
-migration, point-scoped neutral closure, `POINT_SET` and cross-point analysis,
-offload equivalence, dataset publication, terminalization, and further output
+making host callables or quantum vocabulary semantic IR. Point-local compute or
+one-shot actions interleaved with domain batches, `POINT_SET` and cross-point
+analysis, offload equivalence, asynchronous recovery, and further output
 carriers remain later work.
 
 ## Consequences

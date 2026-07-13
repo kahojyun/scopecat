@@ -579,7 +579,7 @@ def test_provider_description_rejects_duplicate_instrument_ids() -> None:
         )
 
 
-def test_execute_run_accepts_instrument_driver(tmp_path: Path) -> None:
+def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
     instrument = SignalInstrumentDriver()
 
     manifest, snapshot = execute_bound_run(

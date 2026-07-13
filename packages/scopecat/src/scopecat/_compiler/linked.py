@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
 
 from scopecat._compiler.environment import ValidatedConfigEnvironment
 from scopecat._compiler.point_domain import (
+    MaterializedPoint,
     MaterializedPointDomain,
     PointDomainEvaluationError,
+    PointDomainId,
     PointDomainValueError,
     VerifiedPointDomain,
     materialize_point_domain,
@@ -185,6 +188,129 @@ class MaterializedLinkedPoints:
     @property
     def point_domain(self) -> MaterializedPointDomain:
         return self._point_domain
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class MaterializedPointDomainView:
+    """A canonical contiguous view over an already materialized point domain.
+
+    A view never renumbers points or creates a second logical identity space.
+    Its points are the exact frozen point values retained by the complete
+    materialization, while its cardinality describes only the selected batch.
+    """
+
+    _source: MaterializedPointDomain
+    points: tuple[MaterializedPoint, ...]
+    cardinality: PointCardinality
+    declared_cardinality: PointCardinality
+
+    def __init__(
+        self,
+        source: MaterializedPointDomain,
+        points: tuple[MaterializedPoint, ...],
+    ) -> None:
+        if not points:
+            msg = "materialized point-domain views require at least one point"
+            raise ValueError(msg)
+        source_by_ordinal = {point.logical_ordinal: point for point in source.points}
+        if any(
+            source_by_ordinal.get(point.logical_ordinal) is not point
+            for point in points
+        ):
+            msg = "materialized point-domain views must retain source points"
+            raise ValueError(msg)
+        ordinals = tuple(point.logical_ordinal for point in points)
+        if ordinals != tuple(range(ordinals[0], ordinals[0] + len(ordinals))):
+            msg = "materialized point-domain views require contiguous canonical points"
+            raise ValueError(msg)
+        exact = PointCardinality.exact(len(points))
+        object.__setattr__(self, "_source", source)
+        object.__setattr__(self, "points", points)
+        object.__setattr__(self, "cardinality", exact)
+        object.__setattr__(self, "declared_cardinality", exact)
+
+    @property
+    def id(self) -> PointDomainId:
+        """Retain the parent domain namespace used by every logical point."""
+
+        return self._source.id
+
+    @property
+    def source(self) -> MaterializedPointDomain:
+        return self._source
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class MaterializedLinkedPointBatch:
+    """One non-empty contiguous batch selected from complete linked points.
+
+    The complete parent proof is retained exactly. Selection changes only the
+    point-domain view presented to a target adapter; logical point identities,
+    ordinals, the selected relation backend, and the linked program are shared
+    with the parent.
+    """
+
+    _parent: MaterializedLinkedPoints
+    _point_domain: MaterializedPointDomainView
+    point_indices: tuple[int, ...]
+
+    def __init__(
+        self,
+        parent: MaterializedLinkedPoints,
+        point_indices: Sequence[int],
+    ) -> None:
+        if not isinstance(cast("object", parent), MaterializedLinkedPoints):
+            msg = "linked point batches require MaterializedLinkedPoints"
+            raise TypeError(msg)
+        indices = tuple(point_indices)
+        if not indices:
+            msg = "linked point batches require at least one point index"
+            raise ValueError(msg)
+        if any(type(index) is not int for index in indices):
+            msg = "linked point batch indices must be integers"
+            raise TypeError(msg)
+        if indices != tuple(range(indices[0], indices[0] + len(indices))):
+            msg = "linked point batch indices must be canonical and contiguous"
+            raise ValueError(msg)
+        if indices[0] < 0 or indices[-1] >= len(parent.point_domain.points):
+            msg = "linked point batch indices are outside the materialized domain"
+            raise ValueError(msg)
+        points = tuple(parent.point_domain.points[index] for index in indices)
+        if tuple(point.logical_ordinal for point in points) != indices:
+            msg = "linked point batch indices must preserve logical ordinals"
+            raise ValueError(msg)
+        object.__setattr__(self, "_parent", parent)
+        object.__setattr__(
+            self,
+            "_point_domain",
+            MaterializedPointDomainView(parent.point_domain, points),
+        )
+        object.__setattr__(self, "point_indices", indices)
+
+    @property
+    def parent(self) -> MaterializedLinkedPoints:
+        return self._parent
+
+    @property
+    def linked_plan(self) -> LinkedPlan:
+        return self._parent.linked_plan
+
+    @property
+    def selected_program(self) -> SelectedTypedProgram:
+        return self._parent.selected_program
+
+    @property
+    def relation_backend_id(self) -> str:
+        return self._parent.relation_backend_id
+
+    @property
+    def point_domain(self) -> MaterializedPointDomainView:
+        return self._point_domain
+
+
+type MaterializedLinkedPointSet = (
+    MaterializedLinkedPoints | MaterializedLinkedPointBatch
+)
 
 
 def materialize_linked_points(
@@ -637,7 +763,10 @@ def _relation_backend_capability_problems(
 
 __all__ = [
     "LinkedPlan",
+    "MaterializedLinkedPointBatch",
+    "MaterializedLinkedPointSet",
     "MaterializedLinkedPoints",
+    "MaterializedPointDomainView",
     "link_program",
     "materialize_linked_points",
     "materialize_selected_linked_points",

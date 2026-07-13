@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from scopecat._execution.domain_executor import (
+from scopecat._execution.domain_effects import (
     DomainSynchronousCompletionPending,
     domain_runtime_terminal_problem,
     execute_domain_job_values,
-    execute_domain_run,
     measurement_recording_terminal_problem,
 )
-from scopecat._execution.engine import ExecutionEngineResult
-from scopecat._execution.events import emit_run_finished, emit_run_started
+from scopecat._execution.engine import (
+    CapturedMiddleEffectFailure,
+    ExecutionEngine,
+    ExecutionEngineResult,
+)
+from scopecat._execution.events import (
+    RuntimeTransitionProjector,
+    emit_run_finished,
+    emit_run_started,
+)
 from scopecat._execution.evidence import (
     RAW_MEASUREMENTS_DATASET_ID,
     build_execution_manifest,
@@ -21,7 +29,7 @@ from scopecat._execution.evidence import (
     build_instrument_state_evidence,
     raw_measurement_schema,
 )
-from scopecat._execution.executor import execute_prepared_local_effects, execute_run
+from scopecat._execution.executor import execute_prepared_local_effects
 from scopecat._execution.measurement_fragments import (
     BoundLocalCollectionFragment,
     bind_local_collection_fragment,
@@ -57,8 +65,9 @@ from scopecat.errors import (
     RunIndeterminate,
 )
 from scopecat.execution_backend import (
-    PreparedDomainJobUnit,
+    PreparedDomainJob,
     PreparedExecutionPlan,
+    PreparedExecutionSegment,
 )
 from scopecat.ids import new_run_id
 from scopecat.measurement_projection import project_measurement_records
@@ -73,7 +82,7 @@ from scopecat.measurement_values import (
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.execution import ExecutionSummary
 from scopecat.models.run import RunConfigSource, RunManifest, RunOutcome
-from scopecat.models.run_plan import RunPlanPointInstrumentExecution, RunPlanRecord
+from scopecat.models.run_plan import RunPlanRecord
 from scopecat.models.run_request import RunRequest
 from scopecat.problems import (
     Problem,
@@ -85,7 +94,7 @@ from scopecat.results import MeasurementRecord
 from scopecat.runtime import RuntimeEventSink, RuntimePayloadObserver
 
 
-class _DomainUnitEffectFailed(Exception):
+class _DomainUnitEffectFailed(CapturedMiddleEffectFailure):
     """Stop the local lane after a captured domain-boundary failure."""
 
 
@@ -101,34 +110,7 @@ def execute_execution_plan(
 ) -> tuple[RunManifest, ExecutionSummary]:
     """Execute one trusted exact-cover plan without backend-specific workflow forks."""
 
-    point = prepared.point_unit
-    domains = prepared.domain_units
-    if point is not None and not domains:
-        return execute_run(
-            config=config,
-            plan=point.bound_plan,
-            request=request,
-            instrument_provider=point.provider,
-            execution=RunPlanPointInstrumentExecution(
-                unit_id=point.id,
-                backend_id=point.backend_id,
-                provider_id=point.prepared.provider_id,
-            ),
-            workspace=workspace,
-            config_source=config_source,
-            event_sink=event_sink,
-            payload_observer=payload_observer,
-        )
-    if point is None and len(domains) == 1:
-        return execute_domain_run(
-            config=config,
-            prepared=domains[0].prepared,
-            request=request,
-            workspace=workspace,
-            config_source=config_source,
-            event_sink=event_sink,
-        )
-    return _execute_composite_run(
+    return _execute_unified_run(
         config=config,
         prepared=prepared,
         request=request,
@@ -139,7 +121,7 @@ def execute_execution_plan(
     )
 
 
-def _execute_composite_run(
+def _execute_unified_run(
     *,
     config: ConfigProfileSnapshot,
     prepared: PreparedExecutionPlan,
@@ -186,24 +168,44 @@ def _execute_composite_run(
     )
 
     journal = LocalExecutionJournal(workspace, run_id=run_id)
+    transition_observer = RuntimeTransitionProjector(
+        event_sink=event_sink,
+        experiment_id=plan.experiment_id,
+        point_count=plan.point_count,
+    )
     measurements = LocalMeasurementRecordCommitter(workspace, run_id=run_id)
     readbacks = LocalCollectionRepository(workspace, run_id=run_id)
     payloads = LocalPayloadEvidenceCommitter(workspace, run_id=run_id)
-    domain_values: dict[str, ClosedMeasurementProductValues] = {}
-    domain_failure: tuple[PreparedDomainJobUnit, BaseException] | None = None
+    domain_values: dict[str, list[ClosedMeasurementProductValues]] = {
+        unit.id: [] for unit in prepared.domain_units
+    }
+    unit_id_by_job = {
+        job.id: unit.id for unit in prepared.domain_units for job in unit.jobs
+    }
+    domain_failure: tuple[PreparedDomainJob, BaseException] | None = None
 
-    def execute_domain_units() -> None:
+    def execute_domain_segment(segment: PreparedExecutionSegment) -> None:
         nonlocal domain_failure
-        for unit in prepared.domain_units:
+        for job in segment.domain_jobs:
             try:
-                domain_values[unit.id] = execute_domain_job_values(
-                    unit.prepared,
-                    run_id=run_id,
-                    journal=journal,
+                domain_values[unit_id_by_job[job.id]].append(
+                    execute_domain_job_values(
+                        job.prepared,
+                        run_id=run_id,
+                        journal=journal,
+                    )
                 )
             except BaseException as error:
-                domain_failure = (unit, error)
-                raise _DomainUnitEffectFailed(unit.id) from error
+                domain_failure = (job, error)
+                raise _DomainUnitEffectFailed(job.id) from error
+
+    segment_effects = tuple(
+        (
+            segment.point_indices,
+            lambda selected=segment: execute_domain_segment(selected),
+        )
+        for segment in prepared.segments
+    )
 
     local_result: ExecutionEngineResult | None = None
     setup_problems: list[Problem] = []
@@ -216,6 +218,15 @@ def _execute_composite_run(
     try:
         with LocalResourceLeaseManager(workspace).acquire(claims):
             if point is not None and local_prepared is not None:
+                engine_runner: (
+                    Callable[[ExecutionEngine], ExecutionEngineResult] | None
+                ) = (
+                    None
+                    if not prepared.domain_units
+                    else lambda engine: engine.run_around_point_segments(
+                        segment_effects
+                    )
+                )
                 local_result, setup_problems = execute_prepared_local_effects(
                     config=config,
                     prepared=local_prepared,
@@ -228,14 +239,14 @@ def _execute_composite_run(
                     payloads=payloads,
                     event_sink=event_sink,
                     payload_observer=payload_observer,
-                    engine_runner=lambda engine: engine.run_around_point_set(
-                        execute_domain_units
-                    ),
+                    transition_observer=transition_observer,
+                    engine_runner=engine_runner,
                     acquire_resources=False,
                 )
             else:
                 try:
-                    execute_domain_units()
+                    for segment in prepared.segments:
+                        execute_domain_segment(segment)
                 except _DomainUnitEffectFailed:
                     pass
                 except BaseException as error:
@@ -263,10 +274,10 @@ def _execute_composite_run(
     if isinstance(resource_failure, Exception):
         problems.append(
             problem_from_exception(
-                "composite_resource_lease_failed",
-                "composite execution resource lease failed",
+                "execution_plan_resource_lease_failed",
+                "execution plan resource lease failed",
                 run_id=run_id,
-                operation_id="composite.resources",
+                operation_id="execution-plan.resources",
                 error=resource_failure,
             )
         )
@@ -275,10 +286,10 @@ def _execute_composite_run(
         interruption = resource_failure
         problems.append(
             runtime_problem(
-                "composite_resource_lease_interrupted",
-                "composite execution resource lease was interrupted",
+                "execution_plan_resource_lease_interrupted",
+                "execution plan resource lease was interrupted",
                 run_id=run_id,
-                operation_id="composite.resources",
+                operation_id="execution-plan.resources",
                 category=ProblemCategory.INTERRUPTED,
                 details={
                     "exception_type": type(resource_failure).__qualname__,
@@ -296,6 +307,9 @@ def _execute_composite_run(
         if domain_interruption is not None:
             interruption = domain_interruption
 
+    # Aggregate product ownership is an exact whole-run contract. If any batch
+    # fails, successful effects remain correlated in the journal, but Scopecat
+    # does not publish a logically incomplete measurement dataset.
     if not has_blocking_problems(problems):
         try:
             fragments = _measurement_fragments(
@@ -314,7 +328,12 @@ def _execute_composite_run(
                 values,
                 run_id=run_id,
             )
-            commit_projected_measurement_records(projected, measurements, journal)
+            commit_projected_measurement_records(
+                projected,
+                measurements,
+                journal,
+                transition_observer=transition_observer.observe,
+            )
         except MeasurementRecordingError as error:
             problems.extend(
                 contextualize_problems(
@@ -333,16 +352,16 @@ def _execute_composite_run(
                 contextualize_problems(
                     error.problems,
                     run_id=run_id,
-                    operation_id="composite.measurements",
+                    operation_id="execution-plan.measurements",
                 )
             )
         except Exception as error:
             problems.append(
                 problem_from_exception(
-                    "composite_measurement_assembly_failed",
-                    "composite measurement assembly failed",
+                    "execution_plan_measurement_assembly_failed",
+                    "execution plan measurement assembly failed",
                     run_id=run_id,
-                    operation_id="composite.measurements",
+                    operation_id="execution-plan.measurements",
                     error=error,
                 )
             )
@@ -351,10 +370,10 @@ def _execute_composite_run(
             certainty = "indeterminate"
             problems.append(
                 runtime_problem(
-                    "composite_measurement_assembly_interrupted",
-                    "composite measurement assembly was interrupted",
+                    "execution_plan_measurement_assembly_interrupted",
+                    "execution plan measurement assembly was interrupted",
                     run_id=run_id,
-                    operation_id="composite.measurements",
+                    operation_id="execution-plan.measurements",
                     category=ProblemCategory.INTERRUPTED,
                     details={"exception_type": type(error).__qualname__},
                 )
@@ -368,35 +387,41 @@ def _execute_composite_run(
     if reload_uncertain:
         certainty = "indeterminate"
     expected_schema = raw_measurement_schema(plan.expected_dataset_schema)
-    problems.extend(
-        contextualize_problems(
-            validate_measurement_index_shape(
-                measurements=committed_measurements,
-                expected_indices=set(range(plan.point_count)),
-                duplicate_code="composite_measurement_point_duplicate",
-                duplicate_message="composite measurements repeat point index",
-                unknown_code="composite_measurement_point_unknown",
-                unknown_message="composite measurements contain unknown point index",
-                missing_observables_code="composite_measurement_observables_missing",
-                missing_observables_message=(
-                    "composite measurement records require at least one observable"
+    if committed_measurements or not has_blocking_problems(problems):
+        problems.extend(
+            contextualize_problems(
+                validate_measurement_index_shape(
+                    measurements=committed_measurements,
+                    expected_indices=set(range(plan.point_count)),
+                    duplicate_code="execution_plan_measurement_point_duplicate",
+                    duplicate_message="execution plan measurements repeat point index",
+                    unknown_code="execution_plan_measurement_point_unknown",
+                    unknown_message=(
+                        "execution plan measurements contain unknown point index"
+                    ),
+                    missing_observables_code=(
+                        "execution_plan_measurement_observables_missing"
+                    ),
+                    missing_observables_message=(
+                        "execution plan measurement records require at least "
+                        "one observable"
+                    ),
                 ),
-            ),
-            run_id=run_id,
-            operation_id="composite.validate-measurements",
+                run_id=run_id,
+                operation_id="execution-plan.validate-measurements",
+            )
         )
-    )
-    problems.extend(
-        contextualize_problems(
-            validate_raw_measurement_dataset(
-                records=committed_measurements,
-                expected_schema=expected_schema,
-                dataset_id=RAW_MEASUREMENTS_DATASET_ID,
-            ),
-            run_id=run_id,
-            operation_id="composite.validate-dataset",
+        problems.extend(
+            contextualize_problems(
+                validate_raw_measurement_dataset(
+                    records=committed_measurements,
+                    expected_schema=expected_schema,
+                    dataset_id=RAW_MEASUREMENTS_DATASET_ID,
+                ),
+                run_id=run_id,
+                operation_id="execution-plan.validate-dataset",
+            )
         )
-    )
 
     failed = has_blocking_problems(problems)
     outcome = RunOutcome(
@@ -494,7 +519,7 @@ def _measurement_fragments(
     prepared: PreparedExecutionPlan,
     *,
     local_binding: BoundLocalCollectionFragment | None,
-    domain_values: dict[str, ClosedMeasurementProductValues],
+    domain_values: dict[str, list[ClosedMeasurementProductValues]],
     run_id: str,
     readbacks: LocalCollectionRepository,
 ) -> tuple[ClosedMeasurementValueFragment, ...]:
@@ -511,7 +536,7 @@ def _measurement_fragments(
     for unit in prepared.domain_units:
         if not unit.product_use_ids:
             continue
-        values = domain_values[unit.id]
+        value_batches = domain_values[unit.id]
         fragments.append(
             seal_measurement_value_fragment(
                 prepared.value_assembly,
@@ -522,6 +547,7 @@ def _measurement_fragments(
                         value.product_use_id,
                         value.value,
                     )
+                    for values in value_batches
                     for value in values.values
                 ),
             )
@@ -544,13 +570,13 @@ def _local_problems(
         contextualize_problems(
             selected,
             run_id=run_id,
-            operation_id="composite.local",
+            operation_id="execution-plan.local",
         )
     )
 
 
 def _domain_failure_problems(
-    unit: PreparedDomainJobUnit,
+    unit: PreparedDomainJob,
     error: BaseException,
     *,
     run_id: str,
@@ -656,10 +682,10 @@ def _reload_measurements(
     except Exception as error:
         problems.append(
             problem_from_exception(
-                "composite_measurement_reload_failed",
-                "committed composite measurements could not be reloaded",
+                "execution_plan_measurement_reload_failed",
+                "committed execution plan measurements could not be reloaded",
                 run_id=run_id,
-                operation_id="composite.measurements.reload",
+                operation_id="execution-plan.measurements.reload",
                 error=error,
                 phase=ProblemPhase.PERSISTENCE,
                 category=ProblemCategory.STORAGE,
@@ -667,10 +693,10 @@ def _reload_measurements(
         )
         problems.append(
             runtime_problem(
-                "composite_measurement_reload_terminalized",
+                "execution_plan_measurement_reload_terminalized",
                 "the run was terminalized without trusting its measurement chunks",
                 run_id=run_id,
-                operation_id="composite.measurements.reload",
+                operation_id="execution-plan.measurements.reload",
                 phase=ProblemPhase.PERSISTENCE,
                 category=ProblemCategory.STORAGE,
                 details={
@@ -693,8 +719,17 @@ def _execution_summary(
     problems: list[Problem],
 ) -> ExecutionSummary:
     if local_result is not None:
+        completed_indices = {record.point_index for record in measurements}
         return build_execution_summary(
-            result=replace(local_result, measurements=tuple(measurements)),
+            result=replace(
+                local_result,
+                measurements=tuple(measurements),
+                points=tuple(
+                    point
+                    for point in local_result.points
+                    if point.point_index in completed_indices
+                ),
+            ),
             outcome=outcome,
             instrument_ids=instrument_ids,
             point_count=plan.point_count,

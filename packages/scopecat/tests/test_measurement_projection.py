@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from scopecat._compiler.linked import MaterializedLinkedPointBatch
 from scopecat.errors import CheckFailed
 from scopecat.measurement_projection import (
     bind_measurement_projection,
@@ -51,6 +52,25 @@ def test_projection_selects_record_backed_uses_without_changing_assembly() -> No
         "primary",
         "alias",
         "secondary",
+    )
+
+
+def test_projection_selects_only_the_linked_point_batch() -> None:
+    scenario = _scenario(point_values=(0.0, 1.0, 2.0), use_count=2)
+    batch = MaterializedLinkedPointBatch(scenario.linked_points, (1, 2))
+
+    projection = select_measurement_projection(batch)
+
+    assert projection.linked_points is batch
+    assert projection.coordinate_ids == ("x",)
+    assert projection.schema is not None
+    assert (
+        next(
+            dimension
+            for dimension in projection.schema.dimensions
+            if dimension.id == "point"
+        ).size
+        == 2
     )
 
 

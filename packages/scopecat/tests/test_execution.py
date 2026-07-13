@@ -11,7 +11,7 @@ from typing import cast
 import pytest
 from pydantic import BaseModel, JsonValue
 
-import scopecat._execution.executor as execution_executor
+import scopecat._execution.execution_plan_executor as execution_plan_executor
 from scopecat._compiler.binding import bind_program
 from scopecat._compiler.bound import BoundAxis, BoundPlan
 from scopecat._compiler.environment import validate_config_environment
@@ -35,7 +35,7 @@ from scopecat._execution.evidence import (
     instrument_state_evidence_ref,
     run_outcome_ref,
 )
-from scopecat._execution.executor import execute_run
+from scopecat._execution.executor import prepare_execution
 from scopecat._execution.program import ResourceClaim
 from scopecat._operation_contract import LOCAL_OPAQUE_OPERATION_CONTRACT
 from scopecat._point_domain_algebra import point_rows
@@ -93,7 +93,7 @@ from scopecat.runtime import (
 from scopecat.value_types import Payload, Scalar, String, TableColumn
 from scopecat.value_types import Quantity as QuantityType
 from scopecat.value_types import Table as TableType
-from tests.support.execution import execute_bound_run
+from tests.support.execution import execute_bound_run, execute_program_run
 from tests.support.experiment_preview import config_with_physical_resources
 from tests.support.instrument_drivers import SignalInstrumentDriver
 from tests.support.records import (
@@ -184,7 +184,7 @@ def test_instrument_state_snapshot_rejects_non_durable_metadata() -> None:
         )
 
 
-def test_execute_run_persists_measurements_and_run_files(
+def test_run_persists_measurements_and_run_files(
     tmp_path: Path,
 ) -> None:
     config = load_config()
@@ -228,7 +228,7 @@ def test_execute_run_persists_measurements_and_run_files(
     assert persisted_manifest == manifest
     assert persisted_config == config
     assert persisted_plan.experiment_id == summary.experiment_id
-    assert persisted_plan.schema_version == "scopecat.run_plan_record.v6"
+    assert persisted_plan.schema_version == "scopecat.run_plan_record.v7"
     assert persisted_plan.point_count == summary.point_count
     assert not (run_dir / "experiment-spec.json").exists()
     assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v3"
@@ -334,7 +334,7 @@ class _NonFiniteSignalInstrument(TestSignalInstrument):
         )
 
 
-def test_execute_run_round_trips_non_finite_terminal_measurements(
+def test_run_round_trips_non_finite_terminal_measurements(
     tmp_path: Path,
 ) -> None:
     manifest, summary = execute_bound_run(
@@ -752,20 +752,14 @@ def test_provider_lifecycle_is_inside_resource_lease(
         events=events,
     )
     monkeypatch.setattr(
-        execution_executor,
+        execution_plan_executor,
         "LocalResourceLeaseManager",
         lambda _workspace: leases,
     )
     config = load_config()
-    plan = bind_program(
-        load_experiment(),
-        validate_config_environment(config),
-    )
-
-    manifest, _summary = execute_run(
+    manifest, _summary = execute_program_run(
         config=config,
-        plan=plan,
-        request=None,
+        experiment=load_experiment(),
         instrument_provider=provider,
         workspace=tmp_path,
     )
@@ -810,16 +804,10 @@ def test_returned_driver_is_finalized_when_identity_getter_interrupts(
     driver = _PersistentInterruptingIdentityDriver()
     provider = _InterruptingIdentityProvider(driver)
     config = load_config()
-    plan = bind_program(
-        load_experiment(),
-        validate_config_environment(config),
-    )
-
     with pytest.raises(KeyboardInterrupt, match="identity lookup cancelled"):
-        execute_run(
+        execute_program_run(
             config=config,
-            plan=plan,
-            request=None,
+            experiment=load_experiment(),
             instrument_provider=provider,
             workspace=tmp_path,
         )
@@ -850,16 +838,10 @@ def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
     driver = _TrackedSetupDriver()
     provider = _InvalidMetadataProvider(driver)
     config = load_config()
-    plan = bind_program(
-        load_experiment(),
-        validate_config_environment(config),
-    )
-
     with pytest.raises(RunFailed) as captured:
-        execute_run(
+        execute_program_run(
             config=config,
-            plan=plan,
-            request=None,
+            experiment=load_experiment(),
             instrument_provider=provider,
             workspace=tmp_path,
         )
@@ -884,12 +866,10 @@ def test_malformed_provider_description_is_rejected_before_run_acceptance(
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        execute_run(
+        prepare_execution(
             config=config,
             plan=plan,
-            request=None,
             instrument_provider=provider,
-            workspace=tmp_path,
         )
 
     assert "instrument_provider_description_failed" in {
@@ -923,12 +903,10 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        execute_run(
+        prepare_execution(
             config=config,
             plan=plan,
-            request=None,
             instrument_provider=provider,
-            workspace=tmp_path,
         )
 
     assert [problem.code for problem in captured.value.problems] == [
@@ -953,12 +931,10 @@ def test_partial_provider_description_reports_missing_bound_instrument_before_ru
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        execute_run(
+        prepare_execution(
             config=config,
             plan=plan,
-            request=None,
             instrument_provider=provider,
-            workspace=tmp_path,
         )
 
     assert [problem.code for problem in captured.value.problems] == [
@@ -994,12 +970,10 @@ def test_provider_description_exception_preserves_cause_and_preflight_order(
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        execute_run(
+        prepare_execution(
             config=config,
             plan=plan,
-            request=None,
             instrument_provider=provider,
-            workspace=tmp_path,
         )
 
     assert [problem.code for problem in captured.value.problems] == [
@@ -1022,12 +996,10 @@ def test_invalid_provider_identity_stops_before_description_and_run(
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        execute_run(
+        prepare_execution(
             config=config,
             plan=plan,
-            request=None,
             instrument_provider=provider,
-            workspace=tmp_path,
         )
 
     assert [problem.code for problem in captured.value.problems] == [
@@ -1053,12 +1025,10 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
     plan = _first_point_plan(plan)
 
     with pytest.raises(ProviderContractError) as captured:
-        execute_run(
+        prepare_execution(
             config=config,
             plan=plan,
-            request=None,
             instrument_provider=provider,
-            workspace=tmp_path,
         )
 
     problem = captured.value.problems[0]
@@ -1131,12 +1101,10 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        execute_run(
+        prepare_execution(
             config=config,
             plan=plan,
-            request=None,
             instrument_provider=provider,
-            workspace=tmp_path,
         )
 
     problem = captured.value.problems[0]
@@ -1182,19 +1150,17 @@ def test_provider_description_interruption_precedes_run_acceptance(
     )
 
     with pytest.raises(KeyboardInterrupt, match="description cancelled"):
-        execute_run(
+        prepare_execution(
             config=config,
             plan=plan,
-            request=None,
             instrument_provider=provider,
-            workspace=tmp_path,
         )
 
     assert not provider.provide_called
     assert open_run_store(tmp_path).list_runs() == []
 
 
-def test_execute_run_emits_transient_runtime_events(tmp_path: Path) -> None:
+def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
     events: list[RuntimeEvent] = []
 
     manifest, summary = execute_bound_run(
@@ -1300,7 +1266,7 @@ def test_runtime_event_sink_failure_does_not_change_durable_execution(
     )
 
 
-def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
+def test_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
     calls: list[Quantity] = []
 
     def build_program(*, value: object) -> dict[str, object]:
@@ -1514,7 +1480,7 @@ def test_execute_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
     assert "build-program" not in json.dumps(persisted_plan_wire)
 
 
-def test_execute_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
+def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
     instrument = TestSignalInstrument()
     experiment = load_experiment().model_copy(
         update={

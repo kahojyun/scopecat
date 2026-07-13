@@ -8,6 +8,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import JsonValue
 
+from scopecat._compiler.linked import MaterializedLinkedPointBatch
 from scopecat._compiler.products import ProductDef
 from scopecat._product_identity import ProductUse, ProductUseId
 from scopecat.errors import CheckFailed, MeasurementTransformExecutionError
@@ -163,6 +164,22 @@ def _one_transform_plan(
         _candidates(scenario, (source,)),
     )
     return scenario, graph, selected, assembly, bound, source_fragment
+
+
+def test_transform_graph_accepts_a_linked_point_batch() -> None:
+    scenario = _scenario(point_values=(0.0, 1.0, 2.0), use_count=2)
+    source, output = scenario.uses
+    transform = _transform(
+        scenario,
+        "batch-transform",
+        (("input", source),),
+        (("output", output),),
+    )
+    batch = MaterializedLinkedPointBatch(scenario.linked_points, (1, 2))
+
+    graph = verify_measurement_transform_graph(batch, (transform,))
+
+    assert graph.linked_points is batch
 
 
 @given(order=st.permutations((0, 1, 2)))

@@ -79,12 +79,14 @@ def test_recording_commits_canonical_points_with_strict_journal_evidence() -> No
     projected = _projected()
     committer = MemoryMeasurementRecordCommitter()
     journal = MemoryExecutionJournal()
+    observed: list[ExecutionTransition] = []
 
     committed = commit_projected_measurement_records(
         projected,
         committer,
         journal,
         attempt=2,
+        transition_observer=observed.append,
     )
 
     assert isinstance(committed, CommittedProjectedMeasurementRecords)
@@ -104,6 +106,7 @@ def test_recording_commits_canonical_points_with_strict_journal_evidence() -> No
         ("record_measurement", "persistence", "started", 2, 1),
         ("record_measurement", "persistence", "completed", 2, 1),
     ]
+    assert observed == list(journal.entries)
     for chunk, receipt, started, completed in zip(
         committer.chunks,
         committed.receipts,
@@ -211,16 +214,13 @@ def test_zero_or_empty_recording_has_no_write_or_transition(
     assert journal.entries == ()
 
 
-@pytest.mark.parametrize("projected", [_zero_projected(), _empty_projection()])
-def test_zero_or_empty_recording_still_rejects_fractional_attempt(
-    projected: ProjectedMeasurementRecords,
-) -> None:
+def test_recording_rejects_fractional_attempt() -> None:
     committer = MemoryMeasurementRecordCommitter()
     journal = MemoryExecutionJournal()
 
     with pytest.raises(ValueError, match="positive integer"):
         commit_projected_measurement_records(
-            projected,
+            _projected(),
             committer,
             journal,
             attempt=cast("int", 1.5),

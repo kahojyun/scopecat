@@ -18,7 +18,12 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from scopecat import Quantity
-from scopecat.domain_invocation import MaterializedLinkedPoints, ProductUseId
+from scopecat.domain_invocation import (
+    MaterializedLinkedPointBatch,
+    MaterializedLinkedPoints,
+    MaterializedLinkedPointSet,
+    ProductUseId,
+)
 from scopecat.measurement_projection import (
     BoundMeasurementProjection,
     bind_measurement_projection,
@@ -134,7 +139,7 @@ class FakeXCountProductBinding:
 class PreparedFakeXCountReference:
     """Pure, completely bound fake-target and host-processing plan."""
 
-    linked_points: MaterializedLinkedPoints = field(repr=False)
+    linked_points: MaterializedLinkedPointSet = field(repr=False)
     products: FakeXCountProductBinding
     x_count_column: str
     x_counts: tuple[int, ...]
@@ -158,7 +163,7 @@ class PreparedFakeXCountReference:
 
 
 def prepare_fake_x_count_reference(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
     products: FakeXCountProductBinding,
     *,
     x_count_column: str = "x_count",
@@ -177,8 +182,11 @@ def prepare_fake_x_count_reference(
     the canonical logical point identities explicit.
     """
 
-    if not isinstance(linked_points, MaterializedLinkedPoints):
-        msg = "fake X-count preparation requires MaterializedLinkedPoints"
+    if not isinstance(
+        linked_points,
+        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
+    ):
+        msg = "fake X-count preparation requires materialized linked points"
         raise TypeError(msg)
     if not isinstance(products, FakeXCountProductBinding):
         msg = "fake X-count preparation requires a product binding"
@@ -209,23 +217,24 @@ def prepare_fake_x_count_reference(
 
     gate = GateDefinition(GateId("x"), qubit_arity=1)
     catalog = _calibration_catalog(qubit, gate)
+    points = linked_points.point_domain.points
     circuits = tuple(
         _x_count_circuit(
             qubit=qubit,
             gate=gate,
             x_count=x_count,
-            point_index=point_index,
+            point_index=point.logical_ordinal,
         )
-        for point_index, x_count in enumerate(x_counts)
+        for point, x_count in zip(points, x_counts, strict=True)
     )
     entries = tuple(
         prepare_circuit_target_entry(
-            TargetCompileEntryId(f"fake-x-count-entry-{point_index}"),
+            TargetCompileEntryId(f"fake-x-count-entry-{point.logical_ordinal}"),
             circuit,
             select_calibrations(circuit, catalog),
-            output_id=PulseProgramId(f"fake-x-count-pulses-{point_index}"),
+            output_id=PulseProgramId(f"fake-x-count-pulses-{point.logical_ordinal}"),
         )
-        for point_index, circuit in enumerate(circuits)
+        for point, circuit in zip(points, circuits, strict=True)
     )
     compiler = FakeListTargetCompiler(compiler_id, selected_target)
     batch = prepare_circuit_target_batch(
@@ -235,7 +244,6 @@ def prepare_fake_x_count_reference(
         capability_fingerprint=selected_target.capability_fingerprint,
         repetitions=shots,
     )
-    points = linked_points.point_domain.points
     mapping = seal_circuit_target_result_mapping(
         linked_points,
         batch,
@@ -368,7 +376,7 @@ def prepare_fake_x_count_reference(
 
 
 def _x_counts(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
     column: str,
 ) -> tuple[int, ...]:
     points = linked_points.point_domain.points
@@ -393,7 +401,7 @@ def _x_counts(
 
 
 def _product_contracts(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
     products: FakeXCountProductBinding,
 ) -> tuple[ProductDef, ProductDef, ProductDef]:
     plan = linked_points.linked_plan
@@ -412,7 +420,7 @@ def _product_contracts(
 
 
 def _require_probability_records(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
     products: FakeXCountProductBinding,
 ) -> None:
     recorded = {

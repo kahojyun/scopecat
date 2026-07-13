@@ -28,6 +28,7 @@ uv run python examples/quantum/notebooks/08_readout_family.py
 uv run python examples/quantum/notebooks/09_system_scale_cases.py
 uv run python examples/quantum/notebooks/10_fake_awg_template.py
 uv run python examples/quantum/notebooks/11_fake_awg_scratch.py
+uv run python examples/quantum/notebooks/12_fake_awg_with_bias.py
 ```
 
 For VS Code notebook/cell execution, sync the workspace environment first.
@@ -52,6 +53,7 @@ uv sync
 | `notebooks/09_system_scale_cases.py` | Preview surface-code-shaped and backend-batch cases that exercise larger array and backend semantics. |
 | `notebooks/10_fake_awg_template.py` | Run a reusable quantum Template as one fake AWG list plus digitizer acquisition and host IQ discrimination. |
 | `notebooks/11_fake_awg_scratch.py` | Define and run the same target path through the scratch `Experiment` authoring style. |
+| `notebooks/12_fake_awg_with_bias.py` | Cross a scalar DC-voltage source with the programmable X-count axis and let one unified backend batch the fake AWG work between voltage changes. |
 
 ## Adapting The Demo
 
@@ -67,7 +69,7 @@ and move repeated lab details into a local support package:
 | Edit qubit, coupler, channel, line, or shared-LO wiring | `support/src/quantum_lab_demo/virtual_lab/wiring.py` | `quantum_wiring()` compiled into config |
 | Change workspace roots, fixture paths, or profile selection | `support/src/quantum_lab_demo/lab.py` and `support/src/quantum_lab_demo/fixtures.py` | `sc.open(...)` |
 | Replace virtual hardware with a lab adapter | `support/src/quantum_lab_demo/virtual_lab/provider.py` | `Workspace.prepare(...).input(...).run()` |
-| Adapt gate/pulse compilation to a target | `support/src/quantum_lab_demo/reference_experiments/` and `targets/fake_list_mode/` | an explicit `DomainExecutionAdapter` selected for one `Workspace.prepare(...)` call |
+| Adapt gate/pulse compilation to a target | `support/src/quantum_lab_demo/reference_experiments/` and `targets/fake_list_mode/` | one `ExecutionBackend` whose provider and domain adapters declare their capabilities |
 | Change one-off analysis | `notebooks/04_manual_analysis.py` | `Run.data()` and `Run.analysis(...)` |
 | Promote repeated analysis | `support/src/quantum_lab_demo/experiments/readout_analysis_steps.py` | `Run.analyze(...)` |
 | Try a candidate config | `notebooks/06_review_candidate_and_rerun.py` | `Analysis.candidate_config()` and `Workspace.prepare(..., config=candidate).input(...).run()` |
@@ -80,27 +82,29 @@ from `quantum_lab_demo.experiments`; move reference cases into focused module
 and template definitions when scratch exploration becomes reusable.
 
 The support package also contains a runnable fake list-mode AWG/acquisition
-reference path. Notebooks 10 and 11 demonstrate checked quantum target compilation, correlated
-domain submit/fetch/reconcile, producer-neutral host value assembly, independent
-typed `POINT` measurement transformation, record projection, and receipt-bearing
-per-point recording. Its binary-IQ fixture keeps raw shots under domain
-ownership and derived probabilities under transform ownership. One pure kernel
-call runs per logical point, while aliases cause neither another transform nor
-another committed point write; accepted receipts retain no target result
-addresses or raw frames. The nearest-centroid implementation is host-only until
-numeric precision and rounding become semantic. Both authoring styles converge
-on the same `Workspace.prepare(...).run()` workflow and publish an ordinary durable `Run`;
-the domain adapter is a target boundary, not a second experiment API.
-Adapter selection belongs to the prepared experiment rather than the workspace,
-so one open workspace can freely interleave ordinary local-provider runs with
-whole-program domain-target runs.
+reference path. Notebooks 10 and 11 demonstrate checked quantum target
+compilation, correlated domain submit/fetch/reconcile, producer-neutral host
+value assembly, typed `POINT` measurement transformation, record projection,
+and receipt-bearing per-point recording. Its binary-IQ fixture keeps raw shots
+under domain ownership and derived probabilities under transform ownership.
+Both authoring styles use the lab's single `ExecutionBackend` and converge on
+the same `Workspace.prepare(...).run()` workflow; the domain adapter is a
+capability-owning target boundary, not a second execution mode or experiment
+API.
 
-This first domain boundary is intentionally whole-program and synchronous: the
+Notebook 12 shows why the backend is unified. A simple point-local voltage
+source cannot accept lists, while the fake AWG can compile several X-count
+points into one list. The experiment crosses voltage and X count in one logical
+scan. With automatic fusion, local voltage changes partition the run into one
+AWG invocation per voltage block; `ExecutionOptions(fusion="disabled")` instead
+requests one target invocation per logical point. In either case, users receive
+the same eight logical measurement records.
+
+The domain runtime remains intentionally synchronous: each submitted batch's
 initial fetch must return a terminal result. A pending result is persisted as an
 indeterminate contract failure, and an uncertain submit retains target,
 artifact, submission-key, and reconciliation evidence in the standard Run, but
-there is no automatic resume API yet. Composite local/domain plans and polling
-will be introduced as explicit lifecycle shapes rather than hidden fallback.
+there is no automatic resume API yet.
 
 The current notebook virtual provider still synthesizes probability products
 directly and remains legacy demo debt for the older examples. The reference

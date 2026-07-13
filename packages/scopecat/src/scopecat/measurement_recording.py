@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Literal, Protocol, cast
@@ -227,6 +227,7 @@ def commit_projected_measurement_records(
     journal: ExecutionJournal,
     *,
     attempt: int = 1,
+    transition_observer: Callable[[ExecutionTransition], None] | None = None,
 ) -> CommittedProjectedMeasurementRecords:
     """Commit a canonical projected batch with journaled point-level evidence."""
 
@@ -258,7 +259,9 @@ def commit_projected_measurement_records(
             evidence=_chunk_evidence(chunk, expected_chunk_hash),
         )
         try:
-            _commit_transition(journal, started)
+            committed_started = _commit_transition(journal, started)
+            if transition_observer is not None:
+                transition_observer(committed_started)
         except Exception as error:
             problem = _exception_problem(
                 chunk,
@@ -381,7 +384,9 @@ def commit_projected_measurement_records(
             },
         )
         try:
-            _commit_transition(journal, completed)
+            committed_completed = _commit_transition(journal, completed)
+            if transition_observer is not None:
+                transition_observer(committed_completed)
         except Exception as error:
             problem = _exception_problem(
                 chunk,

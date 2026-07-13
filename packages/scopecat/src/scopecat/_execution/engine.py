@@ -98,6 +98,10 @@ logger = logging.getLogger(__name__)
 _RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
 
 
+class CapturedMiddleEffectFailure(Exception):
+    """Stop a segment loop after the caller retained its structured failure."""
+
+
 class ResourceLeaseManager(Protocol):
     """Acquire all claims before any driver interaction begins."""
 
@@ -360,22 +364,36 @@ class ExecutionEngine:
                 self._capture_terminal_states()
         return self._result()
 
-    def run_around_point_set(
+    def run_around_point_segments(
         self,
-        middle: Callable[[], None],
+        segments: Sequence[tuple[tuple[int, ...], Callable[[], None]]],
     ) -> ExecutionEngineResult:
-        """Hoist invariant state around one fused point-set effect.
+        """Execute ordered domain effects between local state and collection.
 
-        Composite planning proves that the local program has no point compute
-        or one-shot actions and that every point has identical desired state.
-        The first point's state is therefore reconciled once, the domain job is
-        executed while drivers remain owned, and local collection then runs for
-        every logical point before cleanup.
+        Planning has already partitioned the canonical point order so desired
+        local state is invariant inside each segment. Drivers stay provisioned
+        for the complete run; each segment reconciles its first point's state,
+        invokes its domain effect, then performs point-local collection.
         """
 
-        if not callable(middle):
-            msg = "point-set middle effect must be callable"
-            raise TypeError(msg)
+        selected_segments = tuple(segments)
+        covered_indices: list[int] = []
+        for point_indices, middle in selected_segments:
+            if not point_indices:
+                msg = "point segments must contain at least one point"
+                raise ValueError(msg)
+            if not callable(middle):
+                msg = "point-segment middle effects must be callable"
+                raise TypeError(msg)
+            if tuple(point_indices) != tuple(
+                range(point_indices[0], point_indices[0] + len(point_indices))
+            ):
+                msg = "point segments must contain contiguous ordered indices"
+                raise ValueError(msg)
+            covered_indices.extend(point_indices)
+        if covered_indices != list(range(len(self.program.points))):
+            msg = "point segments must exactly partition the execution program"
+            raise ValueError(msg)
         self._validate_drivers()
         if has_blocking_problems(self.problems):
             self._finalize_drivers()
@@ -391,13 +409,19 @@ class ExecutionEngine:
                     self.current_states = {
                         state.instrument_id: state for state in self.initial_state
                     }
-                    hoisted_stats = _MutablePointStats()
-                    if not has_blocking_problems(self.problems):
-                        hoisted_stats = self._execute_hoisted_state()
-                    if not has_blocking_problems(self.problems):
+                    for point_indices, middle in selected_segments:
+                        if has_blocking_problems(self.problems):
+                            break
+                        segment_points = tuple(
+                            self.program.points[index] for index in point_indices
+                        )
+                        hoisted_stats = self._execute_point_state(segment_points[0])
+                        if has_blocking_problems(self.problems):
+                            break
                         middle()
-                    if not has_blocking_problems(self.problems):
-                        for point in self.program.points:
+                        if has_blocking_problems(self.problems):
+                            break
+                        for point_offset, point in enumerate(segment_points):
                             collection_point = PointProgram(
                                 point_index=point.point_index,
                                 point_uid=point.point_uid,
@@ -411,7 +435,7 @@ class ExecutionEngine:
                             self._execute_point(
                                 collection_point,
                                 initial_stats=(
-                                    hoisted_stats if point.point_index == 0 else None
+                                    hoisted_stats if point_offset == 0 else None
                                 ),
                             )
                             if has_blocking_problems(self.problems):
@@ -425,11 +449,13 @@ class ExecutionEngine:
                             phase=ProblemPhase.PERSISTENCE,
                         )
                     )
+                except CapturedMiddleEffectFailure:
+                    pass
                 except Exception as error:
                     self.problems.append(
                         self._problem_from_exception(
-                            "composite_middle_effect_failed",
-                            "composite point-set effect failed",
+                            "execution_middle_effect_failed",
+                            "execution point-set effect failed",
                             error,
                         )
                     )
@@ -460,10 +486,7 @@ class ExecutionEngine:
                 self._capture_terminal_states()
         return self._result()
 
-    def _execute_hoisted_state(self) -> _MutablePointStats:
-        if not self.program.points:
-            return _MutablePointStats()
-        point = self.program.points[0]
+    def _execute_point_state(self, point: PointProgram) -> _MutablePointStats:
         frame = _PointFrame(point=point)
         for stage in point.stages:
             if not isinstance(stage, ApplyStateStage):
@@ -2225,6 +2248,7 @@ def _readback_problem(
 
 
 __all__ = [
+    "CapturedMiddleEffectFailure",
     "ExecutionEngine",
     "ExecutionEngineResult",
     "ExecutionPointStats",

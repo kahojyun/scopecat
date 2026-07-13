@@ -46,7 +46,7 @@ def _load_signal_fixture():
 def _start_signal_run(workspace: Path):
     config, experiment = _load_signal_fixture()
     return start_run(
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=prepare_invocation(experiment),
         workspace=workspace,
@@ -77,7 +77,7 @@ def exercise_preview(workspace: Path) -> None:
     config = load_config_profile(SIGNAL_FIXTURE_DIR / "config-profile.json")
     preview_experiment(
         config=config,
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         experiment=prepare_invocation(load_invocation()),
         workspace=workspace,
     )
@@ -186,7 +186,7 @@ def exercise_instrument_provider_workflow(workspace: Path) -> None:
         config=config,
         experiment=prepare_invocation(experiment),
         workspace=workspace,
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )
 
 

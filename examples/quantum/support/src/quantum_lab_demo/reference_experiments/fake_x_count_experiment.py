@@ -7,14 +7,16 @@ from typing import cast
 
 import scopecat as sc
 from scopecat.domain_execution import (
+    DomainExecutionCapabilities,
+    DomainExecutionRequest,
     PreparedDomainExecution,
     erase_prepared_domain_execution,
 )
 from scopecat.domain_invocation import (
     LinkedPlan,
+    MaterializedLinkedPoints,
     ProductId,
     ProductUseId,
-    materialize_linked_points,
 )
 from scopecat.domain_runtime import CorrelatedDomainFetch
 
@@ -26,6 +28,8 @@ from quantum_lab_demo.reference_experiments.fake_x_count import (
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListRun,
+    FakeListTarget,
+    default_fake_list_target,
     realize_fetched_fake_measurements,
 )
 
@@ -88,21 +92,41 @@ FAKE_X_COUNT_TEMPLATE = (
 class FakeXCountDomainExecutionAdapter:
     """Lab-owned target selection for the fake list-mode AWG and digitizer."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, target: FakeListTarget | None = None) -> None:
+        self.target = default_fake_list_target() if target is None else target
         self.runtime = FakeListDomainRuntime()
 
     @property
     def adapter_id(self) -> str:
         return FAKE_X_COUNT_ADAPTER_ID
 
-    def prepare(self, linked: LinkedPlan) -> PreparedDomainExecution:
-        linked_points = materialize_linked_points(linked)
-        products = _product_binding(linked)
+    def capabilities(
+        self,
+        linked_points: MaterializedLinkedPoints,
+    ) -> DomainExecutionCapabilities | None:
+        products = _product_binding_or_none(linked_points.linked_plan)
+        if products is None:
+            return None
+        return DomainExecutionCapabilities(
+            product_use_ids=(
+                products.iq_shots,
+                products.probability_0,
+                products.probability_1,
+            ),
+            domain_product_use_ids=(products.iq_shots,),
+            max_points_per_batch=self.target.max_list_entries,
+        )
+
+    def prepare(self, request: DomainExecutionRequest) -> PreparedDomainExecution:
+        linked_points = request.batch
+        products = _product_binding(linked_points.linked_plan)
         reference = prepare_fake_x_count_reference(
             linked_points,
             products,
             x_count_column="x_count",
             shots=FAKE_X_COUNT_SHOTS,
+            target=self.target,
+            invocation_id=f"fake-x-count.batch-{request.batch_ordinal}",
         )
         return erase_prepared_domain_execution(
             adapter_id=self.adapter_id,
@@ -145,25 +169,33 @@ def fake_x_count_scratch_experiment(
 
 
 def _product_binding(linked: LinkedPlan) -> FakeXCountProductBinding:
+    selected = _product_binding_or_none(linked)
+    if selected is None:
+        msg = "fake X-count products are not selected exactly once"
+        raise ValueError(msg)
+    return selected
+
+
+def _product_binding_or_none(linked: LinkedPlan) -> FakeXCountProductBinding | None:
     uses: dict[ProductId, list[ProductUseId]] = {}
     for use in linked.product_uses:
         uses.setdefault(use.product_id, []).append(use.id)
 
-    def require_one(product_id: ProductId) -> ProductUseId:
+    def select_one(product_id: ProductId) -> ProductUseId | None:
         selected = uses.get(product_id, [])
         if len(selected) != 1:
-            msg = (
-                "fake X-count requires exactly one use of module-owned product "
-                f"{product_id.qualified_name!r}, "
-                f"got {len(selected)}"
-            )
-            raise ValueError(msg)
+            return None
         return selected[0]
 
+    iq_shots = select_one(_IQ_SHOTS_PRODUCT_ID)
+    probability_0 = select_one(_PROBABILITY_0_PRODUCT_ID)
+    probability_1 = select_one(_PROBABILITY_1_PRODUCT_ID)
+    if iq_shots is None or probability_0 is None or probability_1 is None:
+        return None
     return FakeXCountProductBinding(
-        iq_shots=require_one(_IQ_SHOTS_PRODUCT_ID),
-        probability_0=require_one(_PROBABILITY_0_PRODUCT_ID),
-        probability_1=require_one(_PROBABILITY_1_PRODUCT_ID),
+        iq_shots=iq_shots,
+        probability_0=probability_0,
+        probability_1=probability_1,
     )
 
 

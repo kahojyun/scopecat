@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 import pytest
 import scopecat as sc
 from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
-from scopecat._compiler.binding import bind_program
-from scopecat._execution.executor import execute_run
+from scopecat._compiler.linked import link_program
+from scopecat._execution.execution_plan_executor import execute_execution_plan
 from scopecat._resource_identity import logical_resource_port_id
 from scopecat.authoring._elaboration import elaborate_module
 from scopecat.authoring._resolution import resolve_experiment
@@ -314,13 +314,13 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
     provider = _RecordingProvider(
         QuantumLabVirtualProvider(profile=EXPERIMENT_VIRTUAL_LAB_PROFILE)
     )
-    plan = bind_program(resolved.experiment, resolved.environment)
+    linked = link_program(resolved.experiment, resolved.environment)
+    prepared = sc.ExecutionBackend(provider=provider).prepare(linked, config=config)
 
-    manifest, _snapshot = execute_run(
+    manifest, _snapshot = execute_execution_plan(
         config=config,
-        plan=plan,
+        prepared=prepared,
         request=resolved.request,
-        instrument_provider=provider,
         workspace=tmp_path,
         config_source=resolved.config_source,
     )

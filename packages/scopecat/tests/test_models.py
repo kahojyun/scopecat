@@ -23,7 +23,11 @@ from scopecat.models.parameter import (
 from scopecat.models.run_plan import (
     RunPlanChannelBinding,
     RunPlanDeferredValue,
+    RunPlanDomainBatch,
+    RunPlanDomainCapabilities,
     RunPlanDomainExecution,
+    RunPlanExecutionOptions,
+    RunPlanFusionOptions,
     RunPlanOutput,
     RunPlanPayloadValue,
     RunPlanPoint,
@@ -61,6 +65,17 @@ EXAMPLE_DIR = Path(__file__).parents[3] / "fixtures" / "core" / "simple_scan"
 
 def _valid_run_plan_data() -> dict[str, Any]:
     return {
+        "backend_id": "tests.execution.v1",
+        "execution_options": {
+            "requested": {
+                "fusion": "automatic",
+                "max_points_per_batch": None,
+            },
+            "resolved": {
+                "fusion": "disabled",
+                "max_points_per_batch": 1,
+            },
+        },
         "experiment_id": "experiment",
         "experiment_kind": "test",
         "execution_units": [_point_execution_data()],
@@ -127,11 +142,10 @@ def _point_execution_data() -> dict[str, str]:
     return {
         "kind": "point_instrument",
         "unit_id": "point-instrument",
-        "backend_id": "scopecat.point-instrument.v1",
+        "backend_id": "scopecat.execution.v2",
         "provider_id": "tests.signal_instrument_provider",
         "submission_scope": "point",
         "compute_placement": "host",
-        "automatic_fusion": "none",
     }
 
 
@@ -684,6 +698,17 @@ def test_parameter_snapshot_is_recursively_immutable_and_durable() -> None:
 def test_run_plan_dataset_dimensions_must_be_non_negative() -> None:
     with pytest.raises(ValidationError):
         RunPlanRecord(
+            backend_id="tests.execution.v1",
+            execution_options=RunPlanExecutionOptions(
+                requested=RunPlanFusionOptions(
+                    fusion="automatic",
+                    max_points_per_batch=None,
+                ),
+                resolved=RunPlanFusionOptions(
+                    fusion="disabled",
+                    max_points_per_batch=1,
+                ),
+            ),
             experiment_id="experiment",
             experiment_kind="test",
             execution_units=[
@@ -694,20 +719,32 @@ def test_run_plan_dataset_dimensions_must_be_non_negative() -> None:
         )
 
 
-def _domain_execution_data() -> dict[str, str]:
+def _domain_batch_data(
+    batch_ordinal: int,
+    point_indices: list[int],
+) -> dict[str, Any]:
     return {
-        "kind": "domain_job",
-        "unit_id": "domain-job",
-        "adapter_id": "tests.domain.v1",
+        "batch_ordinal": batch_ordinal,
+        "point_indices": point_indices,
         "semantic_operation_id": "measure",
         "completion_contract": "synchronous",
-        "invocation_id": "invocation-1",
-        "intent_fingerprint": "sha256:intent",
+        "invocation_id": f"invocation-{batch_ordinal}",
+        "intent_fingerprint": f"sha256:intent-{batch_ordinal}",
         "target_id": "target-1",
         "compiler_id": "compiler-1",
         "capability_fingerprint": "sha256:capability",
-        "artifact_id": "artifact-1",
-        "artifact_fingerprint": "sha256:artifact",
+        "artifact_id": f"artifact-{batch_ordinal}",
+        "artifact_fingerprint": f"sha256:artifact-{batch_ordinal}",
+    }
+
+
+def _domain_execution_data() -> dict[str, Any]:
+    return {
+        "kind": "domain_program",
+        "unit_id": "domain-job",
+        "adapter_id": "tests.domain.v1",
+        "capabilities": {"max_points_per_batch": 2},
+        "batches": [_domain_batch_data(0, [0, 1])],
     }
 
 
@@ -716,7 +753,7 @@ def test_run_plan_domain_execution_is_payload_free_durable_identity() -> None:
 
     assert_model_round_trip(execution)
     assert execution.model_dump(mode="json") == _domain_execution_data()
-    assert set(execution.model_dump(mode="json")).isdisjoint(
+    assert set(execution.batches[0].model_dump(mode="json")).isdisjoint(
         {"payload", "entry_address", "result_address", "target_address"}
     )
 
@@ -726,9 +763,135 @@ def test_run_plan_domain_execution_is_payload_free_durable_identity() -> None:
         RunPlanDomainExecution.model_validate(empty_adapter)
 
     asynchronous = _domain_execution_data()
-    asynchronous["completion_contract"] = "asynchronous"
+    asynchronous["batches"][0]["completion_contract"] = "asynchronous"
     with pytest.raises(ValidationError, match="completion_contract"):
         RunPlanDomainExecution.model_validate(asynchronous)
+
+
+def test_run_plan_domain_batches_retain_capability_bounded_point_partitions() -> None:
+    first = RunPlanDomainBatch.model_validate(_domain_batch_data(0, [0]))
+    second = RunPlanDomainBatch.model_validate(_domain_batch_data(1, [1]))
+    capabilities = RunPlanDomainCapabilities(max_points_per_batch=1)
+    execution = RunPlanDomainExecution(
+        unit_id="domain-program",
+        adapter_id="tests.domain.v1",
+        capabilities=capabilities,
+        batches=[first, second],
+    )
+    data = _valid_run_plan_data()
+    data["execution_options"]["resolved"] = {
+        "fusion": "automatic",
+        "max_points_per_batch": 1,
+    }
+    data["execution_units"] = [execution.model_dump(mode="json")]
+    data["records"][0].update(
+        producer_kind="domain",
+        producer_unit_id="domain-program",
+    )
+
+    plan = RunPlanRecord.model_validate(data)
+
+    assert plan.execution_units == [execution]
+    assert [batch.point_indices for batch in execution.batches] == [[0], [1]]
+
+    excessive = _domain_execution_data()
+    excessive["capabilities"]["max_points_per_batch"] = 1
+    with pytest.raises(ValidationError, match="adapter point capability"):
+        RunPlanDomainExecution.model_validate(excessive)
+
+    skipped_ordinal = _domain_execution_data()
+    skipped_ordinal["batches"][0]["batch_ordinal"] = 1
+    with pytest.raises(ValidationError, match="ordinals"):
+        RunPlanDomainExecution.model_validate(skipped_ordinal)
+
+
+@pytest.mark.parametrize(
+    "point_partitions",
+    [
+        [[0]],
+        [[0], [0, 1]],
+        [[1], [0]],
+        [[0, 2]],
+    ],
+)
+def test_run_plan_domain_batches_must_exactly_partition_logical_points(
+    point_partitions: list[list[int]],
+) -> None:
+    data = _valid_run_plan_data()
+    domain = _domain_execution_data()
+    domain["batches"] = [
+        _domain_batch_data(ordinal, point_indices)
+        for ordinal, point_indices in enumerate(point_partitions)
+    ]
+    data["execution_units"] = [domain]
+    data["records"][0].update(
+        producer_kind="domain",
+        producer_unit_id="domain-job",
+    )
+
+    with pytest.raises(ValidationError, match="partition every logical point"):
+        RunPlanRecord.model_validate(data)
+
+
+def test_run_plan_execution_options_retain_requested_and_resolved_fusion() -> None:
+    options = RunPlanExecutionOptions(
+        requested=RunPlanFusionOptions(
+            fusion="automatic",
+            max_points_per_batch=4,
+        ),
+        resolved=RunPlanFusionOptions(
+            fusion="automatic",
+            max_points_per_batch=2,
+        ),
+    )
+
+    assert RunPlanExecutionOptions.model_validate_json(options.model_dump_json()) == (
+        options
+    )
+    with pytest.raises(ValidationError, match="requested point bound"):
+        RunPlanExecutionOptions(
+            requested=RunPlanFusionOptions(
+                fusion="automatic",
+                max_points_per_batch=2,
+            ),
+            resolved=RunPlanFusionOptions(
+                fusion="automatic",
+                max_points_per_batch=3,
+            ),
+        )
+    with pytest.raises(ValidationError, match="disabled request"):
+        RunPlanExecutionOptions(
+            requested=RunPlanFusionOptions(
+                fusion="disabled",
+                max_points_per_batch=None,
+            ),
+            resolved=RunPlanFusionOptions(
+                fusion="automatic",
+                max_points_per_batch=None,
+            ),
+        )
+    with pytest.raises(ValidationError, match="one-point bound"):
+        RunPlanExecutionOptions(
+            requested=RunPlanFusionOptions(
+                fusion="automatic",
+                max_points_per_batch=None,
+            ),
+            resolved=RunPlanFusionOptions(
+                fusion="disabled",
+                max_points_per_batch=None,
+            ),
+        )
+
+
+def test_point_only_run_plan_requires_pointwise_resolved_execution() -> None:
+    data = _valid_run_plan_data()
+    data["execution_options"]["resolved"] = {
+        "fusion": "automatic",
+        "max_points_per_batch": 2,
+    }
+
+    with pytest.raises(ValidationError, match="resolve to pointwise execution"):
+        RunPlanRecord.model_validate(data)
 
 
 def test_run_plan_domain_outputs_require_accepted_execution_identity() -> None:
@@ -736,7 +899,7 @@ def test_run_plan_domain_outputs_require_accepted_execution_identity() -> None:
     wrong_unit_kind["records"][0]["producer_kind"] = "domain"
     with pytest.raises(
         ValidationError,
-        match="domain or host-transform outputs require a domain-job unit",
+        match="domain or host-transform outputs require a domain-program unit",
     ):
         RunPlanRecord.model_validate(wrong_unit_kind)
 
@@ -748,6 +911,10 @@ def test_run_plan_domain_outputs_require_accepted_execution_identity() -> None:
 
 def test_run_plan_accepts_mixed_instrument_and_domain_output_units() -> None:
     mixed = _valid_run_plan_data()
+    mixed["execution_options"]["resolved"] = {
+        "fusion": "automatic",
+        "max_points_per_batch": 2,
+    }
     mixed["execution_units"].append(_domain_execution_data())
     mixed["records"].append(
         {
@@ -773,7 +940,7 @@ def test_run_plan_accepts_mixed_instrument_and_domain_output_units() -> None:
     ]
     domain = plan.execution_units[1]
     assert isinstance(domain, RunPlanDomainExecution)
-    assert domain.target_id == "target-1"
+    assert domain.batches[0].target_id == "target-1"
 
 
 def test_run_plan_record_enforces_point_table_invariants() -> None:

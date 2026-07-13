@@ -7,19 +7,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from scopecat._compiler.binding import bind_program
 from scopecat._compiler.environment import validate_config_environment
+from scopecat._compiler.linked import link_program
 from scopecat._compiler.program import TypedProgram
-from scopecat._execution.executor import execute_run
+from scopecat._execution.execution_plan_executor import execute_execution_plan
+from scopecat.execution_backend import ExecutionBackend
 from scopecat.instruments.sdk import (
     InstrumentDriver,
+    InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
 )
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.execution import ExecutionSummary
-from scopecat.models.run import RunManifest
+from scopecat.models.run import RunConfigSource, RunManifest
+from scopecat.models.run_request import RunRequest
 from scopecat.runtime import RuntimeEventSink, RuntimePayloadObserver
 
 
@@ -60,18 +63,46 @@ def execute_bound_run(
 ) -> tuple[RunManifest, ExecutionSummary]:
     """Bind a typed test program, then exercise the production executor boundary."""
 
-    environment = validate_config_environment(config)
-    plan = bind_program(experiment, environment)
-    manifest, summary = execute_run(
+    provider = _ExplicitDriverProvider(tuple(instruments))
+    return execute_program_run(
         config=config,
-        plan=plan,
-        request=None,
-        instrument_provider=_ExplicitDriverProvider(tuple(instruments)),
+        experiment=experiment,
+        instrument_provider=provider,
         workspace=workspace,
+        event_sink=event_sink,
+        payload_observer=payload_observer,
+    )
+
+
+def execute_program_run(
+    *,
+    config: ConfigProfileSnapshot,
+    experiment: TypedProgram,
+    instrument_provider: InstrumentProvider,
+    workspace: str | Path,
+    request: RunRequest | None = None,
+    config_source: RunConfigSource | None = None,
+    event_sink: RuntimeEventSink | None = None,
+    payload_observer: RuntimePayloadObserver | None = None,
+) -> tuple[RunManifest, ExecutionSummary]:
+    """Execute a typed test program through the unified production boundary."""
+
+    environment = validate_config_environment(config)
+    linked = link_program(experiment, environment)
+    prepared = ExecutionBackend(provider=instrument_provider).prepare(
+        linked,
+        config=config,
+    )
+    manifest, summary = execute_execution_plan(
+        config=config,
+        prepared=prepared,
+        request=request,
+        workspace=workspace,
+        config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
     )
     return manifest, cast("ExecutionSummary", summary)
 
 
-__all__ = ["execute_bound_run"]
+__all__ = ["execute_bound_run", "execute_program_run"]

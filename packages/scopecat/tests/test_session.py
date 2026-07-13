@@ -61,7 +61,7 @@ def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )
 
     preview = lab.prepare(load_invocation()).preview()
@@ -76,7 +76,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )
     experiment = load_invocation()
 
@@ -118,7 +118,7 @@ def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> N
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )
     events: list[RuntimeEvent] = []
 
@@ -149,7 +149,7 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )
     experiment = load_invocation()
 

@@ -81,7 +81,7 @@ from scopecat.candidate_configs import (
 )
 from scopecat.checks import ExperimentCheckReport
 from scopecat.errors import CheckFailed
-from scopecat.execution_backend import ExecutionBackend
+from scopecat.execution_backend import ExecutionBackend, ExecutionOptions
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.entity import EntityRef
 from scopecat.models.parameter import Quantity
@@ -154,6 +154,7 @@ class PreparedExperiment:
         repr=False,
         compare=False,
     )
+    _execution_options: ExecutionOptions | None = None
     _run_options: _RunOptions = field(default_factory=_RunOptions)
 
     def __init__(self) -> None:
@@ -253,6 +254,7 @@ class PreparedExperiment:
             config_profile=self._config_profile,
             run_options=run_options,
             execution_backend=self._execution_backend,
+            execution_options=self._execution_options,
         )
 
     def check(
@@ -281,6 +283,7 @@ class PreparedExperiment:
             config_profile=self._config_profile,
             run_options=run_options,
             execution_backend=self._execution_backend,
+            execution_options=self._execution_options,
         )
 
     def explain(
@@ -326,6 +329,7 @@ class PreparedExperiment:
             config_profile=self._config_profile,
             run_options=run_options,
             execution_backend=self._execution_backend,
+            execution_options=self._execution_options,
         )
 
     def run(
@@ -353,6 +357,7 @@ class PreparedExperiment:
             config=self._config,
             config_profile=self._config_profile,
             execution_backend=self._execution_backend,
+            execution_options=self._execution_options,
             run_options=run_options,
             event_sink=event_sink,
             payload_observer=payload_observer,
@@ -677,6 +682,7 @@ class Workspace:
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
         execution_backend: ExecutionBackend | None = None,
+        execution_options: ExecutionOptions | None = None,
     ) -> PreparedExperiment:
         if isinstance(experiment, TemplateBuilder):
             invocation = experiment.build().bind()
@@ -700,6 +706,7 @@ class Workspace:
             _config=config,
             _config_profile=config_profile,
             _execution_backend=execution_backend,
+            _execution_options=execution_options,
         )
 
     def compare(
@@ -843,6 +850,7 @@ def _preview_prepared(
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
     execution_backend: ExecutionBackend | None,
+    execution_options: ExecutionOptions | None,
 ) -> PreviewExperimentResult:
     selected_config, selected_config_profile = _prepared_config_selection(
         session,
@@ -862,6 +870,7 @@ def _preview_prepared(
             if execution_backend is None
             else execution_backend
         ),
+        execution_options=execution_options,
     )
 
 
@@ -873,6 +882,7 @@ def _check_prepared(
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
     execution_backend: ExecutionBackend | None,
+    execution_options: ExecutionOptions | None,
 ) -> ExperimentCheckReport:
     selected_config, selected_config_profile = _prepared_config_selection(
         session,
@@ -892,6 +902,7 @@ def _check_prepared(
             if execution_backend is None
             else execution_backend
         ),
+        execution_options=execution_options,
     )
 
 
@@ -903,6 +914,7 @@ def _validate_prepared(
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
     execution_backend: ExecutionBackend | None,
+    execution_options: ExecutionOptions | None,
 ) -> ValidateExperimentResult:
     try:
         selected_config, selected_config_profile = _prepared_config_selection(
@@ -931,6 +943,7 @@ def _validate_prepared(
             if execution_backend is None
             else execution_backend
         ),
+        execution_options=execution_options,
     )
 
 
@@ -941,6 +954,7 @@ def _run_prepared(
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
     execution_backend: ExecutionBackend | None,
+    execution_options: ExecutionOptions | None,
     run_options: _RunOptions,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
@@ -964,6 +978,7 @@ def _run_prepared(
             config=selected_config,
             config_profile=selected_config_profile,
             execution_backend=selected_execution_backend,
+            execution_options=execution_options,
             event_sink=event_sink,
             payload_observer=payload_observer,
         ),

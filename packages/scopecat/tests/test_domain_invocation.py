@@ -20,11 +20,16 @@ from scopecat._compiler.program import (
 from scopecat._compiler.records import RecordUse
 from scopecat._point_domain_algebra import point_rows
 from scopecat._relations import literal_rows
+from scopecat.domain_execution import (
+    DomainExecutionCapabilities,
+    DomainExecutionRequest,
+)
 from scopecat.domain_invocation import (
     AdapterEntryResults,
     ClosedDomainResultMapping,
     DomainOutputValue,
     EntryPointBinding,
+    MaterializedLinkedPointBatch,
     MaterializedLinkedPoints,
     ProductUseId,
     ResultUseBinding,
@@ -36,6 +41,7 @@ from scopecat.domain_invocation import (
     select_domain_measurement_outputs,
 )
 from scopecat.errors import CheckFailed, ProviderContractError
+from scopecat.execution_coverage import ExecutionTask
 from scopecat.models.measurement import (
     ComplexQuantity,
     MeasurementArray,
@@ -221,6 +227,113 @@ def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> No
             (),
             mapping.entries,
             mapping.results,
+        )
+
+
+def test_result_mapping_closes_only_the_selected_linked_point_batch() -> None:
+    linked_points = _linked_points(point_count=4, product_count=1)
+    batch = MaterializedLinkedPointBatch(linked_points, (1, 2))
+    use = linked_points.linked_plan.product_uses[0]
+    first, second = batch.point_domain.points
+
+    mapping = seal_domain_result_mapping(
+        batch,
+        (use.id,),
+        (
+            AdapterEntryResults("entry-2", ("result-2",)),
+            AdapterEntryResults("entry-1", ("result-1",)),
+        ),
+        (
+            EntryPointBinding("entry-2", second.logical_id),
+            EntryPointBinding("entry-1", first.logical_id),
+        ),
+        (
+            ResultUseBinding("entry-2", "result-2", use.id),
+            ResultUseBinding("entry-1", "result-1", use.id),
+        ),
+    )
+
+    assert mapping.linked_points is batch
+    assert tuple(entry.point for entry in mapping.entries) == (first, second)
+    assert tuple(result.logical_point_id for result in mapping.results) == (
+        linked_points.point_domain.points[1].logical_id,
+        linked_points.point_domain.points[2].logical_id,
+    )
+    assert tuple(result.result_address for result in mapping.results) == (
+        "result-1",
+        "result-2",
+    )
+
+
+def test_domain_execution_capabilities_and_request_are_nominal_batch_contracts() -> (
+    None
+):
+    linked_points = _linked_points(point_count=4, product_count=2)
+    batch = MaterializedLinkedPointBatch(linked_points, (1, 2))
+    uses = linked_points.linked_plan.product_uses
+
+    capabilities = DomainExecutionCapabilities(
+        product_use_ids=(uses[0].id, uses[1].id),
+        domain_product_use_ids=(uses[0].id,),
+        claimed_tasks=(
+            ExecutionTask("action", "acquire"),
+            ExecutionTask("state", "prepare"),
+        ),
+        max_points_per_batch=8,
+    )
+    request = DomainExecutionRequest(batch=batch, batch_ordinal=3)
+
+    assert capabilities.claimed_tasks == (
+        ExecutionTask("state", "prepare"),
+        ExecutionTask("action", "acquire"),
+    )
+    assert capabilities.product_use_ids == (uses[0].id, uses[1].id)
+    assert capabilities.domain_product_use_ids == (uses[0].id,)
+    assert frozenset(capabilities.coverage.product_use_ids) == {
+        uses[0].id,
+        uses[1].id,
+    }
+    assert capabilities.max_points_per_batch == 8
+    assert request.batch is batch
+    assert request.linked_points is batch
+    assert request.batch_ordinal == 3
+
+
+@pytest.mark.parametrize("max_points", [0, -1])
+def test_domain_execution_capabilities_require_positive_batch_capacity(
+    max_points: int,
+) -> None:
+    with pytest.raises(ValueError, match="positive"):
+        DomainExecutionCapabilities(
+            (),
+            (),
+            claimed_tasks=(ExecutionTask("state", "prepare"),),
+            max_points_per_batch=max_points,
+        )
+
+
+def test_domain_execution_capabilities_require_semantic_ownership() -> None:
+    with pytest.raises(ValueError, match="own at least one task"):
+        DomainExecutionCapabilities((), ())
+
+
+def test_domain_execution_capabilities_keep_product_ownership_separate() -> None:
+    with pytest.raises(ValueError, match="product ownership"):
+        DomainExecutionCapabilities(
+            (),
+            (),
+            claimed_tasks=(ExecutionTask("product", "use"),),
+        )
+
+
+def test_domain_execution_capabilities_require_direct_products_to_be_owned() -> None:
+    linked_points = _linked_points(point_count=1, product_count=2)
+    uses = linked_points.linked_plan.product_uses
+
+    with pytest.raises(ValueError, match="must be owned"):
+        DomainExecutionCapabilities(
+            product_use_ids=(uses[0].id,),
+            domain_product_use_ids=(uses[1].id,),
         )
 
 

@@ -19,7 +19,7 @@ from scopecat.authoring._resolution import (
     compile_prepared_invocation,
 )
 from scopecat.errors import CheckFailed
-from scopecat.execution_backend import PointInstrumentBackend
+from scopecat.execution_backend import ExecutionBackend
 from scopecat.models.config import ConfigProfileSnapshot
 from scopecat.models.parameter import Quantity
 from tests.support.authoring import (
@@ -39,12 +39,12 @@ def test_preview_and_start_run_use_separate_paths(
 
     preview = preview_experiment(
         config=config,
-        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         experiment=experiment,
         workspace=tmp_path / "preview",
     )
     provider_run = start_run(
-        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
         workspace=tmp_path / "provider",
@@ -76,12 +76,12 @@ def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> Non
 
     preview = preview_experiment(
         config=config,
-        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         experiment=invocation,
         workspace=tmp_path / "preview",
     )
     provider_run = start_run(
-        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=invocation,
         workspace=tmp_path / "provider",
@@ -120,8 +120,8 @@ def test_public_workflow_compiles_authoring_before_config_source_io(
         with pytest.raises(CheckFailed) as error:
             terminal(
                 invalid,
-                execution_backend=PointInstrumentBackend(
-                    TestSignalInstrumentProvider()
+                execution_backend=ExecutionBackend(
+                    provider=TestSignalInstrumentProvider()
                 ),
                 workspace=tmp_path,
             )
@@ -211,8 +211,8 @@ def test_public_workflow_compiles_authoring_once(
             "preview": lambda: preview_experiment(
                 experiment,
                 config=invalid_config,
-                execution_backend=PointInstrumentBackend(
-                    TestSignalInstrumentProvider()
+                execution_backend=ExecutionBackend(
+                    provider=TestSignalInstrumentProvider()
                 ),
                 workspace=tmp_path,
             ),

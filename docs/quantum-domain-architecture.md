@@ -258,17 +258,20 @@ schedule, acquisition kind, or shot policy. The first version requires one
 adapter entry per materialized logical point and exact coverage of an explicit
 selected product-use subset at every point. The subset is canonicalized to
 linked-plan use order; empty subsets and zero-point plans still retain and check
-their selected product contracts. Aggregate local/domain coverage, aggregation,
-and dynamic point batching remain later host work.
+their selected product contracts. The unified execution backend now proves
+aggregate local/domain ownership and selects dynamic contiguous point batches
+from adapter limits, user execution options, and point-local state barriers.
+Cross-point value aggregation remains separate work.
 
 Core now also closes one executable invocation independently of its output
 carrier. `ClosedDomainInvocation` retains the exact result mapping plus an
 adapter-owned transient payload, while its payload-free intent fingerprints
 target, compiler, capability, artifact, logical result contract, and adapter
 policy. Run identity and idempotency-key generation remain separate runtime
-values. Resource claims are absent until host orchestration can acquire a typed
-lease and hold it for the complete target-job lifetime; a string in an intent
-fingerprint would not establish ownership. This keeps a future
+values. Prepared domain executions declare typed resource claims; unified host
+orchestration checks them for overlap and holds one lease across all local and
+domain batches. A string in an intent fingerprint does not establish
+ownership. This keeps a future
 artifact carrier or offloaded postprocessor from inheriting measurement-array
 semantics merely because the first target returns measurements.
 
@@ -311,19 +314,16 @@ of one point record and do not cause additional writes. The demo uses the memory
 committer to exercise this contract; dataset compaction and publication are
 separate storage work. Trusted
 reconstruction of sealed recovery states from durable journal evidence is not
-yet implemented. There is no polling scheduler, chunking, cancellation,
-cross-process target job store, dataset manifest publication, or terminal
-`RunOutcome` integration. `POINT_SET` execution, authoring DSL integration,
-aggregate local/domain/transform ownership and local-engine integration,
-point-scoped neutral closure, cross-point analysis, and adapter proofs that
-eligible transforms have equivalent domain realizations remain later work.
-Core's local collector now has an isolated, repository-resolved,
-command-correlated receipt-to-fragment ingress seam, but it is not used by this
-domain-target vertical path and does not claim those orchestration properties.
-The notebook-facing virtual provider still
-synthesizes probability products directly; that is legacy demo debt, not the
-new transform contract, and remains while the current learning path depends on
-it.
+yet implemented. There is no polling scheduler, chunking, cancellation, or
+cross-process target job store. Authoring integration, aggregate
+local/domain/transform ownership, local-engine collection, terminal
+`RunOutcome`, and dataset publication now share the standard run lifecycle.
+Backend-selected point batches are explicit, but general `POINT_SET` host
+transforms, cross-point analysis, and adapter proofs that eligible transforms
+have equivalent domain realizations remain later work. The notebook-facing
+fake X-count path now uses the same capability-selecting domain adapter as the
+mixed scalar-bias example; unrelated products continue through the virtual
+point provider.
 
 ## Initial Non-Goals
 

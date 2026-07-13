@@ -7,7 +7,11 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from scopecat._compiler.environment import validate_config_environment
-from scopecat._compiler.linked import MaterializedLinkedPoints, link_program
+from scopecat._compiler.linked import (
+    MaterializedLinkedPointBatch,
+    MaterializedLinkedPoints,
+    link_program,
+)
 from scopecat._compiler.point_domain import (
     LogicalPointId,
     PointDomain,
@@ -181,6 +185,26 @@ def _select(
         scenario.linked_points,
         required_product_use_ids=tuple(use.id for use in selected_uses),
         fragment_defs=definitions,
+    )
+
+
+def test_assembly_selection_accepts_a_linked_point_batch() -> None:
+    scenario = _scenario(point_values=(0.0, 1.0, 2.0), use_count=1)
+    batch = MaterializedLinkedPointBatch(scenario.linked_points, (1, 2))
+
+    selected = select_measurement_value_assembly(
+        batch,
+        required_product_use_ids=(scenario.uses[0].id,),
+        fragment_defs=(_definition("batch-values", scenario.uses),),
+    )
+
+    assert selected.linked_points is batch
+    assert selected.linked_contract_fingerprint != (
+        select_measurement_value_assembly(
+            scenario.linked_points,
+            required_product_use_ids=(scenario.uses[0].id,),
+            fragment_defs=(_definition("batch-values", scenario.uses),),
+        ).linked_contract_fingerprint
     )
 
 

@@ -8,7 +8,7 @@ Current scope:
 
 - Authoring/execution projections: exact golden JSON emitted from the canonical
   simple-scan DSL/config by the real compiler pipeline for `RunRequest` v4 and
-  `RunPlanRecord` v6, including corruption rejection, independent persisted
+  `RunPlanRecord` v7, including corruption rejection, independent persisted
   reads, and the exclusion of transient compiler identity.
 - ConfigRegistry records: entry, index, registration job, config snapshots,
   activation records, active state, and provenance persistence.

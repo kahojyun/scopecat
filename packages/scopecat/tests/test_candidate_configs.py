@@ -363,7 +363,7 @@ def _lab(tmp_path: Path) -> sc.Workspace:
     return sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )
 
 

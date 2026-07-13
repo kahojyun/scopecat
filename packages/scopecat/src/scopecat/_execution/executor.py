@@ -10,7 +10,6 @@ from pathlib import Path
 from pydantic import JsonValue, TypeAdapter
 
 from scopecat._compiler.bound import BoundPlan
-from scopecat._compiler.run_plan import build_run_plan_record
 from scopecat._content_identity import stable_content_hash
 from scopecat._execution.drivers import (
     cleanup_after_setup_failure,
@@ -21,45 +20,27 @@ from scopecat._execution.drivers import (
 from scopecat._execution.engine import ExecutionEngine, ExecutionEngineResult
 from scopecat._execution.events import (
     RuntimeTransitionProjector,
-    emit_run_finished,
-    emit_run_started,
     observe_payload,
-)
-from scopecat._execution.evidence import (
-    build_execution_manifest,
-    build_execution_summary,
-    build_instrument_state_evidence,
-    raw_measurement_schema,
 )
 from scopecat._execution.journal import ExecutionJournal, ExecutionTransition
 from scopecat._execution.lowering import build_execution_program
-from scopecat._execution.persistence import (
-    validate_measurement_index_shape,
-    validate_raw_measurement_dataset,
-)
 from scopecat._execution.problems import (
     contextualize_problems,
     problem_from_exception,
     runtime_problem,
 )
 from scopecat._execution.program import ExecutionProgram
-from scopecat._execution.run_lifecycle import commit_terminal_evidence
 from scopecat._execution.validation import validate_execution_program_instruments
 from scopecat._storage.local import (
     LocalCollectionRepository,
-    LocalExecutionJournal,
     LocalMeasurementRecordCommitter,
     LocalPayloadEvidenceCommitter,
     LocalResourceLeaseManager,
-    LocalRunStore,
 )
 from scopecat.errors import (
     CheckFailed,
     ProviderContractError,
-    RunFailed,
-    RunIndeterminate,
 )
-from scopecat.ids import new_run_id
 from scopecat.instruments.sdk import (
     InstrumentDescription,
     InstrumentDriver,
@@ -70,11 +51,6 @@ from scopecat.instruments.sdk import (
     InstrumentStateSnapshot,
 )
 from scopecat.models.config import ConfigProfileSnapshot
-from scopecat.models.execution import ExecutionSummary
-from scopecat.models.measurement import MeasurementDatasetSchema
-from scopecat.models.run import RunConfigSource, RunManifest, RunOutcome
-from scopecat.models.run_plan import RunPlanPointInstrumentExecution
-from scopecat.models.run_request import RunRequest
 from scopecat.problems import (
     LocationPathItem,
     Problem,
@@ -209,158 +185,6 @@ def prepare_execution(
     )
 
 
-def execute_run(
-    *,
-    config: ConfigProfileSnapshot,
-    plan: BoundPlan,
-    request: RunRequest | None,
-    instrument_provider: InstrumentProvider,
-    execution: RunPlanPointInstrumentExecution | None = None,
-    workspace: str | Path,
-    config_source: RunConfigSource | None = None,
-    event_sink: RuntimeEventSink | None = None,
-    payload_observer: RuntimePayloadObserver | None = None,
-) -> tuple[RunManifest, ExecutionSummary]:
-    """Preflight one provider ABI, durably accept the run, then provision it."""
-
-    prepared = prepare_execution(
-        config=config,
-        plan=plan,
-        instrument_provider=instrument_provider,
-    )
-    provider_id = prepared.provider_id
-    instrument_order = prepared.instrument_order
-
-    run_id = new_run_id()
-    storage = LocalRunStore(Path(workspace))
-    plan_record = build_run_plan_record(
-        plan,
-        execution=(
-            RunPlanPointInstrumentExecution(
-                unit_id="point-instrument",
-                backend_id="scopecat.point-instrument.v1",
-                provider_id=provider_id,
-            )
-            if execution is None
-            else execution
-        ),
-    )
-    planned_manifest = RunManifest(
-        run_id=run_id,
-        lifecycle="accepted",
-        config_source=config_source,
-    )
-    storage.write_run_skeleton(
-        manifest=planned_manifest,
-        request=request,
-        plan=plan_record,
-        config=config,
-    )
-
-    journal = LocalExecutionJournal(workspace, run_id=run_id)
-    measurements = LocalMeasurementRecordCommitter(workspace, run_id=run_id)
-    readbacks = LocalCollectionRepository(workspace, run_id=run_id)
-    payloads = LocalPayloadEvidenceCommitter(workspace, run_id=run_id)
-    # A run becomes active before any provider lifecycle effect can begin.
-    storage.write_manifest(planned_manifest.model_copy(update={"lifecycle": "running"}))
-    emit_run_started(
-        event_sink=event_sink,
-        run_id=run_id,
-        experiment_id=plan.experiment_id,
-        point_count=plan.point_count,
-        instrument_ids=_planned_instrument_ids(plan),
-        output_ids=sorted(plan.expected_output_ids),
-    )
-
-    result, setup_problems = execute_prepared_local_effects(
-        config=config,
-        prepared=prepared,
-        provider=instrument_provider,
-        run_id=run_id,
-        workspace=workspace,
-        journal=journal,
-        measurements=measurements,
-        readbacks=readbacks,
-        payloads=payloads,
-        event_sink=event_sink,
-        payload_observer=payload_observer,
-    )
-
-    problems = _execution_problems(
-        setup_problems=setup_problems,
-        result=result,
-        expected_schema=raw_measurement_schema(plan.expected_dataset_schema),
-        expected_indices=set(range(plan.point_count)),
-    )
-    outcome = RunOutcome(
-        run_id=run_id,
-        result=(
-            "cancelled"
-            if result.interruption is not None
-            else "failed"
-            if result.uncertain or has_blocking_problems(problems)
-            else "succeeded"
-        ),
-        certainty=("indeterminate" if result.uncertain else "known"),
-        termination_reason=(
-            "interrupted"
-            if result.interruption is not None
-            else "effect_outcome_unknown"
-            if result.uncertain
-            else "blocking_problem"
-            if has_blocking_problems(problems)
-            else "completed"
-        ),
-        problems=tuple(problems),
-    )
-    summary = build_execution_summary(
-        result=result,
-        outcome=outcome,
-        instrument_ids=list(instrument_order),
-        point_count=plan.point_count,
-        problems=problems,
-    )
-    instrument_state = build_instrument_state_evidence(result)
-    manifest = build_execution_manifest(
-        run_id=run_id,
-        outcome=outcome,
-        measurements=list(result.measurements),
-        expected_schema=raw_measurement_schema(plan.expected_dataset_schema),
-        config_source=config_source,
-    ).model_copy(update={"created_at": planned_manifest.created_at})
-
-    commit_terminal_evidence(
-        storage=storage,
-        run_id=run_id,
-        outcome=outcome,
-        summary=summary,
-        instrument_state=instrument_state,
-        measurements=list(result.measurements),
-        manifest=manifest,
-    )
-    emit_run_finished(
-        event_sink=event_sink,
-        run_id=run_id,
-        experiment_id=plan.experiment_id,
-        outcome=outcome,
-        completed_point_count=result.completed_point_count,
-        point_count=plan.point_count,
-        measurement_count=len(result.measurements),
-        problem_count=len(problems),
-        compute_evaluated_node_count=result.compute_evaluated_node_count,
-        compute_reused_node_count=result.compute_reused_node_count,
-        compute_payload_count=result.compute_payload_count,
-    )
-    if result.interruption is not None:
-        result.interruption.add_note(f"Scopecat run_id: {run_id}")
-        raise result.interruption
-    if outcome.result != "succeeded":
-        if outcome.certainty == "indeterminate":
-            raise RunIndeterminate(run_id=run_id, outcome=outcome)
-        raise RunFailed(run_id=run_id, outcome=outcome)
-    return manifest, summary
-
-
 def execute_prepared_local_effects(
     *,
     config: ConfigProfileSnapshot,
@@ -374,6 +198,7 @@ def execute_prepared_local_effects(
     payloads: LocalPayloadEvidenceCommitter,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
+    transition_observer: RuntimeTransitionProjector | None = None,
     engine_runner: Callable[[ExecutionEngine], ExecutionEngineResult] | None = None,
     acquire_resources: bool = True,
 ) -> tuple[ExecutionEngineResult, list[Problem]]:
@@ -387,11 +212,12 @@ def execute_prepared_local_effects(
             operation_id="provider.preflight",
         )
     )
-    transition_observer = RuntimeTransitionProjector(
-        event_sink=event_sink,
-        experiment_id=program.experiment_id,
-        point_count=program.point_count,
-    )
+    if transition_observer is None:
+        transition_observer = RuntimeTransitionProjector(
+            event_sink=event_sink,
+            experiment_id=program.experiment_id,
+            point_count=program.point_count,
+        )
     result: ExecutionEngineResult | None = None
     lease_manager = LocalResourceLeaseManager(workspace)
     try:
@@ -938,52 +764,6 @@ def _preflight_problem(
     )
 
 
-def _execution_problems(
-    *,
-    setup_problems: list[Problem],
-    result: ExecutionEngineResult,
-    expected_schema: MeasurementDatasetSchema | None,
-    expected_indices: set[int],
-) -> list[Problem]:
-    problems = list(
-        contextualize_problems(
-            (*setup_problems, *result.problems),
-            run_id=result.run_id,
-            operation_id="execution.outcome",
-        )
-    )
-    measurements = list(result.measurements)
-    problems.extend(
-        contextualize_problems(
-            validate_measurement_index_shape(
-                measurements=measurements,
-                expected_indices=expected_indices,
-                duplicate_code="duplicate_measurement_index",
-                duplicate_message="run recorded duplicate measurement",
-                unknown_code="unknown_measurement_index",
-                unknown_message="run recorded unknown measurement",
-                missing_observables_code="missing_observables",
-                missing_observables_message="measurement has no observables",
-            ),
-            run_id=result.run_id,
-            operation_id="execution.validate-measurements",
-        )
-    )
-    if not has_blocking_problems(problems):
-        problems.extend(
-            contextualize_problems(
-                validate_raw_measurement_dataset(
-                    records=measurements,
-                    expected_schema=expected_schema,
-                    dataset_id="raw-measurements",
-                ),
-                run_id=result.run_id,
-                operation_id="execution.validate-dataset",
-            )
-        )
-    return problems
-
-
 def _planned_instrument_ids(plan: BoundPlan) -> list[str]:
     return sorted(
         {
@@ -1079,6 +859,5 @@ def _normalize_provider_description(value: object) -> InstrumentProviderDescript
 __all__ = [
     "PreparedExecution",
     "execute_prepared_local_effects",
-    "execute_run",
     "prepare_execution",
 ]

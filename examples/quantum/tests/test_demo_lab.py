@@ -9,6 +9,7 @@ import pytest
 from quantum_lab_demo import (
     NOTEBOOK_WORKSPACE_ROOT_ENV,
 )
+from scopecat import Quantity
 
 EXAMPLE_ROOT = Path(__file__).parents[1]
 NOTEBOOKS_DIR = EXAMPLE_ROOT / "notebooks"
@@ -26,6 +27,7 @@ def test_notebook_style_examples_execute_user_workflows(
     system_scale = _run_notebook("09_system_scale_cases.py")
     fake_template = _run_notebook("10_fake_awg_template.py")
     fake_scratch = _run_notebook("11_fake_awg_scratch.py")
+    fake_with_bias = _run_notebook("12_fake_awg_with_bias.py")
 
     assert review_rerun["baseline"].manifest.status == "completed"
     assert review_rerun["follow_up"].manifest.status == "completed"
@@ -134,6 +136,23 @@ def test_notebook_style_examples_execute_user_workflows(
     }
     assert fake_template["template_summary"] == expected_fake_summary
     assert fake_scratch["scratch_summary"] == expected_fake_summary
+    mixed_summary = fake_with_bias["mixed_execution_summary"]
+    assert mixed_summary["status"] == "completed"
+    assert mixed_summary["logical_points"] == 8
+    assert mixed_summary["record_producers"] == {
+        "integrated_iq_shots": "domain",
+        "probability_0": "host_transform",
+        "probability_1": "host_transform",
+        "bias_voltage_readback": "instrument",
+    }
+    assert mixed_summary["voltage_writes"] == [
+        Quantity(value=-0.1, unit="V"),
+        Quantity(value=0.1, unit="V"),
+    ]
+    assert mixed_summary["physical_awg_executions"] == 2
+    assert mixed_summary["bias_readbacks"] == [
+        point[0] for point in mixed_summary["bias_x_count_points"]
+    ]
 
 
 def _run_notebook(name: str) -> dict[str, Any]:

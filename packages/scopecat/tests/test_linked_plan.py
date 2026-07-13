@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
+from typing import cast
 
 import pytest
 
@@ -11,6 +12,7 @@ from scopecat._compiler.environment import (
     validate_config_environment,
 )
 from scopecat._compiler.linked import (
+    MaterializedLinkedPointBatch,
     link_program,
     materialize_linked_points,
 )
@@ -760,6 +762,62 @@ def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> 
     assert backend.relation_materialization_count > 0
     assert backend.scalar_materialization_count == 0
     assert backend.series_materialization_count == 0
+
+
+def test_linked_point_batch_retains_parent_identity_and_original_ordinals() -> None:
+    linked = link_program(_symbolic_program(), _environment())
+    materialized = materialize_linked_points(linked)
+
+    batch = MaterializedLinkedPointBatch(materialized, (1, 2))
+
+    assert batch.parent is materialized
+    assert batch.linked_plan is materialized.linked_plan
+    assert batch.selected_program is materialized.selected_program
+    assert batch.relation_backend_id == materialized.relation_backend_id
+    assert batch.point_indices == (1, 2)
+    assert batch.point_domain.id == materialized.point_domain.id
+    assert batch.point_domain.source is materialized.point_domain
+    assert batch.point_domain.points == materialized.point_domain.points[1:3]
+    assert all(
+        selected is original
+        for selected, original in zip(
+            batch.point_domain.points,
+            materialized.point_domain.points[1:3],
+            strict=True,
+        )
+    )
+    assert [point.logical_ordinal for point in batch.point_domain.points] == [1, 2]
+    assert [point.logical_id for point in batch.point_domain.points] == [
+        point.logical_id for point in materialized.point_domain.points[1:3]
+    ]
+    assert batch.point_domain.cardinality.minimum == 2
+    assert batch.point_domain.cardinality.maximum == 2
+
+
+@pytest.mark.parametrize(
+    ("indices", "error_type"),
+    [
+        ((), ValueError),
+        ((0, 2), ValueError),
+        ((2, 1), ValueError),
+        ((-1,), ValueError),
+        ((4,), ValueError),
+        ((True,), TypeError),
+    ],
+)
+def test_linked_point_batch_rejects_noncanonical_selections(
+    indices: tuple[object, ...],
+    error_type: type[Exception],
+) -> None:
+    materialized = materialize_linked_points(
+        link_program(_symbolic_program(), _environment())
+    )
+
+    with pytest.raises(error_type):
+        MaterializedLinkedPointBatch(
+            materialized,
+            cast("Sequence[int]", indices),
+        )
 
 
 def test_linked_points_preflight_nonpoint_relations_without_evaluating_them() -> None:

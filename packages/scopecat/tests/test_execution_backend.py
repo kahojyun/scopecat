@@ -6,7 +6,11 @@ from typing import Literal
 import pytest
 
 from scopecat._compiler.environment import validate_config_environment
-from scopecat._compiler.linked import LinkedPlan, link_program
+from scopecat._compiler.linked import (
+    LinkedPlan,
+    MaterializedLinkedPoints,
+    link_program,
+)
 from scopecat._compiler.point_domain import PointDomain
 from scopecat._compiler.program import (
     TypedProgram,
@@ -17,7 +21,10 @@ from scopecat._compiler.program import (
 from scopecat._point_domain_algebra import point_rows
 from scopecat._relation_verification import RelationTypeBindings, RowType
 from scopecat._relations import lit, literal_rows, point_col
+from scopecat._workflows.preview import build_execution_plan_preview
 from scopecat.domain_execution import (
+    DomainExecutionCapabilities,
+    DomainExecutionRequest,
     PreparedDomainExecution,
     erase_prepared_domain_execution,
 )
@@ -29,7 +36,6 @@ from scopecat.domain_invocation import (
     EntryPointBinding,
     ResultUseBinding,
     close_domain_invocation,
-    materialize_linked_points,
     seal_domain_result_mapping,
     select_domain_measurement_outputs,
 )
@@ -41,11 +47,7 @@ from scopecat.domain_runtime import (
     DomainSubmitReceipt,
 )
 from scopecat.errors import CheckFailed
-from scopecat.execution_backend import (
-    CompositeExecutionBackend,
-    DomainProgramBackend,
-    PointInstrumentBackend,
-)
+from scopecat.execution_backend import ExecutionBackend
 from scopecat.execution_coverage import (
     ExecutionResourceClaim,
     ExecutionTask,
@@ -114,12 +116,30 @@ class _DomainAdapter:
     product_indices: tuple[int, ...] = (0,)
     claimed_tasks: tuple[ExecutionTask, ...] = ()
     resource_claims: tuple[ExecutionResourceClaim, ...] = ()
+    max_points_per_batch: int = 100
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
+    capabilities_calls: int = 0
     prepare_calls: int = 0
 
-    def prepare(self, linked: LinkedPlan) -> PreparedDomainExecution:
+    def capabilities(
+        self,
+        linked_points: MaterializedLinkedPoints,
+    ) -> DomainExecutionCapabilities:
+        self.capabilities_calls += 1
+        selected_use_ids = tuple(
+            linked_points.linked_plan.product_uses[index].id
+            for index in self.product_indices
+        )
+        return DomainExecutionCapabilities(
+            product_use_ids=selected_use_ids,
+            domain_product_use_ids=selected_use_ids,
+            claimed_tasks=self.claimed_tasks,
+            max_points_per_batch=self.max_points_per_batch,
+        )
+
+    def prepare(self, request: DomainExecutionRequest) -> PreparedDomainExecution:
         self.prepare_calls += 1
-        linked_points = materialize_linked_points(linked)
+        linked_points = request.batch
         selected_uses = tuple(
             linked_points.linked_plan.product_uses[index]
             for index in self.product_indices
@@ -181,14 +201,22 @@ class _DomainAdapter:
         )
         invocation = close_domain_invocation(
             mapping,
-            invocation_id=f"{self.adapter_id}.invocation",
+            invocation_id=(
+                f"{self.adapter_id}.invocation.batch-{request.batch_ordinal}"
+            ),
             target_id=f"{self.adapter_id}.target",
             compiler_id=f"{self.adapter_id}.compiler",
             capability_fingerprint=f"{self.adapter_id}.capabilities",
-            artifact_id=f"{self.adapter_id}.artifact",
+            artifact_id=f"{self.adapter_id}.artifact.batch-{request.batch_ordinal}",
             artifact_fingerprint=f"{self.adapter_id}.artifact-fingerprint",
-            adapter_intent={"adapter_id": self.adapter_id},
-            payload={"adapter_id": self.adapter_id},
+            adapter_intent={
+                "adapter_id": self.adapter_id,
+                "batch_ordinal": str(request.batch_ordinal),
+            },
+            payload={
+                "adapter_id": self.adapter_id,
+                "batch_ordinal": str(request.batch_ordinal),
+            },
         )
         return erase_prepared_domain_execution(
             adapter_id=self.adapter_id,
@@ -242,6 +270,7 @@ def _linked_program(
     *,
     product_count: int = 1,
     state_mode: Literal["none", "constant", "varying"] = "none",
+    point_count: Literal[0, 2] = 2,
 ) -> LinkedPlan:
     point_type = Table(
         columns=(
@@ -250,8 +279,8 @@ def _linked_program(
                 Scalar(QuantityType(unit="GHz")),
             ),
         ),
-        min_rows=2,
-        max_rows=2,
+        min_rows=point_count,
+        max_rows=point_count,
     )
     points = PointDomain(
         root=point_rows(
@@ -261,6 +290,8 @@ def _linked_program(
                         {"frequency": Quantity(value=4.9, unit="GHz")},
                         {"frequency": Quantity(value=5.1, unit="GHz")},
                     )
+                    if point_count
+                    else ()
                 ),
                 expected_type=point_type,
             )
@@ -303,7 +334,7 @@ def _linked_program(
         else ()
     )
     program = TypedProgram(
-        id="composite-backend-contract",
+        id="unified-backend-contract",
         kind="compiler_test",
         point_domain=points,
         state=state,
@@ -322,18 +353,20 @@ def _problem_codes(error: CheckFailed) -> set[str]:
 
 
 def _assert_no_domain_effects(*adapters: _DomainAdapter) -> None:
-    assert all(adapter.prepare_calls == 1 for adapter in adapters)
     assert all(adapter.runtime.submit_calls == 0 for adapter in adapters)
     assert all(adapter.runtime.fetch_calls == 0 for adapter in adapters)
     assert all(adapter.runtime.reconcile_calls == 0 for adapter in adapters)
 
 
-def test_composite_planning_rejects_missing_task_claim_before_effects() -> None:
+def test_unified_planning_rejects_missing_task_claim_before_effects() -> None:
     linked = _linked_program(state_mode="varying")
     adapter = _DomainAdapter("tests.missing-claim")
 
     with pytest.raises(CheckFailed) as captured:
-        DomainProgramBackend(adapter).prepare(linked, config=load_config())
+        ExecutionBackend(domain_adapters=(adapter,)).prepare(
+            linked,
+            config=load_config(),
+        )
 
     assert _problem_codes(captured.value) == {"execution_task_claim_missing"}
     assert captured.value.problems[0].details == {
@@ -343,10 +376,12 @@ def test_composite_planning_rejects_missing_task_claim_before_effects() -> None:
     assert all(
         problem.phase is ProblemPhase.PLANNING for problem in captured.value.problems
     )
+    assert adapter.capabilities_calls == 1
+    assert adapter.prepare_calls == 0
     _assert_no_domain_effects(adapter)
 
 
-def test_composite_planning_rejects_foreign_task_claim_before_effects() -> None:
+def test_unified_planning_rejects_foreign_task_claim_before_effects() -> None:
     linked = _linked_program()
     adapter = _DomainAdapter(
         "tests.foreign-claim",
@@ -354,28 +389,37 @@ def test_composite_planning_rejects_foreign_task_claim_before_effects() -> None:
     )
 
     with pytest.raises(CheckFailed) as captured:
-        DomainProgramBackend(adapter).prepare(linked, config=load_config())
+        ExecutionBackend(domain_adapters=(adapter,)).prepare(
+            linked,
+            config=load_config(),
+        )
 
     assert _problem_codes(captured.value) == {"execution_task_claim_foreign"}
+    assert adapter.capabilities_calls == 1
+    assert adapter.prepare_calls == 0
     _assert_no_domain_effects(adapter)
 
 
-def test_composite_planning_rejects_overlapping_task_claim_before_effects() -> None:
+def test_unified_planning_rejects_overlapping_task_claim_before_effects() -> None:
     linked = _linked_program()
     first = _DomainAdapter("tests.overlap.first")
     second = _DomainAdapter("tests.overlap.second")
-    backend = CompositeExecutionBackend(
-        domains=(DomainProgramBackend(first), DomainProgramBackend(second)),
+    backend = ExecutionBackend(
+        domain_adapters=(first, second),
     )
 
     with pytest.raises(CheckFailed) as captured:
         backend.prepare(linked, config=load_config())
 
     assert _problem_codes(captured.value) == {"execution_task_claim_overlap"}
+    assert first.capabilities_calls == 1
+    assert second.capabilities_calls == 1
+    assert first.prepare_calls == 0
+    assert second.prepare_calls == 0
     _assert_no_domain_effects(first, second)
 
 
-def test_composite_planning_rejects_overlapping_resources_before_effects() -> None:
+def test_unified_planning_rejects_overlapping_resources_before_effects() -> None:
     linked = _linked_program(product_count=2)
     shared = (ExecutionResourceClaim("instrument", "shared-instrument"),)
     first = _DomainAdapter(
@@ -388,55 +432,129 @@ def test_composite_planning_rejects_overlapping_resources_before_effects() -> No
         product_indices=(1,),
         resource_claims=shared,
     )
-    backend = CompositeExecutionBackend(
-        domains=(DomainProgramBackend(first), DomainProgramBackend(second)),
+    backend = ExecutionBackend(
+        domain_adapters=(first, second),
     )
 
     with pytest.raises(CheckFailed) as captured:
         backend.prepare(linked, config=load_config())
 
     assert _problem_codes(captured.value) == {"execution_resource_claim_overlap"}
+    assert first.capabilities_calls == 1
+    assert second.capabilities_calls == 1
+    assert first.prepare_calls == 1
+    assert second.prepare_calls == 1
     _assert_no_domain_effects(first, second)
 
 
-def test_point_varying_local_state_cannot_surround_fused_domain_job() -> None:
+def test_varying_local_state_splits_automatic_domain_batches() -> None:
     linked = _linked_program(state_mode="varying")
     adapter = _DomainAdapter("tests.fused-domain")
     provider = _TrackingProvider()
-    backend = CompositeExecutionBackend(
-        point=PointInstrumentBackend(provider),
-        domains=(DomainProgramBackend(adapter),),
+    backend = ExecutionBackend(
+        provider=provider,
+        domain_adapters=(adapter,),
     )
 
-    with pytest.raises(CheckFailed) as captured:
-        backend.prepare(linked, config=load_config())
+    plan = backend.prepare(linked, config=load_config())
 
-    assert _problem_codes(captured.value) == {
-        "composite_point_state_varies_across_domain_job"
-    }
+    assert tuple(segment.point_indices for segment in plan.segments) == ((0,), (1,))
+    assert tuple(job.point_indices for job in plan.domain_jobs) == ((0,), (1,))
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
+    assert adapter.capabilities_calls == 1
+    assert adapter.prepare_calls == 2
     _assert_no_domain_effects(adapter)
 
 
-def test_constant_local_state_can_surround_fused_domain_job() -> None:
+def test_constant_local_state_is_automatically_fused() -> None:
     linked = _linked_program(state_mode="constant")
     adapter = _DomainAdapter("tests.constant-peripheral")
     provider = _TrackingProvider()
-    backend = CompositeExecutionBackend(
-        point=PointInstrumentBackend(provider),
-        domains=(DomainProgramBackend(adapter),),
+    backend = ExecutionBackend(
+        provider=provider,
+        domain_adapters=(adapter,),
     )
 
     plan = backend.prepare(linked, config=load_config())
 
     assert tuple(unit.id for unit in plan.units) == (
         "point-instrument",
-        "domain-job-0-tests.constant-peripheral",
+        "domain-program-0-tests.constant-peripheral",
     )
+    assert tuple(segment.point_indices for segment in plan.segments) == ((0, 1),)
+    assert tuple(job.point_indices for job in plan.domain_jobs) == ((0, 1),)
     assert plan.point_unit is not None
     assert plan.point_unit.product_use_ids == ()
     assert len(plan.domain_units) == 1
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
+    assert adapter.capabilities_calls == 1
+    assert adapter.prepare_calls == 1
     _assert_no_domain_effects(adapter)
+
+
+def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None:
+    linked = _linked_program(state_mode="constant")
+    adapter = _DomainAdapter("tests.preview-domain")
+    provider = _TrackingProvider()
+    plan = ExecutionBackend(
+        provider=provider,
+        domain_adapters=(adapter,),
+    ).prepare(linked, config=load_config())
+
+    preview = build_execution_plan_preview(plan)
+
+    assert [record.producer_kind for record in preview.records] == ["domain"]
+    assert preview.state_changes
+    assert preview.state_fields
+    assert preview.runtime.state_field_count == len(preview.state_fields)
+    _assert_no_domain_effects(adapter)
+
+
+def test_multiple_adapters_batch_independently_within_state_segment() -> None:
+    linked = _linked_program(product_count=2)
+    pointwise = _DomainAdapter(
+        "tests.pointwise-target",
+        product_indices=(0,),
+        max_points_per_batch=1,
+    )
+    list_mode = _DomainAdapter(
+        "tests.list-target",
+        product_indices=(1,),
+        max_points_per_batch=100,
+    )
+
+    plan = ExecutionBackend(domain_adapters=(pointwise, list_mode)).prepare(
+        linked,
+        config=load_config(),
+    )
+
+    assert tuple(segment.point_indices for segment in plan.segments) == ((0, 1),)
+    assert plan.resolved_max_points_per_batch is None
+    assert tuple(
+        tuple(job.point_indices for job in unit.jobs) for unit in plan.domain_units
+    ) == (((0,), (1,)), ((0, 1),))
+    assert pointwise.prepare_calls == 2
+    assert list_mode.prepare_calls == 1
+
+
+def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
+    linked = _linked_program(point_count=0)
+    adapter = _DomainAdapter("tests.zero-point")
+
+    plan = ExecutionBackend(domain_adapters=(adapter,)).prepare(
+        linked,
+        config=load_config(),
+    )
+    record = plan.run_plan_record()
+
+    assert plan.segments == ()
+    assert plan.domain_jobs == ()
+    assert adapter.capabilities_calls == 1
+    assert adapter.prepare_calls == 0
+    assert record.point_count == 0
+    assert record.records[0].producer_kind == "domain"
+    [domain] = record.execution_units
+    assert domain.kind == "domain_program"
+    assert domain.batches == []

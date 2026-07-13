@@ -12,11 +12,9 @@ from scopecat.instruments.sdk import (
     CollectReceipt,
     InstrumentReadback,
 )
-from scopecat.models.measurement import MeasurementDatasetSchema
 from scopecat.models.parameter import Quantity
-from scopecat.runs import dataset_storage_ref, open_run_store
+from scopecat.runs import open_run_store
 from tests.support.execution import execute_bound_run
-from tests.support.records import read_measurement_records
 from tests.support.signal_instruments import TestSignalInstrument
 from tests.support.workflow_fixtures import load_config, load_experiment
 
@@ -230,7 +228,9 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
     assert collect_states == ["started", "unknown"]
 
 
-def test_failed_run_exposes_readable_partial_dataset(tmp_path: Path) -> None:
+def test_failed_run_retains_fragments_without_publishing_incomplete_dataset(
+    tmp_path: Path,
+) -> None:
     instrument = FailAfterFirstCollectInstrument()
 
     with pytest.raises(RunIndeterminate):
@@ -243,19 +243,7 @@ def test_failed_run_exposes_readable_partial_dataset(tmp_path: Path) -> None:
 
     manifest = open_run_store(tmp_path).list_runs()[0]
     assert manifest.status == "unknown"
-    assert len(manifest.datasets) == 1
-    dataset = manifest.datasets[0]
-    assert dataset.metadata["partial"] is True
-    assert dataset.metadata["expected_record_count"] == 3
-    schema = MeasurementDatasetSchema.model_validate(dataset.data_schema)
-    point_dimension = next(
-        dimension for dimension in schema.dimensions if dimension.kind == "point"
-    )
-    assert point_dimension.size == 1
-    records = read_measurement_records(
-        tmp_path / "runs" / manifest.run_id / dataset_storage_ref(dataset)
-    )
-    assert [record.point_index for record in records] == [0]
+    assert manifest.datasets == []
     readback_files = list(
         (tmp_path / "runs" / manifest.run_id / "execution" / "readbacks").glob("*.json")
     )

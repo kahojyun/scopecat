@@ -16,7 +16,11 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from scopecat._compiler.linked import MaterializedLinkedPoints
+from scopecat._compiler.linked import (
+    MaterializedLinkedPointBatch,
+    MaterializedLinkedPoints,
+    MaterializedLinkedPointSet,
+)
 from scopecat._compiler.point_domain import LogicalPointId, MaterializedPoint
 from scopecat._compiler.problems import compiler_problem
 from scopecat._compiler.products import ProductDef
@@ -89,7 +93,7 @@ class SelectedMeasurementValueFragment:
 class SelectedMeasurementValueAssembly:
     """Exact, disjoint pre-effect cover of required logical product uses."""
 
-    _linked_points: MaterializedLinkedPoints = field(repr=False)
+    _linked_points: MaterializedLinkedPointSet = field(repr=False)
     product_use_ids: tuple[ProductUseId, ...]
     fragments: tuple[SelectedMeasurementValueFragment, ...]
     linked_contract_fingerprint: str
@@ -117,7 +121,7 @@ class SelectedMeasurementValueAssembly:
 
     def __init__(
         self,
-        linked_points: MaterializedLinkedPoints,
+        linked_points: MaterializedLinkedPointSet,
         product_use_ids: tuple[ProductUseId, ...],
         fragments: tuple[SelectedMeasurementValueFragment, ...],
         linked_contract_fingerprint: str,
@@ -162,7 +166,7 @@ class SelectedMeasurementValueAssembly:
         )
 
     @property
-    def linked_points(self) -> MaterializedLinkedPoints:
+    def linked_points(self) -> MaterializedLinkedPointSet:
         return self._linked_points
 
     def fragment(self, fragment_id: str) -> SelectedMeasurementValueFragment:
@@ -382,15 +386,18 @@ class ClosedMeasurementProductValues:
 
 
 def select_measurement_value_assembly(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
     *,
     required_product_use_ids: Sequence[ProductUseId],
     fragment_defs: Sequence[ProductValueFragmentDef],
 ) -> SelectedMeasurementValueAssembly:
     """Seal an exact, disjoint fragment cover before any producer effect."""
 
-    if not isinstance(cast("object", linked_points), MaterializedLinkedPoints):
-        msg = "measurement value assembly requires MaterializedLinkedPoints"
+    if not isinstance(
+        cast("object", linked_points),
+        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
+    ):
+        msg = "measurement value assembly requires materialized linked points"
         raise TypeError(msg)
     required = tuple(required_product_use_ids)
     if any(not isinstance(cast("object", use_id), ProductUseId) for use_id in required):
@@ -913,7 +920,7 @@ def require_measurement_value_assembly(
 
 
 def _measurement_product_inventory(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
 ) -> tuple[tuple[ProductUse, ...], dict[ProductUseId, ProductDef]]:
     linked_plan = linked_points.linked_plan
     uses = tuple(linked_plan.product_uses)
@@ -929,7 +936,7 @@ def _measurement_product_inventory(
 
 
 def measurement_value_contract_fingerprint(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
 ) -> str:
     """Identify one transient point/use/product contract independent of objects."""
 

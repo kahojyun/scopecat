@@ -71,14 +71,15 @@ from scopecat.checks import (
 )
 from scopecat.domain_execution import (
     DomainExecutionAdapter,
+    DomainExecutionCapabilities,
+    DomainExecutionRequest,
     PreparedDomainExecution,
     erase_prepared_domain_execution,
 )
 from scopecat.execution_backend import (
-    CompositeExecutionBackend,
-    DomainProgramBackend,
     ExecutionBackend,
-    PointInstrumentBackend,
+    ExecutionOptions,
+    FusionMode,
 )
 from scopecat.models.entity import EntityRef, entity_ref
 from scopecat.parameters import (
@@ -162,18 +163,19 @@ __all__ = [
     "CheckPhaseReport",
     "CheckStatus",
     "ComparisonHandle",
-    "CompositeExecutionBackend",
     "Compute",
     "ComputeInput",
     "Data",
     "DataDatasetSummary",
     "DataSummary",
     "DomainExecutionAdapter",
-    "DomainProgramBackend",
+    "DomainExecutionCapabilities",
+    "DomainExecutionRequest",
     "EarlyStopDecision",
     "EntityRef",
     "EntityType",
     "ExecutionBackend",
+    "ExecutionOptions",
     "Experiment",
     "ExperimentCheckReport",
     "ExperimentInvocation",
@@ -183,6 +185,7 @@ __all__ = [
     "ExperimentTemplate",
     "ExternalLocation",
     "FloatType",
+    "FusionMode",
     "InputDescription",
     "IntType",
     "MeasurementDatasetSchema",
@@ -195,7 +198,6 @@ __all__ = [
     "ParameterKeyInput",
     "ParameterRow",
     "PayloadType",
-    "PointInstrumentBackend",
     "PreparedDomainExecution",
     "PreparedExperiment",
     "PreviewExperimentResult",

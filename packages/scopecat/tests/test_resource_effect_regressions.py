@@ -16,7 +16,6 @@ from scopecat._compiler.program import (
     set_state_field,
     typed_program,
 )
-from scopecat._compiler.run_plan import build_run_plan_record
 from scopecat._execution.engine import ExecutionEngine
 from scopecat._execution.journal import (
     MemoryCollectionRepository,
@@ -66,7 +65,6 @@ from scopecat.models.config import (
     SharedResourceGroup,
 )
 from scopecat.models.entity import EntityRef
-from scopecat.models.run_plan import RunPlanPointInstrumentExecution
 from scopecat.models.state import StateValue
 from scopecat.problems import (
     ProblemCategory,
@@ -477,15 +475,6 @@ def test_mixed_explicit_and_fallback_route_topology_closes_durably() -> None:
     )
 
     plan = _bind(program, config=config)
-    durable = build_run_plan_record(
-        plan,
-        execution=RunPlanPointInstrumentExecution(
-            unit_id="point-instrument",
-            backend_id="scopecat.point-instrument.v1",
-            provider_id="tests.resource-effects",
-        ),
-    )
-
     assert plan.valid, plan.problems
     assert [
         (binding.capability, binding.channel_id)
@@ -495,7 +484,8 @@ def test_mixed_explicit_and_fallback_route_topology_closes_durably() -> None:
         (binding.capability, binding.channel_id)
         for binding in plan.points[0].desired_state[0].fields[0].channel_bindings
     ] == [("A", "drive-q0")]
-    assert durable.state_changes[0].resource_port_id == "source"
+    assert plan.state_changes[0].resource_port_id is not None
+    assert plan.state_changes[0].resource_port_id.qualified_name == "source"
 
 
 def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() -> None:

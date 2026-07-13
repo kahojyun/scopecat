@@ -36,7 +36,7 @@ def _workspace(
     return sc.open(
         tmp_path,
         config=load_config() if config is None else config,
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )
 
 

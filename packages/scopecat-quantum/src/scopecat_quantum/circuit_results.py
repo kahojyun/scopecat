@@ -19,7 +19,9 @@ from scopecat.domain_invocation import (
     ClosedDomainResultMapping,
     EntryPointBinding,
     LogicalPointId,
+    MaterializedLinkedPointBatch,
     MaterializedLinkedPoints,
+    MaterializedLinkedPointSet,
     ProductUseId,
     ResultUseBinding,
     seal_domain_result_mapping,
@@ -126,7 +128,7 @@ class CircuitTargetResultMapping:
         object.__setattr__(self, "core_mapping", core_mapping)
 
     @property
-    def linked_points(self) -> MaterializedLinkedPoints:
+    def linked_points(self) -> MaterializedLinkedPointSet:
         return self.core_mapping.linked_points
 
     @property
@@ -243,15 +245,18 @@ def _validate_compiled_target_correlation[ArtifactT: TargetArtifact](
 
 
 def seal_circuit_target_result_mapping(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
     batch: PreparedCircuitTargetBatch,
     entry_bindings: Sequence[CircuitTargetEntryPointBinding],
     acquisition_bindings: Sequence[CircuitTargetAcquisitionUseBinding],
 ) -> CircuitTargetResultMapping:
     """Close exact quantum entry/result coverage against core logical outputs."""
 
-    if not isinstance(cast("object", linked_points), MaterializedLinkedPoints):
-        msg = "circuit target result mapping requires MaterializedLinkedPoints"
+    if not isinstance(
+        cast("object", linked_points),
+        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
+    ):
+        msg = "circuit target result mapping requires materialized linked points"
         raise TypeError(msg)
     if not isinstance(cast("object", batch), PreparedCircuitTargetBatch):
         msg = "circuit target result mapping requires a prepared batch"

@@ -25,7 +25,11 @@ from pydantic import (
     field_validator,
 )
 
-from scopecat._compiler.linked import MaterializedLinkedPoints
+from scopecat._compiler.linked import (
+    MaterializedLinkedPointBatch,
+    MaterializedLinkedPoints,
+    MaterializedLinkedPointSet,
+)
 from scopecat._compiler.point_domain import LogicalPointId
 from scopecat._compiler.problems import compiler_problem
 from scopecat._compiler.products import ProductDef
@@ -218,14 +222,14 @@ class MeasurementTransformDef:
 class VerifiedMeasurementTransformGraph:
     """Closed typed DAG with canonical topological node order."""
 
-    linked_points: MaterializedLinkedPoints = field(repr=False)
+    linked_points: MaterializedLinkedPointSet = field(repr=False)
     transforms: tuple[MeasurementTransformDef, ...]
     linked_contract_fingerprint: str
     contract_fingerprint: str
 
     def __init__(
         self,
-        linked_points: MaterializedLinkedPoints,
+        linked_points: MaterializedLinkedPointSet,
         transforms: tuple[MeasurementTransformDef, ...],
         linked_contract_fingerprint: str,
         contract_fingerprint: str,
@@ -472,13 +476,16 @@ class ExecutedHostMeasurementTransforms:
 
 
 def verify_measurement_transform_graph(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
     transforms: Sequence[MeasurementTransformDef],
 ) -> VerifiedMeasurementTransformGraph:
     """Close a typed transform DAG without choosing a runtime implementation."""
 
-    if not isinstance(cast("object", linked_points), MaterializedLinkedPoints):
-        msg = "measurement transform graphs require MaterializedLinkedPoints"
+    if not isinstance(
+        cast("object", linked_points),
+        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
+    ):
+        msg = "measurement transform graphs require materialized linked points"
         raise TypeError(msg)
     supplied = tuple(transforms)
     if any(

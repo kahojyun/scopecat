@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # %%
-import scopecat as sc
 from quantum_lab_demo import notebook_workspace, quantum_lab
 from quantum_lab_demo.reference_experiments import (
     FAKE_X_COUNT_TEMPLATE,
@@ -12,14 +11,17 @@ from quantum_lab_demo.reference_experiments import (
 
 # %%
 workspace = notebook_workspace("10-fake-awg-template")
-adapter = FakeXCountDomainExecutionAdapter()
 lab = quantum_lab(workspace=workspace)
+backend = lab.execution_backend
+assert backend is not None
+adapter = next(
+    item
+    for item in backend.domain_adapters
+    if isinstance(item, FakeXCountDomainExecutionAdapter)
+)
 
 # %%
-experiment = lab.prepare(
-    FAKE_X_COUNT_TEMPLATE,
-    execution_backend=sc.DomainProgramBackend(adapter),
-)
+experiment = lab.prepare(FAKE_X_COUNT_TEMPLATE)
 preview = experiment.preview()
 completed_run = experiment.run(
     name="fake AWG X-count template",

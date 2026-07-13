@@ -18,7 +18,9 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from scopecat._compiler.linked import (
     LinkedPlan,
+    MaterializedLinkedPointBatch,
     MaterializedLinkedPoints,
+    MaterializedLinkedPointSet,
     materialize_linked_points,
 )
 from scopecat._compiler.point_domain import (
@@ -258,7 +260,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
     inventory.  The selected subset is canonicalized to linked-program order.
     """
 
-    linked_points: MaterializedLinkedPoints
+    linked_points: MaterializedLinkedPointSet
     selected_product_use_ids: tuple[ProductUseId, ...]
     selected_product_uses: tuple[ProductUse, ...] = field(repr=False)
     adapter_entries: tuple[AdapterEntryResults[EntryAddressT, ResultAddressT], ...]
@@ -285,14 +287,17 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
 
     def __init__(
         self,
-        linked_points: MaterializedLinkedPoints,
+        linked_points: MaterializedLinkedPointSet,
         selected_product_use_ids: tuple[ProductUseId, ...],
         adapter_entries: tuple[AdapterEntryResults[EntryAddressT, ResultAddressT], ...],
         entries: tuple[ClosedDomainEntry[EntryAddressT, ResultAddressT], ...],
         results: tuple[ClosedDomainResult[EntryAddressT, ResultAddressT], ...],
     ) -> None:
-        if not isinstance(cast("object", linked_points), MaterializedLinkedPoints):
-            msg = "closed domain result mappings require MaterializedLinkedPoints"
+        if not isinstance(
+            cast("object", linked_points),
+            MaterializedLinkedPoints | MaterializedLinkedPointBatch,
+        ):
+            msg = "closed domain result mappings require materialized linked points"
             raise TypeError(msg)
         if any(
             not isinstance(cast("object", entry), AdapterEntryResults)
@@ -773,7 +778,7 @@ def seal_domain_result_mapping[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
     selected_product_use_ids: Sequence[ProductUseId],
     adapter_entries: Sequence[AdapterEntryResults[EntryAddressT, ResultAddressT]],
     entry_bindings: Sequence[EntryPointBinding[EntryAddressT]],
@@ -781,8 +786,11 @@ def seal_domain_result_mapping[
 ) -> ClosedDomainResultMapping[EntryAddressT, ResultAddressT]:
     """Close exact adapter coverage for selected uses of one linked point plan."""
 
-    if not isinstance(cast("object", linked_points), MaterializedLinkedPoints):
-        msg = "domain result mapping requires MaterializedLinkedPoints"
+    if not isinstance(
+        cast("object", linked_points),
+        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
+    ):
+        msg = "domain result mapping requires materialized linked points"
         raise TypeError(msg)
     all_uses, products_by_id = _closed_product_inventory(linked_points)
     selected_uses = _canonical_selected_product_uses(
@@ -1115,7 +1123,7 @@ def _close_entry_bindings[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
     adapter_entries: Mapping[
         EntryAddressT, AdapterEntryResults[EntryAddressT, ResultAddressT]
     ],
@@ -1168,7 +1176,7 @@ def _close_result_inventory[
 
 
 def _closed_product_inventory(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
 ) -> tuple[tuple[ProductUse, ...], dict[ProductId, ProductDef]]:
     program = linked_points.linked_plan.program
     products_by_id = {product.id: product for product in program.product_defs}
@@ -1382,6 +1390,8 @@ __all__ = [
     "EntryPointBinding",
     "LinkedPlan",
     "LogicalPointId",
+    "MaterializedLinkedPointBatch",
+    "MaterializedLinkedPointSet",
     "MaterializedLinkedPoints",
     "MaterializedPoint",
     "MaterializedPointDomain",

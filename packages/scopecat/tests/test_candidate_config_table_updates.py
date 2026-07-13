@@ -30,7 +30,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
     lab = sc.open(
         tmp_path,
         config=config,
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
     analysis = run.analysis("table update fixture").propose(

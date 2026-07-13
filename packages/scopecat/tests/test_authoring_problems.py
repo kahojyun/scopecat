@@ -172,7 +172,7 @@ def test_preview_experiment_resolves_template_invocation_with_config_profile(
 ) -> None:
     result = preview_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         workspace=tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
@@ -186,7 +186,7 @@ def test_preview_experiment_resolves_template_invocation_with_config_snapshot(
 ) -> None:
     result = preview_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
-        execution_backend=sc.PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         workspace=tmp_path,
         config_profile=load_config(),
     )

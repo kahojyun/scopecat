@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 
 from scopecat._compiler.bound import BoundComputeCall, BoundPlan, BoundRecord
 from scopecat._compiler.product_realizations import SelectedLocalProductRealization
 from scopecat._resource_identity import LogicalResourcePortId, PhysicalResourceId
+from scopecat.execution_backend import PreparedExecutionPlan
 from scopecat.models.config import RoutingChannelBinding
 from scopecat.models.run_plan import RunPlanRecord
 from scopecat.models.state import PayloadRef, StateValue
@@ -167,8 +169,32 @@ def build_experiment_preview(plan: BoundPlan) -> ExperimentPreview:
     )
 
 
-def build_domain_experiment_preview(plan: RunPlanRecord) -> ExperimentPreview:
-    """Project domain accepted-plan evidence into the common user preview."""
+def build_execution_plan_preview(
+    prepared: PreparedExecutionPlan,
+) -> ExperimentPreview:
+    """Project one unified prepared plan into its complete user preview."""
+
+    preview = _build_run_plan_preview(prepared.run_plan_record())
+    point = prepared.point_unit
+    if point is None:
+        return preview
+    local = build_experiment_preview(point.bound_plan)
+    return replace(
+        preview,
+        state_changes=local.state_changes,
+        routes=local.routes,
+        state_fields=local.state_fields,
+        payloads=local.payloads,
+        compute_steps=local.compute_steps,
+        runtime=replace(
+            local.runtime,
+            route_count=len(preview.routes),
+        ),
+    )
+
+
+def _build_run_plan_preview(plan: RunPlanRecord) -> ExperimentPreview:
+    """Project durable accepted-plan evidence into the common user preview."""
 
     return ExperimentPreview(
         experiment_id=plan.experiment_id,
@@ -349,4 +375,4 @@ def _preview_channel_bindings(
     )
 
 
-__all__ = ["build_domain_experiment_preview", "build_experiment_preview"]
+__all__ = ["build_execution_plan_preview", "build_experiment_preview"]

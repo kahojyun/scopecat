@@ -12,9 +12,10 @@ from scopecat.models.entity import EntityRef
 from scopecat.models.measurement import CoordinateValue, MeasurementDatasetSchema
 from scopecat.models.parameter import Quantity
 
-RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v6"
+RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v7"
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 type RunPlanProducerKind = Literal["instrument", "domain", "host_transform"]
+type RunPlanFusionMode = Literal["automatic", "disabled"]
 
 
 class _RunPlanModel(BaseModel):
@@ -249,12 +250,55 @@ class RunPlanRoute(_RunPlanModel):
     resolved: list[RunPlanResolvedRoute] = Field(default_factory=list)
 
 
-class RunPlanDomainExecution(_RunPlanModel):
-    """Payload-free target identity accepted for one domain execution."""
+class RunPlanFusionOptions(_RunPlanModel):
+    """Durable user or planner bound on cross-point target fusion."""
 
-    kind: Literal["domain_job"] = "domain_job"
-    unit_id: _NonEmptyId
-    adapter_id: _NonEmptyId
+    fusion: RunPlanFusionMode
+    max_points_per_batch: Annotated[int, Field(ge=1)] | None
+
+    @model_validator(mode="after")
+    def validate_disabled_bound(self) -> RunPlanFusionOptions:
+        if self.fusion == "disabled" and self.max_points_per_batch not in {None, 1}:
+            msg = "disabled run-plan fusion cannot allow more than one point per batch"
+            raise ValueError(msg)
+        return self
+
+
+class RunPlanExecutionOptions(_RunPlanModel):
+    """Requested fusion policy and the concrete bound accepted by planning."""
+
+    requested: RunPlanFusionOptions
+    resolved: RunPlanFusionOptions
+
+    @model_validator(mode="after")
+    def validate_resolved_bound(self) -> RunPlanExecutionOptions:
+        requested_limit = self.requested.max_points_per_batch
+        resolved_limit = self.resolved.max_points_per_batch
+        if self.resolved.fusion == "disabled" and resolved_limit != 1:
+            msg = "resolved disabled run-plan fusion must have a one-point bound"
+            raise ValueError(msg)
+        if self.requested.fusion == "disabled" and self.resolved.fusion != "disabled":
+            msg = "resolved run-plan fusion must preserve a disabled request"
+            raise ValueError(msg)
+        if requested_limit is not None and (
+            resolved_limit is None or resolved_limit > requested_limit
+        ):
+            msg = "resolved run-plan fusion cannot exceed the requested point bound"
+            raise ValueError(msg)
+        return self
+
+
+class RunPlanDomainCapabilities(_RunPlanModel):
+    """Accepted point-batching limit of one domain-program adapter."""
+
+    max_points_per_batch: Annotated[int, Field(ge=1)] | None
+
+
+class RunPlanDomainBatch(_RunPlanModel):
+    """Payload-free target identity for one selected logical-point batch."""
+
+    batch_ordinal: int = Field(ge=0)
+    point_indices: list[Annotated[int, Field(ge=0)]]
     semantic_operation_id: _NonEmptyId
     completion_contract: Literal["synchronous"]
     invocation_id: _NonEmptyId
@@ -264,6 +308,40 @@ class RunPlanDomainExecution(_RunPlanModel):
     capability_fingerprint: _NonEmptyId
     artifact_id: _NonEmptyId
     artifact_fingerprint: _NonEmptyId
+
+    @model_validator(mode="after")
+    def validate_point_indices(self) -> RunPlanDomainBatch:
+        if not self.point_indices:
+            msg = "run-plan domain batches require at least one logical point"
+            raise ValueError(msg)
+        if self.point_indices != sorted(set(self.point_indices)):
+            msg = "run-plan domain batch point indices must be unique and ordered"
+            raise ValueError(msg)
+        return self
+
+
+class RunPlanDomainExecution(_RunPlanModel):
+    """One product-owning domain unit containing its physical invocations."""
+
+    kind: Literal["domain_program"] = "domain_program"
+    unit_id: _NonEmptyId
+    adapter_id: _NonEmptyId
+    capabilities: RunPlanDomainCapabilities
+    batches: list[RunPlanDomainBatch]
+
+    @model_validator(mode="after")
+    def validate_batches(self) -> RunPlanDomainExecution:
+        ordinals = [batch.batch_ordinal for batch in self.batches]
+        if ordinals != list(range(len(self.batches))):
+            msg = "run-plan domain batch ordinals must be contiguous and ordered"
+            raise ValueError(msg)
+        maximum = self.capabilities.max_points_per_batch
+        if maximum is not None and any(
+            len(batch.point_indices) > maximum for batch in self.batches
+        ):
+            msg = "run-plan domain batch exceeds the adapter point capability"
+            raise ValueError(msg)
+        return self
 
 
 class RunPlanPointInstrumentExecution(_RunPlanModel):
@@ -275,7 +353,6 @@ class RunPlanPointInstrumentExecution(_RunPlanModel):
     provider_id: _NonEmptyId
     submission_scope: Literal["point"] = "point"
     compute_placement: Literal["host"] = "host"
-    automatic_fusion: Literal["none"] = "none"
 
 
 type RunPlanExecutionUnit = Annotated[
@@ -287,9 +364,11 @@ type RunPlanExecutionUnit = Annotated[
 class RunPlanRecord(_RunPlanModel):
     """Stable projection of the plan accepted for one execution."""
 
-    schema_version: Literal["scopecat.run_plan_record.v6"] = (
+    schema_version: Literal["scopecat.run_plan_record.v7"] = (
         RUN_PLAN_RECORD_SCHEMA_VERSION
     )
+    backend_id: _NonEmptyId
+    execution_options: RunPlanExecutionOptions
     experiment_id: str
     experiment_kind: str
     execution_units: list[RunPlanExecutionUnit] = Field(default_factory=list)
@@ -324,6 +403,41 @@ class RunPlanRecord(_RunPlanModel):
         if not self.execution_units:
             msg = "run plans require at least one execution unit"
             raise ValueError(msg)
+        expected_point_indices = list(range(self.point_count))
+        resolved_fusion = self.execution_options.resolved
+        resolved_limit = (
+            1
+            if resolved_fusion.fusion == "disabled"
+            else resolved_fusion.max_points_per_batch
+        )
+        domain_units = tuple(
+            unit
+            for unit in self.execution_units
+            if isinstance(unit, RunPlanDomainExecution)
+        )
+        if not domain_units and (
+            resolved_fusion.fusion != "disabled"
+            or resolved_fusion.max_points_per_batch != 1
+        ):
+            msg = "run plans without domain units must resolve to pointwise execution"
+            raise ValueError(msg)
+        for unit in domain_units:
+            covered = [
+                point_index
+                for batch in unit.batches
+                for point_index in batch.point_indices
+            ]
+            if covered != expected_point_indices:
+                msg = (
+                    "run-plan domain batches must partition every logical point "
+                    "exactly once in order"
+                )
+                raise ValueError(msg)
+            if resolved_limit is not None and any(
+                len(batch.point_indices) > resolved_limit for batch in unit.batches
+            ):
+                msg = "run-plan domain batch exceeds the resolved fusion point bound"
+                raise ValueError(msg)
         for record in self.records:
             unit = units_by_id.get(record.producer_unit_id)
             if unit is None:
@@ -340,7 +454,7 @@ class RunPlanRecord(_RunPlanModel):
             if record.producer_kind != "instrument" and not isinstance(
                 unit, RunPlanDomainExecution
             ):
-                msg = "domain or host-transform outputs require a domain-job unit"
+                msg = "domain or host-transform outputs require a domain-program unit"
                 raise ValueError(msg)
 
     def _validate_points(self) -> None:
@@ -706,8 +820,13 @@ __all__ = [
     "RUN_PLAN_RECORD_SCHEMA_VERSION",
     "RunPlanChannelBinding",
     "RunPlanDeferredValue",
+    "RunPlanDomainBatch",
+    "RunPlanDomainCapabilities",
     "RunPlanDomainExecution",
+    "RunPlanExecutionOptions",
     "RunPlanExecutionUnit",
+    "RunPlanFusionMode",
+    "RunPlanFusionOptions",
     "RunPlanOutput",
     "RunPlanPayloadValue",
     "RunPlanPoint",

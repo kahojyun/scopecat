@@ -18,8 +18,10 @@ code used to validate Scopecat's notebook-first UX.
 - a promoted `AnalysisStep` implementation for repeated readout-frequency
   analysis;
 - domain calculation and plotting helpers behind that promoted analysis step;
-- a unified virtual lab provider;
-- a runnable fake AWG + digitizer domain adapter and reusable X-count reference;
+- one backend combining the virtual provider with a runnable fake AWG +
+  digitizer domain adapter;
+- a mixed scalar DC-source × programmable X-count reference that demonstrates
+  capability-based batching;
 - support-package unit tests.
 
 ## Where Users Customize
@@ -34,6 +36,7 @@ code used to validate Scopecat's notebook-first UX.
 | Inspect related readout cases | `../notebooks/08_readout_family.py` |
 | Inspect surface-code-shaped and backend-batch cases | `../notebooks/09_system_scale_cases.py` |
 | Compare reusable and scratch fake-hardware authoring | `../notebooks/10_fake_awg_template.py` and `../notebooks/11_fake_awg_scratch.py` |
+| Inspect simple-instrument × programmable-target fusion | `../notebooks/12_fake_awg_with_bias.py` and `src/quantum_lab_demo/reference_experiments/fake_x_count_bias.py` |
 | Inspect route-aware waveform compute | `../notebooks/07_gate_calibration_family.py` |
 | Change workspace, config profile, or virtual profile paths | `src/quantum_lab_demo/lab.py` and `src/quantum_lab_demo/fixtures.py` |
 | Replace virtual hardware with a real adapter | `src/quantum_lab_demo/virtual_lab/provider.py` |
@@ -115,16 +118,20 @@ The first target supports `Constant` envelopes only. Gaussian and DRAG are
 reported as unsupported target capabilities until their portable sampling
 semantics are specified.
 
-This runtime remains intentionally separate from the existing point-local
-instrument provider. An explicit core domain-execution boundary now accepts its
-prepared proof and publishes the result through the standard Run lifecycle.
-The adapter is selected on each `Workspace.prepare(...)` call rather than on the
-workspace, allowing local-provider and whole-program domain runs to share one
-workspace without hidden target inheritance. Correlated frames remain raw evidence.
-The v1 adapter contract is synchronous and whole-program: its first fetch must
-be terminal. Pending or submit-uncertain outcomes are terminalized as
-indeterminate Runs with durable target/artifact and reconciliation context;
-automatic polling and resume are not claimed by this slice.
+The lab installs the point-local provider and fake target adapter together in
+one `ExecutionBackend`. The adapter declares exactly which linked products it
+can own and the target's list capacity; core selects that capability and
+partitions contiguous logical points around point-local state changes and user
+fusion limits. The scalar bias × X-count example therefore runs one physical
+AWG list per voltage block under automatic fusion, or one list per logical
+point when fusion is disabled, without changing the experiment or dataset
+shape. Correlated frames remain raw evidence.
+
+Each selected domain batch still uses the synchronous v1 runtime contract: its
+first fetch must be terminal. Pending or submit-uncertain outcomes are
+terminalized as indeterminate Runs with durable target/artifact and
+reconciliation context; automatic polling and resume are not claimed by this
+slice.
 Callers explicitly bind every mapped result address with
 `integrated_iq_shots(address)` or `raw_trace_shots(address)`; the two policies
 may be freely mixed within one batch. `select_fake_measurement_realization`
@@ -173,11 +180,11 @@ rounding are not yet part of its semantic contract.
 The notebook-facing virtual provider still returns synthetic probability
 products directly. That path predates typed measurement transforms and remains
 legacy demo debt so the broader experiment catalog stays runnable during
-migration. The X-count Template and scratch examples use the domain path and
-produce standard durable Runs. `POINT_SET`, cross-point analysis, transform
-authoring DSL, hidden intermediate products, local instrument-source migration,
-offload equivalence, dataset compaction, polling, chunking, cancellation, and a
-cross-process job store remain later work.
+migration. The X-count Template, scratch, and mixed-bias examples use the
+domain path and produce standard durable Runs. `POINT_SET`, cross-point
+analysis, transform authoring DSL, hidden intermediate products, offload
+equivalence, dataset compaction, polling, cancellation, and a cross-process job
+store remain later work.
 
 ## Checks
 

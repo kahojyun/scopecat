@@ -34,7 +34,7 @@ import scopecat as sc
 lab = sc.open(
     ".scopecat",
     config="active",
-    execution_backend=sc.PointInstrumentBackend(provider),
+    execution_backend=sc.ExecutionBackend(provider=provider),
 )
 readout_frequency = sc.point(
     "readout_frequency",

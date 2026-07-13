@@ -21,6 +21,7 @@ from scopecat._value_expressions import verify_table_value_expr
 from scopecat.config_profiles import load_config_profile
 from scopecat.domain_invocation import (
     LogicalPointId,
+    MaterializedLinkedPointBatch,
     MaterializedLinkedPoints,
     ProductUseId,
     materialize_linked_points,
@@ -246,6 +247,25 @@ def _seal(
         batch,
         entry_bindings,
         acquisition_bindings,
+    )
+
+
+def test_result_mapping_accepts_an_explicit_linked_point_batch() -> None:
+    linked_points, target_batch, entry_bindings, acquisition_bindings = _valid_inputs()
+    linked_batch = MaterializedLinkedPointBatch(linked_points, (0, 1))
+
+    mapping = seal_circuit_target_result_mapping(
+        linked_batch,
+        target_batch,
+        entry_bindings,
+        acquisition_bindings,
+    )
+
+    assert mapping.linked_points is linked_batch
+    assert tuple(result.point for result in mapping.results) == tuple(
+        point
+        for point in linked_batch.point_domain.points
+        for _use in linked_points.linked_plan.product_uses
     )
 
 

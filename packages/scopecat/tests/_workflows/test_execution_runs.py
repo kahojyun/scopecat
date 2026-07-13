@@ -6,13 +6,43 @@ import pytest
 
 from scopecat._workflows.runs import read_run_record_json, start_run
 from scopecat.errors import CheckFailed
-from scopecat.execution_backend import PointInstrumentBackend
+from scopecat.execution_backend import ExecutionBackend
+from scopecat.instruments import (
+    InstrumentProviderContext,
+    InstrumentProviderDescription,
+    InstrumentProviderResult,
+)
 from tests.support.signal_instruments import TestSignalInstrumentProvider
 from tests.support.workflow_fixtures import (
     config_with_instrument_id,
     load_config,
     load_prepared_invocation,
 )
+
+
+class _CountingProvider:
+    def __init__(self) -> None:
+        self.delegate = TestSignalInstrumentProvider()
+        self.describe_calls = 0
+        self.provide_calls = 0
+
+    @property
+    def provider_id(self) -> str:
+        return self.delegate.provider_id
+
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        self.describe_calls += 1
+        return self.delegate.describe(context)
+
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        self.provide_calls += 1
+        return self.delegate.provide(context)
 
 
 def test_start_run_uses_provider_selected_config_instrument(
@@ -22,7 +52,7 @@ def test_start_run_uses_provider_selected_config_instrument(
         config=config_with_instrument_id("source-a"),
         experiment=load_prepared_invocation(),
         workspace=tmp_path,
-        execution_backend=PointInstrumentBackend(TestSignalInstrumentProvider()),
+        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )
     snapshot = read_run_record_json(
         run_id=manifest.run_id,
@@ -33,6 +63,21 @@ def test_start_run_uses_provider_selected_config_instrument(
 
     assert manifest.status == "completed"
     assert snapshot.content["instrument_ids"] == ["source-a"]
+
+
+def test_start_run_reuses_point_provider_preflight(tmp_path: Path) -> None:
+    provider = _CountingProvider()
+
+    manifest = start_run(
+        config=load_config(),
+        experiment=load_prepared_invocation(),
+        workspace=tmp_path,
+        execution_backend=ExecutionBackend(provider=provider),
+    )
+
+    assert manifest.status == "completed"
+    assert provider.describe_calls == 1
+    assert provider.provide_calls == 1
 
 
 def test_start_run_requires_explicit_execution_backend(

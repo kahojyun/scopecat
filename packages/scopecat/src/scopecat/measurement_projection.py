@@ -8,7 +8,11 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import cast
 
-from scopecat._compiler.linked import MaterializedLinkedPoints
+from scopecat._compiler.linked import (
+    MaterializedLinkedPointBatch,
+    MaterializedLinkedPoints,
+    MaterializedLinkedPointSet,
+)
 from scopecat._compiler.problems import compiler_problem
 from scopecat._compiler.products import ProductDef
 from scopecat._compiler.records import (
@@ -41,7 +45,7 @@ from scopecat.problems import Problem, ProblemCategory, model_location
 class SelectedMeasurementProjection:
     """Pre-effect selection of template-owned observable record projections."""
 
-    _linked_points: MaterializedLinkedPoints = field(repr=False)
+    _linked_points: MaterializedLinkedPointSet = field(repr=False)
     _records: tuple[RecordPlan, ...] = field(repr=False)
     required_product_use_ids: tuple[ProductUseId, ...]
     coordinate_ids: tuple[str, ...]
@@ -51,7 +55,7 @@ class SelectedMeasurementProjection:
 
     def __init__(
         self,
-        linked_points: MaterializedLinkedPoints,
+        linked_points: MaterializedLinkedPointSet,
         records: tuple[RecordPlan, ...],
         required_product_use_ids: tuple[ProductUseId, ...],
         coordinate_ids: tuple[str, ...],
@@ -84,7 +88,7 @@ class SelectedMeasurementProjection:
         object.__setattr__(self, "contract_fingerprint", contract_fingerprint)
 
     @property
-    def linked_points(self) -> MaterializedLinkedPoints:
+    def linked_points(self) -> MaterializedLinkedPointSet:
         return self._linked_points
 
     @property
@@ -158,14 +162,17 @@ class ProjectedMeasurementRecords:
 
 
 def select_measurement_projection(
-    linked_points: MaterializedLinkedPoints,
+    linked_points: MaterializedLinkedPointSet,
     *,
     record_ids: Sequence[str] | None = None,
 ) -> SelectedMeasurementProjection:
     """Select observable RecordUse projections without choosing a producer."""
 
-    if not isinstance(cast("object", linked_points), MaterializedLinkedPoints):
-        msg = "measurement projection requires MaterializedLinkedPoints"
+    if not isinstance(
+        cast("object", linked_points),
+        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
+    ):
+        msg = "measurement projection requires materialized linked points"
         raise TypeError(msg)
     linked_plan = linked_points.linked_plan
     all_record_uses = tuple(linked_plan.record_uses)

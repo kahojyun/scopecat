@@ -11,6 +11,9 @@ from quantum_lab_demo.fixtures import (
     DEFAULT_EXPERIMENT_WORKSPACE,
     EXPERIMENT_VIRTUAL_LAB_PROFILE,
 )
+from quantum_lab_demo.reference_experiments.fake_x_count_experiment import (
+    FakeXCountDomainExecutionAdapter,
+)
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
@@ -24,11 +27,13 @@ def quantum_lab(
     config_profile: ConfigProfileInput | None = None,
     virtual_lab_profile: PathInput = EXPERIMENT_VIRTUAL_LAB_PROFILE,
 ) -> sc.Workspace:
+    provider = QuantumLabVirtualProvider(profile=virtual_lab_profile)
     return sc.open(
         workspace,
         config_profile=config_profile or quantum_wiring_config_profile(),
-        execution_backend=sc.PointInstrumentBackend(
-            QuantumLabVirtualProvider(profile=virtual_lab_profile)
+        execution_backend=sc.ExecutionBackend(
+            provider=provider,
+            domain_adapters=(FakeXCountDomainExecutionAdapter(),),
         ),
     )
 
