@@ -16,6 +16,8 @@ freezing.
 
 - `packages/scopecat`: core workspace, experiment, run, data, analysis,
   workflow, storage, run overview, and SDK primitives.
+- `packages/scopecat-quantum`: hardware-independent gate, circuit, pulse,
+  schedule, calibration-selection, and target-compiler building blocks.
 - `examples/quantum`: notebook-first quantum examples, thin script wrappers,
   and the local `quantum_lab_demo` support package.
 - `fixtures`: durable sample inputs for core tests, boundary contracts, and
@@ -266,8 +268,10 @@ Run narrower slices while iterating:
 
 ```sh
 uv run --package scopecat pytest packages/scopecat/tests
+uv run --package scopecat-quantum pytest packages/scopecat-quantum/tests
 uv run pytest examples/quantum/tests
 uv run pytest examples/quantum/support/tests
 uv run basedpyright --project packages/scopecat
+uv run basedpyright --project packages/scopecat-quantum
 uv run basedpyright --project examples/quantum/support
 ```

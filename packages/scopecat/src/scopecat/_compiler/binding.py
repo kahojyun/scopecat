@@ -36,14 +36,12 @@ from scopecat._compiler.implementations import (
 from scopecat._compiler.linked import (
     LinkedPlan,
     link_program,
+    materialize_selected_linked_points,
+    select_linked_program,
 )
 from scopecat._compiler.parameter_overlays import apply_point_parameter_overlay
 from scopecat._compiler.point_domain import (
     MaterializedPoint,
-    MaterializedPointDomain,
-    PointDomainEvaluationError,
-    PointDomainValueError,
-    materialize_point_domain,
 )
 from scopecat._compiler.problems import CompilerProblemError, compiler_problem
 from scopecat._compiler.product_realizations import (
@@ -74,9 +72,7 @@ from scopecat._compiler.records import (
 from scopecat._compiler.route_constraints import validate_point_resource_constraints
 from scopecat._compiler.state import StateRecord, evaluate_state_spec
 from scopecat._compiler.verification import (
-    ProgramRelationBackendCapabilityError,
     SelectedTypedProgram,
-    select_typed_program,
 )
 from scopecat._compute_result import ComputeResultRef
 from scopecat._content_identity import content_fingerprint, stable_content_hash
@@ -91,7 +87,7 @@ from scopecat._relation_backend import (
     evaluate_scalar,
     evaluate_series,
 )
-from scopecat._relations import RelationExpr, Row, ScalarExpr, SeriesExpr
+from scopecat._relations import RelationExpr, ScalarExpr, SeriesExpr
 from scopecat._resource_identity import (
     LogicalResourcePortId,
     PhysicalResourceId,
@@ -191,12 +187,9 @@ def materialize_local_plan(
     )
     problems.extend(product_realization_problems)
     try:
-        selected_program = select_typed_program(
-            relation_backend,
-            linked.verified_program,
-        )
-    except ProgramRelationBackendCapabilityError as error:
-        problems.extend(_relation_backend_capability_problems(error))
+        selected_program = select_linked_program(linked, relation_backend)
+    except CheckFailed as error:
+        problems.extend(error.problems)
         selected_program = None
     if (
         implementation_problems
@@ -214,14 +207,14 @@ def materialize_local_plan(
             local_implementations=implementations,
             local_product_realizations=product_realizations,
         )
-    materialized_domain = _materialize_point_domain(
-        program,
-        environment,
-        problems,
-        selected_program=selected_program,
-        relation_backend=relation_backend,
-    )
-    if materialized_domain is None:
+    try:
+        linked_points = materialize_selected_linked_points(
+            linked,
+            selected_program,
+            relation_backend,
+        )
+    except CheckFailed as error:
+        problems.extend(error.problems)
         return _empty_plan(
             program,
             problems,
@@ -229,6 +222,8 @@ def materialize_local_plan(
             local_implementations=implementations,
             local_product_realizations=product_realizations,
         )
+    selected_program = linked_points.selected_program
+    materialized_domain = linked_points.point_domain
     planner_points = materialized_domain.points
     coordinate_schema_valid = True
     try:
@@ -509,101 +504,6 @@ def _empty_plan(
             _bound_compute_definition(node) for node in program.compute_nodes
         ),
         problems=tuple(problems),
-    )
-
-
-def _materialize_point_domain(
-    program: TypedProgram,
-    environment: ValidatedConfigEnvironment,
-    problems: list[Problem],
-    *,
-    selected_program: SelectedTypedProgram,
-    relation_backend: RelationBackend,
-) -> MaterializedPointDomain | None:
-    try:
-        return materialize_point_domain(
-            relation_backend,
-            selected_program.point_domain,
-            environment.parameters,
-            row_normalizer=lambda row: _normalize_point_domain_row(
-                row,
-                program=program,
-                environment=environment,
-                problems=problems,
-            ),
-        )
-    except PointDomainEvaluationError as error:
-        problems.append(
-            _problem(
-                "experiment_points_evaluation_failed",
-                f"experiment point domain failed: {error.error}",
-                model_location("point_domain", *error.path),
-            )
-        )
-        return None
-    except PointDomainValueError as error:
-        problems.append(
-            _problem(
-                "module_point_value_type_mismatch",
-                str(error),
-                model_location("points"),
-            )
-        )
-        return None
-
-
-def _normalize_point_domain_row(
-    row: Row,
-    *,
-    program: TypedProgram,
-    environment: ValidatedConfigEnvironment,
-    problems: list[Problem],
-) -> Row:
-    selected = dict(row)
-    for column_id in program.point_domain.entity_columns:
-        value = selected.get(column_id)
-        if value is None:
-            continue
-        entity = _resolve_entity(value, environment, problems)
-        if entity is not None:
-            selected[column_id] = entity
-    return selected
-
-
-def _resolve_entity(
-    value: object,
-    environment: ValidatedConfigEnvironment,
-    problems: list[Problem],
-) -> EntityRef | None:
-    selected = value if isinstance(value, EntityRef) else EntityRef(id=str(value))
-    known = environment.config.topology.entity(selected.id)
-    if known is None:
-        problems.append(
-            _problem(
-                "unknown_authoring_entity",
-                f"experiment references unknown entity {selected.id}",
-                model_location("entity", selected.id),
-                category=ProblemCategory.NOT_FOUND,
-            )
-        )
-        return None
-    if (
-        selected.kind is not None
-        and known.kind is not None
-        and selected.kind != known.kind
-    ):
-        problems.append(
-            _problem(
-                "authoring_entity_kind_mismatch",
-                f"entity {selected.id} has kind {known.kind}, not {selected.kind}",
-                model_location("entity", selected.id),
-            )
-        )
-        return None
-    return EntityRef(
-        id=selected.id,
-        kind=selected.kind or known.kind,
-        metadata={**known.metadata, **selected.metadata},
     )
 
 
@@ -1475,39 +1375,6 @@ def _unwrap_payload_values(value: object) -> object:
             for name, item in cast("Mapping[object, object]", value).items()
         }
     return value
-
-
-def _relation_backend_capability_problems(
-    error: ProgramRelationBackendCapabilityError,
-) -> tuple[Problem, ...]:
-    return tuple(
-        compiler_problem(
-            "relation_backend_capability_unsupported",
-            (
-                f"relation backend {error.backend_id!r} cannot execute "
-                f"{failure.consumer.kind.value}: {failure.issue.message}"
-            ),
-            model_location(
-                failure.consumer.location.root,
-                *failure.consumer.location.path,
-                *failure.issue.path,
-            ),
-            phase=ProblemPhase.PLANNING,
-            category=ProblemCategory.UNAVAILABLE,
-            details={
-                "backend_id": error.backend_id,
-                "consumer_kind": failure.consumer.kind.value,
-                "consumer_location": {
-                    "root": failure.consumer.location.root,
-                    "path": list(failure.consumer.location.path),
-                },
-                "capability_dimension": failure.issue.dimension.value,
-                "capability_code": failure.issue.code,
-                "plan_path": list(failure.issue.path),
-            },
-        )
-        for failure in error.failures
-    )
 
 
 def _problem(

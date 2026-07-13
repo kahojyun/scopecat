@@ -416,6 +416,15 @@ class MaterializedPointDomain:
         if any(point.logical_id.domain_id != domain_id for point in selected):
             msg = "materialized point identities must belong to their domain"
             raise ValueError(msg)
+        if any(
+            point.logical_id != LogicalPointId(domain_id, ordinal)
+            for ordinal, point in enumerate(selected)
+        ):
+            msg = (
+                "materialized point identities must follow canonical contiguous "
+                "ordinal order"
+            )
+            raise ValueError(msg)
         object.__setattr__(self, "id", domain_id)
         object.__setattr__(self, "points", selected)
         object.__setattr__(self, "cardinality", PointCardinality.exact(len(selected)))

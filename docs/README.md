@@ -17,6 +17,8 @@ compatibility layers for abandoned internal shapes.
 - [Layered transient IR architecture](ir-architecture.md): IR layers,
   dependency rules, semantic invariants, extension boundaries, and migration
   direction.
+- [Quantum domain package architecture](quantum-domain-architecture.md):
+  hardware-independent quantum semantics and the laboratory target boundary.
 
 ## Admission Rule
 

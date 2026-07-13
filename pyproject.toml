@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
   "quantum-lab-demo",
   "scopecat",
+  "scopecat-quantum",
 ]
 
 [dependency-groups]
@@ -24,6 +25,8 @@ notebook = [
 include = [
   "packages/scopecat/src",
   "packages/scopecat/tests",
+  "packages/scopecat-quantum/src",
+  "packages/scopecat-quantum/tests",
   "examples/quantum/support/src",
   "examples/quantum/support/tests",
   "examples/quantum",
@@ -37,7 +40,10 @@ exclude = [
 pythonVersion = "3.12"
 pythonPlatform = "All"
 typeCheckingMode = "standard"
-strict = ["packages/scopecat/src"]
+strict = [
+  "packages/scopecat/src",
+  "packages/scopecat-quantum/src",
+]
 reportMissingImports = "error"
 reportMissingTypeStubs = "none"
 
@@ -48,6 +54,7 @@ strict_markers = true
 testpaths = [
   "examples/quantum/support/tests",
   "examples/quantum/tests",
+  "packages/scopecat-quantum/tests",
   "packages/scopecat/tests",
 ]
 
@@ -57,6 +64,8 @@ line-length = 88
 src = [
   "packages/scopecat/src",
   "packages/scopecat/tests",
+  "packages/scopecat-quantum/src",
+  "packages/scopecat-quantum/tests",
   "examples/quantum/support/src",
   "examples/quantum/support/tests",
   "examples/quantum",
@@ -97,6 +106,7 @@ package = false
 
 [tool.uv.sources]
 scopecat = { workspace = true }
+scopecat-quantum = { workspace = true }
 quantum-lab-demo = { workspace = true }
 
 [tool.uv.workspace]

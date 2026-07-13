@@ -76,12 +76,67 @@ the helper validates those references and compiles that view into core
 domain-neutral, while examples remain editable in terms a lab user would
 recognize.
 
-## Future Domain Package Boundary
+## Domain Package Boundary
 
-A future `scopecat-quantum` package should start with foundational building
-blocks only: gate records, pulse records, sequence records, target identifiers,
-and artifact helpers. It should not absorb this demo package's readout
-workflows, virtual fixtures, candidate activation policy, or notebook examples.
+`scopecat-quantum` now owns the hardware-independent gate, measurement,
+circuit, pulse, schedule, calibration-selection, and target-compiler contracts.
+This demo depends on that package and implements a concrete fake list-mode AWG
+and segmented-digitizer target against those contracts, including an
+end-to-end calibrated gate-plus-measurement example.
+
+The demo continues to own laboratory wiring, calibration values, readout
+workflows, virtual fixtures, response models, candidate activation policy, and
+notebook examples. Those are laboratory concerns and do not move into the
+foundational package.
+
+## Fake List-Mode Target
+
+`quantum_lab_demo.targets.fake_list_mode` provides an immutable target
+configuration, a pure compiler, a fake list-mode AWG, and a segmented
+digitizer runtime. Compilation requires exact sample-grid alignment and checks
+logical-to-physical bindings, physical channel overlap, amplitude, list depth,
+shot count, frame count, and waveform/capture memory before producing an
+artifact.
+
+The AWG repeats the complete ordered list for every shot. Every digitizer frame
+retains its target entry, shot, acquisition slot, segment, and physical channel
+identity; list and segment indices are never treated as logical identities.
+Prepared circuit-target batches use the frame's entry-qualified acquisition
+address to recover exact circuit and measurement provenance, including when
+several list entries reuse the same circuit-local result slot. A
+`CompiledCircuitTarget` first binds the compiled artifact back to that exact
+batch and its logical point/product-use mapping. The demo then returns a
+`CorrelatedFakeListRun` whose frames are canonically projected by logical point,
+product-use occurrence, and shot while retaining the raw target-order run.
+The first target supports `Constant` envelopes only. Gaussian and DRAG are
+reported as unsupported target capabilities until their portable sampling
+semantics are specified.
+
+This runtime remains intentionally separate from the existing point-local
+instrument provider and core executor. Correlated frames remain raw evidence.
+Callers explicitly bind every mapped result address with
+`integrated_iq_shots(address)` or `raw_trace_shots(address)`; the two policies
+may be freely mixed within one batch. `select_fake_measurement_realization`
+rejects missing, duplicate, and unknown bindings, restores canonical logical
+result order, and checks each product before effects. Its signature is
+`select_fake_measurement_realization(compiled_target, target, bindings)`:
+`target` must be the exact `FakeListTarget` selected by target identity and
+capability fingerprint, and its sample rate must equal the compiled artifact's
+sample rate. The proof also requires each prepared `Acquire` and artifact
+window to agree on entry/list position, scheduled program, acquisition event,
+logical signal, kind, target acquisition channel, sample-grid start, and sample
+count.
+
+Integrated-IQ bindings require observable `complex128` values in `ratio` with
+canonical `[shot]` shape. Raw-trace bindings require canonical
+`[shot, sample]` shape, with extents fixed by target repetitions and that
+result's checked acquisition window. `execute_realized_fake_measurements`
+executes the mixed target batch once, realizes each address under its selected
+policy, and closes the heterogeneous values together while retaining the raw
+frames. Unit conversion, reduction, record projection, dataset persistence,
+and runtime journal integration remain absent. The next vertical slice is an
+executable closed domain invocation with correlated submit, fetch, and
+reconciliation effects.
 
 ## Checks
 

@@ -4,9 +4,16 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from typing import cast
 
 from scopecat._compiler.environment import ValidatedConfigEnvironment
-from scopecat._compiler.point_domain import VerifiedPointDomain
+from scopecat._compiler.point_domain import (
+    MaterializedPointDomain,
+    PointDomainEvaluationError,
+    PointDomainValueError,
+    VerifiedPointDomain,
+    materialize_point_domain,
+)
 from scopecat._compiler.problems import compiler_problem
 from scopecat._compiler.products import InstrumentProductProducer, ProductDef
 from scopecat._compiler.program import TypedProgram
@@ -17,19 +24,26 @@ from scopecat._compiler.state import (
     StateSpec,
 )
 from scopecat._compiler.verification import (
+    ProgramRelationBackendCapabilityError,
     ProgramRelationConsumer,
+    SelectedTypedProgram,
     VerifiedTypedProgram,
     seal_typed_program,
+    select_typed_program,
 )
 from scopecat._point_domain_algebra import PointCardinality
 from scopecat._product_identity import ProductUse
 from scopecat._relation_backend import (
+    REFERENCE_RELATION_BACKEND,
     ParameterRelationData,
+    RelationBackend,
     validate_relation_parameter_import,
 )
 from scopecat._relation_verification import PlanImportNamespace
+from scopecat._relations import Row
 from scopecat._resource_identity import LogicalResourcePortId, PhysicalResourceId
 from scopecat.errors import CheckFailed
+from scopecat.models.entity import EntityRef
 from scopecat.problems import (
     ModelLocation,
     Problem,
@@ -43,6 +57,7 @@ from scopecat.value_types import TableColumn
 from scopecat.value_validation import ValueValidationError
 
 _LINKED_PLAN_TOKEN = object()
+_MATERIALIZED_LINKED_POINTS_TOKEN = object()
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -129,6 +144,160 @@ class LinkedPlan:
     @property
     def cardinality(self) -> PointCardinality:
         return self.point_domain.cardinality
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class MaterializedLinkedPoints:
+    """One linked plan with a complete backend selection and canonical points.
+
+    This proof is deliberately narrower than a local bound plan: it retains the
+    exact linked program, the whole-program relation-backend selection, and the
+    materialized logical point domain, while owning no local compute or product
+    realization.
+    """
+
+    _linked_plan: LinkedPlan
+    _selected_program: SelectedTypedProgram
+    _point_domain: MaterializedPointDomain
+    relation_backend_id: str
+
+    def __init__(
+        self,
+        linked_plan: LinkedPlan,
+        selected_program: SelectedTypedProgram,
+        point_domain: MaterializedPointDomain,
+        relation_backend_id: str,
+        *,
+        _token: object | None = None,
+    ) -> None:
+        if _token is not _MATERIALIZED_LINKED_POINTS_TOKEN:
+            msg = (
+                "MaterializedLinkedPoints can only be created by "
+                "materialize_linked_points"
+            )
+            raise TypeError(msg)
+        if selected_program.verified_program is not linked_plan.verified_program:
+            msg = "selected program must belong to the linked plan"
+            raise ValueError(msg)
+        if selected_program.backend_id != relation_backend_id:
+            msg = "selected program and materialized linked points must use one backend"
+            raise ValueError(msg)
+        if point_domain.id != linked_plan.point_domain.id:
+            msg = "materialized point domain must belong to the linked plan"
+            raise ValueError(msg)
+        object.__setattr__(self, "_linked_plan", linked_plan)
+        object.__setattr__(self, "_selected_program", selected_program)
+        object.__setattr__(self, "_point_domain", point_domain)
+        object.__setattr__(self, "relation_backend_id", relation_backend_id)
+
+    @property
+    def linked_plan(self) -> LinkedPlan:
+        return self._linked_plan
+
+    @property
+    def selected_program(self) -> SelectedTypedProgram:
+        return self._selected_program
+
+    @property
+    def point_domain(self) -> MaterializedPointDomain:
+        return self._point_domain
+
+
+def materialize_linked_points(
+    linked: LinkedPlan,
+    *,
+    relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
+) -> MaterializedLinkedPoints:
+    """Select every relation, then materialize only the logical point domain.
+
+    Whole-program backend preflight completes before the first relation is
+    evaluated. Expected capability, point-evaluation, value, and entity errors
+    cross this planning boundary as structured :class:`CheckFailed` problems.
+    """
+
+    selected_program = select_linked_program(linked, relation_backend)
+    return materialize_selected_linked_points(
+        linked,
+        selected_program,
+        relation_backend,
+    )
+
+
+def select_linked_program(
+    linked: LinkedPlan,
+    relation_backend: RelationBackend,
+) -> SelectedTypedProgram:
+    """Preflight every linked relation without evaluating any of them."""
+
+    if not isinstance(cast("object", linked), LinkedPlan):
+        msg = "linked point materialization requires a LinkedPlan"
+        raise TypeError(msg)
+    try:
+        return select_typed_program(
+            relation_backend,
+            linked.verified_program,
+        )
+    except ProgramRelationBackendCapabilityError as error:
+        raise CheckFailed(_relation_backend_capability_problems(error)) from error
+
+
+def materialize_selected_linked_points(
+    linked: LinkedPlan,
+    selected_program: SelectedTypedProgram,
+    relation_backend: RelationBackend,
+) -> MaterializedLinkedPoints:
+    """Materialize points from an exact whole-program backend selection."""
+
+    if selected_program.verified_program is not linked.verified_program:
+        msg = "selected program must belong to the linked plan"
+        raise ValueError(msg)
+    if selected_program.backend_id != relation_backend.backend_id:
+        msg = "selected program and point materializer must use one backend"
+        raise ValueError(msg)
+    program = linked.program
+    environment = linked.environment
+    problems: list[Problem] = []
+    try:
+        point_domain = materialize_point_domain(
+            relation_backend,
+            selected_program.point_domain,
+            environment.parameters,
+            row_normalizer=lambda row: _normalize_point_domain_row(
+                row,
+                program=program,
+                environment=environment,
+                problems=problems,
+            ),
+        )
+    except PointDomainEvaluationError as error:
+        problems.append(
+            compiler_problem(
+                "experiment_points_evaluation_failed",
+                f"experiment point domain failed: {error.error}",
+                model_location("point_domain", *error.path),
+                phase=ProblemPhase.PLANNING,
+            )
+        )
+        raise CheckFailed(problems) from error
+    except PointDomainValueError as error:
+        problems.append(
+            compiler_problem(
+                "module_point_value_type_mismatch",
+                str(error),
+                model_location("points"),
+                phase=ProblemPhase.PLANNING,
+            )
+        )
+        raise CheckFailed(problems) from error
+    if has_blocking_problems(problems):
+        raise CheckFailed(problems)
+    return MaterializedLinkedPoints(
+        linked,
+        selected_program,
+        point_domain,
+        relation_backend.backend_id,
+        _token=_MATERIALIZED_LINKED_POINTS_TOKEN,
+    )
 
 
 def link_program(
@@ -393,4 +562,101 @@ def _parameter_import_problem(
     )
 
 
-__all__ = ["LinkedPlan", "link_program"]
+def _normalize_point_domain_row(
+    row: Row,
+    *,
+    program: TypedProgram,
+    environment: ValidatedConfigEnvironment,
+    problems: list[Problem],
+) -> Row:
+    selected = dict(row)
+    for column_id in program.point_domain.entity_columns:
+        value = selected.get(column_id)
+        if value is None:
+            continue
+        entity = _resolve_entity(value, environment, problems)
+        if entity is not None:
+            selected[column_id] = entity
+    return selected
+
+
+def _resolve_entity(
+    value: object,
+    environment: ValidatedConfigEnvironment,
+    problems: list[Problem],
+) -> EntityRef | None:
+    selected = value if isinstance(value, EntityRef) else EntityRef(id=str(value))
+    known = environment.config.topology.entity(selected.id)
+    if known is None:
+        problems.append(
+            compiler_problem(
+                "unknown_authoring_entity",
+                f"experiment references unknown entity {selected.id}",
+                model_location("entity", selected.id),
+                phase=ProblemPhase.PLANNING,
+                category=ProblemCategory.NOT_FOUND,
+            )
+        )
+        return None
+    if (
+        selected.kind is not None
+        and known.kind is not None
+        and selected.kind != known.kind
+    ):
+        problems.append(
+            compiler_problem(
+                "authoring_entity_kind_mismatch",
+                f"entity {selected.id} has kind {known.kind}, not {selected.kind}",
+                model_location("entity", selected.id),
+                phase=ProblemPhase.PLANNING,
+            )
+        )
+        return None
+    return EntityRef(
+        id=selected.id,
+        kind=selected.kind or known.kind,
+        metadata={**known.metadata, **selected.metadata},
+    )
+
+
+def _relation_backend_capability_problems(
+    error: ProgramRelationBackendCapabilityError,
+) -> tuple[Problem, ...]:
+    return tuple(
+        compiler_problem(
+            "relation_backend_capability_unsupported",
+            (
+                f"relation backend {error.backend_id!r} cannot execute "
+                f"{failure.consumer.kind.value}: {failure.issue.message}"
+            ),
+            model_location(
+                failure.consumer.location.root,
+                *failure.consumer.location.path,
+                *failure.issue.path,
+            ),
+            phase=ProblemPhase.PLANNING,
+            category=ProblemCategory.UNAVAILABLE,
+            details={
+                "backend_id": error.backend_id,
+                "consumer_kind": failure.consumer.kind.value,
+                "consumer_location": {
+                    "root": failure.consumer.location.root,
+                    "path": list(failure.consumer.location.path),
+                },
+                "capability_dimension": failure.issue.dimension.value,
+                "capability_code": failure.issue.code,
+                "plan_path": list(failure.issue.path),
+            },
+        )
+        for failure in error.failures
+    )
+
+
+__all__ = [
+    "LinkedPlan",
+    "MaterializedLinkedPoints",
+    "link_program",
+    "materialize_linked_points",
+    "materialize_selected_linked_points",
+    "select_linked_program",
+]

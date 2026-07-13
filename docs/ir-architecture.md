@@ -494,10 +494,30 @@ HostOrchestrationPlan
 ```
 
 The current implementation may continue lowering directly to the synchronous
-local execution program. When a concrete domain integration arrives, the first
-additional shape should be one closed domain invocation plus host-side
-submission, collection, and reconciliation. The domain program owns its loops,
-branches, feedback, timing, shots, and device-local error handling.
+local execution program. The first concrete integration now stops at a smaller
+pure prerequisite: `MaterializedLinkedPoints` performs whole-program relation
+backend preflight and materializes only the logical point domain, while
+`ClosedDomainResultMapping` proves a bijection between opaque adapter entries
+and logical points plus exact result-address coverage for every
+`(LogicalPointId, ProductUseId)`. Adapter order may differ from canonical point
+order; the sealed proof retains both without conflating them. Product identity
+is derived from the linked use and definition inventories, and record aliases
+do not create target work. `SelectedDomainMeasurementOutputs` closes the
+static carrier inventory before effects; the first carrier is explicitly for
+observable measurements, while artifacts and other payload kinds remain
+separate future closures and axis-free `bool`/`string` products are rejected
+because the current `MeasurementValue` has no matching scalar carrier.
+`ClosedDomainOutputValues` then requires candidates to repeat only result
+address and value, exact mapping coverage, dtype, unit, point-local shape,
+nested array structure, array leaf types, and mutable model invariants before
+canonical accepted values are returned. Record projection remains a later
+use-to-record operation.
+
+These proofs are deliberately not a `HostOrchestrationPlan` or an executable
+domain invocation. The next concrete runtime integration should add one closed
+domain invocation plus host-side submission, collection, and reconciliation.
+The domain program owns its loops, branches, feedback, timing, shots, and
+device-local error handling.
 
 Offload means that an adapter proves selected pure scans, computations,
 collection setup, or postprocessing can be fused into that invocation while
@@ -536,6 +556,40 @@ for remote, cached, asynchronous, or offloaded results. A future target runtime
 protocol must authenticate or otherwise correlate every receipt/result chunk
 to the submitted artifact and map it explicitly to logical point and product
 use identities before acceptance.
+
+The fake quantum target now demonstrates the strictly smaller synchronous
+prerequisite. `CompiledCircuitTarget` proves that one checked artifact belongs
+to the exact prepared batch and result mapping. After execution, the
+laboratory-owned `CorrelatedFakeListRun` revalidates the artifact and exact
+`(acquisition address, shot)` frame inventory, then projects frames into
+canonical `(logical point, product use, shot)` order while retaining raw target
+evidence. Artifact correlation uses checked identity, fingerprint, and content,
+not Python object identity. Correlation intentionally does not accept those
+values as products: repetition count alone cannot choose between a shot axis,
+aggregation, or another domain reduction. The laboratory assigns each mapped
+result address an explicit `integrated_iq_shots(...)` or
+`raw_trace_shots(...)` binding. `select_fake_measurement_realization` seals
+exact address coverage and retains canonical logical result order even when
+the binding declarations are reordered or the two policies are mixed. The
+selector requires the exact `FakeListTarget`; its target identity and
+capability fingerprint must match the compiled request, and its sample rate
+must match the artifact.
+
+Before effects, selection checks the mapped product contract and reconciles
+each prepared `Acquire` with its target-owned artifact window: entry/list
+position, scheduled program, acquisition event, logical signal, acquisition
+kind, target acquisition channel, sample-grid start, and sample count must all
+agree. Integrated IQ accepts observable `complex128` values in `ratio` with
+`[shot]` shape; raw trace accepts the same carrier with `[shot, sample]` shape,
+using target repetitions and the checked window sample count as exact extents.
+`execute_realized_fake_measurements` executes the compiled mixed batch once,
+applies the selected policy independently to every returned address, and closes
+all candidates together as transient `ClosedDomainOutputValues` while
+preserving access to the exact raw frames. It performs no reduction, record
+projection, dataset assembly, or journal integration and fabricates no durable
+job identity or host effect. The next vertical slice is an executable closed
+domain invocation with correlated submission, fetch, and reconciliation
+evidence.
 
 ## Dialects and Backend Boundaries
 
@@ -981,26 +1035,49 @@ code and tests decisively rather than maintaining parallel legacy IRs.
    current one-result shape remains an explicit local lowering limitation and
    does not prevent Semantic Graph IR or a future target from representing
    named multiple outputs.
-11. **Host orchestration and domain invocation boundary.** Introduce one closed
-   domain-program invocation only when a concrete integration needs it. Keep
-   loops, branches, feedback, shots, and timing inside the domain program;
-   expose only typed inputs and products, logical point mappings, resource
-   claims, host-visible effects, capability evidence, and reconciliation data.
-   Add adapter-proved offload fusion for specific core subplans rather than a
-   generic fragment partitioner.
-12. **Target runtime protocol.** Add host-visible submission, inspection, chunk
-   fetch, cancellation, and reconciliation evidence in response to a real
-   domain invocation ABI, not as a speculative general scheduler.
+11. **Host orchestration and domain invocation boundary (identity and value
+   prerequisites implemented).** Core now exposes a narrow public adapter SPI
+   for target-neutral point materialization, sealed entry/result identity
+   mapping, pre-effect measurement-carrier selection, and exact value closure.
+   Its first version assigns one
+   opaque adapter entry to each canonical logical point, requires the linked
+   plan's complete product-use inventory exactly once per point, then accepts
+   values only with exact result coverage and matching product contracts.
+   `scopecat-quantum` maps prepared target entry and acquisition addresses
+   through this SPI without importing core private modules or teaching core
+   about quantum slots, pulse events, or physical list indexes. It intentionally
+   does not yet define an executable invocation.
+   Introduce that invocation only with concrete typed inputs, logical resource
+   claims, capability evidence, host-visible effects, and reconciliation data.
+   Keep loops, branches, feedback, shots, and timing inside the domain program,
+   and add adapter-proved offload fusion for specific core subplans rather than
+   a generic fragment partitioner.
+12. **Target runtime protocol (synchronous correlation prerequisite
+   implemented).** The quantum package now binds a checked artifact to its exact
+   circuit result mapping, and the demo fake target correlates complete raw
+   frame/shot evidence back to logical outputs. Explicit per-result
+   `integrated_iq_shots` and `raw_trace_shots` bindings compose in one exact
+   pre-effect selection against the exact `FakeListTarget`, including target
+   identity, capability fingerprint, artifact sample rate, and acquisition
+   channel checks. The demo then executes one mixed batch and closes the
+   heterogeneous `[shot]` and `[shot, sample]` values together through core's
+   value contract. Correlation itself remains policy-free. The next slice
+   should add one executable closed invocation with host-visible submission,
+   fetch, and reconciliation evidence. Inspection, chunking, cancellation,
+   retry, and broader uncertainty policy should extend that concrete ABI rather
+   than introduce a speculative general scheduler.
 
 The first ten slices now form the compiler baseline. `LinkedPlan` is
 target-neutral with respect to relation backend, compute meaning, and local
 Python coverage, but it is not a target-selected orchestration plan. The current
 local lowering owns its sealed backend and implementation selections, and
 relation and product selections are keyed by nominal occurrence identity. The
-product/use/record boundary now provides the result-mapping seam required by a
-future domain invocation API; orchestration, offload fusion, non-local target
-selections, and runtime protocol work should advance in response to a concrete
-lowering and target workflow rather than speculative generic fragments.
+product/use/record boundary now feeds a checked result-mapping seam for a future
+executable domain invocation; orchestration, offload fusion, partial
+local/domain product ownership, and further output realization policies remain
+later work. The immediate vertical gap is the executable invocation and its
+effectful submission/fetch/reconciliation protocol, driven by the concrete fake
+target workflow rather than speculative generic fragments.
 
 ## Consequences
 

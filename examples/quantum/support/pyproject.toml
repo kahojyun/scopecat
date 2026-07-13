@@ -8,6 +8,7 @@ dependencies = [
   "matplotlib>=3.10",
   "numpy>=2",
   "scopecat",
+  "scopecat-quantum",
 ]
 
 [build-system]
@@ -54,3 +55,4 @@ exclude = [
 
 [tool.uv.sources]
 scopecat = { workspace = true }
+scopecat-quantum = { workspace = true }

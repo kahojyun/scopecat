@@ -10,7 +10,12 @@ from scopecat._compiler.environment import (
     ValidatedConfigEnvironment,
     validate_config_environment,
 )
-from scopecat._compiler.linked import LinkedPlan, link_program
+from scopecat._compiler.linked import (
+    LinkedPlan,
+    MaterializedLinkedPoints,
+    link_program,
+    materialize_linked_points,
+)
 from scopecat._compiler.point_domain import PointDomain
 from scopecat._compiler.program import (
     ResourceRouteIntent,
@@ -64,13 +69,22 @@ from scopecat._relations import (
 from scopecat._resource_identity import logical_resource_port_id
 from scopecat._value_expressions import TableValueExpr
 from scopecat.errors import CheckFailed
+from scopecat.models.entity import EntityRef
 from scopecat.problems import (
     ProblemCategory,
     ProblemPhase,
     blocking_problem,
     model_location,
 )
-from scopecat.value_types import Float, Scalar, Series, String, Table, TableColumn
+from scopecat.value_types import (
+    Entity,
+    Float,
+    Scalar,
+    Series,
+    String,
+    Table,
+    TableColumn,
+)
 from tests.support.authoring import load_config
 from tests.support.relation_plans import scalar_value_expr, table_value_expr
 from tests.support.workflow_fixtures import load_experiment
@@ -121,6 +135,78 @@ class _BackendProbe:
         _ = evaluation
         self.materialization_count += 1
         raise AssertionError("linking must not materialize relation plans")
+
+
+class _MaterializationProbe(ReferenceRelationBackend):
+    assessment_count: int
+    scalar_materialization_count: int
+    series_materialization_count: int
+    relation_materialization_count: int
+    events: list[str]
+
+    def __init__(self, *, backend_id: str = "tests.linked-points") -> None:
+        super().__init__(backend_id=backend_id)
+        object.__setattr__(self, "assessment_count", 0)
+        object.__setattr__(self, "scalar_materialization_count", 0)
+        object.__setattr__(self, "series_materialization_count", 0)
+        object.__setattr__(self, "relation_materialization_count", 0)
+        object.__setattr__(self, "events", [])
+
+    def assess_relation_requirements(
+        self,
+        requirements: RelationPlanRequirements,
+    ) -> Sequence[RelationBackendCapabilityIssue]:
+        self.events.append("assess")
+        object.__setattr__(self, "assessment_count", self.assessment_count + 1)
+        return super().assess_relation_requirements(requirements)
+
+    def materialize_scalar(
+        self,
+        evaluation: PreparedRelationEvaluation[ScalarExpr],
+    ) -> CellValue:
+        self.events.append("materialize_scalar")
+        object.__setattr__(
+            self,
+            "scalar_materialization_count",
+            self.scalar_materialization_count + 1,
+        )
+        return super().materialize_scalar(evaluation)
+
+    def materialize_series(
+        self,
+        evaluation: PreparedRelationEvaluation[SeriesExpr],
+    ) -> list[CellValue]:
+        self.events.append("materialize_series")
+        object.__setattr__(
+            self,
+            "series_materialization_count",
+            self.series_materialization_count + 1,
+        )
+        return super().materialize_series(evaluation)
+
+    def materialize_relation(
+        self,
+        evaluation: PreparedRelationEvaluation[RelationExpr],
+    ) -> list[Row]:
+        self.events.append("materialize_relation")
+        object.__setattr__(
+            self,
+            "relation_materialization_count",
+            self.relation_materialization_count + 1,
+        )
+        return super().materialize_relation(evaluation)
+
+
+class _FailingMaterializationBackend(ReferenceRelationBackend):
+    def __init__(self) -> None:
+        super().__init__(backend_id="tests.failing-linked-points")
+
+    def materialize_relation(
+        self,
+        evaluation: PreparedRelationEvaluation[RelationExpr],
+    ) -> list[Row]:
+        _ = evaluation
+        raise ValueError("backend point failure")
 
 
 def _table(column: str, rows: int) -> Table:
@@ -650,6 +736,230 @@ def test_local_materialization_is_the_existing_bound_plan_projection() -> None:
     assert all(point.routes for point in actual.points)
     assert all(point.desired_state for point in actual.points)
     assert all(point.collect for point in actual.points)
+
+
+def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> None:
+    linked = link_program(_symbolic_program(), _environment())
+    backend = _MaterializationProbe()
+
+    materialized = materialize_linked_points(
+        linked,
+        relation_backend=backend,
+    )
+
+    assert materialized.linked_plan is linked
+    assert materialized.selected_program.verified_program is linked.verified_program
+    assert materialized.point_domain.id == linked.point_domain.id
+    assert materialized.relation_backend_id == backend.backend_id
+    assert materialized.selected_program.backend_id == backend.backend_id
+    assert [point.logical_ordinal for point in materialized.point_domain.points] == [
+        0,
+        1,
+        2,
+        3,
+    ]
+    consumer_count = len(linked.verified_program.relation_consumers)
+    assert backend.events[:consumer_count] == ["assess"] * consumer_count
+    assert backend.relation_materialization_count > 0
+    assert backend.scalar_materialization_count == 0
+    assert backend.series_materialization_count == 0
+
+
+def test_linked_points_preflight_nonpoint_relations_without_evaluating_them() -> None:
+    program = TypedProgram(
+        id="whole-program-linked-point-selection",
+        kind="compiler_test",
+        point_domain=PointDomain(root=POINT_UNIT),
+        state=(
+            set_state_field(
+                scalar_value_expr("source-0", expected_type=Scalar(String())),
+                capability_id="set_frequency",
+                field_path="value",
+                value=scalar_value_expr(1.0, expected_type=_FLOAT),
+            ),
+        ),
+    )
+    linked = link_program(program, _environment())
+    backend = _MaterializationProbe(backend_id="tests.whole-program-points")
+
+    materialized = materialize_linked_points(
+        linked,
+        relation_backend=backend,
+    )
+
+    assert linked.point_domain.relation_leaves == ()
+    assert linked.verified_program.relation_consumers
+    assert backend.assessment_count == len(linked.verified_program.relation_consumers)
+    assert backend.scalar_materialization_count == 0
+    assert backend.series_materialization_count == 0
+    assert backend.relation_materialization_count == 0
+    assert len(materialized.point_domain.points) == 1
+
+
+def test_linked_points_report_backend_rejections_before_materialization() -> None:
+    linked = link_program(_symbolic_program(), _environment())
+    backend = _BackendProbe(
+        unsupported=frozenset({RelationOperation.RELATION_LITERAL_ROWS})
+    )
+
+    with pytest.raises(CheckFailed) as caught:
+        materialize_linked_points(linked, relation_backend=backend)
+
+    assert backend.assessment_count == len(linked.verified_program.relation_consumers)
+    assert backend.materialization_count == 0
+    assert caught.value.problems
+    assert all(
+        problem.code == "relation_backend_capability_unsupported"
+        for problem in caught.value.problems
+    )
+    assert all(
+        problem.phase is ProblemPhase.PLANNING for problem in caught.value.problems
+    )
+    assert all(
+        problem.category is ProblemCategory.UNAVAILABLE
+        for problem in caught.value.problems
+    )
+    assert {problem.details["backend_id"] for problem in caught.value.problems} == {
+        backend.backend_id
+    }
+
+
+def test_linked_points_map_backend_point_failures_to_planning_problems() -> None:
+    linked = link_program(
+        TypedProgram(
+            id="failed-linked-point-evaluation",
+            kind="compiler_test",
+            point_domain=PointDomain(root=_rows("x", (1.0,))),
+        ),
+        _environment(),
+    )
+
+    with pytest.raises(CheckFailed) as caught:
+        materialize_linked_points(
+            linked,
+            relation_backend=_FailingMaterializationBackend(),
+        )
+
+    assert len(caught.value.problems) == 1
+    problem = caught.value.problems[0]
+    assert problem.code == "experiment_points_evaluation_failed"
+    assert problem.phase is ProblemPhase.PLANNING
+    assert problem.location == model_location("point_domain", "rows")
+    assert "backend point failure" in problem.message
+
+
+def test_linked_points_normalize_entities_before_point_identity_is_sealed() -> None:
+    point_type = Table(
+        columns=(TableColumn("subject", Scalar(Entity())),),
+        min_rows=1,
+        max_rows=1,
+    )
+    program = TypedProgram(
+        id="linked-entity-points",
+        kind="compiler_test",
+        point_domain=PointDomain(
+            root=point_rows(
+                table_value_expr(
+                    literal_rows([{"subject": "q0"}]),
+                    expected_type=point_type,
+                )
+            ),
+            entity_columns=("subject",),
+        ),
+    )
+
+    materialized = materialize_linked_points(link_program(program, _environment()))
+
+    assert materialized.point_domain.points[0].row["subject"] == EntityRef(
+        id="q0",
+        kind="logical_device",
+    )
+
+
+def test_linked_points_reject_unknown_entities_at_the_planning_boundary() -> None:
+    point_type = Table(
+        columns=(TableColumn("subject", Scalar(Entity())),),
+        min_rows=1,
+        max_rows=1,
+    )
+    program = TypedProgram(
+        id="unknown-linked-entity-point",
+        kind="compiler_test",
+        point_domain=PointDomain(
+            root=point_rows(
+                table_value_expr(
+                    literal_rows([{"subject": "missing"}]),
+                    expected_type=point_type,
+                )
+            ),
+            entity_columns=("subject",),
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as caught:
+        materialize_linked_points(link_program(program, _environment()))
+
+    assert len(caught.value.problems) == 1
+    problem = caught.value.problems[0]
+    assert problem.code == "unknown_authoring_entity"
+    assert problem.phase is ProblemPhase.PLANNING
+    assert problem.category is ProblemCategory.NOT_FOUND
+    assert problem.location == model_location("entity", "missing")
+
+
+def test_linked_points_aggregate_entity_and_normalized_value_problems() -> None:
+    point_type = Table(
+        columns=(TableColumn("subject", Scalar(Entity())),),
+        min_rows=3,
+        max_rows=3,
+        primary_key=("subject",),
+    )
+    program = TypedProgram(
+        id="invalid-normalized-linked-entity-points",
+        kind="compiler_test",
+        point_domain=PointDomain(
+            root=point_rows(
+                table_value_expr(
+                    literal_rows(
+                        [
+                            {"subject": "q0"},
+                            {
+                                "subject": EntityRef(
+                                    id="q0",
+                                    kind="logical_device",
+                                )
+                            },
+                            {"subject": "missing"},
+                        ]
+                    ),
+                    expected_type=point_type,
+                )
+            ),
+            entity_columns=("subject",),
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as caught:
+        materialize_linked_points(link_program(program, _environment()))
+
+    assert [problem.code for problem in caught.value.problems] == [
+        "unknown_authoring_entity",
+        "module_point_value_type_mismatch",
+    ]
+
+
+def test_materialized_linked_points_construction_is_sealed() -> None:
+    materialized = materialize_linked_points(
+        link_program(_symbolic_program(), _environment())
+    )
+
+    with pytest.raises(TypeError, match="materialize_linked_points"):
+        MaterializedLinkedPoints(
+            materialized.linked_plan,
+            materialized.selected_program,
+            materialized.point_domain,
+            materialized.relation_backend_id,
+        )
 
 
 def test_local_materialization_selects_the_complete_backend_before_evaluation() -> None:

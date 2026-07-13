@@ -55,6 +55,54 @@ def test_measurement_array_record_round_trip() -> None:
     assert i0.values == [0.1, 0.2, 0.3]
 
 
+def test_typed_measurement_array_leaves_survive_record_round_trip() -> None:
+    measurement = MeasurementRecord(
+        run_id="run-test",
+        point_index=0,
+        coordinates={},
+        observables={
+            "iq": MeasurementArray(
+                dtype="complex128",
+                unit="ratio",
+                shape=[1, 2],
+                values=[
+                    [
+                        ComplexQuantity(real=0.1, imag=-0.2, unit="ratio"),
+                        ComplexQuantity(real=0.3, imag=-0.4, unit="ratio"),
+                    ]
+                ],
+            ),
+            "probability": MeasurementArray(
+                dtype="float64",
+                unit="ratio",
+                shape=[2],
+                values=[
+                    Quantity(value=0.25, unit="ratio"),
+                    Quantity(value=0.75, unit="ratio"),
+                ],
+            ),
+        },
+    )
+
+    restored = assert_model_round_trip(
+        measurement,
+        schema_version="scopecat.measurement_record.v0",
+    )
+    iq = restored.observables["iq"]
+    probability = restored.observables["probability"]
+    original_iq = measurement.observables["iq"]
+    original_probability = measurement.observables["probability"]
+
+    assert isinstance(iq, MeasurementArray)
+    assert isinstance(original_iq, MeasurementArray)
+    assert isinstance(iq.values[0][0], ComplexQuantity)
+    assert iq.values == original_iq.values
+    assert isinstance(probability, MeasurementArray)
+    assert isinstance(original_probability, MeasurementArray)
+    assert all(isinstance(value, Quantity) for value in probability.values)
+    assert probability.values == original_probability.values
+
+
 def test_complex_measurement_record_round_trip_and_infers_dtype() -> None:
     measurement = MeasurementRecord(
         run_id="run-test",

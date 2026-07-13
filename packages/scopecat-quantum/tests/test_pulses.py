@@ -1,0 +1,762 @@
+from __future__ import annotations
+
+from dataclasses import FrozenInstanceError
+from decimal import Decimal
+from typing import Any, cast
+
+import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+from scopecat import Quantity
+
+from scopecat_quantum._ids import (
+    AcquisitionSlotId,
+    CouplerId,
+    PulseEventId,
+    PulseProgramId,
+    QubitId,
+)
+from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.pulses import (
+    DRAG,
+    Acquire,
+    AcquireSignal,
+    AcquisitionSlot,
+    Barrier,
+    Constant,
+    Delay,
+    DriveSignal,
+    FluxSignal,
+    Gaussian,
+    Parallel,
+    Play,
+    PulseProgram,
+    PulseValidationError,
+    ReadoutSignal,
+    ScheduledPulseProgram,
+    Sequence,
+    schedule,
+)
+
+Q0 = QubitId("q0")
+Q1 = QubitId("q1")
+DRIVE_Q0 = DriveSignal(Q0)
+DRIVE_Q1 = DriveSignal(Q1)
+
+
+def _constant(duration: float, unit: str = "ns") -> Constant:
+    return Constant(
+        duration=Quantity(duration, unit),
+        amplitude=Quantity(0.5, "ratio"),
+    )
+
+
+def _play(event_id: str, signal: DriveSignal, duration_ns: int) -> Play:
+    return Play(
+        id=PulseEventId(event_id),
+        signal=signal,
+        envelope=_constant(duration_ns),
+    )
+
+
+def _program(body: Any) -> PulseProgram:
+    return PulseProgram(id=PulseProgramId("program"), body=body)
+
+
+def _issue_codes(error: PulseValidationError) -> set[str]:
+    return {issue.code for issue in error.issues}
+
+
+def test_schedule_normalizes_quantities_and_flattens_authoring_tree() -> None:
+    program = _program(
+        Sequence(
+            (
+                Play(
+                    id=PulseEventId("readout"),
+                    signal=ReadoutSignal(Q0),
+                    envelope=Gaussian(
+                        duration=Quantity(2, "us"),
+                        amplitude=Quantity(500, "mV"),
+                        sigma=Quantity(250, "ns"),
+                        phase=Quantity(180, "deg"),
+                    ),
+                ),
+                Delay(
+                    id=PulseEventId("wait"),
+                    signal=DRIVE_Q0,
+                    duration=Quantity(20, "ns"),
+                ),
+            )
+        )
+    )
+
+    scheduled = schedule(program)
+
+    assert scheduled.duration_seconds == Decimal("2.02e-6")
+    assert [event.id.value for event in scheduled.events] == ["readout", "wait"]
+    assert scheduled.events[1].start_seconds == Decimal("2e-6")
+    envelope = cast(Play, scheduled.events[0].instruction).envelope
+    assert isinstance(envelope, Gaussian)
+    assert envelope.duration == Quantity(2e-6, "s")
+    assert envelope.sigma == Quantity(2.5e-7, "s")
+    assert envelope.amplitude == Quantity(0.5, "V")
+    assert envelope.phase == Quantity(3.14159265359, "rad")
+
+
+@given(
+    first=st.integers(min_value=1, max_value=10_000),
+    second=st.integers(min_value=1, max_value=10_000),
+    third=st.integers(min_value=1, max_value=10_000),
+)
+def test_sequence_reassociation_is_semantically_invariant(
+    first: int, second: int, third: int
+) -> None:
+    a = _play("a", DRIVE_Q0, first)
+    b = _play("b", DRIVE_Q0, second)
+    c = _play("c", DRIVE_Q0, third)
+    left = _program(Sequence((Sequence((a, b)), c)))
+    right = _program(Sequence((a, Sequence((b, c)))))
+
+    assert schedule(left) == schedule(right)
+
+
+@given(
+    first=st.integers(min_value=1, max_value=10_000),
+    second=st.integers(min_value=1, max_value=10_000),
+)
+def test_parallel_branch_permutation_is_semantically_invariant(
+    first: int, second: int
+) -> None:
+    q0 = _play("q0", DRIVE_Q0, first)
+    q1 = _play("q1", DRIVE_Q1, second)
+
+    assert schedule(_program(Parallel((q0, q1)))) == schedule(
+        _program(Parallel((q1, q0)))
+    )
+
+
+def test_canonical_order_uses_structural_identity_not_rendered_text() -> None:
+    structurally_first_event = PulseEventId("event", scope=("a", "b"))
+    rendered_first_event = PulseEventId("event", scope=("a/b",))
+    structurally_first_slot = AcquisitionSlotId("slot", scope=("a", "b"))
+    rendered_first_slot = AcquisitionSlotId("slot", scope=("a/b",))
+    assert rendered_first_event.value < structurally_first_event.value
+    assert rendered_first_slot.value < structurally_first_slot.value
+
+    q0_acquire = AcquireSignal(Q0)
+    q1_acquire = AcquireSignal(Q1)
+    slots = (
+        AcquisitionSlot(
+            rendered_first_slot,
+            AcquisitionKind.INTEGRATED_IQ,
+            q1_acquire,
+        ),
+        AcquisitionSlot(
+            structurally_first_slot,
+            AcquisitionKind.INTEGRATED_IQ,
+            q0_acquire,
+        ),
+    )
+    scheduled = schedule(
+        PulseProgram(
+            id=PulseProgramId("structural-order"),
+            body=Parallel(
+                (
+                    Barrier(rendered_first_event, (DRIVE_Q0,)),
+                    Barrier(structurally_first_event, (DRIVE_Q0,)),
+                    Acquire(
+                        PulseEventId("acquire-q1"),
+                        q1_acquire,
+                        rendered_first_slot,
+                        Quantity(1, "ns"),
+                    ),
+                    Acquire(
+                        PulseEventId("acquire-q0"),
+                        q0_acquire,
+                        structurally_first_slot,
+                        Quantity(1, "ns"),
+                    ),
+                )
+            ),
+            acquisition_slots=slots,
+        )
+    )
+
+    barrier_ids = tuple(
+        event.id for event in scheduled.events if isinstance(event.instruction, Barrier)
+    )
+    assert barrier_ids == (structurally_first_event, rendered_first_event)
+    assert tuple(slot.id for slot in scheduled.acquisition_slots) == (
+        structurally_first_slot,
+        rendered_first_slot,
+    )
+
+
+@given(duration_us=st.integers(min_value=1, max_value=1_000_000))
+def test_time_unit_normalization_is_canonical(duration_us: int) -> None:
+    in_us = _program(
+        Play(PulseEventId("pulse"), DRIVE_Q0, _constant(duration_us, "us"))
+    )
+    in_ns = _program(
+        Play(PulseEventId("pulse"), DRIVE_Q0, _constant(duration_us * 1000, "ns"))
+    )
+
+    assert schedule(in_us) == schedule(in_ns)
+
+
+def test_acquisition_slots_are_closed_exactly_once() -> None:
+    signal = AcquireSignal(Q0)
+    slot = AcquisitionSlot(
+        id=AcquisitionSlotId("iq", scope=("measure-q0",)),
+        kind=AcquisitionKind.INTEGRATED_IQ,
+        signal=signal,
+    )
+    program = PulseProgram(
+        id=PulseProgramId("measurement"),
+        body=Acquire(
+            id=PulseEventId("acquire"),
+            signal=signal,
+            slot_id=slot.id,
+            duration=Quantity(1, "us"),
+        ),
+        acquisition_slots=(slot,),
+    )
+
+    scheduled = schedule(program)
+
+    assert scheduled.acquisition_slots == (slot,)
+    assert cast(Acquire, scheduled.events[0].instruction).duration == Quantity(
+        1e-6, "s"
+    )
+
+
+@given(use_count=st.integers(min_value=0, max_value=3))
+def test_acquisition_closure_holds_for_every_use_count(use_count: int) -> None:
+    signal = AcquireSignal(Q0)
+    slot = AcquisitionSlot(
+        AcquisitionSlotId("slot"), AcquisitionKind.INTEGRATED_IQ, signal
+    )
+    program = PulseProgram(
+        id=PulseProgramId("closure"),
+        body=Sequence(
+            tuple(
+                Acquire(
+                    PulseEventId(f"acquire-{index}"),
+                    signal,
+                    slot.id,
+                    Quantity(10, "ns"),
+                )
+                for index in range(use_count)
+            )
+        ),
+        acquisition_slots=(slot,),
+    )
+
+    if use_count == 1:
+        assert schedule(program).acquisition_slots == (slot,)
+        return
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+    expected = (
+        "pulse_acquisition_slot_missing"
+        if use_count == 0
+        else "pulse_acquisition_slot_multiple"
+    )
+    assert expected in _issue_codes(raised.value)
+
+
+def test_acquisition_closure_reports_missing_undeclared_and_multiple_uses() -> None:
+    signal = AcquireSignal(Q0)
+    declared = AcquisitionSlot(
+        AcquisitionSlotId("declared"), AcquisitionKind.RAW_TRACE, signal
+    )
+    used_twice = AcquisitionSlot(
+        AcquisitionSlotId("twice"), AcquisitionKind.INTEGRATED_IQ, signal
+    )
+    program = PulseProgram(
+        id=PulseProgramId("bad-acquisitions"),
+        body=Sequence(
+            (
+                Acquire(
+                    PulseEventId("first"), signal, used_twice.id, Quantity(1, "us")
+                ),
+                Acquire(
+                    PulseEventId("second"), signal, used_twice.id, Quantity(1, "us")
+                ),
+                Acquire(
+                    PulseEventId("unknown"),
+                    signal,
+                    AcquisitionSlotId("unknown"),
+                    Quantity(1, "us"),
+                ),
+            )
+        ),
+        acquisition_slots=(declared, used_twice),
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert {
+        "pulse_acquisition_slot_missing",
+        "pulse_acquisition_slot_multiple",
+        "pulse_acquisition_slot_undeclared",
+    } <= _issue_codes(raised.value)
+
+
+def test_parallel_intervals_cannot_overlap_on_one_logical_signal() -> None:
+    program = _program(
+        Parallel(
+            (
+                _play("first", DRIVE_Q0, 20),
+                Sequence(
+                    (
+                        Delay(PulseEventId("offset"), DRIVE_Q1, Quantity(5, "ns")),
+                        _play("second", DRIVE_Q0, 10),
+                    )
+                ),
+            )
+        )
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert "pulse_signal_overlap" in _issue_codes(raised.value)
+
+
+@given(
+    data=st.data(),
+    first_duration=st.integers(min_value=2, max_value=10_000),
+    second_duration=st.integers(min_value=1, max_value=10_000),
+)
+def test_any_strictly_early_start_on_one_signal_is_an_overlap(
+    data: st.DataObject, first_duration: int, second_duration: int
+) -> None:
+    offset = data.draw(st.integers(min_value=1, max_value=first_duration - 1))
+    program = _program(
+        Parallel(
+            (
+                _play("first", DRIVE_Q0, first_duration),
+                Sequence(
+                    (
+                        Delay(
+                            PulseEventId("offset"),
+                            DRIVE_Q1,
+                            Quantity(offset, "ns"),
+                        ),
+                        _play("second", DRIVE_Q0, second_duration),
+                    )
+                ),
+            )
+        )
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+    assert "pulse_signal_overlap" in _issue_codes(raised.value)
+
+
+def test_touching_intervals_on_one_signal_are_legal() -> None:
+    scheduled = schedule(
+        _program(
+            Sequence(
+                (
+                    _play("first", DRIVE_Q0, 20),
+                    _play("second", DRIVE_Q0, 10),
+                )
+            )
+        )
+    )
+
+    assert [event.start_seconds for event in scheduled.events] == [
+        Decimal(0),
+        Decimal("2e-8"),
+    ]
+
+
+def test_duplicate_instruction_ids_are_rejected_across_composites() -> None:
+    duplicate = PulseEventId("duplicate")
+    program = _program(
+        Parallel(
+            (
+                Play(duplicate, DRIVE_Q0, _constant(10)),
+                Play(duplicate, DRIVE_Q1, _constant(10)),
+            )
+        )
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert "pulse_instruction_duplicate" in _issue_codes(raised.value)
+
+
+def test_invalid_units_durations_and_signal_pairs_are_aggregated() -> None:
+    invalid_play = Play(
+        id=PulseEventId("play"),
+        signal=cast(Any, AcquireSignal(Q0)),
+        envelope=Constant(
+            duration=Quantity(0, "ns"),
+            amplitude=Quantity(1, "Hz"),
+            phase=Quantity(1, "V"),
+        ),
+    )
+    invalid_delay = Delay(
+        id=PulseEventId("delay"),
+        signal=DRIVE_Q1,
+        duration=Quantity(1, "GHz"),
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(_program(Parallel((invalid_play, invalid_delay))))
+
+    assert {
+        "pulse_amplitude_unit_invalid",
+        "pulse_duration_nonpositive",
+        "pulse_phase_unit_invalid",
+        "pulse_signal_instruction_invalid",
+        "pulse_time_unit_invalid",
+    } <= _issue_codes(raised.value)
+
+
+def test_gaussian_and_drag_shape_parameters_are_validated() -> None:
+    gaussian = Play(
+        PulseEventId("gaussian"),
+        DRIVE_Q0,
+        Gaussian(
+            duration=Quantity(10, "ns"),
+            amplitude=Quantity(0.2, "arb"),
+            sigma=Quantity(20, "ns"),
+        ),
+    )
+    drag = Play(
+        PulseEventId("drag"),
+        DRIVE_Q1,
+        DRAG(
+            duration=Quantity(20, "ns"),
+            amplitude=Quantity(0.2, "arb"),
+            sigma=Quantity(5, "ns"),
+            beta=Quantity(2, "MHz"),
+        ),
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(_program(Parallel((gaussian, drag))))
+
+    assert {
+        "pulse_sigma_exceeds_duration",
+        "pulse_time_unit_invalid",
+    } <= _issue_codes(raised.value)
+
+
+def test_logical_flux_and_barrier_are_hardware_independent_and_canonical() -> None:
+    qubit_flux = FluxSignal(Q0)
+    coupler_flux = FluxSignal(CouplerId("c0"))
+    barrier = Barrier(
+        PulseEventId("barrier"),
+        (coupler_flux, DRIVE_Q0, qubit_flux),
+    )
+
+    scheduled = schedule(_program(barrier))
+
+    assert cast(Barrier, scheduled.events[0].instruction).signals == (
+        DRIVE_Q0,
+        coupler_flux,
+        qubit_flux,
+    )
+
+
+def test_authoring_and_scheduled_ir_are_immutable() -> None:
+    play = _play("pulse", DRIVE_Q0, 10)
+    program = _program(play)
+    scheduled = schedule(program)
+
+    with pytest.raises(FrozenInstanceError):
+        play.signal = DRIVE_Q1  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        scheduled.duration_seconds = 0  # type: ignore[misc]
+
+
+def test_scheduled_program_construction_is_sealed() -> None:
+    with pytest.raises(TypeError, match="only be created by schedule"):
+        ScheduledPulseProgram(
+            id=PulseProgramId("forged"),
+            duration_seconds=Decimal(0),
+            events=(),
+        )
+
+
+def test_schedule_rejects_non_program_without_leaking_attribute_errors() -> None:
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(cast(Any, object()))
+
+    assert _issue_codes(raised.value) == {"pulse_program_invalid"}
+
+
+def test_program_and_leaf_identities_are_checked_before_scheduling() -> None:
+    program = PulseProgram(
+        id=cast(Any, PulseEventId("not-a-program-id")),
+        body=Play(
+            id=cast(Any, PulseProgramId("not-an-event-id")),
+            signal=DRIVE_Q0,
+            envelope=_constant(10),
+        ),
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert _issue_codes(raised.value) == {
+        "pulse_instruction_id_invalid",
+        "pulse_program_id_invalid",
+    }
+
+
+@pytest.mark.parametrize(
+    ("node", "field_name", "replacement", "expected_code"),
+    [
+        (
+            Sequence((_play("sequence", DRIVE_Q0, 10),)),
+            "instructions",
+            [],
+            "pulse_sequence_instructions_invalid",
+        ),
+        (
+            Parallel((_play("parallel", DRIVE_Q0, 10),)),
+            "branches",
+            [],
+            "pulse_parallel_branches_invalid",
+        ),
+        (
+            Barrier(PulseEventId("barrier"), (DRIVE_Q0,)),
+            "signals",
+            [],
+            "pulse_barrier_signals_invalid",
+        ),
+    ],
+)
+def test_composite_node_collections_must_remain_tuples(
+    node: Any,
+    field_name: str,
+    replacement: object,
+    expected_code: str,
+) -> None:
+    object.__setattr__(node, field_name, replacement)
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(_program(node))
+
+    assert _issue_codes(raised.value) == {expected_code}
+
+
+def test_program_acquisition_declarations_must_remain_a_tuple() -> None:
+    program = _program(_play("pulse", DRIVE_Q0, 10))
+    object.__setattr__(program, "acquisition_slots", [])
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert _issue_codes(raised.value) == {"pulse_acquisition_slots_invalid"}
+
+
+def test_invalid_nodes_and_quantities_are_aggregated_before_lowering() -> None:
+    malformed_quantity = Quantity.model_construct(value="not-numeric", unit=[])
+    invalid_envelope = Constant(
+        duration=cast(Any, object()),
+        amplitude=malformed_quantity,
+    )
+    program = _program(
+        Sequence(
+            (
+                cast(Any, object()),
+                Play(PulseEventId("bad-envelope"), DRIVE_Q0, invalid_envelope),
+                Play(
+                    PulseEventId("unsupported-envelope"),
+                    DRIVE_Q1,
+                    cast(Any, object()),
+                ),
+                Delay(
+                    PulseEventId("bad-duration"),
+                    DRIVE_Q1,
+                    cast(Any, object()),
+                ),
+            )
+        )
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert _issue_codes(raised.value) == {
+        "pulse_envelope_invalid",
+        "pulse_instruction_invalid",
+        "pulse_quantity_invalid",
+    }
+    assert (
+        sum(issue.code == "pulse_quantity_invalid" for issue in raised.value.issues)
+        == 3
+    )
+
+
+def test_nominal_signal_owners_and_structural_acquire_slot_id_are_checked() -> None:
+    invalid_play = Play(
+        PulseEventId("play"),
+        DriveSignal(cast(Any, CouplerId("not-a-qubit"))),
+        _constant(10),
+    )
+    invalid_acquire = Acquire(
+        PulseEventId("acquire"),
+        AcquireSignal(cast(Any, CouplerId("not-a-qubit"))),
+        cast(Any, PulseProgramId("not-a-slot-id")),
+        Quantity(10, "ns"),
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(_program(Parallel((invalid_play, invalid_acquire))))
+
+    assert _issue_codes(raised.value) == {
+        "pulse_acquisition_slot_id_invalid",
+        "pulse_signal_instruction_invalid",
+    }
+
+
+def test_malformed_structural_acquisition_slot_ids_are_rejected_before_use() -> None:
+    slot_id = AcquisitionSlotId("readout", scope=("measure-q0",))
+    object.__setattr__(slot_id, "scope", ("measure-q0", "\ud800"))
+    signal = AcquireSignal(Q0)
+    program = PulseProgram(
+        id=PulseProgramId("malformed-slot"),
+        body=Acquire(
+            PulseEventId("acquire"),
+            signal,
+            slot_id,
+            Quantity(10, "ns"),
+        ),
+        acquisition_slots=(
+            AcquisitionSlot(slot_id, AcquisitionKind.INTEGRATED_IQ, signal),
+        ),
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert _issue_codes(raised.value) == {"pulse_acquisition_slot_id_invalid"}
+
+
+def test_acquisition_declaration_identity_kind_and_signal_are_aggregated() -> None:
+    invalid_slot = AcquisitionSlot(
+        id=cast(Any, PulseEventId("not-a-slot-id")),
+        kind=cast(Any, "integrated_iq"),
+        signal=cast(Any, DRIVE_Q0),
+    )
+    program = PulseProgram(
+        id=PulseProgramId("invalid-declaration"),
+        body=_play("pulse", DRIVE_Q0, 10),
+        acquisition_slots=(invalid_slot,),
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert _issue_codes(raised.value) == {
+        "pulse_acquisition_kind_invalid",
+        "pulse_acquisition_signal_invalid",
+        "pulse_acquisition_slot_id_invalid",
+    }
+
+
+def test_schedule_preserves_timeline_beyond_float_range() -> None:
+    program = _program(
+        Sequence(
+            tuple(
+                Play(
+                    PulseEventId(f"huge-{index}"),
+                    DRIVE_Q0,
+                    _constant(1e308, "s"),
+                )
+                for index in range(3)
+            )
+        )
+    )
+
+    scheduled = schedule(program)
+
+    assert scheduled.duration_seconds == Decimal("3e308")
+    assert [event.start_seconds for event in scheduled.events] == [
+        Decimal(0),
+        Decimal("1e308"),
+        Decimal("2e308"),
+    ]
+    assert all(event.duration_seconds == Decimal("1e308") for event in scheduled.events)
+
+
+def test_schedule_rejects_duration_that_underflows_normalized_quantity() -> None:
+    program = _program(
+        Play(
+            PulseEventId("tiny"),
+            DRIVE_Q0,
+            _constant(1e-320, "ns"),
+        )
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert _issue_codes(raised.value) == {"pulse_quantity_unrepresentable"}
+    messages = [issue.message for issue in raised.value.issues]
+    assert (
+        "nonzero envelope duration rounds to zero in a Quantity expressed in seconds"
+        in messages
+    )
+
+
+def test_schedule_preserves_small_intervals_on_a_large_timeline() -> None:
+    program = _program(
+        Sequence(
+            (
+                Play(
+                    PulseEventId("large"),
+                    DRIVE_Q0,
+                    _constant(1e20, "s"),
+                ),
+                Play(PulseEventId("small"), DRIVE_Q0, _constant(1, "s")),
+                Play(PulseEventId("tail"), DRIVE_Q0, _constant(1, "s")),
+            )
+        )
+    )
+
+    scheduled = schedule(program)
+
+    large = Decimal("1e20")
+    assert [event.start_seconds for event in scheduled.events] == [
+        Decimal(0),
+        large,
+        large + 1,
+    ]
+    assert scheduled.events[1].start_seconds < scheduled.events[2].start_seconds
+    assert scheduled.duration_seconds == large + 2
+
+
+def test_malformed_huge_integer_quantities_do_not_leak_overflow_errors() -> None:
+    huge = 10**10_000
+    program = _program(
+        Play(
+            PulseEventId("huge-quantity"),
+            DRIVE_Q0,
+            Constant(
+                duration=Quantity.model_construct(value=huge, unit="s"),
+                amplitude=Quantity.model_construct(value=huge, unit="ratio"),
+                phase=Quantity.model_construct(value=huge, unit="rad"),
+            ),
+        )
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert _issue_codes(raised.value) == {"pulse_quantity_nonfinite"}
+    assert (
+        sum(issue.code == "pulse_quantity_nonfinite" for issue in raised.value.issues)
+        == 3
+    )

@@ -47,6 +47,10 @@ from scopecat._execution.program import (
     PointProgram,
     ResourceClaim,
 )
+from scopecat._measurement_value_contract import (
+    MeasurementValueContractIssueCode,
+    measurement_value_contract_issues,
+)
 from scopecat._product_identity import ProductUseId
 from scopecat._semantic_graph import ValueId
 from scopecat.instruments.sdk import (
@@ -63,7 +67,6 @@ from scopecat.instruments.sdk import (
     validate_state_command,
 )
 from scopecat.models.artifact import CommandPayload
-from scopecat.models.parameter import Quantity
 from scopecat.models.run import RunCertainty, RunResult, RunStatus
 from scopecat.models.state import PayloadRef
 from scopecat.models.value import PayloadValue
@@ -76,13 +79,7 @@ from scopecat.problems import (
     has_blocking_problems,
     model_location,
 )
-from scopecat.results import (
-    ComplexQuantity,
-    MeasurementArray,
-    MeasurementRecord,
-    MeasurementValue,
-)
-from scopecat.units import compatible_units
+from scopecat.results import MeasurementRecord, MeasurementValue
 from scopecat.value_validation import coerce_literal
 
 logger = logging.getLogger(__name__)
@@ -1594,67 +1591,74 @@ def _validate_readback(
     for product_id in sorted(set(requests) & set(readback.values)):
         request = requests[product_id]
         value = readback.values[product_id]
-        actual_dtype = _readback_dtype(value)
-        if not _readback_dtype_compatible(request.dtype, value):
-            problems.append(
-                _readback_problem(
-                    "instrument_readback_dtype_mismatch",
-                    f"instrument {operation.instrument_id} product {product_id} "
-                    f"returned {actual_dtype}, expected {request.dtype}",
-                    product_id,
-                    "dtype",
-                )
-            )
-        actual_unit = value.unit
-        if request.unit is not None and (
-            actual_unit is None or not compatible_units(request.unit, actual_unit)
-        ):
-            problems.append(
-                _readback_problem(
-                    "instrument_readback_unit_mismatch",
-                    f"instrument {operation.instrument_id} product {product_id} "
-                    f"returned unit {actual_unit!r}, expected "
-                    f"{request.unit!r}-compatible units",
-                    product_id,
-                    "unit",
-                )
-            )
         expected_shape = [axis.size for axis in request.dimensions]
-        actual_shape = value.shape if isinstance(value, MeasurementArray) else []
-        if actual_shape != expected_shape:
-            problems.append(
-                _readback_problem(
-                    "instrument_readback_shape_mismatch",
-                    f"instrument {operation.instrument_id} product {product_id} "
-                    f"returned shape {actual_shape}, expected {expected_shape}",
-                    product_id,
-                    "shape",
+        for issue in measurement_value_contract_issues(
+            value,
+            expected_dtype=request.dtype,
+            expected_unit=request.unit,
+            expected_shape=expected_shape,
+        ):
+            if issue.code is MeasurementValueContractIssueCode.DTYPE_MISMATCH:
+                problems.append(
+                    _readback_problem(
+                        "instrument_readback_dtype_mismatch",
+                        f"instrument {operation.instrument_id} product {product_id} "
+                        f"returned {issue.actual}, expected {issue.expected}",
+                        product_id,
+                        "dtype",
+                    )
                 )
-            )
+            elif issue.code is MeasurementValueContractIssueCode.UNIT_MISMATCH:
+                problems.append(
+                    _readback_problem(
+                        "instrument_readback_unit_mismatch",
+                        f"instrument {operation.instrument_id} product {product_id} "
+                        f"returned unit {issue.actual!r}, expected "
+                        f"{issue.expected!r}-compatible units",
+                        product_id,
+                        "unit",
+                    )
+                )
+            elif issue.code is MeasurementValueContractIssueCode.SHAPE_MISMATCH:
+                actual_shape = list(cast("tuple[int, ...]", issue.actual))
+                expected_contract_shape = list(cast("tuple[int, ...]", issue.expected))
+                problems.append(
+                    _readback_problem(
+                        "instrument_readback_shape_mismatch",
+                        f"instrument {operation.instrument_id} product {product_id} "
+                        f"returned shape {actual_shape}, "
+                        f"expected {expected_contract_shape}",
+                        product_id,
+                        "shape",
+                    )
+                )
+            elif (
+                issue.code is MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH
+            ):
+                value_path = ".".join(str(item) for item in issue.path)
+                problems.append(
+                    _readback_problem(
+                        "instrument_readback_shape_mismatch",
+                        f"instrument {operation.instrument_id} product {product_id} "
+                        f"array {value_path} has structure {issue.actual!r}, "
+                        f"expected {issue.expected!r}",
+                        product_id,
+                        *issue.path,
+                    )
+                )
+            else:
+                value_path = ".".join(str(item) for item in issue.path)
+                problems.append(
+                    _readback_problem(
+                        "instrument_readback_value_mismatch",
+                        f"instrument {operation.instrument_id} product {product_id} "
+                        f"value {value_path} violates {issue.code.value}: expected "
+                        f"{issue.expected!r}, got {issue.actual!r}",
+                        product_id,
+                        *issue.path,
+                    )
+                )
     return problems
-
-
-def _readback_dtype(value: MeasurementValue) -> str:
-    if isinstance(value, MeasurementArray):
-        return value.dtype
-    if isinstance(value, ComplexQuantity):
-        return "complex128"
-    return "float64"
-
-
-def _readback_dtype_compatible(expected: str, value: MeasurementValue) -> bool:
-    actual = _readback_dtype(value)
-    if actual == expected:
-        return True
-    if expected == "float64" and actual == "int64":
-        return True
-    if expected == "complex128" and actual in {"float64", "int64"}:
-        return True
-    return (
-        expected == "int64"
-        and isinstance(value, Quantity)
-        and int(value.value) == value.value
-    )
 
 
 def _command_evidence(command: BaseModel) -> dict[str, JsonValue]:

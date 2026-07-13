@@ -11,6 +11,7 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
+    ValidationError,
     field_validator,
     model_validator,
 )
@@ -169,6 +170,31 @@ class ComplexQuantity(BaseModel):
         return validated
 
 
+def _restore_measurement_array_leaves(
+    value: object,
+    *,
+    dtype: object,
+) -> object:
+    if isinstance(value, list):
+        selected = cast("list[object]", value)
+        return [
+            _restore_measurement_array_leaves(item, dtype=dtype) for item in selected
+        ]
+    if isinstance(value, Mapping):
+        selected_mapping = cast("Mapping[str, object]", value)
+        try:
+            if dtype == "complex128":
+                return ComplexQuantity.model_validate(selected_mapping)
+            if dtype in {"float64", "int64"}:
+                return Quantity.model_validate(selected_mapping)
+        except ValidationError:
+            # Keep malformed provider leaves available to the explicit value
+            # contract so they become structured provider-contract problems.
+            pass
+        return selected_mapping
+    return value
+
+
 class MeasurementArray(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -177,6 +203,21 @@ class MeasurementArray(BaseModel):
     shape: list[int] = Field(min_length=1)
     values: MeasurementArrayData
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def restore_typed_leaves(cls, data: object) -> object:
+        """Restore numeric leaf models lost by an ``Any``-typed wire decode."""
+
+        if not isinstance(data, Mapping):
+            return data
+        selected = dict(cast("Mapping[str, object]", data))
+        if "values" in selected:
+            selected["values"] = _restore_measurement_array_leaves(
+                selected["values"],
+                dtype=selected.get("dtype", "float64"),
+            )
+        return selected
 
     @field_validator("unit")
     @classmethod
