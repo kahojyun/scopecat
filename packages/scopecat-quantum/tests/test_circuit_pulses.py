@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, dataclass, replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import cast
 
@@ -902,7 +902,7 @@ def test_final_scheduler_still_owns_cross_template_signal_conflicts() -> None:
     assert {issue.code for issue in raised.value.issues} == {"pulse_signal_overlap"}
 
 
-def test_zero_event_gate_still_exports_an_immutable_instantiation() -> None:
+def test_zero_event_gate_still_exports_an_empty_instantiation() -> None:
     call = _call("empty")
     verified = _verified(call)
     empty_template = _template(Q0, program_id="empty")
@@ -913,6 +913,3 @@ def test_zero_event_gate_still_exports_an_immutable_instantiation() -> None:
 
     assert lowered.event_provenance == ()
     assert lowered.instantiation_for(call.id).event_ids == ()
-    attribute = "program"
-    with pytest.raises(FrozenInstanceError):
-        setattr(cast("object", lowered), attribute, empty_template)

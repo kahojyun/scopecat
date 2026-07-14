@@ -114,7 +114,7 @@ class DomainResultUseBinding[EntryAddressT: Hashable, ResultAddressT: Hashable]:
             raise TypeError(msg)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainMappedResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     """One physical result and every SDK-owned logical occurrence it supplies."""
 
@@ -123,12 +123,8 @@ class DomainMappedResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     point: DomainPointRef
     product_uses: tuple[DomainProductUseRef, ...]
 
-    def __init__(self) -> None:
-        msg = "domain mapped results are minted by a preparation builder"
-        raise TypeError(msg)
 
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainMappedEntry[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     """One target entry in canonical logical-point order."""
 
@@ -136,18 +132,14 @@ class DomainMappedEntry[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     point: DomainPointRef
     results: tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]
 
-    def __init__(self) -> None:
-        msg = "domain mapped entries are minted by a preparation builder"
-        raise TypeError(msg)
 
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     """Exact public inventory from physical results to SDK-owned references.
 
     ``target_entries`` retains target order. ``entries`` retains canonical
     logical-point order, while ``results`` retains canonical product-use order.
-    All point and product-use values are the exact references minted for the
+    All point and product-use values are the exact references assembled for the
     preparation context; callers never need compiler-owned identities.
     """
 
@@ -165,10 +157,6 @@ class DomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashable]:
         DomainMappedResult[EntryAddressT, ResultAddressT],
     ] = field(repr=False, compare=False)
     _native: object = field(repr=False, compare=False)
-
-    def __init__(self) -> None:
-        msg = "domain result mappings are minted by a preparation builder"
-        raise TypeError(msg)
 
     def result_for_address(
         self,
@@ -205,7 +193,7 @@ class DomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashable]:
             raise KeyError(msg) from error
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainMeasurementPlan[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     """Context-bound source and host-transform ownership for one invocation."""
 
@@ -218,12 +206,8 @@ class DomainMeasurementPlan[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     _source_fragment: object = field(repr=False, compare=False)
     _transforms: object = field(repr=False, compare=False)
 
-    def __init__(self) -> None:
-        msg = "domain measurement plans are minted by a preparation builder"
-        raise TypeError(msg)
 
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainPreparationBuilder:
     """Context-bound constructor for one complete prepared execution proof.
 
@@ -233,10 +217,6 @@ class DomainPreparationBuilder:
     """
 
     _context: DomainBatchContext = field(repr=False)
-
-    def __init__(self) -> None:
-        msg = "domain preparation builders are minted by a batch context"
-        raise TypeError(msg)
 
     @property
     def context(self) -> DomainBatchContext:
@@ -462,27 +442,16 @@ class DomainPreparationBuilder:
                 ),
             )
 
-        selected = cast(
-            "DomainMeasurementPlan[EntryAddressT, ResultAddressT]",
-            object.__new__(DomainMeasurementPlan),
+        return DomainMeasurementPlan(
+            context=context,
+            mapping=mapping,
+            source_product_uses=context.direct_product_uses,
+            derived_product_uses=context.derived_product_uses,
+            product_uses=context.product_uses,
+            host_transforms=selected_bindings,
+            _source_fragment=source_fragment,
+            _transforms=transforms,
         )
-        object.__setattr__(selected, "context", context)
-        object.__setattr__(selected, "mapping", mapping)
-        object.__setattr__(
-            selected,
-            "source_product_uses",
-            context.direct_product_uses,
-        )
-        object.__setattr__(
-            selected,
-            "derived_product_uses",
-            context.derived_product_uses,
-        )
-        object.__setattr__(selected, "product_uses", context.product_uses)
-        object.__setattr__(selected, "host_transforms", selected_bindings)
-        object.__setattr__(selected, "_source_fragment", source_fragment)
-        object.__setattr__(selected, "_transforms", transforms)
-        return selected
 
     def build[
         EntryAddressT: Hashable,
@@ -581,11 +550,7 @@ class DomainPreparationBuilder:
 def domain_preparation_builder_for_context_internal(
     context: DomainBatchContext,
 ) -> DomainPreparationBuilder:
-    """Mint the context-owned public builder without exposing a free constructor."""
-
-    selected = object.__new__(DomainPreparationBuilder)
-    object.__setattr__(selected, "_context", context)
-    return selected
+    return DomainPreparationBuilder(_context=context)
 
 
 def domain_result_mapping_from_native_internal[
@@ -608,29 +573,11 @@ def domain_result_mapping_from_native_internal[
         DomainMappedResult[EntryAddressT, ResultAddressT],
     ] = {}
     for native_result in native.results:
-        mapped_result = cast(
-            "DomainMappedResult[EntryAddressT, ResultAddressT]",
-            object.__new__(DomainMappedResult),
-        )
-        object.__setattr__(
-            mapped_result,
-            "entry_address",
-            native_result.entry_address,
-        )
-        object.__setattr__(
-            mapped_result,
-            "result_address",
-            native_result.result_address,
-        )
-        object.__setattr__(
-            mapped_result,
-            "point",
-            point_refs_by_id[native_result.logical_point_id],
-        )
-        object.__setattr__(
-            mapped_result,
-            "product_uses",
-            tuple(
+        mapped_result = DomainMappedResult(
+            entry_address=native_result.entry_address,
+            result_address=native_result.result_address,
+            point=point_refs_by_id[native_result.logical_point_id],
+            product_uses=tuple(
                 product_use_refs_by_id[product_use_id]
                 for product_use_id in native_result.product_use_ids
             ),
@@ -640,24 +587,10 @@ def domain_result_mapping_from_native_internal[
 
     mapped_entries: list[DomainMappedEntry[EntryAddressT, ResultAddressT]] = []
     for native_entry in native.entries:
-        mapped_entry = cast(
-            "DomainMappedEntry[EntryAddressT, ResultAddressT]",
-            object.__new__(DomainMappedEntry),
-        )
-        object.__setattr__(
-            mapped_entry,
-            "entry_address",
-            native_entry.entry_address,
-        )
-        object.__setattr__(
-            mapped_entry,
-            "point",
-            point_refs_by_id[native_entry.logical_point_id],
-        )
-        object.__setattr__(
-            mapped_entry,
-            "results",
-            tuple(
+        mapped_entry = DomainMappedEntry(
+            entry_address=native_entry.entry_address,
+            point=point_refs_by_id[native_entry.logical_point_id],
+            results=tuple(
                 mapped_results_by_native_identity[id(native_result)]
                 for native_result in native_entry.results
             ),
@@ -665,35 +598,24 @@ def domain_result_mapping_from_native_internal[
         mapped_entries.append(mapped_entry)
 
     selected_results = tuple(mapped_results)
-    selected = cast(
-        "DomainResultMapping[EntryAddressT, ResultAddressT]",
-        object.__new__(DomainResultMapping),
-    )
-    object.__setattr__(selected, "context", context)
-    object.__setattr__(selected, "product_uses", product_uses)
-    object.__setattr__(selected, "target_entries", target_entries)
-    object.__setattr__(selected, "entries", tuple(mapped_entries))
-    object.__setattr__(selected, "results", selected_results)
-    object.__setattr__(
-        selected,
-        "_result_by_address",
-        MappingProxyType(
+    return DomainResultMapping(
+        context=context,
+        product_uses=product_uses,
+        target_entries=target_entries,
+        entries=tuple(mapped_entries),
+        results=selected_results,
+        _result_by_address=MappingProxyType(
             {result.result_address: result for result in selected_results}
         ),
-    )
-    object.__setattr__(
-        selected,
-        "_result_by_output_identity",
-        MappingProxyType(
+        _result_by_output_identity=MappingProxyType(
             {
                 (id(result.point), id(product_use)): result
                 for result in selected_results
                 for product_use in result.product_uses
             }
         ),
+        _native=native,
     )
-    object.__setattr__(selected, "_native", native)
-    return selected
 
 
 def domain_result_mapping_native_internal[

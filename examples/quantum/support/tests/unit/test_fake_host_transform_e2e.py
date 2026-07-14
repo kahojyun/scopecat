@@ -283,7 +283,7 @@ def _linked_points() -> MaterializedLinkedPoints:
         record_uses=(
             probability_0_record,
             probability_1_record,
-            probability_1_record.model_copy(update={"id": "probability_1_alias"}),
+            replace(probability_1_record, id="probability_1_alias"),
         ),
     )
     environment = validate_config_environment(

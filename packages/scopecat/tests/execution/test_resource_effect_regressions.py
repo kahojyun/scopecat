@@ -244,9 +244,9 @@ def test_logical_product_schema_is_invariant_across_instrument_producers() -> No
         product_uses=(product_use,),
         record_uses=(record_use,),
     )
-    source_1_program = source_0_program.model_copy(
-        update={"instrument_product_producers": (source_1_producer,)},
-        deep=True,
+    source_1_program = replace(
+        source_0_program,
+        instrument_product_producers=(source_1_producer,),
     )
 
     source_0_plan = _bind(source_0_program, config=config)

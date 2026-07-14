@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -201,7 +202,7 @@ def _linked_points():
         record_uses=(
             probability_0_record,
             probability_1_record,
-            probability_1_record.model_copy(update={"id": "probability_1_alias"}),
+            replace(probability_1_record, id="probability_1_alias"),
         ),
     )
     environment = validate_config_environment(

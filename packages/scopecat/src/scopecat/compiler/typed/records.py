@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import Any, Protocol
-
-from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.model import (
@@ -38,43 +37,51 @@ from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
 
-class RecordUse(BaseModel):
+@dataclass(frozen=True, slots=True)
+class RecordUse:
     """Template-owned durable destination for one logical product use."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
-
-    id: str = Field(min_length=1)
+    id: str
     product_use_id: ProductUseId
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "record use id must be non-empty"
+            raise ValueError(msg)
+        object.__setattr__(self, "metadata", dict(self.metadata))
 
 
-class RecordAxisPlan(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+@dataclass(frozen=True, slots=True)
+class RecordAxisPlan:
     id: str
     kind: str
     size: int
     unit: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", dict(self.metadata))
 
 
-class RecordPlan(BaseModel):
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
+@dataclass(frozen=True, slots=True)
+class RecordPlan:
     id: str
     product_use_id: ProductUseId
     product_id: ProductId
     kind: str
-    unit: str | None = None
     dtype: MeasurementDType
-    axes: list[RecordAxisPlan] = Field(default_factory=list)
-    dims: list[str] = Field(default_factory=list)
-    shape: list[int] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    unit: str | None = None
+    axes: tuple[RecordAxisPlan, ...] = ()
+    dims: tuple[str, ...] = ()
+    shape: tuple[int, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "axes", tuple(self.axes))
+        object.__setattr__(self, "dims", tuple(self.dims))
+        object.__setattr__(self, "shape", tuple(self.shape))
+        object.__setattr__(self, "metadata", dict(self.metadata))
 
 
 class PointRecordLike(Protocol):
@@ -107,9 +114,9 @@ def plan_records(
                 kind=product.kind,
                 unit=product.unit,
                 dtype=product.dtype,
-                axes=[_plan_axis(axis) for axis in product.axes],
-                dims=["point", *(axis.id for axis in product.axes)],
-                shape=[point_count, *(axis.size for axis in product.axes)],
+                axes=tuple(_plan_axis(axis) for axis in product.axes),
+                dims=("point", *(axis.id for axis in product.axes)),
+                shape=(point_count, *(axis.size for axis in product.axes)),
                 metadata={**product.metadata, **record.metadata},
             )
         )
@@ -442,8 +449,8 @@ def expected_dataset_schema(
             role="observable",
             dtype=record.dtype,
             unit=record.unit,
-            dims=record.dims,
-            shape=record.shape,
+            dims=list(record.dims),
+            shape=list(record.shape),
             metadata={
                 **record.metadata,
             },

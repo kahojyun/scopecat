@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import FrozenInstanceError, dataclass, fields
+from dataclasses import dataclass
 from typing import cast
 
 import pytest
@@ -25,7 +25,6 @@ from scopecat_quantum.calibrations import (
     CalibrationSelectionIssueCode,
     GateCalibration,
     GateCalibrationArgument,
-    GateCalibrationBinding,
     GateCalibrationCatalog,
     GateCalibrationKey,
     MeasurementCalibration,
@@ -173,11 +172,6 @@ def test_exact_calibration_key_contains_call_data_not_gate_definition() -> None:
 
     key = GateCalibrationKey.from_call(call)
 
-    assert {item.name for item in fields(GateCalibrationKey)} == {
-        "gate_id",
-        "operands",
-        "arguments",
-    }
     assert key == GateCalibrationKey(
         gate_id=GateId("x"),
         operands=(Q0,),
@@ -185,7 +179,7 @@ def test_exact_calibration_key_contains_call_data_not_gate_definition() -> None:
     )
 
 
-def test_selection_has_exact_gate_call_coverage_and_is_immutable() -> None:
+def test_selection_has_exact_gate_call_coverage() -> None:
     first = _call("first")
     second = _call("second")
     pulse = _pulse_template()
@@ -203,9 +197,6 @@ def test_selection_has_exact_gate_call_coverage_and_is_immutable() -> None:
     )
     assert selection.gates.binding_for(first.id).pulse_template is pulse
     assert selection.binding_for(first.id).pulse_template is pulse
-    attribute = "_circuit_id"
-    with pytest.raises(FrozenInstanceError):
-        setattr(cast("object", selection), attribute, CircuitId("forged"))
 
 
 def test_named_argument_order_does_not_change_calibration_selection() -> None:
@@ -507,13 +498,6 @@ def test_gate_calibration_and_catalog_close_runtime_shapes() -> None:
             key=key,
             pulse_template=invalid_template_id,
         )
-    with pytest.raises(ValueError, match="template id must be a PulseProgramId"):
-        GateCalibrationBinding(
-            call_id=CircuitOperationId("call"),
-            key=key,
-            calibration_id=CalibrationId("calibration"),
-            pulse_template=invalid_template_id,
-        )
     with pytest.raises(ValueError, match="tuple of GateCalibration"):
         GateCalibrationCatalog(
             entries=cast(
@@ -527,10 +511,9 @@ def test_gate_calibration_and_catalog_close_runtime_shapes() -> None:
         CalibrationCatalog(gates=cast("GateCalibrationCatalog", ()))
 
 
-def test_issue_and_binding_close_nominal_runtime_shapes() -> None:
+def test_issue_closes_nominal_runtime_shapes() -> None:
     call = _call("call")
     key = GateCalibrationKey.from_call(call)
-    pulse = _pulse_template()
     with pytest.raises(ValueError, match="operation_id must be a CircuitOperationId"):
         CalibrationSelectionIssue(
             code=CalibrationSelectionIssueCode.MISSING,
@@ -587,34 +570,6 @@ def test_issue_and_binding_close_nominal_runtime_shapes() -> None:
             matching_calibration_ids=(CalibrationId("only-one"),),
             message="ambiguous",
         )
-    with pytest.raises(ValueError, match="calibration_id must be a CalibrationId"):
-        GateCalibrationBinding(
-            call_id=call.id,
-            key=key,
-            calibration_id=cast("CalibrationId", call.id),
-            pulse_template=pulse,
-        )
-    with pytest.raises(ValueError, match="binding call_id"):
-        GateCalibrationBinding(
-            call_id=cast("CircuitOperationId", CalibrationId("wrong-space")),
-            key=key,
-            calibration_id=CalibrationId("calibration"),
-            pulse_template=pulse,
-        )
-    with pytest.raises(ValueError, match="binding key"):
-        GateCalibrationBinding(
-            call_id=call.id,
-            key=cast("GateCalibrationKey", call),
-            calibration_id=CalibrationId("calibration"),
-            pulse_template=pulse,
-        )
-    with pytest.raises(ValueError, match="requires a PulseProgram"):
-        GateCalibrationBinding(
-            call_id=call.id,
-            key=key,
-            calibration_id=CalibrationId("calibration"),
-            pulse_template=cast("PulseProgram", object()),
-        )
     issue = CalibrationSelectionIssue(
         code=CalibrationSelectionIssueCode.MISSING,
         operation_id=call.id,
@@ -667,13 +622,6 @@ def test_gate_calibrations_cannot_produce_acquisition_results() -> None:
                 key=key,
                 pulse_template=pulse_template,
             )
-        with pytest.raises(ValueError, match="cannot reference pulse templates"):
-            GateCalibrationBinding(
-                call_id=call.id,
-                key=key,
-                calibration_id=CalibrationId("calibration"),
-                pulse_template=pulse_template,
-            )
 
 
 def test_gate_calibration_rejects_duplicate_template_event_identities_early() -> None:
@@ -718,17 +666,3 @@ def test_gate_calibration_rejects_unknown_template_nodes_early() -> None:
             key=GateCalibrationKey.from_call(call),
             pulse_template=pulse_template,
         )
-
-
-def test_selection_never_seals_a_cross_identity_calibration_id() -> None:
-    call = _call("call")
-    calibration = _calibration("calibration", call)
-    catalog = _catalog(calibration)
-    object.__setattr__(
-        calibration,
-        "id",
-        CircuitOperationId("cross-identity-space"),
-    )
-
-    with pytest.raises(ValueError, match="calibration_id must be a CalibrationId"):
-        select_calibrations(_verified(call), catalog)

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from scopecat.compiler.relations.model import (
@@ -439,14 +441,12 @@ def test_preview_contract_records_are_durable() -> None:
         physical_resource_id="readout-a",
     )
     changed_product_use, changed_record_use = record_product(changed_product)
-    changed = spec.model_copy(
-        update={
-            "product_defs": (changed_product,),
-            "instrument_product_producers": (changed_producer,),
-            "product_uses": (changed_product_use,),
-            "record_uses": (changed_record_use,),
-        },
-        deep=True,
+    changed = replace(
+        spec,
+        product_defs=(changed_product,),
+        instrument_product_producers=(changed_producer,),
+        product_uses=(changed_product_use,),
+        record_uses=(changed_record_use,),
     )
 
     config = config_with_physical_resources({"readout-a": ()})

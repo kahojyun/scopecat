@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import cast
-
-from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.backend import (
@@ -29,45 +28,59 @@ type EvaluatedActionValue = object
 type SelectedPlanResolver = Callable[[RelationUseId], SelectedRelationPlan[PlanNode]]
 
 
-class ActionFieldSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, frozen=True)
-
-    id: str = Field(min_length=1)
+@dataclass(frozen=True, slots=True)
+class ActionFieldSpec:
+    id: str
     value_use: ActionValueUse
 
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "action field id must be non-empty"
+            raise ValueError(msg)
 
-class ActionSpec(BaseModel):
+
+@dataclass(frozen=True, slots=True)
+class ActionSpec:
     """One ordered action invocation evaluated for every logical point."""
-
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, frozen=True)
 
     id: ActionId
     resource_port_id: LogicalResourcePortId
-    capability_id: str = Field(min_length=1)
+    capability_id: str
     fields: tuple[ActionFieldSpec, ...] = ()
 
-    def model_post_init(self, _context: object) -> None:
+    def __post_init__(self) -> None:
+        if not self.capability_id:
+            msg = "action capability id must be non-empty"
+            raise ValueError(msg)
         field_ids = tuple(field.id for field in self.fields)
         if len(field_ids) != len(set(field_ids)):
             msg = "action field ids must be unique"
             raise ValueError(msg)
 
 
-class ActionFieldRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
-    id: str = Field(min_length=1)
+@dataclass(frozen=True, slots=True)
+class ActionFieldRecord:
+    id: str
     value: EvaluatedActionValue
 
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "action field record id must be non-empty"
+            raise ValueError(msg)
 
-class ActionRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
-    point_index: int = Field(ge=0)
+@dataclass(frozen=True, slots=True)
+class ActionRecord:
+    point_index: int
     id: ActionId
     resource_port_id: LogicalResourcePortId
-    capability_id: str = Field(min_length=1)
+    capability_id: str
     fields: tuple[ActionFieldRecord, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.point_index < 0 or not self.capability_id:
+            msg = "action records require a nonnegative point and capability id"
+            raise ValueError(msg)
 
 
 def evaluate_action_spec(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -228,23 +229,20 @@ def test_rejects_invalid_compute_edge_payload_schema_during_planning(
         config_profile=load_config(),
     )
     sequence_node_id = "build-sqg-rb-sequence"
-    experiment = resolved.experiment.model_copy(
-        update={
-            "compute_nodes": [
-                node.model_copy(
-                    update={
-                        "result": node.result.model_copy(
-                            update={
-                                "value_type": ScalarType(PayloadType("pulse_program"))
-                            }
-                        )
-                    }
-                )
-                if node.id.local_id == sequence_node_id
-                else node
-                for node in resolved.experiment.compute_nodes
-            ]
-        }
+    experiment = replace(
+        resolved.experiment,
+        compute_nodes=tuple(
+            replace(
+                node,
+                result=replace(
+                    node.result,
+                    value_type=ScalarType(PayloadType("pulse_program")),
+                ),
+            )
+            if node.id.local_id == sequence_node_id
+            else node
+            for node in resolved.experiment.compute_nodes
+        ),
     )
 
     with pytest.raises(CheckFailed) as caught:

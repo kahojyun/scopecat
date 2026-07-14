@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Literal
-
-from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.compiler.semantic.model import DomainCallId, MeasurementTransformId
 from scopecat.kernel.product_identity import ProductId, ProductProducerId
@@ -14,80 +13,84 @@ from scopecat.measurements.results import MeasurementDType
 type ProductKind = Literal["observable", "artifact", "readback", "expression"]
 
 
-class ProductAxisDef(BaseModel):
+@dataclass(frozen=True, slots=True)
+class ProductAxisDef:
     """One axis in a logical product's output schema."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    id: str = Field(min_length=1)
-    kind: str = Field(min_length=1)
-    size: int = Field(gt=0)
+    id: str
+    kind: str
+    size: int
     unit: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.id or not self.kind or self.size <= 0:
+            msg = "product axes require non-empty ids and kinds and positive sizes"
+            raise ValueError(msg)
+        object.__setattr__(self, "metadata", dict(self.metadata))
 
 
-class ProductDef(BaseModel):
+@dataclass(frozen=True, slots=True)
+class ProductDef:
     """Available logical product independent of recording and target realization."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
 
     id: ProductId
     kind: ProductKind = "observable"
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     axes: tuple[ProductAxisDef, ...] = ()
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", dict(self.metadata))
 
 
-class InstrumentProductProducer(BaseModel):
+@dataclass(frozen=True, slots=True)
+class InstrumentProductProducer:
     """One instrument edge that can realize a logical product locally."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
 
     id: ProductProducerId
     product_id: ProductId
+    provider_key: str
     resource_target: ResourceTarget | None = None
     capability: str | None = None
-    provider_key: str = Field(min_length=1)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.provider_key:
+            msg = "instrument product producer provider_key must be non-empty"
+            raise ValueError(msg)
+        object.__setattr__(self, "metadata", dict(self.metadata))
 
 
-class DomainProductProducer(BaseModel):
+@dataclass(frozen=True, slots=True)
+class DomainProductProducer:
     """One domain-call result that realizes a logical product."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
 
     id: ProductProducerId
     product_id: ProductId
     call_id: DomainCallId
-    result_id: str = Field(min_length=1)
+    result_id: str
+
+    def __post_init__(self) -> None:
+        if not self.result_id:
+            msg = "domain product producer result_id must be non-empty"
+            raise ValueError(msg)
 
 
-class MeasurementTransformProductProducer(BaseModel):
+@dataclass(frozen=True, slots=True)
+class MeasurementTransformProductProducer:
     """One pure authored transform output that realizes a logical product."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
 
     id: ProductProducerId
     product_id: ProductId
     transform_id: MeasurementTransformId
-    output_id: str = Field(min_length=1)
+    output_id: str
+
+    def __post_init__(self) -> None:
+        if not self.output_id:
+            msg = "measurement transform producer output_id must be non-empty"
+            raise ValueError(msg)
 
 
 __all__ = [

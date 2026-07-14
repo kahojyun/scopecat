@@ -67,7 +67,7 @@ class SelectedMeasurementProjection:
         object.__setattr__(
             self,
             "_records",
-            tuple(record.model_copy(deep=True) for record in records),
+            tuple(deepcopy(record) for record in records),
         )
         object.__setattr__(
             self,
@@ -93,7 +93,7 @@ class SelectedMeasurementProjection:
 
     @property
     def records(self) -> tuple[RecordPlan, ...]:
-        return tuple(record.model_copy(deep=True) for record in self._records)
+        return tuple(deepcopy(record) for record in self._records)
 
     @property
     def schema(self) -> MeasurementDatasetSchema | None:
@@ -447,7 +447,7 @@ def _snapshot_measurement_records(
     ):
         msg = "projected values require MeasurementRecord instances"
         raise TypeError(msg)
-    return tuple(record.model_copy(deep=True) for record in records)
+    return tuple(deepcopy(record) for record in records)
 
 
 def _record_product_kind(

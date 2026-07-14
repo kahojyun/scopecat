@@ -127,11 +127,10 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
         compute_nodes != program.compute_nodes
         or measurement_transforms != program.measurement_transforms
     ):
-        program = program.model_copy(
-            update={
-                "compute_nodes": compute_nodes,
-                "measurement_transforms": measurement_transforms,
-            }
+        program = replace(
+            program,
+            compute_nodes=compute_nodes,
+            measurement_transforms=measurement_transforms,
         )
     implementation_problems = validate_local_implementation_catalog(
         compute_nodes,

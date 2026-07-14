@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal
@@ -260,9 +261,9 @@ def select_local_product_realizations(
                 SelectedLocalProductRealization(
                     product_use_id=use.id,
                     product_id=product.id,
-                    product=product.model_copy(deep=True),
+                    product=deepcopy(product),
                     producer_id=producer.id,
-                    producer=producer.model_copy(deep=True),
+                    producer=deepcopy(producer),
                     implicit_resource_id=implicit_resource_id,
                 )
             )

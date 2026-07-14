@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -89,8 +90,8 @@ def test_run_rejects_missing_instrument(tmp_path: Path) -> None:
 
 def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
     experiment = load_experiment()
-    state = experiment.state[0].model_copy(update={"field_path": "amplitude"})
-    experiment = experiment.model_copy(update={"state": [state]})
+    state = replace(experiment.state[0], field_path="amplitude")
+    experiment = replace(experiment, state=(state,))
 
     with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
@@ -106,14 +107,11 @@ def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
 
 def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
     experiment = load_experiment()
-    experiment = experiment.model_copy(
-        update={
-            "instrument_product_producers": [
-                experiment.instrument_product_producers[0].model_copy(
-                    update={"provider_key": "missing"}
-                )
-            ]
-        }
+    experiment = replace(
+        experiment,
+        instrument_product_producers=(
+            replace(experiment.instrument_product_producers[0], provider_key="missing"),
+        ),
     )
 
     with pytest.raises(ProviderContractError) as error:
@@ -130,12 +128,9 @@ def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
 
 def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
     experiment = load_experiment()
-    experiment = experiment.model_copy(
-        update={
-            "product_defs": [
-                experiment.product_defs[0].model_copy(update={"dtype": "int64"})
-            ]
-        }
+    experiment = replace(
+        experiment,
+        product_defs=(replace(experiment.product_defs[0], dtype="int64"),),
     )
 
     with pytest.raises(ProviderContractError) as error:

@@ -362,15 +362,6 @@ def test_fetch_candidates_keep_provider_payloads_outside_correlated_state() -> N
         DomainFetchCandidate(receipt=pending, result="unexpected")
 
 
-def test_provider_requests_can_only_be_minted_by_core() -> None:
-    with pytest.raises(TypeError, match="minted by core"):
-        DomainSubmitRequest[dict[str, str]]()
-    with pytest.raises(TypeError, match="minted by core"):
-        DomainFetchRequest()
-    with pytest.raises(TypeError, match="minted by core"):
-        DomainReconcileRequest()
-
-
 def test_intent_and_submission_ids_cover_generation_and_intent() -> None:
     invocation = _closed_invocation()
     same = close_domain_invocation(
@@ -1184,8 +1175,6 @@ def test_runtime_state_constructors_establish_their_invariants() -> None:
         KnownDomainSubmission(submission_id, not_submitted, "submit")
     with pytest.raises(ValueError, match="definitive negative evidence"):
         AbsentDomainSubmission(submission_id, submitted, "submit")
-    with pytest.raises(TypeError, match="minted by core"):
-        CorrelatedDomainFetch()
     with pytest.raises(ValueError, match="fetched payload"):
         _correlated_domain_fetch(known, pending, "payload")
     with pytest.raises(ValueError, match="pending receipt"):

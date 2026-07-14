@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields, replace
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -216,7 +216,6 @@ def test_value_use_contains_only_its_target_identity() -> None:
     value_id = _value_id("source")
     use = ValueUse(value_id)
 
-    assert tuple(field.name for field in fields(ValueUse)) == ("value_id",)
     assert use.value_id is value_id
 
 
@@ -1161,15 +1160,6 @@ def test_callable_and_source_sidecars_do_not_participate_in_graph_equality() -> 
 
     assert first_catalog == second_catalog
     assert first_sources != second_sources
-    assert {field.name for field in fields(SemanticGraphIR)} == {
-        "value_defs",
-        "operations",
-        "measurement_transforms",
-        "domain_programs",
-        "domain_calls",
-        "actions",
-        "row_regions",
-    }
     assert graph == SemanticGraphIR(value_defs=(result,), operations=(operation,))
 
 

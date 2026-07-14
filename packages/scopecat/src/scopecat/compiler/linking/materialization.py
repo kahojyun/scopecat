@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
+from dataclasses import replace
 from typing import Any, cast
 
 from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
@@ -171,34 +172,33 @@ def materialize_local_plan(
                 "action",
             )
         }
-        program = program.model_copy(
-            update={
-                "parameter_overlays": tuple(
-                    overlay
-                    for index, overlay in enumerate(program.parameter_overlays)
-                    if str(index) in selected_ids["parameter_overlay"]
-                ),
-                "route_intents": tuple(
-                    route
-                    for route in program.route_intents
-                    if route.port_id.qualified_name in selected_ids["route"]
-                ),
-                "compute_nodes": tuple(
-                    node
-                    for node in program.compute_nodes
-                    if node.id.qualified_name in selected_ids["compute"]
-                ),
-                "state": tuple(
-                    state
-                    for index, state in enumerate(program.state)
-                    if str(index) in selected_ids["state"]
-                ),
-                "actions": tuple(
-                    action
-                    for action in program.actions
-                    if action.id.qualified_name in selected_ids["action"]
-                ),
-            }
+        program = replace(
+            program,
+            parameter_overlays=tuple(
+                overlay
+                for index, overlay in enumerate(program.parameter_overlays)
+                if str(index) in selected_ids["parameter_overlay"]
+            ),
+            route_intents=tuple(
+                route
+                for route in program.route_intents
+                if route.port_id.qualified_name in selected_ids["route"]
+            ),
+            compute_nodes=tuple(
+                node
+                for node in program.compute_nodes
+                if node.id.qualified_name in selected_ids["compute"]
+            ),
+            state=tuple(
+                state
+                for index, state in enumerate(program.state)
+                if str(index) in selected_ids["state"]
+            ),
+            actions=tuple(
+                action
+                for action in program.actions
+                if action.id.qualified_name in selected_ids["action"]
+            ),
         )
     if product_use_ids is not None:
         requested = frozenset(product_use_ids)
@@ -217,11 +217,10 @@ def materialize_local_plan(
             for record in program.record_uses
             if record.product_use_id in requested
         )
-        program = program.model_copy(
-            update={
-                "product_uses": selected_uses,
-                "record_uses": selected_record_uses,
-            }
+        program = replace(
+            program,
+            product_uses=selected_uses,
+            record_uses=selected_record_uses,
         )
     environment = linked.environment
     routing = environment.routing

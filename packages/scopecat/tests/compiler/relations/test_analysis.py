@@ -17,7 +17,6 @@ from scopecat.compiler.relations.model import (
     GridColumn,
     RelationExpr,
     RowScopeId,
-    ScalarExpr,
     SeriesExpr,
     col,
     input_ref,
@@ -56,28 +55,6 @@ from scopecat.compiler.typed.program import (
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table, TableColumn
 from tests.testkit.relation_plans import value_expr
-
-
-@pytest.mark.parametrize("operation", list(RelationOperation))
-def test_relation_operation_is_exhaustive_and_shape_qualified(
-    operation: RelationOperation,
-) -> None:
-    shape, kind = operation.value.split(".", maxsplit=1)
-    node_type = {
-        "scalar": ScalarExpr,
-        "series": SeriesExpr,
-        "relation": RelationExpr,
-    }[shape]
-    node = node_type.model_construct(kind=kind)
-
-    assert relation_operation(node) is operation
-
-
-def test_relation_operation_rejects_unknown_plan_kinds() -> None:
-    unknown = ScalarExpr.model_construct(kind="future_scalar")
-
-    with pytest.raises(ValueError, match="unsupported scalar plan operation"):
-        relation_operation(unknown)
 
 
 def test_plan_input_refs_deduplicate_ids_across_shapes() -> None:

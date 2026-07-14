@@ -238,33 +238,6 @@ class MeasurementCalibrationBinding:
     calibration_id: CalibrationId
     pulse_template: PulseProgram
 
-    def __post_init__(self) -> None:
-        if not isinstance(_runtime_object(self.measurement_id), CircuitOperationId):
-            msg = (
-                "measurement calibration binding measurement_id must be a "
-                "CircuitOperationId"
-            )
-            raise ValueError(msg)
-        if not isinstance(_runtime_object(self.key), MeasurementCalibrationKey):
-            msg = (
-                "measurement calibration binding key must be a "
-                "MeasurementCalibrationKey"
-            )
-            raise ValueError(msg)
-        if not isinstance(_runtime_object(self.calibration_id), CalibrationId):
-            msg = (
-                "measurement calibration binding calibration_id must be a CalibrationId"
-            )
-            raise ValueError(msg)
-        if not isinstance(_runtime_object(self.pulse_template), PulseProgram):
-            msg = "measurement calibration binding requires a PulseProgram template"
-            raise ValueError(msg)
-        _measurement_template_leaves(
-            self.pulse_template,
-            self.key,
-            subject="measurement calibration binding",
-        )
-
 
 __all__ = [
     "MeasurementCalibration",

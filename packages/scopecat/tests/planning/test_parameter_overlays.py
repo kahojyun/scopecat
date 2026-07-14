@@ -137,7 +137,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     ]
     plan = materialize_local_plan(link_program(spec, environment))
     without_overlay = materialize_local_plan(
-        link_program(spec.model_copy(update={"parameter_overlays": ()}), environment)
+        link_program(replace(spec, parameter_overlays=()), environment)
     )
 
     assert plan.points[0].parameters.tables["readout_devices"][0]["frequency"] == (

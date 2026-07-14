@@ -345,7 +345,7 @@ def test_raw_link_seals_program_and_retains_accepted_environment() -> None:
 
     assert linked.environment is environment
 
-    program.metadata["owner"] = {"name": "mutated-source"}
+    cast("dict[str, object]", program.metadata)["owner"] = {"name": "mutated-source"}
     program.product_defs[0].metadata["mutated-source"] = True
     program.instrument_product_producers[0].metadata["mutated-source"] = True
     program.record_uses[0].metadata["mutated-source"] = True

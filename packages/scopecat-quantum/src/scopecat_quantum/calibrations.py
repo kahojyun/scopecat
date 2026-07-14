@@ -267,32 +267,6 @@ class GateCalibrationBinding:
     calibration_id: CalibrationId
     pulse_template: PulseProgram
 
-    def __post_init__(self) -> None:
-        if not isinstance(_runtime_object(self.call_id), CircuitOperationId):
-            msg = "calibration binding call_id must be a CircuitOperationId"
-            raise ValueError(msg)
-        if not isinstance(_runtime_object(self.key), GateCalibrationKey):
-            msg = "calibration binding key must be a GateCalibrationKey"
-            raise ValueError(msg)
-        if not isinstance(_runtime_object(self.calibration_id), CalibrationId):
-            msg = "calibration binding calibration_id must be a CalibrationId"
-            raise ValueError(msg)
-        if not isinstance(_runtime_object(self.pulse_template), PulseProgram):
-            msg = "calibration binding requires a PulseProgram template"
-            raise ValueError(msg)
-        leaves = _gate_template_leaves(
-            self.pulse_template,
-            subject="gate calibration binding",
-        )
-        if self.pulse_template.acquisition_slots or any(
-            isinstance(leaf, Acquire) for leaf in leaves
-        ):
-            msg = (
-                "gate calibration bindings cannot reference pulse templates with "
-                "acquisition slots or Acquire instructions"
-            )
-            raise ValueError(msg)
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class GateCalibrationSelection:
@@ -308,32 +282,11 @@ class GateCalibrationSelection:
         gate_call_ids: tuple[CircuitOperationId, ...],
         bindings: tuple[GateCalibrationBinding, ...],
     ) -> None:
-        if not isinstance(_runtime_object(circuit_id), CircuitId):
-            msg = "calibration selection circuit_id must be a CircuitId"
-            raise ValueError(msg)
-        raw_gate_call_ids = _runtime_tuple(_runtime_object(gate_call_ids))
-        if raw_gate_call_ids is None or not all(
-            isinstance(call_id, CircuitOperationId) for call_id in raw_gate_call_ids
-        ):
-            msg = (
-                "calibration selection gate_call_ids must be a tuple of "
-                "CircuitOperationId values"
-            )
-            raise ValueError(msg)
-        raw_bindings = _runtime_tuple(_runtime_object(bindings))
-        if raw_bindings is None or not all(
-            isinstance(binding, GateCalibrationBinding) for binding in raw_bindings
-        ):
-            msg = (
-                "calibration selection bindings must be a tuple of "
-                "GateCalibrationBinding values"
-            )
-            raise ValueError(msg)
-        selected_call_ids = cast("tuple[CircuitOperationId, ...]", raw_gate_call_ids)
+        selected_call_ids = tuple(gate_call_ids)
         if len(set(selected_call_ids)) != len(selected_call_ids):
             msg = "calibration selection gate_call_ids must be unique"
             raise ValueError(msg)
-        selected_bindings = cast("tuple[GateCalibrationBinding, ...]", raw_bindings)
+        selected_bindings = tuple(bindings)
         binding_ids = tuple(binding.call_id for binding in selected_bindings)
         if binding_ids != selected_call_ids:
             msg = "calibration bindings must exactly cover gate calls in program order"
@@ -388,39 +341,12 @@ class MeasurementCalibrationSelection:
         measurement_ids: tuple[CircuitOperationId, ...],
         bindings: tuple[MeasurementCalibrationBinding, ...],
     ) -> None:
-        if not isinstance(_runtime_object(circuit_id), CircuitId):
-            msg = "measurement calibration selection circuit_id must be a CircuitId"
-            raise ValueError(msg)
-        raw_measurement_ids = _runtime_tuple(_runtime_object(measurement_ids))
-        if raw_measurement_ids is None or not all(
-            isinstance(measurement_id, CircuitOperationId)
-            for measurement_id in raw_measurement_ids
-        ):
-            msg = (
-                "measurement calibration selection measurement_ids must be a tuple "
-                "of CircuitOperationId values"
-            )
-            raise ValueError(msg)
-        selected_measurement_ids = cast(
-            "tuple[CircuitOperationId, ...]", raw_measurement_ids
-        )
+        selected_measurement_ids = tuple(measurement_ids)
         if len(set(selected_measurement_ids)) != len(selected_measurement_ids):
             msg = "measurement calibration selection measurement_ids must be unique"
             raise ValueError(msg)
 
-        raw_bindings = _runtime_tuple(_runtime_object(bindings))
-        if raw_bindings is None or not all(
-            isinstance(binding, MeasurementCalibrationBinding)
-            for binding in raw_bindings
-        ):
-            msg = (
-                "measurement calibration selection bindings must be a tuple of "
-                "MeasurementCalibrationBinding values"
-            )
-            raise ValueError(msg)
-        selected_bindings = cast(
-            "tuple[MeasurementCalibrationBinding, ...]", raw_bindings
-        )
+        selected_bindings = tuple(bindings)
         binding_ids = tuple(binding.measurement_id for binding in selected_bindings)
         if binding_ids != selected_measurement_ids:
             msg = (
@@ -624,38 +550,10 @@ class CalibrationSelection:
         gates: GateCalibrationSelection,
         measurements: MeasurementCalibrationSelection,
     ) -> None:
-        if not isinstance(_runtime_object(circuit_id), CircuitId):
-            msg = "calibration selection circuit_id must be a CircuitId"
-            raise ValueError(msg)
-        raw_operation_ids = _runtime_tuple(_runtime_object(operation_ids))
-        if raw_operation_ids is None or not all(
-            isinstance(operation_id, CircuitOperationId)
-            for operation_id in raw_operation_ids
-        ):
-            msg = (
-                "calibration selection operation_ids must be a tuple of "
-                "CircuitOperationId values"
-            )
-            raise ValueError(msg)
-        if not isinstance(_runtime_object(gates), GateCalibrationSelection):
-            msg = "calibration selection gates must be a GateCalibrationSelection"
-            raise ValueError(msg)
-        if not isinstance(
-            _runtime_object(measurements),
-            MeasurementCalibrationSelection,
-        ):
-            msg = (
-                "calibration selection measurements must be a "
-                "MeasurementCalibrationSelection"
-            )
-            raise ValueError(msg)
         if gates.circuit_id != circuit_id or measurements.circuit_id != circuit_id:
             msg = "calibration sub-selections must belong to the same circuit"
             raise ValueError(msg)
-        selected_operation_ids = cast(
-            "tuple[CircuitOperationId, ...]",
-            raw_operation_ids,
-        )
+        selected_operation_ids = tuple(operation_ids)
         if len(set(selected_operation_ids)) != len(selected_operation_ids):
             msg = "calibration selection operation_ids must be unique"
             raise ValueError(msg)

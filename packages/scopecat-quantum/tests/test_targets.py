@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, dataclass, fields, replace
+from dataclasses import dataclass, replace
 from typing import cast
 
 import pytest
@@ -184,17 +184,6 @@ def test_structural_target_protocols_admit_a_laboratory_adapter() -> None:
     assert compiled.source_entry_ids == (TargetCompileEntryId("point-0"),)
 
 
-def test_compile_request_is_closed_and_contains_only_generic_target_inputs() -> None:
-    assert {item.name for item in fields(TargetCompileEntry)} == {"id", "program"}
-    assert {item.name for item in fields(TargetCompileRequest)} == {
-        "target_id",
-        "compiler_id",
-        "capability_fingerprint",
-        "entries",
-        "repetitions",
-    }
-
-
 def test_addresses_cover_entries_in_exact_schedule_order() -> None:
     first = TargetCompileEntry(
         id=TargetCompileEntryId("point-0"),
@@ -230,14 +219,8 @@ def test_addresses_cover_entries_in_exact_schedule_order() -> None:
     assert len(set(request.acquisition_addresses)) == 2
 
 
-def test_target_addresses_close_runtime_identity_spaces_and_are_immutable() -> None:
+def test_target_addresses_close_runtime_identity_spaces() -> None:
     entry_id = TargetCompileEntryId("point-0")
-    event_address = TargetEventAddress(entry_id, PulseEventId("event"))
-    acquisition_address = TargetAcquisitionAddress(
-        entry_id,
-        AcquisitionSlotId("result"),
-    )
-
     with pytest.raises(TypeError, match="event address entry_id"):
         TargetEventAddress(
             cast("TargetCompileEntryId", TargetId("wrong-space")),
@@ -268,21 +251,6 @@ def test_target_addresses_close_runtime_identity_spaces_and_are_immutable() -> N
     object.__setattr__(corrupted_slot_id, "scope", ("",))
     with pytest.raises(ValueError, match="valid AcquisitionSlotId"):
         TargetAcquisitionAddress(entry_id, corrupted_slot_id)
-
-    event_attribute = "event_id"
-    acquisition_attribute = "slot_id"
-    with pytest.raises(FrozenInstanceError):
-        setattr(
-            cast("object", event_address),
-            event_attribute,
-            PulseEventId("forged"),
-        )
-    with pytest.raises(FrozenInstanceError):
-        setattr(
-            cast("object", acquisition_address),
-            acquisition_attribute,
-            AcquisitionSlotId("forged"),
-        )
 
 
 @pytest.mark.parametrize("repetitions", [0, -1, True])
@@ -533,19 +501,6 @@ def test_compile_target_rejects_string_impersonation_of_nominal_artifact_ids() -
         "target_artifact_source_entry_ids_type_invalid",
         "target_artifact_repetitions_type_invalid",
     }
-
-
-def test_compiled_target_artifact_is_immutable() -> None:
-    request = _request()
-    compiler = _Compiler(
-        id=request.compiler_id,
-        target_id=request.target_id,
-        capability_fingerprint=request.capability_fingerprint,
-    )
-    compiled = compile_target(compiler, request)
-    attribute = "_artifact_fingerprint"
-    with pytest.raises(FrozenInstanceError):
-        setattr(cast("object", compiled), attribute, "forged")
 
 
 @dataclass

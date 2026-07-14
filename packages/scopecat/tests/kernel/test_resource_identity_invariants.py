@@ -68,15 +68,18 @@ def _unit_program(
         if producers is None
         else producers
     )
-    return TypedProgram(
-        id="resource-identity-invariants",
-        kind="compiler_test",
-        point_domain=PointDomain(root=POINT_UNIT),
-        product_defs=products,
-        instrument_product_producers=selected_producers,
-        product_uses=tuple(item[0] for item in uses_and_records),
-        record_uses=tuple(item[1] for item in uses_and_records),
-    ).model_copy(update=updates)
+    return replace(
+        TypedProgram(
+            id="resource-identity-invariants",
+            kind="compiler_test",
+            point_domain=PointDomain(root=POINT_UNIT),
+            product_defs=products,
+            instrument_product_producers=selected_producers,
+            product_uses=tuple(item[0] for item in uses_and_records),
+            record_uses=tuple(item[1] for item in uses_and_records),
+        ),
+        **updates,
+    )
 
 
 def _config_with_resources(
@@ -616,8 +619,9 @@ def test_valid_bound_plan_requires_exact_ordered_route_coverage() -> None:
             points=(replace(plan.points[0], routes=(route_with_changed_contract,)),),
         )
 
-    fixed_elsewhere = plan.route_intents[0].model_copy(
-        update={"fixed_resource_id": physical_resource_id("source-1")},
+    fixed_elsewhere = replace(
+        plan.route_intents[0],
+        fixed_resource_id=physical_resource_id("source-1"),
     )
     with pytest.raises(ValueError, match="fixed physical resource identity"):
         replace(plan, route_intents=(fixed_elsewhere,))

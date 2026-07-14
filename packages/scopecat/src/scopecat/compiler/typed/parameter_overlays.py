@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import cast
-
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
 from scopecat.compiler.relations.analysis import PlanNode
@@ -34,7 +33,8 @@ from scopecat.records.entity import EntityRef, same_entity_identity
 type SelectedPlanResolver = Callable[[RelationUseId], SelectedRelationPlan[PlanNode]]
 
 
-class PointParameterOverlay(BaseModel):
+@dataclass(frozen=True, slots=True)
+class PointParameterOverlay:
     """Replace one existing parameter-table cell for each experiment point.
 
     This is transient compiler intent, not a durable parameter edit or change
@@ -42,22 +42,16 @@ class PointParameterOverlay(BaseModel):
     or deleting rows, or from mutating scalar configuration values.
     """
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
     table_id: str
-    key_uses: dict[str, RelationUse[ScalarValueExpr]] = Field(min_length=1)
+    key_uses: dict[str, RelationUse[ScalarValueExpr]]
     column_id: str
     value_use: RelationUse[ScalarValueExpr]
 
-    @model_validator(mode="after")
-    def validate_target(self) -> PointParameterOverlay:
-        if not self.table_id:
-            msg = "parameter overlay table_id must be non-empty"
+    def __post_init__(self) -> None:
+        if not self.table_id or not self.column_id or not self.key_uses:
+            msg = "parameter overlay table, column, and key must be non-empty"
             raise ValueError(msg)
-        if not self.column_id:
-            msg = "parameter overlay column_id must be non-empty"
-            raise ValueError(msg)
-        return self
+        object.__setattr__(self, "key_uses", dict(self.key_uses))
 
 
 def apply_point_parameter_overlay(

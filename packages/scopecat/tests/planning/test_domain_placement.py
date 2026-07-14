@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.semantic.model import (
     DomainCallId,
     DomainProgramId,
     MeasurementTransformId,
 )
+from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     TypedDomainCall,
     TypedDomainResultBinding,
@@ -63,9 +65,10 @@ def test_domain_slice_follows_exact_product_use_edges() -> None:
             ),
         ),
     )
-    program = TypedProgram.model_construct(
+    program = TypedProgram(
         id="test.domain-placement",
         kind="test",
+        point_domain=PointDomain(POINT_UNIT),
         domain_calls=(call,),
         measurement_transforms=(transform,),
         product_uses=(direct_use, foreign_use, output_use),

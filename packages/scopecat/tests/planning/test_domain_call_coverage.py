@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.semantic.model import DomainCallId, DomainProgramId
+from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     TypedDomainCall,
     TypedDomainResultBinding,
@@ -32,9 +34,10 @@ def _program_with_demanded_domain_result() -> TypedProgram:
             ),
         ),
     )
-    return TypedProgram.model_construct(
+    return TypedProgram(
         id="test.domain-affinity",
         kind="test",
+        point_domain=PointDomain(POINT_UNIT),
         domain_calls=(call,),
         product_uses=(selected_use,),
     )

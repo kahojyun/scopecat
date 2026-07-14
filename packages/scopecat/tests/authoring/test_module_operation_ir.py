@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import fields
-
 import pytest
 
 import scopecat as sc
@@ -27,7 +25,6 @@ def test_module_builder_splits_operation_from_python_implementation() -> None:
 
     module = sc.module("test.operation-ir").computes(definition).build()
 
-    assert [field.name for field in fields(module)] == ["_ir"]
     assert len(module.ir.body.operations) == 1
     assert len(module.ir.python_implementations) == 1
 

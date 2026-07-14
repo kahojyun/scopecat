@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from typing import Any, cast
 
 import pytest
-from pydantic import ValidationError
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import link_program
@@ -77,7 +75,7 @@ from scopecat.compiler.typed.program import (
     set_state_field,
 )
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
-from scopecat.compiler.typed.state import PhysicalStateResourceTarget, StateSpec
+from scopecat.compiler.typed.state import PhysicalStateResourceTarget
 from scopecat.compiler.typed.verification import (
     SelectedProgramRelation,
     SelectedTypedProgram,
@@ -341,20 +339,6 @@ def test_program_seal_has_one_complete_recursive_relation_inventory() -> None:
     )
     assert len({consumer.id for consumer in verified.relation_consumers}) == 9
 
-    with pytest.raises(ValidationError, match="frozen"):
-        program.route_intents[0].entity_uses = ()
-
-    copied = verified.program
-    copied = copied.model_copy(
-        update={
-            "route_intents": (
-                copied.route_intents[0].model_copy(update={"entity_uses": ()}),
-            )
-        }
-    )
-    assert not copied.route_intents[0].entity_uses
-    assert verified.program.route_intents[0].entity_uses
-
 
 def test_relation_use_identity_survives_reordering_and_insertion() -> None:
     first_use = relation_use(scalar_value_expr("first", expected_type=_STRING))
@@ -377,22 +361,19 @@ def test_relation_use_identity_survives_reordering_and_insertion() -> None:
 
     before = seal_typed_program(program)
     after = seal_typed_program(
-        program.model_copy(
-            update={"route_intents": tuple(reversed(program.route_intents))}
-        )
+        replace(program, route_intents=tuple(reversed(program.route_intents)))
     )
     inserted_use = relation_use(scalar_value_expr("inserted", expected_type=_STRING))
     after_insertion = seal_typed_program(
-        program.model_copy(
-            update={
-                "route_intents": (
-                    ResourceRouteIntent(
-                        port_id=logical_resource_port_id("inserted"),
-                        entity_uses=(inserted_use,),
-                    ),
-                    *program.route_intents,
-                )
-            }
+        replace(
+            program,
+            route_intents=(
+                ResourceRouteIntent(
+                    port_id=logical_resource_port_id("inserted"),
+                    entity_uses=(inserted_use,),
+                ),
+                *program.route_intents,
+            ),
         )
     )
 
@@ -451,11 +432,10 @@ def test_relation_use_identity_survives_overlay_and_state_sibling_reordering() -
 
     before = seal_typed_program(program)
     after = seal_typed_program(
-        program.model_copy(
-            update={
-                "parameter_overlays": tuple(reversed(overlays)),
-                "state": tuple(reversed(states)),
-            }
+        replace(
+            program,
+            parameter_overlays=tuple(reversed(overlays)),
+            state=tuple(reversed(states)),
         )
     )
 
@@ -600,15 +580,14 @@ def test_changing_a_relation_use_plan_requires_fresh_selection() -> None:
         id=original_use.id,
     )
     changed_verified = seal_typed_program(
-        program.model_copy(
-            update={
-                "route_intents": (
-                    ResourceRouteIntent(
-                        port_id=logical_resource_port_id("route"),
-                        entity_uses=(changed_use,),
-                    ),
-                )
-            }
+        replace(
+            program,
+            route_intents=(
+                ResourceRouteIntent(
+                    port_id=logical_resource_port_id("route"),
+                    entity_uses=(changed_use,),
+                ),
+            ),
         )
     )
     changed = select_typed_program(REFERENCE_RELATION_BACKEND, changed_verified)
@@ -622,44 +601,6 @@ def test_changing_a_relation_use_plan_requires_fresh_selection() -> None:
         )
 
     assert changed.relation_selections[0].consumer.value == changed_use.value
-
-
-def test_relation_use_wrappers_revalidate_value_shape_at_ir_boundaries() -> None:
-    table_use = relation_use(
-        table_value_expr(
-            literal_rows([{"x": 1.0}]),
-            expected_type=_POINTS,
-        )
-    )
-    malformed_use = cast("Any", table_use)
-    scalar_use = relation_use(scalar_value_expr("valid", expected_type=_STRING))
-
-    with pytest.raises(ValidationError):
-        ResourceRouteIntent(
-            port_id=logical_resource_port_id("route"),
-            entity_uses=(malformed_use,),
-        )
-    with pytest.raises(ValidationError):
-        PointParameterOverlay(
-            table_id="parameters",
-            key_uses={"x": malformed_use},
-            column_id="value",
-            value_use=scalar_use,
-        )
-    with pytest.raises(ValidationError):
-        StateSpec(
-            kind="set",
-            resource_target=PhysicalStateResourceTarget(use=malformed_use),
-            capability_id="set_value",
-            field_path="value",
-            value_use=scalar_use,
-        )
-
-    route = ResourceRouteIntent(
-        port_id=logical_resource_port_id("valid"),
-        entity_uses=(scalar_use,),
-    )
-    assert route.entity_uses[0].id == scalar_use.id
 
 
 def test_selected_program_binds_exact_owners_backend_and_proofs() -> None:

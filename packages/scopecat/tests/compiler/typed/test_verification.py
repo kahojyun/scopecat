@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from scopecat.compiler.relations.model import (
@@ -66,7 +68,7 @@ def _program(**updates: object) -> TypedProgram:
             expected_type=Table(columns=(), min_rows=1, max_rows=1),
         ),
     )
-    return program.model_copy(update=updates)
+    return replace(program, **updates)
 
 
 def _catalog(operation_id: OperationId) -> ImplementationCatalog:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
 
@@ -654,7 +655,7 @@ def link_program(
 
     try:
         verified_program = seal_typed_program(
-            program.model_copy(deep=True),
+            deepcopy(program),
             phase=ProblemPhase.PLANNING,
         )
     except CheckFailed as error:

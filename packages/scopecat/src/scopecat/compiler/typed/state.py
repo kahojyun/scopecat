@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Annotated, Literal, cast
-
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from dataclasses import dataclass
+from typing import Literal, cast
 
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.backend import (
@@ -46,62 +45,54 @@ type SelectedPlanResolver = Callable[[RelationUseId], SelectedRelationPlan[PlanN
 
 
 type StateValueUse = RelationUse[ScalarValueExpr] | ComputeResultRef
-type EvaluatedStateValue = Annotated[
-    ComputeResultRef | CellValue,
-    Field(union_mode="left_to_right"),
-]
+type EvaluatedStateValue = ComputeResultRef | CellValue
 
 
-class LogicalStateResourceTarget(BaseModel):
+@dataclass(frozen=True, slots=True)
+class LogicalStateResourceTarget:
     """State target resolved through one declared logical resource port."""
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, frozen=True)
-
-    kind: Literal["logical_port"] = "logical_port"
     port_id: LogicalResourcePortId
+    kind: Literal["logical_port"] = "logical_port"
 
 
-class PhysicalStateResourceTarget(BaseModel):
+@dataclass(frozen=True, slots=True)
+class PhysicalStateResourceTarget:
     """State target whose physical identity is computed by a relation."""
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, frozen=True)
-
-    kind: Literal["physical_relation"] = "physical_relation"
     use: RelationUse[ScalarValueExpr]
+    kind: Literal["physical_relation"] = "physical_relation"
 
-    @model_validator(mode="after")
-    def validate_string_scalar(self) -> PhysicalStateResourceTarget:
+    def __post_init__(self) -> None:
         if not isinstance(self.use.value.value_type.atom, String):
             msg = "physical state resource targets require a string scalar relation"
             raise ValueError(msg)
-        return self
 
 
-type StateResourceTarget = Annotated[
-    LogicalStateResourceTarget | PhysicalStateResourceTarget,
-    Field(discriminator="kind"),
-]
+type StateResourceTarget = LogicalStateResourceTarget | PhysicalStateResourceTarget
 
 
-class StateSpec(BaseModel):
+@dataclass(frozen=True, slots=True)
+class StateSpec:
     """Desired-state binding evaluated after point-local parameter overlays."""
-
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     kind: StateSpecKind
     resource_target: StateResourceTarget | None = None
-    capability_id: str | None = Field(default=None, min_length=1)
-    field_path: str | None = Field(default=None, min_length=1)
+    capability_id: str | None = None
+    field_path: str | None = None
     value_use: StateValueUse | None = None
-    route_entity_uses: list[RelationUse[ScalarOrSeriesValueExpr]] = Field(
-        default_factory=list
-    )
+    route_entity_uses: tuple[RelationUse[ScalarOrSeriesValueExpr], ...] = ()
     relation_use: RelationUse[TableValueExpr] | None = None
     row_scope_id: RowScopeId | None = None
-    state: list[StateSpec] | None = None
+    state: tuple[StateSpec, ...] | None = None
 
-    @model_validator(mode="after")
-    def validate_shape(self) -> StateSpec:
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "route_entity_uses", tuple(self.route_entity_uses))
+        if self.state is not None:
+            object.__setattr__(self, "state", tuple(self.state))
+        if self.capability_id == "" or self.field_path == "":
+            msg = "state capability id and field path must be non-empty when present"
+            raise ValueError(msg)
         if self.kind == "set":
             if (
                 self.resource_target is None
@@ -123,7 +114,9 @@ class StateSpec(BaseModel):
                 "value_use",
                 "route_entity_uses",
             )
-        return self
+        else:
+            msg = f"unsupported state kind: {self.kind!r}"
+            raise ValueError(msg)
 
     @property
     def field(self) -> str | None:
@@ -142,15 +135,20 @@ class StateSpec(BaseModel):
             raise ValueError(msg)
 
 
-class StateRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
+@dataclass(frozen=True, slots=True)
+class StateRecord:
     point_index: int
     resource_target: ResourceTarget
-    capability_id: str = Field(min_length=1)
-    field_path: str = Field(min_length=1)
+    capability_id: str
+    field_path: str
     value: EvaluatedStateValue
-    route_entities: list[RouteEntityValue] = Field(default_factory=list)
+    route_entities: tuple[RouteEntityValue, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.point_index < 0 or not self.capability_id or not self.field_path:
+            msg = "state records require nonnegative points and non-empty field ids"
+            raise ValueError(msg)
+        object.__setattr__(self, "route_entities", tuple(self.route_entities))
 
     @property
     def field(self) -> str:
@@ -201,11 +199,13 @@ def evaluate_state_spec(
                         ctx,
                     )
                 ),
-                route_entities=_evaluate_route_entities(
-                    spec.route_entity_uses,
-                    ctx,
-                    backend=backend,
-                    selected_plan=selected_plan,
+                route_entities=tuple(
+                    _evaluate_route_entities(
+                        spec.route_entity_uses,
+                        ctx,
+                        backend=backend,
+                        selected_plan=selected_plan,
+                    )
                 ),
             )
         ]
@@ -353,10 +353,8 @@ def _evaluate_route_entities(
 def _is_present(value: object) -> bool:
     if value is None:
         return False
-    return not (isinstance(value, list) and not value)
+    return not (isinstance(value, list | tuple) and not value)
 
-
-StateSpec.model_rebuild()
 
 __all__ = [
     "EvaluatedStateValue",

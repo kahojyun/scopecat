@@ -170,9 +170,6 @@ def test_typed_program_keeps_implementation_and_source_as_sidecars() -> None:
 
     assert program.implementation_catalog is catalog
     assert program.source_map is source_map
-    assert "implementation_catalog" not in program.model_dump()
-    assert "source_map" not in program.model_dump()
-    assert "fn" not in TypedComputeNode.model_fields
 
 
 def test_declared_implementation_contract_must_match_typed_operation() -> None:

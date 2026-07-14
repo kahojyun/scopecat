@@ -1,7 +1,7 @@
 """Narrow immutable projection of authored domain calls for adapter code.
 
 The values in this module are the complete compiler-facing inspection surface
-for a domain adapter.  References are minted by core while projecting one
+for a domain adapter. References are assembled while projecting one
 materialized plan; adapters can retain and pass them back to the prepare SDK
 without importing transient compiler identities.
 """
@@ -120,12 +120,11 @@ class DomainProductContractView:
         )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainPointRef:
     """SDK identity for one canonical logical point.
 
-    References are deliberately not publicly constructible.  They are plain
-    immutable capabilities scoped by the context that minted them, not
+    References are plain immutable values scoped by their owning context, not
     security tokens or durable identities.
     """
 
@@ -133,12 +132,8 @@ class DomainPointRef:
     ordinal: int
     _native: object = field(repr=False, compare=False)
 
-    def __init__(self) -> None:
-        msg = "domain point references are minted by core"
-        raise TypeError(msg)
 
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainProductUseRef:
     """SDK identity and logical contract for one demanded product occurrence."""
 
@@ -146,12 +141,8 @@ class DomainProductUseRef:
     product: DomainProductContractView = field(repr=False, compare=False)
     _native: object = field(repr=False, compare=False)
 
-    def __init__(self) -> None:
-        msg = "domain product-use references are minted by core"
-        raise TypeError(msg)
 
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainTransformInputPort:
     """One authored transform input wired to its exact consumer occurrence."""
 
@@ -159,12 +150,8 @@ class DomainTransformInputPort:
     product_use: DomainProductUseRef
     product: DomainProductContractView = field(repr=False)
 
-    def __init__(self) -> None:
-        msg = "domain transform input ports are minted by core"
-        raise TypeError(msg)
 
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainTransformOutputPort:
     """One authored output product and every demanded downstream occurrence."""
 
@@ -172,24 +159,16 @@ class DomainTransformOutputPort:
     product: DomainProductContractView = field(repr=False)
     product_uses: tuple[DomainProductUseRef, ...]
 
-    def __init__(self) -> None:
-        msg = "domain transform output ports are minted by core"
-        raise TypeError(msg)
 
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainMeasurementTransform:
-    """Core-minted projection of one authored point-local pure transform."""
+    """Projection of one authored point-local pure transform."""
 
     id: str
     semantic: MeasurementTransformSemanticContract
     inputs: tuple[DomainTransformInputPort, ...]
     outputs: tuple[DomainTransformOutputPort, ...]
     rate: Literal["point"] = "point"
-
-    def __init__(self) -> None:
-        msg = "domain measurement transforms are minted by core"
-        raise TypeError(msg)
 
     def input(self, name: str) -> DomainTransformInputPort:
         for port in self.inputs:
@@ -321,72 +300,63 @@ class DomainBatchView:
         return selected[0]
 
 
-def mint_domain_point_ref_internal(
+def domain_point_ref_internal(
     *,
     ref_id: str,
     ordinal: int,
     native: object,
 ) -> DomainPointRef:
-    selected = object.__new__(DomainPointRef)
-    object.__setattr__(selected, "id", ref_id)
-    object.__setattr__(selected, "ordinal", ordinal)
-    object.__setattr__(selected, "_native", native)
-    return selected
+    return DomainPointRef(id=ref_id, ordinal=ordinal, _native=native)
 
 
-def mint_domain_product_use_ref_internal(
+def domain_product_use_ref_internal(
     *,
     ref_id: str,
     product: DomainProductContractView,
     native: object,
 ) -> DomainProductUseRef:
-    selected = object.__new__(DomainProductUseRef)
-    object.__setattr__(selected, "id", ref_id)
-    object.__setattr__(selected, "product", product)
-    object.__setattr__(selected, "_native", native)
-    return selected
+    return DomainProductUseRef(id=ref_id, product=product, _native=native)
 
 
-def mint_domain_transform_input_port_internal(
+def domain_transform_input_port_internal(
     *,
     port_id: str,
     product_use: DomainProductUseRef,
     product: DomainProductContractView,
 ) -> DomainTransformInputPort:
-    selected = object.__new__(DomainTransformInputPort)
-    object.__setattr__(selected, "id", port_id)
-    object.__setattr__(selected, "product_use", product_use)
-    object.__setattr__(selected, "product", product)
-    return selected
+    return DomainTransformInputPort(
+        id=port_id,
+        product_use=product_use,
+        product=product,
+    )
 
 
-def mint_domain_transform_output_port_internal(
+def domain_transform_output_port_internal(
     *,
     port_id: str,
     product: DomainProductContractView,
     product_uses: tuple[DomainProductUseRef, ...],
 ) -> DomainTransformOutputPort:
-    selected = object.__new__(DomainTransformOutputPort)
-    object.__setattr__(selected, "id", port_id)
-    object.__setattr__(selected, "product", product)
-    object.__setattr__(selected, "product_uses", product_uses)
-    return selected
+    return DomainTransformOutputPort(
+        id=port_id,
+        product=product,
+        product_uses=product_uses,
+    )
 
 
-def mint_domain_measurement_transform_internal(
+def domain_measurement_transform_internal(
     *,
     transform_id: str,
     semantic: MeasurementTransformSemanticContract,
     inputs: tuple[DomainTransformInputPort, ...],
     outputs: tuple[DomainTransformOutputPort, ...],
 ) -> DomainMeasurementTransform:
-    selected = object.__new__(DomainMeasurementTransform)
-    object.__setattr__(selected, "id", transform_id)
-    object.__setattr__(selected, "semantic", semantic.model_copy(deep=True))
-    object.__setattr__(selected, "inputs", inputs)
-    object.__setattr__(selected, "outputs", outputs)
-    object.__setattr__(selected, "rate", "point")
-    return selected
+    return DomainMeasurementTransform(
+        id=transform_id,
+        semantic=semantic.model_copy(deep=True),
+        inputs=inputs,
+        outputs=outputs,
+    )
 
 
 def domain_point_native_internal(ref: DomainPointRef) -> object:

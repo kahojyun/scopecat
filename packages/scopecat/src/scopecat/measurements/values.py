@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Hashable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import cast
@@ -154,7 +155,7 @@ class SelectedMeasurementValueAssembly:
             "_product_by_use_id",
             MappingProxyType(
                 {
-                    use_id: product.model_copy(deep=True)
+                    use_id: deepcopy(product)
                     for use_id, product in product_by_use_id.items()
                 }
             ),
@@ -185,7 +186,7 @@ class SelectedMeasurementValueAssembly:
 
     def product_for_use(self, product_use_id: ProductUseId) -> ProductDef:
         try:
-            return self._product_by_use_id[product_use_id].model_copy(deep=True)
+            return deepcopy(self._product_by_use_id[product_use_id])
         except KeyError as error:
             msg = f"product use {product_use_id.value!r} is not selected"
             raise KeyError(msg) from error
@@ -274,7 +275,7 @@ class ClosedMeasurementProductValue:
         object.__setattr__(self, "fragment_id", fragment_id)
         object.__setattr__(self, "point", point)
         object.__setattr__(self, "product_use", product_use)
-        object.__setattr__(self, "_product", product.model_copy(deep=True))
+        object.__setattr__(self, "_product", deepcopy(product))
         object.__setattr__(self, "_value", validated_measurement_value_copy(value))
 
     @property
@@ -291,7 +292,7 @@ class ClosedMeasurementProductValue:
 
     @property
     def product(self) -> ProductDef:
-        return self._product.model_copy(deep=True)
+        return deepcopy(self._product)
 
     @property
     def value(self) -> MeasurementValue:
@@ -927,9 +928,7 @@ def _measurement_product_inventory(
     uses = tuple(linked_plan.product_uses)
     products_by_id = {product.id: product for product in linked_plan.product_defs}
     try:
-        products = {
-            use.id: products_by_id[use.product_id].model_copy(deep=True) for use in uses
-        }
+        products = {use.id: deepcopy(products_by_id[use.product_id]) for use in uses}
     except KeyError as error:
         msg = "measurement value assembly requires a closed product graph"
         raise ValueError(msg) from error

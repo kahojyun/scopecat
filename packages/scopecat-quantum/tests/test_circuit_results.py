@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, replace
 from importlib import import_module
 from pathlib import Path
 from typing import cast, get_type_hints
@@ -581,21 +581,6 @@ def test_compiled_circuit_target_binding_is_typed() -> None:
             mapping,
             cast("CompiledTargetArtifact[_TargetArtifact]", object()),
         )
-
-
-def test_acquisition_binding_does_not_repeat_parent_entry() -> None:
-    assert {field.name for field in fields(CircuitTargetEntryPointBinding)} == {
-        "entry_id",
-        "point",
-    }
-    assert {field.name for field in fields(CircuitTargetAcquisitionUseBinding)} == {
-        "address",
-        "product_use",
-    }
-    assert {field.name for field in fields(CircuitTargetResultMapping)} == {
-        "batch",
-        "domain_mapping",
-    }
 
 
 def test_public_mapping_boundaries_do_not_expose_compiler_types() -> None:

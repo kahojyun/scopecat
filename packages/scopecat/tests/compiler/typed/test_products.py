@@ -279,7 +279,7 @@ def test_bound_plan_rejects_lossy_or_mutated_product_projection() -> None:
             records=(plan.records[0], plan.records[0]),
         )
 
-    changed_contract = product.model_copy(update={"unit": "Hz"})
+    changed_contract = replace(product, unit="Hz")
     with pytest.raises(ValueError, match="selected product"):
         replace(plan, product_defs=(changed_contract,))
 

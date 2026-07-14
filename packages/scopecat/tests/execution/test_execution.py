@@ -1082,10 +1082,9 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
         point,
         collect=(replace(collect, requests=(request,)),),
     )
-    product = plan.product_defs[0].model_copy(
-        update={
-            "axes": (ProductAxisDef(id="sample", kind="sample", size=2, unit="ns"),)
-        }
+    product = replace(
+        plan.product_defs[0],
+        axes=(ProductAxisDef(id="sample", kind="sample", size=2, unit="ns"),),
     )
     record = replace(
         plan.records[0],
@@ -1493,23 +1492,22 @@ def test_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
 
 def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
     instrument = TestSignalInstrument()
-    experiment = load_experiment().model_copy(
-        update={
-            "state": [
-                set_state_field(
-                    scalar_value_expr(
-                        lit("source-0"),
-                        expected_type=Scalar(String()),
-                    ),
-                    capability_id="set_frequency",
-                    field_path="frequency",
-                    value=scalar_value_expr(
-                        lit(Quantity(value=5.9, unit="GHz")),
-                        expected_type=Scalar(QuantityType(unit="GHz")),
-                    ),
-                )
-            ]
-        }
+    experiment = replace(
+        load_experiment(),
+        state=(
+            set_state_field(
+                scalar_value_expr(
+                    lit("source-0"),
+                    expected_type=Scalar(String()),
+                ),
+                capability_id="set_frequency",
+                field_path="frequency",
+                value=scalar_value_expr(
+                    lit(Quantity(value=5.9, unit="GHz")),
+                    expected_type=Scalar(QuantityType(unit="GHz")),
+                ),
+            ),
+        ),
     )
     events: list[RuntimeEvent] = []
 

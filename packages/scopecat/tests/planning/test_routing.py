@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from pydantic import ValidationError
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.bound import BoundPlan
@@ -15,7 +14,6 @@ from scopecat.compiler.linking.materialization import (  # pyright: ignore[repor
 from scopecat.compiler.relations.model import (
     input_series,
     lit,
-    literal_rows,
     values,
 )
 from scopecat.compiler.relations.point_domain import POINT_UNIT
@@ -48,9 +46,7 @@ from scopecat.kernel.value_types import (
     Scalar,
     Series,
     String,
-    TableColumn,
 )
-from scopecat.kernel.value_types import Table as TableType
 from scopecat.planning.routing import RoutingError, RoutingView
 from scopecat.planning.validation import validate_config
 from scopecat.records.config import (
@@ -69,7 +65,6 @@ from tests.testkit.authoring import load_config, parameters
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     series_value_expr,
-    table_value_expr,
 )
 
 
@@ -806,23 +801,6 @@ def test_bound_plan_reports_conflicting_state_field_values() -> None:
     assert {problem.code for problem in problems} >= {
         "experiment_conflicting_desired_state"
     }
-
-
-def test_route_entity_expressions_reject_table_shape() -> None:
-    with pytest.raises(ValidationError):
-        ResourceRouteIntent.model_validate(
-            {
-                "port_id": _port("source"),
-                "entity_exprs": [
-                    table_value_expr(
-                        literal_rows([{"entity": "q0"}]),
-                        expected_type=TableType(
-                            columns=(TableColumn("entity", Scalar(Entity())),),
-                        ),
-                    )
-                ],
-            }
-        )
 
 
 def test_bound_plan_reports_invalid_route_entity_member() -> None:

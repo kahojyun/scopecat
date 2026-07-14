@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -53,7 +54,7 @@ class MeasurementTransformInputPort:
         if not isinstance(cast("object", self.product), ProductDef):
             msg = "measurement transform ports require ProductDef contracts"
             raise TypeError(msg)
-        object.__setattr__(self, "product", self.product.model_copy(deep=True))
+        object.__setattr__(self, "product", deepcopy(self.product))
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +86,7 @@ class MeasurementTransformOutputPort:
             msg = "measurement transform output ports require ProductDef contracts"
             raise TypeError(msg)
         object.__setattr__(self, "product_use_ids", selected_use_ids)
-        object.__setattr__(self, "product", self.product.model_copy(deep=True))
+        object.__setattr__(self, "product", deepcopy(self.product))
 
 
 @dataclass(frozen=True, slots=True)

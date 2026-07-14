@@ -1186,7 +1186,7 @@ def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
         selected_plan=selected_program.selected_plan,
         location=model_location("state", 0),
     )
-    assert records[0].route_entities == [EntityRef(id="q0")]
+    assert records[0].route_entities == (EntityRef(id="q0"),)
 
 
 def test_nested_state_preserves_an_empty_parent_row_as_outer_scope() -> None:

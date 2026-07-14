@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from scopecat.compiler.relations.point_domain import POINT_UNIT
@@ -157,16 +159,16 @@ def test_typed_measurement_transforms_are_canonical_and_demand_closed() -> None:
 def test_typed_transform_output_requires_exact_use_inventory() -> None:
     program = _chain_program()
     second, first = program.measurement_transforms
-    incomplete_output = second.outputs[0].model_copy(
-        update={"product_use_ids": second.outputs[0].product_use_ids[:1]}
+    incomplete_output = replace(
+        second.outputs[0],
+        product_use_ids=second.outputs[0].product_use_ids[:1],
     )
-    incomplete = program.model_copy(
-        update={
-            "measurement_transforms": (
-                second.model_copy(update={"outputs": (incomplete_output,)}),
-                first,
-            )
-        }
+    incomplete = replace(
+        program,
+        measurement_transforms=(
+            replace(second, outputs=(incomplete_output,)),
+            first,
+        ),
     )
 
     assert "measurement_transform_output_product_use_coverage_mismatch" in (
@@ -177,16 +179,15 @@ def test_typed_transform_output_requires_exact_use_inventory() -> None:
 def test_typed_product_use_allows_multiple_record_alias_consumers() -> None:
     program = _chain_program()
     first_record = program.record_uses[0]
-    aliased = program.model_copy(
-        update={
-            "record_uses": (
-                *program.record_uses,
-                RecordUse(
-                    id="first-alias",
-                    product_use_id=first_record.product_use_id,
-                ),
-            )
-        }
+    aliased = replace(
+        program,
+        record_uses=(
+            *program.record_uses,
+            RecordUse(
+                id="first-alias",
+                product_use_id=first_record.product_use_id,
+            ),
+        ),
     )
 
     verify_typed_program(aliased)
@@ -195,16 +196,15 @@ def test_typed_product_use_allows_multiple_record_alias_consumers() -> None:
 def test_typed_product_use_cannot_be_record_and_transform_input() -> None:
     program = _chain_program()
     _second, first = program.measurement_transforms
-    conflicted = program.model_copy(
-        update={
-            "record_uses": (
-                *program.record_uses,
-                RecordUse(
-                    id="raw-conflict",
-                    product_use_id=first.inputs[0].product_use_id,
-                ),
-            )
-        }
+    conflicted = replace(
+        program,
+        record_uses=(
+            *program.record_uses,
+            RecordUse(
+                id="raw-conflict",
+                product_use_id=first.inputs[0].product_use_id,
+            ),
+        ),
     )
 
     assert "measurement_transform_input_product_use_conflict" in _problem_codes(
@@ -215,14 +215,13 @@ def test_typed_product_use_cannot_be_record_and_transform_input() -> None:
 def test_typed_product_use_has_at_most_one_transform_input_consumer() -> None:
     program = _chain_program()
     second, first = program.measurement_transforms
-    duplicate_input = first.inputs[0].model_copy(update={"id": "duplicate-source"})
-    conflicted = program.model_copy(
-        update={
-            "measurement_transforms": (
-                second,
-                first.model_copy(update={"inputs": (*first.inputs, duplicate_input)}),
-            )
-        }
+    duplicate_input = replace(first.inputs[0], id="duplicate-source")
+    conflicted = replace(
+        program,
+        measurement_transforms=(
+            second,
+            replace(first, inputs=(*first.inputs, duplicate_input)),
+        ),
     )
 
     assert "measurement_transform_input_product_use_duplicate" in _problem_codes(
@@ -233,17 +232,17 @@ def test_typed_product_use_has_at_most_one_transform_input_consumer() -> None:
 def test_typed_transform_input_requires_matching_use_and_producer() -> None:
     program = _chain_program()
     second, first = program.measurement_transforms
-    foreign_input = first.inputs[0].model_copy(
-        update={"product_use_id": ProductUseId("missing")}
+    foreign_input = replace(
+        first.inputs[0],
+        product_use_id=ProductUseId("missing"),
     )
-    invalid = program.model_copy(
-        update={
-            "measurement_transforms": (
-                second,
-                first.model_copy(update={"inputs": (foreign_input,)}),
-            ),
-            "instrument_product_producers": (),
-        }
+    invalid = replace(
+        program,
+        measurement_transforms=(
+            second,
+            replace(first, inputs=(foreign_input,)),
+        ),
+        instrument_product_producers=(),
     )
 
     codes = _problem_codes(invalid)
@@ -254,21 +253,20 @@ def test_typed_transform_input_requires_matching_use_and_producer() -> None:
 def test_typed_transform_rejects_point_set_rate_and_cross_kind_producer() -> None:
     program = _chain_program()
     second, first = program.measurement_transforms
-    invalid = program.model_copy(
-        update={
-            "measurement_transforms": (
-                second,
-                first.model_copy(update={"rate": "point_set"}),
+    invalid = replace(
+        program,
+        measurement_transforms=(
+            second,
+            replace(first, rate="point_set"),
+        ),
+        instrument_product_producers=(
+            *program.instrument_product_producers,
+            instrument_product_producer(
+                first.outputs[0].product_id,
+                id="middle-instrument",
+                provider_key="middle",
             ),
-            "instrument_product_producers": (
-                *program.instrument_product_producers,
-                instrument_product_producer(
-                    first.outputs[0].product_id,
-                    id="middle-instrument",
-                    provider_key="middle",
-                ),
-            ),
-        }
+        ),
     )
 
     codes = _problem_codes(invalid)

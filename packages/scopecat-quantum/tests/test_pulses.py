@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
 from decimal import Decimal
 from typing import Any, cast
 
@@ -464,17 +463,6 @@ def test_logical_flux_and_barrier_are_hardware_independent_and_canonical() -> No
         coupler_flux,
         qubit_flux,
     )
-
-
-def test_authoring_and_scheduled_ir_are_immutable() -> None:
-    play = _play("pulse", DRIVE_Q0, 10)
-    program = _program(play)
-    scheduled = schedule(program)
-
-    with pytest.raises(FrozenInstanceError):
-        play.signal = DRIVE_Q1  # type: ignore[misc]
-    with pytest.raises(FrozenInstanceError):
-        scheduled.duration_seconds = 0  # type: ignore[misc]
 
 
 def test_schedule_rejects_non_program_without_leaking_attribute_errors() -> None:

@@ -155,42 +155,30 @@ class DomainReceiptIdentity(BaseModel):
         return value
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainSubmitRequest[PayloadT]:
-    """Core-minted provider request for one authorized submit attempt."""
+    """Provider request for one authorized submit attempt."""
 
     submission_id: DomainSubmissionId
     identity: DomainReceiptIdentity
     payload: PayloadT = field(repr=False)
 
-    def __init__(self) -> None:
-        msg = "domain submit requests are minted by core"
-        raise TypeError(msg)
 
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainFetchRequest:
-    """Core-minted provider request for one repeatable known-job read."""
+    """Provider request for one repeatable known-job read."""
 
     submission_id: DomainSubmissionId
     identity: DomainReceiptIdentity
     job_id: str
 
-    def __init__(self) -> None:
-        msg = "domain fetch requests are minted by core"
-        raise TypeError(msg)
 
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class DomainReconcileRequest:
-    """Core-minted provider request for one uncertain-submit lookup."""
+    """Provider request for one uncertain-submit lookup."""
 
     submission_id: DomainSubmissionId
     identity: DomainReceiptIdentity
-
-    def __init__(self) -> None:
-        msg = "domain reconcile requests are minted by core"
-        raise TypeError(msg)
 
 
 class DomainSubmitReceipt(BaseModel):
@@ -507,7 +495,7 @@ class DomainFetchCandidate[ResultT]:
             raise ValueError(msg)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class CorrelatedDomainFetch[ResultT]:
     """Fetched payload correlated to one receipt and known provider job.
 
@@ -516,13 +504,8 @@ class CorrelatedDomainFetch[ResultT]:
     counts, shapes, and value contracts before realizing Scopecat values.
     """
 
-    _submission: KnownDomainSubmission = field(repr=False)
     receipt: DomainFetchReceipt
     result: ResultT = field(repr=False)
-
-    def __init__(self) -> None:
-        msg = "CorrelatedDomainFetch values are minted by core"
-        raise TypeError(msg)
 
 
 def _correlated_domain_fetch[ResultT](
@@ -544,14 +527,10 @@ def _correlated_domain_fetch[ResultT](
     if receipt.identity != submission.identity or receipt.job_id != (submission.job_id):
         msg = "correlated domain fetch does not belong to its submission"
         raise ValueError(msg)
-    selected = cast(
-        "CorrelatedDomainFetch[ResultT]",
-        object.__new__(CorrelatedDomainFetch),
+    return CorrelatedDomainFetch(
+        receipt=receipt,
+        result=result,
     )
-    object.__setattr__(selected, "_submission", submission)
-    object.__setattr__(selected, "receipt", receipt)
-    object.__setattr__(selected, "result", result)
-    return selected
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -583,7 +562,7 @@ type DomainSubmissionResolution = KnownDomainSubmission | AbsentDomainSubmission
 
 
 class DomainRuntime[PayloadT, ResultT](Protocol):
-    """Provider ABI receiving only core-minted, pre-correlated requests."""
+    """Provider ABI receiving pre-correlated requests assembled by core."""
 
     def submit(
         self,
@@ -667,18 +646,11 @@ def _domain_submit_request[PayloadT](
     intent: DomainInvocationIntent,
     payload: PayloadT,
 ) -> DomainSubmitRequest[PayloadT]:
-    selected = cast(
-        "DomainSubmitRequest[PayloadT]",
-        object.__new__(DomainSubmitRequest),
+    return DomainSubmitRequest(
+        submission_id=submission_id,
+        identity=domain_receipt_identity(submission_id, intent),
+        payload=payload,
     )
-    object.__setattr__(selected, "submission_id", submission_id)
-    object.__setattr__(
-        selected,
-        "identity",
-        domain_receipt_identity(submission_id, intent),
-    )
-    object.__setattr__(selected, "payload", payload)
-    return selected
 
 
 def _domain_fetch_request(
@@ -687,29 +659,21 @@ def _domain_fetch_request(
     *,
     job_id: str,
 ) -> DomainFetchRequest:
-    selected = object.__new__(DomainFetchRequest)
-    object.__setattr__(selected, "submission_id", submission_id)
-    object.__setattr__(
-        selected,
-        "identity",
-        domain_receipt_identity(submission_id, intent),
+    return DomainFetchRequest(
+        submission_id=submission_id,
+        identity=domain_receipt_identity(submission_id, intent),
+        job_id=job_id,
     )
-    object.__setattr__(selected, "job_id", job_id)
-    return selected
 
 
 def _domain_reconcile_request(
     submission_id: DomainSubmissionId,
     intent: DomainInvocationIntent,
 ) -> DomainReconcileRequest:
-    selected = object.__new__(DomainReconcileRequest)
-    object.__setattr__(selected, "submission_id", submission_id)
-    object.__setattr__(
-        selected,
-        "identity",
-        domain_receipt_identity(submission_id, intent),
+    return DomainReconcileRequest(
+        submission_id=submission_id,
+        identity=domain_receipt_identity(submission_id, intent),
     )
-    return selected
 
 
 def submit_domain_invocation[

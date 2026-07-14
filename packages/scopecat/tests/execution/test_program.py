@@ -141,10 +141,9 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         unit="ratio",
         dtype="float64",
     )
-    source_b_product = source_a_product.model_copy(
-        update={
-            "id": product_id("source-b-signal"),
-        }
+    source_b_product = replace(
+        source_a_product,
+        id=product_id("source-b-signal"),
     )
     source_a_producer = instrument_product_producer(
         source_a_product,

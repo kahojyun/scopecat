@@ -8,13 +8,8 @@ and deliberately has no schema version or round-trip compatibility promise.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Any, Literal, cast
-
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-)
+from dataclasses import dataclass, field
+from typing import Any, Literal, cast
 
 from scopecat.compiler.relations.model import (
     RowScopeId,
@@ -91,7 +86,8 @@ from scopecat.measurements.semantics import (
 )
 
 
-class ValueInput(BaseModel):
+@dataclass(frozen=True, slots=True)
+class ValueInput:
     """Proof-carrying value evaluated for one compute invocation.
 
     ``origin_input_ids`` is pre-rewrite provenance. The enclosed proof imports
@@ -99,75 +95,68 @@ class ValueInput(BaseModel):
     for that provenance.
     """
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
-
-    kind: Literal["value"] = "value"
     value: ValueExpr
-    relation_use_id: RelationUseId = Field(default_factory=RelationUseId.fresh)
+    relation_use_id: RelationUseId = field(default_factory=RelationUseId.fresh)
     origin_input_ids: tuple[str, ...] = ()
+    kind: Literal["value"] = "value"
 
     @property
     def value_type(self) -> ValueType:
         return self.value.value_type
 
 
-class ComputeEdge(BaseModel):
+@dataclass(frozen=True, slots=True)
+class ComputeEdge:
     """Explicit dependency on the result of another compute node."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
-
-    kind: Literal["compute"] = "compute"
     value_id: ValueId
     expected_type: ValueType
+    kind: Literal["compute"] = "compute"
 
     @property
     def value_type(self) -> ValueType:
         return self.expected_type
 
 
-class RouteInput(BaseModel):
+@dataclass(frozen=True, slots=True)
+class RouteInput:
     """Explicit dependency on a point-local resolved resource route."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
-
-    kind: Literal["route"] = "route"
     port_id: LogicalResourcePortId
     value_type: Route
+    kind: Literal["route"] = "route"
 
 
-type ComputeInput = Annotated[
-    ValueInput | ComputeEdge | RouteInput,
-    Field(discriminator="kind"),
-]
+type ComputeInput = ValueInput | ComputeEdge | RouteInput
 
 
-class TypedDomainProgram(BaseModel):
+def _empty_value_inputs() -> dict[str, ValueInput]:
+    return {}
+
+
+def _empty_compute_inputs() -> dict[str, ComputeInput]:
+    return {}
+
+
+def _empty_metadata() -> dict[str, Any]:
+    return {}
+
+
+@dataclass(frozen=True, slots=True)
+class TypedDomainProgram:
     """Opaque domain program retained as trusted frozen transient IR."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
-
     id: DomainProgramId
-    dialect_id: str = Field(min_length=1)
-    dialect_version: str = Field(min_length=1)
-    body: object = Field(repr=False)
+    dialect_id: str
+    dialect_version: str
+    body: object = field(repr=False)
     input_ports: tuple[DomainInputPortDef, ...] = ()
     result_ports: tuple[DomainResultPortDef, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.dialect_id or not self.dialect_version:
+            msg = "domain program dialect id and version must be non-empty"
+            raise ValueError(msg)
 
     def __deepcopy__(
         self,
@@ -176,73 +165,67 @@ class TypedDomainProgram(BaseModel):
         return self
 
 
-class TypedDomainResultBinding(BaseModel):
+@dataclass(frozen=True, slots=True)
+class TypedDomainResultBinding:
     """Exact logical product occurrences produced by one named call result."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
-
-    id: str = Field(min_length=1)
+    id: str
     product_id: ProductId
     producer_id: ProductProducerId
     product_use_ids: tuple[ProductUseId, ...] = ()
 
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "typed domain result id must be non-empty"
+            raise ValueError(msg)
 
-class TypedDomainCall(BaseModel):
+
+@dataclass(frozen=True, slots=True)
+class TypedDomainCall:
     """One linked prepare-stage call with executable plan value inputs."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
 
     id: DomainCallId
     program_id: DomainProgramId
-    inputs: dict[str, ValueInput] = Field(default_factory=dict)
+    inputs: Mapping[str, ValueInput] = field(default_factory=_empty_value_inputs)
     results: tuple[TypedDomainResultBinding, ...] = ()
 
+    def __post_init__(self) -> None:
+        selected_inputs: dict[str, ValueInput] = dict(self.inputs)
+        object.__setattr__(self, "inputs", selected_inputs)
 
-class TypedMeasurementTransformInput(BaseModel):
+
+@dataclass(frozen=True, slots=True)
+class TypedMeasurementTransformInput:
     """One exact product-use occurrence consumed by a pure transform role."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
-
-    id: str = Field(min_length=1)
+    id: str
     product_id: ProductId
     product_use_id: ProductUseId
 
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "measurement transform input id must be non-empty"
+            raise ValueError(msg)
 
-class TypedMeasurementTransformOutput(BaseModel):
+
+@dataclass(frozen=True, slots=True)
+class TypedMeasurementTransformOutput:
     """One transform-produced product and all of its downstream use slots."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
-
-    id: str = Field(min_length=1)
+    id: str
     product_id: ProductId
     producer_id: ProductProducerId
     product_use_ids: tuple[ProductUseId, ...] = ()
 
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "measurement transform output id must be non-empty"
+            raise ValueError(msg)
 
-class TypedMeasurementTransform(BaseModel):
+
+@dataclass(frozen=True, slots=True)
+class TypedMeasurementTransform:
     """One live authored pure transform in the demand-closed product graph."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
 
     id: MeasurementTransformId
     semantic: MeasurementTransformSemanticContract
@@ -251,43 +234,32 @@ class TypedMeasurementTransform(BaseModel):
     outputs: tuple[TypedMeasurementTransformOutput, ...] = ()
 
 
-class TypedComputeOutput(BaseModel):
+@dataclass(frozen=True, slots=True)
+class TypedComputeOutput:
     """One explicitly identified value defined by a typed compute node."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
 
     id: ValueId
     value_type: ValueType
     availability: ValueAvailability
 
 
-class TypedComputeNode(BaseModel):
+@dataclass(frozen=True, slots=True)
+class TypedComputeNode:
     """One typed pure-code node in the expanded compute graph."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
 
     id: OperationId
     contract: OperationContract
-    inputs: dict[str, ComputeInput] = Field(default_factory=dict)
     result: TypedComputeOutput
+    inputs: Mapping[str, ComputeInput] = field(default_factory=_empty_compute_inputs)
+
+    def __post_init__(self) -> None:
+        selected_inputs: dict[str, ComputeInput] = dict(self.inputs)
+        object.__setattr__(self, "inputs", selected_inputs)
 
 
-class ResourceRouteIntent(BaseModel):
+@dataclass(frozen=True, slots=True)
+class ResourceRouteIntent:
     """Symbolic resource route retained until point-local compilation."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
 
     port_id: LogicalResourcePortId
     capabilities: tuple[str, ...] = ()
@@ -295,17 +267,12 @@ class ResourceRouteIntent(BaseModel):
     fixed_resource_id: PhysicalResourceId | None = None
 
 
-class TypedProgram(BaseModel):
+@dataclass(frozen=True, slots=True)
+class TypedProgram:
     """Closed typed compiler output for one run segment."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
-
-    id: str = Field(min_length=1)
-    kind: str = Field(min_length=1)
+    id: str
+    kind: str
     point_domain: PointDomain
     route_intents: tuple[ResourceRouteIntent, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
@@ -313,11 +280,10 @@ class TypedProgram(BaseModel):
     domain_programs: tuple[TypedDomainProgram, ...] = ()
     domain_calls: tuple[TypedDomainCall, ...] = ()
     measurement_transforms: tuple[TypedMeasurementTransform, ...] = ()
-    implementation_catalog: ImplementationCatalog = Field(
-        default_factory=ImplementationCatalog,
-        exclude=True,
+    implementation_catalog: ImplementationCatalog = field(
+        default_factory=ImplementationCatalog
     )
-    source_map: SourceMap = Field(default_factory=SourceMap, exclude=True)
+    source_map: SourceMap = field(default_factory=SourceMap)
     state: tuple[StateSpec, ...] = ()
     actions: tuple[ActionSpec, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
@@ -328,7 +294,14 @@ class TypedProgram(BaseModel):
     ] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=_empty_metadata)
+
+    def __post_init__(self) -> None:
+        if not self.id or not self.kind:
+            msg = "typed program id and kind must be non-empty"
+            raise ValueError(msg)
+        selected_metadata: dict[str, Any] = dict(self.metadata)
+        object.__setattr__(self, "metadata", selected_metadata)
 
 
 def overlay_parameter_cell(
@@ -399,7 +372,9 @@ def set_state_field(
         capability_id=capability_id,
         field_path=field_path,
         value_use=value if isinstance(value, ComputeResultRef) else relation_use(value),
-        route_entity_uses=[relation_use(expression) for expression in route_entities],
+        route_entity_uses=tuple(
+            relation_use(expression) for expression in route_entities
+        ),
     )
 
 
@@ -427,7 +402,7 @@ def bind_each(
         kind="for_each",
         relation_use=relation_use(relation),
         row_scope_id=row_scope_id,
-        state=list(state),
+        state=tuple(state),
     )
 
 

@@ -424,38 +424,3 @@ def test_catalog_and_calibration_reject_invalid_runtime_shapes() -> None:
             key=_key(),
             pulse_template=cast("PulseProgram", object()),
         )
-
-
-def test_binding_defensively_rechecks_runtime_shape_and_template_contract() -> None:
-    calibration = _calibration()
-    malformed_template = calibration.pulse_template
-    object.__setattr__(malformed_template, "acquisition_slots", ())
-
-    with pytest.raises(ValueError, match="exactly one acquisition slot"):
-        MeasurementCalibrationBinding(
-            measurement_id=CircuitOperationId("measure"),
-            key=calibration.key,
-            calibration_id=calibration.id,
-            pulse_template=malformed_template,
-        )
-
-    for field_name, value, message in (
-        ("measurement_id", CalibrationId("wrong"), "measurement_id"),
-        ("key", object(), "binding key"),
-        ("calibration_id", CircuitOperationId("wrong"), "calibration_id"),
-        ("pulse_template", object(), "requires a PulseProgram"),
-    ):
-        values: dict[str, object] = {
-            "measurement_id": CircuitOperationId("measure"),
-            "key": _key(),
-            "calibration_id": CalibrationId("calibration"),
-            "pulse_template": _template(),
-        }
-        values[field_name] = value
-        with pytest.raises(ValueError, match=message):
-            MeasurementCalibrationBinding(
-                measurement_id=cast("CircuitOperationId", values["measurement_id"]),
-                key=cast("MeasurementCalibrationKey", values["key"]),
-                calibration_id=cast("CalibrationId", values["calibration_id"]),
-                pulse_template=cast("PulseProgram", values["pulse_template"]),
-            )

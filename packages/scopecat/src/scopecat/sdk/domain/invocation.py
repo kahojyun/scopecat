@@ -10,6 +10,7 @@ reconciliation are defined separately in :mod:`scopecat.sdk.domain.runtime`.
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, cast
@@ -154,7 +155,7 @@ class ClosedDomainResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
         object.__setattr__(self, "result_address", result_address)
         object.__setattr__(self, "point", point)
         object.__setattr__(self, "product_uses", selected_uses)
-        object.__setattr__(self, "_product", product.model_copy(deep=True))
+        object.__setattr__(self, "_product", deepcopy(product))
 
     @property
     def logical_point_id(self) -> LogicalPointId:
@@ -174,7 +175,7 @@ class ClosedDomainResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     def product(self) -> ProductDef:
         """Return a defensive copy of the retained logical product contract."""
 
-        return self._product.model_copy(deep=True)
+        return deepcopy(self._product)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -472,7 +473,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
             "_product_by_id",
             MappingProxyType(
                 {
-                    use.product_id: products_by_id[use.product_id].model_copy(deep=True)
+                    use.product_id: deepcopy(products_by_id[use.product_id])
                     for use in selected_uses
                 }
             ),
@@ -493,7 +494,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
         if selected is None:
             msg = f"product use {product_use_id.value!r} is not selected"
             raise KeyError(msg)
-        return self._product_by_id[selected.product_id].model_copy(deep=True)
+        return deepcopy(self._product_by_id[selected.product_id])
 
     def entry_for_address(
         self,

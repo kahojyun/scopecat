@@ -525,11 +525,7 @@ def _mixed_linked_points(
         product_uses=(iq_use, trace_use),
         record_uses=(
             iq_record,
-            *(
-                (iq_record.model_copy(update={"id": "iq-shots-alias"}),)
-                if include_iq_alias
-                else ()
-            ),
+            *((replace(iq_record, id="iq-shots-alias"),) if include_iq_alias else ()),
             trace_record,
         ),
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import Literal
 
 import pytest
@@ -24,11 +25,11 @@ from scopecat.sdk.domain.view import (
     DomainProductAxisView,
     DomainProductContractView,
     DomainProductUseRef,
-    mint_domain_measurement_transform_internal,
-    mint_domain_point_ref_internal,
-    mint_domain_product_use_ref_internal,
-    mint_domain_transform_input_port_internal,
-    mint_domain_transform_output_port_internal,
+    domain_measurement_transform_internal,
+    domain_point_ref_internal,
+    domain_product_use_ref_internal,
+    domain_transform_input_port_internal,
+    domain_transform_output_port_internal,
 )
 
 from scopecat_quantum.measurement_transforms import (
@@ -91,7 +92,7 @@ def _product_view(product: ProductDef) -> DomainProductContractView:
 
 
 def _product_use(product: ProductDef, use_id: str) -> DomainProductUseRef:
-    return mint_domain_product_use_ref_internal(
+    return domain_product_use_ref_internal(
         ref_id=use_id,
         product=_product_view(product),
         native=object(),
@@ -99,7 +100,7 @@ def _product_use(product: ProductDef, use_id: str) -> DomainProductUseRef:
 
 
 def _point() -> DomainPointRef:
-    return mint_domain_point_ref_internal(
+    return domain_point_ref_internal(
         ref_id="binary-iq-test:point:0",
         ordinal=0,
         native=object(),
@@ -160,23 +161,23 @@ def _domain_transform(
         probability_1_product or _probability_product("probability-1"),
         f"{wiring}-p1",
     )
-    return mint_domain_measurement_transform_internal(
+    return domain_measurement_transform_internal(
         transform_id=authored.id,
         semantic=authored.semantic,
         inputs=(
-            mint_domain_transform_input_port_internal(
+            domain_transform_input_port_internal(
                 port_id="iq_shots",
                 product_use=iq_use,
                 product=iq_product_view,
             ),
         ),
         outputs=(
-            mint_domain_transform_output_port_internal(
+            domain_transform_output_port_internal(
                 port_id="probability_0",
                 product=probability_0_product_view,
                 product_uses=(probability_0_use,),
             ),
-            mint_domain_transform_output_port_internal(
+            domain_transform_output_port_internal(
                 port_id="probability_1",
                 product=probability_1_product_view,
                 product_uses=(probability_1_use,),
@@ -275,7 +276,7 @@ def test_reference_implementation_rejects_invalid_sdk_contract(
 ) -> None:
     valid = _domain_transform()
     if invalid_dimension == "semantic_parameters":
-        invalid = mint_domain_measurement_transform_internal(
+        invalid = domain_measurement_transform_internal(
             transform_id=valid.id,
             semantic=MeasurementTransformSemanticContract(
                 id=valid.semantic.id,
@@ -290,11 +291,11 @@ def test_reference_implementation_rejects_invalid_sdk_contract(
             outputs=valid.outputs,
         )
     elif invalid_dimension == "port_role":
-        invalid = mint_domain_measurement_transform_internal(
+        invalid = domain_measurement_transform_internal(
             transform_id=valid.id,
             semantic=valid.semantic,
             inputs=(
-                mint_domain_transform_input_port_internal(
+                domain_transform_input_port_internal(
                     port_id="renamed_iq",
                     product_use=valid.inputs[0].product_use,
                     product=valid.inputs[0].product,
@@ -303,18 +304,18 @@ def test_reference_implementation_rejects_invalid_sdk_contract(
             outputs=valid.outputs,
         )
     else:
-        invalid = mint_domain_measurement_transform_internal(
+        invalid = domain_measurement_transform_internal(
             transform_id=valid.id,
             semantic=valid.semantic,
             inputs=(
-                mint_domain_transform_input_port_internal(
+                domain_transform_input_port_internal(
                     port_id="iq_shots",
                     product_use=valid.outputs[0].product_uses[0],
                     product=valid.outputs[0].product,
                 ),
             ),
             outputs=(
-                mint_domain_transform_output_port_internal(
+                domain_transform_output_port_internal(
                     port_id="probability_0",
                     product=valid.inputs[0].product,
                     product_uses=(valid.inputs[0].product_use,),
@@ -333,7 +334,7 @@ def test_reference_implementation_rejects_invalid_sdk_contract(
         _iq_product(dtype="float64"),
         _iq_product(unit=None),
         _iq_product(axis_kind="sample"),
-        _iq_product().model_copy(update={"axes": ()}),
+        replace(_iq_product(), axes=()),
     ),
 )
 def test_reference_implementation_rejects_incompatible_input_contract(
@@ -350,9 +351,7 @@ def test_reference_implementation_rejects_incompatible_input_contract(
     (
         _probability_product("probability-0", dtype="complex128"),
         _probability_product("probability-0", unit=None),
-        _probability_product("probability-0").model_copy(
-            update={"axes": _iq_product().axes}
-        ),
+        replace(_probability_product("probability-0"), axes=_iq_product().axes),
     ),
 )
 def test_reference_implementation_rejects_incompatible_output_contract(
