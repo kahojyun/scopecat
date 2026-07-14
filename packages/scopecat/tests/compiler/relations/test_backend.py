@@ -409,6 +409,47 @@ def test_reference_backend_explicitly_discharges_every_known_obligation() -> Non
     )
 
 
+def test_parameter_data_owns_its_containers_and_returns_detached_snapshots() -> None:
+    source_scalars: dict[str, CellValue] = {"gain": 1}
+    source_series: list[CellValue] = [2, 3]
+    source_rows: list[Row] = [{"id": "r0", "value": 4}]
+    parameters = ParameterRelationData(
+        scalars=source_scalars,
+        series={"offsets": source_series},
+        tables={"calibrations": source_rows},
+    )
+
+    source_scalars["gain"] = 10
+    source_series[0] = 20
+    source_rows[0]["value"] = 40
+    series_snapshot = parameters.snapshot_series()
+    table_snapshot = parameters.snapshot_tables()
+    series_snapshot["offsets"][0] = 30
+    table_snapshot["calibrations"][0]["value"] = 50
+
+    assert parameters.scalar("gain") == 1
+    assert parameters.series_values("offsets") == [2, 3]
+    assert parameters.table_rows("calibrations") == [{"id": "r0", "value": 4}]
+    assert not hasattr(parameters, "scalars")
+    assert not hasattr(parameters, "series")
+    assert not hasattr(parameters, "tables")
+
+
+def test_point_overlay_fork_replaces_a_cell_without_mutating_base_data() -> None:
+    base = ParameterRelationData(tables={"calibrations": [{"id": "r0", "value": 1}]})
+    point_parameters = base.fork_for_point_overlays()
+
+    point_parameters.replace_table_cell(
+        "calibrations",
+        row_index=0,
+        column_id="value",
+        value=2,
+    )
+
+    assert point_parameters.table_rows("calibrations") == [{"id": "r0", "value": 2}]
+    assert base.table_rows("calibrations") == [{"id": "r0", "value": 1}]
+
+
 def test_backend_dispatch_validates_only_used_typed_imports() -> None:
     bindings = RelationTypeBindings(inputs={"used": _INT, "unused": _INT})
     valid = ParameterRelationData().to_context(

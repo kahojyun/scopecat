@@ -133,30 +133,24 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
 
     environment = _environment()
     base_frequencies = [
-        row["frequency"] for row in environment.parameters.tables["readout_devices"]
+        row["frequency"] for row in environment.parameters.table_rows("readout_devices")
     ]
     plan = materialize_local_plan(link_program(spec, environment))
     without_overlay = materialize_local_plan(
         link_program(replace(spec, parameter_overlays=()), environment)
     )
 
-    assert plan.points[0].parameters.tables["readout_devices"][0]["frequency"] == (
-        Quantity(value=5.9, unit="GHz")
-    )
-    assert plan.points[0].parameters.tables["readout_devices"][1]["frequency"] == (
-        Quantity(value=6.1, unit="GHz")
-    )
-    assert plan.points[1].parameters.tables["readout_devices"][0]["frequency"] == (
-        Quantity(value=5.95, unit="GHz")
-    )
-    assert plan.points[1].parameters.tables["readout_devices"][1]["frequency"] == (
-        Quantity(value=6.2, unit="GHz")
-    )
+    point_0_rows = plan.points[0].parameters.table_rows("readout_devices")
+    point_1_rows = plan.points[1].parameters.table_rows("readout_devices")
+    assert point_0_rows[0]["frequency"] == (Quantity(value=5.9, unit="GHz"))
+    assert point_0_rows[1]["frequency"] == (Quantity(value=6.1, unit="GHz"))
+    assert point_1_rows[0]["frequency"] == (Quantity(value=5.95, unit="GHz"))
+    assert point_1_rows[1]["frequency"] == (Quantity(value=6.2, unit="GHz"))
     assert [point.logical_id for point in plan.points] == [
         point.logical_id for point in without_overlay.points
     ]
     assert [
-        row["frequency"] for row in environment.parameters.tables["readout_devices"]
+        row["frequency"] for row in environment.parameters.table_rows("readout_devices")
     ] == base_frequencies
     assert not hasattr(plan, "parameter_patches")
 

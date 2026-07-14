@@ -400,17 +400,15 @@ class CollectReceipt(BaseModel):
         return self
 
 
-@dataclass
 class DriverFault(Exception):
     """Exceptional driver control flow carrying one stable public problem."""
 
-    problem: Problem
-
-    def __post_init__(self) -> None:
-        if not has_blocking_problems((self.problem,)):
+    def __init__(self, problem: Problem) -> None:
+        if not has_blocking_problems((problem,)):
             msg = "driver fault requires a blocking problem"
             raise ValueError(msg)
-        Exception.__init__(self, self.problem.message)
+        self.problem = problem
+        super().__init__(problem.message)
 
 
 class InstrumentDriver(Protocol):

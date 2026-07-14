@@ -43,8 +43,8 @@ class _TrackingBackend(ReferenceRelationBackend):
                 frozenset(RelationOperation) - unsupported_operations
             ),
         )
-        object.__setattr__(self, "assessed_operations", [])
-        object.__setattr__(self, "materialized_relations", [])
+        self.assessed_operations = []
+        self.materialized_relations = []
 
     def assess_relation_requirements(
         self,

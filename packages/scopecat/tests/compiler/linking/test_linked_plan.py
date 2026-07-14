@@ -147,18 +147,18 @@ class _MaterializationProbe(ReferenceRelationBackend):
 
     def __init__(self, *, backend_id: str = "tests.linked-points") -> None:
         super().__init__(backend_id=backend_id)
-        object.__setattr__(self, "assessment_count", 0)
-        object.__setattr__(self, "scalar_materialization_count", 0)
-        object.__setattr__(self, "series_materialization_count", 0)
-        object.__setattr__(self, "relation_materialization_count", 0)
-        object.__setattr__(self, "events", [])
+        self.assessment_count = 0
+        self.scalar_materialization_count = 0
+        self.series_materialization_count = 0
+        self.relation_materialization_count = 0
+        self.events = []
 
     def assess_relation_requirements(
         self,
         requirements: RelationPlanRequirements,
     ) -> Sequence[RelationBackendCapabilityIssue]:
         self.events.append("assess")
-        object.__setattr__(self, "assessment_count", self.assessment_count + 1)
+        self.assessment_count += 1
         return super().assess_relation_requirements(requirements)
 
     def materialize_scalar(
@@ -166,11 +166,7 @@ class _MaterializationProbe(ReferenceRelationBackend):
         evaluation: PreparedRelationEvaluation[ScalarExpr],
     ) -> CellValue:
         self.events.append("materialize_scalar")
-        object.__setattr__(
-            self,
-            "scalar_materialization_count",
-            self.scalar_materialization_count + 1,
-        )
+        self.scalar_materialization_count += 1
         return super().materialize_scalar(evaluation)
 
     def materialize_series(
@@ -178,11 +174,7 @@ class _MaterializationProbe(ReferenceRelationBackend):
         evaluation: PreparedRelationEvaluation[SeriesExpr],
     ) -> list[CellValue]:
         self.events.append("materialize_series")
-        object.__setattr__(
-            self,
-            "series_materialization_count",
-            self.series_materialization_count + 1,
-        )
+        self.series_materialization_count += 1
         return super().materialize_series(evaluation)
 
     def materialize_relation(
@@ -190,11 +182,7 @@ class _MaterializationProbe(ReferenceRelationBackend):
         evaluation: PreparedRelationEvaluation[RelationExpr],
     ) -> list[Row]:
         self.events.append("materialize_relation")
-        object.__setattr__(
-            self,
-            "relation_materialization_count",
-            self.relation_materialization_count + 1,
-        )
+        self.relation_materialization_count += 1
         return super().materialize_relation(evaluation)
 
 

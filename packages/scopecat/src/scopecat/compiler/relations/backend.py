@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol, cast, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.compiler.relations.analysis import (
     PlanNode,
@@ -59,21 +59,47 @@ from scopecat.kernel.value_validation import (
 )
 
 
-class ParameterRelationData(BaseModel):
-    """Resolved scalar, series, and table imports for relation materialization."""
+class ParameterRelationData:
+    """Resolved, process-local parameter bindings for relation evaluation.
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    Config resolution establishes the value-level invariants before building this
+    object.  This class owns detached containers, enforces the unified parameter
+    namespace, and exposes snapshots rather than its internal mappings.
+    """
 
-    scalars: dict[str, CellValue] = Field(default_factory=dict)
-    series: dict[str, list[CellValue]] = Field(default_factory=dict)
-    tables: dict[str, list[Row]] = Field(default_factory=dict)
+    __slots__ = ("_scalars", "_series", "_tables")
 
-    @model_validator(mode="after")
-    def validate_unified_namespace(self) -> ParameterRelationData:
+    _scalars: dict[str, CellValue]
+    _series: dict[str, tuple[CellValue, ...]]
+    _tables: dict[str, tuple[Row, ...]]
+
+    def __init__(
+        self,
+        *,
+        scalars: Mapping[str, CellValue] | None = None,
+        series: Mapping[str, Sequence[CellValue]] | None = None,
+        tables: Mapping[str, Sequence[Mapping[str, CellValue]]] | None = None,
+    ) -> None:
+        scalar_bindings = {} if scalars is None else dict(scalars)
+        series_values = (
+            {}
+            if series is None
+            else {
+                parameter_id: tuple(values) for parameter_id, values in series.items()
+            }
+        )
+        table_rows = (
+            {}
+            if tables is None
+            else {
+                table_id: tuple(dict(row) for row in rows)
+                for table_id, rows in tables.items()
+            }
+        )
         collisions = sorted(
-            (self.scalars.keys() & self.series.keys())
-            | (self.scalars.keys() & self.tables.keys())
-            | (self.series.keys() & self.tables.keys())
+            (scalar_bindings.keys() & series_values.keys())
+            | (scalar_bindings.keys() & table_rows.keys())
+            | (series_values.keys() & table_rows.keys())
         )
         if collisions:
             msg = (
@@ -81,38 +107,113 @@ class ParameterRelationData(BaseModel):
                 f"shapes: {', '.join(collisions)}"
             )
             raise ValueError(msg)
-        return self
+        self._scalars = scalar_bindings
+        self._series = series_values
+        self._tables = table_rows
+
+    def parameter_shape(self, parameter_id: str) -> str | None:
+        """Return the stored shape for one parameter id, if present."""
+
+        if parameter_id in self._scalars:
+            return "scalar"
+        if parameter_id in self._series:
+            return "series"
+        if parameter_id in self._tables:
+            return "table"
+        return None
+
+    def snapshot_scalars(self) -> dict[str, CellValue]:
+        """Return a detached mapping of all scalar bindings."""
+
+        return dict(self._scalars)
+
+    def snapshot_series(self) -> dict[str, list[CellValue]]:
+        """Return detached sequences for all series bindings."""
+
+        return {
+            parameter_id: list(values) for parameter_id, values in self._series.items()
+        }
+
+    def snapshot_tables(self) -> dict[str, list[Row]]:
+        """Return detached rows for all table bindings."""
+
+        return {
+            table_id: [dict(row) for row in rows]
+            for table_id, rows in self._tables.items()
+        }
 
     def scalar(self, parameter_id: str) -> CellValue:
         try:
-            return self.scalars[parameter_id]
+            return self._scalars[parameter_id]
         except KeyError as error:
             msg = f"unknown scalar parameter {parameter_id!r}"
             raise KeyError(msg) from error
 
     def value(self, parameter_id: str) -> object:
-        if parameter_id in self.scalars:
-            return self.scalars[parameter_id]
-        if parameter_id in self.series:
-            return list(self.series[parameter_id])
-        if parameter_id in self.tables:
-            return [dict(row) for row in self.tables[parameter_id]]
+        if parameter_id in self._scalars:
+            return self._scalars[parameter_id]
+        if parameter_id in self._series:
+            return list(self._series[parameter_id])
+        if parameter_id in self._tables:
+            return [dict(row) for row in self._tables[parameter_id]]
         msg = f"unknown parameter {parameter_id!r}"
         raise KeyError(msg)
 
     def table_rows(self, table_id: str) -> list[Row]:
         try:
-            return [dict(row) for row in self.tables[table_id]]
+            return [dict(row) for row in self._tables[table_id]]
         except KeyError as error:
             msg = f"unknown parameter table {table_id!r}"
             raise KeyError(msg) from error
 
     def series_values(self, parameter_id: str) -> list[CellValue]:
         try:
-            return list(self.series[parameter_id])
+            return list(self._series[parameter_id])
         except KeyError as error:
             msg = f"unknown series parameter {parameter_id!r}"
             raise KeyError(msg) from error
+
+    def fork_for_point_overlays(self) -> ParameterRelationData:
+        """Fork bindings before applying point-local table-cell overlays."""
+
+        fork = object.__new__(ParameterRelationData)
+        fork._scalars = self._scalars
+        fork._series = self._series
+        fork._tables = dict(self._tables)
+        return fork
+
+    def replace_table_cell(
+        self,
+        table_id: str,
+        *,
+        row_index: int,
+        column_id: str,
+        value: CellValue,
+    ) -> None:
+        """Replace one existing cell in a point-overlay fork."""
+
+        try:
+            rows = self._tables[table_id]
+        except KeyError as error:
+            msg = f"unknown parameter table {table_id!r}"
+            raise KeyError(msg) from error
+        if row_index < 0 or row_index >= len(rows):
+            msg = f"parameter table {table_id!r} has no row {row_index}"
+            raise IndexError(msg)
+        row = rows[row_index]
+        if column_id not in row:
+            msg = (
+                f"parameter table {table_id!r} row does not contain "
+                f"column {column_id!r}"
+            )
+            raise KeyError(msg)
+        updated_row = dict(row)
+        updated_row[column_id] = value
+        self._tables[table_id] = (
+            *rows[:row_index],
+            updated_row,
+            *rows[row_index + 1 :],
+        )
 
     def lookup_row(self, table_id: str, key: Mapping[str, CellValue]) -> Row:
         matches = [
@@ -587,8 +688,8 @@ def _validate_lookup_parameter[NodeT: PlanNode](
     try:
         rows = params.table_rows(imported.id)
     except KeyError as error:
-        if imported.id in params.scalars or imported.id in params.series:
-            actual_shape = "scalar" if imported.id in params.scalars else "series"
+        actual_shape = params.parameter_shape(imported.id)
+        if actual_shape is not None:
             raise ValueValidationError(
                 path,
                 f"expected table parameter, got {actual_shape}",
@@ -620,14 +721,9 @@ def _normalize_evaluation_context[NodeT: PlanNode](
     """Snapshot and normalize every dynamic value the proof actually consumes."""
 
     inputs: dict[str, Any] = dict(ctx.inputs)
-    parameter_scalars = dict(ctx.params.scalars)
-    parameter_series = {
-        parameter_id: list(values) for parameter_id, values in ctx.params.series.items()
-    }
-    tables_by_parameter = {
-        parameter_id: [dict(row) for row in rows]
-        for parameter_id, rows in ctx.params.tables.items()
-    }
+    parameter_scalars = ctx.params.snapshot_scalars()
+    parameter_series = ctx.params.snapshot_series()
+    tables_by_parameter = ctx.params.snapshot_tables()
 
     for imported in verified_plan.imports:
         path = (imported.namespace.value + "s", imported.id)

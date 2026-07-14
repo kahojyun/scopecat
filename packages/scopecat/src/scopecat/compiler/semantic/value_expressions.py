@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, cast, overload
-
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from dataclasses import FrozenInstanceError
+from typing import ClassVar, Literal, Self, cast, overload
 
 from scopecat.compiler.relations.model import RelationExpr, ScalarExpr, SeriesExpr
 from scopecat.compiler.relations.verification import (
@@ -15,91 +14,119 @@ from scopecat.compiler.relations.verification import (
 from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 
 
-class ScalarValueExpr(BaseModel):
+class _FrozenProofEnvelope:
+    __slots__ = ()
+
+    def __setattr__(self, name: str, _value: object) -> None:
+        msg = f"cannot assign to field {name!r}"
+        raise FrozenInstanceError(msg)
+
+    def __delattr__(self, name: str) -> None:
+        msg = f"cannot delete field {name!r}"
+        raise FrozenInstanceError(msg)
+
+    def __copy__(self) -> Self:
+        return self
+
+    def __deepcopy__(self, _memo: dict[int, object]) -> Self:
+        return self
+
+
+class ScalarValueExpr(_FrozenProofEnvelope):
     """A scalar plan together with its backend-neutral static proof."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
+    __slots__ = ("_plan",)
 
-    shape: Literal["scalar"] = "scalar"
-    plan: VerifiedRelationPlan[ScalarExpr]
+    shape: ClassVar[Literal["scalar"]] = "scalar"
 
-    @model_validator(mode="after")
-    def validate_proof_shape(self) -> ScalarValueExpr:
-        if not isinstance(cast("object", self.plan.root), ScalarExpr) or not isinstance(
-            self.plan.certified_type, Scalar
-        ):
-            msg = "scalar value expressions require a scalar plan proof"
-            raise TypeError(msg)
-        return self
+    def __init__(self) -> None:
+        msg = "scalar value expressions are created by verify_scalar_value_expr"
+        raise TypeError(msg)
+
+    @property
+    def plan(self) -> VerifiedRelationPlan[ScalarExpr]:
+        return self._plan
 
     @property
     def value_type(self) -> Scalar:
-        return cast("Scalar", self.plan.certified_type)
+        return cast("Scalar", self._plan.certified_type)
 
 
-class SeriesValueExpr(BaseModel):
+class SeriesValueExpr(_FrozenProofEnvelope):
     """A series plan together with its backend-neutral static proof."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
+    __slots__ = ("_plan",)
 
-    shape: Literal["series"] = "series"
-    plan: VerifiedRelationPlan[SeriesExpr]
+    shape: ClassVar[Literal["series"]] = "series"
 
-    @model_validator(mode="after")
-    def validate_proof_shape(self) -> SeriesValueExpr:
-        if not isinstance(cast("object", self.plan.root), SeriesExpr) or not isinstance(
-            self.plan.certified_type, Series
-        ):
-            msg = "series value expressions require a series plan proof"
-            raise TypeError(msg)
-        return self
+    def __init__(self) -> None:
+        msg = "series value expressions are created by verify_series_value_expr"
+        raise TypeError(msg)
+
+    @property
+    def plan(self) -> VerifiedRelationPlan[SeriesExpr]:
+        return self._plan
 
     @property
     def value_type(self) -> Series:
-        return cast("Series", self.plan.certified_type)
+        return cast("Series", self._plan.certified_type)
 
 
-class TableValueExpr(BaseModel):
+class TableValueExpr(_FrozenProofEnvelope):
     """A relation plan together with its backend-neutral static proof."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-        frozen=True,
-    )
+    __slots__ = ("_plan",)
 
-    shape: Literal["table"] = "table"
-    plan: VerifiedRelationPlan[RelationExpr]
+    shape: ClassVar[Literal["table"]] = "table"
 
-    @model_validator(mode="after")
-    def validate_proof_shape(self) -> TableValueExpr:
-        root_is_relation = isinstance(cast("object", self.plan.root), RelationExpr)
-        if not root_is_relation or not isinstance(self.plan.certified_type, Table):
-            msg = "table value expressions require a relation plan proof"
-            raise TypeError(msg)
-        return self
+    def __init__(self) -> None:
+        msg = "table value expressions are created by verify_table_value_expr"
+        raise TypeError(msg)
+
+    @property
+    def plan(self) -> VerifiedRelationPlan[RelationExpr]:
+        return self._plan
 
     @property
     def value_type(self) -> Table:
-        return cast("Table", self.plan.certified_type)
+        return cast("Table", self._plan.certified_type)
 
 
-type ScalarOrSeriesValueExpr = Annotated[
-    ScalarValueExpr | SeriesValueExpr,
-    Field(discriminator="shape"),
-]
-type ValueExpr = Annotated[
-    ScalarValueExpr | SeriesValueExpr | TableValueExpr,
-    Field(discriminator="shape"),
-]
+type ScalarOrSeriesValueExpr = ScalarValueExpr | SeriesValueExpr
+type ValueExpr = ScalarValueExpr | SeriesValueExpr | TableValueExpr
+
+
+def _scalar_value_expr_from_plan(
+    plan: VerifiedRelationPlan[ScalarExpr],
+) -> ScalarValueExpr:
+    if not isinstance(plan.certified_type, Scalar):
+        msg = "scalar value expressions require a scalar plan proof"
+        raise TypeError(msg)
+    value = object.__new__(ScalarValueExpr)
+    object.__setattr__(value, "_plan", plan)
+    return value
+
+
+def _series_value_expr_from_plan(
+    plan: VerifiedRelationPlan[SeriesExpr],
+) -> SeriesValueExpr:
+    if not isinstance(plan.certified_type, Series):
+        msg = "series value expressions require a series plan proof"
+        raise TypeError(msg)
+    value = object.__new__(SeriesValueExpr)
+    object.__setattr__(value, "_plan", plan)
+    return value
+
+
+def _table_value_expr_from_plan(
+    plan: VerifiedRelationPlan[RelationExpr],
+) -> TableValueExpr:
+    if not isinstance(plan.certified_type, Table):
+        msg = "table value expressions require a relation plan proof"
+        raise TypeError(msg)
+    value = object.__new__(TableValueExpr)
+    object.__setattr__(value, "_plan", plan)
+    return value
 
 
 def verify_scalar_value_expr(
@@ -110,12 +137,8 @@ def verify_scalar_value_expr(
 ) -> ScalarValueExpr:
     """Verify one transformed scalar expression before it enters compiler IR."""
 
-    return ScalarValueExpr(
-        plan=verify_relation_plan(
-            expression,
-            bindings=bindings,
-            expected_type=expected_type,
-        )
+    return _scalar_value_expr_from_plan(
+        verify_relation_plan(expression, bindings=bindings, expected_type=expected_type)
     )
 
 
@@ -127,12 +150,8 @@ def verify_series_value_expr(
 ) -> SeriesValueExpr:
     """Verify one transformed series expression before it enters compiler IR."""
 
-    return SeriesValueExpr(
-        plan=verify_relation_plan(
-            expression,
-            bindings=bindings,
-            expected_type=expected_type,
-        )
+    return _series_value_expr_from_plan(
+        verify_relation_plan(expression, bindings=bindings, expected_type=expected_type)
     )
 
 
@@ -144,12 +163,8 @@ def verify_table_value_expr(
 ) -> TableValueExpr:
     """Verify one transformed relation before it enters compiler IR."""
 
-    return TableValueExpr(
-        plan=verify_relation_plan(
-            expression,
-            bindings=bindings,
-            expected_type=expected_type,
-        )
+    return _table_value_expr_from_plan(
+        verify_relation_plan(expression, bindings=bindings, expected_type=expected_type)
     )
 
 

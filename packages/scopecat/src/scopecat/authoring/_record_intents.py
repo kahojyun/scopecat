@@ -34,9 +34,10 @@ type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
 class RecordAxis:
     """Opaque public handle describing one measurement record axis."""
+
+    __slots__ = ()
 
     def __init__(self) -> None:
         msg = "RecordAxis is an opaque handle; create axes with record axis factories"
@@ -183,9 +184,10 @@ class ProductOutputs(Mapping[str, ProductRef]):
         return sorted((*super().__dir__(), *self._values))
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
 class RecordSelection:
     """Opaque public handle selecting a module product for recording."""
+
+    __slots__ = ()
 
     def __init__(self) -> None:
         msg = (

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from functools import cmp_to_key
 from itertools import product
 from typing import Any, cast
@@ -40,13 +39,11 @@ from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
 
-@dataclass(frozen=True, slots=True)
 class ReferenceRelationBackend:
     """Deterministic Python implementation defining observable semantics."""
 
-    backend_id: str = "reference.python"
-    supported_operations: frozenset[RelationOperation] = frozenset(RelationOperation)
-    discharged_obligations: frozenset[RelationRuntimeObligationKind] = frozenset(
+    _DEFAULT_SUPPORTED_OPERATIONS = frozenset(RelationOperation)
+    _DEFAULT_DISCHARGED_OBLIGATIONS = frozenset(
         {
             RelationRuntimeObligationKind.DIVISION_RIGHT_NONZERO,
             RelationRuntimeObligationKind.NO_EXTRA_COLUMN_COLLISION,
@@ -58,6 +55,25 @@ class ReferenceRelationBackend:
             RelationRuntimeObligationKind.ZIP_EQUAL_LENGTH,
         }
     )
+
+    backend_id: str
+    supported_operations: frozenset[RelationOperation]
+    discharged_obligations: frozenset[RelationRuntimeObligationKind]
+
+    def __init__(
+        self,
+        *,
+        backend_id: str = "reference.python",
+        supported_operations: frozenset[
+            RelationOperation
+        ] = _DEFAULT_SUPPORTED_OPERATIONS,
+        discharged_obligations: frozenset[
+            RelationRuntimeObligationKind
+        ] = _DEFAULT_DISCHARGED_OBLIGATIONS,
+    ) -> None:
+        self.backend_id = backend_id
+        self.supported_operations = supported_operations
+        self.discharged_obligations = discharged_obligations
 
     def assess_relation_requirements(
         self,

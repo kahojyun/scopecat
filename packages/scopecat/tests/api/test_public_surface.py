@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import subprocess
 import sys
+from dataclasses import FrozenInstanceError, is_dataclass
 from importlib import import_module
 from importlib.util import find_spec
 from inspect import signature
@@ -192,6 +193,16 @@ def test_workspace_does_not_expose_persistence_ports(tmp_path) -> None:
         sc.Workspace()
 
 
+def test_workspace_is_compared_by_session_identity(tmp_path) -> None:
+    first = sc.open(tmp_path)
+    second = sc.open(tmp_path)
+
+    assert first is not second
+    assert first != second
+    assert copy.copy(first) is first
+    assert copy.deepcopy(first) is first
+
+
 def test_open_annotations_resolve_at_runtime() -> None:
     assert get_type_hints(sc.open)["return"] is sc.Workspace
 
@@ -213,6 +224,16 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
 
     assert isinstance(module, sc.ExperimentModule)
     assert build.output.value_type == program_type
+    assert not is_dataclass(sc.ValueRef)
+    assert not is_dataclass(qubits)
+    assert not hasattr(qubits, "__dict__")
+    assert repr(qubits) == "ValueRef()"
+    assert copy.copy(qubits) is qubits
+    assert copy.deepcopy(qubits) is qubits
+    with pytest.raises(FrozenInstanceError, match="cannot assign"):
+        qubits._value_type = (  # pyright: ignore[reportPrivateUsage]
+            sc.ScalarType(sc.IntType())
+        )
 
     rows = sc.input(
         "rows",
@@ -220,12 +241,28 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
             columns=(sc.TableColumn("qubit", sc.ScalarType(sc.EntityType())),)
         ),
     )
-    projected = rows.with_columns(lambda row: {"target": row["qubit"]})
+    callback_rows: list[sc.TableRow] = []
+
+    def add_target(row: sc.TableRow) -> dict[str, sc.ValueRef]:
+        callback_rows.append(row)
+        return {"target": row["qubit"]}
+
+    projected = rows.with_columns(add_target)
     assert isinstance(projected.value_type, sc.TableType)
     assert [column.id for column in projected.value_type.columns] == [
         "qubit",
         "target",
     ]
+    callback_row = callback_rows[0]
+    assert not is_dataclass(sc.TableRow)
+    assert not is_dataclass(callback_row)
+    assert not hasattr(callback_row, "__dict__")
+    assert copy.copy(callback_row) is callback_row
+    assert copy.deepcopy(callback_row) is callback_row
+    with pytest.raises(FrozenInstanceError, match="cannot assign"):
+        callback_row._scope_id = (  # pyright: ignore[reportPrivateUsage]
+            callback_row._scope_id  # pyright: ignore[reportPrivateUsage]
+        )
 
     assert not hasattr(authoring, "resolve_experiment")
     assert not hasattr(authoring, "ResolvedExperiment")
@@ -294,6 +331,20 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
             column="frequency",
             value_type=sc.ScalarType(sc.QuantityType()),
         )
+
+
+def test_nominal_dsl_bases_are_plain_slotted_classes() -> None:
+    for handle_type in (
+        sc.Scan,
+        sc.ParameterRow,
+        sc.RecordAxis,
+        sc.RecordSelection,
+    ):
+        assert not is_dataclass(handle_type)
+        assert handle_type.__slots__ == ()
+        intent_types = handle_type.__subclasses__()
+        assert intent_types
+        assert all(is_dataclass(intent_type) for intent_type in intent_types)
 
 
 def test_template_inputs_reject_arbitrary_python_objects_immediately() -> None:

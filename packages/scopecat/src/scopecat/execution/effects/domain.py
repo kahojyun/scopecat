@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from scopecat.execution.ports.journal import ExecutionJournal
 from scopecat.execution.problems import (
     runtime_problem,
@@ -40,13 +38,23 @@ from scopecat.sdk.domain.runtime import (
 )
 
 
-@dataclass(slots=True)
 class DomainSynchronousCompletionPending(Exception):
     """A synchronous unit returned a durable pending target job."""
 
-    operation_id: str
-    job_id: str
-    submission_key: str
+    def __init__(
+        self,
+        *,
+        operation_id: str,
+        job_id: str,
+        submission_key: str,
+    ) -> None:
+        self.operation_id = operation_id
+        self.job_id = job_id
+        self.submission_key = submission_key
+        super().__init__(
+            f"synchronous domain operation {operation_id!r} returned pending "
+            f"target job {job_id!r}"
+        )
 
 
 def execute_domain_job_values(

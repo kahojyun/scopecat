@@ -10,7 +10,7 @@ only lowers them back to relation/compute references at the compiler boundary.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import FrozenInstanceError, dataclass
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID, uuid4
 
@@ -156,7 +156,6 @@ class PointValueDependency:
     value_type: Scalar
 
 
-@dataclass(frozen=True, slots=True, init=False)
 class TableRow:
     """Typed row scope supplied by table callbacks.
 
@@ -165,27 +164,45 @@ class TableRow:
     to the table schema that introduced their scope.
     """
 
+    __slots__ = (
+        "_columns",
+        "_free_point_dependencies",
+        "_parameter_contracts",
+        "_point_dependencies",
+        "_scope_id",
+    )
+
     _columns: Mapping[str, TableColumn]
     _scope_id: RowScopeId
-    _parameter_contracts: tuple[ParameterContract, ...] = field(
-        default=(),
-        repr=False,
-        compare=False,
-    )
-    _point_dependencies: tuple[PointValueDependency, ...] = field(
-        default=(),
-        repr=False,
-        compare=False,
-    )
-    _free_point_dependencies: tuple[PointValueDependency, ...] = field(
-        default=(),
-        repr=False,
-        compare=False,
-    )
+    _parameter_contracts: tuple[ParameterContract, ...]
+    _point_dependencies: tuple[PointValueDependency, ...]
+    _free_point_dependencies: tuple[PointValueDependency, ...]
 
     def __init__(self) -> None:
         msg = "TableRow is a callback scope and cannot be constructed directly"
         raise TypeError(msg)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        del value
+        msg = f"cannot assign to field {name!r}"
+        raise FrozenInstanceError(msg)
+
+    def __delattr__(self, name: str) -> None:
+        msg = f"cannot delete field {name!r}"
+        raise FrozenInstanceError(msg)
+
+    def __copy__(self) -> TableRow:
+        return self
+
+    def __deepcopy__(self, memo: dict[int, object]) -> TableRow:
+        del memo
+        return self
+
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__qualname__}("
+            f"_columns={self._columns!r}, _scope_id={self._scope_id!r})"
+        )
 
     def __getitem__(self, column_id: str) -> ValueRef:
         column = self._columns.get(column_id)
@@ -236,7 +253,6 @@ class TableRow:
         return row
 
 
-@dataclass(frozen=True, slots=True, init=False, eq=False)
 class ValueRef:
     """Opaque first-class typed edge in the public authoring value graph.
 
@@ -245,52 +261,56 @@ class ValueRef:
     deliberately private compiler details.
     """
 
-    _declaration_key: ValueDeclarationKey = field(repr=False)
-    _declaration_scope: tuple[str, ...] = field(repr=False)
-    _source_kind: _ValueRefSource = field(repr=False)
-    _source_id: str | SymbolId | _ModuleExportSource | ScalarValueOperation | None = (
-        field(repr=False, hash=False)
+    __slots__ = (
+        "_bound_point_input_ids",
+        "_declaration_key",
+        "_declaration_scope",
+        "_expression",
+        "_free_point_dependencies",
+        "_input_binding_layers",
+        "_operation_origin",
+        "_parameter_contracts",
+        "_point_dependencies",
+        "_source_id",
+        "_source_kind",
+        "_value_type",
     )
-    _value_type: ValueType = field(repr=False)
-    _expression: _ValueExpression | None = field(
-        default=None,
-        repr=False,
-        compare=False,
-    )
-    _operation_origin: tuple[object, ...] = field(
-        default=(),
-        repr=False,
-        compare=False,
-    )
-    _input_binding_layers: tuple[tuple[tuple[str, ValueRef], ...], ...] = field(
-        default=(),
-        repr=False,
-        compare=False,
-    )
-    _parameter_contracts: tuple[ParameterContract, ...] = field(
-        default=(),
-        repr=False,
-        compare=False,
-    )
-    _point_dependencies: tuple[PointValueDependency, ...] = field(
-        default=(),
-        repr=False,
-        compare=False,
-    )
-    _free_point_dependencies: tuple[PointValueDependency, ...] = field(
-        default=(),
-        repr=False,
-        compare=False,
-    )
-    _bound_point_input_ids: frozenset[str] = field(
-        default=frozenset(),
-        repr=False,
-        compare=False,
-    )
+
+    _declaration_key: ValueDeclarationKey
+    _declaration_scope: tuple[str, ...]
+    _source_kind: _ValueRefSource
+    _source_id: str | SymbolId | _ModuleExportSource | ScalarValueOperation | None
+    _value_type: ValueType
+    _expression: _ValueExpression | None
+    _operation_origin: tuple[object, ...]
+    _input_binding_layers: tuple[tuple[tuple[str, ValueRef], ...], ...]
+    _parameter_contracts: tuple[ParameterContract, ...]
+    _point_dependencies: tuple[PointValueDependency, ...]
+    _free_point_dependencies: tuple[PointValueDependency, ...]
+    _bound_point_input_ids: frozenset[str]
 
     def __init__(self) -> None:
         msg = "ValueRef is an opaque handle; create values with scopecat DSL factories"
         raise TypeError(msg)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        del value
+        msg = f"cannot assign to field {name!r}"
+        raise FrozenInstanceError(msg)
+
+    def __delattr__(self, name: str) -> None:
+        msg = f"cannot delete field {name!r}"
+        raise FrozenInstanceError(msg)
+
+    def __copy__(self) -> ValueRef:
+        return self
+
+    def __deepcopy__(self, memo: dict[int, object]) -> ValueRef:
+        del memo
+        return self
+
+    def __repr__(self) -> str:
+        return f"{type(self).__qualname__}()"
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ValueRef) and (

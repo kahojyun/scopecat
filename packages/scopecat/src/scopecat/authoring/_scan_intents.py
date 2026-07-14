@@ -22,18 +22,20 @@ type ScanValue = Quantity | EntityRef | str | int | float | bool | None
 type ScanCenter = ValueRef | Quantity
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Scan:
     """Opaque public handle for one scan or an explicit scan group."""
+
+    __slots__ = ()
 
     def __init__(self) -> None:
         msg = "Scan is an opaque handle; create scans with scopecat scan factories"
         raise TypeError(msg)
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
 class ParameterRow:
     """Opaque selection of one row in a parameter table."""
+
+    __slots__ = ()
 
     def __init__(self) -> None:
         msg = "ParameterRow is an opaque handle; create rows with scopecat.param_row"

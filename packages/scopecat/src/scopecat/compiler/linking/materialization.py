@@ -615,17 +615,7 @@ def _point_parameters(
 ) -> ParameterRelationData | None:
     if not program.parameter_overlays:
         return base
-    touched_tables = {overlay.table_id for overlay in program.parameter_overlays}
-    params = ParameterRelationData.model_construct(
-        scalars=base.scalars,
-        series=base.series,
-        tables={
-            table_id: (
-                [dict(row) for row in rows] if table_id in touched_tables else rows
-            )
-            for table_id, rows in base.tables.items()
-        },
-    )
+    params = base.fork_for_point_overlays()
     ctx = EvalContext(params=params, point_row=point.row)
     failed = False
     for overlay in program.parameter_overlays:

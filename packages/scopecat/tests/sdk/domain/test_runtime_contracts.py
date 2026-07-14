@@ -159,8 +159,11 @@ def test_receipts_accept_only_coherent_status_and_problem_facts() -> None:
 
 def test_driver_fault_requires_one_blocking_problem() -> None:
     blocking = _blocking_problem()
+    error = DriverFault(blocking)
 
-    assert DriverFault(blocking).problem is blocking
+    assert error.problem is blocking
+    assert error.args == (blocking.message,)
+    assert str(error) == blocking.message
     with pytest.raises(ValueError, match="blocking problem"):
         DriverFault(_advisory_problem())
 

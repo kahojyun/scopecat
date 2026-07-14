@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import cast
 
 import pytest
@@ -484,9 +483,9 @@ def test_runtime_extra_column_collision_is_reported_at_composition() -> None:
     assert caught.value.path == ()
 
 
-@dataclass(frozen=True, slots=True)
 class _SelectionOnlyBackend(ReferenceRelationBackend):
-    backend_id: str = "test.selection-only"
+    def __init__(self) -> None:
+        super().__init__(backend_id="test.selection-only")
 
     def materialize_relation(
         self,
@@ -648,9 +647,9 @@ def test_invalid_normalized_row_has_a_domain_value_error() -> None:
         )
 
 
-@dataclass(frozen=True, slots=True)
 class _FailingBackend(ReferenceRelationBackend):
-    backend_id: str = "test.failing"
+    def __init__(self) -> None:
+        super().__init__(backend_id="test.failing")
 
     def materialize_relation(
         self,
@@ -737,7 +736,7 @@ class _MutableRowsBackend(ReferenceRelationBackend):
 
     def __init__(self) -> None:
         super().__init__(backend_id="test.mutable-rows")
-        object.__setattr__(self, "returned_rows", [{"x": 1}])
+        self.returned_rows = [{"x": 1}]
 
     def materialize_relation(
         self,

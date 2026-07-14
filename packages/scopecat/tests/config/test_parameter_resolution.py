@@ -69,7 +69,7 @@ def test_resolve_config_parameters_reports_missing_unknown_and_invalid_values() 
         root="parameter_snapshot",
         path=("values",),
     )
-    assert resolved.data.scalars == {}
+    assert resolved.data.snapshot_scalars() == {}
 
 
 def test_resolve_config_parameters_normalizes_scalar_series_and_table() -> None:
@@ -118,7 +118,7 @@ def test_resolve_config_parameters_normalizes_scalar_series_and_table() -> None:
     )
 
     assert resolved.problems == ()
-    assert resolved.data.scalars == {"gain": 1.0, "enabled": True}
+    assert resolved.data.snapshot_scalars() == {"gain": 1.0, "enabled": True}
     assert resolved.data.series_values("notes") == ["ready"]
     assert resolved.data.table_rows("channels") == [{"id": "ch-1", "gain": 0.5}]
     assert validate_parameter_snapshot(catalog, snapshot) == ()

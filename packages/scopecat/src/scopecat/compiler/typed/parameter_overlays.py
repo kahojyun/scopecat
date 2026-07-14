@@ -65,7 +65,7 @@ def apply_point_parameter_overlay(
     """Apply one catalog-typed cell replacement to a point-local environment."""
 
     try:
-        rows = params.tables[overlay.table_id]
+        rows = params.table_rows(overlay.table_id)
     except KeyError as error:
         msg = f"unknown parameter table {overlay.table_id!r}"
         raise CompilerProblemError(
@@ -99,8 +99,8 @@ def apply_point_parameter_overlay(
         for column_id, use in overlay.key_uses.items()
     }
     matches = [
-        row
-        for row in rows
+        (row_index, row)
+        for row_index, row in enumerate(rows)
         if all(
             _cell_matches(row.get(column_id), value) for column_id, value in key.items()
         )
@@ -127,7 +127,7 @@ def apply_point_parameter_overlay(
             )
         )
 
-    row = matches[0]
+    row_index, row = matches[0]
     if overlay.column_id not in row:
         msg = (
             f"parameter table {overlay.table_id!r} row does not contain "
@@ -157,22 +157,27 @@ def apply_point_parameter_overlay(
             overlay.column_id,
         ),
     )
-    row[overlay.column_id] = _coerce_overlay_value(
-        evaluate_scalar(
-            backend,
-            cast(
-                "SelectedRelationPlan[ScalarExpr]",
-                selected_plan(overlay.value_use.id),
+    params.replace_table_cell(
+        overlay.table_id,
+        row_index=row_index,
+        column_id=overlay.column_id,
+        value=_coerce_overlay_value(
+            evaluate_scalar(
+                backend,
+                cast(
+                    "SelectedRelationPlan[ScalarExpr]",
+                    selected_plan(overlay.value_use.id),
+                ),
+                ctx,
             ),
-            ctx,
-        ),
-        overlay.value_use.value.value_type,
-        code="experiment_parameter_overlay_value_invalid",
-        location=model_location(
-            "parameters",
-            overlay.table_id,
-            "columns",
-            overlay.column_id,
+            overlay.value_use.value.value_type,
+            code="experiment_parameter_overlay_value_invalid",
+            location=model_location(
+                "parameters",
+                overlay.table_id,
+                "columns",
+                overlay.column_id,
+            ),
         ),
     )
 

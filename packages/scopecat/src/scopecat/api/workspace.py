@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import FrozenInstanceError, dataclass, field, replace
 from pathlib import Path
 from typing import cast
 
@@ -622,29 +622,68 @@ class Experiment:
         return template.bind(**self.entity_inputs)
 
 
-@dataclass(frozen=True, kw_only=True, init=False, repr=False)
 class Workspace:
     """Primary vNext workspace facade for lab notebook workflows."""
 
-    _workspace: Path
-    _services: WorkspaceServices = field(repr=False, compare=False)
-    config: str | ConfigProfileSnapshot = "active"
-    config_profile: ConfigProfileInput | None = None
-    execution_backend: ExecutionBackend | None = field(
-        default=None,
-        repr=False,
-        compare=False,
+    __slots__ = (
+        "_config",
+        "_config_profile",
+        "_execution_backend",
+        "_operator",
+        "_reviewer",
+        "_services",
+        "_workspace",
     )
-    reviewer: str = "operator"
-    operator: str = "operator"
+
+    _workspace: Path
+    _services: WorkspaceServices
+    _config: str | ConfigProfileSnapshot
+    _config_profile: ConfigProfileInput | None
+    _execution_backend: ExecutionBackend | None
+    _reviewer: str
+    _operator: str
 
     def __init__(self) -> None:
         msg = "Workspace is an opaque handle; create it with scopecat.open(...)"
         raise TypeError(msg)
 
+    def __setattr__(self, name: str, _value: object) -> None:
+        msg = f"cannot assign to field {name!r}"
+        raise FrozenInstanceError(msg)
+
+    def __delattr__(self, name: str) -> None:
+        msg = f"cannot delete field {name!r}"
+        raise FrozenInstanceError(msg)
+
+    def __copy__(self) -> Workspace:
+        return self
+
+    def __deepcopy__(self, _memo: dict[int, object]) -> Workspace:
+        return self
+
     @property
     def workspace(self) -> Path:
         return self._workspace
+
+    @property
+    def config(self) -> str | ConfigProfileSnapshot:
+        return self._config
+
+    @property
+    def config_profile(self) -> ConfigProfileInput | None:
+        return self._config_profile
+
+    @property
+    def execution_backend(self) -> ExecutionBackend | None:
+        return self._execution_backend
+
+    @property
+    def reviewer(self) -> str:
+        return self._reviewer
+
+    @property
+    def operator(self) -> str:
+        return self._operator
 
     def system(
         self,
@@ -806,16 +845,15 @@ def create_workspace_internal(
 ) -> Workspace:
     """Construct a composed workspace without exposing its effect bundle."""
 
-    return create_handle(
-        Workspace,
-        _workspace=workspace,
-        _services=services,
-        config=config,
-        config_profile=config_profile,
-        execution_backend=execution_backend,
-        reviewer=reviewer,
-        operator=operator,
-    )
+    result = object.__new__(Workspace)
+    object.__setattr__(result, "_workspace", workspace)
+    object.__setattr__(result, "_services", services)
+    object.__setattr__(result, "_config", config)
+    object.__setattr__(result, "_config_profile", config_profile)
+    object.__setattr__(result, "_execution_backend", execution_backend)
+    object.__setattr__(result, "_reviewer", reviewer)
+    object.__setattr__(result, "_operator", operator)
+    return result
 
 
 def _prepared_config_selection(

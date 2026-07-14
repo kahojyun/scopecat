@@ -89,17 +89,13 @@ class _TrackingBackend(ReferenceRelationBackend):
 
     def __init__(self) -> None:
         super().__init__(backend_id="tests.operation-contract")
-        object.__setattr__(self, "materialization_count", 0)
+        self.materialization_count = 0
 
     def materialize_relation(
         self,
         evaluation: PreparedRelationEvaluation[RelationExpr],
     ) -> list[Row]:
-        object.__setattr__(
-            self,
-            "materialization_count",
-            self.materialization_count + 1,
-        )
+        self.materialization_count += 1
         return super().materialize_relation(evaluation)
 
 

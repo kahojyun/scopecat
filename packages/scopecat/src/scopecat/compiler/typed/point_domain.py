@@ -875,7 +875,7 @@ def _copy_root(
 ) -> CompilerPointDomainExpr:
     return map_point_relation_rows(
         root,
-        lambda value, _path: value.model_copy(deep=True),
+        lambda value, _path: value,
     )
 
 
