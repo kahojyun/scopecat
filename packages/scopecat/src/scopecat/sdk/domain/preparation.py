@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import cast
 
@@ -133,8 +134,10 @@ class DomainMappedEntry[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     results: tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]
 
 
-@dataclass(frozen=True, slots=True)
-class DomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashable]:
+class DomainResultMapping[
+    EntryAddressT: Hashable,
+    ResultAddressT: Hashable,
+](ABC):
     """Exact public inventory from physical results to SDK-owned references.
 
     ``target_entries`` retains target order. ``entries`` retains canonical
@@ -143,20 +146,51 @@ class DomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     preparation context; callers never need compiler-owned identities.
     """
 
-    context: DomainBatchContext = field(repr=False)
-    product_uses: tuple[DomainProductUseRef, ...]
-    target_entries: tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...]
-    entries: tuple[DomainMappedEntry[EntryAddressT, ResultAddressT], ...]
-    results: tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]
-    _result_by_address: Mapping[
+    __slots__ = ()
+
+    @property
+    @abstractmethod
+    def context(self) -> DomainBatchContext: ...
+
+    @property
+    @abstractmethod
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
+
+    @property
+    @abstractmethod
+    def target_entries(
+        self,
+    ) -> tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...]: ...
+
+    @property
+    @abstractmethod
+    def entries(
+        self,
+    ) -> tuple[DomainMappedEntry[EntryAddressT, ResultAddressT], ...]: ...
+
+    @property
+    @abstractmethod
+    def results(
+        self,
+    ) -> tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]: ...
+
+    @property
+    @abstractmethod
+    def _result_by_address(
+        self,
+    ) -> Mapping[
         ResultAddressT,
         DomainMappedResult[EntryAddressT, ResultAddressT],
-    ] = field(repr=False, compare=False)
-    _result_by_output_identity: Mapping[
+    ]: ...
+
+    @property
+    @abstractmethod
+    def _result_by_output_identity(
+        self,
+    ) -> Mapping[
         tuple[int, int],
         DomainMappedResult[EntryAddressT, ResultAddressT],
-    ] = field(repr=False, compare=False)
-    _native: object = field(repr=False, compare=False)
+    ]: ...
 
     def result_for_address(
         self,
@@ -193,21 +227,190 @@ class DomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashable]:
             raise KeyError(msg) from error
 
 
-@dataclass(frozen=True, slots=True)
-class DomainMeasurementPlan[EntryAddressT: Hashable, ResultAddressT: Hashable]:
+class _DomainResultMapping[
+    EntryAddressT: Hashable,
+    ResultAddressT: Hashable,
+](DomainResultMapping[EntryAddressT, ResultAddressT]):
+    __slots__ = (
+        "__context",
+        "__entries",
+        "__product_uses",
+        "__result_by_address",
+        "__result_by_output_identity",
+        "__results",
+        "__target_entries",
+        "_native",
+    )
+
+    def __init__(
+        self,
+        *,
+        context: DomainBatchContext,
+        product_uses: tuple[DomainProductUseRef, ...],
+        target_entries: tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...],
+        entries: tuple[DomainMappedEntry[EntryAddressT, ResultAddressT], ...],
+        results: tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...],
+        result_by_address: Mapping[
+            ResultAddressT,
+            DomainMappedResult[EntryAddressT, ResultAddressT],
+        ],
+        result_by_output_identity: Mapping[
+            tuple[int, int],
+            DomainMappedResult[EntryAddressT, ResultAddressT],
+        ],
+        native: ClosedDomainResultMapping[EntryAddressT, ResultAddressT],
+    ) -> None:
+        self.__context = context
+        self.__product_uses = product_uses
+        self.__target_entries = target_entries
+        self.__entries = entries
+        self.__results = results
+        self.__result_by_address = result_by_address
+        self.__result_by_output_identity = result_by_output_identity
+        self._native = native
+
+    @property
+    def context(self) -> DomainBatchContext:
+        return self.__context
+
+    @property
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        return self.__product_uses
+
+    @property
+    def target_entries(
+        self,
+    ) -> tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...]:
+        return self.__target_entries
+
+    @property
+    def entries(
+        self,
+    ) -> tuple[DomainMappedEntry[EntryAddressT, ResultAddressT], ...]:
+        return self.__entries
+
+    @property
+    def results(
+        self,
+    ) -> tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]:
+        return self.__results
+
+    @property
+    def _result_by_address(
+        self,
+    ) -> Mapping[
+        ResultAddressT,
+        DomainMappedResult[EntryAddressT, ResultAddressT],
+    ]:
+        return self.__result_by_address
+
+    @property
+    def _result_by_output_identity(
+        self,
+    ) -> Mapping[
+        tuple[int, int],
+        DomainMappedResult[EntryAddressT, ResultAddressT],
+    ]:
+        return self.__result_by_output_identity
+
+
+class DomainMeasurementPlan[
+    EntryAddressT: Hashable,
+    ResultAddressT: Hashable,
+](ABC):
     """Context-bound source and host-transform ownership for one invocation."""
 
-    context: DomainBatchContext = field(repr=False)
-    mapping: DomainResultMapping[EntryAddressT, ResultAddressT] = field(repr=False)
-    source_product_uses: tuple[DomainProductUseRef, ...]
-    derived_product_uses: tuple[DomainProductUseRef, ...]
-    product_uses: tuple[DomainProductUseRef, ...]
-    host_transforms: tuple[DomainHostTransformBinding, ...]
-    _source_fragment: object = field(repr=False, compare=False)
-    _transforms: object = field(repr=False, compare=False)
+    __slots__ = ()
+
+    @property
+    @abstractmethod
+    def context(self) -> DomainBatchContext: ...
+
+    @property
+    @abstractmethod
+    def mapping(self) -> DomainResultMapping[EntryAddressT, ResultAddressT]: ...
+
+    @property
+    @abstractmethod
+    def source_product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
+
+    @property
+    @abstractmethod
+    def derived_product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
+
+    @property
+    @abstractmethod
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
+
+    @property
+    @abstractmethod
+    def host_transforms(self) -> tuple[DomainHostTransformBinding, ...]: ...
 
 
-@dataclass(frozen=True, slots=True)
+class _DomainMeasurementPlan[
+    EntryAddressT: Hashable,
+    ResultAddressT: Hashable,
+](DomainMeasurementPlan[EntryAddressT, ResultAddressT]):
+    __slots__ = (
+        "__context",
+        "__derived_product_uses",
+        "__host_transforms",
+        "__mapping",
+        "__product_uses",
+        "__source_product_uses",
+        "_source_fragment",
+        "_transforms",
+    )
+
+    def __init__(
+        self,
+        *,
+        context: DomainBatchContext,
+        mapping: DomainResultMapping[EntryAddressT, ResultAddressT],
+        source_product_uses: tuple[DomainProductUseRef, ...],
+        derived_product_uses: tuple[DomainProductUseRef, ...],
+        product_uses: tuple[DomainProductUseRef, ...],
+        host_transforms: tuple[DomainHostTransformBinding, ...],
+        source_fragment: BoundDomainMeasurementValueFragment[
+            EntryAddressT,
+            ResultAddressT,
+        ],
+        transforms: BoundHostMeasurementTransformPlan | None,
+    ) -> None:
+        self.__context = context
+        self.__mapping = mapping
+        self.__source_product_uses = source_product_uses
+        self.__derived_product_uses = derived_product_uses
+        self.__product_uses = product_uses
+        self.__host_transforms = host_transforms
+        self._source_fragment = source_fragment
+        self._transforms = transforms
+
+    @property
+    def context(self) -> DomainBatchContext:
+        return self.__context
+
+    @property
+    def mapping(self) -> DomainResultMapping[EntryAddressT, ResultAddressT]:
+        return self.__mapping
+
+    @property
+    def source_product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        return self.__source_product_uses
+
+    @property
+    def derived_product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        return self.__derived_product_uses
+
+    @property
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        return self.__product_uses
+
+    @property
+    def host_transforms(self) -> tuple[DomainHostTransformBinding, ...]:
+        return self.__host_transforms
+
+
 class DomainPreparationBuilder:
     """Context-bound constructor for one complete prepared execution proof.
 
@@ -216,7 +419,10 @@ class DomainPreparationBuilder:
     provide only SDK references and target-owned payloads.
     """
 
-    _context: DomainBatchContext = field(repr=False)
+    __slots__ = ("_context",)
+
+    def __init__(self, context: DomainBatchContext) -> None:
+        self._context = context
 
     @property
     def context(self) -> DomainBatchContext:
@@ -442,15 +648,15 @@ class DomainPreparationBuilder:
                 ),
             )
 
-        return DomainMeasurementPlan(
+        return _DomainMeasurementPlan(
             context=context,
             mapping=mapping,
             source_product_uses=context.direct_product_uses,
             derived_product_uses=context.derived_product_uses,
             product_uses=context.product_uses,
             host_transforms=selected_bindings,
-            _source_fragment=source_fragment,
-            _transforms=transforms,
+            source_fragment=source_fragment,
+            transforms=transforms,
         )
 
     def build[
@@ -550,7 +756,7 @@ class DomainPreparationBuilder:
 def domain_preparation_builder_for_context_internal(
     context: DomainBatchContext,
 ) -> DomainPreparationBuilder:
-    return DomainPreparationBuilder(_context=context)
+    return DomainPreparationBuilder(context)
 
 
 def domain_result_mapping_from_native_internal[
@@ -598,23 +804,23 @@ def domain_result_mapping_from_native_internal[
         mapped_entries.append(mapped_entry)
 
     selected_results = tuple(mapped_results)
-    return DomainResultMapping(
+    return _DomainResultMapping(
         context=context,
         product_uses=product_uses,
         target_entries=target_entries,
         entries=tuple(mapped_entries),
         results=selected_results,
-        _result_by_address=MappingProxyType(
+        result_by_address=MappingProxyType(
             {result.result_address: result for result in selected_results}
         ),
-        _result_by_output_identity=MappingProxyType(
+        result_by_output_identity=MappingProxyType(
             {
                 (id(result.point), id(product_use)): result
                 for result in selected_results
                 for product_use in result.product_uses
             }
         ),
-        _native=native,
+        native=native,
     )
 
 

@@ -8,6 +8,7 @@ references are already scoped to the selected batch.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
@@ -89,19 +90,38 @@ class DomainExecutionOffer:
         return selected
 
 
-@dataclass(frozen=True, slots=True)
-class DomainBatchContext:
+class DomainBatchContext(ABC):
     """Backend-selected batch for one already accepted adapter offer."""
 
-    batch_ordinal: int
-    call: DomainCallView
-    points: tuple[DomainPointRef, ...]
-    product_uses: tuple[DomainProductUseRef, ...]
-    direct_product_uses: tuple[DomainProductUseRef, ...]
-    derived_product_uses: tuple[DomainProductUseRef, ...]
-    measurement_transforms: tuple[DomainMeasurementTransform, ...]
-    _linked_points: object = field(repr=False, compare=False)
-    _adapter_id: str = field(repr=False, compare=False)
+    __slots__ = ()
+
+    @property
+    @abstractmethod
+    def batch_ordinal(self) -> int: ...
+
+    @property
+    @abstractmethod
+    def call(self) -> DomainCallView: ...
+
+    @property
+    @abstractmethod
+    def points(self) -> tuple[DomainPointRef, ...]: ...
+
+    @property
+    @abstractmethod
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
+
+    @property
+    @abstractmethod
+    def direct_product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
+
+    @property
+    @abstractmethod
+    def derived_product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
+
+    @property
+    @abstractmethod
+    def measurement_transforms(self) -> tuple[DomainMeasurementTransform, ...]: ...
 
     def new_preparation(self) -> DomainPreparationBuilder:
         """Create the one SDK builder that may close this batch for execution."""
@@ -111,6 +131,71 @@ class DomainBatchContext:
         )
 
         return domain_preparation_builder_for_context_internal(self)
+
+
+class _DomainBatchContext(DomainBatchContext):
+    __slots__ = (
+        "_adapter_id",
+        "_batch_ordinal",
+        "_call",
+        "_derived_product_uses",
+        "_direct_product_uses",
+        "_linked_points",
+        "_measurement_transforms",
+        "_points",
+        "_product_uses",
+    )
+
+    def __init__(
+        self,
+        *,
+        batch_ordinal: int,
+        call: DomainCallView,
+        points: tuple[DomainPointRef, ...],
+        product_uses: tuple[DomainProductUseRef, ...],
+        direct_product_uses: tuple[DomainProductUseRef, ...],
+        derived_product_uses: tuple[DomainProductUseRef, ...],
+        measurement_transforms: tuple[DomainMeasurementTransform, ...],
+        linked_points: MaterializedLinkedPointBatch,
+        adapter_id: str,
+    ) -> None:
+        self._batch_ordinal = batch_ordinal
+        self._call = call
+        self._points = points
+        self._product_uses = product_uses
+        self._direct_product_uses = direct_product_uses
+        self._derived_product_uses = derived_product_uses
+        self._measurement_transforms = measurement_transforms
+        self._linked_points = linked_points
+        self._adapter_id = adapter_id
+
+    @property
+    def batch_ordinal(self) -> int:
+        return self._batch_ordinal
+
+    @property
+    def call(self) -> DomainCallView:
+        return self._call
+
+    @property
+    def points(self) -> tuple[DomainPointRef, ...]:
+        return self._points
+
+    @property
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        return self._product_uses
+
+    @property
+    def direct_product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        return self._direct_product_uses
+
+    @property
+    def derived_product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        return self._derived_product_uses
+
+    @property
+    def measurement_transforms(self) -> tuple[DomainMeasurementTransform, ...]:
+        return self._measurement_transforms
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,7 +416,7 @@ def make_domain_batch_context_internal(
         for product_use in view.product_uses
         if product_use_id_internal(product_use) in derived_ids
     )
-    return DomainBatchContext(
+    return _DomainBatchContext(
         batch_ordinal=batch_ordinal,
         call=call,
         points=view.points,
@@ -339,8 +424,8 @@ def make_domain_batch_context_internal(
         direct_product_uses=direct,
         derived_product_uses=derived,
         measurement_transforms=call.measurement_transforms,
-        _linked_points=batch,
-        _adapter_id=adapter_id,
+        linked_points=batch,
+        adapter_id=adapter_id,
     )
 
 

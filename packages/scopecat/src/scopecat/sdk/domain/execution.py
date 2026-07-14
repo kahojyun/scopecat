@@ -12,8 +12,8 @@ resumption require a separate durable lifecycle and are not implied here.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable
-from dataclasses import dataclass, field
 from typing import Literal, Protocol, cast
 
 from scopecat.measurements.host_transforms import BoundHostMeasurementTransformPlan
@@ -41,8 +41,7 @@ type ErasedDomainRealizer = Callable[
 ]
 
 
-@dataclass(frozen=True, slots=True)
-class PreparedDomainExecution:
+class PreparedDomainExecution(ABC):
     """A pure proof that one linked program is ready for domain effects.
 
     The type-erased runtime fields form an existential adapter boundary: an
@@ -50,15 +49,19 @@ class PreparedDomainExecution:
     family, while core never inspects those domain-owned values.
     """
 
-    adapter_id: str
-    context: DomainBatchContext = field(repr=False)
-    _invocation: object = field(repr=False)
-    _runtime: object = field(repr=False, compare=False)
-    _realize: object = field(repr=False, compare=False)
-    _source_fragment: object = field(repr=False)
-    _resource_claims: object = field(default=(), repr=False)
-    _transforms: object = field(default=None, repr=False)
-    completion_contract: Literal["synchronous"] = "synchronous"
+    __slots__ = ()
+
+    @property
+    @abstractmethod
+    def adapter_id(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def context(self) -> DomainBatchContext: ...
+
+    @property
+    @abstractmethod
+    def completion_contract(self) -> Literal["synchronous"]: ...
 
     @property
     def direct_product_uses(self) -> tuple[DomainProductUseRef, ...]:
@@ -75,6 +78,52 @@ class PreparedDomainExecution:
     @property
     def semantic_operation_id(self) -> str:
         return self.context.call.id
+
+
+class _PreparedDomainExecution(PreparedDomainExecution):
+    __slots__ = (
+        "_adapter_id",
+        "_context",
+        "_invocation",
+        "_realize",
+        "_resource_claims",
+        "_runtime",
+        "_source_fragment",
+        "_transforms",
+    )
+
+    def __init__(
+        self,
+        *,
+        adapter_id: str,
+        context: DomainBatchContext,
+        invocation: ErasedDomainInvocation,
+        runtime: ErasedDomainRuntime,
+        realize: ErasedDomainRealizer,
+        source_fragment: BoundDomainMeasurementValueFragment[Hashable, Hashable],
+        resource_claims: tuple[ExecutionResourceClaim, ...],
+        transforms: BoundHostMeasurementTransformPlan | None,
+    ) -> None:
+        self._adapter_id = adapter_id
+        self._context = context
+        self._invocation = invocation
+        self._runtime = runtime
+        self._realize = realize
+        self._source_fragment = source_fragment
+        self._resource_claims = resource_claims
+        self._transforms = transforms
+
+    @property
+    def adapter_id(self) -> str:
+        return self._adapter_id
+
+    @property
+    def context(self) -> DomainBatchContext:
+        return self._context
+
+    @property
+    def completion_contract(self) -> Literal["synchronous"]:
+        return "synchronous"
 
 
 class DomainExecutionAdapter(Protocol):
@@ -146,18 +195,18 @@ def make_prepared_domain_execution_internal[
 ) -> PreparedDomainExecution:
     """Close one concrete adapter type family behind the core execution ABI."""
 
-    return PreparedDomainExecution(
+    return _PreparedDomainExecution(
         adapter_id=context_adapter_id_internal(context),
         context=context,
-        _invocation=cast("ErasedDomainInvocation", invocation),
-        _runtime=cast("ErasedDomainRuntime", runtime),
-        _realize=cast("ErasedDomainRealizer", realize),
-        _source_fragment=cast(
+        invocation=cast("ErasedDomainInvocation", invocation),
+        runtime=cast("ErasedDomainRuntime", runtime),
+        realize=cast("ErasedDomainRealizer", realize),
+        source_fragment=cast(
             "BoundDomainMeasurementValueFragment[Hashable, Hashable]",
             source_fragment,
         ),
-        _resource_claims=resource_claims,
-        _transforms=transforms,
+        resource_claims=resource_claims,
+        transforms=transforms,
     )
 
 

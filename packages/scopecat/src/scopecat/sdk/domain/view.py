@@ -8,6 +8,7 @@ without importing transient compiler identities.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal, cast
@@ -120,26 +121,76 @@ class DomainProductContractView:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class DomainPointRef:
+class DomainPointRef(ABC):
     """SDK identity for one canonical logical point.
 
     References are plain immutable values scoped by their owning context, not
     security tokens or durable identities.
     """
 
-    id: str
-    ordinal: int
-    _native: object = field(repr=False, compare=False)
+    __slots__ = ()
+
+    @property
+    @abstractmethod
+    def id(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def ordinal(self) -> int: ...
 
 
-@dataclass(frozen=True, slots=True)
-class DomainProductUseRef:
+class _DomainPointRef(DomainPointRef):
+    __slots__ = ("_id", "_native", "_ordinal")
+
+    def __init__(self, *, ref_id: str, ordinal: int, native: object) -> None:
+        self._id = ref_id
+        self._ordinal = ordinal
+        self._native = native
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def ordinal(self) -> int:
+        return self._ordinal
+
+
+class DomainProductUseRef(ABC):
     """SDK identity and logical contract for one demanded product occurrence."""
 
-    id: str
-    product: DomainProductContractView = field(repr=False, compare=False)
-    _native: object = field(repr=False, compare=False)
+    __slots__ = ()
+
+    @property
+    @abstractmethod
+    def id(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def product(self) -> DomainProductContractView: ...
+
+
+class _DomainProductUseRef(DomainProductUseRef):
+    __slots__ = ("_id", "_native", "_product")
+
+    def __init__(
+        self,
+        *,
+        ref_id: str,
+        product: DomainProductContractView,
+        native: object,
+    ) -> None:
+        self._id = ref_id
+        self._product = product
+        self._native = native
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def product(self) -> DomainProductContractView:
+        return self._product
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,7 +357,7 @@ def domain_point_ref_internal(
     ordinal: int,
     native: object,
 ) -> DomainPointRef:
-    return DomainPointRef(id=ref_id, ordinal=ordinal, _native=native)
+    return _DomainPointRef(ref_id=ref_id, ordinal=ordinal, native=native)
 
 
 def domain_product_use_ref_internal(
@@ -315,7 +366,7 @@ def domain_product_use_ref_internal(
     product: DomainProductContractView,
     native: object,
 ) -> DomainProductUseRef:
-    return DomainProductUseRef(id=ref_id, product=product, _native=native)
+    return _DomainProductUseRef(ref_id=ref_id, product=product, native=native)
 
 
 def domain_transform_input_port_internal(
