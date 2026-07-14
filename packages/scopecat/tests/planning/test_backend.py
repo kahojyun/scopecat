@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -8,7 +9,6 @@ import pytest
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
-    MaterializedLinkedPoints,
     link_program,
 )
 from scopecat.compiler.relations.model import (
@@ -16,62 +16,77 @@ from scopecat.compiler.relations.model import (
     literal_rows,
     point_col,
 )
-from scopecat.compiler.relations.point_domain import point_rows
+from scopecat.compiler.relations.point_domain import POINT_UNIT, point_rows
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
+from scopecat.compiler.semantic.model import (
+    DomainCallId,
+    DomainProgramId,
+    DomainResultPortDef,
+    MeasurementTransformId,
+)
 from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.products import (
+    DomainProductProducer,
+    MeasurementTransformProductProducer,
+)
 from scopecat.compiler.typed.program import (
+    TypedDomainCall,
+    TypedDomainProgram,
+    TypedDomainResultBinding,
+    TypedMeasurementTransform,
+    TypedMeasurementTransformInput,
+    TypedMeasurementTransformOutput,
     TypedProgram,
+    instrument_product_producer,
     product_output,
     record_product,
     set_state_field,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
+from scopecat.kernel.product_identity import (
+    ProductProducerId,
+    product_producer_id,
+    product_use,
+)
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
-from scopecat.measurements.projection import (
-    bind_measurement_projection,
-    select_measurement_projection,
-)
-from scopecat.measurements.values import (
-    ProductValueFragmentDef,
-    bind_domain_output_fragment,
-    select_measurement_value_assembly,
-)
+from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.planning.backend import ExecutionBackend
-from scopecat.planning.coverage import (
-    ExecutionResourceClaim,
-    ExecutionTask,
-)
 from scopecat.planning.preview import build_execution_plan_preview
 from scopecat.records.parameter import Quantity
-from scopecat.sdk.domain.execution import (
-    DomainExecutionCapabilities,
-    DomainExecutionRequest,
-    PreparedDomainExecution,
-    erase_prepared_domain_execution,
+from scopecat.sdk.domain.context import (
+    DomainBatchContext,
+    DomainExecutionOffer,
 )
-from scopecat.sdk.domain.invocation import (
-    AdapterEntryResults,
-    ClosedDomainInvocation,
-    ClosedDomainOutputValues,
-    DomainInvocationIntent,
-    EntryPointBinding,
-    ResultUseBinding,
-    close_domain_invocation,
-    seal_domain_result_mapping,
-    select_domain_measurement_outputs,
+from scopecat.sdk.domain.execution import (
+    PreparedDomainExecution,
+)
+from scopecat.sdk.domain.job import (
+    DomainInvocationSpec,
+    DomainResourceClaim,
+    DomainResultValue,
+    DomainTargetArtifactIdentity,
+)
+from scopecat.sdk.domain.preparation import (
+    DomainEntryPointBinding,
+    DomainResultUseBinding,
+    DomainTargetEntry,
 )
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
+    DomainFetchRequest,
     DomainReconcileReceipt,
-    DomainSubmissionId,
+    DomainReconcileRequest,
     DomainSubmitReceipt,
+    DomainSubmitRequest,
 )
+from scopecat.sdk.domain.view import DomainBatchView
 from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -90,29 +105,25 @@ class _EffectProbeRuntime:
 
     def submit(
         self,
-        submission_id: DomainSubmissionId,
-        invocation: ClosedDomainInvocation[str, str, dict[str, str]],
+        request: DomainSubmitRequest[dict[str, str]],
     ) -> DomainSubmitReceipt:
-        _ = submission_id, invocation
+        _ = request
         self.submit_calls += 1
         raise AssertionError("planning must not submit a domain invocation")
 
     def fetch(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
-        job_id: str,
+        request: DomainFetchRequest,
     ) -> DomainFetchCandidate[dict[str, str]]:
-        _ = submission_id, intent, job_id
+        _ = request
         self.fetch_calls += 1
         raise AssertionError("planning must not fetch a domain invocation")
 
     def reconcile(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
+        request: DomainReconcileRequest,
     ) -> DomainReconcileReceipt:
-        _ = submission_id, intent
+        _ = request
         self.reconcile_calls += 1
         raise AssertionError("planning must not reconcile a domain invocation")
 
@@ -121,122 +132,96 @@ class _EffectProbeRuntime:
 class _DomainAdapter:
     adapter_id: str
     product_indices: tuple[int, ...] = (0,)
-    claimed_tasks: tuple[ExecutionTask, ...] = ()
-    resource_claims: tuple[ExecutionResourceClaim, ...] = ()
+    call_indices: tuple[int, ...] | None = None
+    resource_claims: tuple[DomainResourceClaim, ...] = ()
     max_points_per_batch: int = 100
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
-    capabilities_calls: int = 0
+    select_calls: int = 0
     prepare_calls: int = 0
 
-    def capabilities(
+    def select(
         self,
-        linked_points: MaterializedLinkedPoints,
-    ) -> DomainExecutionCapabilities:
-        self.capabilities_calls += 1
-        selected_use_ids = tuple(
-            linked_points.linked_plan.product_uses[index].id
-            for index in self.product_indices
+        view: DomainBatchView,
+    ) -> DomainExecutionOffer:
+        self.select_calls += 1
+        selected_call_indices = (
+            self.product_indices if self.call_indices is None else self.call_indices
         )
-        return DomainExecutionCapabilities(
-            product_use_ids=selected_use_ids,
-            domain_product_use_ids=selected_use_ids,
-            claimed_tasks=self.claimed_tasks,
+        [selected_call_index] = selected_call_indices
+        return DomainExecutionOffer.for_call(
+            view.calls[selected_call_index],
             max_points_per_batch=self.max_points_per_batch,
         )
 
-    def prepare(self, request: DomainExecutionRequest) -> PreparedDomainExecution:
+    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
         self.prepare_calls += 1
-        linked_points = request.batch
-        selected_uses = tuple(
-            linked_points.linked_plan.product_uses[index]
-            for index in self.product_indices
-        )
-        selected_use_ids = tuple(use.id for use in selected_uses)
-        points = linked_points.point_domain.points
+        preparation = context.new_preparation()
+        product_uses = context.direct_product_uses
         entries = tuple(
-            AdapterEntryResults(
-                f"{self.adapter_id}.entry.{point.logical_ordinal}",
+            DomainTargetEntry(
+                f"{self.adapter_id}.entry.{point.ordinal}",
                 tuple(
-                    f"{self.adapter_id}.result.{point.logical_ordinal}.{use_index}"
-                    for use_index in range(len(selected_uses))
+                    f"{self.adapter_id}.result.{point.ordinal}.{use_index}"
+                    for use_index in range(len(product_uses))
                 ),
             )
-            for point in points
+            for point in context.points
         )
-        mapping = seal_domain_result_mapping(
-            linked_points,
-            selected_use_ids,
-            entries,
-            tuple(
-                EntryPointBinding(entry.entry_address, point.logical_id)
-                for entry, point in zip(entries, points, strict=True)
+        mapping = preparation.map_measurements(
+            entries=entries,
+            entry_points=tuple(
+                DomainEntryPointBinding(entry.entry_address, point)
+                for entry, point in zip(entries, context.points, strict=True)
             ),
-            tuple(
-                ResultUseBinding(
+            results=tuple(
+                DomainResultUseBinding(
                     entry.entry_address,
                     result_address,
-                    selected_uses[use_index].id,
+                    product_uses[use_index],
                 )
                 for entry in entries
                 for use_index, result_address in enumerate(entry.result_addresses)
             ),
         )
-        domain_outputs = select_domain_measurement_outputs(mapping)
-        fragment_id = f"{self.adapter_id}.source"
-        assembly = select_measurement_value_assembly(
-            linked_points,
-            required_product_use_ids=selected_use_ids,
-            fragment_defs=(ProductValueFragmentDef(fragment_id, selected_use_ids),),
-        )
-        source_fragment = bind_domain_output_fragment(
-            assembly,
-            fragment_id,
-            domain_outputs,
-        )
-        selected_use_set = set(selected_use_ids)
-        record_ids = tuple(
-            record.id
-            for record in linked_points.linked_plan.record_uses
-            if record.product_use_id in selected_use_set
-        )
-        projection = bind_measurement_projection(
-            select_measurement_projection(
-                linked_points,
-                record_ids=record_ids,
-            ),
-            assembly,
-        )
-        invocation = close_domain_invocation(
-            mapping,
+        measurements = preparation.measurement_plan(mapping)
+        invocation = DomainInvocationSpec(
             invocation_id=(
-                f"{self.adapter_id}.invocation.batch-{request.batch_ordinal}"
+                f"{self.adapter_id}.invocation.batch-{context.batch_ordinal}"
             ),
-            target_id=f"{self.adapter_id}.target",
-            compiler_id=f"{self.adapter_id}.compiler",
-            capability_fingerprint=f"{self.adapter_id}.capabilities",
-            artifact_id=f"{self.adapter_id}.artifact.batch-{request.batch_ordinal}",
-            artifact_fingerprint=f"{self.adapter_id}.artifact-fingerprint",
+            target=DomainTargetArtifactIdentity(
+                target_id=f"{self.adapter_id}.target",
+                compiler_id=f"{self.adapter_id}.compiler",
+                capability_fingerprint=f"{self.adapter_id}.capabilities",
+                artifact_id=(
+                    f"{self.adapter_id}.artifact.batch-{context.batch_ordinal}"
+                ),
+                artifact_fingerprint=f"{self.adapter_id}.artifact-fingerprint",
+            ),
             adapter_intent={
                 "adapter_id": self.adapter_id,
-                "batch_ordinal": str(request.batch_ordinal),
+                "batch_ordinal": str(context.batch_ordinal),
             },
             payload={
                 "adapter_id": self.adapter_id,
-                "batch_ordinal": str(request.batch_ordinal),
+                "batch_ordinal": str(context.batch_ordinal),
             },
         )
-        return erase_prepared_domain_execution(
-            adapter_id=self.adapter_id,
-            semantic_operation_id=f"{self.adapter_id}.execute",
-            linked_points=linked_points,
+        return preparation.build(
+            measurements=measurements,
             invocation=invocation,
             runtime=self.runtime,
             realize=_reject_realization,
-            source_fragment=source_fragment,
-            projection=projection,
-            claimed_tasks=self.claimed_tasks,
             resource_claims=self.resource_claims,
         )
+
+
+class _ForgedOfferAdapter(_DomainAdapter):
+    def select(self, view: DomainBatchView) -> DomainExecutionOffer:
+        self.select_calls += 1
+        offer = object.__new__(DomainExecutionOffer)
+        object.__setattr__(offer, "call_id", view.calls[0].id)
+        object.__setattr__(offer, "max_points_per_batch", 0)
+        return offer
 
 
 @dataclass
@@ -269,13 +254,14 @@ class _TrackingProvider:
 
 def _reject_realization(
     _fetched: CorrelatedDomainFetch[dict[str, str]],
-) -> ClosedDomainOutputValues[str, str]:
+) -> Sequence[DomainResultValue[str]]:
     raise AssertionError("planning must not realize domain results")
 
 
 def _linked_program(
     *,
     product_count: int = 1,
+    domain_product_count: int | None = None,
     state_mode: Literal["none", "constant", "varying"] = "none",
     point_count: Literal[0, 2] = 2,
 ) -> LinkedPlan:
@@ -312,6 +298,53 @@ def _linked_program(
         record_product(product, record_id=f"record-{index}")
         for index, product in enumerate(products)
     )
+    selected_domain_product_count = (
+        product_count if domain_product_count is None else domain_product_count
+    )
+    domain_programs: list[TypedDomainProgram] = []
+    domain_calls: list[TypedDomainCall] = []
+    domain_product_producers: list[DomainProductProducer] = []
+    for index, (product, (use, _record)) in enumerate(
+        zip(products[:selected_domain_product_count], selections, strict=False)
+    ):
+        program_id = DomainProgramId(SymbolId(local_id=f"program-{index}"))
+        call_id = DomainCallId(SymbolId(local_id=f"execute-{index}"))
+        producer_id = product_producer_id(f"domain-result-{index}")
+        domain_programs.append(
+            TypedDomainProgram(
+                id=program_id,
+                dialect_id="tests.domain",
+                dialect_version="1",
+                body=("test-program", index),
+                result_ports=(DomainResultPortDef("result"),),
+            )
+        )
+        domain_calls.append(
+            TypedDomainCall(
+                id=call_id,
+                program_id=program_id,
+                results=(
+                    TypedDomainResultBinding(
+                        id="result",
+                        product_id=product.id,
+                        producer_id=producer_id,
+                        product_use_ids=(use.id,),
+                    ),
+                ),
+            )
+        )
+        domain_product_producers.append(
+            DomainProductProducer(
+                id=producer_id,
+                product_id=product.id,
+                call_id=call_id,
+                result_id="result",
+            )
+        )
+    instrument_product_producers = tuple(
+        instrument_product_producer(product)
+        for product in products[selected_domain_product_count:]
+    )
     bindings = RelationTypeBindings(point_row=RowType.from_table(point_type))
     state_value = {
         "none": None,
@@ -345,9 +378,73 @@ def _linked_program(
         kind="compiler_test",
         point_domain=points,
         state=state,
+        domain_programs=tuple(domain_programs),
+        domain_calls=tuple(domain_calls),
         product_defs=products,
+        instrument_product_producers=instrument_product_producers,
+        domain_product_producers=tuple(domain_product_producers),
         product_uses=tuple(use for use, _record in selections),
         record_uses=tuple(record for _use, record in selections),
+    )
+    return link_program(
+        program,
+        validate_config_environment(load_config()),
+    )
+
+
+def _linked_instrument_fed_transform_program() -> LinkedPlan:
+    source = product_output("source", unit="ratio")
+    derived = product_output("derived", unit="ratio")
+    source_use = product_use(source.id)
+    derived_use, derived_record = record_product(derived)
+    transform_id = MeasurementTransformId(SymbolId(local_id="normalize"))
+    producer_id = ProductProducerId(derived.id.symbol)
+    transform = TypedMeasurementTransform(
+        id=transform_id,
+        semantic=MeasurementTransformSemanticContract(
+            id="tests.normalize",
+            version="1",
+            portability="host_only",
+        ),
+        rate="point",
+        inputs=(
+            TypedMeasurementTransformInput(
+                id="source",
+                product_id=source.id,
+                product_use_id=source_use.id,
+            ),
+        ),
+        outputs=(
+            TypedMeasurementTransformOutput(
+                id="result",
+                product_id=derived.id,
+                producer_id=producer_id,
+                product_use_ids=(derived_use.id,),
+            ),
+        ),
+    )
+    program = TypedProgram(
+        id="unplaced-instrument-transform",
+        kind="compiler_test",
+        point_domain=PointDomain(root=POINT_UNIT),
+        measurement_transforms=(transform,),
+        product_defs=(source, derived),
+        instrument_product_producers=(
+            instrument_product_producer(
+                source,
+                provider_key="signal",
+            ),
+        ),
+        measurement_transform_product_producers=(
+            MeasurementTransformProductProducer(
+                id=producer_id,
+                product_id=derived.id,
+                transform_id=transform_id,
+                output_id="result",
+            ),
+        ),
+        product_uses=(source_use, derived_use),
+        record_uses=(derived_record,),
     )
     return link_program(
         program,
@@ -383,26 +480,42 @@ def test_unified_planning_rejects_missing_task_claim_before_effects() -> None:
     assert all(
         problem.phase is ProblemPhase.PLANNING for problem in captured.value.problems
     )
-    assert adapter.capabilities_calls == 1
+    assert adapter.select_calls == 1
     assert adapter.prepare_calls == 0
     _assert_no_domain_effects(adapter)
 
 
-def test_unified_planning_rejects_foreign_task_claim_before_effects() -> None:
-    linked = _linked_program()
-    adapter = _DomainAdapter(
-        "tests.foreign-claim",
-        claimed_tasks=(ExecutionTask("compute", "foreign-compute"),),
-    )
+def test_planning_reports_unplaced_transform_as_a_capability_boundary() -> None:
+    linked = _linked_instrument_fed_transform_program()
+    [transform] = linked.program.measurement_transforms
+    [output_use_id] = transform.outputs[0].product_use_ids
 
     with pytest.raises(CheckFailed) as captured:
+        ExecutionBackend(provider=TestSignalInstrumentProvider()).prepare(
+            linked,
+            config=load_config(),
+        )
+
+    assert _problem_codes(captured.value) == {"measurement_transform_placement_missing"}
+    assert captured.value.problems[0].details == {
+        "transform_id": "normalize",
+        "input_product_ids": ("source",),
+        "output_product_use_ids": (output_use_id.value,),
+    }
+    assert captured.value.problems[0].phase is ProblemPhase.PLANNING
+
+
+def test_adapter_offer_is_revalidated_at_the_plugin_boundary() -> None:
+    linked = _linked_program()
+    adapter = _ForgedOfferAdapter("tests.forged-offer")
+
+    with pytest.raises(ValueError, match="max_points_per_batch must be positive"):
         ExecutionBackend(domain_adapters=(adapter,)).prepare(
             linked,
             config=load_config(),
         )
 
-    assert _problem_codes(captured.value) == {"execution_task_claim_foreign"}
-    assert adapter.capabilities_calls == 1
+    assert adapter.select_calls == 1
     assert adapter.prepare_calls == 0
     _assert_no_domain_effects(adapter)
 
@@ -419,8 +532,8 @@ def test_unified_planning_rejects_overlapping_task_claim_before_effects() -> Non
         backend.prepare(linked, config=load_config())
 
     assert _problem_codes(captured.value) == {"execution_task_claim_overlap"}
-    assert first.capabilities_calls == 1
-    assert second.capabilities_calls == 1
+    assert first.select_calls == 1
+    assert second.select_calls == 1
     assert first.prepare_calls == 0
     assert second.prepare_calls == 0
     _assert_no_domain_effects(first, second)
@@ -428,7 +541,7 @@ def test_unified_planning_rejects_overlapping_task_claim_before_effects() -> Non
 
 def test_unified_planning_rejects_overlapping_resources_before_effects() -> None:
     linked = _linked_program(product_count=2)
-    shared = (ExecutionResourceClaim("instrument", "shared-instrument"),)
+    shared = (DomainResourceClaim("instrument", "shared-instrument"),)
     first = _DomainAdapter(
         "tests.resource.first",
         product_indices=(0,),
@@ -447,8 +560,8 @@ def test_unified_planning_rejects_overlapping_resources_before_effects() -> None
         backend.prepare(linked, config=load_config())
 
     assert _problem_codes(captured.value) == {"execution_resource_claim_overlap"}
-    assert first.capabilities_calls == 1
-    assert second.capabilities_calls == 1
+    assert first.select_calls == 1
+    assert second.select_calls == 1
     assert first.prepare_calls == 1
     assert second.prepare_calls == 1
     _assert_no_domain_effects(first, second)
@@ -469,7 +582,7 @@ def test_varying_local_state_splits_automatic_domain_batches() -> None:
     assert tuple(job.point_indices for job in plan.domain_jobs) == ((0,), (1,))
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
-    assert adapter.capabilities_calls == 1
+    assert adapter.select_calls == 1
     assert adapter.prepare_calls == 2
     _assert_no_domain_effects(adapter)
 
@@ -484,6 +597,7 @@ def test_constant_local_state_is_automatically_fused() -> None:
     )
 
     plan = backend.prepare(linked, config=load_config())
+    record = plan.run_plan_record()
 
     assert tuple(unit.id for unit in plan.units) == (
         "point-instrument",
@@ -496,8 +610,14 @@ def test_constant_local_state_is_automatically_fused() -> None:
     assert len(plan.domain_units) == 1
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
-    assert adapter.capabilities_calls == 1
+    assert adapter.select_calls == 1
     assert adapter.prepare_calls == 1
+    domain = record.execution_units[1]
+    assert domain.kind == "domain_program"
+    assert domain.semantic_operation_id == "execute-0"
+    assert [batch.semantic_operation_id for batch in domain.batches] == [
+        domain.semantic_operation_id
+    ]
     _assert_no_domain_effects(adapter)
 
 
@@ -558,10 +678,11 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
 
     assert plan.segments == ()
     assert plan.domain_jobs == ()
-    assert adapter.capabilities_calls == 1
+    assert adapter.select_calls == 1
     assert adapter.prepare_calls == 0
     assert record.point_count == 0
     assert record.records[0].producer_kind == "domain"
     [domain] = record.execution_units
     assert domain.kind == "domain_program"
+    assert domain.semantic_operation_id == "execute-0"
     assert domain.batches == []

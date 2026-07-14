@@ -140,6 +140,7 @@ def lower_product_selections(
     bind_series_input_refs: BindSeriesInputRefs,
     bind_relation_input_refs: BindRelationInputRefs,
     input_row: InputRow,
+    non_instrument_product_ids: frozenset[ProductId] = frozenset(),
 ) -> LoweredProductModel:
     product_by_id = _product_ports_by_id(ctx, product_ports)
     lowered = tuple(
@@ -155,7 +156,11 @@ def lower_product_selections(
         for product in product_ports
     )
     products = tuple(product for product, _producer in lowered)
-    producers = tuple(producer for _product, producer in lowered)
+    producers = tuple(
+        producer
+        for product, producer in lowered
+        if product.id not in non_instrument_product_ids
+    )
     uses: list[ProductUse] = []
     uses_by_id: dict[ProductUseId, ProductUse] = {}
     records: list[RecordUse] = []

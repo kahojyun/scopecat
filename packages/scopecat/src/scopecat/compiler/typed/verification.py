@@ -30,6 +30,7 @@ from scopecat.compiler.relations.verification import (
     verify_relation_plan,
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
+from scopecat.compiler.semantic.model import DomainCallId
 from scopecat.compiler.semantic.operation_contract import (
     ScalarBinarySemantics,
     operation_contract_issues,
@@ -39,12 +40,18 @@ from scopecat.compiler.typed.graph import ComputeGraphError, order_compute_nodes
 from scopecat.compiler.typed.implementation_catalog import (
     validate_local_implementation_catalog,
 )
+from scopecat.compiler.typed.measurement_transforms import (
+    typed_measurement_transform_problems,
+)
 from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
     SelectedPointDomain,
     VerifiedPointDomain,
     bind_selected_point_domain,
     verify_point_domain,
+)
+from scopecat.compiler.typed.products import (
+    DomainProductProducer,
 )
 from scopecat.compiler.typed.program import (
     RouteInput,
@@ -71,9 +78,11 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
+from scopecat.kernel.product_identity import ProductId, ProductProducerId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
+from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import Payload, Scalar, String
 
 
@@ -102,6 +111,11 @@ def verify_typed_program(program: TypedProgram) -> TypedProgram:
         problems.append(_problem(error.code, str(error), error.location))
         compute_nodes = program.compute_nodes
     problems.extend(_typed_compute_contract_problems(compute_nodes))
+    problems.extend(_typed_domain_problems(program))
+    measurement_transforms, transform_problems = typed_measurement_transform_problems(
+        program
+    )
+    problems.extend(transform_problems)
     implementation_problems = validate_local_implementation_catalog(
         compute_nodes,
         program.implementation_catalog,
@@ -340,7 +354,11 @@ def verify_typed_program(program: TypedProgram) -> TypedProgram:
     )
     product_graph_problems = validate_product_graph(
         program.product_defs,
-        program.instrument_product_producers,
+        (
+            *program.instrument_product_producers,
+            *program.domain_product_producers,
+            *program.measurement_transform_product_producers,
+        ),
         program.product_uses,
         program.record_uses,
         phase=ProblemPhase.AUTHORING,
@@ -368,9 +386,210 @@ def verify_typed_program(program: TypedProgram) -> TypedProgram:
 
     if problems:
         raise CheckFailed(problems)
-    if compute_nodes == program.compute_nodes:
+    if (
+        compute_nodes == program.compute_nodes
+        and measurement_transforms == program.measurement_transforms
+    ):
         return program
-    return program.model_copy(update={"compute_nodes": compute_nodes})
+    return program.model_copy(
+        update={
+            "compute_nodes": compute_nodes,
+            "measurement_transforms": measurement_transforms,
+        }
+    )
+
+
+def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
+    problems: list[Problem] = []
+    program_ids = tuple(item.id for item in program.domain_programs)
+    for program_id in sorted(set(program_ids), key=lambda item: item.qualified_name):
+        if program_ids.count(program_id) > 1:
+            problems.append(
+                _problem(
+                    "domain_program_duplicate",
+                    f"domain program {program_id.qualified_name!r} is duplicated",
+                    model_location("domain_programs", program_id.qualified_name),
+                )
+            )
+    programs = {item.id: item for item in program.domain_programs}
+    call_ids = tuple(item.id for item in program.domain_calls)
+    for call_id in sorted(set(call_ids), key=lambda item: item.qualified_name):
+        if call_ids.count(call_id) > 1:
+            problems.append(
+                _problem(
+                    "domain_call_duplicate",
+                    f"domain call {call_id.qualified_name!r} is duplicated",
+                    model_location("domain_calls", call_id.qualified_name),
+                )
+            )
+
+    products = {item.id for item in program.product_defs}
+    uses = {item.id: item for item in program.product_uses}
+    producers_by_result: dict[
+        tuple[DomainCallId, str],
+        DomainProductProducer,
+    ] = {}
+    producer_ids: set[ProductProducerId] = set()
+    for producer in program.domain_product_producers:
+        if producer.id in producer_ids:
+            problems.append(
+                _problem(
+                    "domain_product_producer_duplicate",
+                    "domain product producer "
+                    f"{producer.id.qualified_name!r} is duplicated",
+                    model_location(
+                        "domain_product_producers",
+                        producer.id.qualified_name,
+                    ),
+                )
+            )
+        producer_ids.add(producer.id)
+        key = (producer.call_id, producer.result_id)
+        if key in producers_by_result:
+            problems.append(
+                _problem(
+                    "domain_result_producer_duplicate",
+                    "one domain call result has more than one product producer",
+                    model_location(
+                        "domain_product_producers",
+                        producer.id.qualified_name,
+                    ),
+                )
+            )
+        producers_by_result[key] = producer
+
+    declared_result_keys: set[tuple[DomainCallId, str]] = set()
+    produced_products: set[ProductId] = set()
+    for call in program.domain_calls:
+        location = model_location("domain_calls", call.id.qualified_name)
+        declared = programs.get(call.program_id)
+        if declared is None:
+            problems.append(
+                _problem(
+                    "domain_call_program_missing",
+                    "domain call references unknown program "
+                    f"{call.program_id.qualified_name!r}",
+                    model_location(location.root, *location.path, "program_id"),
+                )
+            )
+            continue
+        input_ports = {port.id: port for port in declared.input_ports}
+        if tuple(call.inputs) != tuple(input_ports):
+            problems.append(
+                _problem(
+                    "domain_call_input_contract_mismatch",
+                    "domain call inputs do not match the program port order",
+                    model_location(location.root, *location.path, "inputs"),
+                )
+            )
+        for name, value in call.inputs.items():
+            port = input_ports.get(name)
+            if port is not None and not is_assignable(
+                value.value_type,
+                port.value_type,
+            ):
+                problems.append(
+                    _problem(
+                        "domain_call_input_type_mismatch",
+                        f"domain call input {name!r} does not match its port type",
+                        model_location(
+                            location.root,
+                            *location.path,
+                            "inputs",
+                            name,
+                        ),
+                    )
+                )
+        if tuple(result.id for result in call.results) != tuple(
+            port.id for port in declared.result_ports
+        ):
+            problems.append(
+                _problem(
+                    "domain_call_result_contract_mismatch",
+                    "domain call results do not match the program port order",
+                    model_location(location.root, *location.path, "results"),
+                )
+            )
+        for result in call.results:
+            result_location = model_location(
+                location.root,
+                *location.path,
+                "results",
+                result.id,
+            )
+            key = (call.id, result.id)
+            declared_result_keys.add(key)
+            if result.product_id in produced_products:
+                problems.append(
+                    _problem(
+                        "domain_product_producer_duplicate",
+                        f"logical product {result.product_id.qualified_name!r} has "
+                        "more than one domain result producer",
+                        result_location,
+                    )
+                )
+            produced_products.add(result.product_id)
+            if result.product_id not in products:
+                problems.append(
+                    _problem(
+                        "domain_result_product_missing",
+                        "domain result references unknown product "
+                        f"{result.product_id.qualified_name!r}",
+                        result_location,
+                    )
+                )
+            producer = producers_by_result.get(key)
+            if (
+                producer is None
+                or producer.id != result.producer_id
+                or producer.product_id != result.product_id
+            ):
+                problems.append(
+                    _problem(
+                        "domain_result_producer_mismatch",
+                        "domain result does not have one matching producer declaration",
+                        result_location,
+                    )
+                )
+            for use_id in result.product_use_ids:
+                use = uses.get(use_id)
+                if use is None or use.product_id != result.product_id:
+                    problems.append(
+                        _problem(
+                            "domain_result_product_use_mismatch",
+                            "domain result references a missing or foreign "
+                            f"product use {use_id.value!r}",
+                            result_location,
+                        )
+                    )
+            expected_use_ids = tuple(
+                use.id
+                for use in program.product_uses
+                if use.product_id == result.product_id
+            )
+            if result.product_use_ids != expected_use_ids:
+                problems.append(
+                    _problem(
+                        "domain_result_product_use_coverage_mismatch",
+                        "domain result does not retain every exact product use "
+                        "occurrence",
+                        result_location,
+                    )
+                )
+
+    for key, producer in producers_by_result.items():
+        if key not in declared_result_keys:
+            problems.append(
+                _problem(
+                    "domain_product_producer_orphan",
+                    "domain product producer references an unknown call result",
+                    model_location(
+                        "domain_product_producers",
+                        producer.id.qualified_name,
+                    ),
+                )
+            )
+    return tuple(problems)
 
 
 def _typed_compute_contract_problems(
@@ -856,6 +1075,24 @@ def _program_relation_consumers_with_roles(
                         "compute_nodes",
                         *node.id.scope,
                         node.id.local_id,
+                        "inputs",
+                        input_name,
+                    ),
+                ),
+                point_role,
+            )
+
+    for call in program.domain_calls:
+        for input_name, input_value in call.inputs.items():
+            yield (
+                _consumer(
+                    input_value.relation_use_id,
+                    ProgramRelationConsumerKind.DOMAIN_CALL_INPUT,
+                    input_value.value,
+                    model_location(
+                        "domain_calls",
+                        *call.id.scope,
+                        call.id.local_id,
                         "inputs",
                         input_name,
                     ),

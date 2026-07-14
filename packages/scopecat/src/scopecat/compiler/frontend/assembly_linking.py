@@ -20,6 +20,7 @@ from scopecat.compiler.frontend.assembly_lowering import (
     lower_parameter_overlay_intent,
     lower_point_domain,
     lower_semantic_compute_graph,
+    lower_semantic_domain_graph,
     lower_state_region,
     state_specs,
     validate_assembly_conflicts,
@@ -34,6 +35,10 @@ from scopecat.compiler.frontend.binding_lowering import (
 from scopecat.compiler.frontend.context import ExperimentAuthoringContext
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
+from scopecat.compiler.frontend.measurement_transform_lowering import (
+    authored_measurement_transform_output_product_ids,
+    lower_semantic_measurement_transform_graph,
+)
 from scopecat.compiler.frontend.parameter_contract_validation import (
     validate_parameter_contracts,
 )
@@ -140,6 +145,16 @@ def _link_experiment_assembly(
         bind_series_input_refs=bind_series_input_refs,
         bind_relation_input_refs=bind_relation_input_refs,
         input_row=input_row,
+        non_instrument_product_ids=(
+            frozenset(
+                product_id
+                for call in verified_graph.semantic_graph.graph.domain_calls
+                for _result_id, product_id in call.results
+            )
+            | authored_measurement_transform_output_product_ids(
+                verified_graph.semantic_graph
+            )
+        ),
     )
     lowered_compute_nodes, implementation_catalog = lower_semantic_compute_graph(
         verified_graph.semantic_graph,
@@ -156,12 +171,35 @@ def _link_experiment_assembly(
             error.location.root,
             path=error.location.path,
         )
+    record_product_uses = (
+        *inline_products.product_uses,
+        *declared_products.product_uses,
+    )
+    measurement_transforms = lower_semantic_measurement_transform_graph(
+        verified_graph.semantic_graph,
+        record_product_uses,
+    )
+    product_uses = (
+        *record_product_uses,
+        *measurement_transforms.input_product_uses,
+    )
+    domain_programs, domain_calls, domain_product_producers = (
+        lower_semantic_domain_graph(
+            verified_graph.semantic_graph,
+            inputs,
+            type_bindings=type_bindings,
+            product_uses=product_uses,
+        )
+    )
     program = TypedProgram(
         id=assembly.experiment_id,
         kind=assembly.kind,
         point_domain=point_domain,
         route_intents=tuple(route_intents),
         compute_nodes=compute_nodes,
+        domain_programs=domain_programs,
+        domain_calls=domain_calls,
+        measurement_transforms=measurement_transforms.transforms,
         implementation_catalog=implementation_catalog,
         source_map=verified_graph.source_map,
         parameter_overlays=tuple(
@@ -207,7 +245,9 @@ def _link_experiment_assembly(
             *inline_products.instrument_product_producers,
             *declared_products.instrument_product_producers,
         ),
-        product_uses=(*inline_products.product_uses, *declared_products.product_uses),
+        domain_product_producers=domain_product_producers,
+        measurement_transform_product_producers=measurement_transforms.producers,
+        product_uses=product_uses,
         record_uses=(*inline_products.record_uses, *declared_products.record_uses),
         metadata=dict(assembly.metadata),
     )

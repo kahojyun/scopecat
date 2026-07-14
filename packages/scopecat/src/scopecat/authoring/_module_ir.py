@@ -38,6 +38,8 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_operation_origin,
     internal_value_ref_unbound_input_ids,
 )
+from scopecat.authoring.domain import DomainCall, DomainProgramDef
+from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.value_types import ValueType
 from scopecat.authoring.values import (
     ComputeDeclarationKey,
@@ -234,6 +236,9 @@ class ModuleBodyIR:
     state: tuple[ExperimentStateIntent, ...] = ()
     actions: tuple[ModuleActionDecl, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
+    measurement_transforms: tuple[MeasurementTransform, ...] = ()
+    domain_programs: tuple[DomainProgramDef, ...] = ()
+    domain_calls: tuple[DomainCall, ...] = ()
     records: tuple[RecordIntent, ...] = ()
     products: tuple[ModuleProductPort, ...] = ()
 
@@ -255,6 +260,46 @@ class ModuleBodyIR:
             tuple(item.declaration_key for item in self.operations),
         )
         _require_unique("module action", tuple(item.action_id for item in self.actions))
+        _require_unique(
+            "module measurement transform",
+            tuple(item.symbol_id for item in self.measurement_transforms),
+        )
+        _require_unique(
+            "module domain program",
+            tuple(item.symbol_id for item in self.domain_programs),
+        )
+        _require_unique(
+            "module domain call",
+            tuple(item.symbol_id for item in self.domain_calls),
+        )
+        programs = {program.symbol_id: program for program in self.domain_programs}
+        for call in self.domain_calls:
+            declared = programs.get(call.program.symbol_id)
+            if declared is not call.program:
+                raise ValueError(
+                    "module domain calls must reference their canonical program "
+                    "declaration"
+                )
+        declared_products = {product.product_id for product in self.products}
+        for transform in self.measurement_transforms:
+            for direction, bindings in (
+                ("input", transform.input_bindings),
+                ("output", transform.output_bindings),
+            ):
+                for role, product_id in bindings:
+                    if product_id not in declared_products:
+                        raise ValueError(
+                            f"measurement transform {transform.id!r} {direction} "
+                            f"{role!r} references undeclared local product "
+                            f"{product_id.qualified_name!r}"
+                        )
+        for call in self.domain_calls:
+            for result_id, product_id in call.result_bindings:
+                if product_id not in declared_products:
+                    raise ValueError(
+                        f"domain call result {call.id!r}/{result_id!r} references "
+                        f"undeclared local product {product_id.qualified_name!r}"
+                    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -473,6 +518,11 @@ def _module_lexical_value_refs(module: ModuleIR) -> tuple[ValueRef, ...]:
         value
         for operation in module.body.operations
         for _name, value in operation.inputs
+    )
+    roots.extend(
+        value
+        for call in module.body.domain_calls
+        for _name, value in call.input_bindings
     )
     roots.extend(axis.size for record in module.body.records for axis in record.axes)
     roots.extend(axis.size for product in module.body.products for axis in product.axes)

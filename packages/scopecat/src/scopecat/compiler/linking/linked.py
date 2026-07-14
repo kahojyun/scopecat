@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
@@ -10,15 +10,25 @@ from typing import cast
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
 from scopecat.compiler.relations.backend import (
+    EvalContext,
     ParameterRelationData,
     RelationBackend,
+    SelectedRelationPlan,
+    evaluate_relation_in_context,
+    evaluate_scalar,
+    evaluate_series,
     validate_relation_parameter_import,
 )
-from scopecat.compiler.relations.model import Row
+from scopecat.compiler.relations.model import RelationExpr, Row, ScalarExpr, SeriesExpr
 from scopecat.compiler.relations.point_domain import PointCardinality
 from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.relations.verification import PlanImportNamespace
+from scopecat.compiler.semantic.value_expressions import (
+    ScalarValueExpr,
+    SeriesValueExpr,
+)
 from scopecat.compiler.typed.point_domain import (
+    LogicalPointId,
     MaterializedPoint,
     MaterializedPointDomain,
     PointDomainEvaluationError,
@@ -27,8 +37,18 @@ from scopecat.compiler.typed.point_domain import (
     VerifiedPointDomain,
     materialize_point_domain,
 )
-from scopecat.compiler.typed.products import InstrumentProductProducer, ProductDef
-from scopecat.compiler.typed.program import TypedProgram
+from scopecat.compiler.typed.products import (
+    InstrumentProductProducer,
+    MeasurementTransformProductProducer,
+    ProductDef,
+)
+from scopecat.compiler.typed.program import (
+    TypedDomainCall,
+    TypedDomainProgram,
+    TypedMeasurementTransform,
+    TypedProgram,
+    ValueInput,
+)
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.state import (
     LogicalStateResourceTarget,
@@ -44,6 +64,7 @@ from scopecat.compiler.typed.verification import (
     select_typed_program,
 )
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -55,7 +76,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.product_identity import ProductUse
 from scopecat.kernel.resource_identity import LogicalResourcePortId, PhysicalResourceId
 from scopecat.kernel.value_types import TableColumn
-from scopecat.kernel.value_validation import ValueValidationError
+from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
 from scopecat.planning.routing import RoutingError, RoutingView
 from scopecat.records.entity import EntityRef
 
@@ -119,6 +140,16 @@ class LinkedPlan:
         return self.program.instrument_product_producers
 
     @property
+    def measurement_transforms(self) -> tuple[TypedMeasurementTransform, ...]:
+        return self.program.measurement_transforms
+
+    @property
+    def measurement_transform_product_producers(
+        self,
+    ) -> tuple[MeasurementTransformProductProducer, ...]:
+        return self.program.measurement_transform_product_producers
+
+    @property
     def product_uses(self) -> tuple[ProductUse, ...]:
         return self.program.product_uses
 
@@ -141,6 +172,58 @@ class LinkedPlan:
         return self.point_domain.cardinality
 
 
+@dataclass(frozen=True, slots=True)
+class MaterializedDomainCallPoint:
+    """One logical point's closed inputs for a domain call."""
+
+    logical_id: LogicalPointId
+    logical_ordinal: int
+    inputs: tuple[tuple[str, object], ...]
+
+    def __post_init__(self) -> None:
+        names = tuple(name for name, _value in self.inputs)
+        if any(not name for name in names) or len(names) != len(set(names)):
+            msg = "materialized domain call input ids must be non-empty and unique"
+            raise ValueError(msg)
+
+    def input(self, name: str) -> object:
+        """Return one named input value or raise a precise lookup error."""
+
+        for input_name, value in self.inputs:
+            if input_name == name:
+                return value
+        raise KeyError(name)
+
+
+@dataclass(frozen=True, slots=True)
+class MaterializedDomainCall:
+    """A typed domain call whose prepare-stage inputs are concrete per point."""
+
+    program: TypedDomainProgram
+    call: TypedDomainCall
+    points: tuple[MaterializedDomainCallPoint, ...]
+
+    def __post_init__(self) -> None:
+        if self.call.program_id != self.program.id:
+            msg = "materialized domain call must retain its declared program"
+            raise ValueError(msg)
+        ordinals = tuple(point.logical_ordinal for point in self.points)
+        if len(ordinals) != len(set(ordinals)):
+            msg = "materialized domain call points must have unique logical ordinals"
+            raise ValueError(msg)
+
+    def select(self, ordinals: frozenset[int]) -> MaterializedDomainCall:
+        """Project this already materialized call onto a canonical batch."""
+
+        return MaterializedDomainCall(
+            program=self.program,
+            call=self.call,
+            points=tuple(
+                point for point in self.points if point.logical_ordinal in ordinals
+            ),
+        )
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class MaterializedLinkedPoints:
     """One linked plan with a complete backend selection and canonical points.
@@ -154,6 +237,7 @@ class MaterializedLinkedPoints:
     _linked_plan: LinkedPlan
     _selected_program: SelectedTypedProgram
     _point_domain: MaterializedPointDomain
+    _domain_calls: tuple[MaterializedDomainCall, ...]
     relation_backend_id: str
 
     def __init__(
@@ -162,6 +246,7 @@ class MaterializedLinkedPoints:
         selected_program: SelectedTypedProgram,
         point_domain: MaterializedPointDomain,
         relation_backend_id: str,
+        domain_calls: Sequence[MaterializedDomainCall] = (),
     ) -> None:
         if selected_program.verified_program is not linked_plan.verified_program:
             msg = "selected program must belong to the linked plan"
@@ -175,6 +260,7 @@ class MaterializedLinkedPoints:
         object.__setattr__(self, "_linked_plan", linked_plan)
         object.__setattr__(self, "_selected_program", selected_program)
         object.__setattr__(self, "_point_domain", point_domain)
+        object.__setattr__(self, "_domain_calls", tuple(domain_calls))
         object.__setattr__(self, "relation_backend_id", relation_backend_id)
 
     @property
@@ -188,6 +274,12 @@ class MaterializedLinkedPoints:
     @property
     def point_domain(self) -> MaterializedPointDomain:
         return self._point_domain
+
+    @property
+    def domain_calls(self) -> tuple[MaterializedDomainCall, ...]:
+        """Return domain calls with every plan-stage input already evaluated."""
+
+        return self._domain_calls
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -307,6 +399,13 @@ class MaterializedLinkedPointBatch:
     def point_domain(self) -> MaterializedPointDomainView:
         return self._point_domain
 
+    @property
+    def domain_calls(self) -> tuple[MaterializedDomainCall, ...]:
+        """Return the parent calls restricted to this canonical point batch."""
+
+        ordinals = frozenset(self.point_indices)
+        return tuple(call.select(ordinals) for call in self._parent.domain_calls)
+
 
 type MaterializedLinkedPointSet = (
     MaterializedLinkedPoints | MaterializedLinkedPointBatch
@@ -399,6 +498,15 @@ def materialize_selected_linked_points(
             )
         )
         raise CheckFailed(problems) from error
+    domain_calls = _materialize_domain_calls(
+        program.domain_programs,
+        program.domain_calls,
+        points=point_domain.points,
+        selected_program=selected_program,
+        parameters=environment.parameters,
+        relation_backend=relation_backend,
+        problems=problems,
+    )
     if has_blocking_problems(problems):
         raise CheckFailed(problems)
     return MaterializedLinkedPoints(
@@ -406,7 +514,132 @@ def materialize_selected_linked_points(
         selected_program,
         point_domain,
         relation_backend.backend_id,
+        domain_calls,
     )
+
+
+def _materialize_domain_calls(
+    programs: Sequence[TypedDomainProgram],
+    calls: Sequence[TypedDomainCall],
+    *,
+    points: Sequence[MaterializedPoint],
+    selected_program: SelectedTypedProgram,
+    parameters: ParameterRelationData,
+    relation_backend: RelationBackend,
+    problems: list[Problem],
+) -> tuple[MaterializedDomainCall, ...]:
+    """Evaluate verified plan-stage call inputs using the selected backend."""
+
+    programs_by_id = {program.id: program for program in programs}
+    materialized: list[MaterializedDomainCall] = []
+    for call in calls:
+        program = programs_by_id.get(call.program_id)
+        if program is None:
+            raise AssertionError("verified domain call lost its program declaration")
+        call_points: list[MaterializedDomainCallPoint] = []
+        failed = False
+        for point in points:
+            input_values: list[tuple[str, object]] = []
+            context = EvalContext(params=parameters, point_row=point.row)
+            for input_name, input_spec in call.inputs.items():
+                try:
+                    evaluated = _evaluate_domain_input(
+                        input_spec,
+                        selected_program=selected_program,
+                        context=context,
+                        relation_backend=relation_backend,
+                    )
+                    value = coerce_literal(
+                        input_spec.value_type,
+                        evaluated,
+                        path=(
+                            "domain_calls",
+                            call.id.qualified_name,
+                            "points",
+                            point.logical_ordinal,
+                            "inputs",
+                            input_name,
+                        ),
+                    )
+                    input_values.append((input_name, _unwrap_domain_input(value)))
+                except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+                    failed = True
+                    problems.append(
+                        compiler_problem(
+                            "domain_call_input_evaluation_failed",
+                            f"domain call input {input_name!r} failed for point "
+                            f"{point.logical_ordinal}: {error}",
+                            model_location(
+                                "domain_calls",
+                                call.id.qualified_name,
+                                "points",
+                                point.logical_ordinal,
+                                "inputs",
+                                input_name,
+                            ),
+                            phase=ProblemPhase.PLANNING,
+                        )
+                    )
+            call_points.append(
+                MaterializedDomainCallPoint(
+                    logical_id=point.logical_id,
+                    logical_ordinal=point.logical_ordinal,
+                    inputs=tuple(input_values),
+                )
+            )
+        if not failed:
+            materialized.append(
+                MaterializedDomainCall(
+                    program=program,
+                    call=call,
+                    points=tuple(call_points),
+                )
+            )
+    return tuple(materialized)
+
+
+def _evaluate_domain_input(
+    input_spec: ValueInput,
+    *,
+    selected_program: SelectedTypedProgram,
+    context: EvalContext,
+    relation_backend: RelationBackend,
+) -> object:
+    value = input_spec.value
+    selected_plan = selected_program.selected_plan(input_spec.relation_use_id)
+    if isinstance(value, ScalarValueExpr):
+        return evaluate_scalar(
+            relation_backend,
+            cast("SelectedRelationPlan[ScalarExpr]", selected_plan),
+            context,
+        )
+    if isinstance(value, SeriesValueExpr):
+        return evaluate_series(
+            relation_backend,
+            cast("SelectedRelationPlan[SeriesExpr]", selected_plan),
+            context,
+        )
+    return evaluate_relation_in_context(
+        relation_backend,
+        cast("SelectedRelationPlan[RelationExpr]", selected_plan),
+        context,
+    )
+
+
+def _unwrap_domain_input(value: object) -> object:
+    if isinstance(value, PayloadValue):
+        return value.payload
+    if isinstance(value, list):
+        return [_unwrap_domain_input(item) for item in cast("list[object]", value)]
+    if isinstance(value, tuple):
+        selected = cast("tuple[object, ...]", value)
+        return tuple(_unwrap_domain_input(item) for item in selected)
+    if isinstance(value, Mapping):
+        return {
+            name: _unwrap_domain_input(item)
+            for name, item in cast("Mapping[object, object]", value).items()
+        }
+    return value
 
 
 def link_program(
@@ -763,6 +996,8 @@ def _relation_backend_capability_problems(
 
 __all__ = [
     "LinkedPlan",
+    "MaterializedDomainCall",
+    "MaterializedDomainCallPoint",
     "MaterializedLinkedPointBatch",
     "MaterializedLinkedPointSet",
     "MaterializedLinkedPoints",

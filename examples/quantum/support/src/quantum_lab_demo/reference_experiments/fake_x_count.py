@@ -1,10 +1,10 @@
 """Reference X-count experiment for the fake AWG and digitizer.
 
-The caller owns Scopecat authoring and supplies an already materialized point
-space plus the exact logical products selected by that authoring path.  This
-module owns only laboratory composition: one calibrated circuit per X-count,
-fake list-target compilation, domain submission, integrated-IQ realization,
-host discrimination, and durable measurement-record commits.
+The caller owns Scopecat authoring and supplies a context-bound preparation
+builder plus exact SDK product-use references. This module owns laboratory
+composition: one calibrated circuit per X-count, fake list-target compilation,
+domain submission, integrated-IQ realization, host discrimination, and durable
+measurement-record commits.
 
 Preparation is pure and closes every mapping before the first device effect.
 The lab-owned domain adapter passes that proof to the standard
@@ -14,38 +14,22 @@ execution entrypoint.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import cast
 
 from scopecat import Quantity
-from scopecat.measurements.projection import (
-    BoundMeasurementProjection,
-    bind_measurement_projection,
-    select_measurement_projection,
+from scopecat.sdk.domain.measurements import (
+    DomainHostTransformBinding,
+    DomainHostTransformImplementation,
 )
-from scopecat.measurements.transforms import (
-    BoundHostMeasurementTransformPlan,
-    HostMeasurementTransformFragmentBinding,
-    HostMeasurementTransformImplementation,
-    HostMeasurementTransformImplementationBinding,
-    MeasurementTransformId,
-    MeasurementTransformPort,
-    ProductDef,
-    bind_host_measurement_transforms,
-    select_host_measurement_transforms,
-    verify_measurement_transform_graph,
+from scopecat.sdk.domain.preparation import (
+    DomainMeasurementPlan,
+    DomainPreparationBuilder,
 )
-from scopecat.measurements.values import (
-    BoundDomainMeasurementValueFragment,
-    ProductValueFragmentDef,
-    bind_domain_output_fragment,
-    select_measurement_value_assembly,
-)
-from scopecat.sdk.domain.invocation import (
-    MaterializedLinkedPointBatch,
-    MaterializedLinkedPoints,
-    MaterializedLinkedPointSet,
-    ProductUseId,
+from scopecat.sdk.domain.view import (
+    DomainMeasurementTransform,
+    DomainPointRef,
+    DomainProductUseRef,
 )
 from scopecat_quantum import (
     Acquire,
@@ -53,13 +37,8 @@ from scopecat_quantum import (
     AcquisitionKind,
     AcquisitionSlot,
     AcquisitionSlotId,
-    BinaryIqDiscriminator,
     CalibrationCatalog,
     CalibrationId,
-    CircuitId,
-    CircuitOperationId,
-    CircuitProgram,
-    CircuitSequence,
     CircuitTargetAcquisitionUseBinding,
     CircuitTargetEntryPointBinding,
     CompiledCircuitTarget,
@@ -68,11 +47,8 @@ from scopecat_quantum import (
     GateCalibration,
     GateCalibrationCatalog,
     GateCalibrationKey,
-    GateCall,
     GateDefinition,
     GateId,
-    IqCentroid,
-    Measure,
     MeasurementCalibration,
     MeasurementCalibrationCatalog,
     MeasurementCalibrationKey,
@@ -84,64 +60,65 @@ from scopecat_quantum import (
     PulseProgramId,
     QubitId,
     ReadoutSignal,
+    TargetAcquisitionAddress,
     TargetCompileEntryId,
     TargetCompilerId,
     VerifiedCircuitProgram,
     binary_iq_probability_host_implementation,
-    binary_iq_probability_transform,
     bind_compiled_circuit_target,
     compile_target,
     prepare_circuit_target_batch,
     prepare_circuit_target_entry,
     seal_circuit_target_result_mapping,
     select_calibrations,
-    verify_circuit_program,
 )
 
 from quantum_lab_demo.targets.fake_list_mode import (
-    ExecutableFakeMeasurementInvocation,
     FakeListArtifact,
     FakeListTarget,
     FakeListTargetCompiler,
+    FakeMeasurementInvocationSpec,
     SelectedFakeMeasurementRealization,
-    close_fake_measurement_invocation,
     default_fake_list_target,
+    fake_measurement_invocation_spec,
     integrated_iq_shots,
     select_fake_measurement_realization,
 )
 
-DOMAIN_FRAGMENT_ID = "fake-x-count-domain-iq"
-TRANSFORM_FRAGMENT_ID = "fake-x-count-binary-probabilities"
-TRANSFORM_ID = MeasurementTransformId("fake-x-count-binary-iq")
 DEFAULT_COMPILER_ID = TargetCompilerId("quantum-lab-demo.fake-x-count.v1")
 DEFAULT_QUBIT = QubitId("q0")
 
 
 @dataclass(frozen=True, slots=True)
 class FakeXCountProductBinding:
-    """Exact core product-use occurrences owned by this composition."""
+    """Context-owned direct IQ uses and authored host transform."""
 
-    iq_shots: ProductUseId
-    probability_0: ProductUseId
-    probability_1: ProductUseId
+    iq_shots: tuple[DomainProductUseRef, ...]
+    transform: DomainMeasurementTransform
 
     def __post_init__(self) -> None:
-        selected = (self.iq_shots, self.probability_0, self.probability_1)
-        if any(not isinstance(value, ProductUseId) for value in selected):
-            msg = "fake X-count product bindings require ProductUseId values"
+        selected = tuple(self.iq_shots)
+        if not selected:
+            msg = "fake X-count product bindings require at least one IQ use"
+            raise ValueError(msg)
+        if any(not isinstance(value, DomainProductUseRef) for value in selected):
+            msg = "fake X-count product bindings require SDK product-use references"
             raise TypeError(msg)
         if len(set(selected)) != len(selected):
-            msg = "fake X-count IQ and probability product uses must be distinct"
+            msg = "fake X-count IQ product uses must be distinct"
             raise ValueError(msg)
+        if not isinstance(self.transform, DomainMeasurementTransform):
+            msg = "fake X-count product bindings require an authored transform"
+            raise TypeError(msg)
+        object.__setattr__(self, "iq_shots", selected)
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedFakeXCountReference:
     """Pure, completely bound fake-target and host-processing plan."""
 
-    linked_points: MaterializedLinkedPointSet = field(repr=False)
+    preparation: DomainPreparationBuilder = field(repr=False)
     products: FakeXCountProductBinding
-    x_count_column: str
     x_counts: tuple[int, ...]
     target: FakeListTarget
     compiler: FakeListTargetCompiler
@@ -150,10 +127,11 @@ class PreparedFakeXCountReference:
     entries: tuple[PreparedCircuitTargetEntry, ...]
     compiled_target: CompiledCircuitTarget[FakeListArtifact]
     realization: SelectedFakeMeasurementRealization = field(repr=False)
-    invocation: ExecutableFakeMeasurementInvocation = field(repr=False)
-    domain_fragment: BoundDomainMeasurementValueFragment = field(repr=False)
-    transform_plan: BoundHostMeasurementTransformPlan = field(repr=False)
-    projection: BoundMeasurementProjection = field(repr=False)
+    invocation: FakeMeasurementInvocationSpec = field(repr=False)
+    measurements: DomainMeasurementPlan[
+        TargetCompileEntryId,
+        TargetAcquisitionAddress,
+    ] = field(repr=False)
 
     @property
     def shots(self) -> int:
@@ -163,37 +141,41 @@ class PreparedFakeXCountReference:
 
 
 def prepare_fake_x_count_reference(
-    linked_points: MaterializedLinkedPointSet,
+    preparation: DomainPreparationBuilder,
     products: FakeXCountProductBinding,
     *,
-    x_count_column: str = "x_count",
+    acquisition_slot_id: AcquisitionSlotId,
+    circuits: Sequence[VerifiedCircuitProgram],
+    x_counts: Sequence[int],
     shots: int = 32,
     qubit: QubitId = DEFAULT_QUBIT,
     target: FakeListTarget | None = None,
     compiler_id: TargetCompilerId = DEFAULT_COMPILER_ID,
-    discriminator: BinaryIqDiscriminator | None = None,
-    host_implementation: HostMeasurementTransformImplementation | None = None,
+    host_implementation: DomainHostTransformImplementation | None = None,
     invocation_id: str = "fake-x-count",
 ) -> PreparedFakeXCountReference:
     """Close the reference circuit, target, result, and transform mappings.
 
-    ``x_count_column`` must contain a non-negative integer in every logical
-    point.  Point order becomes hardware list order, while result mapping keeps
-    the canonical logical point identities explicit.
+    ``x_counts`` is supplied by the lab adapter's already bound point view.
+    Its order must exactly match the canonical logical points; this target
+    preparation no longer discovers authoring coordinates by a string name.
     """
 
-    if not isinstance(
-        linked_points,
-        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
-    ):
-        msg = "fake X-count preparation requires materialized linked points"
+    if not isinstance(preparation, DomainPreparationBuilder):
+        msg = "fake X-count preparation requires a domain preparation builder"
         raise TypeError(msg)
     if not isinstance(products, FakeXCountProductBinding):
         msg = "fake X-count preparation requires a product binding"
         raise TypeError(msg)
-    if not isinstance(x_count_column, str) or not x_count_column:
-        msg = "fake X-count column must be a non-empty string"
-        raise ValueError(msg)
+    if not isinstance(acquisition_slot_id, AcquisitionSlotId):
+        msg = "fake X-count preparation requires a typed acquisition slot"
+        raise TypeError(msg)
+    selected_circuits = tuple(circuits)
+    if any(
+        not isinstance(circuit, VerifiedCircuitProgram) for circuit in selected_circuits
+    ):
+        msg = "fake X-count preparation requires verified authored circuits"
+        raise TypeError(msg)
     if type(shots) is not int or shots <= 0:
         msg = "fake X-count shots must be a positive integer"
         raise ValueError(msg)
@@ -211,30 +193,24 @@ def prepare_fake_x_count_reference(
         msg = "fake X-count invocation_id must be non-empty"
         raise ValueError(msg)
 
-    x_counts = _x_counts(linked_points, x_count_column)
-    product_contracts = _product_contracts(linked_points, products)
-    _require_probability_records(linked_points, products)
-
-    gate = GateDefinition(GateId("x"), qubit_arity=1)
+    points = preparation.context.points
+    selected_x_counts = _validated_x_counts(points, x_counts)
+    if len(selected_circuits) != len(selected_x_counts):
+        msg = "fake X-count circuits must exactly cover the logical point batch"
+        raise ValueError(msg)
+    if not selected_circuits:
+        msg = "fake X-count preparation requires at least one authored circuit"
+        raise ValueError(msg)
+    gate = selected_circuits[0].gate_definition(GateId("x"))
     catalog = _calibration_catalog(qubit, gate)
-    points = linked_points.point_domain.points
-    circuits = tuple(
-        _x_count_circuit(
-            qubit=qubit,
-            gate=gate,
-            x_count=x_count,
-            point_index=point.logical_ordinal,
-        )
-        for point, x_count in zip(points, x_counts, strict=True)
-    )
     entries = tuple(
         prepare_circuit_target_entry(
-            TargetCompileEntryId(f"fake-x-count-entry-{point.logical_ordinal}"),
+            TargetCompileEntryId(f"fake-x-count-entry-{point.ordinal}"),
             circuit,
             select_calibrations(circuit, catalog),
-            output_id=PulseProgramId(f"fake-x-count-pulses-{point.logical_ordinal}"),
+            output_id=PulseProgramId(f"fake-x-count-pulses-{point.ordinal}"),
         )
-        for point, circuit in zip(points, circuits, strict=True)
+        for point, circuit in zip(points, selected_circuits, strict=True)
     )
     compiler = FakeListTargetCompiler(compiler_id, selected_target)
     batch = prepare_circuit_target_batch(
@@ -245,18 +221,23 @@ def prepare_fake_x_count_reference(
         repetitions=shots,
     )
     mapping = seal_circuit_target_result_mapping(
-        linked_points,
+        preparation,
         batch,
         tuple(
-            CircuitTargetEntryPointBinding(entry.id, point.logical_id)
-            for entry, point in zip(entries, points, strict=True)
+            CircuitTargetEntryPointBinding(entry.id, point)
+            for entry, point in zip(
+                entries,
+                preparation.context.points,
+                strict=True,
+            )
         ),
         tuple(
             CircuitTargetAcquisitionUseBinding(
-                entry.acquisition_addresses[0],
-                products.iq_shots,
+                _acquisition_address(entry, acquisition_slot_id),
+                product_use,
             )
             for entry in entries
+            for product_use in products.iq_shots
         ),
     )
     compiled_target = bind_compiled_circuit_target(
@@ -266,173 +247,78 @@ def prepare_fake_x_count_reference(
     realization = select_fake_measurement_realization(
         compiled_target,
         selected_target,
-        tuple(integrated_iq_shots(result.result_address) for result in mapping.results),
+        tuple(
+            integrated_iq_shots(result.result_address)
+            for result in mapping.domain_mapping.results
+        ),
     )
-    invocation = close_fake_measurement_invocation(
+    invocation = fake_measurement_invocation_spec(
         realization,
         invocation_id=invocation_id,
     )
-
-    value_selection = select_measurement_value_assembly(
-        linked_points,
-        required_product_use_ids=(
-            products.iq_shots,
-            products.probability_0,
-            products.probability_1,
-        ),
-        fragment_defs=(
-            ProductValueFragmentDef(DOMAIN_FRAGMENT_ID, (products.iq_shots,)),
-            ProductValueFragmentDef(
-                TRANSFORM_FRAGMENT_ID,
-                (products.probability_0, products.probability_1),
-            ),
-        ),
-    )
-    domain_fragment = bind_domain_output_fragment(
-        value_selection,
-        DOMAIN_FRAGMENT_ID,
-        invocation.payload.core_outputs,
-    )
-    transform = binary_iq_probability_transform(
-        TRANSFORM_ID,
-        iq_shots=MeasurementTransformPort(
-            "iq_shots",
-            products.iq_shots,
-            product_contracts[0],
-        ),
-        probability_0=MeasurementTransformPort(
-            "probability_0",
-            products.probability_0,
-            product_contracts[1],
-        ),
-        probability_1=MeasurementTransformPort(
-            "probability_1",
-            products.probability_1,
-            product_contracts[2],
-        ),
-        discriminator=(
-            _default_discriminator() if discriminator is None else discriminator
-        ),
-    )
-    graph = verify_measurement_transform_graph(linked_points, (transform,))
     implementation = (
         binary_iq_probability_host_implementation()
         if host_implementation is None
         else host_implementation
     )
-    host_selection = select_host_measurement_transforms(
-        graph,
-        (implementation,),
-        (
-            HostMeasurementTransformImplementationBinding(
-                transform.id,
-                implementation.id,
-            ),
+    measurements = preparation.measurement_plan(
+        mapping.domain_mapping,
+        host_transforms=(
+            DomainHostTransformBinding(products.transform, implementation),
         ),
-    )
-    transform_plan = bind_host_measurement_transforms(
-        host_selection,
-        value_selection,
-        (
-            HostMeasurementTransformFragmentBinding(
-                transform.id,
-                TRANSFORM_FRAGMENT_ID,
-            ),
-        ),
-    )
-    owned_product_use_ids = {
-        products.iq_shots,
-        products.probability_0,
-        products.probability_1,
-    }
-    projection = bind_measurement_projection(
-        select_measurement_projection(
-            linked_points,
-            record_ids=tuple(
-                record.id
-                for record in linked_points.linked_plan.record_uses
-                if record.product_use_id in owned_product_use_ids
-            ),
-        ),
-        value_selection,
     )
     return PreparedFakeXCountReference(
-        linked_points=linked_points,
+        preparation=preparation,
         products=products,
-        x_count_column=x_count_column,
-        x_counts=x_counts,
+        x_counts=selected_x_counts,
         target=selected_target,
         compiler=compiler,
         calibration_catalog=catalog,
-        circuits=circuits,
+        circuits=selected_circuits,
         entries=entries,
         compiled_target=compiled_target,
         realization=realization,
         invocation=invocation,
-        domain_fragment=domain_fragment,
-        transform_plan=transform_plan,
-        projection=projection,
+        measurements=measurements,
     )
 
 
-def _x_counts(
-    linked_points: MaterializedLinkedPointSet,
-    column: str,
+def _acquisition_address(
+    entry: PreparedCircuitTargetEntry,
+    slot_id: AcquisitionSlotId,
+) -> TargetAcquisitionAddress:
+    selected = tuple(
+        address for address in entry.acquisition_addresses if address.slot_id == slot_id
+    )
+    if len(selected) != 1:
+        msg = (
+            f"fake X-count entry {entry.id.value!r} requires exactly one "
+            f"acquisition for circuit result {slot_id.value!r}"
+        )
+        raise ValueError(msg)
+    return selected[0]
+
+
+def _validated_x_counts(
+    points: Sequence[DomainPointRef],
+    values: Sequence[int],
 ) -> tuple[int, ...]:
-    points = linked_points.point_domain.points
-    if not points:
+    selected_points = tuple(points)
+    if not selected_points:
         msg = "fake X-count experiments require at least one logical point"
         raise ValueError(msg)
-    counts: list[int] = []
-    for point in points:
-        row = point.row
-        if column not in row:
-            msg = f"fake X-count point {point.logical_ordinal} has no {column!r} value"
-            raise ValueError(msg)
-        value = row[column]
+    counts = tuple(values)
+    if len(counts) != len(selected_points):
+        msg = "fake X-count values must exactly cover the logical point batch"
+        raise ValueError(msg)
+    for point, value in zip(selected_points, counts, strict=True):
         if type(value) is not int or value < 0:
             msg = (
-                f"fake X-count point {point.logical_ordinal} requires a "
-                f"non-negative integer {column!r} value"
+                f"fake X-count point {point.ordinal} requires a "
+                "non-negative integer value"
             )
             raise ValueError(msg)
-        counts.append(value)
-    return tuple(counts)
-
-
-def _product_contracts(
-    linked_points: MaterializedLinkedPointSet,
-    products: FakeXCountProductBinding,
-) -> tuple[ProductDef, ProductDef, ProductDef]:
-    plan = linked_points.linked_plan
-    uses_by_id = {use.id: use for use in plan.product_uses}
-    definitions_by_id = {product.id: product for product in plan.product_defs}
-    selected_ids = (products.iq_shots, products.probability_0, products.probability_1)
-    unknown = tuple(use_id for use_id in selected_ids if use_id not in uses_by_id)
-    if unknown:
-        rendered = ", ".join(repr(use_id.value) for use_id in unknown)
-        msg = f"fake X-count product uses are not in the linked plan: {rendered}"
-        raise ValueError(msg)
-    selected = tuple(
-        definitions_by_id[uses_by_id[use_id].product_id] for use_id in selected_ids
-    )
-    return cast("tuple[ProductDef, ProductDef, ProductDef]", selected)
-
-
-def _require_probability_records(
-    linked_points: MaterializedLinkedPointSet,
-    products: FakeXCountProductBinding,
-) -> None:
-    recorded = {
-        record.product_use_id for record in linked_points.linked_plan.record_uses
-    }
-    missing = {
-        products.probability_0,
-        products.probability_1,
-    } - recorded
-    if missing:
-        msg = "fake X-count probability products must both have record selections"
-        raise ValueError(msg)
+    return counts
 
 
 def _calibration_catalog(
@@ -502,53 +388,9 @@ def _calibration_catalog(
     )
 
 
-def _x_count_circuit(
-    *,
-    qubit: QubitId,
-    gate: GateDefinition,
-    x_count: int,
-    point_index: int,
-) -> VerifiedCircuitProgram:
-    calls = tuple(
-        GateCall(
-            id=CircuitOperationId(f"x-{call_index}"),
-            gate_id=gate.id,
-            qubits=(qubit,),
-        )
-        for call_index in range(x_count)
-    )
-    measurement = Measure(
-        id=CircuitOperationId("measure"),
-        qubit=qubit,
-        acquisition_slot_id=AcquisitionSlotId(
-            "iq-result",
-            scope=("fake-x-count",),
-        ),
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
-    )
-    return verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId(f"fake-x-count-point-{point_index}-x-{x_count}"),
-            body=CircuitSequence((*calls, measurement)),
-        ),
-        (gate,),
-    )
-
-
-def _default_discriminator() -> BinaryIqDiscriminator:
-    return BinaryIqDiscriminator(
-        state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
-        state_1_centroid=IqCentroid(real=1.0, imag=0.0),
-        tie_policy="state_0",
-    )
-
-
 __all__ = [
     "DEFAULT_COMPILER_ID",
     "DEFAULT_QUBIT",
-    "DOMAIN_FRAGMENT_ID",
-    "TRANSFORM_FRAGMENT_ID",
-    "TRANSFORM_ID",
     "FakeXCountProductBinding",
     "PreparedFakeXCountReference",
     "prepare_fake_x_count_reference",

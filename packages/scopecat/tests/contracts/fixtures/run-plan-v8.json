@@ -1,5 +1,5 @@
 {
-  "schema_version": "scopecat.run_plan_record.v7",
+  "schema_version": "scopecat.run_plan_record.v8",
   "backend_id": "scopecat.execution.v2",
   "execution_options": {
     "requested": {

@@ -13,18 +13,23 @@ from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.errors import CheckFailed, MeasurementTransformExecutionError
 from scopecat.kernel.problems import ProblemCategory, ProblemPhase
 from scopecat.kernel.product_identity import ProductUse, ProductUseId
-from scopecat.measurements.transforms import (
+from scopecat.measurements.host_transforms import (
     HostMeasurementTransformCall,
     HostMeasurementTransformFragmentBinding,
     HostMeasurementTransformImplementation,
     HostMeasurementTransformImplementationBinding,
-    MeasurementTransformDef,
-    MeasurementTransformId,
-    MeasurementTransformPort,
-    MeasurementTransformSemanticContract,
     bind_host_measurement_transforms,
     execute_host_measurement_transforms,
     select_host_measurement_transforms,
+)
+from scopecat.measurements.semantics import MeasurementTransformSemanticContract
+from scopecat.measurements.transform_model import (
+    MeasurementTransformDef,
+    MeasurementTransformInputPort,
+    MeasurementTransformOutputPort,
+    NativeMeasurementTransformId,
+)
+from scopecat.measurements.transform_verification import (
     verify_measurement_transform_graph,
 )
 from scopecat.measurements.values import (
@@ -49,14 +54,26 @@ def _product(scenario: MeasurementAssemblyScenario, use: ProductUse) -> ProductD
     return products[use.product_id]
 
 
-def _port(
+def _input_port(
     scenario: MeasurementAssemblyScenario,
     port_id: str,
     use: ProductUse,
-) -> MeasurementTransformPort:
-    return MeasurementTransformPort(
+) -> MeasurementTransformInputPort:
+    return MeasurementTransformInputPort(
         id=port_id,
         product_use_id=use.id,
+        product=_product(scenario, use),
+    )
+
+
+def _output_port(
+    scenario: MeasurementAssemblyScenario,
+    port_id: str,
+    use: ProductUse,
+) -> MeasurementTransformOutputPort:
+    return MeasurementTransformOutputPort(
+        id=port_id,
+        product_use_ids=(use.id,),
         product=_product(scenario, use),
     )
 
@@ -79,11 +96,11 @@ def _transform(
     rate: str = "point",
 ) -> MeasurementTransformDef:
     return MeasurementTransformDef(
-        id=MeasurementTransformId(transform_id),
+        id=NativeMeasurementTransformId(transform_id),
         semantic=_semantic(semantic_id or transform_id),
         rate=rate,  # type: ignore[arg-type]
-        inputs=tuple(_port(scenario, name, use) for name, use in inputs),
-        outputs=tuple(_port(scenario, name, use) for name, use in outputs),
+        inputs=tuple(_input_port(scenario, name, use) for name, use in inputs),
+        outputs=tuple(_output_port(scenario, name, use) for name, use in outputs),
     )
 
 
@@ -186,8 +203,8 @@ def test_transform_graph_accepts_a_linked_point_batch() -> None:
 def test_graph_order_and_fingerprint_are_declaration_order_independent(
     order: list[int],
 ) -> None:
-    scenario = measurement_assembly_scenario(use_count=4)
-    source, first, second, independent = scenario.uses
+    scenario = measurement_assembly_scenario(use_count=5, shared_product=True)
+    source, first, second, independent_source, independent = scenario.uses
     declarations = (
         _transform(
             scenario,
@@ -204,7 +221,7 @@ def test_graph_order_and_fingerprint_are_declaration_order_independent(
         _transform(
             scenario,
             "a-independent",
-            (("input", source),),
+            (("input", independent_source),),
             (("output", independent),),
         ),
     )
@@ -224,6 +241,32 @@ def test_graph_order_and_fingerprint_are_declaration_order_independent(
     )
     assert reordered.transforms == canonical.transforms
     assert reordered.contract_fingerprint == canonical.contract_fingerprint
+
+
+def test_graph_rejects_one_exact_input_use_consumed_more_than_once() -> None:
+    scenario = measurement_assembly_scenario(use_count=3)
+    source, left, right = scenario.uses
+    declarations = (
+        _transform(
+            scenario,
+            "left",
+            (("input", source),),
+            (("output", left),),
+        ),
+        _transform(
+            scenario,
+            "right",
+            (("input", source),),
+            (("output", right),),
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as caught:
+        verify_measurement_transform_graph(scenario.linked_points, declarations)
+
+    assert "measurement_transform_input_owner_duplicate" in {
+        problem.code for problem in caught.value.problems
+    }
 
 
 def test_graph_rejects_cycles_duplicate_output_owners_and_foreign_uses() -> None:
@@ -258,17 +301,17 @@ def test_graph_rejects_cycles_duplicate_output_owners_and_foreign_uses() -> None
         ),
     )
     foreign = MeasurementTransformDef(
-        id=MeasurementTransformId("foreign"),
+        id=NativeMeasurementTransformId("foreign"),
         semantic=_semantic("foreign"),
         rate="point",
         inputs=(
-            MeasurementTransformPort(
+            MeasurementTransformInputPort(
                 id="input",
                 product_use_id=ProductUseId("foreign-use"),
                 product=_product(scenario, left),
             ),
         ),
-        outputs=(_port(scenario, "output", right),),
+        outputs=(_output_port(scenario, "output", right),),
     )
 
     for declarations in (cycle, duplicate_owner, (foreign,)):
@@ -283,27 +326,27 @@ def test_graph_rejects_duplicate_ports_and_wrong_product_snapshot() -> None:
     scenario = measurement_assembly_scenario(use_count=2)
     source, output = scenario.uses
     duplicate = MeasurementTransformDef(
-        id=MeasurementTransformId("duplicate-port"),
+        id=NativeMeasurementTransformId("duplicate-port"),
         semantic=_semantic("duplicate-port"),
         rate="point",
         inputs=(
-            _port(scenario, "same", source),
-            _port(scenario, "same", source),
+            _input_port(scenario, "same", source),
+            _input_port(scenario, "same", source),
         ),
-        outputs=(_port(scenario, "output", output),),
+        outputs=(_output_port(scenario, "output", output),),
     )
     wrong_product = MeasurementTransformDef(
-        id=MeasurementTransformId("wrong-product"),
+        id=NativeMeasurementTransformId("wrong-product"),
         semantic=_semantic("wrong-product"),
         rate="point",
         inputs=(
-            MeasurementTransformPort(
+            MeasurementTransformInputPort(
                 id="input",
                 product_use_id=source.id,
                 product=_product(scenario, output),
             ),
         ),
-        outputs=(_port(scenario, "output", output),),
+        outputs=(_output_port(scenario, "output", output),),
     )
 
     with pytest.raises(CheckFailed):
@@ -349,7 +392,7 @@ def test_semantic_parameters_are_recursively_frozen_and_snapshot_inputs() -> Non
         nested["thresholds"] = ()
 
 
-def test_host_selection_requires_explicit_binding_and_rejects_point_set() -> None:
+def test_host_selection_requires_explicit_binding() -> None:
     scenario = measurement_assembly_scenario(use_count=2)
     source, output = scenario.uses
     point = _transform(
@@ -391,50 +434,6 @@ def test_host_selection_requires_explicit_binding_and_rejects_point_set() -> Non
                 ),
             ),
         )
-
-    calls = 0
-
-    def point_set_kernel(
-        call: HostMeasurementTransformCall,
-    ) -> Mapping[str, MeasurementValue]:
-        nonlocal calls
-        calls += 1
-        return {"output": call.inputs["input"]}
-
-    point_set = _transform(
-        scenario,
-        "point-set",
-        (("input", source),),
-        (("output", output),),
-        semantic_id="identity",
-        rate="point_set",
-    )
-    point_set_graph = verify_measurement_transform_graph(
-        scenario.linked_points,
-        (point_set,),
-    )
-    with pytest.raises(CheckFailed):
-        select_host_measurement_transforms(
-            point_set_graph,
-            (
-                HostMeasurementTransformImplementation(
-                    id="point-set",
-                    semantic_id="identity",
-                    semantic_version="1",
-                    rate="point_set",
-                    implementation_fingerprint="point-set-fingerprint",
-                    validate_transform=lambda _transform: None,
-                    kernel=point_set_kernel,
-                ),
-            ),
-            (
-                HostMeasurementTransformImplementationBinding(
-                    point_set.id,
-                    "point-set",
-                ),
-            ),
-        )
-    assert calls == 0
 
 
 def test_host_capability_validator_rejects_before_kernel() -> None:
@@ -676,7 +675,7 @@ def test_kernel_fault_is_sanitized_logged_and_safe_to_retry(
     *_prefix, bound, source = _one_transform_plan(kernel=flaky_kernel)
 
     with (
-        caplog.at_level("ERROR", logger="scopecat.measurements.transforms"),
+        caplog.at_level("ERROR", logger="scopecat.measurements.host_transforms"),
         pytest.raises(MeasurementTransformExecutionError) as caught,
     ):
         execute_host_measurement_transforms(bound, (source,))
@@ -782,9 +781,77 @@ def test_record_aliases_do_not_multiply_transform_execution() -> None:
     assert calls == len(scenario.linked_points.point_domain.points)
 
 
+def test_point_runner_fans_one_semantic_output_out_to_every_product_use() -> None:
+    scenario = measurement_assembly_scenario(use_count=3, shared_product=True)
+    source, first_output, second_output = scenario.uses
+    transform = MeasurementTransformDef(
+        id=NativeMeasurementTransformId("fan-out"),
+        semantic=_semantic("identity"),
+        rate="point",
+        inputs=(_input_port(scenario, "input", source),),
+        outputs=(
+            MeasurementTransformOutputPort(
+                id="output",
+                product_use_ids=(first_output.id, second_output.id),
+                product=_product(scenario, first_output),
+            ),
+        ),
+    )
+    graph = verify_measurement_transform_graph(scenario.linked_points, (transform,))
+    calls = 0
+
+    def kernel(
+        call: HostMeasurementTransformCall,
+    ) -> Mapping[str, MeasurementValue]:
+        nonlocal calls
+        calls += 1
+        return {"output": call.inputs["input"]}
+
+    implementation = _implementation("identity", kernel)
+    selected = select_host_measurement_transforms(
+        graph,
+        (implementation,),
+        (
+            HostMeasurementTransformImplementationBinding(
+                transform.id,
+                implementation.id,
+            ),
+        ),
+    )
+    assembly = select_measurement_value_assembly(
+        scenario.linked_points,
+        required_product_use_ids=tuple(use.id for use in scenario.uses),
+        fragment_defs=(
+            ProductValueFragmentDef("source", (source.id,)),
+            ProductValueFragmentDef(
+                "derived",
+                (first_output.id, second_output.id),
+            ),
+        ),
+    )
+    bound = bind_host_measurement_transforms(
+        selected,
+        assembly,
+        (HostMeasurementTransformFragmentBinding(transform.id, "derived"),),
+    )
+    source_fragment = seal_measurement_value_fragment(
+        assembly,
+        "source",
+        measurement_value_candidates(scenario, (source,)),
+    )
+
+    executed = execute_host_measurement_transforms(bound, (source_fragment,))
+
+    assert calls == len(scenario.linked_points.point_domain.points)
+    for point in scenario.linked_points.point_domain.points:
+        first = executed.values.value_for_output(point.logical_id, first_output.id)
+        second = executed.values.value_for_output(point.logical_id, second_output.id)
+        assert first.value == second.value
+
+
 def test_public_dataclasses_reject_wrong_runtime_field_types_early() -> None:
     with pytest.raises(TypeError, match="must be a string"):
-        MeasurementTransformId(cast("str", 1))
+        NativeMeasurementTransformId(cast("str", 1))
     with pytest.raises(TypeError, match="validator must be callable"):
         HostMeasurementTransformImplementation(
             id="bad-validator",
@@ -793,5 +860,29 @@ def test_public_dataclasses_reject_wrong_runtime_field_types_early() -> None:
             rate="point",
             implementation_fingerprint="bad-validator-fingerprint",
             validate_transform=cast("object", None),  # type: ignore[arg-type]
+            kernel=_identity_kernel,
+        )
+
+
+def test_native_transform_boundaries_accept_point_rate_only() -> None:
+    scenario = measurement_assembly_scenario(use_count=2)
+    source, output = scenario.uses
+
+    with pytest.raises(ValueError, match="rate must be point"):
+        _transform(
+            scenario,
+            "unsupported-rate",
+            (("input", source),),
+            (("output", output),),
+            rate="point_set",
+        )
+    with pytest.raises(ValueError, match="rate must be point"):
+        HostMeasurementTransformImplementation(
+            id="unsupported-rate",
+            semantic_id="identity",
+            semantic_version="1",
+            rate="point_set",  # type: ignore[arg-type]
+            implementation_fingerprint="unsupported-rate-fingerprint",
+            validate_transform=lambda _transform: None,
             kernel=_identity_kernel,
         )

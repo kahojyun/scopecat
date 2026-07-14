@@ -18,46 +18,44 @@ from scopecat.kernel.problems import (
 )
 from scopecat.planning import backend as execution_backends
 from scopecat.records.run_plan import RunPlanDomainExecution, RunPlanRecord
+from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import (
-    DomainExecutionRequest,
     PreparedDomainExecution,
 )
 from scopecat.sdk.domain.invocation import DomainInvocationIntent
 from scopecat.sdk.domain.runtime import (
     DomainFetchCandidate,
     DomainFetchReceipt,
-    DomainSubmissionId,
+    DomainFetchRequest,
     DomainSubmitReceipt,
-    domain_receipt_identity,
+    DomainSubmitRequest,
 )
 
 from quantum_lab_demo import quantum_lab
 from quantum_lab_demo.experiments import READOUT_TEMPLATE
 from quantum_lab_demo.reference_experiments import (
     FAKE_X_COUNT_ADAPTER_ID,
-    FAKE_X_COUNT_EXPERIMENT_ID,
+    FAKE_X_COUNT_CAPTURE_MODULE,
     FAKE_X_COUNT_TEMPLATE,
     FakeXCountDomainExecutionAdapter,
     fake_x_count_scratch_experiment,
 )
 from quantum_lab_demo.targets.fake_list_mode import (
-    ExecutableFakeMeasurementInvocation,
     FakeListDomainRuntime,
     FakeListRun,
+    SelectedFakeMeasurementRealization,
 )
 
 
 class _PendingFakeListDomainRuntime(FakeListDomainRuntime):
     def fetch(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
-        job_id: str,
+        request: DomainFetchRequest,
     ) -> DomainFetchCandidate[FakeListRun]:
         return DomainFetchCandidate(
             receipt=DomainFetchReceipt(
-                identity=domain_receipt_identity(submission_id, intent),
-                job_id=job_id,
+                identity=request.identity,
+                job_id=request.job_id,
                 status="pending",
             )
         )
@@ -66,25 +64,21 @@ class _PendingFakeListDomainRuntime(FakeListDomainRuntime):
 class _RaisingFetchFakeListDomainRuntime(FakeListDomainRuntime):
     def fetch(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
-        job_id: str,
+        request: DomainFetchRequest,
     ) -> DomainFetchCandidate[FakeListRun]:
-        _ = submission_id, intent, job_id
+        _ = request
         raise RuntimeError("target result read failed")
 
 
 class _UnknownFetchFakeListDomainRuntime(FakeListDomainRuntime):
     def fetch(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
-        job_id: str,
+        request: DomainFetchRequest,
     ) -> DomainFetchCandidate[FakeListRun]:
         return DomainFetchCandidate(
             receipt=DomainFetchReceipt(
-                identity=domain_receipt_identity(submission_id, intent),
-                job_id=job_id,
+                identity=request.identity,
+                job_id=request.job_id,
                 status="unknown",
                 problems=(
                     blocking_problem(
@@ -107,10 +101,9 @@ class _PendingFakeXCountAdapter(FakeXCountDomainExecutionAdapter):
 class _IndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
     def submit(
         self,
-        submission_id: DomainSubmissionId,
-        invocation: ExecutableFakeMeasurementInvocation,
+        request: DomainSubmitRequest[SelectedFakeMeasurementRealization],
     ) -> DomainSubmitReceipt:
-        _ = submission_id, invocation
+        _ = request
         raise RuntimeError("target did not return submit evidence")
 
 
@@ -125,8 +118,8 @@ class _RaisingAdapter(FakeXCountDomainExecutionAdapter):
     def adapter_id(self) -> str:
         return "tests.raising-domain-adapter"
 
-    def prepare(self, request: DomainExecutionRequest) -> PreparedDomainExecution:
-        del request
+    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
+        del context
         raise RuntimeError("adapter implementation defect")
 
 
@@ -135,9 +128,41 @@ class _WrongResultAdapter(FakeXCountDomainExecutionAdapter):
     def adapter_id(self) -> str:
         return "tests.wrong-result-domain-adapter"
 
-    def prepare(self, request: DomainExecutionRequest) -> PreparedDomainExecution:
-        del request
+    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
+        del context
         return cast("PreparedDomainExecution", object())
+
+
+def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -> None:
+    body = FAKE_X_COUNT_CAPTURE_MODULE.ir.body
+    [program] = body.domain_programs
+    [call] = body.domain_calls
+    [transform] = body.measurement_transforms
+
+    assert tuple(port.id for port in program.result_ports) == ("iq_shots",)
+    assert tuple(result_id for result_id, _product in call.result_bindings) == (
+        "iq_shots",
+    )
+    assert call.result_bindings[0][1].local_id == "integrated_iq_shots"
+    assert [(role, product.local_id) for role, product in transform.input_bindings] == [
+        ("iq_shots", "integrated_iq_shots")
+    ]
+    assert [
+        (role, product.local_id) for role, product in transform.output_bindings
+    ] == [
+        ("probability_0", "probability_0"),
+        ("probability_1", "probability_1"),
+    ]
+    assert transform.semantic.id == (
+        "scopecat_quantum.readout.binary_iq_discrimination"
+    )
+    assert transform.semantic.portability == "host_only"
+    assert transform.semantic.parameters["discriminator"] == {
+        "schema_version": "scopecat_quantum.binary_iq_discriminator.v1",
+        "state_0_centroid": {"real": -1.0, "imag": 0.0, "unit": "ratio"},
+        "state_1_centroid": {"real": 1.0, "imag": 0.0, "unit": "ratio"},
+        "tie_policy": "state_0",
+    }
 
 
 def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
@@ -181,7 +206,6 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         assert adapter.runtime.physical_execution_count == 1
         assert preview.point_count == plan.point_count == len(dataset.records) == 4
         assert {record.id: record.producer_kind for record in preview.records} == {
-            "integrated_iq_shots": "domain",
             "probability_0": "host_transform",
             "probability_1": "host_transform",
         }
@@ -429,7 +453,7 @@ def _standard_domain_semantics(
     execution = _domain_execution(plan)
     [batch] = execution.batches
     assert execution.adapter_id == FAKE_X_COUNT_ADAPTER_ID
-    assert batch.semantic_operation_id == FAKE_X_COUNT_EXPERIMENT_ID
+    assert batch.semantic_operation_id == "capture/execute"
     assert batch.completion_contract == "synchronous"
     assert batch.invocation_id == intent.invocation_id
     assert batch.intent_fingerprint == intent.intent_fingerprint

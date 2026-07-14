@@ -155,8 +155,11 @@ def materialize_local_plan(
     program = linked.program
     if task_coverage is not None:
         selected_tasks = tuple(task_coverage.tasks)
-        if any(task.kind == "product" for task in selected_tasks):
-            msg = "local non-product task coverage cannot contain product tasks"
+        unsupported = tuple(
+            task for task in selected_tasks if task.kind in {"product", "domain_call"}
+        )
+        if unsupported:
+            msg = "local point materialization cannot own product or domain-call tasks"
             raise ValueError(msg)
         selected_ids = {
             kind: {task.id for task in selected_tasks if task.kind == kind}

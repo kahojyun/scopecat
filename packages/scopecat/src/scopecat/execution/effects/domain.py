@@ -18,7 +18,7 @@ from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemPhase,
 )
-from scopecat.measurements.transforms import execute_host_measurement_transforms
+from scopecat.measurements.host_transforms import execute_host_measurement_transforms
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     assemble_measurement_values,
@@ -26,6 +26,11 @@ from scopecat.measurements.values import (
 )
 from scopecat.sdk.domain.execution import (
     PreparedDomainExecution,
+    prepared_domain_invocation_internal,
+    prepared_domain_realizer_internal,
+    prepared_domain_runtime_internal,
+    prepared_domain_source_fragment_internal,
+    prepared_domain_transforms_internal,
 )
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
@@ -52,20 +57,22 @@ def execute_domain_job_values(
 ) -> ClosedMeasurementProductValues:
     """Execute one closed domain job and return producer-neutral values."""
 
+    invocation = prepared_domain_invocation_internal(prepared)
+    runtime = prepared_domain_runtime_internal(prepared)
     submission_id = plan_domain_submission(
-        prepared.invocation,
+        invocation,
         run_id=run_id,
         semantic_operation_id=prepared.semantic_operation_id,
     )
     submission = submit_domain_invocation(
-        prepared.runtime,
-        prepared.invocation,
+        runtime,
+        invocation,
         submission_id,
         journal=journal,
     )
     fetched = fetch_domain_invocation(
-        prepared.runtime,
-        prepared.invocation.intent,
+        runtime,
+        invocation.intent,
         submission,
         journal=journal,
     )
@@ -75,13 +82,17 @@ def execute_domain_job_values(
             job_id=submission.job_id,
             submission_key=submission_id.submission_key,
         )
-    outputs = prepared.realize(fetched)
-    source = domain_output_fragment(prepared.source_fragment, outputs)
+    outputs = prepared_domain_realizer_internal(prepared)(fetched)
+    source = domain_output_fragment(
+        prepared_domain_source_fragment_internal(prepared),
+        outputs,
+    )
+    transforms = prepared_domain_transforms_internal(prepared)
     return (
         assemble_measurement_values(source.selection, (source,))
-        if prepared.transforms is None
+        if transforms is None
         else execute_host_measurement_transforms(
-            prepared.transforms,
+            transforms,
             (source,),
         ).values
     )

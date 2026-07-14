@@ -17,6 +17,7 @@ def test_public_facade_covers_module_exports_except_disambiguated_composition() 
     facade_names = set(sq.__all__)
 
     assert set(sq.acquisitions.__all__) <= facade_names
+    assert set(sq.authoring.__all__) <= facade_names
     assert set(sq.calibrations.__all__) <= facade_names
     assert set(sq.circuits.__all__) - {"Parallel", "Sequence"} <= facade_names
     assert set(sq.pulses.__all__) - {"Parallel", "Sequence"} <= facade_names

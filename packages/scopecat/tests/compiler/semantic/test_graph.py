@@ -1164,6 +1164,9 @@ def test_callable_and_source_sidecars_do_not_participate_in_graph_equality() -> 
     assert {field.name for field in fields(SemanticGraphIR)} == {
         "value_defs",
         "operations",
+        "measurement_transforms",
+        "domain_programs",
+        "domain_calls",
         "actions",
         "row_regions",
     }

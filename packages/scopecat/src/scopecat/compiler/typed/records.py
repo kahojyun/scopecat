@@ -14,7 +14,9 @@ from scopecat.compiler.relations.model import (
     Row,
 )
 from scopecat.compiler.typed.products import (
+    DomainProductProducer,
     InstrumentProductProducer,
+    MeasurementTransformProductProducer,
     ProductAxisDef,
     ProductDef,
 )
@@ -116,7 +118,11 @@ def plan_records(
 
 def validate_product_graph(
     products: Sequence[ProductDef],
-    producers: Sequence[InstrumentProductProducer],
+    producers: Sequence[
+        InstrumentProductProducer
+        | DomainProductProducer
+        | MeasurementTransformProductProducer
+    ],
     product_uses: Sequence[ProductUse],
     record_uses: Sequence[RecordUse],
     *,
@@ -151,7 +157,7 @@ def validate_product_graph(
                 f"product producer {producer_id.qualified_name!r} is declared "
                 "more than once",
                 model_location(
-                    "instrument_product_producers",
+                    "product_producers",
                     producer_id.qualified_name,
                 ),
                 phase=phase,
@@ -167,7 +173,7 @@ def validate_product_graph(
                 f"product producer {producer.id.qualified_name!r} references "
                 f"unknown product {producer.product_id.qualified_name!r}",
                 model_location(
-                    "instrument_product_producers",
+                    "product_producers",
                     producer.id.qualified_name,
                     "product_id",
                 ),
@@ -175,6 +181,66 @@ def validate_product_graph(
                 category=ProblemCategory.NOT_FOUND,
             )
         )
+
+    producers_by_product: dict[
+        ProductId,
+        list[
+            InstrumentProductProducer
+            | DomainProductProducer
+            | MeasurementTransformProductProducer
+        ],
+    ] = {}
+    for producer in producers:
+        producers_by_product.setdefault(producer.product_id, []).append(producer)
+    for product_id, selected in producers_by_product.items():
+        instrument = tuple(
+            producer
+            for producer in selected
+            if isinstance(producer, InstrumentProductProducer)
+        )
+        domain = tuple(
+            producer
+            for producer in selected
+            if isinstance(producer, DomainProductProducer)
+        )
+        transforms = tuple(
+            producer
+            for producer in selected
+            if isinstance(producer, MeasurementTransformProductProducer)
+        )
+        if instrument and domain:
+            problems.append(
+                compiler_problem(
+                    "domain_product_instrument_producer_conflict",
+                    f"domain-bound product {product_id.qualified_name!r} also has "
+                    "an instrument producer",
+                    model_location("product_producers", product_id.qualified_name),
+                    phase=phase,
+                    category=ProblemCategory.CONFLICT,
+                )
+            )
+        if instrument and transforms:
+            problems.append(
+                compiler_problem(
+                    "measurement_transform_product_instrument_producer_conflict",
+                    f"transform-derived product {product_id.qualified_name!r} also "
+                    "has an instrument producer",
+                    model_location("product_producers", product_id.qualified_name),
+                    phase=phase,
+                    category=ProblemCategory.CONFLICT,
+                )
+            )
+        if domain and transforms:
+            problems.append(
+                compiler_problem(
+                    "measurement_transform_product_domain_producer_conflict",
+                    f"transform-derived product {product_id.qualified_name!r} also "
+                    "has a domain producer",
+                    model_location("product_producers", product_id.qualified_name),
+                    phase=phase,
+                    category=ProblemCategory.CONFLICT,
+                )
+            )
 
     use_counts = Counter(use.id for use in product_uses)
     uses_by_id = {use.id: use for use in product_uses}

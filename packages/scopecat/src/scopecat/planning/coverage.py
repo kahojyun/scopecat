@@ -20,6 +20,8 @@ type ExecutionTaskKind = Literal[
     "compute",
     "state",
     "action",
+    "domain_call",
+    "measurement_transform",
     "product",
 ]
 type ExecutionResourceKind = Literal["target", "instrument", "channel", "group"]
@@ -30,7 +32,9 @@ _TASK_KIND_ORDER: dict[ExecutionTaskKind, int] = {
     "compute": 2,
     "state": 3,
     "action": 4,
-    "product": 5,
+    "domain_call": 5,
+    "measurement_transform": 6,
+    "product": 7,
 }
 
 
@@ -124,6 +128,17 @@ def program_execution_coverage(program: TypedProgram) -> ExecutionCoverage:
             *(
                 ExecutionTask("action", action.id.qualified_name)
                 for action in program.actions
+            ),
+            *(
+                ExecutionTask("domain_call", call.id.qualified_name)
+                for call in program.domain_calls
+            ),
+            *(
+                ExecutionTask(
+                    "measurement_transform",
+                    transform.id.qualified_name,
+                )
+                for transform in program.measurement_transforms
             ),
             *(ExecutionTask("product", use.id.value) for use in program.product_uses),
         )

@@ -16,131 +16,32 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, cast
 
-from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
-    MaterializedLinkedPoints,
-)
-from scopecat.measurements.projection import BoundMeasurementProjection
-from scopecat.measurements.transforms import BoundHostMeasurementTransformPlan
+from scopecat.measurements.host_transforms import BoundHostMeasurementTransformPlan
 from scopecat.measurements.values import BoundDomainMeasurementValueFragment
-from scopecat.planning.coverage import (
-    ExecutionCoverage,
-    ExecutionResourceClaim,
-    ExecutionTask,
-    product_execution_coverage,
-)
+from scopecat.planning.coverage import ExecutionResourceClaim
 from scopecat.records.run_plan import RunPlanDomainBatch
+from scopecat.sdk.domain.context import (
+    DomainBatchContext,
+    DomainExecutionOffer,
+    context_adapter_id_internal,
+    context_linked_points_internal,
+)
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     ClosedDomainOutputValues,
-    ProductUseId,
 )
 from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime
+from scopecat.sdk.domain.view import DomainBatchView, DomainProductUseRef
 
 type ErasedDomainInvocation = ClosedDomainInvocation[Hashable, Hashable, object]
-type ErasedDomainRuntime = DomainRuntime[
-    Hashable,
-    Hashable,
-    object,
-    object,
-]
+type ErasedDomainRuntime = DomainRuntime[object, object]
 type ErasedDomainRealizer = Callable[
     [CorrelatedDomainFetch[object]],
     ClosedDomainOutputValues[Hashable, Hashable],
 ]
 
 
-@dataclass(frozen=True, slots=True)
-class DomainExecutionCapabilities:
-    """One adapter's exact offer for a fully materialized linked program.
-
-    Product and non-product ownership are plan-specific. Direct domain products
-    are distinguished from adapter-owned host transforms so even a zero-point
-    run retains correct producer evidence. Batch capacity is a stable
-    adapter/target limit which the unified backend may further reduce using run
-    options or host-owned effect barriers.
-    """
-
-    product_use_ids: tuple[ProductUseId, ...]
-    domain_product_use_ids: tuple[ProductUseId, ...]
-    claimed_tasks: tuple[ExecutionTask, ...] = ()
-    max_points_per_batch: int = 1
-
-    def __post_init__(self) -> None:
-        product_use_ids = tuple(self.product_use_ids)
-        if any(
-            not isinstance(cast("object", use_id), ProductUseId)
-            for use_id in product_use_ids
-        ):
-            msg = "domain execution capabilities require ProductUseId values"
-            raise TypeError(msg)
-        if len(product_use_ids) != len(set(product_use_ids)):
-            msg = "domain execution capabilities require unique product uses"
-            raise ValueError(msg)
-        domain_product_use_ids = tuple(self.domain_product_use_ids)
-        if any(
-            not isinstance(cast("object", use_id), ProductUseId)
-            for use_id in domain_product_use_ids
-        ):
-            msg = "domain execution capabilities require direct ProductUseId values"
-            raise TypeError(msg)
-        if len(domain_product_use_ids) != len(set(domain_product_use_ids)):
-            msg = "domain execution capabilities require unique direct product uses"
-            raise ValueError(msg)
-        if not set(domain_product_use_ids) <= set(product_use_ids):
-            msg = "direct domain products must be owned by the adapter"
-            raise ValueError(msg)
-        claimed_tasks = tuple(self.claimed_tasks)
-        coverage = ExecutionCoverage(claimed_tasks)
-        if any(task.kind == "product" for task in coverage.tasks):
-            msg = (
-                "domain execution capability product ownership belongs in "
-                "product_use_ids"
-            )
-            raise ValueError(msg)
-        if not product_use_ids and not coverage.tasks:
-            msg = "domain execution capabilities must own at least one task"
-            raise ValueError(msg)
-        if type(self.max_points_per_batch) is not int:
-            msg = "domain max_points_per_batch must be an integer"
-            raise TypeError(msg)
-        if self.max_points_per_batch <= 0:
-            msg = "domain max_points_per_batch must be positive"
-            raise ValueError(msg)
-        object.__setattr__(self, "product_use_ids", product_use_ids)
-        object.__setattr__(self, "domain_product_use_ids", domain_product_use_ids)
-        object.__setattr__(self, "claimed_tasks", coverage.tasks)
-
-    @property
-    def coverage(self) -> ExecutionCoverage:
-        products = product_execution_coverage(self.product_use_ids)
-        return ExecutionCoverage((*self.claimed_tasks, *products.tasks))
-
-
-@dataclass(frozen=True, slots=True)
-class DomainExecutionRequest:
-    """Backend-selected contiguous logical points for one adapter invocation."""
-
-    batch: MaterializedLinkedPointBatch = field(repr=False)
-    batch_ordinal: int
-
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.batch), MaterializedLinkedPointBatch):
-            msg = "domain execution requests require a linked point batch"
-            raise TypeError(msg)
-        if type(self.batch_ordinal) is not int:
-            msg = "domain execution batch ordinals must be integers"
-            raise TypeError(msg)
-        if self.batch_ordinal < 0:
-            msg = "domain execution batch ordinals must be non-negative"
-            raise ValueError(msg)
-
-    @property
-    def linked_points(self) -> MaterializedLinkedPointBatch:
-        return self.batch
-
-
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class PreparedDomainExecution:
     """A pure proof that one linked program is ready for domain effects.
 
@@ -150,85 +51,70 @@ class PreparedDomainExecution:
     """
 
     adapter_id: str
-    semantic_operation_id: str
-    linked_points: MaterializedLinkedPointBatch = field(repr=False)
-    invocation: ErasedDomainInvocation = field(repr=False)
-    runtime: ErasedDomainRuntime = field(repr=False, compare=False)
-    realize: ErasedDomainRealizer = field(repr=False, compare=False)
-    source_fragment: BoundDomainMeasurementValueFragment[
+    context: DomainBatchContext = field(repr=False)
+    _invocation: ErasedDomainInvocation = field(repr=False)
+    _runtime: ErasedDomainRuntime = field(repr=False, compare=False)
+    _realize: ErasedDomainRealizer = field(repr=False, compare=False)
+    _source_fragment: BoundDomainMeasurementValueFragment[
         Hashable,
         Hashable,
     ] = field(repr=False)
-    projection: BoundMeasurementProjection = field(repr=False)
-    claimed_tasks: tuple[ExecutionTask, ...] = ()
-    resource_claims: tuple[ExecutionResourceClaim, ...] = ()
-    transforms: BoundHostMeasurementTransformPlan | None = field(
+    _resource_claims: tuple[ExecutionResourceClaim, ...] = field(
+        default=(),
+        repr=False,
+    )
+    _transforms: BoundHostMeasurementTransformPlan | None = field(
         default=None,
         repr=False,
     )
     completion_contract: Literal["synchronous"] = "synchronous"
 
+    def __init__(self) -> None:
+        msg = "prepared domain executions are minted by a preparation builder"
+        raise TypeError(msg)
+
     def __post_init__(self) -> None:
-        if not isinstance(
-            cast("object", self.linked_points),
-            MaterializedLinkedPointBatch,
-        ):
-            msg = "prepared domain executions require a linked point batch"
+        if not isinstance(cast("object", self.context), DomainBatchContext):
+            msg = "prepared domain executions require a domain batch context"
             raise TypeError(msg)
-        if not self.adapter_id:
-            msg = "domain execution adapter_id must be non-empty"
+        if self.adapter_id != context_adapter_id_internal(self.context):
+            msg = "prepared domain execution lost its context adapter identity"
             raise ValueError(msg)
-        if not self.semantic_operation_id:
-            msg = "domain execution semantic_operation_id must be non-empty"
-            raise ValueError(msg)
-        if not callable(self.realize):
+        if not callable(self._realize):
             msg = "domain execution realizer must be callable"
             raise TypeError(msg)
         if self.completion_contract != "synchronous":
             msg = "domain execution currently supports only synchronous completion"
             raise ValueError(msg)
         for method_name in ("submit", "fetch", "reconcile"):
-            if not callable(getattr(self.runtime, method_name, None)):
+            if not callable(getattr(self._runtime, method_name, None)):
                 msg = f"domain runtime requires a callable {method_name} method"
                 raise TypeError(msg)
 
-        claimed_tasks = tuple(self.claimed_tasks)
-        if any(task.kind == "product" for task in claimed_tasks):
-            msg = (
-                "domain product coverage is derived from its bound value assembly; "
-                "claimed_tasks must contain only non-product tasks"
-            )
-            raise ValueError(msg)
-        ExecutionCoverage(claimed_tasks)
-        resource_claims = tuple(self.resource_claims)
+        resource_claims = tuple(self._resource_claims)
         if len(resource_claims) != len(set(resource_claims)):
             msg = "domain execution resource claims must be unique"
             raise ValueError(msg)
-        object.__setattr__(self, "claimed_tasks", claimed_tasks)
-        object.__setattr__(self, "resource_claims", resource_claims)
+        object.__setattr__(self, "_resource_claims", resource_claims)
 
-        assembly = self.source_fragment.selection
-        linked_points = self.linked_points
-        if self.invocation.result_mapping.linked_points is not linked_points:
+        assembly = self._source_fragment.selection
+        linked_points = context_linked_points_internal(self.context)
+        if self._invocation.result_mapping.linked_points is not linked_points:
             msg = "domain invocation must retain the prepared linked points"
             raise ValueError(msg)
         if assembly.linked_points is not linked_points:
             msg = "domain source fragment must retain the prepared linked points"
             raise ValueError(msg)
-        if self.projection.product_values is not assembly:
-            msg = "domain projection must retain the source value assembly"
-            raise ValueError(msg)
         if (
-            self.source_fragment.result_contract_fingerprint
-            != self.invocation.result_mapping.contract_fingerprint
+            self._source_fragment.result_contract_fingerprint
+            != self._invocation.result_mapping.contract_fingerprint
         ):
             msg = "domain source fragment must retain the invocation result contract"
             raise ValueError(msg)
-
-        transforms = self.transforms
+        transforms = self._transforms
         if transforms is None:
             if tuple(fragment.id for fragment in assembly.fragments) != (
-                self.source_fragment.fragment_id,
+                self._source_fragment.fragment_id,
             ):
                 msg = "domain execution without transforms requires one source fragment"
                 raise ValueError(msg)
@@ -236,32 +122,25 @@ class PreparedDomainExecution:
         if transforms.value_assembly is not assembly:
             msg = "domain transforms must retain the source value assembly"
             raise ValueError(msg)
-        if transforms.source_fragment_ids != (self.source_fragment.fragment_id,):
+        if transforms.source_fragment_ids != (self._source_fragment.fragment_id,):
             msg = "domain execution currently requires exactly one domain source"
             raise ValueError(msg)
 
     @property
-    def domain_product_use_ids(self) -> frozenset[ProductUseId]:
-        """Return logical uses produced directly by the domain invocation."""
+    def direct_product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        """Return exact SDK references produced by the physical target."""
 
-        return frozenset(
-            self.source_fragment.selection.fragment(
-                self.source_fragment.fragment_id
-            ).product_use_ids
-        )
+        return self.context.direct_product_uses
 
     @property
-    def owned_product_use_ids(self) -> tuple[ProductUseId, ...]:
-        """Return every direct or host-transformed value owned by this job."""
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        """Return every direct or host-derived value owned by this job."""
 
-        return self.projection.product_values.product_use_ids
+        return self.context.product_uses
 
     @property
-    def coverage(self) -> ExecutionCoverage:
-        """Return exact semantic ownership selected for this domain job."""
-
-        products = product_execution_coverage(self.owned_product_use_ids)
-        return ExecutionCoverage((*self.claimed_tasks, *products.tasks))
+    def semantic_operation_id(self) -> str:
+        return self.context.call.id
 
 
 class DomainExecutionAdapter(Protocol):
@@ -275,29 +154,29 @@ class DomainExecutionAdapter(Protocol):
     @property
     def adapter_id(self) -> str: ...
 
-    def capabilities(
+    def select(
         self,
-        linked_points: MaterializedLinkedPoints,
-    ) -> DomainExecutionCapabilities | None: ...
+        view: DomainBatchView,
+    ) -> DomainExecutionOffer | None: ...
 
-    def prepare(self, request: DomainExecutionRequest) -> PreparedDomainExecution: ...
+    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution: ...
 
 
-def project_domain_run_plan_batch(
+def project_domain_run_plan_batch_internal(
     prepared: PreparedDomainExecution,
     *,
-    request: DomainExecutionRequest,
+    context: DomainBatchContext,
 ) -> RunPlanDomainBatch:
     """Project one accepted batch identity without adapter payloads."""
 
-    if prepared.linked_points is not request.batch:
-        msg = "domain run-plan batches must retain their execution request"
+    if prepared.context is not context:
+        msg = "domain run-plan batches must retain their preparation context"
         raise ValueError(msg)
 
-    intent = prepared.invocation.intent
+    intent = prepared_domain_invocation_internal(prepared).intent
     return RunPlanDomainBatch(
-        batch_ordinal=request.batch_ordinal,
-        point_indices=list(request.batch.point_indices),
+        batch_ordinal=context.batch_ordinal,
+        point_indices=list(context_linked_points_internal(context).point_indices),
         semantic_operation_id=prepared.semantic_operation_id,
         completion_contract=prepared.completion_contract,
         invocation_id=intent.invocation_id,
@@ -310,18 +189,16 @@ def project_domain_run_plan_batch(
     )
 
 
-def erase_prepared_domain_execution[
+def make_prepared_domain_execution_internal[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
     PayloadT,
     ResultT,
 ](
     *,
-    adapter_id: str,
-    semantic_operation_id: str,
-    linked_points: MaterializedLinkedPointBatch,
+    context: DomainBatchContext,
     invocation: ClosedDomainInvocation[EntryAddressT, ResultAddressT, PayloadT],
-    runtime: DomainRuntime[EntryAddressT, ResultAddressT, PayloadT, ResultT],
+    runtime: DomainRuntime[PayloadT, ResultT],
     realize: Callable[
         [CorrelatedDomainFetch[ResultT]],
         ClosedDomainOutputValues[EntryAddressT, ResultAddressT],
@@ -330,36 +207,77 @@ def erase_prepared_domain_execution[
         EntryAddressT,
         ResultAddressT,
     ],
-    projection: BoundMeasurementProjection,
-    claimed_tasks: tuple[ExecutionTask, ...] = (),
     resource_claims: tuple[ExecutionResourceClaim, ...] = (),
     transforms: BoundHostMeasurementTransformPlan | None = None,
 ) -> PreparedDomainExecution:
     """Close one concrete adapter type family behind the core execution ABI."""
 
-    return PreparedDomainExecution(
-        adapter_id=adapter_id,
-        semantic_operation_id=semantic_operation_id,
-        linked_points=linked_points,
-        invocation=cast("ErasedDomainInvocation", invocation),
-        runtime=cast("ErasedDomainRuntime", runtime),
-        realize=cast("ErasedDomainRealizer", realize),
-        source_fragment=cast(
+    selected = object.__new__(PreparedDomainExecution)
+    object.__setattr__(
+        selected,
+        "adapter_id",
+        context_adapter_id_internal(context),
+    )
+    object.__setattr__(selected, "context", context)
+    object.__setattr__(
+        selected,
+        "_invocation",
+        cast("ErasedDomainInvocation", invocation),
+    )
+    object.__setattr__(selected, "_runtime", cast("ErasedDomainRuntime", runtime))
+    object.__setattr__(selected, "_realize", cast("ErasedDomainRealizer", realize))
+    object.__setattr__(
+        selected,
+        "_source_fragment",
+        cast(
             "BoundDomainMeasurementValueFragment[Hashable, Hashable]",
             source_fragment,
         ),
-        projection=projection,
-        claimed_tasks=claimed_tasks,
-        resource_claims=resource_claims,
-        transforms=transforms,
     )
+    object.__setattr__(selected, "_resource_claims", resource_claims)
+    object.__setattr__(selected, "_transforms", transforms)
+    object.__setattr__(selected, "completion_contract", "synchronous")
+    selected.__post_init__()
+    return selected
+
+
+def prepared_domain_invocation_internal(
+    prepared: PreparedDomainExecution,
+) -> ErasedDomainInvocation:
+    return object.__getattribute__(prepared, "_invocation")
+
+
+def prepared_domain_runtime_internal(
+    prepared: PreparedDomainExecution,
+) -> ErasedDomainRuntime:
+    return object.__getattribute__(prepared, "_runtime")
+
+
+def prepared_domain_realizer_internal(
+    prepared: PreparedDomainExecution,
+) -> ErasedDomainRealizer:
+    return object.__getattribute__(prepared, "_realize")
+
+
+def prepared_domain_source_fragment_internal(
+    prepared: PreparedDomainExecution,
+) -> BoundDomainMeasurementValueFragment[Hashable, Hashable]:
+    return object.__getattribute__(prepared, "_source_fragment")
+
+
+def prepared_domain_transforms_internal(
+    prepared: PreparedDomainExecution,
+) -> BoundHostMeasurementTransformPlan | None:
+    return object.__getattribute__(prepared, "_transforms")
+
+
+def prepared_domain_resource_claims_internal(
+    prepared: PreparedDomainExecution,
+) -> tuple[ExecutionResourceClaim, ...]:
+    return object.__getattribute__(prepared, "_resource_claims")
 
 
 __all__ = [
     "DomainExecutionAdapter",
-    "DomainExecutionCapabilities",
-    "DomainExecutionRequest",
     "PreparedDomainExecution",
-    "erase_prepared_domain_execution",
-    "project_domain_run_plan_batch",
 ]

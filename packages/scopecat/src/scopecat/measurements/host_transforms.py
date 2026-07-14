@@ -1,4 +1,4 @@
-"""Typed producer-neutral measurement transforms over logical value slots.
+"""Host selection, binding, and execution for measurement transforms.
 
 The graph owns pure semantic meaning and typed logical input/output edges.
 Host callables are selected separately, after linking and before any producer
@@ -8,41 +8,22 @@ returns values through the existing measurement assembly boundary.
 
 from __future__ import annotations
 
-import heapq
 import logging
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import cast
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    JsonValue,
-    field_serializer,
-    field_validator,
-)
+from pydantic import JsonValue
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
-    MaterializedLinkedPoints,
-    MaterializedLinkedPointSet,
-)
 from scopecat.compiler.typed.point_domain import LogicalPointId
-from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import (
     CheckFailed,
     MeasurementTransformExecutionError,
     ProviderContractError,
-)
-from scopecat.kernel.frozen import (
-    FrozenMapping,
-    freeze_json_mapping,
-    thaw_json_value,
 )
 from scopecat.kernel.problems import (
     Problem,
@@ -51,10 +32,20 @@ from scopecat.kernel.problems import (
     blocking_problem,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
     validated_measurement_value_copy,
+)
+from scopecat.measurements.semantics import (
+    MeasurementTransformRate,
+    MeasurementTransformSemanticContract,
+)
+from scopecat.measurements.transform_model import (
+    MeasurementTransformDef,
+    MeasurementTransformInputPort,
+    MeasurementTransformOutputPort,
+    NativeMeasurementTransformId,
+    VerifiedMeasurementTransformGraph,
 )
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
@@ -62,7 +53,6 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     SelectedMeasurementValueAssembly,
     assemble_measurement_values,
-    measurement_value_contract_fingerprint,
     require_measurement_value_assembly,
     require_measurement_value_fragment,
     seal_measurement_value_fragment,
@@ -74,7 +64,6 @@ from scopecat.records.measurement import (
 )
 from scopecat.records.parameter import Quantity
 
-type MeasurementTransformRate = Literal["point", "point_set"]
 type MeasurementTransformPortValues = Mapping[str, MeasurementValue]
 type HostMeasurementTransformKernel = Callable[
     ["HostMeasurementTransformCall"],
@@ -83,165 +72,6 @@ type HostMeasurementTransformKernel = Callable[
 type HostMeasurementTransformValidator = Callable[["MeasurementTransformDef"], None]
 
 logger = logging.getLogger(__name__)
-
-
-def _empty_semantic_parameters() -> FrozenMapping[str, JsonValue]:
-    return FrozenMapping()
-
-
-@dataclass(frozen=True, slots=True)
-class MeasurementTransformId:
-    """Nominal identity of one transform operation, separate from outputs."""
-
-    value: str
-
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.value), str):
-            msg = "measurement transform identity must be a string"
-            raise TypeError(msg)
-        if not self.value:
-            msg = "measurement transform identity must be non-empty"
-            raise ValueError(msg)
-
-    def __str__(self) -> str:
-        return self.value
-
-
-class MeasurementTransformSemanticContract(BaseModel):
-    """Data-only pure meaning that a host or domain realization may satisfy."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: Literal["scopecat.measurement_transform_semantic.v1"] = (
-        "scopecat.measurement_transform_semantic.v1"
-    )
-    id: str = Field(min_length=1)
-    version: str = Field(min_length=1)
-    purity: Literal["pure"] = "pure"
-    portability: Literal["portable", "host_only"] = "portable"
-    parameters: Mapping[str, JsonValue] = Field(
-        default_factory=_empty_semantic_parameters,
-    )
-
-    @field_validator("parameters", mode="after")
-    @classmethod
-    def freeze_parameters(
-        cls,
-        value: Mapping[str, JsonValue],
-    ) -> FrozenMapping[str, JsonValue]:
-        return freeze_json_mapping(
-            value,
-            path="measurement transform semantic parameters",
-        )
-
-    @field_serializer("parameters")
-    def serialize_parameters(self, value: Mapping[str, JsonValue]) -> object:
-        return thaw_json_value(value)
-
-    @property
-    def contract_fingerprint(self) -> str:
-        return stable_content_hash(content_fingerprint(self))
-
-
-@dataclass(frozen=True, slots=True)
-class MeasurementTransformPort:
-    """Typed edge from one transform-local semantic role to a linked slot.
-
-    ``id`` is the stable role understood by the semantic contract and its
-    implementations. ``product_use_id`` is graph wiring and may change while
-    the role-level semantic contract remains equal.
-    """
-
-    id: str
-    product_use_id: ProductUseId
-    product: ProductDef = field(repr=False)
-
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.id), str):
-            msg = "measurement transform port id must be a string"
-            raise TypeError(msg)
-        if not self.id:
-            msg = "measurement transform port id must be non-empty"
-            raise ValueError(msg)
-        if not isinstance(cast("object", self.product_use_id), ProductUseId):
-            msg = "measurement transform ports require ProductUseId values"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.product), ProductDef):
-            msg = "measurement transform ports require ProductDef contracts"
-            raise TypeError(msg)
-        object.__setattr__(self, "product", self.product.model_copy(deep=True))
-
-    @property
-    def contract_fingerprint(self) -> str:
-        return stable_content_hash(
-            content_fingerprint(
-                {
-                    "id": self.id,
-                    "product_use_id": self.product_use_id.value,
-                    "product": self.product,
-                }
-            )
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class MeasurementTransformDef:
-    """One multi-input, multi-output pure transform declaration."""
-
-    id: MeasurementTransformId
-    semantic: MeasurementTransformSemanticContract
-    rate: MeasurementTransformRate
-    inputs: tuple[MeasurementTransformPort, ...]
-    outputs: tuple[MeasurementTransformPort, ...]
-
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.id), MeasurementTransformId):
-            msg = "measurement transforms require MeasurementTransformId"
-            raise TypeError(msg)
-        if not isinstance(
-            cast("object", self.semantic), MeasurementTransformSemanticContract
-        ):
-            msg = "measurement transforms require a semantic contract"
-            raise TypeError(msg)
-        if self.rate not in {"point", "point_set"}:
-            msg = "measurement transform rate must be point or point_set"
-            raise ValueError(msg)
-        selected_inputs = tuple(self.inputs)
-        selected_outputs = tuple(self.outputs)
-        if any(
-            not isinstance(cast("object", port), MeasurementTransformPort)
-            for port in (*selected_inputs, *selected_outputs)
-        ):
-            msg = "measurement transform inputs and outputs require typed ports"
-            raise TypeError(msg)
-        object.__setattr__(self, "inputs", selected_inputs)
-        object.__setattr__(self, "outputs", selected_outputs)
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class VerifiedMeasurementTransformGraph:
-    """Closed typed DAG with canonical topological node order."""
-
-    linked_points: MaterializedLinkedPointSet = field(repr=False)
-    transforms: tuple[MeasurementTransformDef, ...]
-    linked_contract_fingerprint: str
-    contract_fingerprint: str
-
-    def __init__(
-        self,
-        linked_points: MaterializedLinkedPointSet,
-        transforms: tuple[MeasurementTransformDef, ...],
-        linked_contract_fingerprint: str,
-        contract_fingerprint: str,
-    ) -> None:
-        object.__setattr__(self, "linked_points", linked_points)
-        object.__setattr__(self, "transforms", transforms)
-        object.__setattr__(
-            self,
-            "linked_contract_fingerprint",
-            linked_contract_fingerprint,
-        )
-        object.__setattr__(self, "contract_fingerprint", contract_fingerprint)
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,8 +102,8 @@ class HostMeasurementTransformImplementation:
         if not all(fields):
             msg = "host measurement transform implementation fields must be non-empty"
             raise ValueError(msg)
-        if self.rate not in {"point", "point_set"}:
-            msg = "host measurement transform rate must be point or point_set"
+        if self.rate != "point":
+            msg = "host measurement transform rate must be point"
             raise ValueError(msg)
         if not callable(self.validate_transform):
             msg = "host measurement transform validator must be callable"
@@ -287,12 +117,15 @@ class HostMeasurementTransformImplementation:
 class HostMeasurementTransformImplementationBinding:
     """Explicit selection of one implementation for one transform identity."""
 
-    transform_id: MeasurementTransformId
+    transform_id: NativeMeasurementTransformId
     implementation_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.transform_id), MeasurementTransformId):
-            msg = "host implementation bindings require MeasurementTransformId"
+        if not isinstance(
+            cast("object", self.transform_id),
+            NativeMeasurementTransformId,
+        ):
+            msg = "host implementation bindings require NativeMeasurementTransformId"
             raise TypeError(msg)
         if not isinstance(cast("object", self.implementation_id), str):
             msg = "host implementation binding id must be a string"
@@ -304,19 +137,22 @@ class HostMeasurementTransformImplementationBinding:
 
 @dataclass(frozen=True, slots=True)
 class HostMeasurementTransformCall:
-    """Defensively snapshotted point-local invocation passed to a host kernel."""
+    """Point-local invocation with copied measurement inputs for a host kernel."""
 
-    transform_id: MeasurementTransformId
+    transform_id: NativeMeasurementTransformId
     semantic: MeasurementTransformSemanticContract
     logical_point_id: LogicalPointId
     point_index: int
-    input_ports: tuple[MeasurementTransformPort, ...]
-    output_ports: tuple[MeasurementTransformPort, ...]
+    input_ports: tuple[MeasurementTransformInputPort, ...]
+    output_ports: tuple[MeasurementTransformOutputPort, ...]
     inputs: Mapping[str, MeasurementValue]
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.transform_id), MeasurementTransformId):
-            msg = "host transform calls require MeasurementTransformId"
+        if not isinstance(
+            cast("object", self.transform_id),
+            NativeMeasurementTransformId,
+        ):
+            msg = "host transform calls require NativeMeasurementTransformId"
             raise TypeError(msg)
         if not isinstance(
             cast("object", self.semantic),
@@ -333,8 +169,11 @@ class HostMeasurementTransformCall:
         input_ports = tuple(self.input_ports)
         output_ports = tuple(self.output_ports)
         if any(
-            not isinstance(cast("object", port), MeasurementTransformPort)
-            for port in (*input_ports, *output_ports)
+            not isinstance(cast("object", port), MeasurementTransformInputPort)
+            for port in input_ports
+        ) or any(
+            not isinstance(cast("object", port), MeasurementTransformOutputPort)
+            for port in output_ports
         ):
             msg = "host transform calls require typed input and output ports"
             raise TypeError(msg)
@@ -360,21 +199,8 @@ class HostMeasurementTransformCall:
             msg = "host transform call inputs must be MeasurementValue values"
             raise TypeError(msg)
         inputs = cast("dict[str, MeasurementValue]", input_candidates)
-        object.__setattr__(
-            self,
-            "semantic",
-            _snapshot_semantic(self.semantic),
-        )
-        object.__setattr__(
-            self,
-            "input_ports",
-            tuple(_snapshot_port(port) for port in input_ports),
-        )
-        object.__setattr__(
-            self,
-            "output_ports",
-            tuple(_snapshot_port(port) for port in output_ports),
-        )
+        object.__setattr__(self, "input_ports", input_ports)
+        object.__setattr__(self, "output_ports", output_ports)
         object.__setattr__(
             self,
             "inputs",
@@ -408,12 +234,17 @@ class SelectedHostMeasurementTransforms:
 
 @dataclass(frozen=True, slots=True)
 class HostMeasurementTransformFragmentBinding:
-    transform_id: MeasurementTransformId
+    transform_id: NativeMeasurementTransformId
     fragment_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.transform_id), MeasurementTransformId):
-            msg = "host transform fragment bindings require MeasurementTransformId"
+        if not isinstance(
+            cast("object", self.transform_id),
+            NativeMeasurementTransformId,
+        ):
+            msg = (
+                "host transform fragment bindings require NativeMeasurementTransformId"
+            )
             raise TypeError(msg)
         if not isinstance(cast("object", self.fragment_id), str):
             msg = "host transform fragment id must be a string"
@@ -475,191 +306,6 @@ class ExecutedHostMeasurementTransforms:
         object.__setattr__(self, "values", values)
 
 
-def verify_measurement_transform_graph(
-    linked_points: MaterializedLinkedPointSet,
-    transforms: Sequence[MeasurementTransformDef],
-) -> VerifiedMeasurementTransformGraph:
-    """Close a typed transform DAG without choosing a runtime implementation."""
-
-    if not isinstance(
-        cast("object", linked_points),
-        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
-    ):
-        msg = "measurement transform graphs require materialized linked points"
-        raise TypeError(msg)
-    supplied = tuple(transforms)
-    if any(
-        not isinstance(cast("object", transform), MeasurementTransformDef)
-        for transform in supplied
-    ):
-        msg = "measurement transform graphs require MeasurementTransformDef values"
-        raise TypeError(msg)
-
-    problems: list[Problem] = []
-    valid_declarations: list[MeasurementTransformDef] = []
-    for transform_index, transform in enumerate(supplied):
-        try:
-            valid_declarations.append(_snapshot_transform(transform))
-        except (AttributeError, TypeError, ValueError) as error:
-            problems.append(
-                _check_problem(
-                    "measurement_transform_declaration_invalid",
-                    "measurement transform declaration fields are invalid",
-                    path=("transforms", transform_index),
-                    details={"error_type": _type_name(error)},
-                )
-            )
-    declarations = tuple(valid_declarations)
-
-    linked_plan = linked_points.linked_plan
-    uses_by_id = {use.id: use for use in linked_plan.product_uses}
-    products_by_id = {product.id: product for product in linked_plan.product_defs}
-
-    transform_counts = Counter(transform.id for transform in declarations)
-    for transform_id, count in transform_counts.items():
-        if count > 1:
-            problems.append(
-                _check_problem(
-                    "measurement_transform_duplicate",
-                    f"measurement transform {transform_id.value!r} is duplicated",
-                    path=("transforms", transform_id.value),
-                    category=ProblemCategory.CONFLICT,
-                )
-            )
-
-    owner_by_output: dict[ProductUseId, MeasurementTransformId] = {}
-    for transform_index, transform in enumerate(declarations):
-        if not transform.outputs:
-            problems.append(
-                _check_problem(
-                    "measurement_transform_outputs_empty",
-                    f"measurement transform {transform.id.value!r} has no outputs",
-                    path=("transforms", transform_index, "outputs"),
-                )
-            )
-        for direction, ports in (
-            ("inputs", transform.inputs),
-            ("outputs", transform.outputs),
-        ):
-            port_counts = Counter(port.id for port in ports)
-            for port_id, count in port_counts.items():
-                if count > 1:
-                    problems.append(
-                        _check_problem(
-                            "measurement_transform_port_duplicate",
-                            f"measurement transform {transform.id.value!r} repeats "
-                            f"{direction[:-1]} port {port_id!r}",
-                            path=(
-                                "transforms",
-                                transform_index,
-                                direction,
-                                port_id,
-                            ),
-                            category=ProblemCategory.CONFLICT,
-                        )
-                    )
-            for port_index, port in enumerate(ports):
-                use = uses_by_id.get(port.product_use_id)
-                if use is None:
-                    problems.append(
-                        _check_problem(
-                            "measurement_transform_product_use_missing",
-                            f"measurement transform port {port.id!r} references "
-                            f"unknown product use {port.product_use_id.value!r}",
-                            path=(
-                                "transforms",
-                                transform_index,
-                                direction,
-                                port_index,
-                                "product_use_id",
-                            ),
-                            category=ProblemCategory.NOT_FOUND,
-                        )
-                    )
-                    continue
-                expected_product = products_by_id.get(use.product_id)
-                if expected_product is None:
-                    problems.append(
-                        _check_problem(
-                            "measurement_transform_product_missing",
-                            f"measurement transform port {port.id!r} references "
-                            "a product use without a definition",
-                            path=(
-                                "transforms",
-                                transform_index,
-                                direction,
-                                port_index,
-                                "product",
-                            ),
-                            category=ProblemCategory.NOT_FOUND,
-                        )
-                    )
-                elif port.product != expected_product:
-                    problems.append(
-                        _check_problem(
-                            "measurement_transform_product_contract_mismatch",
-                            f"measurement transform port {port.id!r} does not retain "
-                            "the exact linked product contract",
-                            path=(
-                                "transforms",
-                                transform_index,
-                                direction,
-                                port_index,
-                                "product",
-                            ),
-                            category=ProblemCategory.CONFLICT,
-                        )
-                    )
-                if direction == "outputs":
-                    existing = owner_by_output.get(port.product_use_id)
-                    if existing is not None:
-                        problems.append(
-                            _check_problem(
-                                "measurement_transform_output_owner_duplicate",
-                                f"product use {port.product_use_id.value!r} is output "
-                                f"by transforms {existing.value!r} and "
-                                f"{transform.id.value!r}",
-                                path=(
-                                    "transforms",
-                                    transform_index,
-                                    "outputs",
-                                    port_index,
-                                ),
-                                category=ProblemCategory.CONFLICT,
-                            )
-                        )
-                    else:
-                        owner_by_output[port.product_use_id] = transform.id
-
-    canonical = _canonical_topological_order(declarations, owner_by_output)
-    if canonical is None:
-        problems.append(
-            _check_problem(
-                "measurement_transform_cycle",
-                "measurement transform graph contains a dependency cycle",
-                path=("transforms",),
-                category=ProblemCategory.CONFLICT,
-            )
-        )
-    if problems:
-        raise CheckFailed(problems)
-    if canonical is None:
-        raise AssertionError("successful transform verification lost topology")
-
-    selected = tuple(_snapshot_transform(transform) for transform in canonical)
-    linked_fingerprint = measurement_value_contract_fingerprint(linked_points)
-    contract_fingerprint = _graph_contract_fingerprint(
-        linked_fingerprint,
-        selected,
-    )
-    return VerifiedMeasurementTransformGraph(
-        linked_points,
-        selected,
-        linked_fingerprint,
-        contract_fingerprint,
-    )
-
-
 def select_host_measurement_transforms(
     graph: VerifiedMeasurementTransformGraph,
     implementations: Sequence[HostMeasurementTransformImplementation],
@@ -678,9 +324,7 @@ def select_host_measurement_transforms(
     ):
         msg = "host transform selection requires implementation sidecars"
         raise TypeError(msg)
-    candidates = tuple(
-        _snapshot_implementation(implementation) for implementation in raw_candidates
-    )
+    candidates = raw_candidates
     supplied_bindings = tuple(bindings)
     if any(
         not isinstance(
@@ -712,7 +356,7 @@ def select_host_measurement_transforms(
     }
     binding_counts = Counter(binding.transform_id for binding in supplied_bindings)
     binding_by_transform: dict[
-        MeasurementTransformId,
+        NativeMeasurementTransformId,
         HostMeasurementTransformImplementationBinding,
     ] = {}
     for binding_index, binding in enumerate(supplied_bindings):
@@ -771,17 +415,6 @@ def select_host_measurement_transforms(
                 )
             )
             continue
-        if transform.rate == "point_set":
-            problems.append(
-                _check_problem(
-                    "measurement_transform_host_rate_unsupported",
-                    f"host execution does not support point_set transform "
-                    f"{transform.id.value!r}",
-                    path=("transforms", transform_index, "rate"),
-                    category=ProblemCategory.UNAVAILABLE,
-                )
-            )
-            continue
         implementation = implementations_by_id.get(binding.implementation_id)
         if implementation is None:
             continue
@@ -804,7 +437,7 @@ def select_host_measurement_transforms(
         try:
             validation_result = _invoke_transform_validator(
                 implementation.validate_transform,
-                _snapshot_transform(transform),
+                transform,
             )
         except Exception as error:
             problems.append(
@@ -877,7 +510,7 @@ def bind_host_measurement_transforms(
     binding_counts = Counter(binding.transform_id for binding in supplied)
     fragment_counts = Counter(binding.fragment_id for binding in supplied)
     by_transform: dict[
-        MeasurementTransformId, HostMeasurementTransformFragmentBinding
+        NativeMeasurementTransformId, HostMeasurementTransformFragmentBinding
     ] = {}
     for binding_index, binding in enumerate(supplied):
         if binding_counts[binding.transform_id] > 1:
@@ -925,10 +558,13 @@ def bind_host_measurement_transforms(
                 )
             )
             continue
-        expected_outputs = {port.product_use_id for port in transform.outputs}
+        expected_output_ids = tuple(
+            use_id for port in transform.outputs for use_id in port.product_use_ids
+        )
+        expected_outputs = set(expected_output_ids)
         if set(fragment.product_use_ids) != expected_outputs or len(
             fragment.product_use_ids
-        ) != len(transform.outputs):
+        ) != len(expected_output_ids):
             problems.append(
                 _check_problem(
                     "measurement_transform_output_fragment_mismatch",
@@ -950,22 +586,37 @@ def bind_host_measurement_transforms(
                     category=ProblemCategory.NOT_FOUND,
                 )
             )
-        for direction, ports in (
-            ("inputs", transform.inputs),
-            ("outputs", transform.outputs),
-        ):
-            for port_index, port in enumerate(ports):
-                if port.product_use_id not in assembly_use_ids:
+        for port_index, port in enumerate(transform.inputs):
+            if port.product_use_id not in assembly_use_ids:
+                problems.append(
+                    _check_problem(
+                        "measurement_transform_assembly_value_missing",
+                        f"transform {transform.id.value!r} input {port.id!r} "
+                        "is absent from the value assembly",
+                        path=(
+                            "transforms",
+                            transform_index,
+                            "inputs",
+                            port_index,
+                        ),
+                        category=ProblemCategory.NOT_FOUND,
+                    )
+                )
+        for port_index, port in enumerate(transform.outputs):
+            for use_index, use_id in enumerate(port.product_use_ids):
+                if use_id not in assembly_use_ids:
                     problems.append(
                         _check_problem(
                             "measurement_transform_assembly_value_missing",
-                            f"transform {transform.id.value!r} {direction[:-1]} "
-                            f"{port.id!r} is absent from the value assembly",
+                            f"transform {transform.id.value!r} output {port.id!r} "
+                            "is absent from the value assembly",
                             path=(
                                 "transforms",
                                 transform_index,
-                                direction,
+                                "outputs",
                                 port_index,
+                                "product_use_ids",
+                                use_index,
                             ),
                             category=ProblemCategory.NOT_FOUND,
                         )
@@ -1105,7 +756,7 @@ def execute_host_measurement_transforms(
                 raise AssertionError(msg) from error
             call = HostMeasurementTransformCall(
                 transform_id=transform.id,
-                semantic=_snapshot_semantic(transform.semantic),
+                semantic=transform.semantic,
                 logical_point_id=point.logical_id,
                 point_index=point.logical_ordinal,
                 input_ports=transform.inputs,
@@ -1245,12 +896,13 @@ def execute_host_measurement_transforms(
                             for issue in issues
                         )
                     )
-                candidates.append(
+                candidates.extend(
                     MeasurementValueCandidate(
                         logical_point_id=point.logical_id,
-                        product_use_id=port.product_use_id,
+                        product_use_id=use_id,
                         value=cast("MeasurementValue", value),
                     )
+                    for use_id in port.product_use_ids
                 )
         binding = binding_by_transform[transform.id]
         try:
@@ -1287,94 +939,6 @@ def execute_host_measurement_transforms(
     )
 
 
-def _snapshot_transform(
-    transform: MeasurementTransformDef,
-) -> MeasurementTransformDef:
-    return MeasurementTransformDef(
-        id=transform.id,
-        semantic=_snapshot_semantic(transform.semantic),
-        rate=transform.rate,
-        inputs=tuple(
-            _snapshot_port(port)
-            for port in sorted(transform.inputs, key=lambda item: item.id)
-        ),
-        outputs=tuple(
-            _snapshot_port(port)
-            for port in sorted(transform.outputs, key=lambda item: item.id)
-        ),
-    )
-
-
-def _snapshot_semantic(
-    semantic: MeasurementTransformSemanticContract,
-) -> MeasurementTransformSemanticContract:
-    return semantic.model_copy(deep=True)
-
-
-def _snapshot_port(port: MeasurementTransformPort) -> MeasurementTransformPort:
-    return MeasurementTransformPort(
-        id=port.id,
-        product_use_id=port.product_use_id,
-        product=port.product,
-    )
-
-
-def _snapshot_implementation(
-    implementation: HostMeasurementTransformImplementation,
-) -> HostMeasurementTransformImplementation:
-    return HostMeasurementTransformImplementation(
-        id=implementation.id,
-        semantic_id=implementation.semantic_id,
-        semantic_version=implementation.semantic_version,
-        rate=implementation.rate,
-        implementation_fingerprint=implementation.implementation_fingerprint,
-        validate_transform=implementation.validate_transform,
-        kernel=implementation.kernel,
-    )
-
-
-def _canonical_topological_order(
-    transforms: Sequence[MeasurementTransformDef],
-    owner_by_output: Mapping[ProductUseId, MeasurementTransformId],
-) -> tuple[MeasurementTransformDef, ...] | None:
-    by_id: dict[MeasurementTransformId, MeasurementTransformDef] = {}
-    for transform in transforms:
-        by_id.setdefault(transform.id, transform)
-    dependencies: dict[MeasurementTransformId, set[MeasurementTransformId]] = {
-        transform_id: set() for transform_id in by_id
-    }
-    dependants: dict[MeasurementTransformId, set[MeasurementTransformId]] = {
-        transform_id: set() for transform_id in by_id
-    }
-    for transform_id, transform in by_id.items():
-        for port in transform.inputs:
-            owner = owner_by_output.get(port.product_use_id)
-            if owner is None or owner not in by_id:
-                continue
-            dependencies[transform_id].add(owner)
-            dependants[owner].add(transform_id)
-    ready = [
-        (transform_id.value, transform_id)
-        for transform_id, owners in dependencies.items()
-        if not owners
-    ]
-    heapq.heapify(ready)
-    ordered: list[MeasurementTransformDef] = []
-    while ready:
-        _name, transform_id = heapq.heappop(ready)
-        ordered.append(by_id[transform_id])
-        for dependant in sorted(
-            dependants[transform_id],
-            key=lambda item: item.value,
-        ):
-            dependencies[dependant].discard(transform_id)
-            if not dependencies[dependant]:
-                heapq.heappush(ready, (dependant.value, dependant))
-    if len(ordered) != len(by_id):
-        return None
-    return tuple(ordered)
-
-
 def _require_verified_graph(
     graph: VerifiedMeasurementTransformGraph,
 ) -> VerifiedMeasurementTransformGraph:
@@ -1403,21 +967,6 @@ def _require_bound_host_plan(
         msg = "host transform execution requires BoundHostMeasurementTransformPlan"
         raise TypeError(msg)
     return plan
-
-
-def _graph_contract_fingerprint(
-    linked_fingerprint: str,
-    transforms: Sequence[MeasurementTransformDef],
-) -> str:
-    return stable_content_hash(
-        content_fingerprint(
-            {
-                "schema": "scopecat.measurement_transform_graph.v1",
-                "linked_contract_fingerprint": linked_fingerprint,
-                "transforms": tuple(transforms),
-            }
-        )
-    )
 
 
 def _host_selection_fingerprint(
@@ -1575,19 +1124,10 @@ __all__ = [
     "HostMeasurementTransformImplementationBinding",
     "HostMeasurementTransformKernel",
     "HostMeasurementTransformValidator",
-    "MeasurementTransformDef",
     "MeasurementTransformExecutionError",
-    "MeasurementTransformId",
-    "MeasurementTransformPort",
     "MeasurementTransformPortValues",
-    "MeasurementTransformRate",
-    "MeasurementTransformSemanticContract",
-    "ProductDef",
-    "ProductUseId",
     "SelectedHostMeasurementTransforms",
-    "VerifiedMeasurementTransformGraph",
     "bind_host_measurement_transforms",
     "execute_host_measurement_transforms",
     "select_host_measurement_transforms",
-    "verify_measurement_transform_graph",
 ]

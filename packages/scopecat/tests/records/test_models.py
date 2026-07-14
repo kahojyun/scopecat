@@ -744,6 +744,7 @@ def _domain_execution_data() -> dict[str, Any]:
         "kind": "domain_program",
         "unit_id": "domain-job",
         "adapter_id": "tests.domain.v1",
+        "semantic_operation_id": "measure",
         "capabilities": {"max_points_per_batch": 2},
         "batches": [_domain_batch_data(0, [0, 1])],
     }
@@ -768,6 +769,11 @@ def test_run_plan_domain_execution_is_payload_free_durable_identity() -> None:
     with pytest.raises(ValidationError, match="completion_contract"):
         RunPlanDomainExecution.model_validate(asynchronous)
 
+    changed_operation = _domain_execution_data()
+    changed_operation["batches"][0]["semantic_operation_id"] = "different-call"
+    with pytest.raises(ValidationError, match="semantic operation identity"):
+        RunPlanDomainExecution.model_validate(changed_operation)
+
 
 def test_run_plan_domain_batches_retain_capability_bounded_point_partitions() -> None:
     first = RunPlanDomainBatch.model_validate(_domain_batch_data(0, [0]))
@@ -776,6 +782,7 @@ def test_run_plan_domain_batches_retain_capability_bounded_point_partitions() ->
     execution = RunPlanDomainExecution(
         unit_id="domain-program",
         adapter_id="tests.domain.v1",
+        semantic_operation_id="measure",
         capabilities=capabilities,
         batches=[first, second],
     )

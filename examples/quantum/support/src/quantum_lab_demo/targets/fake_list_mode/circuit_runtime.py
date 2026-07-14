@@ -28,17 +28,12 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.measurements.results import ComplexQuantity, MeasurementArray
-from scopecat.sdk.domain.invocation import (
-    ClosedDomainOutputValue,
-    ClosedDomainOutputValues,
-    ClosedDomainResult,
-    DomainOutputValue,
-    LogicalPointId,
-    ProductId,
-    ProductUseId,
-    SelectedDomainMeasurementOutputs,
-    seal_domain_output_values,
-    select_domain_measurement_outputs,
+from scopecat.sdk.domain.job import DomainResultValue
+from scopecat.sdk.domain.preparation import DomainMappedResult
+from scopecat.sdk.domain.view import (
+    DomainPointRef,
+    DomainProductContractView,
+    DomainProductUseRef,
 )
 from scopecat_quantum import (
     Acquire,
@@ -71,10 +66,10 @@ _FAKE_RESPONSE_UNIT = "ratio"
 
 @dataclass(frozen=True, slots=True, init=False)
 class CorrelatedFakeListFrame:
-    """One raw fake frame related to exact quantum and core identities."""
+    """One raw fake frame related to exact quantum and SDK identities."""
 
     frame: FakeDigitizerFrame
-    logical_result: ClosedDomainResult[
+    mapped_result: DomainMappedResult[
         TargetCompileEntryId, TargetAcquisitionAddress
     ] = field(repr=False)
     acquisition_origin: CircuitTargetAcquisitionOrigin = field(repr=False)
@@ -82,22 +77,22 @@ class CorrelatedFakeListFrame:
     def __init__(
         self,
         frame: FakeDigitizerFrame,
-        logical_result: ClosedDomainResult[
+        mapped_result: DomainMappedResult[
             TargetCompileEntryId, TargetAcquisitionAddress
         ],
         acquisition_origin: CircuitTargetAcquisitionOrigin,
     ) -> None:
-        if logical_result.result_address != frame.address:
+        if mapped_result.result_address != frame.address:
             msg = "fake frame address does not identify its logical result"
             raise ValueError(msg)
         if acquisition_origin.address != frame.address:
             msg = "fake frame address does not identify its circuit acquisition"
             raise ValueError(msg)
-        if logical_result.entry_address != frame.entry_id:
+        if mapped_result.entry_address != frame.entry_id:
             msg = "fake frame entry does not own its logical result"
             raise ValueError(msg)
         object.__setattr__(self, "frame", frame)
-        object.__setattr__(self, "logical_result", logical_result)
+        object.__setattr__(self, "mapped_result", mapped_result)
         object.__setattr__(self, "acquisition_origin", acquisition_origin)
 
     @property
@@ -109,16 +104,16 @@ class CorrelatedFakeListFrame:
         return self.frame.shot_index
 
     @property
-    def logical_point_id(self) -> LogicalPointId:
-        return self.logical_result.logical_point_id
+    def point(self) -> DomainPointRef:
+        return self.mapped_result.point
 
     @property
-    def product_use_id(self) -> ProductUseId:
-        return self.logical_result.product_use_id
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        return self.mapped_result.product_uses
 
     @property
-    def product_id(self) -> ProductId:
-        return self.logical_result.product_id
+    def product(self) -> DomainProductContractView:
+        return _mapped_result_product(self.mapped_result)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -129,7 +124,11 @@ class CorrelatedFakeListRun:
     target_run: FakeListRun
     frames: tuple[CorrelatedFakeListFrame, ...]
     _by_output_shot: Mapping[
-        tuple[LogicalPointId, ProductUseId, int],
+        tuple[int, int, int],
+        CorrelatedFakeListFrame,
+    ] = field(repr=False, compare=False, hash=False)
+    _by_address_shot: Mapping[
+        tuple[TargetAcquisitionAddress, int],
         CorrelatedFakeListFrame,
     ] = field(repr=False, compare=False, hash=False)
 
@@ -139,7 +138,7 @@ class CorrelatedFakeListRun:
         target_run: FakeListRun,
         frames: tuple[CorrelatedFakeListFrame, ...],
     ) -> None:
-        mapping = compiled_target.mapping
+        mapping = compiled_target.mapping.domain_mapping
         compiled = compiled_target.compiled
         artifact = cast("object", compiled.artifact)
         if not isinstance(artifact, FakeListArtifact):
@@ -156,8 +155,9 @@ class CorrelatedFakeListRun:
         selected_frames = tuple(frames)
         expected_order = tuple(
             (
-                result.logical_point_id,
-                result.product_use_id,
+                result.point,
+                result.product_uses,
+                result.result_address,
                 shot_index,
             )
             for result in mapping.results
@@ -165,8 +165,9 @@ class CorrelatedFakeListRun:
         )
         actual_order = tuple(
             (
-                item.logical_point_id,
-                item.product_use_id,
+                item.point,
+                item.product_uses,
+                item.address,
                 item.shot_index,
             )
             for item in selected_frames
@@ -174,16 +175,29 @@ class CorrelatedFakeListRun:
         if actual_order != expected_order:
             msg = (
                 "correlated fake frames must exactly follow canonical "
-                "point/product-use/shot order"
+                "physical-result/shot order"
             )
             raise ValueError(msg)
 
         by_output_shot = {
-            (item.logical_point_id, item.product_use_id, item.shot_index): item
+            (id(item.point), id(product_use), item.shot_index): item
             for item in selected_frames
+            for product_use in item.product_uses
         }
-        if len(by_output_shot) != len(selected_frames):
-            msg = "correlated fake frames require unique logical output shots"
+        expected_output_shots = {
+            (id(result.point), id(product_use), shot_index)
+            for result in mapping.results
+            for product_use in result.product_uses
+            for shot_index in range(compiled.repetitions)
+        }
+        if set(by_output_shot) != expected_output_shots:
+            msg = "correlated fake frames must cover every logical output shot"
+            raise ValueError(msg)
+        by_address_shot = {
+            (item.address, item.shot_index): item for item in selected_frames
+        }
+        if len(by_address_shot) != len(selected_frames):
+            msg = "correlated fake frames require unique physical result shots"
             raise ValueError(msg)
         raw_by_address_shot = {
             (frame.address, frame.shot_index): frame for frame in target_run.frames
@@ -191,20 +205,18 @@ class CorrelatedFakeListRun:
         if len(raw_by_address_shot) != len(target_run.frames):
             msg = "fake-list run contains duplicate acquisition-address shots"
             raise ValueError(msg)
-        if {(item.address, item.shot_index) for item in selected_frames} != set(
-            raw_by_address_shot
-        ):
+        if set(by_address_shot) != set(raw_by_address_shot):
             msg = "correlated fake frames must exactly cover the target run"
             raise ValueError(msg)
         for item in selected_frames:
             if raw_by_address_shot[(item.address, item.shot_index)] is not item.frame:
                 msg = "correlated fake frames must retain exact target frames"
                 raise ValueError(msg)
-            if mapping.result_for_address(item.address) is not item.logical_result:
+            if mapping.result_for_address(item.address) is not item.mapped_result:
                 msg = "correlated fake frame does not retain its mapping result"
                 raise ValueError(msg)
             if (
-                mapping.batch.acquisition_origin_for(item.address)
+                compiled_target.mapping.batch.acquisition_origin_for(item.address)
                 is not item.acquisition_origin
             ):
                 msg = "correlated fake frame does not retain its acquisition origin"
@@ -217,6 +229,11 @@ class CorrelatedFakeListRun:
             self,
             "_by_output_shot",
             MappingProxyType(by_output_shot),
+        )
+        object.__setattr__(
+            self,
+            "_by_address_shot",
+            MappingProxyType(by_address_shot),
         )
 
     @property
@@ -235,18 +252,17 @@ class CorrelatedFakeListRun:
 
     def frame_for_output(
         self,
-        logical_point_id: LogicalPointId,
-        product_use_id: ProductUseId,
+        point: DomainPointRef,
+        product_use: DomainProductUseRef,
         shot_index: int,
     ) -> CorrelatedFakeListFrame:
         _require_shot_index(shot_index)
         try:
-            return self._by_output_shot[(logical_point_id, product_use_id, shot_index)]
+            return self._by_output_shot[(id(point), id(product_use), shot_index)]
         except KeyError as error:
             msg = (
                 "logical output shot is not in this fake-list run: "
-                f"point={logical_point_id.value!r}, "
-                f"use={product_use_id.value!r}, shot={shot_index}"
+                f"point={point.id!r}, use={product_use.id!r}, shot={shot_index}"
             )
             raise KeyError(msg) from error
 
@@ -255,21 +271,37 @@ class CorrelatedFakeListRun:
         address: TargetAcquisitionAddress,
         shot_index: int,
     ) -> CorrelatedFakeListFrame:
-        result = self.mapping.result_for_address(address)
-        return self.frame_for_output(
-            result.logical_point_id,
-            result.product_use_id,
-            shot_index,
+        _require_shot_index(shot_index)
+        self.mapping.domain_mapping.result_for_address(address)
+        try:
+            return self._by_address_shot[(address, shot_index)]
+        except KeyError as error:
+            msg = (
+                "physical result shot is not in this fake-list run: "
+                f"address={address!r}, shot={shot_index}"
+            )
+            raise KeyError(msg) from error
+
+    def frames_for_address(
+        self,
+        address: TargetAcquisitionAddress,
+    ) -> tuple[CorrelatedFakeListFrame, ...]:
+        """Return physical frames once, independent of logical fan-out."""
+
+        self.mapping.domain_mapping.result_for_address(address)
+        return tuple(
+            self.frame_for_address(address, shot_index)
+            for shot_index in range(self.repetitions)
         )
 
     def frames_for_output(
         self,
-        logical_point_id: LogicalPointId,
-        product_use_id: ProductUseId,
+        point: DomainPointRef,
+        product_use: DomainProductUseRef,
     ) -> tuple[CorrelatedFakeListFrame, ...]:
-        self.mapping.result_for_output(logical_point_id, product_use_id)
+        self.mapping.domain_mapping.result_for(point, product_use)
         return tuple(
-            self.frame_for_output(logical_point_id, product_use_id, shot_index)
+            self.frame_for_output(point, product_use, shot_index)
             for shot_index in range(self.repetitions)
         )
 
@@ -301,9 +333,9 @@ class FakeMeasurementRealizationBinding:
 
 @dataclass(frozen=True, slots=True, init=False)
 class SelectedFakeMeasurementOutput:
-    """One result-specific policy closed against logical and target proofs."""
+    """One result-specific policy bound to public mapping inventory."""
 
-    result: ClosedDomainResult[
+    result: DomainMappedResult[
         TargetCompileEntryId,
         TargetAcquisitionAddress,
     ] = field(repr=False)
@@ -313,7 +345,7 @@ class SelectedFakeMeasurementOutput:
 
     def __init__(
         self,
-        result: ClosedDomainResult[
+        result: DomainMappedResult[
             TargetCompileEntryId,
             TargetAcquisitionAddress,
         ],
@@ -341,12 +373,12 @@ class SelectedFakeMeasurementOutput:
         return self.result.result_address
 
     @property
-    def logical_point_id(self) -> LogicalPointId:
-        return self.result.logical_point_id
+    def point(self) -> DomainPointRef:
+        return self.result.point
 
     @property
-    def product_use_id(self) -> ProductUseId:
-        return self.result.product_use_id
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        return self.result.product_uses
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -355,10 +387,6 @@ class SelectedFakeMeasurementRealization:
 
     compiled_target: CompiledCircuitTarget[FakeListArtifact] = field(repr=False)
     target: FakeListTarget = field(repr=False)
-    core_outputs: SelectedDomainMeasurementOutputs[
-        TargetCompileEntryId,
-        TargetAcquisitionAddress,
-    ] = field(repr=False)
     outputs: tuple[SelectedFakeMeasurementOutput, ...]
     _by_address: Mapping[
         TargetAcquisitionAddress,
@@ -369,10 +397,6 @@ class SelectedFakeMeasurementRealization:
         self,
         compiled_target: CompiledCircuitTarget[FakeListArtifact],
         target: FakeListTarget,
-        core_outputs: SelectedDomainMeasurementOutputs[
-            TargetCompileEntryId,
-            TargetAcquisitionAddress,
-        ],
         outputs: tuple[SelectedFakeMeasurementOutput, ...],
     ) -> None:
         if not isinstance(cast("object", compiled_target), CompiledCircuitTarget):
@@ -395,16 +419,9 @@ class SelectedFakeMeasurementRealization:
         ):
             msg = "fake measurement selection target does not match its artifact"
             raise ValueError(msg)
-        if not isinstance(
-            cast("object", core_outputs), SelectedDomainMeasurementOutputs
-        ):
-            msg = "fake measurement selection requires core measurement outputs"
-            raise TypeError(msg)
-        if core_outputs.mapping is not compiled_target.mapping.core_mapping:
-            msg = "fake measurement selection must retain the exact core mapping"
-            raise ValueError(msg)
+        mapping = compiled_target.mapping.domain_mapping
         selected_outputs = tuple(outputs)
-        mapping_results = compiled_target.mapping.results
+        mapping_results = mapping.results
         if len(selected_outputs) != len(mapping_results) or any(
             output.result is not result
             for output, result in zip(selected_outputs, mapping_results, strict=True)
@@ -420,7 +437,6 @@ class SelectedFakeMeasurementRealization:
             raise ValueError(msg)
         object.__setattr__(self, "compiled_target", compiled_target)
         object.__setattr__(self, "target", target)
-        object.__setattr__(self, "core_outputs", core_outputs)
         object.__setattr__(self, "outputs", selected_outputs)
         object.__setattr__(self, "_by_address", MappingProxyType(by_address))
 
@@ -445,23 +461,21 @@ class SelectedFakeMeasurementRealization:
 
 @dataclass(frozen=True, slots=True, init=False)
 class RealizedFakeMeasurementRun:
-    """One mixed-policy fake run accepted through core's value closure."""
+    """One mixed-policy fake run decoded to public SDK result values."""
 
     selection: SelectedFakeMeasurementRealization = field(repr=False)
     correlated_run: CorrelatedFakeListRun = field(repr=False)
-    output_values: ClosedDomainOutputValues[
-        TargetCompileEntryId,
+    result_values: tuple[DomainResultValue[TargetAcquisitionAddress], ...]
+    _by_address: Mapping[
         TargetAcquisitionAddress,
-    ]
+        DomainResultValue[TargetAcquisitionAddress],
+    ] = field(repr=False, compare=False)
 
     def __init__(
         self,
         selection: SelectedFakeMeasurementRealization,
         correlated_run: CorrelatedFakeListRun,
-        output_values: ClosedDomainOutputValues[
-            TargetCompileEntryId,
-            TargetAcquisitionAddress,
-        ],
+        result_values: tuple[DomainResultValue[TargetAcquisitionAddress], ...],
     ) -> None:
         if not isinstance(
             cast("object", selection), SelectedFakeMeasurementRealization
@@ -471,8 +485,12 @@ class RealizedFakeMeasurementRun:
         if not isinstance(cast("object", correlated_run), CorrelatedFakeListRun):
             msg = "fake measurement realization requires a correlated run"
             raise TypeError(msg)
-        if not isinstance(cast("object", output_values), ClosedDomainOutputValues):
-            msg = "fake measurement realization requires closed output values"
+        selected_values = tuple(result_values)
+        if any(
+            not isinstance(cast("object", value), DomainResultValue)
+            for value in selected_values
+        ):
+            msg = "fake measurement realization requires DomainResultValue values"
             raise TypeError(msg)
         if selection.compiled_target is not correlated_run.compiled_target:
             msg = (
@@ -480,57 +498,45 @@ class RealizedFakeMeasurementRun:
                 "compiled-target selection"
             )
             raise ValueError(msg)
-        if output_values.mapping is not correlated_run.mapping.core_mapping:
-            msg = (
-                "fake measurement values must retain the correlated run's exact "
-                "result mapping"
-            )
+        expected_addresses = tuple(
+            output.result_address for output in selection.outputs
+        )
+        if (
+            tuple(value.result_address for value in selected_values)
+            != expected_addresses
+        ):
+            msg = "fake measurement values must follow selected result address order"
             raise ValueError(msg)
-        if output_values.selection is not selection.core_outputs:
-            msg = "fake measurement values must retain the pre-effect core selection"
+        by_address = {value.result_address: value for value in selected_values}
+        if len(by_address) != len(selected_values):
+            msg = "fake measurement values require unique result addresses"
             raise ValueError(msg)
         object.__setattr__(self, "selection", selection)
         object.__setattr__(self, "correlated_run", correlated_run)
-        object.__setattr__(self, "output_values", output_values)
+        object.__setattr__(self, "result_values", selected_values)
+        object.__setattr__(self, "_by_address", MappingProxyType(by_address))
 
     @property
     def mapping(self) -> CircuitTargetResultMapping:
         return self.selection.mapping
 
-    @property
-    def outputs(
+    def value_for_output(
         self,
-    ) -> tuple[
-        ClosedDomainOutputValue[TargetCompileEntryId, TargetAcquisitionAddress],
-        ...,
-    ]:
-        return self.output_values.outputs
-
-    def output_for_output(
-        self,
-        logical_point_id: LogicalPointId,
-        product_use_id: ProductUseId,
-    ) -> ClosedDomainOutputValue[
-        TargetCompileEntryId,
-        TargetAcquisitionAddress,
-    ]:
-        return self.output_values.output_for_output(
-            logical_point_id,
-            product_use_id,
-        )
+        point: DomainPointRef,
+        product_use: DomainProductUseRef,
+    ) -> DomainResultValue[TargetAcquisitionAddress]:
+        mapped = self.mapping.domain_mapping.result_for(point, product_use)
+        return self._by_address[mapped.result_address]
 
     def frames_for_output(
         self,
-        logical_point_id: LogicalPointId,
-        product_use_id: ProductUseId,
+        point: DomainPointRef,
+        product_use: DomainProductUseRef,
     ) -> tuple[CorrelatedFakeListFrame, ...]:
         """Recover the exact raw frames from which one value was realized."""
 
-        self.output_for_output(logical_point_id, product_use_id)
-        return self.correlated_run.frames_for_output(
-            logical_point_id,
-            product_use_id,
-        )
+        self.value_for_output(point, product_use)
+        return self.correlated_run.frames_for_output(point, product_use)
 
 
 def integrated_iq_shots(
@@ -585,13 +591,9 @@ def select_fake_measurement_realization(
         target,
         selected_bindings,
     )
-    core_outputs = select_domain_measurement_outputs(
-        compiled_target.mapping.core_mapping
-    )
     return SelectedFakeMeasurementRealization(
         compiled_target,
         target,
-        core_outputs,
         selected_outputs,
     )
 
@@ -614,7 +616,8 @@ def correlate_fake_list_run(
         artifact=target_run.artifact,
         fingerprint=target_run.fingerprint,
     )
-    mapping = compiled_target.mapping
+    circuit_mapping = compiled_target.mapping
+    mapping = circuit_mapping.domain_mapping
     compiled = compiled_target.compiled
     artifact = cast("object", compiled.artifact)
     if not isinstance(artifact, FakeListArtifact):
@@ -645,8 +648,8 @@ def correlate_fake_list_run(
     correlated_frames = tuple(
         CorrelatedFakeListFrame(
             frame=raw_by_address_shot[(result.result_address, shot_index)],
-            logical_result=result,
-            acquisition_origin=mapping.batch.acquisition_origin_for(
+            mapped_result=result,
+            acquisition_origin=circuit_mapping.batch.acquisition_origin_for(
                 result.result_address
             ),
         )
@@ -692,13 +695,10 @@ def realize_fake_measurements(
         msg = "fake measurement realization requires the selected compiled target"
         raise ValueError(msg)
 
-    candidates: list[DomainOutputValue[TargetAcquisitionAddress]] = []
+    candidates: list[DomainResultValue[TargetAcquisitionAddress]] = []
     problems: list[Problem] = []
     for result_index, selected_output in enumerate(selection.outputs):
-        frames = correlated_run.frames_for_output(
-            selected_output.logical_point_id,
-            selected_output.product_use_id,
-        )
+        frames = correlated_run.frames_for_address(selected_output.result_address)
         if selected_output.kind is FakeMeasurementRealizationKind.INTEGRATED_IQ_SHOTS:
             value = _realize_integrated_iq_value(
                 selected_output,
@@ -714,18 +714,14 @@ def realize_fake_measurements(
                 problems=problems,
             )
         if value is not None:
-            candidates.append(DomainOutputValue(selected_output.result_address, value))
+            candidates.append(DomainResultValue(selected_output.result_address, value))
     if problems:
         raise ProviderContractError(problems)
 
-    output_values = seal_domain_output_values(
-        selection.core_outputs,
-        candidates,
-    )
     return RealizedFakeMeasurementRun(
         selection,
         correlated_run,
-        output_values,
+        tuple(candidates),
     )
 
 
@@ -938,7 +934,7 @@ def _select_fake_measurement_outputs(
     target: FakeListTarget,
     bindings: tuple[FakeMeasurementRealizationBinding, ...],
 ) -> tuple[SelectedFakeMeasurementOutput, ...]:
-    mapping = compiled_target.mapping
+    mapping = compiled_target.mapping.domain_mapping
     compiled = compiled_target.compiled
     artifact = cast("FakeListArtifact", compiled.artifact)
     expected_addresses = {result.result_address for result in mapping.results}
@@ -1101,7 +1097,7 @@ def _select_fake_measurement_outputs(
             selected_outputs.append(
                 SelectedFakeMeasurementOutput(
                     result,
-                    mapping.batch.acquisition_origin_for(address),
+                    compiled_target.mapping.batch.acquisition_origin_for(address),
                     artifact_acquisition.window,
                     binding.kind,
                 )
@@ -1167,7 +1163,7 @@ def _artifact_acquisitions(
 
 
 def _artifact_acquisition_problems(
-    result: ClosedDomainResult[TargetCompileEntryId, TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetCompileEntryId, TargetAcquisitionAddress],
     *,
     prepared: _PreparedAcquisition,
     compiled: _ArtifactAcquisition,
@@ -1220,14 +1216,14 @@ def _artifact_acquisition_problems(
 
 
 def _product_policy_problems(
-    result: ClosedDomainResult[TargetCompileEntryId, TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetCompileEntryId, TargetAcquisitionAddress],
     kind: FakeMeasurementRealizationKind,
     *,
     repetitions: int,
     sample_count: int,
     result_index: int,
 ) -> list[Problem]:
-    product = result.product
+    product = _mapped_result_product(result)
     details = _realization_identity_details(result)
     path = ("results", result_index, "product")
     prefix = (
@@ -1391,13 +1387,26 @@ def _require_shot_index(value: object) -> None:
         raise ValueError(msg)
 
 
+def _mapped_result_product(
+    result: DomainMappedResult[TargetCompileEntryId, TargetAcquisitionAddress],
+) -> DomainProductContractView:
+    product_uses = result.product_uses
+    if not product_uses:
+        raise AssertionError("mapped fake results require a logical product use")
+    product = product_uses[0].product
+    if any(product_use.product is not product for product_use in product_uses[1:]):
+        raise AssertionError("mapped fake result fan-out changed product contract")
+    return product
+
+
 def _realization_identity_details(
-    result: ClosedDomainResult[TargetCompileEntryId, TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetCompileEntryId, TargetAcquisitionAddress],
 ) -> dict[str, object]:
+    product = _mapped_result_product(result)
     return {
-        "logical_point_id": result.logical_point_id.value,
-        "product_use_id": result.product_use_id.value,
-        "product_id": result.product_id.qualified_name,
+        "logical_point_id": result.point.id,
+        "product_use_ids": [product_use.id for product_use in result.product_uses],
+        "product_id": product.id,
     }
 
 

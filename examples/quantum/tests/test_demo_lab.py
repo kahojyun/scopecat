@@ -127,7 +127,6 @@ def test_notebook_style_examples_execute_user_workflows(
         "status": "completed",
         "points": 4,
         "record_producers": {
-            "integrated_iq_shots": "domain",
             "probability_0": "host_transform",
             "probability_1": "host_transform",
         },
@@ -140,7 +139,6 @@ def test_notebook_style_examples_execute_user_workflows(
     assert mixed_summary["status"] == "completed"
     assert mixed_summary["logical_points"] == 8
     assert mixed_summary["record_producers"] == {
-        "integrated_iq_shots": "domain",
         "probability_0": "host_transform",
         "probability_1": "host_transform",
         "bias_voltage_readback": "instrument",

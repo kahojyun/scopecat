@@ -422,30 +422,42 @@ again creates a distinct use occurrence rather than silently coalescing work.
 
 Typed Program sealing checks product and producer uniqueness plus exact
 producer-to-definition, use-to-definition, and record-to-use closure before
-configuration or effects. A definition may have zero or several producer edges
-in this target-neutral graph. `LinkedPlan` retains all four inventories without
-deciding how a use is produced, and an unused producer creates no placement or
-effect requirement. The current local lowering first seals
-`SelectedLocalProductRealizations` with complete use coverage, requiring each
-demanded observable to have exactly one instrument producer before relation
-evaluation or point materialization, and then realizes every accepted use once
-per logical point as a `CollectionRequest`. Each sealed entry binds exact
-snapshots of both the accepted `ProductDef` and the chosen producer; when
+configuration or effects. Instrument, domain-call, and measurement-transform
+producer edges are distinct typed inventories. `LinkedPlan` retains them
+without making a record alias part of producer semantics, and an unused
+producer creates no placement or effect requirement.
+
+Authored transforms are demand-closed from record uses before typed sealing.
+Reverse traversal retains only record-reachable transforms and mints one stable
+`ProductUseId` for each live transform input, including inputs whose products
+are never recorded. Every transform output retains all downstream use IDs, so
+one semantic result can feed another transform and any number of record aliases.
+Dead transforms mint no input uses and therefore cannot trigger acquisition.
+
+The unified planner partitions those typed edges by producer. Local lowering
+seals `SelectedLocalProductRealizations` over only its selected instrument-use
+subset and realizes each accepted use once per logical point as a
+`CollectionRequest`; a domain unit owns call results plus a transform closure
+fed wholly by that call. Core derives this ownership once as a
+`DomainCallExecutionSlice` over exact `ProductUseId` edges; SDK projection,
+adapter selection, preparation, and affinity checks consume that same slice
+rather than reconstructing coverage from projected object identity. Within a
+selected local subset, each sealed entry binds
+exact snapshots of both the accepted `ProductDef` and chosen producer. When
 resource selection is implicit, it also pins the uniquely resolved physical
-instrument.
-That request has `ProductUseId` and `ProductId` but deliberately has no record
-ID. Provider keys are producer-adapter coordinates rather than semantic or
-durable identities, and conflicts are checked only after physical placement is
-known. A product without an explicit resource must resolve to one configured
+instrument. A request has `ProductUseId` and `ProductId` but deliberately has no
+record ID. Provider keys are producer-adapter coordinates rather than semantic
+or durable identities, and conflicts are checked only after physical placement
+is known. A product without an explicit resource must resolve to one configured
 instrument; implicit broadcast is not a valid realization of one use.
 
 Local execution preserves the same separation. A provider response key maps
 first to `ProductUseId`; only after collection succeeds do
 `RecordProjection` edges copy the logical result to one or more observable
-record IDs. A future domain adapter may instead map a use to a domain-program
-output, fused postprocessing result, or target result slot. That substitution
-must preserve `ProductId`, `ProductUseId`, logical point identity, and the
-record projections; it must not make the current provider key, collection
+record IDs. Domain adapters now map their source uses to domain-program result
+addresses, while typed measurement transforms map semantic outputs to derived
+uses. Both preserve `ProductId`, `ProductUseId`, logical point identity, and the
+record projections; neither makes a provider key, target address, collection
 command, or host stage order part of generic product semantics. Transient
 product-use identities are projected at explicit runtime boundaries and are
 not added to durable run schemas. Producer provenance is projected by run-plan
@@ -454,13 +466,13 @@ schema remain
 producer-neutral: record aliases, provider coordinates, and placement cannot
 change the logical variable schema.
 
-`InstrumentProductProducer` is deliberately a concrete local acquisition edge,
-not a universal domain-output or quantum-result ABI. When a real domain
-integration arrives it should add a different producer/realization shape and a
-target-specific selection proof; it should not grow source variants, backend
-flags, or domain control concepts on `ProductDef`. Relation-backend selection
-and product-realization selection remain separate coverage proofs even when one
-domain adapter can discharge both.
+`InstrumentProductProducer` remains a concrete local acquisition edge, not a
+universal domain-output or quantum-result ABI. `DomainProductProducer` and
+`MeasurementTransformProductProducer` provide separate realization shapes
+without growing source variants, backend flags, or domain control concepts on
+`ProductDef`. Relation-backend selection and product-realization selection
+remain separate coverage proofs even when one domain adapter can discharge
+both.
 
 Two distinct symbolic targets cannot co-own one mutable physical state slot;
 such aliasing is a planning conflict even when both request the same value.
@@ -533,14 +545,16 @@ local execution program. The domain integration is a separate coarse boundary:
 `MaterializedLinkedPoints` materializes only logical point identity, while
 `ClosedDomainResultMapping` proves a bijection between opaque adapter entries
 and logical points plus exact result-address coverage for an explicit selected
-subset of `ProductUseId` values. Adapter and declaration order may differ from
-canonical point/linked-use order. Empty subsets and zero-point plans retain
-their selected product contracts, so a single invocation no longer pretends to
-own every product in the linked plan. The host measurement-value assembly now
-proves that declared fragments are disjoint and exactly cover its required
-uses. Local collection has a separate ingress adapter for the current execution
-program and its command-correlated durable readback receipts, but aggregate
-producer ownership and a complete orchestration plan remain later.
+source subset of `ProductUseId` values. The subset is derived by core from one
+authored call and the record-live transform graph, rather than selected by the
+adapter. Adapter and declaration order may differ from canonical
+point/linked-use order. Empty subsets and zero-point plans retain their selected
+product contracts, so a single invocation no longer pretends to own every
+product in the linked plan. The host measurement-value assembly proves that
+declared fragments are disjoint and exactly cover its required uses. Local
+collection has a separate ingress adapter for the selected instrument subset
+and its command-correlated durable readback receipts; unified planning proves
+aggregate local/domain/transform task and product coverage.
 
 `SelectedDomainMeasurementOutputs` closes the first observable carrier before
 effects, including zero-point selected uses. `ClosedDomainOutputValues` later
@@ -585,25 +599,25 @@ mapping before effects. This first adapter deliberately accepts only point
 programs made entirely of collection stages. Its binding gates the later
 acceptance of collected values; it is not engine effect authorization and does
 not prove the state or compute context under which the commands run. The
-transient `ExecutionProgram` supports a proper collection subset, but current
-compiler lowering obtains the subset from `BoundPlan.local_product_realizations`,
-whose coverage invariant still equals the complete ordered logical-use
-inventory. `local_collection_fragment` accepts only an exact receipt inventory
-and requires a trusted collection repository to resolve every receipt back to
-its persisted `CollectionChunk`. It rechecks run/point/operation/instrument
-identity and readback keys, proves both chunk and receipt name the pre-bound
-command hash, and proves each receipt covers the reloaded chunk's exact content
-hash before delegating logical value closure to the same producer-neutral
-fragment validator. Receipt declaration order, instrument IDs, operation IDs,
-provider keys, and readback metadata are not copied into the accepted value
-entries. The fragment's retained selection is still a control-plane proof over
-the linked plan and routing. This is a safe whole-batch value-ingress seam, not
-a replacement for the current engine's point-by-point crash-visible readback
-and record persistence. Run identity is checked while resolving chunks but is
-not yet retained as one provenance token through transform, projection, and
-recording. Point-scoped neutral closure, full state/context and run-provenance
-proofs, and a host plan plus aggregate lowering that prove
-local/domain/transform ownership remain later work.
+transient `ExecutionProgram` now carries a proper collection subset selected by
+the unified planner: domain-owned uses and transform outputs are absent, while
+selected instrument-source uses remain collectible. Its
+`BoundPlan.local_product_realizations` still proves exact coverage within that
+selected subset. `local_collection_fragment` accepts only an exact receipt
+inventory and requires a trusted collection repository to resolve every
+receipt back to its persisted `CollectionChunk`. It rechecks
+run/point/operation/instrument identity and readback keys, proves both chunk and
+receipt name the pre-bound command hash, and proves each receipt covers the
+reloaded chunk's exact content hash before delegating logical value closure to
+the same producer-neutral fragment validator. Receipt declaration order,
+instrument IDs, operation IDs, provider keys, and readback metadata are not
+copied into the accepted value entries. The fragment's retained selection is
+still a control-plane proof over the linked plan and routing. This is a safe
+whole-batch value-ingress seam, not a replacement for the current engine's
+point-by-point crash-visible readback and record persistence. Run identity is
+checked while resolving chunks but is not yet retained as one provenance token
+through transform, projection, and recording. Point-scoped neutral closure and
+full state/context and run-provenance proofs remain later work.
 
 Record projection is selected independently. A `SelectedMeasurementProjection`
 snapshots observable `RecordUse`/`RecordPlan` contracts and the supported point
@@ -614,15 +628,23 @@ without expanding producer work, and record-only names or metadata do not
 participate in fragment or assembly identity.
 
 Pure measurement postprocessing has its own typed graph between value ingress
-and record projection. A `MeasurementTransformDef` names one semantic operation
-independently of its products, and its ports retain exact `ProductUseId` plus
-`ProductDef` contracts. A port id is a transform-local semantic role; its
-`ProductUseId` is the graph wiring identity, so rewiring changes the graph
-fingerprint without changing the data-only semantic fingerprint. Verification
-establishes graph closure, unique output ownership, contract preservation,
-explicit rates, and a canonical acyclic order before any implementation or
-producer effect is selected. Semantic parameters are recursively immutable
-data. A Python callable belongs to a
+and record projection. Authors declare it with `measurement_transform(...)` and
+attach it to a module with `.measurement_transforms(...)`; module instantiation
+scopes transform and product identities together. Reverse liveness starts from
+record product uses, retains the transitive producer closure, and mints hidden
+input consumer uses only for live transforms. Authored transform outputs are
+never assigned an instrument producer, including when a declaration is dead.
+
+A `MeasurementTransformDef` names one semantic operation independently of its
+products. Each input port retains one exact `ProductUseId` and `ProductDef`;
+each output port retains its product contract and the complete ordered tuple of
+downstream use IDs. A port id is a transform-local semantic role, while use IDs
+are graph wiring identity, so rewiring changes the graph fingerprint without
+changing the data-only semantic fingerprint. Verification establishes graph
+closure, unique output ownership across domain calls and transforms, contract
+preservation, explicit rates, complete output fan-out, and a canonical acyclic
+order before any implementation or producer effect is selected. Semantic
+parameters are recursively immutable data. A Python callable belongs to a
 separately selected `HostMeasurementTransformImplementation` and is not part of
 the data-only graph. Host selection consumes an explicit transform-to-
 implementation binding and invokes that implementation's pure capability
@@ -631,17 +653,20 @@ family/version coincidence alone is not acceptance evidence.
 
 The first executable rate is `POINT`. The host runner invokes each selected
 pure kernel once per canonical logical point, requires an exact named output
-set, rechecks every returned measurement value, seals transform-owned output
-fragments, and only then assembles source and derived fragments together. The
-graph can name `POINT_SET` so its rate boundary is explicit, but host selection
-deliberately rejects that rate until whole-point-set cardinality, failure, and
-persistence semantics are defined. The current fragment binding identifies
-remaining source fragment slots but does not prove their local/domain producer
-realizations; host orchestration must close that ownership separately. The
-local collection adapter proves one local source fragment in isolation, not
-aggregate coverage. The authoring DSL, offloaded realization proofs,
-point-scoped neutral execution, and cross-point analysis remain separate later
-boundaries.
+set, rechecks every returned measurement value once per semantic output, fans
+that accepted value out to all downstream use IDs, seals transform-owned output
+fragments, and only then assembles source and derived fragments together. An
+unused sibling output may have no downstream use, but every retained transform
+has at least one demanded output. Every current layer models only the executable
+`POINT` rate; `POINT_SET` remains outside the IR until its cardinality, failure,
+batching, and persistence semantics are defined together. Offloaded
+realization proofs, point-scoped neutral execution, and cross-point analysis
+remain separate later boundaries. General placement for a transform fed by
+local or multiple domain producers is also not inferred from tuple order; it
+requires an explicit execution unit and coverage rule. Until that unit exists,
+unified planning rejects such a graph before effects with the specific
+`measurement_transform_placement_missing` diagnostic while retaining it as
+valid target-neutral typed IR.
 
 Projected records cross a separate receipt-bearing persistence boundary.
 `commit_projected_measurement_records` consumes the trusted projected stage,
@@ -734,15 +759,14 @@ runs remain candidates until core correlation and then reuse the existing
 per-result realization/value closure. The in-memory job store does not provide
 cross-process recovery; trusted reconstruction of sealed recovery tokens from
 durable journal evidence remains future work. The demo now passes integrated-IQ
-shots through a domain-owned fragment, applies one typed binary-IQ `POINT`
-transform per canonical logical point, and seals `probability_0` plus
-`probability_1` in a disjoint transform-owned fragment. Final producer-neutral
-assembly feeds independent record projection and receipt-bearing per-point
-recording. Aliases increase neither kernel calls nor record writes. `POINT_SET`,
-authoring DSL integration, aggregate local/domain ownership and local-engine
-integration, offload equivalence, cross-point analysis, dataset compaction and
-manifest publication, polling, cancellation, and terminal run integration are
-still absent.
+shots through a domain-owned fragment as the hidden input of an authored
+binary-IQ `POINT` transform, then seals `probability_0` plus `probability_1` in a
+disjoint transform-owned fragment. The raw IQ product is not projected into a
+record. Final producer-neutral assembly feeds independent record projection and
+receipt-bearing per-point recording. Output fan-out and aliases increase
+neither kernel calls nor record writes. `POINT_SET`, offload equivalence,
+cross-point analysis, dataset compaction and manifest publication, polling,
+cancellation, and trusted cross-process recovery remain later work.
 
 ## Dialects and Backend Boundaries
 
@@ -1164,18 +1188,18 @@ code and tests decisively rather than maintaining parallel legacy IRs.
    values independently of nominal `InstrumentProductProducer` edges, fresh
    `ProductUse` occurrences, and template-owned `RecordUse` projections. Typed
    Program sealing closes all four inventories; `LinkedPlan` retains unselected
-   definitions and producers without effects. Local lowering turns uses, not
-   records, into exactly one `CollectionRequest` per point.
-   A sealed local realization selection proves complete coverage before any
-   relation or point is evaluated and pins the exact logical and producer
+   definitions and producers without effects. Local lowering turns selected
+   instrument uses, not records, into exactly one `CollectionRequest` per point.
+   A sealed local realization selection proves complete subset coverage before
+   any relation or point is evaluated and pins the exact logical and producer
    contracts. Execution maps provider results to
    `ProductUseId` before applying one or more `RecordProjection` edges. Record
    aliases and record-only metadata therefore cannot alter or duplicate
    acquisition. Provider coordinates and transient use identities remain
    outside durable schemas. `ProductUseId` is stable only within one transient
-   compilation/lowering chain, not across recompilation. A future target may
-   realize the same use as a domain-program output without changing logical
-   product, point, or record identity inside that chain.
+   compilation/lowering chain, not across recompilation. Domain calls and
+   measurement transforms realize their own typed use subsets without changing
+   logical product, point, or record identity inside that chain.
 10. **Explicit compute-result identity (implemented).** Typed compute nodes now
    retain an explicit result definition containing the Semantic Graph
    `ValueId`, value type, and availability. Compute edges and state result uses
@@ -1240,29 +1264,28 @@ code and tests decisively rather than maintaining parallel legacy IRs.
    point-record write, while durable journal evidence omits provider addresses,
    raw frames, and value payloads. Dataset compaction, manifest publication, and
    terminal outcome construction deliberately remain separate later operations.
-15. **Typed `POINT` host measurement transforms (implemented).** A data-only
-   transform DAG binds named ports to exact logical product uses and contracts,
-   proves unique output ownership and canonical acyclic order, and selects host
-   callables as separate transient implementations before effects. The current
-   runner executes pure `POINT` kernels once per canonical logical point,
-   validates exact output names and measurement contracts, and seals derived
-   fragments through the same producer-neutral assembly as source values. The
-   fake quantum vertical path demonstrates integrated-IQ shots owned only by the
-   domain fragment and binary probabilities owned only by the transform
-   fragment; record aliases duplicate neither kernel calls nor point writes.
-   `POINT_SET`, authoring DSL lowering, aggregate source ownership and
-   local-engine migration, cross-point analysis, and domain offload equivalence
-   are explicit later slices.
+15. **Authored typed `POINT` measurement transforms (implemented).** Modules
+   declare semantic, named-input, and named-output bindings as ordinary
+   first-class authoring objects. Semantic verification proves scoped product
+   closure, unique output ownership, and acyclic order. Record-rooted reverse
+   liveness retains only demanded transforms and mints exact hidden input uses;
+   typed outputs retain every downstream use for fan-out. Host callables remain
+   separate transient implementation selections before effects. The runner
+   executes each pure `POINT` kernel once per canonical logical point, validates
+   exact output names and contracts, and seals derived fragments through the
+   same producer-neutral assembly as source values. The fake quantum path
+   records only binary probabilities while integrated-IQ shots remain an
+   unrecorded domain-owned input; aliases duplicate neither kernel calls nor
+   point writes. `POINT_SET`, cross-point analysis, and domain offload
+   equivalence are explicit later slices.
 16. **Local collection fragment ingress (implemented as a safe seam).** Local
    execution programs now retain an explicit canonical
    `collection_product_use_ids` subset, so derived uses may remain in the
    logical inventory without being falsely assigned to instrument collection.
-   The current compiler does not yet create that split: its sealed `BoundPlan`
-   requires local realizations to cover every ordered logical use, so ordinary
-   local lowering still emits collection subset equal to logical inventory.
-   Until the legacy engine gains a transform stage, its own direct
-   `record_projections` remain restricted to that collected subset; the new
-   neutral pipeline owns derived projection in the vertical path.
+   Unified planning now creates that split from typed producer ownership. A
+   sealed local `BoundPlan` still requires exact realizations for every use in
+   its selected subset, while domain results and transform outputs remain in
+   their own units. The neutral pipeline owns derived projection globally.
    A pre-effect binding currently accepts only collection-stage-only point
    programs and proves that one selected local fragment exactly matches that
    subset and the complete point/operation/provider-key mapping. This gates
@@ -1284,8 +1307,9 @@ code and tests decisively rather than maintaining parallel legacy IRs.
    `ExecutionBackend` combines an optional point-instrument provider with zero
    or more domain adapters; fusion is no longer selected by choosing a second
    backend type. Each adapter inspects the complete materialized point set and
-   either declines it or declares exact product/task ownership plus a maximum
-   point count per invocation. Per-experiment `ExecutionOptions` may further
+   either declines it or offers one authored call plus a maximum point count per
+   invocation. Core derives exact call, transform, and product-use ownership
+   from the typed graph. Per-experiment `ExecutionOptions` may further
    cap that count or disable fusion. When several adapters are selected, the
    unified schedule conservatively uses their most restrictive bound so every
    lane shares the same state barriers and batch partition. Planning proves

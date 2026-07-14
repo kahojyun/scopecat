@@ -111,7 +111,10 @@ Prepared circuit-target batches use the frame's entry-qualified acquisition
 address to recover exact circuit and measurement provenance, including when
 several list entries reuse the same circuit-local result slot. A
 `CompiledCircuitTarget` first binds the compiled artifact back to that exact
-batch and its logical point/product-use mapping. The demo then returns a
+batch and its SDK-owned `DomainResultMapping`. One physical acquisition may
+serve several demanded uses of the same logical product, including an
+unrecorded authored-transform input, without creating extra target work. The
+demo then returns a
 `CorrelatedFakeListRun` whose frames are canonically projected by logical point,
 product-use occurrence, and shot while retaining the raw target-order run.
 The first target supports `Constant` envelopes only. Gaussian and DRAG are
@@ -119,13 +122,18 @@ reported as unsupported target capabilities until their portable sampling
 semantics are specified.
 
 The lab installs the point-local provider and fake target adapter together in
-one `ExecutionBackend`. The adapter declares exactly which linked products it
-can own and the target's list capacity; core selects that capability and
-partitions contiguous logical points around point-local state changes and user
-fusion limits. The scalar bias × X-count example therefore runs one physical
-AWG list per voltage block under automatic fusion, or one list per logical
-point when fusion is disabled, without changing the experiment or dataset
-shape. Correlated frames remain raw evidence.
+one `ExecutionBackend`. Its `select(DomainBatchView)` method returns a
+`DomainExecutionOffer` naming one authored call and the target's list capacity.
+Core derives that call's source product uses, live authored transform closure,
+derived product uses, and execution-task coverage from the typed producer
+graph. It then partitions contiguous logical points around point-local state
+changes and user fusion limits and creates the exact `DomainBatchContext`. The
+adapter's `prepare(context)` method calls `context.new_preparation()` and maps
+target entries with only the context's `DomainPointRef` and
+`DomainProductUseRef` values. The scalar bias × X-count example therefore runs
+one physical AWG list per voltage block under automatic fusion, or one list per
+logical point when fusion is disabled, without changing the experiment or
+dataset shape. Correlated frames remain raw evidence.
 
 Each selected domain batch still uses the synchronous v1 runtime contract: its
 first fetch must be terminal. Pending or submit-uncertain outcomes are
@@ -150,41 +158,61 @@ canonical `[shot]` shape. Raw-trace bindings require canonical
 `[shot, sample]` shape, with extents fixed by target repetitions and that
 result's checked acquisition window. `execute_realized_fake_measurements`
 executes the mixed target batch once, realizes each address under its selected
-policy, and closes the heterogeneous values together while retaining the raw
-frames.
+policy, and returns ordered `DomainResultValue` declarations while retaining
+the raw frames. Core validates and closes those values after correlation.
 
-For host-visible execution, `close_fake_measurement_invocation` closes the same
-selection against target/compiler/capability/artifact evidence.
-`FakeListDomainRuntime` gives an idempotent submission key one job identity,
-registers that job before calling the device primitive, and makes fetch and
-reconcile read-only. Core helpers journal submit as an
-acquisition effect and fetch/reconcile as read effects; every receipt is
-correlated to the complete closed intent. Callers pass sealed Known, Uncertain,
-and Absent states rather than raw receipts; only a core-correlated
-`CorrelatedDomainFetch` reaches adapter validation. Fetched raw runs still pass
-through the existing correlation and realization proofs before values are
-accepted. A device exception without a returned run remains an explicit
-blocking unknown state rather than being reported as ordinary pending.
-After lab-owned payload validation, closed domain values enter core's
+For host-visible execution, `fake_measurement_invocation_spec` declares the
+same selection with target/compiler/capability/artifact evidence and a stable
+adapter intent. `DomainPreparationBuilder.build` binds that declaration to the
+exact `DomainMeasurementPlan`, runtime, result realizer, and resource claims.
+`FakeListDomainRuntime` receives only core-minted `DomainSubmitRequest`,
+`DomainFetchRequest`, and `DomainReconcileRequest` values. It gives an
+idempotent submission key one job identity, registers that job before calling
+the device primitive, and makes fetch and reconcile read-only. Core owns and
+journals the durable submission transitions; the provider does not receive the
+Known, Uncertain, or Absent state types and cannot call orchestration helpers.
+Only a core-correlated `CorrelatedDomainFetch` reaches adapter validation.
+Fetched raw runs still pass through the existing correlation and realization
+proofs before values are accepted. A device exception without a returned run
+remains an explicit blocking unknown state rather than being reported as
+ordinary pending. After lab-owned payload validation, domain values enter core's
 producer-neutral fragment assembly through a result/carrier proof bound before
-submit. An independent end-to-end fixture keeps integrated-IQ shots in that
-domain-owned fragment, applies the hardware-independent binary-IQ transform as
-one pure host `POINT` kernel call per logical point, and places
-`probability_0`/`probability_1` only in a transform-owned fragment. Final exact
-assembly then feeds template-owned projection and receipt-bearing point-record
-commits. Aliases increase neither kernel calls nor physical record writes, and
-journal evidence retains no target result addresses or raw frames.
+submit. The fake X-count module authors the hardware-independent binary-IQ
+transform beside its products and domain call. Record-rooted demand closure
+mints an exact hidden consumer use for integrated-IQ shots even though the raw
+product is not recorded. The runtime keeps those shots in the domain-owned
+fragment, invokes the selected pure host `POINT` kernel once per logical point,
+and places `probability_0`/`probability_1` only in a transform-owned fragment.
+Each returned semantic output is fanned out to all of its demanded product-use
+references before final exact assembly feeds template-owned projection and
+receipt-bearing point-record commits. Aliases increase neither kernel calls nor
+physical record writes, and journal evidence retains no target result addresses
+or raw frames.
 The nearest-centroid reference remains host-only because numeric precision and
 rounding are not yet part of its semantic contract.
+
+The synchronous point-local laboratory path now stays on the public
+`scopecat.sdk.domain` contract from selection through preparation. Public
+mapping inventories expose target order, canonical logical order, exact point
+and product-use references, and fan-out lookups. Host transforms use
+core-minted `DomainMeasurementTransform` input/output refs plus
+`DomainHostTransformBinding`; adapters choose only the host implementation and
+must bind the exact context-owned transform inventory. Jobs use
+`DomainInvocationSpec`, `DomainTargetArtifactIdentity`, `DomainResultValue`,
+and `DomainResourceClaim`. Core alone lowers these declarations to native value
+fragments, transform plans, invocation proofs, and execution resources. Record
+projection remains an independent global core selection. Laboratory packages
+should not import compiler IR,
+`scopecat.sdk.domain.invocation`, or internal `Bound*`/`Closed*` types.
 
 The notebook-facing virtual provider still returns synthetic probability
 products directly. That path predates typed measurement transforms and remains
 legacy demo debt so the broader experiment catalog stays runnable during
 migration. The X-count Template, scratch, and mixed-bias examples use the
-domain path and produce standard durable Runs. `POINT_SET`, cross-point
-analysis, transform authoring DSL, hidden intermediate products, offload
-equivalence, dataset compaction, polling, cancellation, and a cross-process job
-store remain later work.
+domain path, author binary-IQ discrimination as a measurement transform, record
+only the derived probabilities, and produce standard durable Runs. `POINT_SET`,
+cross-point analysis, offload equivalence, dataset compaction, polling,
+cancellation, and a cross-process job store remain later work.
 
 ## Checks
 

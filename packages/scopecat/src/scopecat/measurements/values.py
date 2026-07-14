@@ -778,10 +778,11 @@ def domain_output_fragment[
         tuple(
             MeasurementValueCandidate(
                 logical_point_id=output.logical_point_id,
-                product_use_id=output.product_use_id,
+                product_use_id=product_use_id,
                 value=output.value,
             )
             for output in outputs.outputs
+            for product_use_id in output.product_use_ids
         ),
     )
 

@@ -4,21 +4,54 @@ from decimal import Decimal
 from pathlib import Path
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.linking.linked import (
+    MaterializedLinkedPointBatch,
+    link_program,
+)
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.semantic.model import (
+    DomainCallId,
+    DomainProgramId,
+    DomainResultPortDef,
+    MeasurementTransformId,
+)
 from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
 from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.products import (
+    DomainProductProducer,
+    MeasurementTransformProductProducer,
+)
 from scopecat.compiler.typed.program import (
+    TypedDomainCall,
+    TypedDomainProgram,
+    TypedDomainResultBinding,
+    TypedMeasurementTransform,
+    TypedMeasurementTransformInput,
+    TypedMeasurementTransformOutput,
     TypedProgram,
     product_output,
     record_product,
     shot_axis,
 )
 from scopecat.config.profiles import load_config_profile
+from scopecat.kernel.product_identity import product_producer_id, product_use
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Int, Scalar, Table, TableColumn
+from scopecat.sdk.domain.context import (
+    DomainExecutionOffer,
+    make_domain_batch_context_internal,
+    project_domain_plan_internal,
+)
 from scopecat.sdk.domain.invocation import materialize_linked_points
+from scopecat_quantum import (
+    BinaryIqDiscriminator,
+    GateParameterKind,
+    IqCentroid,
+    binary_iq_probability_transform,
+)
+from scopecat_quantum import authoring as quantum
 
 from quantum_lab_demo.reference_experiments import (
     FakeXCountProductBinding,
@@ -28,10 +61,19 @@ from quantum_lab_demo.reference_experiments import (
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _SHOTS = 5
 
+_Q0 = quantum.qubit("q0")
+_X_COUNT = quantum.scalar_input("x_count", GateParameterKind.INTEGER)
+_X = quantum.single_qubit_gate("x")
+_READOUT = quantum.measure(_Q0, result="iq_shots")
+_CIRCUIT = quantum.circuit(
+    "fake-x-count-test",
+    quantum.sequence(quantum.repeat(_X(_Q0), _X_COUNT), _READOUT),
+)
+
 
 def _linked_points():
     point_type = Table(
-        columns=(TableColumn("x_count", Scalar(Int(minimum=0))),),
+        columns=(TableColumn("program_length", Scalar(Int(minimum=0))),),
         min_rows=3,
         max_rows=3,
     )
@@ -40,9 +82,9 @@ def _linked_points():
             verify_table_value_expr(
                 literal_rows(
                     (
-                        {"x_count": 0},
-                        {"x_count": 1},
-                        {"x_count": 3},
+                        {"program_length": 100},
+                        {"program_length": 100},
+                        {"program_length": 100},
                     )
                 ),
                 bindings=RelationTypeBindings(),
@@ -58,14 +100,103 @@ def _linked_points():
     )
     probability_0 = product_output("probability_0", unit="ratio")
     probability_1 = product_output("probability_1", unit="ratio")
-    iq_use, _unused_iq_record = record_product(iq_shots)
+    iq_use = product_use(iq_shots.id)
     probability_0_use, probability_0_record = record_product(probability_0)
     probability_1_use, probability_1_record = record_product(probability_1)
+    program_id = DomainProgramId(SymbolId(local_id="fake-x-count-program"))
+    call_id = DomainCallId(SymbolId(local_id="execute"))
+    authored_transform = binary_iq_probability_transform(
+        "binary-iq-probability",
+        iq_shots="integrated_iq_shots",
+        probability_0="probability_0",
+        probability_1="probability_1",
+        discriminator=BinaryIqDiscriminator(
+            state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
+            state_1_centroid=IqCentroid(real=1.0, imag=0.0),
+        ),
+    )
+    transform_id = MeasurementTransformId(SymbolId(local_id=authored_transform.id))
+    iq_producer_id = product_producer_id("iq-shots-producer")
+    probability_0_producer_id = product_producer_id("probability-0-producer")
+    probability_1_producer_id = product_producer_id("probability-1-producer")
     program = TypedProgram(
         id="fake-x-count-reference",
         kind="fake_x_count_reference",
         point_domain=point_domain,
         product_defs=(iq_shots, probability_0, probability_1),
+        domain_programs=(
+            TypedDomainProgram(
+                id=program_id,
+                dialect_id="test.quantum",
+                dialect_version="1",
+                body=_CIRCUIT,
+                result_ports=(DomainResultPortDef("iq_shots"),),
+            ),
+        ),
+        domain_calls=(
+            TypedDomainCall(
+                id=call_id,
+                program_id=program_id,
+                results=(
+                    TypedDomainResultBinding(
+                        id="iq_shots",
+                        product_id=iq_shots.id,
+                        producer_id=iq_producer_id,
+                        product_use_ids=(iq_use.id,),
+                    ),
+                ),
+            ),
+        ),
+        measurement_transforms=(
+            TypedMeasurementTransform(
+                id=transform_id,
+                semantic=authored_transform.semantic,
+                rate="point",
+                inputs=(
+                    TypedMeasurementTransformInput(
+                        id="iq_shots",
+                        product_id=iq_shots.id,
+                        product_use_id=iq_use.id,
+                    ),
+                ),
+                outputs=(
+                    TypedMeasurementTransformOutput(
+                        id="probability_0",
+                        product_id=probability_0.id,
+                        producer_id=probability_0_producer_id,
+                        product_use_ids=(probability_0_use.id,),
+                    ),
+                    TypedMeasurementTransformOutput(
+                        id="probability_1",
+                        product_id=probability_1.id,
+                        producer_id=probability_1_producer_id,
+                        product_use_ids=(probability_1_use.id,),
+                    ),
+                ),
+            ),
+        ),
+        domain_product_producers=(
+            DomainProductProducer(
+                id=iq_producer_id,
+                product_id=iq_shots.id,
+                call_id=call_id,
+                result_id="iq_shots",
+            ),
+        ),
+        measurement_transform_product_producers=(
+            MeasurementTransformProductProducer(
+                id=probability_0_producer_id,
+                product_id=probability_0.id,
+                transform_id=transform_id,
+                output_id="probability_0",
+            ),
+            MeasurementTransformProductProducer(
+                id=probability_1_producer_id,
+                product_id=probability_1.id,
+                transform_id=transform_id,
+                output_id="probability_1",
+            ),
+        ),
         product_uses=(iq_use, probability_0_use, probability_1_use),
         record_uses=(
             probability_0_record,
@@ -79,23 +210,47 @@ def _linked_points():
         )
     )
     linked_points = materialize_linked_points(link_program(program, environment))
-    return linked_points, FakeXCountProductBinding(
-        iq_use.id,
-        probability_0_use.id,
-        probability_1_use.id,
+    projection = project_domain_plan_internal(linked_points)
+    view = projection.view(linked_points)
+    call = view.require_one_call(dialect_id="test.quantum")
+    offer = DomainExecutionOffer.for_call(
+        call,
+        max_points_per_batch=3,
+    )
+    context = make_domain_batch_context_internal(
+        projection,
+        MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
+        offer,
+        adapter_id="test.fake-x-count",
+        batch_ordinal=0,
+    )
+    [transform] = call.measurement_transforms
+    return context.new_preparation(), FakeXCountProductBinding(
+        iq_shots=call.result("iq_shots").product_uses,
+        transform=transform,
     )
 
 
-def test_fake_x_count_reference_pure_preparation_closes_target_and_projection() -> None:
-    linked_points, products = _linked_points()
-
+def test_fake_x_count_reference_pure_preparation_closes_target_and_measurements() -> (
+    None
+):
+    preparation, products = _linked_points()
+    circuits = tuple(
+        quantum.bind_circuit(_CIRCUIT, {"x_count": count}).verified
+        for count in (0, 1, 3)
+    )
     prepared = prepare_fake_x_count_reference(
-        linked_points,
+        preparation,
         products,
+        acquisition_slot_id=_READOUT.result.acquisition_slot_id,
+        circuits=circuits,
+        x_counts=(0, 1, 3),
         shots=_SHOTS,
     )
 
     assert prepared.x_counts == (0, 1, 3)
+    assert prepared.circuits == circuits
+    assert prepared.circuits[1].program.id.value == "fake-x-count-test"
     assert tuple(
         entry.target_entry.program.duration_seconds for entry in prepared.entries
     ) == (
@@ -104,17 +259,35 @@ def test_fake_x_count_reference_pure_preparation_closes_target_and_projection() 
         Decimal("20e-9"),
     )
     compiled = prepared.compiled_target.compiled
-    intent = prepared.invocation.intent
-    assert intent.target_id == compiled.target_id.value
-    assert intent.compiler_id == compiled.compiler_id.value
-    assert intent.capability_fingerprint == compiled.capability_fingerprint
-    assert intent.artifact_id == compiled.artifact_id.value
-    assert intent.artifact_fingerprint == compiled.artifact_fingerprint
-    assert prepared.transform_plan.source_fragment_ids == (
-        prepared.domain_fragment.fragment_id,
+    target = prepared.invocation.target
+    assert target.target_id == compiled.target_id.value
+    assert target.compiler_id == compiled.compiler_id.value
+    assert target.capability_fingerprint == compiled.capability_fingerprint
+    assert target.artifact_id == compiled.artifact_id.value
+    assert target.artifact_fingerprint == compiled.artifact_fingerprint
+    assert prepared.invocation.payload is prepared.realization
+
+    measurements = prepared.measurements
+    probability_0_use = products.transform.output("probability_0").product_uses[0]
+    probability_1_use = products.transform.output("probability_1").product_uses[0]
+    assert measurements.mapping is prepared.compiled_target.mapping.domain_mapping
+    assert measurements.source_product_uses == products.iq_shots
+    assert measurements.derived_product_uses == (
+        probability_0_use,
+        probability_1_use,
     )
-    assert tuple(record.id for record in prepared.projection.projection.records) == (
-        "probability_0",
-        "probability_1",
-        "probability_1_alias",
+    assert measurements.product_uses == (
+        *products.iq_shots,
+        probability_0_use,
+        probability_1_use,
+    )
+    [binding] = measurements.host_transforms
+    assert binding.transform is products.transform
+    assert binding.transform.id == "binary-iq-probability"
+    assert tuple(port.product_use for port in binding.transform.inputs) == (
+        products.iq_shots[0],
+    )
+    assert tuple(port.product_uses for port in binding.transform.outputs) == (
+        (probability_0_use,),
+        (probability_1_use,),
     )

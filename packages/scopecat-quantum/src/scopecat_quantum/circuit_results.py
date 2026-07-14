@@ -1,8 +1,8 @@
 """Map prepared circuit-target results to Scopecat logical outputs.
 
-This module is a thin quantum adapter over :mod:`scopecat.sdk.domain.invocation`.
-It derives the complete adapter inventory from a sealed circuit-target batch;
-core remains unaware of circuits, pulses, acquisition slots, and target entry
+This module is a thin quantum adapter over the public domain-preparation SDK.
+It derives the complete target inventory from a sealed circuit-target batch;
+core remains unaware of circuits, pulses, acquisition slots, and target-entry
 structure.
 """
 
@@ -12,19 +12,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.sdk.domain.invocation import (
-    AdapterEntryResults,
-    ClosedDomainEntry,
-    ClosedDomainResult,
-    ClosedDomainResultMapping,
-    EntryPointBinding,
-    LogicalPointId,
-    MaterializedLinkedPointBatch,
-    MaterializedLinkedPoints,
-    MaterializedLinkedPointSet,
-    ProductUseId,
-    ResultUseBinding,
-    seal_domain_result_mapping,
+from scopecat.sdk.domain import (
+    DomainEntryPointBinding,
+    DomainPointRef,
+    DomainPreparationBuilder,
+    DomainProductUseRef,
+    DomainResultMapping,
+    DomainResultUseBinding,
+    DomainTargetEntry,
 )
 
 from scopecat_quantum._ids import TargetCompileEntryId
@@ -41,14 +36,14 @@ class CircuitTargetEntryPointBinding:
     """Quantum adapter edge from one target entry to one logical point."""
 
     entry_id: TargetCompileEntryId
-    logical_point_id: LogicalPointId
+    point: DomainPointRef
 
     def __post_init__(self) -> None:
         if not isinstance(cast("object", self.entry_id), TargetCompileEntryId):
             msg = "circuit target entry-point bindings require a TargetCompileEntryId"
             raise TypeError(msg)
-        if not isinstance(cast("object", self.logical_point_id), LogicalPointId):
-            msg = "circuit target entry-point bindings require a LogicalPointId"
+        if not isinstance(cast("object", self.point), DomainPointRef):
+            msg = "circuit target entry-point bindings require a DomainPointRef"
             raise TypeError(msg)
 
 
@@ -61,7 +56,7 @@ class CircuitTargetAcquisitionUseBinding:
     """
 
     address: TargetAcquisitionAddress
-    product_use_id: ProductUseId
+    product_use: DomainProductUseRef
 
     def __post_init__(self) -> None:
         if not isinstance(cast("object", self.address), TargetAcquisitionAddress):
@@ -70,8 +65,10 @@ class CircuitTargetAcquisitionUseBinding:
                 "TargetAcquisitionAddress"
             )
             raise TypeError(msg)
-        if not isinstance(cast("object", self.product_use_id), ProductUseId):
-            msg = "circuit target acquisition-use bindings require a ProductUseId"
+        if not isinstance(cast("object", self.product_use), DomainProductUseRef):
+            msg = (
+                "circuit target acquisition-use bindings require a DomainProductUseRef"
+            )
             raise TypeError(msg)
 
 
@@ -80,7 +77,7 @@ class CircuitTargetResultMapping:
     """Sealed exact mapping from one prepared quantum batch to selected outputs."""
 
     batch: PreparedCircuitTargetBatch
-    core_mapping: ClosedDomainResultMapping[
+    domain_mapping: DomainResultMapping[
         TargetCompileEntryId,
         TargetAcquisitionAddress,
     ]
@@ -88,7 +85,7 @@ class CircuitTargetResultMapping:
     def __init__(
         self,
         batch: PreparedCircuitTargetBatch,
-        core_mapping: ClosedDomainResultMapping[
+        domain_mapping: DomainResultMapping[
             TargetCompileEntryId,
             TargetAcquisitionAddress,
         ],
@@ -97,85 +94,41 @@ class CircuitTargetResultMapping:
             msg = "circuit target result mappings require a prepared batch"
             raise TypeError(msg)
         if not isinstance(
-            cast("object", core_mapping),
-            ClosedDomainResultMapping,
+            cast("object", domain_mapping),
+            DomainResultMapping,
         ):
-            msg = "circuit target result mappings require a closed core mapping"
+            msg = "circuit target result mappings require a domain result mapping"
             raise TypeError(msg)
-        expected_adapter_entries = _adapter_entries(batch)
-        if core_mapping.adapter_entries != expected_adapter_entries:
-            msg = "core mapping must retain the exact prepared batch inventory"
+        expected_adapter_inventory = tuple(
+            (entry.id, entry.acquisition_addresses) for entry in batch.entries
+        )
+        mapped_target_inventory = tuple(
+            (entry.entry_address, entry.result_addresses)
+            for entry in domain_mapping.target_entries
+        )
+        if mapped_target_inventory != expected_adapter_inventory:
+            msg = "domain mapping must retain the exact prepared batch inventory"
             raise ValueError(msg)
         expected_entry_ids = tuple(entry.id for entry in batch.entries)
-        if {entry.entry_address for entry in core_mapping.entries} != set(
+        if {entry.entry_address for entry in domain_mapping.entries} != set(
             expected_entry_ids
         ):
-            msg = "core mapping must exactly cover prepared target entries"
+            msg = "domain mapping must exactly cover prepared target entries"
             raise ValueError(msg)
         expected_addresses = batch.acquisition_addresses
-        if {result.result_address for result in core_mapping.results} != set(
+        if {result.result_address for result in domain_mapping.results} != set(
             expected_addresses
         ):
-            msg = "core mapping must exactly cover prepared acquisition addresses"
+            msg = "domain mapping must exactly cover prepared acquisition addresses"
             raise ValueError(msg)
         if any(
             result.entry_address != result.result_address.entry_id
-            for result in core_mapping.results
+            for result in domain_mapping.results
         ):
-            msg = "core result parent entries must be derived from quantum addresses"
+            msg = "domain result parent entries must derive from quantum addresses"
             raise ValueError(msg)
         object.__setattr__(self, "batch", batch)
-        object.__setattr__(self, "core_mapping", core_mapping)
-
-    @property
-    def linked_points(self) -> MaterializedLinkedPointSet:
-        return self.core_mapping.linked_points
-
-    @property
-    def entries(
-        self,
-    ) -> tuple[
-        ClosedDomainEntry[TargetCompileEntryId, TargetAcquisitionAddress],
-        ...,
-    ]:
-        return self.core_mapping.entries
-
-    @property
-    def results(
-        self,
-    ) -> tuple[
-        ClosedDomainResult[TargetCompileEntryId, TargetAcquisitionAddress],
-        ...,
-    ]:
-        return self.core_mapping.results
-
-    @property
-    def selected_product_use_ids(self) -> tuple[ProductUseId, ...]:
-        """Return the selected subset in linked-program canonical order."""
-
-        return self.core_mapping.selected_product_use_ids
-
-    def entry_for_id(
-        self,
-        entry_id: TargetCompileEntryId,
-    ) -> ClosedDomainEntry[TargetCompileEntryId, TargetAcquisitionAddress]:
-        return self.core_mapping.entry_for_address(entry_id)
-
-    def result_for_address(
-        self,
-        address: TargetAcquisitionAddress,
-    ) -> ClosedDomainResult[TargetCompileEntryId, TargetAcquisitionAddress]:
-        return self.core_mapping.result_for_address(address)
-
-    def result_for_output(
-        self,
-        logical_point_id: LogicalPointId,
-        product_use_id: ProductUseId,
-    ) -> ClosedDomainResult[TargetCompileEntryId, TargetAcquisitionAddress]:
-        return self.core_mapping.result_for_output(
-            logical_point_id,
-            product_use_id,
-        )
+        object.__setattr__(self, "domain_mapping", domain_mapping)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -245,18 +198,15 @@ def _validate_compiled_target_correlation[ArtifactT: TargetArtifact](
 
 
 def seal_circuit_target_result_mapping(
-    linked_points: MaterializedLinkedPointSet,
+    preparation: DomainPreparationBuilder,
     batch: PreparedCircuitTargetBatch,
     entry_bindings: Sequence[CircuitTargetEntryPointBinding],
     acquisition_bindings: Sequence[CircuitTargetAcquisitionUseBinding],
 ) -> CircuitTargetResultMapping:
     """Close exact quantum entry/result coverage against core logical outputs."""
 
-    if not isinstance(
-        cast("object", linked_points),
-        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
-    ):
-        msg = "circuit target result mapping requires materialized linked points"
+    if not isinstance(cast("object", preparation), DomainPreparationBuilder):
+        msg = "circuit target result mapping requires a DomainPreparationBuilder"
         raise TypeError(msg)
     if not isinstance(cast("object", batch), PreparedCircuitTargetBatch):
         msg = "circuit target result mapping requires a prepared batch"
@@ -279,50 +229,33 @@ def seal_circuit_target_result_mapping(
         msg = "acquisition bindings require CircuitTargetAcquisitionUseBinding values"
         raise TypeError(msg)
 
-    adapter_entries = _adapter_entries(batch)
-    selected_product_use_ids = tuple(
-        dict.fromkeys(
-            binding.product_use_id for binding in selected_acquisition_bindings
-        )
-    )
-    core_mapping = seal_domain_result_mapping(
-        linked_points,
-        selected_product_use_ids,
-        adapter_entries,
-        tuple(
-            EntryPointBinding(
+    domain_mapping = preparation.map_measurements(
+        entries=tuple(
+            DomainTargetEntry(
+                entry_address=entry.id,
+                result_addresses=entry.acquisition_addresses,
+            )
+            for entry in batch.entries
+        ),
+        entry_points=tuple(
+            DomainEntryPointBinding(
                 entry_address=binding.entry_id,
-                logical_point_id=binding.logical_point_id,
+                point=binding.point,
             )
             for binding in selected_entry_bindings
         ),
-        tuple(
-            ResultUseBinding(
+        results=tuple(
+            DomainResultUseBinding(
                 entry_address=binding.address.entry_id,
                 result_address=binding.address,
-                product_use_id=binding.product_use_id,
+                product_use=binding.product_use,
             )
             for binding in selected_acquisition_bindings
         ),
     )
     return CircuitTargetResultMapping(
         batch,
-        core_mapping,
-    )
-
-
-def _adapter_entries(
-    batch: PreparedCircuitTargetBatch,
-) -> tuple[
-    AdapterEntryResults[TargetCompileEntryId, TargetAcquisitionAddress],
-    ...,
-]:
-    return tuple(
-        AdapterEntryResults(
-            entry_address=entry.id,
-            result_addresses=entry.acquisition_addresses,
-        )
-        for entry in batch.entries
+        domain_mapping,
     )
 
 

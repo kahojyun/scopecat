@@ -12,14 +12,29 @@ from scopecat import Quantity
 from scopecat.adapters.memory import MemoryExecutionJournal
 from scopecat.adapters.memory.execution import MemoryMeasurementRecordCommitter
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.linking.linked import (
+    MaterializedLinkedPointBatch,
+    link_program,
+)
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.semantic.model import (
+    DomainCallId,
+    DomainProgramId,
+    DomainResultPortDef,
+)
 from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.products import ProductAxisDef, ProductKind
+from scopecat.compiler.typed.products import (
+    DomainProductProducer,
+    ProductAxisDef,
+    ProductKind,
+)
 from scopecat.compiler.typed.program import (
+    TypedDomainCall,
+    TypedDomainProgram,
+    TypedDomainResultBinding,
     TypedProgram,
     product_axis,
     product_output,
@@ -27,11 +42,14 @@ from scopecat.compiler.typed.program import (
     shot_axis,
 )
 from scopecat.config.profiles import load_config_profile
+from scopecat.execution.effects.domain import execute_domain_job_values
 from scopecat.kernel.errors import (
     CheckFailed,
     DomainReconciliationFailed,
     DomainSubmissionIndeterminate,
 )
+from scopecat.kernel.product_identity import product_producer_id
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.measurements.projection import (
     bind_measurement_projection,
@@ -44,25 +62,31 @@ from scopecat.measurements.results import (
     MeasurementArray,
     MeasurementDType,
 )
-from scopecat.measurements.values import (
-    ProductValueFragmentDef,
-    assemble_measurement_values,
-    bind_domain_output_fragment,
-    domain_output_fragment,
-    select_measurement_value_assembly,
+from scopecat.sdk.domain import DomainExecutionOffer, DomainPreparationBuilder
+from scopecat.sdk.domain.context import (
+    make_domain_batch_context_internal,
+    project_domain_plan_internal,
+)
+from scopecat.sdk.domain.execution import (
+    PreparedDomainExecution,
+    prepared_domain_invocation_internal,
 )
 from scopecat.sdk.domain.invocation import (
-    DomainInvocationIntent,
+    ClosedDomainInvocation,
     MaterializedLinkedPoints,
     materialize_linked_points,
 )
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
+    DomainFetchRequest,
     DomainReconcileReceipt,
-    DomainSubmissionId,
+    DomainReconcileRequest,
+    DomainRuntime,
     DomainSubmitReceipt,
+    DomainSubmitRequest,
     KnownDomainSubmission,
+    _domain_submit_request,
     fetch_domain_invocation,
     plan_domain_submission,
     reconcile_domain_invocation,
@@ -115,7 +139,6 @@ from scopecat_quantum import (
 from quantum_lab_demo.targets.fake_list_mode import (
     CorrelatedFakeListFrame,
     CorrelatedFakeListRun,
-    ExecutableFakeMeasurementInvocation,
     FakeAwgPlayback,
     FakeDigitizerChannelId,
     FakeListArtifact,
@@ -127,11 +150,11 @@ from quantum_lab_demo.targets.fake_list_mode import (
     FakeMeasurementRealizationBinding,
     FakeMeasurementRealizationKind,
     SelectedFakeMeasurementRealization,
-    close_fake_measurement_invocation,
     correlate_fake_list_run,
     default_fake_list_target,
     execute_correlated_fake_list,
     execute_realized_fake_measurements,
+    fake_measurement_invocation_spec,
     integrated_iq_shots,
     raw_trace_shots,
     realize_fake_measurements,
@@ -144,6 +167,10 @@ Q0 = QubitId("q0")
 SHARED_SLOT = AcquisitionSlotId("result", scope=("circuit-local",))
 MIXED_IQ_SLOT = AcquisitionSlotId("iq-result", scope=("circuit-local",))
 MIXED_TRACE_SLOT = AcquisitionSlotId("trace-result", scope=("circuit-local",))
+_DOMAIN_DIALECT_ID = "test.quantum.fake-list-runtime"
+_SINGLE_RESULT_ID = "result"
+_MIXED_IQ_RESULT_ID = "iq-result"
+_MIXED_TRACE_RESULT_ID = "trace-result"
 
 
 def _raw_trace_axes(
@@ -159,6 +186,7 @@ def _raw_trace_axes(
 @dataclass(frozen=True, slots=True)
 class _Scenario:
     linked_points: MaterializedLinkedPoints
+    preparation: DomainPreparationBuilder
     mapping: CircuitTargetResultMapping
     compiler: FakeListTargetCompiler
     compiled_target: CompiledCircuitTarget[FakeListArtifact]
@@ -249,10 +277,9 @@ class _LoseFirstSubmitResponseDomainRuntime:
 
     def submit(
         self,
-        submission_id: DomainSubmissionId,
-        invocation: ExecutableFakeMeasurementInvocation,
+        request: DomainSubmitRequest[SelectedFakeMeasurementRealization],
     ) -> DomainSubmitReceipt:
-        receipt = self._delegate.submit(submission_id, invocation)
+        receipt = self._delegate.submit(request)
         if self._lose_next_response:
             self._lose_next_response = False
             raise RuntimeError("fake list submit response was lost")
@@ -260,18 +287,15 @@ class _LoseFirstSubmitResponseDomainRuntime:
 
     def fetch(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
-        job_id: str,
+        request: DomainFetchRequest,
     ) -> DomainFetchCandidate[FakeListRun]:
-        return self._delegate.fetch(submission_id, intent, job_id)
+        return self._delegate.fetch(request)
 
     def reconcile(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
+        request: DomainReconcileRequest,
     ) -> DomainReconcileReceipt:
-        return self._delegate.reconcile(submission_id, intent)
+        return self._delegate.reconcile(request)
 
 
 def _integrated_iq_bindings(
@@ -279,7 +303,7 @@ def _integrated_iq_bindings(
 ) -> tuple[FakeMeasurementRealizationBinding, ...]:
     return tuple(
         integrated_iq_shots(result.result_address)
-        for result in scenario.mapping.results
+        for result in scenario.mapping.domain_mapping.results
     )
 
 
@@ -287,12 +311,36 @@ def _raw_trace_bindings(
     scenario: _Scenario,
 ) -> tuple[FakeMeasurementRealizationBinding, ...]:
     return tuple(
-        raw_trace_shots(result.result_address) for result in scenario.mapping.results
+        raw_trace_shots(result.result_address)
+        for result in scenario.mapping.domain_mapping.results
     )
+
+
+def _preparation_for_all_points(
+    linked_points: MaterializedLinkedPoints,
+) -> DomainPreparationBuilder:
+    projection = project_domain_plan_internal(linked_points)
+    call = projection.view(linked_points).require_one_call(
+        dialect_id=_DOMAIN_DIALECT_ID
+    )
+    point_indices = tuple(range(len(linked_points.point_domain.points)))
+    offer = DomainExecutionOffer.for_call(
+        call,
+        max_points_per_batch=len(point_indices),
+    )
+    context = make_domain_batch_context_internal(
+        projection,
+        MaterializedLinkedPointBatch(linked_points, point_indices),
+        offer,
+        adapter_id="test.quantum.fake-list-runtime",
+        batch_ordinal=0,
+    )
+    return context.new_preparation()
 
 
 def _linked_points(
     *,
+    product_use_count: int = 1,
     product_kind: ProductKind = "observable",
     product_dtype: MeasurementDType = "complex128",
     product_unit: str | None = None,
@@ -325,14 +373,51 @@ def _linked_points(
         unit=product_unit,
         axes=product_axes,
     )
-    product_use, record = record_product(product)
+    selections = tuple(
+        record_product(product, record_id=f"raw-iq-record-{index}")
+        for index in range(product_use_count)
+    )
+    domain_program_id = DomainProgramId(SymbolId(local_id="program"))
+    domain_call_id = DomainCallId(SymbolId(local_id="execute"))
+    producer_id = product_producer_id("result-producer")
     program = TypedProgram(
         id="fake-circuit-runtime",
         kind="fake_circuit_runtime_test",
         point_domain=point_domain,
         product_defs=(product,),
-        product_uses=(product_use,),
-        record_uses=(record,),
+        domain_programs=(
+            TypedDomainProgram(
+                id=domain_program_id,
+                dialect_id=_DOMAIN_DIALECT_ID,
+                dialect_version="1",
+                body=object(),
+                result_ports=(DomainResultPortDef(_SINGLE_RESULT_ID),),
+            ),
+        ),
+        domain_calls=(
+            TypedDomainCall(
+                id=domain_call_id,
+                program_id=domain_program_id,
+                results=(
+                    TypedDomainResultBinding(
+                        id=_SINGLE_RESULT_ID,
+                        product_id=product.id,
+                        producer_id=producer_id,
+                        product_use_ids=tuple(use.id for use, _record in selections),
+                    ),
+                ),
+            ),
+        ),
+        domain_product_producers=(
+            DomainProductProducer(
+                id=producer_id,
+                product_id=product.id,
+                call_id=domain_call_id,
+                result_id=_SINGLE_RESULT_ID,
+            ),
+        ),
+        product_uses=tuple(use for use, _record in selections),
+        record_uses=tuple(record for _use, record in selections),
     )
     environment = validate_config_environment(
         load_config_profile(
@@ -382,11 +467,61 @@ def _mixed_linked_points(
     )
     iq_use, iq_record = record_product(iq_product)
     trace_use, trace_record = record_product(trace_product)
+    domain_program_id = DomainProgramId(SymbolId(local_id="program"))
+    domain_call_id = DomainCallId(SymbolId(local_id="execute"))
+    iq_producer_id = product_producer_id("iq-result-producer")
+    trace_producer_id = product_producer_id("trace-result-producer")
     program = TypedProgram(
         id="mixed-fake-circuit-runtime",
         kind="mixed_fake_circuit_runtime_test",
         point_domain=point_domain,
         product_defs=(iq_product, trace_product),
+        domain_programs=(
+            TypedDomainProgram(
+                id=domain_program_id,
+                dialect_id=_DOMAIN_DIALECT_ID,
+                dialect_version="1",
+                body=object(),
+                result_ports=(
+                    DomainResultPortDef(_MIXED_IQ_RESULT_ID),
+                    DomainResultPortDef(_MIXED_TRACE_RESULT_ID),
+                ),
+            ),
+        ),
+        domain_calls=(
+            TypedDomainCall(
+                id=domain_call_id,
+                program_id=domain_program_id,
+                results=(
+                    TypedDomainResultBinding(
+                        id=_MIXED_IQ_RESULT_ID,
+                        product_id=iq_product.id,
+                        producer_id=iq_producer_id,
+                        product_use_ids=(iq_use.id,),
+                    ),
+                    TypedDomainResultBinding(
+                        id=_MIXED_TRACE_RESULT_ID,
+                        product_id=trace_product.id,
+                        producer_id=trace_producer_id,
+                        product_use_ids=(trace_use.id,),
+                    ),
+                ),
+            ),
+        ),
+        domain_product_producers=(
+            DomainProductProducer(
+                id=iq_producer_id,
+                product_id=iq_product.id,
+                call_id=domain_call_id,
+                result_id=_MIXED_IQ_RESULT_ID,
+            ),
+            DomainProductProducer(
+                id=trace_producer_id,
+                product_id=trace_product.id,
+                call_id=domain_call_id,
+                result_id=_MIXED_TRACE_RESULT_ID,
+            ),
+        ),
         product_uses=(iq_use, trace_use),
         record_uses=(
             iq_record,
@@ -541,6 +676,7 @@ def _verified_mixed_measurement_circuit(*, sample_count: int):
 def _scenario(
     *,
     repetitions: int = 2,
+    product_use_count: int = 1,
     product_kind: ProductKind = "observable",
     product_dtype: MeasurementDType = "complex128",
     product_unit: str | None = None,
@@ -549,6 +685,7 @@ def _scenario(
     sample_count: int = 4,
 ) -> _Scenario:
     linked_points = _linked_points(
+        product_use_count=product_use_count,
         product_kind=product_kind,
         product_dtype=product_dtype,
         product_unit=product_unit,
@@ -580,15 +717,16 @@ def _scenario(
         capability_fingerprint=target.capability_fingerprint,
         repetitions=repetitions,
     )
-    points = linked_points.point_domain.points
-    product_use = linked_points.linked_plan.product_uses[0]
+    preparation = _preparation_for_all_points(linked_points)
+    points = preparation.context.points
+    product_uses = preparation.context.call.result(_SINGLE_RESULT_ID).product_uses
     mapping = seal_circuit_target_result_mapping(
-        linked_points,
+        preparation,
         batch,
         tuple(
             CircuitTargetEntryPointBinding(
                 entry.id,
-                points[point_index].logical_id,
+                points[point_index],
             )
             for entry, point_index in zip(
                 batch.entries,
@@ -599,14 +737,16 @@ def _scenario(
         tuple(
             CircuitTargetAcquisitionUseBinding(
                 entry.acquisition_addresses[0],
-                product_use.id,
+                product_use,
             )
             for entry in batch.entries
+            for product_use in product_uses
         ),
     )
     compiled = compile_target(compiler, batch.request)
     return _Scenario(
         linked_points=linked_points,
+        preparation=preparation,
         mapping=mapping,
         compiler=compiler,
         compiled_target=bind_compiled_circuit_target(mapping, compiled),
@@ -647,15 +787,21 @@ def _mixed_scenario(
         capability_fingerprint=target.capability_fingerprint,
         repetitions=repetitions,
     )
-    points = linked_points.point_domain.points
-    iq_use, trace_use = linked_points.linked_plan.product_uses
+    preparation = _preparation_for_all_points(linked_points)
+    points = preparation.context.points
+    iq_use = preparation.context.call.result(
+        _MIXED_IQ_RESULT_ID
+    ).require_one_product_use()
+    trace_use = preparation.context.call.result(
+        _MIXED_TRACE_RESULT_ID
+    ).require_one_product_use()
     mapping = seal_circuit_target_result_mapping(
-        linked_points,
+        preparation,
         batch,
         tuple(
             CircuitTargetEntryPointBinding(
                 entry.id,
-                points[point_index].logical_id,
+                points[point_index],
             )
             for entry, point_index in zip(
                 batch.entries,
@@ -666,7 +812,7 @@ def _mixed_scenario(
         tuple(
             CircuitTargetAcquisitionUseBinding(
                 address,
-                iq_use.id if address.slot_id == MIXED_IQ_SLOT else trace_use.id,
+                iq_use if address.slot_id == MIXED_IQ_SLOT else trace_use,
             )
             for entry in batch.entries
             for address in entry.acquisition_addresses
@@ -675,6 +821,7 @@ def _mixed_scenario(
     compiled = compile_target(compiler, batch.request)
     return _Scenario(
         linked_points=linked_points,
+        preparation=preparation,
         mapping=mapping,
         compiler=compiler,
         compiled_target=bind_compiled_circuit_target(mapping, compiled),
@@ -690,21 +837,53 @@ def _mixed_bindings(
             if result.result_address.slot_id == MIXED_IQ_SLOT
             else raw_trace_shots(result.result_address)
         )
-        for result in scenario.mapping.results
+        for result in scenario.mapping.domain_mapping.results
     )
 
 
-def _closed_mixed_invocation(
+def _prepared_mixed_execution(
     scenario: _Scenario,
-) -> ExecutableFakeMeasurementInvocation:
+    runtime: DomainRuntime[SelectedFakeMeasurementRealization, FakeListRun],
+) -> PreparedDomainExecution:
     selection = select_fake_measurement_realization(
         scenario.compiled_target,
         scenario.compiler.target,
         _mixed_bindings(scenario),
     )
-    return close_fake_measurement_invocation(
-        selection,
-        invocation_id="mixed-readout",
+    return scenario.preparation.build(
+        measurements=scenario.preparation.measurement_plan(
+            scenario.mapping.domain_mapping
+        ),
+        invocation=fake_measurement_invocation_spec(
+            selection,
+            invocation_id="mixed-readout",
+        ),
+        runtime=runtime,
+        realize=lambda fetched: (
+            realize_fetched_fake_measurements(
+                selection,
+                fetched,
+            ).result_values
+        ),
+    )
+
+
+def _closed_mixed_invocation(
+    scenario: _Scenario,
+    runtime: DomainRuntime[SelectedFakeMeasurementRealization, FakeListRun],
+) -> ClosedDomainInvocation[
+    TargetCompileEntryId,
+    TargetAcquisitionAddress,
+    SelectedFakeMeasurementRealization,
+]:
+    prepared = _prepared_mixed_execution(scenario, runtime)
+    return cast(
+        ClosedDomainInvocation[
+            TargetCompileEntryId,
+            TargetAcquisitionAddress,
+            SelectedFakeMeasurementRealization,
+        ],
+        prepared_domain_invocation_internal(prepared),
     )
 
 
@@ -716,8 +895,10 @@ def test_three_point_fake_circuit_run_correlates_target_and_logical_order() -> N
         scenario.compiled_target,
     )
 
-    points = scenario.linked_points.point_domain.points
-    product_use = scenario.linked_points.linked_plan.product_uses[0]
+    points = scenario.preparation.context.points
+    product_use = scenario.preparation.context.call.result(
+        _SINGLE_RESULT_ID
+    ).product_uses[0]
     assert tuple(
         address.slot_id for address in scenario.mapping.batch.acquisition_addresses
     ) == (
@@ -733,10 +914,10 @@ def test_three_point_fake_circuit_run_correlates_target_and_logical_order() -> N
         for point_index in (2, 0, 1)
     )
     assert tuple(
-        (frame.logical_point_id, frame.product_use_id, frame.shot_index)
+        (frame.point, frame.product_uses, frame.shot_index)
         for frame in correlated.frames
     ) == tuple(
-        (point.logical_id, product_use.id, shot_index)
+        (point, (product_use,), shot_index)
         for point in points
         for shot_index in range(2)
     )
@@ -746,31 +927,83 @@ def test_three_point_fake_circuit_run_correlates_target_and_logical_order() -> N
         for _shot_index in range(2)
     )
 
+    mapping = scenario.mapping.domain_mapping
     for point_index, point in enumerate(points):
-        logical_result = scenario.mapping.result_for_output(
-            point.logical_id,
-            product_use.id,
-        )
-        address = logical_result.result_address
+        mapped_result = mapping.result_for(point, product_use)
+        address = mapped_result.result_address
         origin = scenario.mapping.batch.acquisition_origin_for(address)
         assert address.entry_id == TargetCompileEntryId(f"entry-{point_index}")
         assert origin.source_circuit_id == CircuitId("shared-readout-circuit")
         assert origin.provenance.measurement_id == CircuitOperationId("measure")
         assert origin.provenance.acquisition_slot_id == SHARED_SLOT
         output_frames = correlated.frames_for_output(
-            point.logical_id,
-            product_use.id,
+            point,
+            product_use,
         )
         assert tuple(frame.shot_index for frame in output_frames) == (0, 1)
         for shot_index, frame in enumerate(output_frames):
             assert frame is correlated.frame_for_output(
-                point.logical_id,
-                product_use.id,
+                point,
+                product_use,
                 shot_index,
             )
             assert frame is correlated.frame_for_address(address, shot_index)
-            assert frame.logical_result is logical_result
+            assert frame.mapped_result is mapped_result
             assert frame.acquisition_origin is origin
+
+
+def test_one_physical_fake_result_fans_out_to_every_product_use() -> None:
+    scenario = _scenario(
+        product_use_count=2,
+        product_unit="ratio",
+        product_axes=(shot_axis(2),),
+    )
+    points = scenario.preparation.context.points
+    uses = scenario.preparation.context.call.result(_SINGLE_RESULT_ID).product_uses
+    correlated = execute_correlated_fake_list(
+        FakeListRuntime(),
+        scenario.compiled_target,
+    )
+
+    mapping = scenario.mapping.domain_mapping
+    assert len(mapping.results) == len(points)
+    assert len(correlated.frames) == len(points) * 2
+    assert all(result.product_uses == uses for result in mapping.results)
+    for point in points:
+        result = mapping.result_for(point, uses[0])
+        assert all(mapping.result_for(point, use) is result for use in uses)
+        physical_frames = correlated.frames_for_address(result.result_address)
+        assert all(
+            correlated.frames_for_output(point, use) == physical_frames for use in uses
+        )
+        for shot_index, frame in enumerate(physical_frames):
+            assert frame.product_uses == uses
+            assert all(
+                correlated.frame_for_output(
+                    point,
+                    use,
+                    shot_index,
+                )
+                is frame
+                for use in uses
+            )
+
+    selection = select_fake_measurement_realization(
+        scenario.compiled_target,
+        scenario.compiler.target,
+        _integrated_iq_bindings(scenario),
+    )
+    realized = realize_fake_measurements(selection, correlated)
+
+    assert len(realized.result_values) == len(points)
+    for point in points:
+        value = realized.value_for_output(point, uses[0])
+        assert all(realized.value_for_output(point, use) is value for use in uses)
+        assert all(
+            realized.frames_for_output(point, use)
+            == correlated.frames_for_address(value.result_address)
+            for use in uses
+        )
 
 
 def test_correlated_fake_frames_remain_raw_and_are_not_product_values() -> None:
@@ -783,21 +1016,22 @@ def test_correlated_fake_frames_remain_raw_and_are_not_product_values() -> None:
 
     assert {field.name for field in fields(CorrelatedFakeListFrame)} == {
         "frame",
-        "logical_result",
+        "mapped_result",
         "acquisition_origin",
     }
     assert all(isinstance(item.frame.value, complex) for item in correlated.frames)
     assert all(not hasattr(item, "value") for item in correlated.frames)
-    assert all(item.logical_result.product.axes == () for item in correlated.frames)
+    assert all(item.product.axes == () for item in correlated.frames)
     assert all(
         len(
             correlated.frames_for_output(
-                result.logical_point_id,
-                result.product_use_id,
+                result.point,
+                product_use,
             )
         )
         == 2
-        for result in scenario.mapping.results
+        for result in scenario.mapping.domain_mapping.results
+        for product_use in result.product_uses
     )
     assert not hasattr(correlated, "measurements")
     assert not hasattr(correlated, "product_values")
@@ -820,30 +1054,35 @@ def test_integrated_iq_shot_realization_accepts_exact_product_contract() -> None
     correlated = realized.correlated_run
 
     assert realized.selection is selection
-    assert realized.output_values.selection is selection.core_outputs
     assert realized.correlated_run is correlated
     assert realized.mapping is scenario.mapping
-    assert realized.output_values.mapping is scenario.mapping.core_mapping
-    assert (
-        tuple(output.result for output in realized.outputs) == scenario.mapping.results
+    assert tuple(output.result for output in selection.outputs) == (
+        scenario.mapping.domain_mapping.results
     )
-    for output in realized.outputs:
-        frames = realized.frames_for_output(
-            output.logical_point_id,
-            output.product_use_id,
+    assert tuple(value.result_address for value in realized.result_values) == tuple(
+        result.result_address for result in scenario.mapping.domain_mapping.results
+    )
+    for output, result_value in zip(
+        selection.outputs,
+        realized.result_values,
+        strict=True,
+    ):
+        frames = correlated.frames_for_address(
+            output.result_address,
         )
-        assert (
-            realized.output_for_output(
-                output.logical_point_id,
-                output.product_use_id,
+        assert all(
+            realized.value_for_output(output.point, product_use) is result_value
+            for product_use in output.product_uses
+        )
+        assert all(
+            frames
+            == correlated.frames_for_output(
+                output.point,
+                product_use,
             )
-            is output
+            for product_use in output.product_uses
         )
-        assert frames == correlated.frames_for_output(
-            output.logical_point_id,
-            output.product_use_id,
-        )
-        value = output.value
+        value = result_value.value
         assert isinstance(value, MeasurementArray)
         assert value.dtype == "complex128"
         assert value.unit == "ratio"
@@ -881,19 +1120,20 @@ def test_integrated_iq_realization_preserves_generated_shot_cardinality(
     )
 
     assert all(
-        cast("MeasurementArray", output.value).shape == [repetitions]
-        for output in realized.outputs
+        cast("MeasurementArray", result.value).shape == [repetitions]
+        for result in realized.result_values
     )
     assert all(
         tuple(
             frame.shot_index
             for frame in realized.frames_for_output(
-                output.logical_point_id,
-                output.product_use_id,
+                output.point,
+                product_use,
             )
         )
         == tuple(range(repetitions))
-        for output in realized.outputs
+        for output in selection.outputs
+        for product_use in output.product_uses
     )
 
 
@@ -981,30 +1221,35 @@ def test_raw_trace_realization_accepts_exact_shot_sample_contract() -> None:
     correlated = realized.correlated_run
 
     assert realized.selection is selection
-    assert realized.output_values.selection is selection.core_outputs
     assert realized.correlated_run is correlated
     assert realized.mapping is scenario.mapping
-    assert realized.output_values.mapping is scenario.mapping.core_mapping
-    assert (
-        tuple(output.result for output in realized.outputs) == scenario.mapping.results
+    assert tuple(output.result for output in selection.outputs) == (
+        scenario.mapping.domain_mapping.results
     )
-    for output in realized.outputs:
-        frames = realized.frames_for_output(
-            output.logical_point_id,
-            output.product_use_id,
+    assert tuple(value.result_address for value in realized.result_values) == tuple(
+        result.result_address for result in scenario.mapping.domain_mapping.results
+    )
+    for output, result_value in zip(
+        selection.outputs,
+        realized.result_values,
+        strict=True,
+    ):
+        frames = correlated.frames_for_address(
+            output.result_address,
         )
-        assert (
-            realized.output_for_output(
-                output.logical_point_id,
-                output.product_use_id,
+        assert all(
+            realized.value_for_output(output.point, product_use) is result_value
+            for product_use in output.product_uses
+        )
+        assert all(
+            frames
+            == correlated.frames_for_output(
+                output.point,
+                product_use,
             )
-            is output
+            for product_use in output.product_uses
         )
-        assert frames == correlated.frames_for_output(
-            output.logical_point_id,
-            output.product_use_id,
-        )
-        value = output.value
+        value = result_value.value
         assert isinstance(value, MeasurementArray)
         assert value.dtype == "complex128"
         assert value.unit == "ratio"
@@ -1047,8 +1292,12 @@ def test_raw_trace_realization_preserves_generated_shot_sample_cardinality(
     )
     realized = execute_realized_fake_measurements(FakeListRuntime(), selection)
 
-    for output in realized.outputs:
-        value = output.value
+    for output, result_value in zip(
+        selection.outputs,
+        realized.result_values,
+        strict=True,
+    ):
+        value = result_value.value
         assert isinstance(value, MeasurementArray)
         assert value.shape == [repetitions, sample_count]
         assert len(value.values) == repetitions
@@ -1056,11 +1305,12 @@ def test_raw_trace_realization_preserves_generated_shot_sample_cardinality(
             len(cast("list[ComplexQuantity]", samples)) == sample_count
             for samples in value.values
         )
-        frames = realized.frames_for_output(
-            output.logical_point_id,
-            output.product_use_id,
-        )
+        frames = realized.correlated_run.frames_for_address(output.result_address)
         assert tuple(frame.shot_index for frame in frames) == tuple(range(repetitions))
+        assert all(
+            realized.frames_for_output(output.point, product_use) == frames
+            for product_use in output.product_uses
+        )
         assert all(
             len(cast("tuple[complex, ...]", frame.frame.value)) == sample_count
             for frame in frames
@@ -1328,13 +1578,13 @@ def test_mixed_iq_and_raw_trace_policies_share_one_batch_execution() -> None:
     expected_kind_by_address = {
         binding.result_address: binding.kind for binding in bindings
     }
-    assert len(bindings) == len(scenario.mapping.results) == 6
+    assert len(bindings) == len(scenario.mapping.domain_mapping.results) == 6
     assert awg.play_calls == 1
     assert tuple(output.result for output in selection.outputs) == (
-        scenario.mapping.results
+        scenario.mapping.domain_mapping.results
     )
-    assert tuple(output.result for output in realized.outputs) == (
-        scenario.mapping.results
+    assert tuple(value.result_address for value in realized.result_values) == tuple(
+        result.result_address for result in scenario.mapping.domain_mapping.results
     )
     assert {output.kind for output in selection.outputs} == {
         FakeMeasurementRealizationKind.INTEGRATED_IQ_SHOTS,
@@ -1345,13 +1595,18 @@ def test_mixed_iq_and_raw_trace_policies_share_one_batch_execution() -> None:
         for output in selection.outputs
     )
 
-    for output in realized.outputs:
+    for output, result_value in zip(
+        selection.outputs,
+        realized.result_values,
+        strict=True,
+    ):
         selected_output = selection.output_for_address(output.result_address)
-        frames = realized.frames_for_output(
-            output.logical_point_id,
-            output.product_use_id,
+        frames = realized.correlated_run.frames_for_address(output.result_address)
+        assert all(
+            realized.frames_for_output(output.point, product_use) == frames
+            for product_use in output.product_uses
         )
-        value = output.value
+        value = result_value.value
         assert isinstance(value, MeasurementArray)
         assert value.dtype == "complex128"
         assert value.unit == "ratio"
@@ -1382,10 +1637,15 @@ def test_mixed_iq_and_raw_trace_policies_share_one_batch_execution() -> None:
 
 def test_fake_measurement_invocation_closes_exact_intent() -> None:
     scenario = _mixed_scenario(repetitions=2, sample_count=4)
-    invocation = _closed_mixed_invocation(scenario)
+    invocation = _closed_mixed_invocation(scenario, FakeListDomainRuntime())
     compiled = scenario.compiled_target.compiled
 
-    assert invocation.result_mapping is invocation.payload.core_outputs.mapping
+    assert tuple(
+        result.result_address for result in invocation.result_mapping.results
+    ) == tuple(
+        result.result_address for result in scenario.mapping.domain_mapping.results
+    )
+    assert invocation.payload.mapping is scenario.mapping
     assert invocation.payload.compiled_target is scenario.compiled_target
     assert invocation.intent.invocation_id == "mixed-readout"
     assert invocation.intent.target_id == compiled.target_id.value
@@ -1397,8 +1657,8 @@ def test_fake_measurement_invocation_closes_exact_intent() -> None:
 
 def test_fake_domain_submit_fetch_and_realize_preserve_canonical_outputs() -> None:
     scenario = _mixed_scenario(repetitions=2, sample_count=4)
-    invocation = _closed_mixed_invocation(scenario)
     runtime = FakeListDomainRuntime()
+    invocation = _closed_mixed_invocation(scenario, runtime)
     journal = MemoryExecutionJournal()
     submission_id = plan_domain_submission(
         invocation,
@@ -1420,14 +1680,14 @@ def test_fake_domain_submit_fetch_and_realize_preserve_canonical_outputs() -> No
     )
     assert isinstance(submission, KnownDomainSubmission)
     assert isinstance(fetched, CorrelatedDomainFetch)
-    realized = realize_fetched_fake_measurements(invocation, fetched)
+    realized = realize_fetched_fake_measurements(invocation.payload, fetched)
 
     assert submission.status == "submitted"
     assert submission.submission_id is submission_id
     assert fetched.receipt.status == "fetched"
     assert fetched.result == realized.correlated_run.target_run
-    assert tuple(output.result for output in realized.outputs) == (
-        scenario.mapping.results
+    assert tuple(value.result_address for value in realized.result_values) == tuple(
+        result.result_address for result in scenario.mapping.domain_mapping.results
     )
     assert runtime.submit_calls == 1
     assert runtime.fetch_calls == 1
@@ -1449,56 +1709,25 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
         sample_count=4,
         include_iq_alias=True,
     )
-    invocation = _closed_mixed_invocation(scenario)
-    fragment_id = "fake-list-domain"
-    value_selection = select_measurement_value_assembly(
-        scenario.linked_points,
-        required_product_use_ids=(invocation.result_mapping.selected_product_use_ids),
-        fragment_defs=(
-            ProductValueFragmentDef(
-                id=fragment_id,
-                product_use_ids=(invocation.result_mapping.selected_product_use_ids),
-            ),
-        ),
+    runtime = FakeListDomainRuntime()
+    prepared = _prepared_mixed_execution(scenario, runtime)
+    journal = MemoryExecutionJournal()
+    record_committer = MemoryMeasurementRecordCommitter()
+    run_id = "fake-host-recording-run"
+
+    assembled = execute_domain_job_values(
+        prepared,
+        run_id=run_id,
+        journal=journal,
     )
     projection = bind_measurement_projection(
         select_measurement_projection(scenario.linked_points),
-        value_selection,
+        assembled.selection,
     )
-    domain_binding = bind_domain_output_fragment(
-        value_selection,
-        fragment_id,
-        invocation.payload.core_outputs,
-    )
-    runtime = FakeListDomainRuntime()
-    journal = MemoryExecutionJournal()
-    record_committer = MemoryMeasurementRecordCommitter()
-    submission_id = plan_domain_submission(
-        invocation,
-        run_id="fake-host-recording-run",
-        semantic_operation_id="mixed-readout",
-    )
-
-    submission = submit_domain_invocation(
-        runtime,
-        invocation,
-        submission_id,
-        journal=journal,
-    )
-    fetched = fetch_domain_invocation(
-        runtime,
-        invocation.intent,
-        submission,
-        journal=journal,
-    )
-    assert isinstance(fetched, CorrelatedDomainFetch)
-    realized = realize_fetched_fake_measurements(invocation, fetched)
-    fragment = domain_output_fragment(domain_binding, realized.output_values)
-    assembled = assemble_measurement_values(value_selection, (fragment,))
     projected = project_measurement_records(
         projection,
         assembled,
-        run_id=submission_id.run_id,
+        run_id=run_id,
     )
     committed = commit_projected_measurement_records(
         projected,
@@ -1573,9 +1802,9 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
 
 def test_fake_domain_submit_is_idempotent_for_one_submission_id() -> None:
     scenario = _mixed_scenario(repetitions=2, sample_count=4)
-    invocation = _closed_mixed_invocation(scenario)
     awg = _CountingFakeListAwg()
     runtime = FakeListDomainRuntime(FakeListRuntime(awg=awg))
+    invocation = _closed_mixed_invocation(scenario, runtime)
     journal = MemoryExecutionJournal()
     submission_id = plan_domain_submission(
         invocation,
@@ -1614,15 +1843,15 @@ def test_fake_domain_submit_is_idempotent_for_one_submission_id() -> None:
 
 def test_fake_domain_lost_submit_response_reconciles_without_replay() -> None:
     scenario = _mixed_scenario(repetitions=2, sample_count=4)
-    invocation = _closed_mixed_invocation(scenario)
+    awg = _CountingFakeListAwg()
+    delegate = FakeListDomainRuntime(FakeListRuntime(awg=awg))
+    runtime = _LoseFirstSubmitResponseDomainRuntime(delegate)
+    invocation = _closed_mixed_invocation(scenario, runtime)
     submission_id = plan_domain_submission(
         invocation,
         run_id="fake-lost-response-run",
         semantic_operation_id="mixed-readout",
     )
-    awg = _CountingFakeListAwg()
-    delegate = FakeListDomainRuntime(FakeListRuntime(awg=awg))
-    runtime = _LoseFirstSubmitResponseDomainRuntime(delegate)
     journal = MemoryExecutionJournal()
 
     with pytest.raises(DomainSubmissionIndeterminate) as captured:
@@ -1651,7 +1880,13 @@ def test_fake_domain_lost_submit_response_reconciles_without_replay() -> None:
     assert reconciled.origin == "reconcile"
     assert delegate.reconcile_calls == 1
 
-    repeated = runtime.submit(submission_id, invocation)
+    repeated = runtime.submit(
+        _domain_submit_request(
+            submission_id,
+            invocation.intent,
+            invocation.payload,
+        )
+    )
     assert repeated.status == "submitted"
     assert repeated.job_id == reconciled.job_id
     assert delegate.submit_calls == 2
@@ -1667,9 +1902,9 @@ def test_fake_domain_lost_submit_response_reconciles_without_replay() -> None:
 
     assert isinstance(fetched, CorrelatedDomainFetch)
     assert fetched.receipt.status == "fetched"
-    realized = realize_fetched_fake_measurements(invocation, fetched)
-    assert tuple(output.result for output in realized.outputs) == (
-        scenario.mapping.results
+    realized = realize_fetched_fake_measurements(invocation.payload, fetched)
+    assert tuple(value.result_address for value in realized.result_values) == tuple(
+        result.result_address for result in scenario.mapping.domain_mapping.results
     )
     assert delegate.fetch_calls == 1
     assert delegate.physical_execution_count == 1
@@ -1687,14 +1922,14 @@ def test_fake_domain_lost_submit_response_reconciles_without_replay() -> None:
 
 def test_fake_device_failure_is_terminal_unknown_not_permanent_pending() -> None:
     scenario = _mixed_scenario(repetitions=2, sample_count=4)
-    invocation = _closed_mixed_invocation(scenario)
+    awg = _CountingFakeListAwg()
+    runtime = FakeListDomainRuntime(_UnavailableResultFakeListRuntime(awg=awg))
+    invocation = _closed_mixed_invocation(scenario, runtime)
     submission_id = plan_domain_submission(
         invocation,
         run_id="fake-unavailable-result-run",
         semantic_operation_id="mixed-readout",
     )
-    awg = _CountingFakeListAwg()
-    runtime = FakeListDomainRuntime(_UnavailableResultFakeListRuntime(awg=awg))
     journal = MemoryExecutionJournal()
 
     with pytest.raises(DomainSubmissionIndeterminate) as submit_error:
@@ -1717,7 +1952,13 @@ def test_fake_device_failure_is_terminal_unknown_not_permanent_pending() -> None
         f"fake-list-job:{submission_id.submission_key}"
     )
     assert reconcile_error.value.problems[0].code == ("fake_domain_result_unavailable")
-    repeated = runtime.submit(submission_id, invocation)
+    repeated = runtime.submit(
+        _domain_submit_request(
+            submission_id,
+            invocation.intent,
+            invocation.payload,
+        )
+    )
     assert repeated.status == "unknown"
     assert repeated.problems[0].code == "fake_domain_result_unavailable"
     assert runtime.physical_execution_count == 1
@@ -1751,13 +1992,13 @@ def test_mixed_realization_binding_order_does_not_change_canonical_values(
     )
 
     assert tuple(output.result for output in reordered.selection.outputs) == (
-        scenario.mapping.results
+        scenario.mapping.domain_mapping.results
     )
-    assert tuple(output.result for output in reordered.outputs) == (
-        scenario.mapping.results
+    assert tuple(value.result_address for value in reordered.result_values) == tuple(
+        result.result_address for result in scenario.mapping.domain_mapping.results
     )
-    assert tuple(output.value for output in reordered.outputs) == tuple(
-        output.value for output in canonical.outputs
+    assert tuple(result.value for result in reordered.result_values) == tuple(
+        result.value for result in canonical.result_values
     )
 
 

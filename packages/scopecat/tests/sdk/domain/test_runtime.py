@@ -45,13 +45,17 @@ from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
     DomainFetchReceipt,
+    DomainFetchRequest,
     DomainReceiptIdentity,
     DomainReconcileReceipt,
+    DomainReconcileRequest,
     DomainSubmissionId,
     DomainSubmitReceipt,
+    DomainSubmitRequest,
     KnownDomainSubmission,
     PendingDomainFetch,
     UncertainDomainSubmission,
+    _correlated_domain_fetch,
     domain_receipt_identity,
     fetch_domain_invocation,
     plan_domain_submission,
@@ -358,6 +362,15 @@ def test_fetch_candidates_keep_provider_payloads_outside_correlated_state() -> N
         DomainFetchCandidate(receipt=pending, result="unexpected")
 
 
+def test_provider_requests_can_only_be_minted_by_core() -> None:
+    with pytest.raises(TypeError, match="minted by core"):
+        DomainSubmitRequest[dict[str, str]]()
+    with pytest.raises(TypeError, match="minted by core"):
+        DomainFetchRequest()
+    with pytest.raises(TypeError, match="minted by core"):
+        DomainReconcileRequest()
+
+
 def test_intent_and_submission_ids_cover_generation_and_intent() -> None:
     invocation = _closed_invocation()
     same = close_domain_invocation(
@@ -430,18 +443,22 @@ class _ScriptedRuntime:
     submit_calls: int = 0
     fetch_calls: int = 0
     reconcile_calls: int = 0
-    fetch_intents: list[object] = field(default_factory=list)
-    reconcile_intents: list[object] = field(default_factory=list)
+    submit_requests: list[DomainSubmitRequest[dict[str, str]]] = field(
+        default_factory=list
+    )
+    fetch_requests: list[DomainFetchRequest] = field(default_factory=list)
+    reconcile_requests: list[DomainReconcileRequest] = field(default_factory=list)
 
     def submit(
         self,
-        submission_id: DomainSubmissionId,
-        invocation: _Invocation,
+        request: DomainSubmitRequest[dict[str, str]],
     ) -> DomainSubmitReceipt:
         self.submit_calls += 1
+        self.submit_requests.append(request)
         if self.submit_error is not None:
             raise self.submit_error
-        identity = domain_receipt_identity(submission_id, invocation.intent)
+        submission_id = request.submission_id
+        identity = request.identity
         if self.forge_submit_identity:
             identity = identity.model_copy(update={"artifact_id": "forged-artifact"})
         if self.submit_status == "submitted":
@@ -465,17 +482,16 @@ class _ScriptedRuntime:
 
     def fetch(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
-        job_id: str,
+        request: DomainFetchRequest,
     ) -> DomainFetchCandidate[str]:
         self.fetch_calls += 1
-        self.fetch_intents.append(intent)
+        self.fetch_requests.append(request)
         if self.fetch_errors_remaining:
             self.fetch_errors_remaining -= 1
             msg = "injected repeatable fetch failure"
             raise RuntimeError(msg)
-        identity = domain_receipt_identity(submission_id, intent)
+        identity = request.identity
+        job_id = request.job_id
         if self.forge_fetch_identity:
             identity = identity.model_copy(update={"artifact_id": "forged-artifact"})
         status = self.fetch_statuses.pop(0)
@@ -509,16 +525,16 @@ class _ScriptedRuntime:
 
     def reconcile(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
+        request: DomainReconcileRequest,
     ) -> DomainReconcileReceipt:
         self.reconcile_calls += 1
-        self.reconcile_intents.append(intent)
+        self.reconcile_requests.append(request)
         if self.reconcile_errors_remaining:
             self.reconcile_errors_remaining -= 1
             msg = "injected repeatable reconciliation failure"
             raise RuntimeError(msg)
-        identity = domain_receipt_identity(submission_id, intent)
+        submission_id = request.submission_id
+        identity = request.identity
         if self.forge_reconcile_identity:
             identity = identity.model_copy(update={"artifact_id": "forged-artifact"})
         if self.reconcile_status == "absent":
@@ -570,9 +586,18 @@ def test_submit_returns_known_and_fetch_returns_correlated_with_durable_journal(
     assert known.origin == "submit"
     assert known.job_id == "job-1"
     assert isinstance(accepted, CorrelatedDomainFetch)
-    assert accepted.submission is known
+    assert not hasattr(accepted, "submission")
     assert accepted.result == "accepted-payload"
-    assert runtime.fetch_intents == [invocation.intent]
+    assert runtime.submit_requests[0].submission_id is submission_id
+    assert runtime.submit_requests[0].identity == domain_receipt_identity(
+        submission_id,
+        invocation.intent,
+    )
+    assert runtime.submit_requests[0].payload is invocation.payload
+    assert len(runtime.fetch_requests) == 1
+    assert runtime.fetch_requests[0].submission_id is submission_id
+    assert runtime.fetch_requests[0].identity == runtime.submit_requests[0].identity
+    assert runtime.fetch_requests[0].job_id == known.job_id
     assert [
         (entry.operation_id, entry.stage, entry.effect, entry.state, entry.attempt)
         for entry in journal.entries
@@ -676,7 +701,10 @@ def test_pending_fetch_can_repeat_without_resubmitting_or_payload_access() -> No
     assert isinstance(accepted, CorrelatedDomainFetch)
     assert runtime.submit_calls == 1
     assert runtime.fetch_calls == 2
-    assert runtime.fetch_intents == [invocation.intent, invocation.intent]
+    assert [request.identity for request in runtime.fetch_requests] == [
+        domain_receipt_identity(submission_id, invocation.intent),
+        domain_receipt_identity(submission_id, invocation.intent),
+    ]
     fetch_entries = [
         entry for entry in journal.entries if entry.stage == "domain_fetch"
     ]
@@ -794,8 +822,11 @@ def test_uncertain_submit_reconciles_to_known_and_fetches_without_payload() -> N
     assert known.status == "completed"
     assert isinstance(accepted, CorrelatedDomainFetch)
     assert runtime.submit_calls == runtime.reconcile_calls == runtime.fetch_calls == 1
-    assert runtime.reconcile_intents == [invocation.intent]
-    assert runtime.fetch_intents == [invocation.intent]
+    assert runtime.reconcile_requests[0].identity == domain_receipt_identity(
+        submission_id,
+        invocation.intent,
+    )
+    assert runtime.fetch_requests[0].identity == runtime.reconcile_requests[0].identity
     latest = {entry.operation_id: entry for entry in journal.entries}
     assert latest[submission_id.submit_operation_id].state == "completed"
     assert (
@@ -1138,21 +1169,25 @@ def test_runtime_state_constructors_establish_their_invariants() -> None:
         job_id_hint=None,
         problems=(_problem(),),
     )
-    correlated = CorrelatedDomainFetch(known, fetched, "payload")
+    correlated = _correlated_domain_fetch(known, fetched, "payload")
     pending_fetch = PendingDomainFetch(known, pending)
 
     assert known.job_id == "job-1"
     assert absence.identity == identity
     assert uncertainty.identity == identity
-    assert correlated.submission is known
+    assert correlated.receipt is fetched
+    assert correlated.result == "payload"
+    assert not hasattr(correlated, "submission")
     assert pending_fetch.submission is known
 
     with pytest.raises(ValueError, match="known submit state"):
         KnownDomainSubmission(submission_id, not_submitted, "submit")
     with pytest.raises(ValueError, match="definitive negative evidence"):
         AbsentDomainSubmission(submission_id, submitted, "submit")
+    with pytest.raises(TypeError, match="minted by core"):
+        CorrelatedDomainFetch()
     with pytest.raises(ValueError, match="fetched payload"):
-        CorrelatedDomainFetch(known, pending, "payload")
+        _correlated_domain_fetch(known, pending, "payload")
     with pytest.raises(ValueError, match="pending receipt"):
         PendingDomainFetch(known, fetched)
 

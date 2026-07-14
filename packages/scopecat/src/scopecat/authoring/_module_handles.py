@@ -55,6 +55,8 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_input_id,
     internal_value_ref_source_kind,
 )
+from scopecat.authoring.domain import DomainCall, DomainProgramDef
+from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.value_types import (
     Entity as EntityType,
 )
@@ -144,6 +146,9 @@ class ModuleBuilder:
     actions: tuple[ModuleActionDecl, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
+    measurement_transform_intents: tuple[MeasurementTransform, ...] = ()
+    domain_programs: tuple[DomainProgramDef, ...] = ()
+    domain_call_intents: tuple[DomainCall, ...] = ()
     records: tuple[RecordIntent, ...] = ()
     product_ports: tuple[ModuleProductPort, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
@@ -169,6 +174,9 @@ class ModuleBuilder:
                 self.actions,
                 self.operations,
                 self.python_implementations,
+                self.measurement_transform_intents,
+                self.domain_programs,
+                self.domain_call_intents,
                 self.records,
                 self.product_ports,
             )
@@ -449,6 +457,58 @@ class ModuleBuilder:
             python_implementations=(
                 *self.python_implementations,
                 *implementations,
+            ),
+        )
+
+    def domain_calls(self, *calls: DomainCall) -> ModuleBuilder:
+        """Register independent compile-stage domain program invocations."""
+
+        existing_calls = {call.symbol_id for call in self.domain_call_intents}
+        if any(call.symbol_id in existing_calls for call in calls):
+            raise ValueError("module domain call ids must be unique")
+        programs = list(self.domain_programs)
+        by_id = {program.symbol_id: program for program in programs}
+        for call in calls:
+            existing = by_id.get(call.program.symbol_id)
+            if existing is not None and existing is not call.program:
+                raise ValueError(
+                    "one module cannot declare different domain programs with "
+                    f"identity {call.program.symbol_id.qualified_name!r}"
+                )
+            if existing is None:
+                programs.append(call.program)
+                by_id[call.program.symbol_id] = call.program
+        return replace_handle(
+            self,
+            domain_programs=tuple(programs),
+            domain_call_intents=(*self.domain_call_intents, *calls),
+        )
+
+    def measurement_transforms(
+        self,
+        *transforms: MeasurementTransform,
+    ) -> ModuleBuilder:
+        """Register pure product transforms independently of implementations."""
+
+        if any(
+            not isinstance(cast("object", transform), MeasurementTransform)
+            for transform in transforms
+        ):
+            msg = "module measurement transforms require MeasurementTransform values"
+            raise TypeError(msg)
+        existing = {
+            transform.symbol_id for transform in self.measurement_transform_intents
+        }
+        if any(transform.symbol_id in existing for transform in transforms):
+            raise ValueError("module measurement transform ids must be unique")
+        supplied_ids = tuple(transform.symbol_id for transform in transforms)
+        if len(supplied_ids) != len(set(supplied_ids)):
+            raise ValueError("module measurement transform ids must be unique")
+        return replace_handle(
+            self,
+            measurement_transform_intents=(
+                *self.measurement_transform_intents,
+                *transforms,
             ),
         )
 

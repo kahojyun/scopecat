@@ -18,6 +18,18 @@ from scopecat.authoring.assembly import (
     ModuleOutputs,
     module,
 )
+from scopecat.authoring.domain import (
+    DomainCall,
+    DomainInputPort,
+    DomainProgramDef,
+    DomainResultPort,
+    domain_call,
+    domain_program,
+)
+from scopecat.authoring.measurements import (
+    MeasurementTransform,
+    measurement_transform,
+)
 from scopecat.authoring.templates import (
     ExperimentInvocation,
     ExperimentTemplate,
@@ -88,6 +100,10 @@ __all__ = [
     "BoolType",
     "Compute",
     "ComputeInput",
+    "DomainCall",
+    "DomainInputPort",
+    "DomainProgramDef",
+    "DomainResultPort",
     "EntityType",
     "ExperimentInvocation",
     "ExperimentModule",
@@ -95,6 +111,7 @@ __all__ = [
     "FloatType",
     "InputDescription",
     "IntType",
+    "MeasurementTransform",
     "MetadataValue",
     "ModuleBuilder",
     "ModuleInput",
@@ -125,8 +142,11 @@ __all__ = [
     "ValueType",
     "ValueValidationError",
     "compute",
+    "domain_call",
+    "domain_program",
     "entity_axis",
     "input",
+    "measurement_transform",
     "module",
     "parameter",
     "parameter_lookup",

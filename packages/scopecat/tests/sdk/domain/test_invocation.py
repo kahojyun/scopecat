@@ -22,17 +22,12 @@ from scopecat.compiler.typed.program import (
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
-from scopecat.planning.coverage import ExecutionTask
 from scopecat.records.measurement import (
     ComplexQuantity,
     MeasurementArray,
     MeasurementDType,
 )
 from scopecat.records.parameter import Quantity
-from scopecat.sdk.domain.execution import (
-    DomainExecutionCapabilities,
-    DomainExecutionRequest,
-)
 from scopecat.sdk.domain.invocation import (
     AdapterEntryResults,
     ClosedDomainResultMapping,
@@ -203,7 +198,9 @@ def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> No
         "entry-2",
     )
     assert tuple(
-        (result.logical_point_id, result.product_use_id) for result in mapping.results
+        (result.logical_point_id, use_id)
+        for result in mapping.results
+        for use_id in result.product_use_ids
     ) == tuple((point.logical_id, use.id) for point in points for use in uses)
     assert len(mapping.results) == len(points) * len(uses)
     assert len(linked_points.linked_plan.record_uses) == len(uses) + 1
@@ -211,7 +208,8 @@ def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> No
     selected = mapping.result_for_address("result-2-1")
     assert selected is mapping.result_for_output(points[2].logical_id, uses[1].id)
     assert selected is mapping.entry_for_address("entry-2").results[1]
-    assert selected.product_use == uses[1]
+    assert selected.product_uses == (uses[1],)
+    assert selected.product_use_ids == (uses[1].id,)
     assert selected.product_id == uses[1].product_id
     assert selected.product.id == uses[1].product_id
     assert mapping.entry_for_point(points[2].logical_id).entry_address == "entry-2"
@@ -265,78 +263,6 @@ def test_result_mapping_closes_only_the_selected_linked_point_batch() -> None:
     )
 
 
-def test_domain_execution_capabilities_and_request_are_nominal_batch_contracts() -> (
-    None
-):
-    linked_points = _linked_points(point_count=4, product_count=2)
-    batch = MaterializedLinkedPointBatch(linked_points, (1, 2))
-    uses = linked_points.linked_plan.product_uses
-
-    capabilities = DomainExecutionCapabilities(
-        product_use_ids=(uses[0].id, uses[1].id),
-        domain_product_use_ids=(uses[0].id,),
-        claimed_tasks=(
-            ExecutionTask("action", "acquire"),
-            ExecutionTask("state", "prepare"),
-        ),
-        max_points_per_batch=8,
-    )
-    request = DomainExecutionRequest(batch=batch, batch_ordinal=3)
-
-    assert capabilities.claimed_tasks == (
-        ExecutionTask("state", "prepare"),
-        ExecutionTask("action", "acquire"),
-    )
-    assert capabilities.product_use_ids == (uses[0].id, uses[1].id)
-    assert capabilities.domain_product_use_ids == (uses[0].id,)
-    assert frozenset(capabilities.coverage.product_use_ids) == {
-        uses[0].id,
-        uses[1].id,
-    }
-    assert capabilities.max_points_per_batch == 8
-    assert request.batch is batch
-    assert request.linked_points is batch
-    assert request.batch_ordinal == 3
-
-
-@pytest.mark.parametrize("max_points", [0, -1])
-def test_domain_execution_capabilities_require_positive_batch_capacity(
-    max_points: int,
-) -> None:
-    with pytest.raises(ValueError, match="positive"):
-        DomainExecutionCapabilities(
-            (),
-            (),
-            claimed_tasks=(ExecutionTask("state", "prepare"),),
-            max_points_per_batch=max_points,
-        )
-
-
-def test_domain_execution_capabilities_require_semantic_ownership() -> None:
-    with pytest.raises(ValueError, match="own at least one task"):
-        DomainExecutionCapabilities((), ())
-
-
-def test_domain_execution_capabilities_keep_product_ownership_separate() -> None:
-    with pytest.raises(ValueError, match="product ownership"):
-        DomainExecutionCapabilities(
-            (),
-            (),
-            claimed_tasks=(ExecutionTask("product", "use"),),
-        )
-
-
-def test_domain_execution_capabilities_require_direct_products_to_be_owned() -> None:
-    linked_points = _linked_points(point_count=1, product_count=2)
-    uses = linked_points.linked_plan.product_uses
-
-    with pytest.raises(ValueError, match="must be owned"):
-        DomainExecutionCapabilities(
-            product_use_ids=(uses[0].id,),
-            domain_product_use_ids=(uses[1].id,),
-        )
-
-
 def test_result_mapping_canonicalizes_an_explicit_product_use_subset() -> None:
     linked_points = _linked_points(point_count=3, product_count=3)
     uses = linked_points.linked_plan.product_uses
@@ -370,14 +296,17 @@ def test_result_mapping_canonicalizes_an_explicit_product_use_subset() -> None:
     canonical_ids = (uses[0].id, uses[2].id)
     assert mapping.selected_product_use_ids == canonical_ids
     assert tuple(
-        (result.logical_point_id, result.product_use_id) for result in mapping.results
+        (result.logical_point_id, use_id)
+        for result in mapping.results
+        for use_id in result.product_use_ids
     ) == tuple(
         (point.logical_id, product_use_id)
         for point in linked_points.point_domain.points
         for product_use_id in canonical_ids
     )
     assert all(
-        tuple(result.product_use_id for result in entry.results) == canonical_ids
+        tuple(use_id for result in entry.results for use_id in result.product_use_ids)
+        == canonical_ids
         for entry in mapping.entries
     )
     with pytest.raises(KeyError, match="not in this mapping"):
@@ -587,7 +516,9 @@ def test_adapter_and_binding_order_do_not_change_logical_output_order(
     points = linked_points.point_domain.points
     uses = linked_points.linked_plan.product_uses
     assert tuple(
-        (result.logical_point_id, result.product_use_id) for result in mapping.results
+        (result.logical_point_id, use_id)
+        for result in mapping.results
+        for use_id in result.product_use_ids
     ) == tuple((point.logical_id, use.id) for point in points for use in uses)
 
 
@@ -617,9 +548,9 @@ def test_output_values_close_reordered_candidates_to_exact_logical_results() -> 
     )
     for index, output in enumerate(closed.outputs):
         assert closed.output_for_address(output.result_address) is output
-        assert (
-            closed.output_for_output(output.logical_point_id, output.product_use_id)
-            is output
+        assert all(
+            closed.output_for_output(output.logical_point_id, use_id) is output
+            for use_id in output.product_use_ids
         )
         assert output.entry_address == output.result.entry_address
         assert output.product_id == output.result.product_id
@@ -962,12 +893,13 @@ def test_mapping_supports_control_only_entries_without_fabricated_results() -> N
     assert seal_domain_output_values(selection, ()).outputs == ()
 
 
-def test_distinct_uses_of_one_product_remain_distinct_domain_outputs() -> None:
+def test_one_physical_result_fans_out_to_distinct_uses_of_one_product() -> None:
     linked_points = _linked_points(
         point_count=2,
         product_count=2,
         shared_product=True,
     )
+    points = linked_points.point_domain.points
     uses = linked_points.linked_plan.product_uses
     assert uses[0].product_id == uses[1].product_id
     assert uses[0].id != uses[1].id
@@ -975,14 +907,99 @@ def test_distinct_uses_of_one_product_remain_distinct_domain_outputs() -> None:
     mapping = seal_domain_result_mapping(
         linked_points,
         _all_product_use_ids(linked_points),
-        *_valid_mapping_inputs(linked_points, adapter_point_order=(1, 0)),
+        (
+            AdapterEntryResults("entry-1", ("result-1",)),
+            AdapterEntryResults("entry-0", ("result-0",)),
+        ),
+        (
+            EntryPointBinding("entry-1", points[1].logical_id),
+            EntryPointBinding("entry-0", points[0].logical_id),
+        ),
+        tuple(
+            ResultUseBinding(
+                f"entry-{point.logical_ordinal}",
+                f"result-{point.logical_ordinal}",
+                use.id,
+            )
+            for point in reversed(points)
+            for use in reversed(uses)
+        ),
     )
 
-    assert len(mapping.results) == 4
-    assert tuple(result.product_use_id for result in mapping.entries[0].results) == (
-        uses[0].id,
-        uses[1].id,
+    assert len(mapping.results) == len(points)
+    assert all(
+        result.product_uses == uses
+        and result.product_use_ids == tuple(use.id for use in uses)
+        for result in mapping.results
     )
+    for point, result in zip(points, mapping.results, strict=True):
+        assert mapping.result_for_output(point.logical_id, uses[0].id) is result
+        assert mapping.result_for_output(point.logical_id, uses[1].id) is result
+
+    selection = select_domain_measurement_outputs(mapping)
+    closed = seal_domain_output_values(
+        selection,
+        tuple(
+            DomainOutputValue(
+                result.result_address,
+                Quantity(value=float(index), unit="ratio"),
+            )
+            for index, result in enumerate(mapping.results)
+        ),
+    )
+
+    assert len(closed.outputs) == len(points)
+    for point, output in zip(points, closed.outputs, strict=True):
+        assert closed.output_for_output(point.logical_id, uses[0].id) is output
+        assert closed.output_for_output(point.logical_id, uses[1].id) is output
+
+
+def test_fanout_rejects_mixed_products_and_split_product_results() -> None:
+    distinct = _linked_points(point_count=1, product_count=2)
+    point = distinct.point_domain.points[0]
+    first_use, second_use = distinct.linked_plan.product_uses
+    with pytest.raises(ValueError, match="only within one logical product result"):
+        seal_domain_result_mapping(
+            distinct,
+            (first_use.id, second_use.id),
+            (AdapterEntryResults("entry", ("result",)),),
+            (EntryPointBinding("entry", point.logical_id),),
+            (
+                ResultUseBinding("entry", "result", first_use.id),
+                ResultUseBinding("entry", "result", second_use.id),
+            ),
+        )
+
+    shared = _linked_points(point_count=1, product_count=2, shared_product=True)
+    shared_point = shared.point_domain.points[0]
+    shared_uses = shared.linked_plan.product_uses
+    with pytest.raises(ValueError, match="cannot be split across addresses"):
+        seal_domain_result_mapping(
+            shared,
+            tuple(use.id for use in shared_uses),
+            (AdapterEntryResults("entry", ("first", "second")),),
+            (EntryPointBinding("entry", shared_point.logical_id),),
+            (
+                ResultUseBinding("entry", "first", shared_uses[0].id),
+                ResultUseBinding("entry", "second", shared_uses[1].id),
+            ),
+        )
+
+
+def test_fanout_rejects_a_duplicate_result_use_edge() -> None:
+    linked_points = _linked_points(point_count=1, product_count=1)
+    point = linked_points.point_domain.points[0]
+    use = linked_points.linked_plan.product_uses[0]
+    binding = ResultUseBinding("entry", "result", use.id)
+
+    with pytest.raises(ValueError, match="unique result/product-use edges"):
+        seal_domain_result_mapping(
+            linked_points,
+            (use.id,),
+            (AdapterEntryResults("entry", ("result",)),),
+            (EntryPointBinding("entry", point.logical_id),),
+            (binding, binding),
+        )
 
 
 @pytest.mark.parametrize(

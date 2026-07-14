@@ -35,6 +35,8 @@ from scopecat.authoring._record_intents import (
     ModuleProductPort,
     RecordIntent,
 )
+from scopecat.authoring.domain import DomainCall, DomainProgramDef
+from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.values import MetadataValue
 from scopecat.kernel.frozen import freeze_json_mapping
 
@@ -51,6 +53,9 @@ def module_from_parts_internal(
     actions: Sequence[ModuleActionDecl] = (),
     operations: Sequence[ModuleOperationDecl] = (),
     python_implementations: Sequence[ModulePythonImplementation] = (),
+    measurement_transforms: Sequence[MeasurementTransform] = (),
+    domain_programs: Sequence[DomainProgramDef] = (),
+    domain_calls: Sequence[DomainCall] = (),
     records: Sequence[RecordIntent] = (),
     product_ports: Sequence[ModuleProductPort] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
@@ -78,6 +83,9 @@ def module_from_parts_internal(
             state=tuple(state_intents),
             actions=tuple(actions),
             operations=tuple(operations),
+            measurement_transforms=tuple(measurement_transforms),
+            domain_programs=tuple(domain_programs),
+            domain_calls=tuple(domain_calls),
             records=tuple(records),
             products=tuple(product_ports),
         ),
@@ -143,6 +151,9 @@ def build_module_from_builder(
         actions=builder.actions,
         operations=builder.operations,
         python_implementations=builder.python_implementations,
+        measurement_transforms=builder.measurement_transform_intents,
+        domain_programs=builder.domain_programs,
+        domain_calls=builder.domain_call_intents,
         records=builder.records,
         product_ports=builder.product_ports,
         metadata=merged_metadata,

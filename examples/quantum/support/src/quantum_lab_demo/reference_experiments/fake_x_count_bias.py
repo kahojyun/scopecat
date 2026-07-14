@@ -75,10 +75,6 @@ FAKE_X_COUNT_BIAS_TEMPLATE = (
         )
     )
     .record_product(
-        _CAPTURE.products.integrated_iq_shots,
-        record_id="integrated_iq_shots",
-    )
-    .record_product(
         _CAPTURE.products.probability_0,
         record_id="probability_0",
     )

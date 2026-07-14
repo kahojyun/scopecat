@@ -54,6 +54,8 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
 )
+from scopecat.authoring.domain import DomainCall, DomainProgramDef
+from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.value_types import (
     Entity as EntityType,
 )
@@ -118,6 +120,9 @@ class _ModuleFragment(_ExperimentEnvelope):
 
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ScopedPythonImplementation, ...] = ()
+    measurement_transforms: tuple[MeasurementTransform, ...] = ()
+    domain_programs: tuple[DomainProgramDef, ...] = ()
+    domain_calls: tuple[DomainCall, ...] = ()
     state_intents: tuple[ExperimentStateIntent, ...] = ()
     actions: tuple[ModuleActionDecl, ...] = ()
 
@@ -247,6 +252,15 @@ def _merge_module_fragments(
         operations=tuple(
             item for fragment in fragments for item in fragment.operations
         ),
+        measurement_transforms=tuple(
+            item for fragment in fragments for item in fragment.measurement_transforms
+        ),
+        domain_programs=tuple(
+            item for fragment in fragments for item in fragment.domain_programs
+        ),
+        domain_calls=tuple(
+            item for fragment in fragments for item in fragment.domain_calls
+        ),
         python_implementations=tuple(
             item for fragment in fragments for item in fragment.python_implementations
         ),
@@ -276,6 +290,9 @@ def elaborate_module(
     semantic = elaborate_semantic_graph(
         fragment.operations,
         fragment.python_implementations,
+        measurement_transforms=fragment.measurement_transforms,
+        domain_programs=fragment.domain_programs,
+        domain_calls=fragment.domain_calls,
         actions=fragment.actions,
         value_roots=_module_fragment_semantic_value_roots(fragment),
         state_regions=fragment.state_intents,
@@ -342,6 +359,12 @@ def _elaborate_module_ir(
         operations=tuple(
             _resolve_operation(operation, resolver=resolver)
             for operation in module.body.operations
+        ),
+        measurement_transforms=module.body.measurement_transforms,
+        domain_programs=module.body.domain_programs,
+        domain_calls=tuple(
+            _resolve_domain_call(call, resolver=resolver)
+            for call in module.body.domain_calls
         ),
         python_implementations=tuple(
             ScopedPythonImplementation(
@@ -464,6 +487,11 @@ def _module_value_roots(module: ModuleIR) -> tuple[object, ...]:
         value
         for operation in module.body.operations
         for _name, value in operation.inputs
+    )
+    values.extend(
+        value
+        for call in module.body.domain_calls
+        for _name, value in call.input_bindings
     )
     values.extend(export.source for export in module.interface.exports)
     values.extend(axis.size for record in module.body.records for axis in record.axes)
@@ -707,6 +735,23 @@ def _resolve_operation(
     )
 
 
+def _resolve_domain_call(
+    call: DomainCall,
+    *,
+    resolver: _ModuleValueResolver,
+) -> DomainCall:
+    return replace(
+        call,
+        input_bindings=tuple(
+            (
+                name,
+                resolver.resolve(value) if isinstance(value, ValueRef) else value,
+            )
+            for name, value in call.input_bindings
+        ),
+    )
+
+
 def _resolve_action(
     action: ModuleActionDecl,
     *,
@@ -783,6 +828,9 @@ def _module_fragment_consumed_value_roots(
     values.extend(
         value for operation in fragment.operations for _name, value in operation.inputs
     )
+    values.extend(
+        value for call in fragment.domain_calls for _name, value in call.input_bindings
+    )
     values.extend(axis.size for record in fragment.records for axis in record.axes)
     values.extend(
         axis.size for product in fragment.product_ports for axis in product.axes
@@ -804,6 +852,9 @@ def _module_fragment_semantic_value_roots(
     values.extend(binding.value for binding in fragment.bindings)
     values.extend(
         value for operation in fragment.operations for _name, value in operation.inputs
+    )
+    values.extend(
+        value for call in fragment.domain_calls for _name, value in call.input_bindings
     )
     values.extend(axis.size for record in fragment.records for axis in record.axes)
     values.extend(
@@ -835,7 +886,23 @@ def _scope_instance_graph(
         scope=scope,
         origin=origin,
     )
-    return replace(
+    domain_programs = tuple(
+        replace(program, scope=(*scope, *program.scope))
+        for program in fragment.domain_programs
+    )
+    measurement_transforms = tuple(
+        _scope_measurement_transform(transform, scope=scope)
+        for transform in fragment.measurement_transforms
+    )
+    domain_programs_by_id = {
+        original.symbol_id: scoped
+        for original, scoped in zip(
+            fragment.domain_programs,
+            domain_programs,
+            strict=True,
+        )
+    }
+    scoped = replace(
         fragment,
         # Module metadata describes the module declaration itself.  It is not
         # experiment metadata and therefore does not implicitly bubble through
@@ -904,6 +971,18 @@ def _scope_instance_graph(
             )
             for operation in fragment.operations
         ),
+        measurement_transforms=measurement_transforms,
+        domain_programs=domain_programs,
+        domain_calls=tuple(
+            _scope_domain_call(
+                call,
+                local_inputs,
+                scope=scope,
+                origin=origin,
+                program=domain_programs_by_id[call.program.symbol_id],
+            )
+            for call in fragment.domain_calls
+        ),
         python_implementations=tuple(
             replace(
                 implementation,
@@ -930,6 +1009,22 @@ def _scope_instance_graph(
                 resource_ids=resource_ids,
             )
             for product in fragment.product_ports
+        ),
+    )
+    scoped_values = tuple(
+        value
+        for root in _module_fragment_consumed_value_roots(scoped)
+        for value in _nested_value_refs(root)
+    )
+    return replace(
+        scoped,
+        point_dependencies=_merge_point_dependencies(
+            scoped.point_dependencies,
+            *(internal_value_ref_point_dependencies(value) for value in scoped_values),
+        ),
+        parameter_contracts=merge_parameter_contracts(
+            scoped.parameter_contracts,
+            *(internal_value_ref_parameter_contracts(value) for value in scoped_values),
         ),
     )
 
@@ -1160,6 +1255,58 @@ def _scope_operation(
                 ),
             )
             for name, value in operation.inputs
+        ),
+    )
+
+
+def _scope_domain_call(
+    call: DomainCall,
+    inputs: Mapping[str, object],
+    *,
+    scope: tuple[str, ...],
+    origin: tuple[object, ...],
+    program: DomainProgramDef,
+) -> DomainCall:
+    return replace(
+        call,
+        program=program,
+        scope=(*scope, *call.scope),
+        input_bindings=tuple(
+            (
+                name,
+                _scope_value_ref(
+                    value,
+                    inputs,
+                    scope=scope,
+                    origin=origin,
+                )
+                if isinstance(value, ValueRef)
+                else value,
+            )
+            for name, value in call.input_bindings
+        ),
+        result_bindings=tuple(
+            (name, product_id.prefixed(*scope))
+            for name, product_id in call.result_bindings
+        ),
+    )
+
+
+def _scope_measurement_transform(
+    transform: MeasurementTransform,
+    *,
+    scope: tuple[str, ...],
+) -> MeasurementTransform:
+    return replace(
+        transform,
+        scope=(*scope, *transform.scope),
+        input_bindings=tuple(
+            (role, product_id.prefixed(*scope))
+            for role, product_id in transform.input_bindings
+        ),
+        output_bindings=tuple(
+            (role, product_id.prefixed(*scope))
+            for role, product_id in transform.output_bindings
         ),
     )
 

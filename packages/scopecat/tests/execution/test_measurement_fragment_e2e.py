@@ -34,6 +34,16 @@ from scopecat.execution.local.program import (
 )
 from scopecat.kernel.product_identity import ProductUse, product_use
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
+from scopecat.measurements.host_transforms import (
+    BoundHostMeasurementTransformPlan,
+    HostMeasurementTransformCall,
+    HostMeasurementTransformFragmentBinding,
+    HostMeasurementTransformImplementation,
+    HostMeasurementTransformImplementationBinding,
+    bind_host_measurement_transforms,
+    execute_host_measurement_transforms,
+    select_host_measurement_transforms,
+)
 from scopecat.measurements.projection import (
     bind_measurement_projection,
     project_measurement_records,
@@ -41,19 +51,14 @@ from scopecat.measurements.projection import (
 )
 from scopecat.measurements.recording import commit_projected_measurement_records
 from scopecat.measurements.results import CoordinateValue
-from scopecat.measurements.transforms import (
-    BoundHostMeasurementTransformPlan,
-    HostMeasurementTransformCall,
-    HostMeasurementTransformFragmentBinding,
-    HostMeasurementTransformImplementation,
-    HostMeasurementTransformImplementationBinding,
+from scopecat.measurements.semantics import MeasurementTransformSemanticContract
+from scopecat.measurements.transform_model import (
     MeasurementTransformDef,
-    MeasurementTransformId,
-    MeasurementTransformPort,
-    MeasurementTransformSemanticContract,
-    bind_host_measurement_transforms,
-    execute_host_measurement_transforms,
-    select_host_measurement_transforms,
+    MeasurementTransformInputPort,
+    MeasurementTransformOutputPort,
+    NativeMeasurementTransformId,
+)
+from scopecat.measurements.transform_verification import (
     verify_measurement_transform_graph,
 )
 from scopecat.measurements.values import (
@@ -200,7 +205,7 @@ def _transform_plan(
     kernel_calls: list[HostMeasurementTransformCall],
 ) -> BoundHostMeasurementTransformPlan:
     transform = MeasurementTransformDef(
-        id=MeasurementTransformId("scale-local-signal"),
+        id=NativeMeasurementTransformId("scale-local-signal"),
         semantic=MeasurementTransformSemanticContract(
             id="tests.scale_measurement",
             version="1",
@@ -208,16 +213,16 @@ def _transform_plan(
         ),
         rate="point",
         inputs=(
-            MeasurementTransformPort(
+            MeasurementTransformInputPort(
                 "source",
                 scenario.source.id,
                 scenario.source_product,
             ),
         ),
         outputs=(
-            MeasurementTransformPort(
+            MeasurementTransformOutputPort(
                 "derived",
-                scenario.derived.id,
+                (scenario.derived.id,),
                 scenario.derived_product,
             ),
         ),

@@ -84,9 +84,10 @@ and template definitions when scratch exploration becomes reusable.
 The support package also contains a runnable fake list-mode AWG/acquisition
 reference path. Notebooks 10 and 11 demonstrate checked quantum target
 compilation, correlated domain submit/fetch/reconcile, producer-neutral host
-value assembly, typed `POINT` measurement transformation, record projection,
+value assembly, authored `POINT` measurement transformation, record projection,
 and receipt-bearing per-point recording. Its binary-IQ fixture keeps raw shots
-under domain ownership and derived probabilities under transform ownership.
+under domain ownership as a hidden transform input and derived probabilities
+under transform ownership. Only the probabilities are projected into records.
 Both authoring styles use the lab's single `ExecutionBackend` and converge on
 the same `Workspace.prepare(...).run()` workflow; the domain adapter is a
 capability-owning target boundary, not a second execution mode or experiment
@@ -107,12 +108,14 @@ artifact, submission-key, and reconciliation evidence in the standard Run, but
 there is no automatic resume API yet.
 
 The current notebook virtual provider still synthesizes probability products
-directly and remains legacy demo debt for the older examples. The reference
-currently records integrated IQ as well as probabilities because the authoring
-DSL cannot yet demand a transform input without also projecting it as a record;
-that asymmetry is now a visible UX benchmark. `POINT_SET`, cross-point analysis,
-transform authoring DSL, hidden intermediate-product demand, offload
-equivalence, dataset compaction, polling, and cancellation remain later work.
+directly and remains legacy demo debt for the older examples. The fake X-count
+reference instead declares binary-IQ discrimination as a first-class authored
+measurement transform. Record-rooted demand closure keeps the unrecorded IQ
+product live, while dead transform declarations create no acquisition work.
+One semantic output is fanned out to every downstream product-use occurrence,
+so aliases do not repeat target work or host kernels. `POINT_SET`, cross-point
+analysis, offload equivalence, dataset compaction, polling, and cancellation
+remain later work.
 
 The examples use domain names such as `qubit`, `control_qubit`, and
 `partner_qubit` as run-time `inputs` keys. Linked experiment specs lower

@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from scopecat.compiler.semantic.model import DomainCallId, MeasurementTransformId
 from scopecat.kernel.product_identity import ProductId, ProductProducerId
 from scopecat.kernel.resource_identity import ResourceTarget
 from scopecat.measurements.results import MeasurementDType
@@ -59,8 +60,40 @@ class InstrumentProductProducer(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class DomainProductProducer(BaseModel):
+    """One domain-call result that realizes a logical product."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    id: ProductProducerId
+    product_id: ProductId
+    call_id: DomainCallId
+    result_id: str = Field(min_length=1)
+
+
+class MeasurementTransformProductProducer(BaseModel):
+    """One pure authored transform output that realizes a logical product."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    id: ProductProducerId
+    product_id: ProductId
+    transform_id: MeasurementTransformId
+    output_id: str = Field(min_length=1)
+
+
 __all__ = [
+    "DomainProductProducer",
     "InstrumentProductProducer",
+    "MeasurementTransformProductProducer",
     "ProductAxisDef",
     "ProductDef",
     "ProductKind",

@@ -7,19 +7,19 @@ from collections.abc import Mapping
 from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, model_validator
-from scopecat import Quantity
+from scopecat import MeasurementTransform, Quantity, measurement_transform
 from scopecat.measurements.results import (
     ComplexQuantity,
     MeasurementArray,
     MeasurementValue,
 )
-from scopecat.measurements.transforms import (
-    HostMeasurementTransformCall,
-    HostMeasurementTransformImplementation,
-    MeasurementTransformDef,
-    MeasurementTransformId,
-    MeasurementTransformPort,
-    MeasurementTransformSemanticContract,
+from scopecat.measurements.semantics import MeasurementTransformSemanticContract
+from scopecat.sdk.domain.measurements import (
+    DomainHostTransformCall,
+    DomainHostTransformImplementation,
+    DomainMeasurementTransform,
+    DomainTransformInputPort,
+    DomainTransformOutputPort,
 )
 
 _BINARY_IQ_SEMANTIC_ID = "scopecat_quantum.readout.binary_iq_discrimination"
@@ -80,41 +80,55 @@ class BinaryIqDiscriminator(BaseModel):
 
 
 def binary_iq_probability_transform(
-    transform_id: MeasurementTransformId,
+    transform_id: str,
     *,
-    iq_shots: MeasurementTransformPort,
-    probability_0: MeasurementTransformPort,
-    probability_1: MeasurementTransformPort,
+    iq_shots: str,
+    probability_0: str,
+    probability_1: str,
     discriminator: BinaryIqDiscriminator,
-) -> MeasurementTransformDef:
-    """Build one typed point-local IQ-shot discrimination transform."""
+) -> MeasurementTransform:
+    """Declare one authored point-local IQ-shot discrimination transform."""
 
-    if not isinstance(cast("object", transform_id), MeasurementTransformId):
-        msg = "binary IQ probability transforms require MeasurementTransformId"
+    if not isinstance(cast("object", transform_id), str):
+        msg = "binary IQ probability transform ids must be strings"
         raise TypeError(msg)
-    _require_port(iq_shots, subject="iq_shots")
-    _require_port(probability_0, subject="probability_0")
-    _require_port(probability_1, subject="probability_1")
+    if not transform_id:
+        msg = "binary IQ probability transform ids must be non-empty"
+        raise ValueError(msg)
+    product_bindings = {
+        _IQ_SHOTS_ROLE: iq_shots,
+        _PROBABILITY_0_ROLE: probability_0,
+        _PROBABILITY_1_ROLE: probability_1,
+    }
+    for role, product_id in product_bindings.items():
+        if not isinstance(cast("object", product_id), str):
+            msg = f"binary IQ {role} product ids must be strings"
+            raise TypeError(msg)
+        if not product_id:
+            msg = f"binary IQ {role} product ids must be non-empty"
+            raise ValueError(msg)
+    if len(set(product_bindings.values())) != len(product_bindings):
+        msg = "binary IQ probability transform products must be distinct"
+        raise ValueError(msg)
     if not isinstance(cast("object", discriminator), BinaryIqDiscriminator):
         msg = "binary IQ probability transforms require BinaryIqDiscriminator"
         raise TypeError(msg)
-    _validate_iq_shot_input(iq_shots)
-    _validate_probability_output(probability_0, subject="probability_0")
-    _validate_probability_output(probability_1, subject="probability_1")
-    if (
-        len(
-            {
-                iq_shots.product_use_id,
-                probability_0.product_use_id,
-                probability_1.product_use_id,
-            }
-        )
-        != 3
-    ):
-        msg = "binary IQ probability transform product uses must be distinct"
-        raise ValueError(msg)
+    return measurement_transform(
+        transform_id,
+        semantic=_binary_iq_semantic(discriminator),
+        rate="point",
+        inputs={_IQ_SHOTS_ROLE: iq_shots},
+        outputs={
+            _PROBABILITY_0_ROLE: probability_0,
+            _PROBABILITY_1_ROLE: probability_1,
+        },
+    )
 
-    semantic = MeasurementTransformSemanticContract(
+
+def _binary_iq_semantic(
+    discriminator: BinaryIqDiscriminator,
+) -> MeasurementTransformSemanticContract:
+    return MeasurementTransformSemanticContract(
         id=_BINARY_IQ_SEMANTIC_ID,
         version=_BINARY_IQ_SEMANTIC_VERSION,
         portability="host_only",
@@ -122,24 +136,12 @@ def binary_iq_probability_transform(
             "discriminator": discriminator.model_dump(mode="json"),
         },
     )
-    return MeasurementTransformDef(
-        id=transform_id,
-        semantic=semantic,
-        rate="point",
-        inputs=(_role_port(_IQ_SHOTS_ROLE, iq_shots),),
-        outputs=(
-            _role_port(_PROBABILITY_0_ROLE, probability_0),
-            _role_port(_PROBABILITY_1_ROLE, probability_1),
-        ),
-    )
 
 
-def binary_iq_probability_host_implementation() -> (
-    HostMeasurementTransformImplementation
-):
+def binary_iq_probability_host_implementation() -> DomainHostTransformImplementation:
     """Return the host-only pure-Python nearest-centroid realization."""
 
-    return HostMeasurementTransformImplementation(
+    return DomainHostTransformImplementation(
         id=_BINARY_IQ_IMPLEMENTATION_ID,
         semantic_id=_BINARY_IQ_SEMANTIC_ID,
         semantic_version=_BINARY_IQ_SEMANTIC_VERSION,
@@ -151,7 +153,7 @@ def binary_iq_probability_host_implementation() -> (
 
 
 def _binary_iq_probability_kernel(
-    call: HostMeasurementTransformCall,
+    call: DomainHostTransformCall,
 ) -> dict[str, MeasurementValue]:
     semantic = call.semantic
     if (
@@ -219,10 +221,10 @@ def _discriminator_from_semantic(
 
 
 def _validate_binary_iq_probability_transform(
-    transform: MeasurementTransformDef,
+    transform: DomainMeasurementTransform,
 ) -> None:
-    if not isinstance(cast("object", transform), MeasurementTransformDef):
-        msg = "binary IQ host validation requires MeasurementTransformDef"
+    if not isinstance(cast("object", transform), DomainMeasurementTransform):
+        msg = "binary IQ host validation requires DomainMeasurementTransform"
         raise TypeError(msg)
     _discriminator_from_semantic(transform.semantic)
     if transform.rate != "point":
@@ -251,18 +253,26 @@ def _validate_binary_iq_probability_transform(
     if (
         len(
             {
-                input_port.product_use_id,
-                outputs[_PROBABILITY_0_ROLE].product_use_id,
-                outputs[_PROBABILITY_1_ROLE].product_use_id,
+                input_port.product.id,
+                outputs[_PROBABILITY_0_ROLE].product.id,
+                outputs[_PROBABILITY_1_ROLE].product.id,
             }
         )
         != 3
     ):
+        msg = "binary IQ probability transform products must be distinct"
+        raise ValueError(msg)
+    product_uses = (
+        input_port.product_use,
+        *outputs[_PROBABILITY_0_ROLE].product_uses,
+        *outputs[_PROBABILITY_1_ROLE].product_uses,
+    )
+    if len({id(product_use) for product_use in product_uses}) != len(product_uses):
         msg = "binary IQ probability transform product uses must be distinct"
         raise ValueError(msg)
 
 
-def _validate_call_ports(call: HostMeasurementTransformCall) -> None:
+def _validate_call_ports(call: DomainHostTransformCall) -> None:
     if tuple(port.id for port in call.input_ports) != (_IQ_SHOTS_ROLE,):
         msg = "binary IQ host call requires the exact iq_shots input role"
         raise ValueError(msg)
@@ -299,21 +309,7 @@ def _classify_shot(
     return 0 if discriminator.tie_policy == "state_0" else 1
 
 
-def _require_port(port: object, *, subject: str) -> None:
-    if not isinstance(port, MeasurementTransformPort):
-        msg = f"binary IQ {subject} requires MeasurementTransformPort"
-        raise TypeError(msg)
-
-
-def _role_port(role: str, port: MeasurementTransformPort) -> MeasurementTransformPort:
-    return MeasurementTransformPort(
-        id=role,
-        product_use_id=port.product_use_id,
-        product=port.product,
-    )
-
-
-def _validate_iq_shot_input(port: MeasurementTransformPort) -> None:
+def _validate_iq_shot_input(port: DomainTransformInputPort) -> None:
     product = port.product
     axes = product.axes
     if (
@@ -332,7 +328,7 @@ def _validate_iq_shot_input(port: MeasurementTransformPort) -> None:
 
 
 def _validate_probability_output(
-    port: MeasurementTransformPort,
+    port: DomainTransformOutputPort,
     *,
     subject: str,
 ) -> None:

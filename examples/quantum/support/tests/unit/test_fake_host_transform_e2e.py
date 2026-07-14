@@ -8,19 +8,43 @@ from scopecat import Quantity
 from scopecat.adapters.memory import MemoryExecutionJournal
 from scopecat.adapters.memory.execution import MemoryMeasurementRecordCommitter
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.linking.linked import (
+    MaterializedLinkedPointBatch,
+    MaterializedLinkedPoints,
+    link_program,
+    materialize_linked_points,
+)
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.semantic.model import (
+    DomainCallId,
+    DomainProgramId,
+    DomainResultPortDef,
+    MeasurementTransformId,
+)
 from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
 from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.products import (
+    DomainProductProducer,
+    MeasurementTransformProductProducer,
+)
 from scopecat.compiler.typed.program import (
+    TypedDomainCall,
+    TypedDomainProgram,
+    TypedDomainResultBinding,
+    TypedMeasurementTransform,
+    TypedMeasurementTransformInput,
+    TypedMeasurementTransformOutput,
     TypedProgram,
     product_output,
     record_product,
     shot_axis,
 )
 from scopecat.config.profiles import load_config_profile
+from scopecat.execution.effects.domain import execute_domain_job_values
+from scopecat.kernel.product_identity import product_producer_id, product_use
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.measurements.projection import (
     bind_measurement_projection,
@@ -28,32 +52,24 @@ from scopecat.measurements.projection import (
     select_measurement_projection,
 )
 from scopecat.measurements.recording import commit_projected_measurement_records
-from scopecat.measurements.transforms import (
-    HostMeasurementTransformCall,
-    HostMeasurementTransformFragmentBinding,
-    HostMeasurementTransformImplementationBinding,
-    MeasurementTransformId,
-    MeasurementTransformPort,
-    bind_host_measurement_transforms,
-    execute_host_measurement_transforms,
-    select_host_measurement_transforms,
-    verify_measurement_transform_graph,
-)
-from scopecat.measurements.values import (
-    ProductValueFragmentDef,
-    bind_domain_output_fragment,
-    domain_output_fragment,
-    select_measurement_value_assembly,
-)
-from scopecat.sdk.domain.invocation import (
-    MaterializedLinkedPoints,
-    materialize_linked_points,
-)
-from scopecat.sdk.domain.runtime import (
+from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
-    fetch_domain_invocation,
-    plan_domain_submission,
-    submit_domain_invocation,
+    DomainBatchContext,
+    DomainExecutionOffer,
+    DomainHostTransformBinding,
+    DomainHostTransformCall,
+    DomainHostTransformImplementation,
+    DomainMeasurementPlan,
+    DomainPointRef,
+    DomainProductUseRef,
+    PreparedDomainExecution,
+)
+from scopecat.sdk.domain.context import (
+    make_domain_batch_context_internal,
+    project_domain_plan_internal,
+)
+from scopecat.sdk.domain.execution import (
+    prepared_domain_source_fragment_internal,
 )
 from scopecat_quantum import (
     Acquire,
@@ -82,6 +98,7 @@ from scopecat_quantum import (
     PulseProgramId,
     QubitId,
     ReadoutSignal,
+    TargetAcquisitionAddress,
     TargetCompileEntryId,
     TargetCompilerId,
     binary_iq_probability_host_implementation,
@@ -96,11 +113,11 @@ from scopecat_quantum import (
 )
 
 from quantum_lab_demo.targets.fake_list_mode import (
-    ExecutableFakeMeasurementInvocation,
     FakeListDomainRuntime,
+    FakeListRun,
     FakeListTargetCompiler,
-    close_fake_measurement_invocation,
     default_fake_list_target,
+    fake_measurement_invocation_spec,
     integrated_iq_shots,
     realize_fetched_fake_measurements,
     select_fake_measurement_realization,
@@ -110,14 +127,21 @@ _REPO_ROOT = Path(__file__).resolve().parents[5]
 _Q0 = QubitId("q0")
 _IQ_SLOT = AcquisitionSlotId("iq-result", scope=("circuit-local",))
 _SHOT_COUNT = 5
-_DOMAIN_FRAGMENT_ID = "fake-list-domain-iq"
-_TRANSFORM_FRAGMENT_ID = "binary-iq-probabilities"
 
 
 @dataclass(frozen=True, slots=True)
 class _Scenario:
     linked_points: MaterializedLinkedPoints
-    invocation: ExecutableFakeMeasurementInvocation
+    context: DomainBatchContext
+    prepared: PreparedDomainExecution
+    measurements: DomainMeasurementPlan[
+        TargetCompileEntryId,
+        TargetAcquisitionAddress,
+    ]
+    runtime: FakeListDomainRuntime
+    iq_use: DomainProductUseRef
+    probability_0_use: DomainProductUseRef
+    probability_1_use: DomainProductUseRef
 
 
 def _linked_points() -> MaterializedLinkedPoints:
@@ -157,14 +181,104 @@ def _linked_points() -> MaterializedLinkedPoints:
         dtype="float64",
         unit="ratio",
     )
-    iq_use, _unused_iq_record = record_product(iq_shots)
+    iq_use = product_use(iq_shots.id)
     probability_0_use, probability_0_record = record_product(probability_0)
     probability_1_use, probability_1_record = record_product(probability_1)
+    domain_program_id = DomainProgramId(SymbolId(local_id="binary-iq-program"))
+    domain_call_id = DomainCallId(SymbolId(local_id="execute"))
+    authored_transform = binary_iq_probability_transform(
+        "binary-iq-discrimination",
+        iq_shots="integrated_iq_shots",
+        probability_0="probability_0",
+        probability_1="probability_1",
+        discriminator=BinaryIqDiscriminator(
+            state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
+            state_1_centroid=IqCentroid(real=1.0, imag=0.0),
+            tie_policy="state_0",
+        ),
+    )
+    transform_id = MeasurementTransformId(SymbolId(local_id=authored_transform.id))
+    iq_producer_id = product_producer_id("iq-shots-producer")
+    probability_0_producer_id = product_producer_id("probability-0-producer")
+    probability_1_producer_id = product_producer_id("probability-1-producer")
     program = TypedProgram(
         id="fake-host-transform-e2e",
         kind="fake_host_transform_e2e",
         point_domain=point_domain,
         product_defs=(iq_shots, probability_0, probability_1),
+        domain_programs=(
+            TypedDomainProgram(
+                id=domain_program_id,
+                dialect_id="test.quantum.host-transform",
+                dialect_version="1",
+                body=("binary-iq-readout", "v1"),
+                result_ports=(DomainResultPortDef("iq_shots"),),
+            ),
+        ),
+        domain_calls=(
+            TypedDomainCall(
+                id=domain_call_id,
+                program_id=domain_program_id,
+                results=(
+                    TypedDomainResultBinding(
+                        id="iq_shots",
+                        product_id=iq_shots.id,
+                        producer_id=iq_producer_id,
+                        product_use_ids=(iq_use.id,),
+                    ),
+                ),
+            ),
+        ),
+        measurement_transforms=(
+            TypedMeasurementTransform(
+                id=transform_id,
+                semantic=authored_transform.semantic,
+                rate="point",
+                inputs=(
+                    TypedMeasurementTransformInput(
+                        id="iq_shots",
+                        product_id=iq_shots.id,
+                        product_use_id=iq_use.id,
+                    ),
+                ),
+                outputs=(
+                    TypedMeasurementTransformOutput(
+                        id="probability_0",
+                        product_id=probability_0.id,
+                        producer_id=probability_0_producer_id,
+                        product_use_ids=(probability_0_use.id,),
+                    ),
+                    TypedMeasurementTransformOutput(
+                        id="probability_1",
+                        product_id=probability_1.id,
+                        producer_id=probability_1_producer_id,
+                        product_use_ids=(probability_1_use.id,),
+                    ),
+                ),
+            ),
+        ),
+        domain_product_producers=(
+            DomainProductProducer(
+                id=iq_producer_id,
+                product_id=iq_shots.id,
+                call_id=domain_call_id,
+                result_id="iq_shots",
+            ),
+        ),
+        measurement_transform_product_producers=(
+            MeasurementTransformProductProducer(
+                id=probability_0_producer_id,
+                product_id=probability_0.id,
+                transform_id=transform_id,
+                output_id="probability_0",
+            ),
+            MeasurementTransformProductProducer(
+                id=probability_1_producer_id,
+                product_id=probability_1.id,
+                transform_id=transform_id,
+                output_id="probability_1",
+            ),
+        ),
         product_uses=(iq_use, probability_0_use, probability_1_use),
         record_uses=(
             probability_0_record,
@@ -234,8 +348,41 @@ def _measurement_selection():
     )
 
 
-def _scenario() -> _Scenario:
+def _scenario(
+    host_implementation: DomainHostTransformImplementation,
+) -> _Scenario:
     linked_points = _linked_points()
+    projection = project_domain_plan_internal(linked_points)
+    view = projection.view(linked_points)
+    call = view.require_one_call(dialect_id="test.quantum.host-transform")
+    iq_use = call.result("iq_shots").require_one_product_use()
+    [transform] = call.measurement_transforms
+    [probability_0_use] = transform.output("probability_0").product_uses
+    [probability_1_use] = transform.output("probability_1").product_uses
+    assert all(
+        isinstance(product_use, DomainProductUseRef)
+        for product_use in (iq_use, probability_0_use, probability_1_use)
+    )
+    offer = DomainExecutionOffer.for_call(
+        call,
+        max_points_per_batch=3,
+    )
+    context = make_domain_batch_context_internal(
+        projection,
+        MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
+        offer,
+        adapter_id="test.fake-host-transform",
+        batch_ordinal=0,
+    )
+    assert all(isinstance(point, DomainPointRef) for point in context.points)
+    assert context.direct_product_uses == (iq_use,)
+    assert context.product_uses == (
+        iq_use,
+        probability_0_use,
+        probability_1_use,
+    )
+    preparation = context.new_preparation()
+
     circuit, calibration_selection = _measurement_selection()
     adapter_point_order = (2, 0, 1)
     entries = tuple(
@@ -252,25 +399,23 @@ def _scenario() -> _Scenario:
         TargetCompilerId("fake-list-compiler.v1"),
         target,
     )
-    batch = prepare_circuit_target_batch(
+    target_batch = prepare_circuit_target_batch(
         entries,
         target_id=target.id,
         compiler_id=compiler.id,
         capability_fingerprint=target.capability_fingerprint,
         repetitions=_SHOT_COUNT,
     )
-    points = linked_points.point_domain.points
-    iq_use = linked_points.linked_plan.product_uses[0]
     mapping = seal_circuit_target_result_mapping(
-        linked_points,
-        batch,
+        preparation,
+        target_batch,
         tuple(
             CircuitTargetEntryPointBinding(
                 entry.id,
-                points[point_index].logical_id,
+                context.points[point_index],
             )
             for entry, point_index in zip(
-                batch.entries,
+                target_batch.entries,
                 adapter_point_order,
                 strict=True,
             )
@@ -278,147 +423,85 @@ def _scenario() -> _Scenario:
         tuple(
             CircuitTargetAcquisitionUseBinding(
                 entry.acquisition_addresses[0],
-                iq_use.id,
+                iq_use,
             )
-            for entry in batch.entries
+            for entry in target_batch.entries
         ),
     )
     compiled_target = bind_compiled_circuit_target(
         mapping,
-        compile_target(compiler, batch.request),
+        compile_target(compiler, target_batch.request),
     )
     realization = select_fake_measurement_realization(
         compiled_target,
         target,
-        tuple(integrated_iq_shots(result.result_address) for result in mapping.results),
+        tuple(
+            integrated_iq_shots(result.result_address)
+            for result in mapping.domain_mapping.results
+        ),
+    )
+    invocation = fake_measurement_invocation_spec(
+        realization,
+        invocation_id="binary-iq-readout",
+    )
+    measurements = preparation.measurement_plan(
+        mapping.domain_mapping,
+        host_transforms=(DomainHostTransformBinding(transform, host_implementation),),
+    )
+    runtime = FakeListDomainRuntime()
+
+    def realize(
+        fetched: CorrelatedDomainFetch[FakeListRun],
+    ):
+        return realize_fetched_fake_measurements(realization, fetched).result_values
+
+    prepared = preparation.build(
+        measurements=measurements,
+        invocation=invocation,
+        runtime=runtime,
+        realize=realize,
     )
     return _Scenario(
         linked_points=linked_points,
-        invocation=close_fake_measurement_invocation(
-            realization,
-            invocation_id="binary-iq-readout",
-        ),
+        context=context,
+        prepared=prepared,
+        measurements=measurements,
+        runtime=runtime,
+        iq_use=iq_use,
+        probability_0_use=probability_0_use,
+        probability_1_use=probability_1_use,
     )
 
 
 def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None:
-    scenario = _scenario()
-    iq_use, probability_0_use, probability_1_use = (
-        scenario.linked_points.linked_plan.product_uses
-    )
-    iq_product, probability_0_product, probability_1_product = (
-        scenario.linked_points.linked_plan.product_defs
-    )
-    value_selection = select_measurement_value_assembly(
-        scenario.linked_points,
-        required_product_use_ids=(
-            iq_use.id,
-            probability_0_use.id,
-            probability_1_use.id,
-        ),
-        fragment_defs=(
-            ProductValueFragmentDef(_DOMAIN_FRAGMENT_ID, (iq_use.id,)),
-            ProductValueFragmentDef(
-                _TRANSFORM_FRAGMENT_ID,
-                (probability_0_use.id, probability_1_use.id),
-            ),
-        ),
-    )
-    domain_binding = bind_domain_output_fragment(
-        value_selection,
-        _DOMAIN_FRAGMENT_ID,
-        scenario.invocation.payload.core_outputs,
-    )
-    transform = binary_iq_probability_transform(
-        MeasurementTransformId("binary-iq-discrimination"),
-        iq_shots=MeasurementTransformPort(
-            "iq_shots",
-            iq_use.id,
-            iq_product,
-        ),
-        probability_0=MeasurementTransformPort(
-            "probability_0",
-            probability_0_use.id,
-            probability_0_product,
-        ),
-        probability_1=MeasurementTransformPort(
-            "probability_1",
-            probability_1_use.id,
-            probability_1_product,
-        ),
-        discriminator=BinaryIqDiscriminator(
-            state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
-            state_1_centroid=IqCentroid(real=1.0, imag=0.0),
-            tie_policy="state_0",
-        ),
-    )
-    graph = verify_measurement_transform_graph(
-        scenario.linked_points,
-        (transform,),
-    )
     reference = binary_iq_probability_host_implementation()
-    kernel_calls: list[HostMeasurementTransformCall] = []
+    kernel_calls: list[DomainHostTransformCall] = []
 
-    def counted_kernel(call: HostMeasurementTransformCall):
+    def counted_kernel(call: DomainHostTransformCall):
         kernel_calls.append(call)
         return reference.kernel(call)
 
-    host_selection = select_host_measurement_transforms(
-        graph,
-        (replace(reference, kernel=counted_kernel),),
-        (
-            HostMeasurementTransformImplementationBinding(
-                transform.id,
-                reference.id,
-            ),
-        ),
-    )
-    transform_plan = bind_host_measurement_transforms(
-        host_selection,
-        value_selection,
-        (
-            HostMeasurementTransformFragmentBinding(
-                transform.id,
-                _TRANSFORM_FRAGMENT_ID,
-            ),
-        ),
-    )
+    counted_implementation = replace(reference, kernel=counted_kernel)
+    scenario = _scenario(counted_implementation)
+    value_selection = prepared_domain_source_fragment_internal(
+        scenario.prepared
+    ).selection
     projection = bind_measurement_projection(
         select_measurement_projection(scenario.linked_points),
         value_selection,
     )
-
-    runtime = FakeListDomainRuntime()
     journal = MemoryExecutionJournal()
     committer = MemoryMeasurementRecordCommitter()
-    submission_id = plan_domain_submission(
-        scenario.invocation,
+    run_id = "fake-host-transform-run"
+    executed = execute_domain_job_values(
+        scenario.prepared,
         run_id="fake-host-transform-run",
-        semantic_operation_id="binary-iq-readout",
-    )
-    submission = submit_domain_invocation(
-        runtime,
-        scenario.invocation,
-        submission_id,
         journal=journal,
-    )
-    fetched = fetch_domain_invocation(
-        runtime,
-        scenario.invocation.intent,
-        submission,
-        journal=journal,
-    )
-    assert isinstance(fetched, CorrelatedDomainFetch)
-    realized = realize_fetched_fake_measurements(scenario.invocation, fetched)
-    domain_fragment = domain_output_fragment(domain_binding, realized.output_values)
-    executed = execute_host_measurement_transforms(
-        transform_plan,
-        (domain_fragment,),
     )
     projected = project_measurement_records(
         projection,
-        executed.values,
-        run_id=submission_id.run_id,
+        executed,
+        run_id=run_id,
     )
     committed = commit_projected_measurement_records(
         projected,
@@ -426,29 +509,38 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
         journal,
     )
 
-    assert domain_binding.domain_outputs.mapping.selected_product_use_ids == (
-        iq_use.id,
+    measurements = scenario.measurements
+    assert measurements.source_product_uses == (scenario.iq_use,)
+    assert measurements.derived_product_uses == (
+        scenario.probability_0_use,
+        scenario.probability_1_use,
     )
-    assert domain_fragment.fragment_id == _DOMAIN_FRAGMENT_ID
-    assert domain_fragment.selection.fragment(_DOMAIN_FRAGMENT_ID).product_use_ids == (
-        iq_use.id,
+    assert measurements.product_uses == (
+        scenario.iq_use,
+        scenario.probability_0_use,
+        scenario.probability_1_use,
     )
-    assert tuple(fragment.fragment_id for fragment in executed.transform_fragments) == (
-        _TRANSFORM_FRAGMENT_ID,
+    [host_binding] = measurements.host_transforms
+    assert host_binding.implementation is counted_implementation
+    assert tuple(port.product_use for port in host_binding.transform.inputs) == (
+        scenario.iq_use,
     )
-    assert executed.transform_fragments[0].selection.fragment(
-        _TRANSFORM_FRAGMENT_ID
-    ).product_use_ids == (probability_0_use.id, probability_1_use.id)
-    assert executed.values.product_use_ids == (
-        iq_use.id,
-        probability_0_use.id,
-        probability_1_use.id,
+    assert tuple(port.product_uses for port in host_binding.transform.outputs) == (
+        (scenario.probability_0_use,),
+        (scenario.probability_1_use,),
+    )
+    assert tuple(
+        product_use_id.value for product_use_id in executed.product_use_ids
+    ) == (
+        scenario.iq_use.id,
+        scenario.probability_0_use.id,
+        scenario.probability_1_use.id,
     )
 
     points = scenario.linked_points.point_domain.points
-    assert runtime.physical_execution_count == 1
-    assert [(call.logical_point_id, call.point_index) for call in kernel_calls] == [
-        (point.logical_id, point.logical_ordinal) for point in points
+    assert scenario.runtime.physical_execution_count == 1
+    assert [(call.point, call.point_index) for call in kernel_calls] == [
+        (point, point.ordinal) for point in scenario.context.points
     ]
     assert all(
         tuple(port.id for port in call.input_ports) == ("iq_shots",)

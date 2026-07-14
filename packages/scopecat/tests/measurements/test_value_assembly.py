@@ -398,15 +398,12 @@ def test_assembly_rejects_missing_duplicate_or_foreign_fragments(
 
 
 def test_domain_output_fragment_strips_adapter_addresses_from_host_values() -> None:
-    scenario = measurement_assembly_scenario(use_count=2)
+    scenario = measurement_assembly_scenario(use_count=2, shared_product=True)
     points = scenario.linked_points.point_domain.points
     adapter_entries = tuple(
         AdapterEntryResults(
             f"entry-{point.logical_ordinal}",
-            tuple(
-                f"result-{point.logical_ordinal}-{use_index}"
-                for use_index in range(len(scenario.uses))
-            ),
+            (f"result-{point.logical_ordinal}",),
         )
         for point in reversed(points)
     )
@@ -424,11 +421,11 @@ def test_domain_output_fragment_strips_adapter_addresses_from_host_values() -> N
         tuple(
             ResultUseBinding(
                 f"entry-{point.logical_ordinal}",
-                f"result-{point.logical_ordinal}-{use_index}",
+                f"result-{point.logical_ordinal}",
                 use.id,
             )
             for point in points
-            for use_index, use in enumerate(scenario.uses)
+            for use in scenario.uses
         ),
     )
     domain_selection = select_domain_measurement_outputs(mapping)
@@ -467,11 +464,18 @@ def test_domain_output_fragment_strips_adapter_addresses_from_host_values() -> N
     fragment = domain_output_fragment(domain_binding, outputs)
     assembled = assemble_measurement_values(assembly, (fragment,))
 
-    assert len(assembled.values) == len(mapping.results)
+    assert len(mapping.results) == len(points)
+    assert len(outputs.outputs) == len(points)
+    assert len(fragment.values) == len(points) * len(scenario.uses)
+    assert len(assembled.values) == len(points) * len(scenario.uses)
     assert all(not hasattr(value, "result_address") for value in assembled.values)
     assert tuple(value.logical_point_id for value in assembled.values) == tuple(
-        result.logical_point_id for result in mapping.results
+        point.logical_id for point in points for _use in scenario.uses
     )
+    for point in points:
+        first = assembled.value_for_output(point.logical_id, scenario.uses[0].id)
+        second = assembled.value_for_output(point.logical_id, scenario.uses[1].id)
+        assert first.value == second.value
 
 
 def test_fragment_snapshots_mutable_measurement_values() -> None:

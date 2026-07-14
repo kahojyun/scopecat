@@ -13,21 +13,20 @@ from scopecat.kernel.problems import (
     blocking_problem,
     model_location,
 )
-from scopecat.sdk.domain.invocation import (
-    ClosedDomainInvocation,
-    DomainInvocationIntent,
-    close_domain_invocation,
+from scopecat.sdk.domain.job import (
+    DomainInvocationSpec,
+    DomainTargetArtifactIdentity,
 )
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
     DomainFetchReceipt,
+    DomainFetchRequest,
     DomainReconcileReceipt,
-    DomainSubmissionId,
+    DomainReconcileRequest,
     DomainSubmitReceipt,
-    domain_receipt_identity,
+    DomainSubmitRequest,
 )
-from scopecat_quantum import TargetAcquisitionAddress, TargetCompileEntryId
 
 from quantum_lab_demo.targets.fake_list_mode.circuit_runtime import (
     RealizedFakeMeasurementRun,
@@ -43,10 +42,8 @@ from quantum_lab_demo.targets.fake_list_mode.runtime import (
     FakeListRuntime,
 )
 
-type ExecutableFakeMeasurementInvocation = ClosedDomainInvocation[
-    TargetCompileEntryId,
-    TargetAcquisitionAddress,
-    SelectedFakeMeasurementRealization,
+type FakeMeasurementInvocationSpec = DomainInvocationSpec[
+    SelectedFakeMeasurementRealization
 ]
 
 
@@ -58,25 +55,26 @@ class _FakeListDomainJob:
     result_problem: Problem | None = None
 
 
-def close_fake_measurement_invocation(
+def fake_measurement_invocation_spec(
     selection: SelectedFakeMeasurementRealization,
     *,
     invocation_id: str,
-) -> ExecutableFakeMeasurementInvocation:
-    """Close the selected artifact, result contract, and value policies."""
+) -> FakeMeasurementInvocationSpec:
+    """Declare stable target identity and the selected transient payload."""
 
     if not isinstance(cast("object", selection), SelectedFakeMeasurementRealization):
-        msg = "fake invocation closure requires a selected measurement realization"
+        msg = "fake invocation spec requires a selected measurement realization"
         raise TypeError(msg)
     compiled = selection.compiled_target.compiled
-    return close_domain_invocation(
-        selection.core_outputs.mapping,
+    return DomainInvocationSpec(
         invocation_id=invocation_id,
-        target_id=compiled.target_id.value,
-        compiler_id=compiled.compiler_id.value,
-        capability_fingerprint=compiled.capability_fingerprint,
-        artifact_id=compiled.artifact_id.value,
-        artifact_fingerprint=compiled.artifact_fingerprint,
+        target=DomainTargetArtifactIdentity(
+            target_id=compiled.target_id.value,
+            compiler_id=compiled.compiler_id.value,
+            capability_fingerprint=compiled.capability_fingerprint,
+            artifact_id=compiled.artifact_id.value,
+            artifact_fingerprint=compiled.artifact_fingerprint,
+        ),
         adapter_intent={
             "schema": "quantum_lab_demo.fake_measurement_invocation.v1",
             "realizations": [
@@ -137,16 +135,22 @@ class FakeListDomainRuntime:
 
     def submit(
         self,
-        submission_id: DomainSubmissionId,
-        invocation: ExecutableFakeMeasurementInvocation,
+        request: DomainSubmitRequest[SelectedFakeMeasurementRealization],
     ) -> DomainSubmitReceipt:
-        attempt = submission_id
-        identity = domain_receipt_identity(submission_id, invocation.intent)
+        attempt = request.submission_id
+        identity = request.identity
+        selection = request.payload
+        if not isinstance(
+            cast("object", selection),
+            SelectedFakeMeasurementRealization,
+        ):
+            msg = "fake domain submit requires a selected measurement realization"
+            raise TypeError(msg)
         with self._lock:
             self._submit_calls += 1
             existing = self._jobs.get(attempt.submission_key)
             if existing is not None:
-                if existing.intent_fingerprint != invocation.intent.intent_fingerprint:
+                if existing.intent_fingerprint != identity.intent_fingerprint:
                     return DomainSubmitReceipt(
                         identity=identity,
                         status="not_submitted",
@@ -172,15 +176,13 @@ class FakeListDomainRuntime:
                 )
 
             job = _FakeListDomainJob(
-                intent_fingerprint=invocation.intent.intent_fingerprint,
+                intent_fingerprint=identity.intent_fingerprint,
                 job_id=f"fake-list-job:{attempt.submission_key}",
             )
             self._jobs[attempt.submission_key] = job
             self._physical_execution_count += 1
             try:
-                target_run = self._device.execute(
-                    invocation.payload.compiled_target.compiled
-                )
+                target_run = self._device.execute(selection.compiled_target.compiled)
             except Exception:
                 self._jobs[attempt.submission_key] = _FakeListDomainJob(
                     intent_fingerprint=job.intent_fingerprint,
@@ -209,12 +211,11 @@ class FakeListDomainRuntime:
 
     def fetch(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
-        job_id: str,
+        request: DomainFetchRequest,
     ) -> DomainFetchCandidate[FakeListRun]:
-        attempt = submission_id
-        identity = domain_receipt_identity(submission_id, intent)
+        attempt = request.submission_id
+        identity = request.identity
+        job_id = request.job_id
         with self._lock:
             self._fetch_calls += 1
             job = self._jobs.get(attempt.submission_key)
@@ -233,7 +234,7 @@ class FakeListDomainRuntime:
                         ),
                     )
                 )
-            if job.intent_fingerprint != intent.intent_fingerprint:
+            if job.intent_fingerprint != identity.intent_fingerprint:
                 return DomainFetchCandidate(
                     receipt=DomainFetchReceipt(
                         identity=identity,
@@ -278,11 +279,10 @@ class FakeListDomainRuntime:
 
     def reconcile(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
+        request: DomainReconcileRequest,
     ) -> DomainReconcileReceipt:
-        attempt = submission_id
-        identity = domain_receipt_identity(submission_id, intent)
+        attempt = request.submission_id
+        identity = request.identity
         with self._lock:
             self._reconcile_calls += 1
             job = self._jobs.get(attempt.submission_key)
@@ -291,7 +291,7 @@ class FakeListDomainRuntime:
                     identity=identity,
                     status="absent",
                 )
-            if job.intent_fingerprint != intent.intent_fingerprint:
+            if job.intent_fingerprint != identity.intent_fingerprint:
                 return DomainReconcileReceipt(
                     identity=identity,
                     status="unknown",
@@ -319,13 +319,16 @@ class FakeListDomainRuntime:
 
 
 def realize_fetched_fake_measurements(
-    invocation: ExecutableFakeMeasurementInvocation,
+    selection: SelectedFakeMeasurementRealization,
     fetched: CorrelatedDomainFetch[FakeListRun],
 ) -> RealizedFakeMeasurementRun:
-    """Correlate and accept one fetched raw run under the closed policies."""
+    """Correlate and decode one fetched raw run under selected policies."""
 
-    if not isinstance(cast("object", invocation), ClosedDomainInvocation):
-        msg = "fake measurement realization requires a closed domain invocation"
+    if not isinstance(
+        cast("object", selection),
+        SelectedFakeMeasurementRealization,
+    ):
+        msg = "fake measurement realization requires a selected policy"
         raise TypeError(msg)
     if not isinstance(cast("object", fetched), CorrelatedDomainFetch):
         msg = "fake measurement realization requires a correlated domain fetch"
@@ -333,12 +336,6 @@ def realize_fetched_fake_measurements(
     if not isinstance(cast("object", fetched.result), FakeListRun):
         msg = "fake measurement realization requires a FakeListRun payload"
         raise TypeError(msg)
-    if fetched.receipt.identity != domain_receipt_identity(
-        fetched.submission.submission_id,
-        invocation.intent,
-    ):
-        msg = "fetched fake target result does not belong to this invocation"
-        raise ValueError(msg)
     if fetched.receipt.result_fingerprint != fetched.result.fingerprint:
         msg = "fetched fake target receipt does not cover its raw run"
         raise ValueError(msg)
@@ -346,10 +343,10 @@ def realize_fetched_fake_measurements(
         msg = "fetched fake target receipt has the wrong raw frame count"
         raise ValueError(msg)
     correlated = correlate_fake_list_run(
-        invocation.payload.compiled_target,
+        selection.compiled_target,
         fetched.result,
     )
-    return realize_fake_measurements(invocation.payload, correlated)
+    return realize_fake_measurements(selection, correlated)
 
 
 def _fake_runtime_problem(
@@ -368,8 +365,8 @@ def _fake_runtime_problem(
 
 
 __all__ = [
-    "ExecutableFakeMeasurementInvocation",
     "FakeListDomainRuntime",
-    "close_fake_measurement_invocation",
+    "FakeMeasurementInvocationSpec",
+    "fake_measurement_invocation_spec",
     "realize_fetched_fake_measurements",
 ]

@@ -10,12 +10,10 @@ from scopecat.adapters.filesystem.execution import FilesystemExecutionJournal
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.records.parameter import Quantity
 from scopecat.records.run_plan import RunPlanDomainExecution
-from scopecat.sdk.domain.invocation import DomainInvocationIntent
 from scopecat.sdk.domain.runtime import (
     DomainFetchCandidate,
     DomainFetchReceipt,
-    DomainSubmissionId,
-    domain_receipt_identity,
+    DomainFetchRequest,
 )
 
 from quantum_lab_demo.reference_experiments import (
@@ -37,20 +35,18 @@ class _SecondBatchPendingRuntime(FakeListDomainRuntime):
 
     def fetch(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
-        job_id: str,
+        request: DomainFetchRequest,
     ) -> DomainFetchCandidate[FakeListRun]:
         self._seen_fetches += 1
         if self._seen_fetches == 2:
             return DomainFetchCandidate(
                 receipt=DomainFetchReceipt(
-                    identity=domain_receipt_identity(submission_id, intent),
-                    job_id=job_id,
+                    identity=request.identity,
+                    job_id=request.job_id,
                     status="pending",
                 )
             )
-        return super().fetch(submission_id, intent, job_id)
+        return super().fetch(request)
 
 
 def test_scalar_voltage_partitions_programmable_x_count_batches(
@@ -79,7 +75,6 @@ def test_scalar_voltage_partitions_programmable_x_count_batches(
         [4, 5, 6, 7],
     ]
     assert {record.id: record.producer_kind for record in plan.records} == {
-        "integrated_iq_shots": "domain",
         "probability_0": "host_transform",
         "probability_1": "host_transform",
         "bias_voltage_readback": "instrument",

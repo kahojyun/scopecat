@@ -12,7 +12,7 @@ from scopecat.records.entity import EntityRef
 from scopecat.records.measurement import CoordinateValue, MeasurementDatasetSchema
 from scopecat.records.parameter import Quantity
 
-RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v7"
+RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v8"
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 type RunPlanProducerKind = Literal["instrument", "domain", "host_transform"]
 type RunPlanFusionMode = Literal["automatic", "disabled"]
@@ -326,6 +326,7 @@ class RunPlanDomainExecution(_RunPlanModel):
     kind: Literal["domain_program"] = "domain_program"
     unit_id: _NonEmptyId
     adapter_id: _NonEmptyId
+    semantic_operation_id: _NonEmptyId
     capabilities: RunPlanDomainCapabilities
     batches: list[RunPlanDomainBatch]
 
@@ -340,6 +341,15 @@ class RunPlanDomainExecution(_RunPlanModel):
             len(batch.point_indices) > maximum for batch in self.batches
         ):
             msg = "run-plan domain batch exceeds the adapter point capability"
+            raise ValueError(msg)
+        if any(
+            batch.semantic_operation_id != self.semantic_operation_id
+            for batch in self.batches
+        ):
+            msg = (
+                "run-plan domain batches must retain their execution unit's "
+                "semantic operation identity"
+            )
             raise ValueError(msg)
         return self
 
@@ -364,7 +374,7 @@ type RunPlanExecutionUnit = Annotated[
 class RunPlanRecord(_RunPlanModel):
     """Stable projection of the plan accepted for one execution."""
 
-    schema_version: Literal["scopecat.run_plan_record.v7"] = (
+    schema_version: Literal["scopecat.run_plan_record.v8"] = (
         RUN_PLAN_RECORD_SCHEMA_VERSION
     )
     backend_id: _NonEmptyId

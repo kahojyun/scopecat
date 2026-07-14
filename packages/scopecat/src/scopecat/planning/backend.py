@@ -16,6 +16,7 @@ from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.linking.product_realizations import (
     SelectedLocalProductRealization,
 )
+from scopecat.compiler.typed.program import TypedProgram
 from scopecat.execution.local.executor import PreparedExecution, prepare_execution
 from scopecat.execution.local.program import ApplyStateStage, ComputeStage
 from scopecat.kernel.errors import CheckFailed
@@ -45,6 +46,7 @@ from scopecat.planning.coverage import (
     ExecutionTask,
     program_execution_coverage,
 )
+from scopecat.planning.domain_placement import domain_call_execution_slices
 from scopecat.records.config import ConfigProfileSnapshot, RoutingChannelBinding
 from scopecat.records.measurement import CoordinateValue
 from scopecat.records.run_plan import (
@@ -65,12 +67,22 @@ from scopecat.records.run_plan import (
     RunPlanStateChange,
     RunPlanValue,
 )
+from scopecat.sdk.domain.context import (
+    DomainBatchContext,
+    DomainExecutionOffer,
+    DomainPlanProjectionInternal,
+    context_linked_points_internal,
+    execution_slice_for_call_internal,
+    make_domain_batch_context_internal,
+    offered_call_internal,
+    project_domain_plan_internal,
+)
 from scopecat.sdk.domain.execution import (
     DomainExecutionAdapter,
-    DomainExecutionCapabilities,
-    DomainExecutionRequest,
     PreparedDomainExecution,
-    project_domain_run_plan_batch,
+    prepared_domain_invocation_internal,
+    prepared_domain_resource_claims_internal,
+    project_domain_run_plan_batch_internal,
 )
 from scopecat.sdk.instruments.contracts import InstrumentProvider
 
@@ -127,25 +139,26 @@ class PreparedDomainJob:
     """One physical domain invocation for a contiguous logical-point batch."""
 
     id: str
-    request: DomainExecutionRequest = field(repr=False)
+    context: DomainBatchContext = field(repr=False)
     prepared: PreparedDomainExecution = field(repr=False)
 
     @property
     def batch_ordinal(self) -> int:
-        return self.request.batch_ordinal
+        return self.context.batch_ordinal
 
     @property
     def point_indices(self) -> tuple[int, ...]:
-        return self.request.batch.point_indices
+        return context_linked_points_internal(self.context).point_indices
 
     @property
     def resource_claims(self) -> tuple[ExecutionResourceClaim, ...]:
-        if self.prepared.resource_claims:
-            return self.prepared.resource_claims
+        claims = prepared_domain_resource_claims_internal(self.prepared)
+        if claims:
+            return claims
         return (
             ExecutionResourceClaim(
                 "target",
-                self.prepared.invocation.intent.target_id,
+                prepared_domain_invocation_internal(self.prepared).intent.target_id,
             ),
         )
 
@@ -156,8 +169,9 @@ class PreparedDomainUnit:
 
     id: str
     adapter_id: str
-    capabilities: DomainExecutionCapabilities
+    offer: DomainExecutionOffer
     coverage: ExecutionCoverage
+    direct_product_use_ids: tuple[ProductUseId, ...]
     jobs: tuple[PreparedDomainJob, ...]
 
     @property
@@ -166,7 +180,7 @@ class PreparedDomainUnit:
 
     @property
     def domain_product_use_ids(self) -> frozenset[ProductUseId]:
-        return frozenset(self.capabilities.domain_product_use_ids)
+        return frozenset(self.direct_product_use_ids)
 
     @property
     def resource_claims(self) -> tuple[ExecutionResourceClaim, ...]:
@@ -247,8 +261,9 @@ class PreparedExecutionPlan:
             RunPlanDomainExecution(
                 unit_id=unit.id,
                 adapter_id=unit.adapter_id,
+                semantic_operation_id=unit.offer.call_id,
                 capabilities=RunPlanDomainCapabilities(
-                    max_points_per_batch=unit.capabilities.max_points_per_batch,
+                    max_points_per_batch=unit.offer.max_points_per_batch,
                 ),
                 batches=[_run_plan_domain_batch(job) for job in unit.jobs],
             )
@@ -420,9 +435,9 @@ class ExecutionBackend:
 
 
 def _run_plan_domain_batch(job: PreparedDomainJob) -> RunPlanDomainBatch:
-    return project_domain_run_plan_batch(
+    return project_domain_run_plan_batch_internal(
         job.prepared,
-        request=job.request,
+        context=job.context,
     )
 
 
@@ -581,12 +596,33 @@ def _prepare_backend_plan(
         linked_points,
     )
     domain_task_owners = {
-        task
-        for selected in selected_adapters
-        for task in selected.capabilities.coverage.tasks
+        task for selected in selected_adapters for task in selected.coverage.tasks
+    }
+    domain_product_use_ids = {
+        use_id.value
+        for use_ids in (
+            *(
+                result.product_use_ids
+                for call in linked.program.domain_calls
+                for result in call.results
+            ),
+            *(
+                output.product_use_ids
+                for transform in linked.program.measurement_transforms
+                for output in transform.outputs
+            ),
+        )
+        for use_id in use_ids
     }
     local_coverage = ExecutionCoverage(
-        tuple(task for task in expected.tasks if task not in domain_task_owners)
+        tuple(
+            task
+            for task in expected.tasks
+            if task not in domain_task_owners
+            and task.kind != "domain_call"
+            and task.kind != "measurement_transform"
+            and not (task.kind == "product" and task.id in domain_product_use_ids)
+        )
     )
     point_unit = _prepare_point_unit(
         backend,
@@ -598,8 +634,9 @@ def _prepare_backend_plan(
         PreparedDomainUnit(
             id=selected.unit_id,
             adapter_id=selected.adapter_id,
-            capabilities=selected.capabilities,
-            coverage=selected.capabilities.coverage,
+            offer=selected.offer,
+            coverage=selected.coverage,
+            direct_product_use_ids=selected.direct_product_use_ids,
             jobs=(),
         )
         for selected in selected_adapters
@@ -608,7 +645,19 @@ def _prepare_backend_plan(
         *((point_unit,) if point_unit is not None else ()),
         *provisional_domains,
     )
-    problems = list(_coverage_problems(expected, provisional_units))
+    problems = list(
+        _coverage_problems(
+            expected,
+            provisional_units,
+            program=linked.program,
+        )
+    )
+    problems.extend(
+        _domain_call_affinity_problems(
+            linked.program,
+            tuple((unit.id, unit.coverage) for unit in provisional_domains),
+        )
+    )
     if point_unit is not None and provisional_domains:
         problems.extend(_mixed_lane_point_shape_problems(point_unit))
     if problems:
@@ -693,7 +742,10 @@ class _SelectedDomainAdapter:
     unit_id: str
     adapter_id: str
     adapter: DomainExecutionAdapter = field(repr=False, compare=False)
-    capabilities: DomainExecutionCapabilities
+    offer: DomainExecutionOffer
+    coverage: ExecutionCoverage
+    direct_product_use_ids: tuple[ProductUseId, ...]
+    projection: DomainPlanProjectionInternal = field(repr=False, compare=False)
 
 
 def _select_domain_adapters(
@@ -702,6 +754,8 @@ def _select_domain_adapters(
 ) -> tuple[_SelectedDomainAdapter, ...]:
     selected: list[_SelectedDomainAdapter] = []
     seen_ids: set[str] = set()
+    projection = project_domain_plan_internal(linked_points)
+    view = projection.view(linked_points)
     for adapter_index, adapter in enumerate(adapters):
         adapter_id = adapter.adapter_id
         if type(adapter_id) is not str or not adapter_id:
@@ -711,21 +765,30 @@ def _select_domain_adapters(
             msg = f"domain execution adapter identity {adapter_id!r} is repeated"
             raise ValueError(msg)
         seen_ids.add(adapter_id)
-        candidate = cast("object", adapter.capabilities(linked_points))
+        candidate = cast("object", adapter.select(view))
         if candidate is None:
             continue
-        if not isinstance(candidate, DomainExecutionCapabilities):
+        if not isinstance(candidate, DomainExecutionOffer):
             msg = (
-                "domain execution adapter capabilities must return "
-                "DomainExecutionCapabilities or None"
+                "domain execution adapter select must return "
+                "DomainExecutionOffer or None"
             )
             raise TypeError(msg)
+        call = offered_call_internal(view, candidate)
+        candidate = DomainExecutionOffer.for_call(
+            call,
+            max_points_per_batch=candidate.max_points_per_batch,
+        )
+        execution_slice = execution_slice_for_call_internal(projection, call)
         selected.append(
             _SelectedDomainAdapter(
                 unit_id=f"domain-program-{adapter_index}-{adapter_id}",
                 adapter_id=adapter_id,
                 adapter=adapter,
-                capabilities=candidate,
+                offer=candidate,
+                coverage=execution_slice.coverage,
+                direct_product_use_ids=execution_slice.direct_product_use_ids,
+                projection=projection,
             )
         )
     return tuple(selected)
@@ -831,7 +894,7 @@ def _prepare_domain_units(
     units: list[PreparedDomainUnit] = []
     for selected in selected_adapters:
         jobs: list[PreparedDomainJob] = []
-        adapter_maximum = selected.capabilities.max_points_per_batch
+        adapter_maximum = selected.offer.max_points_per_batch
         limits = tuple(
             limit for limit in (maximum, adapter_maximum) if limit is not None
         )
@@ -850,11 +913,14 @@ def _prepare_domain_units(
             for offset in range(0, len(segment.point_indices), selected_chunk_size)
         )
         for batch_ordinal, batch in enumerate(batches):
-            request = DomainExecutionRequest(
-                batch=batch,
+            context = make_domain_batch_context_internal(
+                selected.projection,
+                batch,
+                selected.offer,
+                adapter_id=selected.adapter_id,
                 batch_ordinal=batch_ordinal,
             )
-            prepared_candidate = cast("object", selected.adapter.prepare(request))
+            prepared_candidate = cast("object", selected.adapter.prepare(context))
             if not isinstance(prepared_candidate, PreparedDomainExecution):
                 msg = "domain execution adapter must return PreparedDomainExecution"
                 raise TypeError(msg)
@@ -862,21 +928,41 @@ def _prepare_domain_units(
             if prepared.adapter_id != selected.adapter_id:
                 msg = "prepared domain execution lost its adapter identity"
                 raise ValueError(msg)
-            if prepared.linked_points is not batch:
-                msg = "prepared domain execution must retain its requested point batch"
+            if prepared.semantic_operation_id != selected.offer.call_id:
+                msg = (
+                    "prepared domain execution semantic_operation_id must equal "
+                    "its claimed domain call id"
+                )
                 raise ValueError(msg)
-            if prepared.coverage != selected.capabilities.coverage:
-                msg = "prepared domain execution changed its declared task coverage"
+            if prepared.context is not context:
+                msg = "prepared domain execution must retain its requested context"
                 raise ValueError(msg)
-            if prepared.domain_product_use_ids != frozenset(
-                selected.capabilities.domain_product_use_ids
+            if len(prepared.product_uses) != len(context.product_uses) or any(
+                prepared_use is not context_use
+                for prepared_use, context_use in zip(
+                    prepared.product_uses,
+                    context.product_uses,
+                    strict=True,
+                )
+            ):
+                msg = "prepared domain execution changed its product ownership"
+                raise ValueError(msg)
+            if len(prepared.direct_product_uses) != len(
+                context.direct_product_uses
+            ) or any(
+                prepared_use is not context_use
+                for prepared_use, context_use in zip(
+                    prepared.direct_product_uses,
+                    context.direct_product_uses,
+                    strict=True,
+                )
             ):
                 msg = "prepared domain execution changed its direct product ownership"
                 raise ValueError(msg)
             jobs.append(
                 PreparedDomainJob(
                     id=(f"{selected.unit_id}.batch-{batch_ordinal}"),
-                    request=request,
+                    context=context,
                     prepared=prepared,
                 )
             )
@@ -884,8 +970,9 @@ def _prepare_domain_units(
             PreparedDomainUnit(
                 id=selected.unit_id,
                 adapter_id=selected.adapter_id,
-                capabilities=selected.capabilities,
-                coverage=selected.capabilities.coverage,
+                offer=selected.offer,
+                coverage=selected.coverage,
+                direct_product_use_ids=selected.direct_product_use_ids,
                 jobs=tuple(jobs),
             )
         )
@@ -895,12 +982,33 @@ def _prepare_domain_units(
 def _coverage_problems(
     expected: ExecutionCoverage,
     units: tuple[PreparedExecutionUnit, ...],
+    *,
+    program: TypedProgram,
 ) -> tuple[Problem, ...]:
     expected_set = set(expected.tasks)
     owners: dict[ExecutionTask, list[str]] = {}
     for unit in units:
         for task in unit.coverage.tasks:
             owners.setdefault(task, []).append(unit.id)
+    unplaced_transforms = tuple(
+        transform
+        for transform in program.measurement_transforms
+        if ExecutionTask(
+            "measurement_transform",
+            transform.id.qualified_name,
+        )
+        not in owners
+    )
+    grouped_missing_tasks = {
+        ExecutionTask("measurement_transform", transform.id.qualified_name)
+        for transform in unplaced_transforms
+    } | {
+        ExecutionTask("product", use_id.value)
+        for transform in unplaced_transforms
+        for output in transform.outputs
+        for use_id in output.product_use_ids
+    }
+
     problems: list[Problem] = []
     for task, unit_ids in owners.items():
         if task not in expected_set:
@@ -922,13 +1030,77 @@ def _coverage_problems(
                 )
             )
     for task in expected.tasks:
-        if task not in owners:
+        if task not in owners and task not in grouped_missing_tasks:
             problems.append(
                 _planning_problem(
                     "execution_task_claim_missing",
                     f"execution task {task.kind}:{task.id} has no owner",
                     category=ProblemCategory.NOT_FOUND,
                     details={"task_kind": task.kind, "task_id": task.id},
+                )
+            )
+    problems.extend(
+        _planning_problem(
+            "measurement_transform_placement_missing",
+            f"measurement transform {transform.id.qualified_name!r} has no "
+            "execution owner; current domain lanes can host only a transform "
+            "closure fed wholly by one selected domain call",
+            details={
+                "transform_id": transform.id.qualified_name,
+                "input_product_ids": [
+                    port.product_id.qualified_name for port in transform.inputs
+                ],
+                "output_product_use_ids": [
+                    use_id.value
+                    for output in transform.outputs
+                    for use_id in output.product_use_ids
+                ],
+            },
+        )
+        for transform in unplaced_transforms
+    )
+    return tuple(problems)
+
+
+def _domain_call_affinity_problems(
+    program: TypedProgram,
+    domain_owners: tuple[tuple[str, ExecutionCoverage], ...],
+) -> tuple[Problem, ...]:
+    """Keep one call and all of its demanded results on one adapter lane."""
+
+    owners: dict[ExecutionTask, list[str]] = {}
+    for unit_id, coverage in domain_owners:
+        for task in coverage.tasks:
+            owners.setdefault(task, []).append(unit_id)
+    problems: list[Problem] = []
+    for execution_slice in domain_call_execution_slices(program):
+        tasks = (
+            ExecutionTask(
+                "domain_call",
+                execution_slice.call_id.qualified_name,
+            ),
+            *(
+                ExecutionTask("product", use_id.value)
+                for use_id in execution_slice.direct_product_use_ids
+            ),
+        )
+        task_owners = tuple(owners.get(task, []) for task in tasks)
+        # Missing and overlapping tasks are diagnosed by exact coverage first.
+        if any(len(selected) != 1 for selected in task_owners):
+            continue
+        unit_ids = {selected[0] for selected in task_owners}
+        if len(unit_ids) > 1:
+            problems.append(
+                _planning_problem(
+                    "domain_call_result_affinity_split",
+                    f"domain call {execution_slice.call_id.qualified_name!r} "
+                    "and its demanded "
+                    "product uses must have one domain execution owner",
+                    category=ProblemCategory.CONFLICT,
+                    details={
+                        "domain_call_id": execution_slice.call_id.qualified_name,
+                        "unit_ids": sorted(unit_ids),
+                    },
                 )
             )
     return tuple(problems)

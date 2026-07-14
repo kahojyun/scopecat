@@ -1,45 +1,34 @@
 from __future__ import annotations
 
 import math
-from dataclasses import replace
-from pathlib import Path
 from typing import Literal
 
 import pytest
 from pydantic import ValidationError
-from scopecat import Quantity
-from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
-from scopecat.compiler.relations.model import literal_rows
-from scopecat.compiler.relations.point_domain import point_rows
-from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
-from scopecat.compiler.typed.point_domain import PointDomain, PointDomainId
+from scopecat import MeasurementTransform, Quantity
 from scopecat.compiler.typed.products import ProductAxisDef, ProductDef
-from scopecat.compiler.typed.program import TypedProgram, product_output
-from scopecat.config.profiles import load_config_profile
-from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.product_identity import ProductUse, ProductUseId
-from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
+from scopecat.compiler.typed.program import product_output
 from scopecat.measurements.results import (
     ComplexQuantity,
     MeasurementArray,
     MeasurementDType,
+    MeasurementValue,
 )
-from scopecat.measurements.transforms import (
-    HostMeasurementTransformCall,
-    HostMeasurementTransformImplementationBinding,
-    MeasurementTransformDef,
-    MeasurementTransformId,
-    MeasurementTransformPort,
-    MeasurementTransformSemanticContract,
-    select_host_measurement_transforms,
-    verify_measurement_transform_graph,
+from scopecat.measurements.semantics import MeasurementTransformSemanticContract
+from scopecat.sdk.domain.measurements import (
+    DomainHostTransformCall,
+    DomainMeasurementTransform,
 )
-from scopecat.sdk.domain.invocation import (
-    LogicalPointId,
-    MaterializedLinkedPoints,
-    materialize_linked_points,
+from scopecat.sdk.domain.view import (
+    DomainPointRef,
+    DomainProductAxisView,
+    DomainProductContractView,
+    DomainProductUseRef,
+    mint_domain_measurement_transform_internal,
+    mint_domain_point_ref_internal,
+    mint_domain_product_use_ref_internal,
+    mint_domain_transform_input_port_internal,
+    mint_domain_transform_output_port_internal,
 )
 
 from scopecat_quantum.measurement_transforms import (
@@ -48,8 +37,6 @@ from scopecat_quantum.measurement_transforms import (
     binary_iq_probability_host_implementation,
     binary_iq_probability_transform,
 )
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _iq_product(
@@ -80,22 +67,42 @@ def _probability_product(
     dtype: MeasurementDType = "float64",
     unit: str | None = "ratio",
 ) -> ProductDef:
-    return product_output(
-        product_id,
-        dtype=dtype,
-        unit=unit,
+    return product_output(product_id, dtype=dtype, unit=unit)
+
+
+def _product_view(product: ProductDef) -> DomainProductContractView:
+    return DomainProductContractView(
+        id=product.id.qualified_name,
+        kind=product.kind,
+        unit=product.unit,
+        dtype=product.dtype,
+        axes=tuple(
+            DomainProductAxisView(
+                id=axis.id,
+                kind=axis.kind,
+                size=axis.size,
+                unit=axis.unit,
+                metadata=axis.metadata,
+            )
+            for axis in product.axes
+        ),
+        metadata=product.metadata,
     )
 
 
-def _port(
-    port_id: str,
-    product: ProductDef,
-    use_id: str,
-) -> MeasurementTransformPort:
-    return MeasurementTransformPort(
-        id=port_id,
-        product_use_id=ProductUseId(use_id),
-        product=product,
+def _product_use(product: ProductDef, use_id: str) -> DomainProductUseRef:
+    return mint_domain_product_use_ref_internal(
+        ref_id=use_id,
+        product=_product_view(product),
+        native=object(),
+    )
+
+
+def _point() -> DomainPointRef:
+    return mint_domain_point_ref_internal(
+        ref_id="binary-iq-test:point:0",
+        ordinal=0,
+        native=object(),
     )
 
 
@@ -111,110 +118,70 @@ def _discriminator(
     )
 
 
-def _transform(
+def _authored_transform(
+    *,
+    discriminator: BinaryIqDiscriminator | None = None,
+    wiring: str = "default",
+) -> MeasurementTransform:
+    return binary_iq_probability_transform(
+        "readout-discrimination",
+        iq_shots=f"{wiring}-iq",
+        probability_0=f"{wiring}-p0",
+        probability_1=f"{wiring}-p1",
+        discriminator=discriminator or _discriminator(),
+    )
+
+
+def _domain_transform(
     *,
     discriminator: BinaryIqDiscriminator | None = None,
     iq_product: ProductDef | None = None,
     probability_0_product: ProductDef | None = None,
     probability_1_product: ProductDef | None = None,
-) -> MeasurementTransformDef:
-    return binary_iq_probability_transform(
-        MeasurementTransformId("readout-discrimination"),
-        iq_shots=_port(
-            "capture/iq_shots",
-            iq_product or _iq_product(),
-            "iq-use",
+    wiring: str = "default",
+) -> DomainMeasurementTransform:
+    authored = _authored_transform(
+        discriminator=discriminator,
+        wiring=wiring,
+    )
+    iq_product_view = _product_view(iq_product or _iq_product())
+    probability_0_product_view = _product_view(
+        probability_0_product or _probability_product("probability-0")
+    )
+    probability_1_product_view = _product_view(
+        probability_1_product or _probability_product("probability-1")
+    )
+    iq_use = _product_use(iq_product or _iq_product(), f"{wiring}-iq")
+    probability_0_use = _product_use(
+        probability_0_product or _probability_product("probability-0"),
+        f"{wiring}-p0",
+    )
+    probability_1_use = _product_use(
+        probability_1_product or _probability_product("probability-1"),
+        f"{wiring}-p1",
+    )
+    return mint_domain_measurement_transform_internal(
+        transform_id=authored.id,
+        semantic=authored.semantic,
+        inputs=(
+            mint_domain_transform_input_port_internal(
+                port_id="iq_shots",
+                product_use=iq_use,
+                product=iq_product_view,
+            ),
         ),
-        probability_0=_port(
-            "capture/probability_0",
-            probability_0_product or _probability_product("probability-0"),
-            "p0-use",
+        outputs=(
+            mint_domain_transform_output_port_internal(
+                port_id="probability_0",
+                product=probability_0_product_view,
+                product_uses=(probability_0_use,),
+            ),
+            mint_domain_transform_output_port_internal(
+                port_id="probability_1",
+                product=probability_1_product_view,
+                product_uses=(probability_1_use,),
+            ),
         ),
-        probability_1=_port(
-            "capture/probability_1",
-            probability_1_product or _probability_product("probability-1"),
-            "p1-use",
-        ),
-        discriminator=discriminator or _discriminator(),
-    )
-
-
-def _logical_point_id() -> LogicalPointId:
-    return LogicalPointId(
-        PointDomainId(program_id="binary-iq-test", domain_id="points"),
-        0,
-    )
-
-
-def _linked_transform_contracts() -> tuple[
-    MaterializedLinkedPoints,
-    tuple[ProductDef, ProductDef, ProductDef],
-    tuple[ProductUse, ...],
-]:
-    point_type = Table(
-        columns=(TableColumn("coordinate", Scalar(Float())),),
-        min_rows=1,
-        max_rows=1,
-    )
-    point_domain = PointDomain(
-        root=point_rows(
-            verify_table_value_expr(
-                literal_rows(({"coordinate": 1.0},)),
-                bindings=RelationTypeBindings(),
-                expected_type=point_type,
-            )
-        )
-    )
-    products = (
-        _iq_product(),
-        _probability_product("probability-0"),
-        _probability_product("probability-1"),
-    )
-    uses = tuple(
-        ProductUse(
-            product_id=product.id,
-            id=ProductUseId(f"{wiring}-{role}"),
-        )
-        for wiring in ("left", "right")
-        for role, product in zip(("iq", "p0", "p1"), products, strict=True)
-    )
-    program = TypedProgram(
-        id="binary-iq-transform-test",
-        kind="binary_iq_transform_test",
-        point_domain=point_domain,
-        product_defs=products,
-        product_uses=uses,
-    )
-    environment = validate_config_environment(
-        load_config_profile(
-            _REPO_ROOT / "fixtures/core/simple_scan/config-profile.json"
-        )
-    )
-    return (
-        materialize_linked_points(link_program(program, environment)),
-        products,
-        uses,
-    )
-
-
-def _wired_transform(
-    products: tuple[ProductDef, ProductDef, ProductDef],
-    uses: tuple[ProductUse, ProductUse, ProductUse],
-) -> MeasurementTransformDef:
-    return binary_iq_probability_transform(
-        MeasurementTransformId("readout-discrimination"),
-        iq_shots=MeasurementTransformPort("caller-iq", uses[0].id, products[0]),
-        probability_0=MeasurementTransformPort(
-            "caller-p0",
-            uses[1].id,
-            products[1],
-        ),
-        probability_1=MeasurementTransformPort(
-            "caller-p1",
-            uses[2].id,
-            products[2],
-        ),
-        discriminator=_discriminator(),
     )
 
 
@@ -245,14 +212,19 @@ def test_binary_iq_discriminator_requires_distinct_centroids() -> None:
         )
 
 
-def test_binary_iq_builder_retains_complete_host_semantics() -> None:
-    transform = _transform(discriminator=_discriminator(tie_policy="state_1"))
+def test_binary_iq_builder_retains_complete_authored_semantics_and_edges() -> None:
+    transform = _authored_transform(discriminator=_discriminator(tie_policy="state_1"))
 
+    assert isinstance(transform, MeasurementTransform)
     assert transform.rate == "point"
-    assert [port.id for port in transform.inputs] == ["iq_shots"]
-    assert [port.id for port in transform.outputs] == [
-        "probability_0",
-        "probability_1",
+    assert [(role, product.local_id) for role, product in transform.input_bindings] == [
+        ("iq_shots", "default-iq")
+    ]
+    assert [
+        (role, product.local_id) for role, product in transform.output_bindings
+    ] == [
+        ("probability_0", "default-p0"),
+        ("probability_1", "default-p1"),
     ]
     assert transform.semantic.id == (
         "scopecat_quantum.readout.binary_iq_discrimination"
@@ -268,43 +240,43 @@ def test_binary_iq_builder_retains_complete_host_semantics() -> None:
         },
     }
 
-    changed_centroid = _transform(discriminator=_discriminator(state_1_real=2.0))
-    changed_tie = _transform(discriminator=_discriminator(tie_policy="state_1"))
+    changed_centroid = _authored_transform(
+        discriminator=_discriminator(state_1_real=2.0)
+    )
+    changed_tie = _authored_transform(
+        discriminator=_discriminator(tie_policy="state_1")
+    )
     assert (
         transform.semantic.contract_fingerprint
         != changed_centroid.semantic.contract_fingerprint
     )
     assert (
-        _transform().semantic.contract_fingerprint
+        _authored_transform().semantic.contract_fingerprint
         != changed_tie.semantic.contract_fingerprint
     )
 
 
-def test_semantic_identity_is_independent_of_product_use_wiring() -> None:
-    linked_points, products, uses = _linked_transform_contracts()
-    left = _wired_transform(products, (uses[0], uses[1], uses[2]))
-    right = _wired_transform(products, (uses[3], uses[4], uses[5]))
-
-    left_graph = verify_measurement_transform_graph(linked_points, (left,))
-    right_graph = verify_measurement_transform_graph(linked_points, (right,))
+def test_semantic_identity_is_independent_of_authored_product_wiring() -> None:
+    left = _authored_transform(wiring="left")
+    right = _authored_transform(wiring="right")
 
     assert left.semantic.contract_fingerprint == right.semantic.contract_fingerprint
     assert left.semantic.parameters == right.semantic.parameters
-    assert left_graph.contract_fingerprint != right_graph.contract_fingerprint
+    assert left.input_bindings != right.input_bindings
+    assert left.output_bindings != right.output_bindings
 
 
 @pytest.mark.parametrize(
     "invalid_dimension",
     ("semantic_parameters", "port_role", "product_schema"),
 )
-def test_reference_implementation_rejects_invalid_contract_before_kernel(
+def test_reference_implementation_rejects_invalid_sdk_contract(
     invalid_dimension: str,
 ) -> None:
-    linked_points, products, uses = _linked_transform_contracts()
-    valid = _wired_transform(products, (uses[0], uses[1], uses[2]))
+    valid = _domain_transform()
     if invalid_dimension == "semantic_parameters":
-        invalid = replace(
-            valid,
+        invalid = mint_domain_measurement_transform_internal(
+            transform_id=valid.id,
             semantic=MeasurementTransformSemanticContract(
                 id=valid.semantic.id,
                 version=valid.semantic.version,
@@ -314,62 +286,45 @@ def test_reference_implementation_rejects_invalid_contract_before_kernel(
                     "unexpected": True,
                 },
             ),
+            inputs=valid.inputs,
+            outputs=valid.outputs,
         )
     elif invalid_dimension == "port_role":
-        invalid = replace(
-            valid,
+        invalid = mint_domain_measurement_transform_internal(
+            transform_id=valid.id,
+            semantic=valid.semantic,
             inputs=(
-                MeasurementTransformPort(
-                    "renamed_iq",
-                    valid.inputs[0].product_use_id,
-                    valid.inputs[0].product,
+                mint_domain_transform_input_port_internal(
+                    port_id="renamed_iq",
+                    product_use=valid.inputs[0].product_use,
+                    product=valid.inputs[0].product,
                 ),
             ),
+            outputs=valid.outputs,
         )
     else:
-        invalid = replace(
-            valid,
+        invalid = mint_domain_measurement_transform_internal(
+            transform_id=valid.id,
+            semantic=valid.semantic,
             inputs=(
-                MeasurementTransformPort(
-                    "iq_shots",
-                    uses[1].id,
-                    products[1],
+                mint_domain_transform_input_port_internal(
+                    port_id="iq_shots",
+                    product_use=valid.outputs[0].product_uses[0],
+                    product=valid.outputs[0].product,
                 ),
             ),
             outputs=(
-                MeasurementTransformPort(
-                    "probability_0",
-                    uses[0].id,
-                    products[0],
+                mint_domain_transform_output_port_internal(
+                    port_id="probability_0",
+                    product=valid.inputs[0].product,
+                    product_uses=(valid.inputs[0].product_use,),
                 ),
                 valid.outputs[1],
             ),
         )
-    graph = verify_measurement_transform_graph(linked_points, (invalid,))
-    reference = binary_iq_probability_host_implementation()
-    kernel_calls = 0
 
-    def forbidden_kernel(call: HostMeasurementTransformCall):
-        nonlocal kernel_calls
-        kernel_calls += 1
-        return reference.kernel(call)
-
-    with pytest.raises(CheckFailed) as captured:
-        select_host_measurement_transforms(
-            graph,
-            (replace(reference, kernel=forbidden_kernel),),
-            (
-                HostMeasurementTransformImplementationBinding(
-                    invalid.id,
-                    reference.id,
-                ),
-            ),
-        )
-
-    assert kernel_calls == 0
-    assert {problem.code for problem in captured.value.problems} == {
-        "measurement_transform_host_capability_rejected"
-    }
+    with pytest.raises(ValueError):
+        binary_iq_probability_host_implementation().validate_transform(invalid)
 
 
 @pytest.mark.parametrize(
@@ -381,11 +336,13 @@ def test_reference_implementation_rejects_invalid_contract_before_kernel(
         _iq_product().model_copy(update={"axes": ()}),
     ),
 )
-def test_binary_iq_builder_rejects_incompatible_input_contract(
+def test_reference_implementation_rejects_incompatible_input_contract(
     product: ProductDef,
 ) -> None:
     with pytest.raises(ValueError, match="complex128 ratio product"):
-        _transform(iq_product=product)
+        binary_iq_probability_host_implementation().validate_transform(
+            _domain_transform(iq_product=product)
+        )
 
 
 @pytest.mark.parametrize(
@@ -398,25 +355,23 @@ def test_binary_iq_builder_rejects_incompatible_input_contract(
         ),
     ),
 )
-def test_binary_iq_builder_rejects_incompatible_output_contract(
+def test_reference_implementation_rejects_incompatible_output_contract(
     product: ProductDef,
 ) -> None:
     with pytest.raises(ValueError, match="scalar float64 ratio observable"):
-        _transform(probability_0_product=product)
+        binary_iq_probability_host_implementation().validate_transform(
+            _domain_transform(probability_0_product=product)
+        )
 
 
 def test_reference_host_implementation_classifies_shots_and_applies_tie_policy() -> (
     None
 ):
-    transform = _transform(discriminator=_discriminator(tie_policy="state_1"))
+    transform = _domain_transform(discriminator=_discriminator(tie_policy="state_1"))
     implementation = binary_iq_probability_host_implementation()
-    call = HostMeasurementTransformCall(
-        transform_id=transform.id,
-        semantic=transform.semantic,
-        logical_point_id=_logical_point_id(),
-        point_index=0,
-        input_ports=transform.inputs,
-        output_ports=transform.outputs,
+    call = DomainHostTransformCall(
+        transform=transform,
+        point=_point(),
         inputs={
             transform.inputs[0].id: MeasurementArray(
                 dtype="complex128",
@@ -449,15 +404,11 @@ def test_reference_host_implementation_classifies_shots_and_applies_tie_policy()
 
 
 def test_reference_host_implementation_rejects_non_finite_shots() -> None:
-    transform = _transform()
+    transform = _domain_transform()
     implementation = binary_iq_probability_host_implementation()
-    call = HostMeasurementTransformCall(
-        transform_id=transform.id,
-        semantic=transform.semantic,
-        logical_point_id=_logical_point_id(),
-        point_index=0,
-        input_ports=transform.inputs,
-        output_ports=transform.outputs,
+    call = DomainHostTransformCall(
+        transform=transform,
+        point=_point(),
         inputs={
             transform.inputs[0].id: MeasurementArray(
                 dtype="complex128",
@@ -470,3 +421,19 @@ def test_reference_host_implementation_rejects_non_finite_shots() -> None:
 
     with pytest.raises(ValueError, match="finite ratio IQ shots"):
         implementation.kernel(call)
+
+
+def test_domain_host_call_snapshots_sdk_measurement_inputs() -> None:
+    transform = _domain_transform()
+    value = MeasurementArray(
+        dtype="complex128",
+        unit="ratio",
+        shape=[1],
+        values=[ComplexQuantity(real=-1.0, imag=0.0, unit="ratio")],
+    )
+    raw: dict[str, MeasurementValue] = {"iq_shots": value}
+
+    call = DomainHostTransformCall(transform, _point(), raw)
+    raw.clear()
+
+    assert set(call.inputs) == {"iq_shots"}

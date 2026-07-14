@@ -32,12 +32,17 @@ from scopecat.compiler.semantic.operation_contract import (
     OperationContract,
 )
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Route,
     Table,
     ValueType,
+)
+from scopecat.measurements.semantics import (
+    MeasurementTransformRate,
+    MeasurementTransformSemanticContract,
 )
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity as QuantityValue
@@ -89,6 +94,72 @@ class OperationId:
 
     def prefixed(self, *scope: str) -> OperationId:
         return OperationId(self.symbol.prefixed(*scope))
+
+
+@dataclass(frozen=True, slots=True)
+class DomainProgramId:
+    """Nominal identity in the domain-program symbol space."""
+
+    symbol: SymbolId
+
+    @property
+    def qualified_name(self) -> str:
+        return self.symbol.qualified_name
+
+    @property
+    def scope(self) -> tuple[str, ...]:
+        return self.symbol.scope
+
+    @property
+    def local_id(self) -> str:
+        return self.symbol.local_id
+
+    def prefixed(self, *scope: str) -> DomainProgramId:
+        return DomainProgramId(self.symbol.prefixed(*scope))
+
+
+@dataclass(frozen=True, slots=True)
+class DomainCallId:
+    """Nominal identity in the domain-call symbol space."""
+
+    symbol: SymbolId
+
+    @property
+    def qualified_name(self) -> str:
+        return self.symbol.qualified_name
+
+    @property
+    def scope(self) -> tuple[str, ...]:
+        return self.symbol.scope
+
+    @property
+    def local_id(self) -> str:
+        return self.symbol.local_id
+
+    def prefixed(self, *scope: str) -> DomainCallId:
+        return DomainCallId(self.symbol.prefixed(*scope))
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementTransformId:
+    """Nominal identity in the authored measurement-transform symbol space."""
+
+    symbol: SymbolId
+
+    @property
+    def qualified_name(self) -> str:
+        return self.symbol.qualified_name
+
+    @property
+    def scope(self) -> tuple[str, ...]:
+        return self.symbol.scope
+
+    @property
+    def local_id(self) -> str:
+        return self.symbol.local_id
+
+    def prefixed(self, *scope: str) -> MeasurementTransformId:
+        return MeasurementTransformId(self.symbol.prefixed(*scope))
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,6 +486,87 @@ class SemanticOperation:
 
 
 @dataclass(frozen=True, slots=True)
+class DomainInputPortDef:
+    id: str
+    value_type: ValueType
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("domain input port ids must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class DomainResultPortDef:
+    id: str
+    contract: object | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("domain result port ids must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticDomainProgram:
+    """Opaque dialect program retained without core interpretation."""
+
+    id: DomainProgramId
+    dialect_id: str
+    dialect_version: str
+    body: object = field(repr=False)
+    input_ports: tuple[DomainInputPortDef, ...] = ()
+    result_ports: tuple[DomainResultPortDef, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.dialect_id or not self.dialect_version:
+            raise ValueError("domain dialect identity must be non-empty")
+        _require_unique_names(
+            "domain input port", tuple((p.id, p) for p in self.input_ports)
+        )
+        _require_unique_names(
+            "domain result port", tuple((p.id, p) for p in self.result_ports)
+        )
+
+    def __deepcopy__(self, _memo: dict[int, object]) -> SemanticDomainProgram:
+        return self
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticDomainCall:
+    """One plan-stage domain call with logical result-product bindings."""
+
+    id: DomainCallId
+    program_id: DomainProgramId
+    inputs: tuple[tuple[str, ValueUse], ...] = ()
+    results: tuple[tuple[str, ProductId], ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_unique_names("domain call input", self.inputs)
+        _require_unique_names("domain call result", self.results)
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticMeasurementTransform:
+    """One pure authored transform with explicit logical-product edges."""
+
+    id: MeasurementTransformId
+    semantic: MeasurementTransformSemanticContract
+    rate: MeasurementTransformRate
+    inputs: tuple[tuple[str, ProductId], ...] = ()
+    outputs: tuple[tuple[str, ProductId], ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.rate != "point":
+            msg = "semantic measurement transform rate is unsupported"
+            raise ValueError(msg)
+        _require_unique_names("measurement transform input", self.inputs)
+        _require_unique_names("measurement transform output", self.outputs)
+        if not self.outputs:
+            msg = "semantic measurement transforms require at least one output"
+            raise ValueError(msg)
+        object.__setattr__(self, "semantic", self.semantic.model_copy(deep=True))
+
+
+@dataclass(frozen=True, slots=True)
 class InstrumentActionEffect:
     """An ordered point effect that must be delivered exactly once per attempt."""
 
@@ -434,6 +586,9 @@ class InstrumentActionEffect:
 class SemanticGraphIR:
     value_defs: tuple[ValueDef, ...] = ()
     operations: tuple[SemanticOperation, ...] = ()
+    measurement_transforms: tuple[SemanticMeasurementTransform, ...] = ()
+    domain_programs: tuple[SemanticDomainProgram, ...] = ()
+    domain_calls: tuple[SemanticDomainCall, ...] = ()
     actions: tuple[InstrumentActionEffect, ...] = ()
     row_regions: tuple[StateEachRegion, ...] = ()
 
@@ -490,6 +645,13 @@ def merge_semantic_graphs(*graphs: SemanticGraphIR) -> SemanticGraphIR:
     return SemanticGraphIR(
         value_defs=tuple(item for graph in graphs for item in graph.value_defs),
         operations=tuple(item for graph in graphs for item in graph.operations),
+        measurement_transforms=tuple(
+            item for graph in graphs for item in graph.measurement_transforms
+        ),
+        domain_programs=tuple(
+            item for graph in graphs for item in graph.domain_programs
+        ),
+        domain_calls=tuple(item for graph in graphs for item in graph.domain_calls),
         actions=tuple(item for graph in graphs for item in graph.actions),
         row_regions=tuple(item for graph in graphs for item in graph.row_regions),
     )
@@ -567,6 +729,7 @@ __all__ = [
     "InstrumentActionEffect",
     "LiteralValueSource",
     "LocalPythonImplementation",
+    "MeasurementTransformId",
     "OperationId",
     "OperationOutputSource",
     "PlanExpression",
@@ -575,6 +738,7 @@ __all__ = [
     "RowArgumentDef",
     "RowRegionId",
     "SemanticGraphIR",
+    "SemanticMeasurementTransform",
     "SemanticOperation",
     "SemanticValueType",
     "SourceAnchor",

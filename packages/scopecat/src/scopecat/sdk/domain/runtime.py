@@ -155,6 +155,44 @@ class DomainReceiptIdentity(BaseModel):
         return value
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class DomainSubmitRequest[PayloadT]:
+    """Core-minted provider request for one authorized submit attempt."""
+
+    submission_id: DomainSubmissionId
+    identity: DomainReceiptIdentity
+    payload: PayloadT = field(repr=False)
+
+    def __init__(self) -> None:
+        msg = "domain submit requests are minted by core"
+        raise TypeError(msg)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class DomainFetchRequest:
+    """Core-minted provider request for one repeatable known-job read."""
+
+    submission_id: DomainSubmissionId
+    identity: DomainReceiptIdentity
+    job_id: str
+
+    def __init__(self) -> None:
+        msg = "domain fetch requests are minted by core"
+        raise TypeError(msg)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class DomainReconcileRequest:
+    """Core-minted provider request for one uncertain-submit lookup."""
+
+    submission_id: DomainSubmissionId
+    identity: DomainReceiptIdentity
+
+    def __init__(self) -> None:
+        msg = "domain reconcile requests are minted by core"
+        raise TypeError(msg)
+
+
 class DomainSubmitReceipt(BaseModel):
     """Provider candidate reported after one idempotent submit call."""
 
@@ -478,27 +516,42 @@ class CorrelatedDomainFetch[ResultT]:
     counts, shapes, and value contracts before realizing Scopecat values.
     """
 
-    submission: KnownDomainSubmission = field(repr=False)
+    _submission: KnownDomainSubmission = field(repr=False)
     receipt: DomainFetchReceipt
     result: ResultT = field(repr=False)
 
-    def __init__(
-        self,
-        submission: KnownDomainSubmission,
-        receipt: DomainFetchReceipt,
-        result: ResultT,
-    ) -> None:
-        if receipt.status != "fetched" or result is None:
-            msg = "correlated domain fetches require a fetched payload"
-            raise ValueError(msg)
-        if receipt.identity != submission.identity or receipt.job_id != (
-            submission.job_id
-        ):
-            msg = "correlated domain fetch does not belong to its submission"
-            raise ValueError(msg)
-        object.__setattr__(self, "submission", submission)
-        object.__setattr__(self, "receipt", receipt)
-        object.__setattr__(self, "result", result)
+    def __init__(self) -> None:
+        msg = "CorrelatedDomainFetch values are minted by core"
+        raise TypeError(msg)
+
+
+def _correlated_domain_fetch[ResultT](
+    submission: KnownDomainSubmission,
+    receipt: DomainFetchReceipt,
+    result: ResultT,
+) -> CorrelatedDomainFetch[ResultT]:
+    """Mint one fetched payload after core has correlated its durable state."""
+
+    if not isinstance(cast("object", submission), KnownDomainSubmission):
+        msg = "correlated domain fetches require a known submission"
+        raise TypeError(msg)
+    if not isinstance(cast("object", receipt), DomainFetchReceipt):
+        msg = "correlated domain fetches require a fetch receipt"
+        raise TypeError(msg)
+    if receipt.status != "fetched" or result is None:
+        msg = "correlated domain fetches require a fetched payload"
+        raise ValueError(msg)
+    if receipt.identity != submission.identity or receipt.job_id != (submission.job_id):
+        msg = "correlated domain fetch does not belong to its submission"
+        raise ValueError(msg)
+    selected = cast(
+        "CorrelatedDomainFetch[ResultT]",
+        object.__new__(CorrelatedDomainFetch),
+    )
+    object.__setattr__(selected, "_submission", submission)
+    object.__setattr__(selected, "receipt", receipt)
+    object.__setattr__(selected, "result", result)
+    return selected
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -529,35 +582,22 @@ type DomainFetchOutcome[ResultT] = CorrelatedDomainFetch[ResultT] | PendingDomai
 type DomainSubmissionResolution = KnownDomainSubmission | AbsentDomainSubmission
 
 
-class DomainRuntime[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-    PayloadT,
-    ResultT,
-](Protocol):
-    """Adapter ABI for one whole, idempotently submitted invocation."""
+class DomainRuntime[PayloadT, ResultT](Protocol):
+    """Provider ABI receiving only core-minted, pre-correlated requests."""
 
     def submit(
         self,
-        submission_id: DomainSubmissionId,
-        invocation: ClosedDomainInvocation[
-            EntryAddressT,
-            ResultAddressT,
-            PayloadT,
-        ],
+        request: DomainSubmitRequest[PayloadT],
     ) -> DomainSubmitReceipt: ...
 
     def fetch(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
-        job_id: str,
+        request: DomainFetchRequest,
     ) -> DomainFetchCandidate[ResultT]: ...
 
     def reconcile(
         self,
-        submission_id: DomainSubmissionId,
-        intent: DomainInvocationIntent,
+        request: DomainReconcileRequest,
     ) -> DomainReconcileReceipt: ...
 
 
@@ -622,13 +662,63 @@ def domain_receipt_identity(
     )
 
 
+def _domain_submit_request[PayloadT](
+    submission_id: DomainSubmissionId,
+    intent: DomainInvocationIntent,
+    payload: PayloadT,
+) -> DomainSubmitRequest[PayloadT]:
+    selected = cast(
+        "DomainSubmitRequest[PayloadT]",
+        object.__new__(DomainSubmitRequest),
+    )
+    object.__setattr__(selected, "submission_id", submission_id)
+    object.__setattr__(
+        selected,
+        "identity",
+        domain_receipt_identity(submission_id, intent),
+    )
+    object.__setattr__(selected, "payload", payload)
+    return selected
+
+
+def _domain_fetch_request(
+    submission_id: DomainSubmissionId,
+    intent: DomainInvocationIntent,
+    *,
+    job_id: str,
+) -> DomainFetchRequest:
+    selected = object.__new__(DomainFetchRequest)
+    object.__setattr__(selected, "submission_id", submission_id)
+    object.__setattr__(
+        selected,
+        "identity",
+        domain_receipt_identity(submission_id, intent),
+    )
+    object.__setattr__(selected, "job_id", job_id)
+    return selected
+
+
+def _domain_reconcile_request(
+    submission_id: DomainSubmissionId,
+    intent: DomainInvocationIntent,
+) -> DomainReconcileRequest:
+    selected = object.__new__(DomainReconcileRequest)
+    object.__setattr__(selected, "submission_id", submission_id)
+    object.__setattr__(
+        selected,
+        "identity",
+        domain_receipt_identity(submission_id, intent),
+    )
+    return selected
+
+
 def submit_domain_invocation[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
     PayloadT,
     ResultT,
 ](
-    runtime: DomainRuntime[EntryAddressT, ResultAddressT, PayloadT, ResultT],
+    runtime: DomainRuntime[PayloadT, ResultT],
     invocation: ClosedDomainInvocation[
         EntryAddressT,
         ResultAddressT,
@@ -667,7 +757,9 @@ def submit_domain_invocation[
         job_id=None,
     )
     try:
-        raw_receipt = runtime.submit(attempt, invocation)
+        raw_receipt = runtime.submit(
+            _domain_submit_request(attempt, intent, invocation.payload)
+        )
     except Exception as error:
         problem = problem_from_exception(
             "domain_submit_raised",
@@ -871,13 +963,8 @@ def submit_domain_invocation[
     )
 
 
-def fetch_domain_invocation[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-    PayloadT,
-    ResultT,
-](
-    runtime: DomainRuntime[EntryAddressT, ResultAddressT, PayloadT, ResultT],
+def fetch_domain_invocation[PayloadT, ResultT](
+    runtime: DomainRuntime[PayloadT, ResultT],
     intent: DomainInvocationIntent,
     submission: KnownDomainSubmission,
     *,
@@ -915,7 +1002,13 @@ def fetch_domain_invocation[
         job_id=submission.job_id,
     )
     try:
-        raw_candidate = runtime.fetch(attempt, intent, submission.job_id)
+        raw_candidate = runtime.fetch(
+            _domain_fetch_request(
+                attempt,
+                intent,
+                job_id=submission.job_id,
+            )
+        )
     except Exception as error:
         problem = problem_from_exception(
             "domain_fetch_raised",
@@ -1024,7 +1117,7 @@ def fetch_domain_invocation[
     )
     if receipt.status == "fetched":
         assert candidate.result is not None
-        return CorrelatedDomainFetch(
+        return _correlated_domain_fetch(
             submission,
             receipt,
             candidate.result,
@@ -1046,13 +1139,8 @@ def fetch_domain_invocation[
     )
 
 
-def reconcile_domain_invocation[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-    PayloadT,
-    ResultT,
-](
-    runtime: DomainRuntime[EntryAddressT, ResultAddressT, PayloadT, ResultT],
+def reconcile_domain_invocation[PayloadT, ResultT](
+    runtime: DomainRuntime[PayloadT, ResultT],
     intent: DomainInvocationIntent,
     uncertainty: DomainSubmissionUncertainty,
     *,
@@ -1085,7 +1173,7 @@ def reconcile_domain_invocation[
         job_id=uncertainty.job_id_hint,
     )
     try:
-        raw_receipt = runtime.reconcile(attempt, intent)
+        raw_receipt = runtime.reconcile(_domain_reconcile_request(attempt, intent))
     except Exception as error:
         problem = problem_from_exception(
             "domain_reconcile_raised",
@@ -1251,7 +1339,7 @@ def execute_domain_invocation[
     PayloadT,
     ResultT,
 ](
-    runtime: DomainRuntime[EntryAddressT, ResultAddressT, PayloadT, ResultT],
+    runtime: DomainRuntime[PayloadT, ResultT],
     invocation: ClosedDomainInvocation[
         EntryAddressT,
         ResultAddressT,
@@ -1760,25 +1848,15 @@ def _provider_problem(
 
 
 __all__ = [
-    "AbsentDomainSubmission",
     "CorrelatedDomainFetch",
     "DomainFetchCandidate",
-    "DomainFetchOutcome",
     "DomainFetchReceipt",
+    "DomainFetchRequest",
     "DomainReceiptIdentity",
     "DomainReconcileReceipt",
+    "DomainReconcileRequest",
     "DomainRuntime",
     "DomainSubmissionId",
-    "DomainSubmissionResolution",
     "DomainSubmitReceipt",
-    "KnownDomainSubmission",
-    "PendingDomainFetch",
-    "UncertainDomainSubmission",
-    "domain_receipt_identity",
-    "execute_domain_invocation",
-    "fetch_domain_invocation",
-    "plan_domain_submission",
-    "plan_domain_submission_retry",
-    "reconcile_domain_invocation",
-    "submit_domain_invocation",
+    "DomainSubmitRequest",
 ]

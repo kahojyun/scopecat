@@ -31,7 +31,12 @@ from scopecat.compiler.semantic.availability import ValueAvailability
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     ActionId,
+    DomainCallId,
+    DomainInputPortDef,
+    DomainProgramId,
+    DomainResultPortDef,
     ImplementationCatalog,
+    MeasurementTransformId,
     OperationId,
     SourceMap,
     ValueId,
@@ -49,7 +54,9 @@ from scopecat.compiler.typed.action import ActionFieldSpec, ActionSpec
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
+    DomainProductProducer,
     InstrumentProductProducer,
+    MeasurementTransformProductProducer,
     ProductAxisDef,
     ProductDef,
     ProductKind,
@@ -64,6 +71,7 @@ from scopecat.kernel.product_identity import (
     ProductId,
     ProductProducerId,
     ProductUse,
+    ProductUseId,
     product_id,
     product_producer_id,
     product_use,
@@ -77,6 +85,10 @@ from scopecat.kernel.resource_identity import (
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Route, Scalar, String, ValueType
 from scopecat.measurements.results import MeasurementDType
+from scopecat.measurements.semantics import (
+    MeasurementTransformRate,
+    MeasurementTransformSemanticContract,
+)
 
 
 class ValueInput(BaseModel):
@@ -141,6 +153,104 @@ type ComputeInput = Annotated[
 ]
 
 
+class TypedDomainProgram(BaseModel):
+    """Opaque domain program retained as trusted frozen transient IR."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    id: DomainProgramId
+    dialect_id: str = Field(min_length=1)
+    dialect_version: str = Field(min_length=1)
+    body: object = Field(repr=False)
+    input_ports: tuple[DomainInputPortDef, ...] = ()
+    result_ports: tuple[DomainResultPortDef, ...] = ()
+
+    def __deepcopy__(
+        self,
+        _memo: dict[int, Any] | None = None,
+    ) -> TypedDomainProgram:
+        return self
+
+
+class TypedDomainResultBinding(BaseModel):
+    """Exact logical product occurrences produced by one named call result."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    id: str = Field(min_length=1)
+    product_id: ProductId
+    producer_id: ProductProducerId
+    product_use_ids: tuple[ProductUseId, ...] = ()
+
+
+class TypedDomainCall(BaseModel):
+    """One linked prepare-stage call with executable plan value inputs."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    id: DomainCallId
+    program_id: DomainProgramId
+    inputs: dict[str, ValueInput] = Field(default_factory=dict)
+    results: tuple[TypedDomainResultBinding, ...] = ()
+
+
+class TypedMeasurementTransformInput(BaseModel):
+    """One exact product-use occurrence consumed by a pure transform role."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    id: str = Field(min_length=1)
+    product_id: ProductId
+    product_use_id: ProductUseId
+
+
+class TypedMeasurementTransformOutput(BaseModel):
+    """One transform-produced product and all of its downstream use slots."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    id: str = Field(min_length=1)
+    product_id: ProductId
+    producer_id: ProductProducerId
+    product_use_ids: tuple[ProductUseId, ...] = ()
+
+
+class TypedMeasurementTransform(BaseModel):
+    """One live authored pure transform in the demand-closed product graph."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    id: MeasurementTransformId
+    semantic: MeasurementTransformSemanticContract
+    rate: MeasurementTransformRate
+    inputs: tuple[TypedMeasurementTransformInput, ...] = ()
+    outputs: tuple[TypedMeasurementTransformOutput, ...] = ()
+
+
 class TypedComputeOutput(BaseModel):
     """One explicitly identified value defined by a typed compute node."""
 
@@ -200,6 +310,9 @@ class TypedProgram(BaseModel):
     route_intents: tuple[ResourceRouteIntent, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
+    domain_programs: tuple[TypedDomainProgram, ...] = ()
+    domain_calls: tuple[TypedDomainCall, ...] = ()
+    measurement_transforms: tuple[TypedMeasurementTransform, ...] = ()
     implementation_catalog: ImplementationCatalog = Field(
         default_factory=ImplementationCatalog,
         exclude=True,
@@ -209,6 +322,10 @@ class TypedProgram(BaseModel):
     actions: tuple[ActionSpec, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     instrument_product_producers: tuple[InstrumentProductProducer, ...] = ()
+    domain_product_producers: tuple[DomainProductProducer, ...] = ()
+    measurement_transform_product_producers: tuple[
+        MeasurementTransformProductProducer, ...
+    ] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -484,12 +601,19 @@ def typed_program(
     route_intents: Sequence[ResourceRouteIntent] = (),
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     compute_nodes: Sequence[TypedComputeNode] = (),
+    domain_programs: Sequence[TypedDomainProgram] = (),
+    domain_calls: Sequence[TypedDomainCall] = (),
+    measurement_transforms: Sequence[TypedMeasurementTransform] = (),
     implementation_catalog: ImplementationCatalog | None = None,
     source_map: SourceMap | None = None,
     state: Sequence[StateSpec] = (),
     actions: Sequence[ActionSpec] = (),
     product_defs: Sequence[ProductDef] = (),
     instrument_product_producers: Sequence[InstrumentProductProducer] = (),
+    domain_product_producers: Sequence[DomainProductProducer] = (),
+    measurement_transform_product_producers: Sequence[
+        MeasurementTransformProductProducer
+    ] = (),
     product_uses: Sequence[ProductUse] = (),
     record_uses: Sequence[RecordUse] = (),
     metadata: dict[str, Any] | None = None,
@@ -505,12 +629,19 @@ def typed_program(
         route_intents=tuple(route_intents),
         parameter_overlays=tuple(parameter_overlays),
         compute_nodes=order_compute_nodes(compute_nodes),
+        domain_programs=tuple(domain_programs),
+        domain_calls=tuple(domain_calls),
+        measurement_transforms=tuple(measurement_transforms),
         implementation_catalog=implementation_catalog or ImplementationCatalog(),
         source_map=source_map or SourceMap(),
         state=tuple(state),
         actions=tuple(actions),
         product_defs=tuple(product_defs),
         instrument_product_producers=tuple(instrument_product_producers),
+        domain_product_producers=tuple(domain_product_producers),
+        measurement_transform_product_producers=tuple(
+            measurement_transform_product_producers
+        ),
         product_uses=tuple(product_uses),
         record_uses=tuple(record_uses),
         metadata=dict(metadata or {}),
@@ -524,6 +655,12 @@ __all__ = [
     "RouteInput",
     "TypedComputeNode",
     "TypedComputeOutput",
+    "TypedDomainCall",
+    "TypedDomainProgram",
+    "TypedDomainResultBinding",
+    "TypedMeasurementTransform",
+    "TypedMeasurementTransformInput",
+    "TypedMeasurementTransformOutput",
     "TypedProgram",
     "ValueInput",
     "bind_each",

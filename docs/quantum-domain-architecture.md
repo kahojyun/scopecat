@@ -1,6 +1,6 @@
 # Quantum Domain Package Architecture
 
-Status: accepted direction
+Status: implemented baseline; accepted direction for remaining slices
 
 `scopecat-quantum` is the hardware-independent quantum domain building-block
 package for Scopecat. It owns quantum semantics and checked lowering contracts;
@@ -41,7 +41,7 @@ Scheduled Pulse IR
       v
 Prepared circuit target batch
       +------------------------------+
-      | laboratory target compiler   | exact core identity mapping
+      | laboratory target compiler   | exact SDK-ref result mapping
       v                              v
 Target artifact             CircuitTargetResultMapping
 ```
@@ -114,18 +114,24 @@ Pulse IR. Reusing the same circuit, template event, or acquisition slot in
 several entries is therefore safe without manufacturing globally unique
 domain identities.
 
-The batch also feeds a separate pure result-mapping boundary. Core first
-materializes logical points from a `LinkedPlan` after a whole-program
-relation-backend preflight, without selecting local Python compute or
-instrument collection. The public `scopecat.sdk.domain.invocation` adapter SPI
-then seals an opaque entry/result inventory against the complete canonical
-logical-point and product-use
-inventory. `scopecat-quantum` specializes that proof as
-`CircuitTargetResultMapping`: target entries bind bijectively to logical
-points, and each entry-qualified acquisition address binds to exactly one
-product-use occurrence. Adapter ordering is retained as provenance but cannot
-replace canonical logical output order. Record aliases remain downstream
-projections and do not create acquisition work.
+The batch also feeds a separate pure result-mapping boundary. After adapter
+selection and backend batching, core creates a `DomainBatchContext` containing
+only SDK-owned `DomainPointRef` and `DomainProductUseRef` capabilities for that
+exact call and point batch. The adapter obtains a context-bound
+`DomainPreparationBuilder` through `context.new_preparation()`.
+`seal_circuit_target_result_mapping` translates the quantum batch into the
+builder's `map_measurements` declarations and retains the returned
+`DomainResultMapping` inside `CircuitTargetResultMapping`. Target entries bind
+bijectively to SDK point references, and entry-qualified acquisition addresses
+bind to SDK product-use references. One physical acquisition may fan out to
+several demanded uses of the same logical product, including a compiler-minted
+input use for an unrecorded authored transform; every context-selected source
+use must still be covered exactly once. The context-bound builder owns the
+internal closure, so the quantum public boundary exposes neither
+`MaterializedLinkedPointSet` nor compiler point/product-use identities. Adapter
+ordering is retained as provenance but cannot replace canonical logical output
+order. Record aliases remain downstream projections and do not create
+acquisition work.
 
 `CompiledCircuitTarget` closes the next pure edge: the checked target artifact
 must retain the exact mapped batch request, target/compiler/capability identity,
@@ -147,8 +153,9 @@ Python object identity.
 - target compilation cannot consume unscheduled Pulse IR;
 - target-batch event and result addresses are `(entry_id, event_id)` and
   `(entry_id, acquisition_slot_id)`, never physical list or segment indexes;
-- one closed result mapping binds each target entry to one materialized logical
-  point and each acquisition address to one exact product-use occurrence;
+- one context-bound result mapping binds each target entry to one SDK point
+  reference and each acquisition address to one or more SDK product-use
+  references while covering every core-selected source use exactly once;
 - one compiled-circuit proof binds an artifact to that exact batch and mapping;
 - repeated target frames are correlated by explicit shot identity and remain
   raw evidence until a separate output-realization contract accepts them;
@@ -209,8 +216,10 @@ digitizer frame explicitly back to target entry, shot, and acquisition slot.
 The prepared circuit-target batch resolves that entry-qualified slot address
 back to exact circuit, measurement, calibration, and template provenance. The
 pure circuit-target result adapter binds already-proven entry identities to
-Scopecat logical points and proven result addresses to product-use identities.
-Physical list and segment indices never replace either logical identity.
+context-owned point references and proven result addresses to context-owned
+product-use references. Several uses of one logical product may share a single
+physical acquisition without duplicating target work. Physical list and
+segment indices never replace either logical identity.
 After synchronous fake execution, the laboratory adapter revalidates the raw
 run against the compiled artifact and produces a `CorrelatedFakeListRun` in
 canonical logical point/product-use/shot order. Each correlated frame retains
@@ -242,51 +251,132 @@ dataset assembly, durable recording, or journal integration.
 
 ## Core Integration Boundary
 
+Core authoring now has an explicit domain-neutral program seam.
+`DomainProgramDef` carries a dialect identity, version, opaque body, typed
+plan-stage inputs, and named result contracts; `DomainCall` binds those inputs
+and results to hygienic values and logical products. The compiler retains that
+identity through semantic verification, typed lowering, linking, point
+materialization, coverage, and the durable run plan. Domain-produced products
+have an explicit `DomainProductProducer`; authored measurement outputs have a
+distinct `MeasurementTransformProductProducer`. A domain adapter claims exactly
+one call. Core derives the call's source uses, its live transform closure,
+derived output uses, and execution-task coverage from those producer edges. The
+backend, not the adapter, establishes the durable call identity, including for
+a zero-point execution.
+
+The public adapter flow is deliberately two-stage. `select(DomainBatchView)`
+inspects opaque program bodies, concrete per-point input values, typed result
+contracts, exact product-use references, and recursively immutable product
+contracts, then returns a `DomainExecutionOffer` naming one call and a
+batch-capacity limit. An adapter cannot choose a result subset or manufacture
+transform wiring. After validating competing offers and choosing a point batch,
+the backend creates the exact `DomainBatchContext` and calls
+`prepare(context)`. References from another context are rejected by the
+context-bound preparation builder.
+
+`scopecat-quantum` adds typed circuit handles and
+`circuit_domain_program` / `circuit_domain_call` as its dialect-specific
+bridge. The fake X-count adapter consumes the authored `Circuit` body and exact
+`CircuitResult` acquisition slot rather than reconstructing a circuit or
+selecting the first acquisition by convention. During preparation it uses
+`context.new_preparation()` and the SDK refs carried by the selected call to
+seal its circuit-target result mapping; the old materialized-plan result
+mapping signature is no longer public.
+
+The laboratory preparation boundary is now declarative. A laboratory adapter
+can implement the complete synchronous point-local slice through the
+`scopecat.sdk.domain` facade:
+
+```text
+DomainBatchView -> DomainExecutionOffer -> DomainBatchContext
+    -> DomainPreparationBuilder.map_measurements(...) -> DomainResultMapping
+    -> bind context.measurement_transforms to host implementations
+    -> DomainPreparationBuilder.measurement_plan(...) -> DomainMeasurementPlan
+    -> DomainPreparationBuilder.build(...) -> PreparedDomainExecution
+```
+
+`DomainResultMapping` exposes a public inventory instead of an opaque native
+escape hatch. `target_entries` preserves target order, while `entries` and
+`results` expose canonical logical order with exact `DomainPointRef` and
+`DomainProductUseRef` capabilities. Address and logical-output lookups make
+fan-out explicit without revealing compiler identities. A measurement plan
+accepts explicit `DomainHostTransformBinding` selections for the core-minted
+`DomainMeasurementTransform` values in the context. Each input port names one
+exact consumer use; each output port carries its product contract and every
+demanded downstream use, including an empty sibling output. The adapter chooses
+only an implementation and must cover the context transform inventory exactly.
+`build` then accepts only a
+`DomainInvocationSpec`, `DomainTargetArtifactIdentity`, `DomainRuntime`, a
+result realizer returning `DomainResultValue` values, and
+`DomainResourceClaim` declarations. Core performs all lowering to value
+fragments, transform graphs, invocation proofs, and execution resources.
+
+The clean extension rule is therefore that laboratory code imports the domain
+facade, not `scopecat.compiler`, `scopecat.sdk.domain.invocation`, internal
+lowering helpers, or `Bound*`/`Closed*` stage values. `PreparedDomainExecution`
+is an opaque accepted proof; its transient payload, runtime, realizer, value
+fragments, and transform plan remain core-owned. The facade intentionally omits
+durable submit/fetch/reconcile orchestration functions and submission-state
+types.
+
+Host-derived products use explicit authored transform dependency edges. The
+fake example's generic domain call now declares only integrated-IQ acquisition;
+a first-class binary-IQ transform produces the two probability products. Only
+the probabilities are recorded, so reverse record demand keeps IQ acquisition
+live through a hidden transform-input use. Domain calls remain independent and
+unordered; ordered effects require explicit dependency edges and scheduler
+semantics, not tuple position or adapter registration order.
+
 Core now exposes two quantum-neutral prerequisites: target-neutral
-logical-point materialization plus sealed result identity mapping, and a
-two-stage measurement-output boundary. `SelectedDomainMeasurementOutputs`
-first proves before effects that every mapped product has a supported
-measurement carrier. `ClosedDomainOutputValues` later derives point/use/product
-identity from that selection, requires one value for every result address, checks
-dtype, unit, point-local axis shape, actual nested array structure, and typed
-array leaves, revalidates mutable models, then snapshots accepted values in
-canonical point/product-use order. This first measurement carrier accepts
+logical-point materialization plus exact result identity mapping, and a
+two-stage measurement-output boundary. The public builder lowers a
+`DomainMeasurementPlan` to core's selected measurement outputs before effects.
+After a correlated fetch, the adapter realizer returns one `DomainResultValue`
+for every result address; core derives point/use/product identity, checks dtype,
+unit, point-local axis shape, actual nested array structure, and typed array
+leaves, revalidates mutable models, and snapshots accepted values in canonical
+point/product-use order. The internal selected/closed carrier types are not
+part of the laboratory SDK. This first measurement carrier accepts
 observable products only and rejects axis-free `bool`/`string` products, which
 have no `MeasurementValue` scalar representation; artifact and other payload
 kinds require distinct closures. It does not inspect a quantum circuit, pulse
 schedule, acquisition kind, or shot policy. The first version requires one
-adapter entry per materialized logical point and exact coverage of an explicit
-selected product-use subset at every point. The subset is canonicalized to
-linked-plan use order; empty subsets and zero-point plans still retain and check
-their selected product contracts. The unified execution backend now proves
+adapter entry per materialized logical point and exact coverage of the
+core-derived source product-use inventory at every point. The inventory is
+canonicalized to linked-plan use order; empty inventories and zero-point plans
+still retain and check their selected product contracts. The unified execution
+backend now proves
 aggregate local/domain ownership and selects dynamic contiguous point batches
 from adapter limits, user execution options, and point-local state barriers.
 Cross-point value aggregation remains separate work.
 
-Core now also closes one executable invocation independently of its output
-carrier. `ClosedDomainInvocation` retains the exact result mapping plus an
-adapter-owned transient payload, while its payload-free intent fingerprints
-target, compiler, capability, artifact, logical result contract, and adapter
-policy. Run identity and idempotency-key generation remain separate runtime
-values. Prepared domain executions declare typed resource claims; unified host
-orchestration checks them for overlap and holds one lease across all local and
-domain batches. A string in an intent fingerprint does not establish
-ownership. This keeps a future
+The adapter declares one executable job independently of its output carrier
+with `DomainInvocationSpec`. `DomainTargetArtifactIdentity` supplies target,
+compiler, capability, artifact, and artifact-fingerprint facts; the invocation
+adds a stable-content adapter intent and a transient target-owned payload. Core
+binds those values to the exact result mapping and keeps the resulting closed
+invocation private. Run identity and idempotency-key generation remain separate
+runtime values. `DomainResourceClaim` uses the public `DomainResourceKind`
+vocabulary; unified host orchestration lowers and checks the claims for overlap
+and holds one lease across all local and domain batches. A string in an intent
+fingerprint does not establish ownership. This keeps a future
 artifact carrier or offloaded postprocessor from inheriting measurement-array
 semantics merely because the first target returns measurements.
 
-The host runtime ABI has explicit submit, fetch, and reconcile receipts, but
-callers pass sealed states rather than trusting those candidates directly.
-Submit returns Known; indeterminate errors carry Uncertain; definitive negative
-evidence produces Absent. Fetch accepts only Known, reconcile accepts only
-Uncertain, and a new submission-key generation requires Absent. Adapter fetch
-payloads reach the adapter only after core returns `CorrelatedDomainFetch`.
-That token proves receipt/job correlation; the adapter still verifies the
-provider-specific result fingerprint, count, and shape. Submission
-is an `acquisition` effect; fetch/reconciliation are repeatable `read` effects.
-A known reconcile result closes the original unknown submit transition. Journal
-evidence contains intent, keys, job identity, receipt hashes, status, and
-counts—not raw frames or accepted values.
+The provider-facing `DomainRuntime` ABI receives only core-minted
+`DomainSubmitRequest`, `DomainFetchRequest`, and `DomainReconcileRequest`
+values. It returns provider candidates through `DomainSubmitReceipt`,
+`DomainFetchCandidate`/`DomainFetchReceipt`, and `DomainReconcileReceipt`.
+The adapter never manufactures a submission identity and never drives durable
+state transitions itself. Core owns Known/Uncertain/Absent state, retry
+authorization, correlation, effect journaling, and the submit/fetch/reconcile
+orchestration functions; those values and functions are absent from the public
+facade. A result realizer receives only `CorrelatedDomainFetch`, which proves
+receipt/job correlation, and must still verify the provider-specific result
+fingerprint, count, and shape before returning SDK measurement values.
+Submission is an `acquisition` effect; fetch/reconciliation are repeatable
+`read` effects. Journal evidence contains intent, keys, job identity, receipt
+hashes, status, and counts—not raw frames or accepted values.
 
 The laboratory demo supplies the concrete first adapter. It submits an already
 selected mixed realization, registers a job before calling the device primitive
@@ -294,15 +384,20 @@ so a lost response cannot replay the same idempotency key, and retains the raw
 `FakeListRun` behind a job identity, and makes fetch/reconcile read-only. A
 device exception that returns no run is retained as blocking unavailable
 evidence and reconciles as unknown rather than permanent pending. Only
-after a correlated fetch does it reuse the existing correlation and value
-closure to produce canonical `ClosedDomainOutputValues`. The fake job store
-and accepted values remain in memory. Core then strips target addresses into a
-producer-neutral fragment whose real domain result mapping was bound before
-submit. A typed pure host-transform graph now sits before record projection.
-The first executable slice is `POINT`: the demo sends only integrated-IQ shots
-through the domain-owned fragment, applies the hardware-independent binary-IQ
-semantic transform once per canonical logical point on the host, and seals
-`probability_0` and `probability_1` in a distinct transform-owned fragment.
+after a correlated fetch does it reuse the existing correlation and realization
+proofs to produce canonical `DomainResultValue` declarations. The fake job
+store and accepted values remain in memory. Core validates and closes those
+values, strips target addresses into a producer-neutral fragment, and uses the
+result mapping that was bound before submit. The preparation builder also owns
+the typed pure host-transform graph before record projection. The fake module
+authors that graph through `binary_iq_probability_transform`, while the adapter
+only binds its context-owned transform ref to the host implementation.
+The first executable slice is `POINT`: the demo sends integrated-IQ shots
+through the domain-owned fragment as an unrecorded transform input, applies the
+hardware-independent binary-IQ semantic transform once per canonical logical
+point on the host, and seals `probability_0` and `probability_1` in a distinct
+transform-owned fragment. Each semantic output is fanned out to every demanded
+downstream use without repeating the kernel.
 The current nearest-centroid realization is explicitly host-only: numerical
 precision and rounding are not yet semantic, so no offload equivalence is
 claimed. Final assembly feeds template-owned record aliases through independent
