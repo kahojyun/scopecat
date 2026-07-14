@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
+from scopecat.compiler.entity_resolution import (
+    EntityResolutionError,
+    resolve_entity,
+)
 from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
 from scopecat.compiler.relations.backend import (
     EvalContext,
@@ -85,9 +88,10 @@ from scopecat.records.entity import EntityRef
 class LinkedPlan:
     """A successful config link retaining the complete symbolic point domain.
 
-    The plan owns a backend-neutral, sealed compiler program and a defensive
-    snapshot of the accepted configuration environment. It deliberately owns
-    no relation-backend selection, materialized points, or target artifact.
+    The plan binds a backend-neutral, sealed compiler program to one accepted
+    configuration environment. Both are trusted transient compiler artifacts;
+    the plan owns no relation-backend selection, materialized points, or target
+    artifact.
     """
 
     _verified_program: VerifiedTypedProgram
@@ -105,19 +109,19 @@ class LinkedPlan:
             msg = "linked plans require a validated routing view"
             raise ValueError(msg)
         object.__setattr__(self, "_verified_program", verified_program)
-        object.__setattr__(self, "_environment", deepcopy(environment))
+        object.__setattr__(self, "_environment", environment)
 
     @property
     def program(self) -> TypedProgram:
-        """Return a defensive copy of the linked compiler program."""
+        """Return the sealed compiler program bound to this plan."""
 
         return self._verified_program.program
 
     @property
     def environment(self) -> ValidatedConfigEnvironment:
-        """Return a defensive copy of the accepted configuration environment."""
+        """Return the accepted configuration environment bound to this plan."""
 
-        return deepcopy(self._environment)
+        return self._environment
 
     @property
     def verified_program(self) -> VerifiedTypedProgram:
@@ -646,30 +650,31 @@ def link_program(
     program: TypedProgram,
     environment: ValidatedConfigEnvironment,
 ) -> LinkedPlan:
-    """Close program and config contracts without choosing an execution target."""
+    """Snapshot and seal an external program, then bind its config contracts."""
 
-    environment = deepcopy(environment)
-    problems: list[Problem] = list(environment.problems)
-    if environment.valid and environment.routing is None:
-        problems.append(
-            compiler_problem(
-                "config_routing_unavailable",
-                "a linked plan requires a validated configuration routing view",
-                model_location("config", "routing"),
-                phase=ProblemPhase.PLANNING,
-                category=ProblemCategory.UNAVAILABLE,
-            )
-        )
     try:
         verified_program = seal_typed_program(
-            program,
+            program.model_copy(deep=True),
             phase=ProblemPhase.PLANNING,
         )
     except CheckFailed as error:
-        problems.extend(error.problems)
-        verified_program = None
+        problems = [*_environment_link_problems(environment), *error.problems]
+        if has_blocking_problems(problems):
+            raise CheckFailed(problems) from error
+        raise AssertionError(
+            "failed program seal produced no blocking problem"
+        ) from error
+    return link_verified_program(verified_program, environment)
 
-    if verified_program is not None and environment.valid:
+
+def link_verified_program(
+    verified_program: VerifiedTypedProgram,
+    environment: ValidatedConfigEnvironment,
+) -> LinkedPlan:
+    """Bind config contracts to an already verified transient program."""
+
+    problems = list(_environment_link_problems(environment))
+    if environment.valid:
         problems.extend(
             _relation_import_problems(
                 verified_program,
@@ -685,12 +690,27 @@ def link_program(
             )
     if has_blocking_problems(problems):
         raise CheckFailed(problems)
-    if verified_program is None:
-        raise AssertionError("successful link lost its verified compiler program")
     return LinkedPlan(
         verified_program,
         environment,
     )
+
+
+def _environment_link_problems(
+    environment: ValidatedConfigEnvironment,
+) -> tuple[Problem, ...]:
+    problems = list(environment.problems)
+    if environment.valid and environment.routing is None:
+        problems.append(
+            compiler_problem(
+                "config_routing_unavailable",
+                "a linked plan requires a validated configuration routing view",
+                model_location("config", "routing"),
+                phase=ProblemPhase.PLANNING,
+                category=ProblemCategory.UNAVAILABLE,
+            )
+        )
+    return tuple(problems)
 
 
 def _relation_import_problems(
@@ -927,38 +947,32 @@ def _resolve_entity(
     environment: ValidatedConfigEnvironment,
     problems: list[Problem],
 ) -> EntityRef | None:
-    selected = value if isinstance(value, EntityRef) else EntityRef(id=str(value))
-    known = environment.config.topology.entity(selected.id)
-    if known is None:
+    selected = value if isinstance(value, EntityRef) else str(value)
+    try:
+        return resolve_entity(environment.config.topology, selected)
+    except EntityResolutionError as error:
+        issue = error.issue
+    if issue.code == "unknown_entity":
         problems.append(
             compiler_problem(
                 "unknown_authoring_entity",
-                f"experiment references unknown entity {selected.id}",
-                model_location("entity", selected.id),
+                f"experiment references unknown entity {issue.entity_id}",
+                model_location("entity", issue.entity_id),
                 phase=ProblemPhase.PLANNING,
                 category=ProblemCategory.NOT_FOUND,
             )
         )
         return None
-    if (
-        selected.kind is not None
-        and known.kind is not None
-        and selected.kind != known.kind
-    ):
-        problems.append(
-            compiler_problem(
-                "authoring_entity_kind_mismatch",
-                f"entity {selected.id} has kind {known.kind}, not {selected.kind}",
-                model_location("entity", selected.id),
-                phase=ProblemPhase.PLANNING,
-            )
+    problems.append(
+        compiler_problem(
+            "authoring_entity_kind_mismatch",
+            f"entity {issue.entity_id} has kind {issue.actual_kind}, "
+            f"not {issue.requested_kind}",
+            model_location("entity", issue.entity_id),
+            phase=ProblemPhase.PLANNING,
         )
-        return None
-    return EntityRef(
-        id=selected.id,
-        kind=selected.kind or known.kind,
-        metadata={**known.metadata, **selected.metadata},
     )
+    return None
 
 
 def _relation_backend_capability_problems(
@@ -1003,6 +1017,7 @@ __all__ = [
     "MaterializedLinkedPoints",
     "MaterializedPointDomainView",
     "link_program",
+    "link_verified_program",
     "materialize_linked_points",
     "materialize_selected_linked_points",
     "select_linked_program",

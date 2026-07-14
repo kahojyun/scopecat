@@ -19,25 +19,22 @@ from scopecat.authoring._value_refs import (
     internal_lower_value_ref,
 )
 from scopecat.authoring.values import MetadataValue
-from scopecat.compiler.frontend.context import ExperimentAuthoringContext
-from scopecat.compiler.relations.backend import (
-    EvalContext,
-    evaluate_relation,
-    evaluate_scalar,
-    evaluate_series,
-    select_relation_plan,
+from scopecat.compiler.entity_resolution import (
+    EntityResolutionError,
+    resolve_entities,
 )
+from scopecat.compiler.frontend.problems import (
+    raise_entity_resolution_problem,
+    raise_frontend_problem,
+)
+from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
 from scopecat.compiler.relations.model import (
-    CellValue,
     RelationExpr,
     ScalarExpr,
     SeriesExpr,
     as_scalar_expr,
 )
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    verify_relation_plan,
-)
+from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.typed.products import (
     InstrumentProductProducer,
@@ -57,6 +54,7 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 from scopecat.records._run_request_values import normalize_json_value
+from scopecat.records.config import Topology
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
@@ -64,7 +62,7 @@ type BindSeriesInputRefs = Callable[[SeriesExpr, Mapping[str, object]], SeriesEx
 type BindRelationInputRefs = Callable[
     [RelationExpr, Mapping[str, object]], RelationExpr
 ]
-type InputRow = Callable[[Mapping[str, object]], dict[str, CellValue]]
+type InputRow = Callable[[Mapping[str, object]], Mapping[str, object]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,25 +75,9 @@ class LoweredProductModel:
     record_uses: tuple[RecordUse, ...] = ()
 
 
-def _static_relation_bindings(
-    bindings: RelationTypeBindings,
-) -> RelationTypeBindings:
-    """Keep durable imports while excluding point-local lexical rows.
-
-    Record metadata is folded before a run has a point, current, or outer row.
-    Verifying against those rows would certify an environment that the static
-    authoring evaluator can never provide.
-    """
-
-    return RelationTypeBindings(
-        inputs=bindings.inputs,
-        parameters=bindings.parameters,
-        parameter_lookups=bindings.parameter_lookups,
-    )
-
-
 def lower_records(
-    ctx: ExperimentAuthoringContext,
+    static_evaluator: StaticRelationEvaluator,
+    topology: Topology,
     record_intents: Sequence[RecordIntent],
     inputs: Mapping[str, object],
     *,
@@ -106,7 +88,8 @@ def lower_records(
 ) -> LoweredProductModel:
     lowered = tuple(
         _lower_inline_product(
-            ctx,
+            static_evaluator,
+            topology,
             record_intent,
             inputs,
             type_bindings=type_bindings,
@@ -131,9 +114,10 @@ def lower_records(
 
 
 def lower_product_selections(
-    ctx: ExperimentAuthoringContext,
+    static_evaluator: StaticRelationEvaluator,
+    topology: Topology,
     selections: Sequence[ProductSelectionIntent],
-    product_ports: Sequence[ModuleProductPort],
+    product_ports_by_id: Mapping[ProductId, ModuleProductPort],
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
@@ -142,10 +126,10 @@ def lower_product_selections(
     input_row: InputRow,
     non_instrument_product_ids: frozenset[ProductId] = frozenset(),
 ) -> LoweredProductModel:
-    product_by_id = _product_ports_by_id(ctx, product_ports)
     lowered = tuple(
         _lower_product_port(
-            ctx,
+            static_evaluator,
+            topology,
             product,
             inputs,
             type_bindings=type_bindings,
@@ -153,7 +137,7 @@ def lower_product_selections(
             bind_relation_input_refs=bind_relation_input_refs,
             input_row=input_row,
         )
-        for product in product_ports
+        for product in product_ports_by_id.values()
     )
     products = tuple(product for product, _producer in lowered)
     producers = tuple(
@@ -165,13 +149,11 @@ def lower_product_selections(
     uses_by_id: dict[ProductUseId, ProductUse] = {}
     records: list[RecordUse] = []
     for selection in selections:
-        product = product_by_id.get(selection.product_id)
+        product = product_ports_by_id.get(selection.product_id)
         if product is None:
-            ctx.raise_problem(
-                "module_product_unknown",
-                "experiment selects unknown product "
-                f"{selection.product_id.qualified_name}",
-                "records",
+            raise AssertionError(
+                "verified product selection is absent from the product map: "
+                f"{selection.product_id.qualified_name}"
             )
         use = selection.product_use
         existing_use = uses_by_id.get(use.id)
@@ -179,12 +161,8 @@ def lower_product_selections(
             uses_by_id[use.id] = use
             uses.append(use)
         elif existing_use != use:
-            ctx.raise_problem(
-                "product_use_identity_conflict",
-                f"product use {use.id.value!r} refers to both "
-                f"{existing_use.product_id.qualified_name!r} and "
-                f"{use.product_id.qualified_name!r}",
-                "records",
+            raise AssertionError(
+                f"verified product selections disagree for product use {use.id.value!r}"
             )
         records.append(
             RecordUse(
@@ -201,27 +179,9 @@ def lower_product_selections(
     )
 
 
-def _product_ports_by_id(
-    ctx: ExperimentAuthoringContext,
-    product_ports: Sequence[ModuleProductPort],
-) -> dict[ProductId, ModuleProductPort]:
-    ids = [product.product_id for product in product_ports]
-    duplicates = sorted(
-        {item for item in ids if ids.count(item) > 1},
-        key=lambda item: item.qualified_name,
-    )
-    if duplicates:
-        ctx.raise_problem(
-            "module_product_duplicate",
-            "experiment assembly defines duplicate products: "
-            + ", ".join(item.qualified_name for item in duplicates),
-            "products",
-        )
-    return {product.product_id: product for product in product_ports}
-
-
 def _lower_record_axis_intent(
-    ctx: ExperimentAuthoringContext,
+    static_evaluator: StaticRelationEvaluator,
+    topology: Topology,
     axis: RecordAxisIntent,
     inputs: Mapping[str, object],
     *,
@@ -232,7 +192,8 @@ def _lower_record_axis_intent(
     input_row: InputRow,
 ) -> ProductAxisDef:
     size, metadata = _static_axis_size(
-        ctx,
+        static_evaluator,
+        topology,
         axis.size,
         default=1,
         location=ModelLocation(
@@ -256,7 +217,8 @@ def _lower_record_axis_intent(
 
 
 def _lower_inline_product(
-    ctx: ExperimentAuthoringContext,
+    static_evaluator: StaticRelationEvaluator,
+    topology: Topology,
     record: RecordIntent,
     inputs: Mapping[str, object],
     *,
@@ -272,7 +234,8 @@ def _lower_inline_product(
         dtype=record.dtype,
         axes=tuple(
             _lower_record_axis_intent(
-                ctx,
+                static_evaluator,
+                topology,
                 axis,
                 inputs,
                 record_id=record.id,
@@ -296,7 +259,8 @@ def _lower_inline_product(
 
 
 def _lower_product_port(
-    ctx: ExperimentAuthoringContext,
+    static_evaluator: StaticRelationEvaluator,
+    topology: Topology,
     product: ModuleProductPort,
     inputs: Mapping[str, object],
     *,
@@ -312,7 +276,8 @@ def _lower_product_port(
         dtype=product.dtype,
         axes=tuple(
             _lower_record_axis_intent(
-                ctx,
+                static_evaluator,
+                topology,
                 axis,
                 inputs,
                 record_id=product.qualified_id,
@@ -336,7 +301,7 @@ def _lower_product_port(
 
 
 def _static_positive_int(
-    ctx: ExperimentAuthoringContext,
+    static_evaluator: StaticRelationEvaluator,
     value: ScalarExpr | Quantity | float | None,
     *,
     default: int,
@@ -350,25 +315,16 @@ def _static_positive_int(
         return default
     expression = value if isinstance(value, ScalarExpr) else as_scalar_expr(value)
     try:
-        evaluated = evaluate_scalar(
-            ctx.static_relation_backend,
-            select_relation_plan(
-                ctx.static_relation_backend,
-                verify_relation_plan(
-                    expression,
-                    bindings=_static_relation_bindings(type_bindings),
-                    expected_type=expected_type,
-                ),
-            ),
-            EvalContext(
-                params=ctx.parameters,
-                inputs=input_row(inputs),
-            ),
+        evaluated = static_evaluator.scalar(
+            expression,
+            bindings=type_bindings,
+            expected_type=expected_type,
+            inputs=input_row(inputs),
         )
     except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-        ctx.raise_problem(
+        raise_frontend_problem(
             "module_records_value_invalid",
-            f"records value must resolve from config at authoring time: {error}",
+            f"records value must resolve during configuration binding: {error}",
             location.root,
             path=location.path,
         )
@@ -377,14 +333,14 @@ def _static_positive_int(
     elif isinstance(evaluated, int | float) and not isinstance(evaluated, bool):
         number = float(evaluated)
     else:
-        ctx.raise_problem(
+        raise_frontend_problem(
             "module_records_value_invalid",
             "records value must resolve to a numeric count",
             location.root,
             path=location.path,
         )
     if number <= 0 or int(number) != number:
-        ctx.raise_problem(
+        raise_frontend_problem(
             "module_records_value_invalid",
             "records value must be a positive integer",
             location.root,
@@ -394,7 +350,8 @@ def _static_positive_int(
 
 
 def _static_axis_size(
-    ctx: ExperimentAuthoringContext,
+    static_evaluator: StaticRelationEvaluator,
+    topology: Topology,
     value: AxisSizeInput | None,
     *,
     default: int,
@@ -412,31 +369,19 @@ def _static_axis_size(
         selected_type = value.value_type
         lowered = internal_lower_value_ref(value)
         if isinstance(lowered, ComputeResultRef):
-            ctx.raise_problem(
-                "module_record_axis_compute_value_invalid",
-                "record axis size cannot depend on a point-local compute result",
-                location.root,
-                path=location.path,
+            raise AssertionError(
+                "verified record axis unexpectedly depends on a compute result"
             )
         selected_value = lowered
     if isinstance(selected_value, SeriesExpr):
         try:
-            evaluated = evaluate_series(
-                ctx.static_relation_backend,
-                select_relation_plan(
-                    ctx.static_relation_backend,
-                    verify_relation_plan(
-                        bind_series_input_refs(selected_value, inputs),
-                        bindings=_static_relation_bindings(type_bindings),
-                        expected_type=(
-                            selected_type if isinstance(selected_type, Series) else None
-                        ),
-                    ),
+            evaluated = static_evaluator.series(
+                bind_series_input_refs(selected_value, inputs),
+                bindings=type_bindings,
+                expected_type=(
+                    selected_type if isinstance(selected_type, Series) else None
                 ),
-                EvalContext(
-                    params=ctx.parameters,
-                    inputs=dict(inputs),
-                ),
+                inputs=inputs,
             )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
             code = (
@@ -444,44 +389,39 @@ def _static_axis_size(
                 if entity_axis
                 else "module_records_value_invalid"
             )
-            ctx.raise_problem(
+            raise_frontend_problem(
                 code,
-                f"record axis could not be evaluated at authoring time: {error}",
+                "record axis could not be evaluated during configuration "
+                f"binding: {error}",
                 location.root,
                 path=location.path,
             )
         if not entity_axis:
             return len(evaluated), {}
-        entities = _axis_entities(ctx, evaluated, location=location)
+        entities = _axis_entities(topology, evaluated, location=location)
         return len(entities), _entity_axis_metadata(entities)
     if isinstance(selected_value, RelationExpr):
         if entity_axis:
-            ctx.raise_problem(
+            raise_frontend_problem(
                 "module_record_entity_axis_invalid",
                 "entity record axis must be scalar or series-shaped",
                 location.root,
                 path=location.path,
             )
         try:
-            evaluated_rows = evaluate_relation(
-                ctx.static_relation_backend,
-                select_relation_plan(
-                    ctx.static_relation_backend,
-                    verify_relation_plan(
-                        bind_relation_input_refs(selected_value, inputs),
-                        bindings=_static_relation_bindings(type_bindings),
-                        expected_type=(
-                            selected_type if isinstance(selected_type, Table) else None
-                        ),
-                    ),
+            evaluated_rows = static_evaluator.relation(
+                bind_relation_input_refs(selected_value, inputs),
+                bindings=type_bindings,
+                expected_type=(
+                    selected_type if isinstance(selected_type, Table) else None
                 ),
-                ctx.parameters,
-                inputs=dict(inputs),
+                inputs=inputs,
             )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-            ctx.raise_problem(
+            raise_frontend_problem(
                 "module_records_value_invalid",
-                f"record axis could not be evaluated at authoring time: {error}",
+                "record axis could not be evaluated during configuration "
+                f"binding: {error}",
                 location.root,
                 path=location.path,
             )
@@ -492,52 +432,44 @@ def _static_axis_size(
         if not entity_axis:
             return len(selected_value), {}
         entities = _axis_entities(
-            ctx,
+            topology,
             cast("Sequence[object]", selected_value),
             location=location,
         )
         return len(entities), _entity_axis_metadata(entities)
     if entity_axis:
         if not isinstance(selected_value, ScalarExpr):
-            ctx.raise_problem(
+            raise_frontend_problem(
                 "module_record_entity_axis_invalid",
                 "entity record axis must resolve to an entity series",
                 location.root,
                 path=location.path,
             )
         try:
-            evaluated_entity = evaluate_scalar(
-                ctx.static_relation_backend,
-                select_relation_plan(
-                    ctx.static_relation_backend,
-                    verify_relation_plan(
-                        selected_value,
-                        bindings=_static_relation_bindings(type_bindings),
-                        expected_type=(
-                            selected_type if isinstance(selected_type, Scalar) else None
-                        ),
-                    ),
+            evaluated_entity = static_evaluator.scalar(
+                selected_value,
+                bindings=type_bindings,
+                expected_type=(
+                    selected_type if isinstance(selected_type, Scalar) else None
                 ),
-                EvalContext(
-                    params=ctx.parameters,
-                    inputs=input_row(inputs),
-                ),
+                inputs=input_row(inputs),
             )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-            ctx.raise_problem(
+            raise_frontend_problem(
                 "module_record_entity_axis_invalid",
-                f"entity record axis could not be evaluated: {error}",
+                "entity record axis could not be evaluated during "
+                f"configuration binding: {error}",
                 location.root,
                 path=location.path,
             )
-        entities = _axis_entities(ctx, [evaluated_entity], location=location)
+        entities = _axis_entities(topology, [evaluated_entity], location=location)
         return len(entities), _entity_axis_metadata(entities)
     if not isinstance(selected_value, ScalarExpr) and selected_value is not None:
         _validate_axis_size_literal(cast("AxisSizeInput", selected_value))
     positive_value = cast("ScalarExpr | Quantity | float | None", selected_value)
     return (
         _static_positive_int(
-            ctx,
+            static_evaluator,
             positive_value,
             default=default,
             location=location,
@@ -560,32 +492,38 @@ def _validate_axis_size_literal(value: AxisSizeInput) -> None:
 
 
 def _axis_entities(
-    ctx: ExperimentAuthoringContext,
+    topology: Topology,
     values: Sequence[object],
     *,
     location: ModelLocation,
 ) -> tuple[EntityRef, ...]:
     if not values:
-        ctx.raise_problem(
+        raise_frontend_problem(
             "module_record_entity_axis_invalid",
             "entity record axis must not be empty",
             location.root,
             path=location.path,
         )
     if not all(isinstance(value, EntityRef | str) and bool(value) for value in values):
-        ctx.raise_problem(
+        raise_frontend_problem(
             "module_record_entity_axis_invalid",
             "entity record axis values must be entity references",
             location.root,
             path=location.path,
         )
-    resolved = ctx.require_entities(cast("Sequence[EntityRef | str]", values))
+    try:
+        resolved = resolve_entities(
+            topology,
+            cast("Sequence[EntityRef | str]", values),
+        )
+    except EntityResolutionError as error:
+        raise_entity_resolution_problem(error)
     entity_ids = [entity.id for entity in resolved]
     duplicates = sorted(
         entity_id for entity_id, count in Counter(entity_ids).items() if count > 1
     )
     if duplicates:
-        ctx.raise_problem(
+        raise_frontend_problem(
             "module_record_entity_axis_duplicate",
             "entity record axis contains duplicate entities: " + ", ".join(duplicates),
             location.root,

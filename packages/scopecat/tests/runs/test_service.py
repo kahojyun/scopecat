@@ -16,6 +16,7 @@ from scopecat.composition.local import local_workspace_services
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.backend import ExecutionBackend
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from scopecat.runs.service import (
     preview_experiment,
@@ -42,14 +43,12 @@ def test_preview_and_start_run_use_separate_paths(
         config=config,
         execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         experiment=experiment,
-        workspace=tmp_path / "preview",
         services=local_workspace_services(tmp_path / "preview"),
     )
     provider_run = start_run(
         execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
-        workspace=tmp_path / "provider",
         services=local_workspace_services(tmp_path / "provider"),
     )
 
@@ -81,19 +80,17 @@ def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> Non
         config=config,
         execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         experiment=invocation,
-        workspace=tmp_path / "preview",
         services=local_workspace_services(tmp_path / "preview"),
     )
     provider_run = start_run(
         execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=invocation,
-        workspace=tmp_path / "provider",
         services=local_workspace_services(tmp_path / "provider"),
     )
 
     assert preview.template_id == "test.workflow_request_scan"
-    assert preview.inputs == {"subject": "q0"}
+    assert preview.inputs == {"subject": EntityRef(id="q0")}
     assert preview.experiment_id == "authored-simple-scan"
     assert provider_run.status == "completed"
 
@@ -119,7 +116,7 @@ def test_public_workflow_compiles_authoring_before_config_source_io(
 
     if workflow == "validate":
         result = validate_experiment(
-            invalid, workspace=tmp_path, services=local_workspace_services(tmp_path)
+            invalid, services=local_workspace_services(tmp_path)
         )
         problem = result.problems[0]
     else:
@@ -130,7 +127,6 @@ def test_public_workflow_compiles_authoring_before_config_source_io(
                 execution_backend=ExecutionBackend(
                     provider=TestSignalInstrumentProvider()
                 ),
-                workspace=tmp_path,
                 services=local_workspace_services(tmp_path),
             )
         problem = error.value.problems[0]
@@ -160,7 +156,6 @@ def test_start_run_compiles_authoring_before_config_validation(
         start_run(
             config=load_config(),
             experiment=prepare_invocation(simple_template().bind()),
-            workspace=tmp_path,
             services=local_workspace_services(tmp_path),
         )
 
@@ -200,7 +195,6 @@ def test_public_workflow_compiles_authoring_once(
         result = validate_experiment(
             experiment,
             config=invalid_config,
-            workspace=tmp_path,
             services=local_workspace_services(tmp_path),
         )
         assert (
@@ -211,13 +205,11 @@ def test_public_workflow_compiles_authoring_once(
             "start": lambda: start_run(
                 config=invalid_config,
                 experiment=experiment,
-                workspace=tmp_path,
                 services=local_workspace_services(tmp_path),
             ),
             "run": lambda: run_experiment(
                 experiment,
                 config=invalid_config,
-                workspace=tmp_path,
                 services=local_workspace_services(tmp_path),
             ),
             "preview": lambda: preview_experiment(
@@ -226,7 +218,6 @@ def test_public_workflow_compiles_authoring_once(
                 execution_backend=ExecutionBackend(
                     provider=TestSignalInstrumentProvider()
                 ),
-                workspace=tmp_path,
                 services=local_workspace_services(tmp_path),
             ),
         }[workflow]

@@ -208,7 +208,6 @@ def test_nested_domain_call_lowers_plan_inputs_and_exact_product_uses(
     )
     resolved = resolve_experiment(
         template.bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
     typed = resolved.experiment

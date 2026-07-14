@@ -10,7 +10,7 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
-    link_program,
+    link_verified_program,
     materialize_linked_points,
 )
 from scopecat.planning.authoring import resolve_experiment
@@ -137,10 +137,9 @@ def _preparation_context(
         selected = template.record_product("raw").record_product("summary").build()
     resolved = resolve_experiment(
         selected.bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
-    linked = link_program(resolved.experiment, resolved.environment)
+    linked = link_verified_program(resolved.verified_program, resolved.environment)
     linked_points = materialize_linked_points(linked)
     projection = project_domain_plan_internal(linked_points)
     call_view = projection.view(linked_points).require_one_call(

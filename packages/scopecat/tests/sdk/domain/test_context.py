@@ -13,7 +13,7 @@ import scopecat.sdk.domain as domain_sdk
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
     MaterializedLinkedPoints,
-    link_program,
+    link_verified_program,
     materialize_linked_points,
 )
 from scopecat.planning.authoring import resolve_experiment
@@ -84,10 +84,9 @@ def _domain_scenario(
     template = template_builder.record_product("summary").build()
     resolved = resolve_experiment(
         template.bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
-    linked = link_program(resolved.experiment, resolved.environment)
+    linked = link_verified_program(resolved.verified_program, resolved.environment)
     linked_points = materialize_linked_points(linked)
     return linked_points, project_domain_plan_internal(linked_points)
 

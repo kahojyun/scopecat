@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -11,7 +10,7 @@ from scopecat.authoring._value_refs import (
 )
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.resolution import ResolvedExperiment
-from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.linking.linked import link_verified_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.backend import (
@@ -50,10 +49,7 @@ from scopecat.compiler.typed.program import (
     ValueInput,
 )
 from scopecat.compiler.typed.state import evaluate_state_spec
-from scopecat.compiler.typed.verification import (
-    seal_typed_program,
-    select_typed_program,
-)
+from scopecat.compiler.typed.verification import select_typed_program
 from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import ActionStage
 from scopecat.kernel.errors import CheckFailed
@@ -91,13 +87,12 @@ def test_action_lowers_as_a_distinct_point_effect() -> None:
     template = module.template("test.action", kind="action").build()
     resolved = resolve_experiment(
         template.bind(),
-        workspace=Path("/tmp/scopecat-action-test"),
         config_profile=load_config(),
     )
 
     assert len(resolved.experiment.actions) == 1
     bound = materialize_local_plan(
-        link_program(resolved.experiment, resolved.environment)
+        link_verified_program(resolved.verified_program, resolved.environment)
     )
     assert not bound.problems
     assert len(bound.points[0].actions) == 1
@@ -198,7 +193,7 @@ def _state_values(
 ) -> list[tuple[int, str, object]]:
     selected_program = select_typed_program(
         _BACKEND,
-        seal_typed_program(resolved.experiment),
+        resolved.verified_program,
     )
     points = [
         point.row
@@ -283,7 +278,6 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
             ),
             offset_values=(0.25, 0.5),
         ),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
     experiment = resolved.experiment
@@ -421,7 +415,6 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
     node = resolved.experiment.compute_nodes[0]
@@ -503,13 +496,12 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
             items=(1.0, 2.0),
             rows=({"resource_id": "source-a", "base": 1.0},),
         ),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
     node = resolved.experiment.compute_nodes[0]
     selected_program = select_typed_program(
         _BACKEND,
-        seal_typed_program(resolved.experiment),
+        resolved.verified_program,
     )
     points = [
         point.row
@@ -569,7 +561,6 @@ def test_nested_module_requires_explicit_input_forwarding() -> None:
 
     resolve_experiment(
         template.bind(outer_value=1),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -594,11 +585,10 @@ def test_scan_points_are_coerced_by_same_named_scalar_input_type() -> None:
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
     plan = materialize_local_plan(
-        link_program(resolved.experiment, resolved.environment)
+        link_verified_program(resolved.verified_program, resolved.environment)
     )
     value = plan.points[0].row["value"]
 
@@ -751,7 +741,6 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     )
     resolved = resolve_experiment(
         parent.template("test.compute_edge", kind="compute_edge").build().bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
     linked_consumer = next(
@@ -821,7 +810,6 @@ def test_series_compute_output_is_a_first_class_typed_value() -> None:
 
     resolved = resolve_experiment(
         parent.template("test.compute_series", kind="compute_series").build().bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
     produce = next(
@@ -857,7 +845,6 @@ def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             required.bind(label=None),
-            workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
     assert error.value.problems[0].code == "module_input_type_mismatch"
@@ -886,7 +873,6 @@ def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
     )
     resolved = resolve_experiment(
         nullable.bind(label=None),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -953,7 +939,6 @@ def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
                 {"resource_id": "source-b", "base": 2.0},
             )
         ),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
     assert _state_values(resolved) == [
@@ -1146,7 +1131,6 @@ def test_state_regions_and_lowered_state_preserve_authored_order() -> None:
     ).build()
     resolved = resolve_experiment(
         template.bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
     assert [
@@ -1181,7 +1165,6 @@ def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
     ).build()
     resolved = resolve_experiment(
         template.bind(qubits=("q0",)),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -1193,7 +1176,7 @@ def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
 
     selected_program = select_typed_program(
         _BACKEND,
-        seal_typed_program(resolved.experiment),
+        resolved.verified_program,
     )
     records = evaluate_state_spec(
         state,
@@ -1297,7 +1280,6 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -1363,7 +1345,6 @@ def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -1447,7 +1428,6 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
         template.bind(
             state_rows=({"resource_id": "source-a", "base": 1.0},),
         ),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -1482,7 +1462,6 @@ def test_state_each_rejects_unguarded_optional_column_access() -> None:
             template.bind(
                 rows=({"resource_id": "source-a", "base": 1.0},),
             ),
-            workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
 
@@ -1511,7 +1490,6 @@ def test_state_each_treats_resource_string_as_a_fixed_resource_id() -> None:
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -1542,7 +1520,6 @@ def test_state_each_validates_resource_port_capability() -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             template.bind(),
-            workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
 

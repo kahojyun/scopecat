@@ -9,6 +9,7 @@ import scopecat as sc
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.frontend.resolution import (
+    compile_prepared_invocation,
     resolve_prepared_invocation,
 )
 from scopecat.composition.local import local_workspace_services
@@ -35,12 +36,12 @@ def test_template_missing_input_and_unknown_subject_report_stable_problems(
     config = load_config()
     missing_subject = simple_template().bind()
     with pytest.raises(CheckFailed) as missing_error:
-        resolve_experiment(missing_subject, workspace=tmp_path, config_profile=config)
+        resolve_experiment(missing_subject, config_profile=config)
     assert missing_error.value.problems[0].code == ("experiment_template_missing_input")
 
     unknown_subject = simple_template().bind(subject="missing")
     with pytest.raises(CheckFailed) as subject_error:
-        resolve_experiment(unknown_subject, workspace=tmp_path, config_profile=config)
+        resolve_experiment(unknown_subject, config_profile=config)
     assert subject_error.value.problems[0].code == "unknown_authoring_entity"
 
 
@@ -50,7 +51,6 @@ def test_template_unknown_inputs_are_reported_together_in_stable_order(
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             simple_template().bind(subject="q0", zeta=1, alpha=2),
-            workspace=tmp_path,
             config_profile=load_config(),
         )
 
@@ -162,7 +162,6 @@ def test_authoring_compile_precedes_config_validity_check(tmp_path: Path) -> Non
         resolve_prepared_invocation(
             prepare_invocation(simple_template().bind()),
             environment=invalid_environment,
-            workspace=tmp_path,
         )
 
     assert error.value.problems[0].code == "experiment_template_missing_input"
@@ -174,7 +173,6 @@ def test_preview_experiment_resolves_template_invocation_with_config_profile(
     result = preview_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
-        workspace=tmp_path,
         services=local_workspace_services(tmp_path),
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
@@ -189,7 +187,6 @@ def test_preview_experiment_resolves_template_invocation_with_config_snapshot(
     result = preview_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
-        workspace=tmp_path,
         services=local_workspace_services(tmp_path),
         config_profile=load_config(),
     )
@@ -210,15 +207,16 @@ def _module_consuming_input() -> tuple[sc.ExperimentModule, sc.ValueRef]:
     return module, value
 
 
-def test_consumed_module_input_requires_binding_or_point_value(tmp_path: Path) -> None:
+def test_consumed_module_input_requires_binding_during_authoring_compile() -> None:
     module, _value = _module_consuming_input()
     invocation = module.template("test.consumed-input", kind="input").build().bind()
 
     with pytest.raises(CheckFailed) as error:
-        resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())
+        compile_prepared_invocation(prepare_invocation(invocation))
 
     problem = error.value.problems[0]
     assert problem.code == "module_input_binding_missing"
+    assert problem.phase is ProblemPhase.AUTHORING
     assert problem.location == model_location("inputs")
 
 
@@ -227,7 +225,7 @@ def test_unconsumed_module_input_does_not_require_binding(tmp_path: Path) -> Non
     module = sc.module("test.unused-input").inputs(value).build()
     invocation = module.template("test.unused-input", kind="input").build().bind()
 
-    resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())
+    resolve_experiment(invocation, config_profile=load_config())
 
 
 def test_unused_child_binding_does_not_consume_outer_input(tmp_path: Path) -> None:
@@ -242,7 +240,7 @@ def test_unused_child_binding_does_not_consume_outer_input(tmp_path: Path) -> No
     )
     invocation = outer.template("test.unused-child", kind="input").build().bind()
 
-    resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())
+    resolve_experiment(invocation, config_profile=load_config())
 
 
 def test_unused_child_expression_binding_does_not_consume_outer_input(
@@ -267,7 +265,7 @@ def test_unused_child_expression_binding_does_not_consume_outer_input(
         outer.template("test.unused-child-expression", kind="input").build().bind()
     )
 
-    resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())
+    resolve_experiment(invocation, config_profile=load_config())
 
 
 def test_scan_point_satisfies_consumed_module_input(tmp_path: Path) -> None:
@@ -282,4 +280,4 @@ def test_scan_point_satisfies_consumed_module_input(tmp_path: Path) -> None:
         .bind()
     )
 
-    resolve_experiment(invocation, workspace=tmp_path, config_profile=load_config())
+    resolve_experiment(invocation, config_profile=load_config())

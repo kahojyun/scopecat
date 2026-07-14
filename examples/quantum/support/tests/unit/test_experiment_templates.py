@@ -247,7 +247,6 @@ def test_experiment_system_resolve_to_and_preview_invocation(
 
     resolved = resolve_experiment(
         invocation,
-        workspace=tmp_path,
         config_profile=config,
     )
 
@@ -867,7 +866,6 @@ def test_template_rejects_removed_scan_input_alias(tmp_path: Path) -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             SQG_RB_TEMPLATE.bind(qubit="q0", lengths=[]),
-            workspace=tmp_path,
             config_profile=load_experiment_config(),
         )
 

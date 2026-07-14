@@ -47,14 +47,12 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
-        workspace=tmp_path,
         services=local_workspace_services(tmp_path),
     )
     candidate = start_run(
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
-        workspace=tmp_path,
         services=local_workspace_services(tmp_path),
     )
     attach_typed_data_artifacts(tmp_path, candidate.run_id)
@@ -187,7 +185,6 @@ def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=local_workspace_services(tmp_path),
     )
     attach_binary_artifact(tmp_path, run.run_id)
@@ -226,7 +223,6 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=local_workspace_services(tmp_path),
     )
     attach_typed_data_artifacts(tmp_path, run.run_id)

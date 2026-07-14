@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 import scopecat as sc
@@ -39,7 +37,6 @@ def _resolve(module: sc.ExperimentModule, *, scan: sc.Scan | None = None) -> Non
     invocation = builder.build().bind()
     resolve_experiment(
         invocation,
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 

@@ -51,7 +51,6 @@ def test_record_demand_closes_transform_inputs_and_prunes_dead_transform(
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
     program = resolved.experiment
@@ -124,7 +123,6 @@ def test_hidden_transform_input_use_ids_are_stable_scoped_and_escaped(
     def compile_input_use_ids() -> dict[str, str]:
         resolved = resolve_experiment(
             template.bind(),
-            workspace=tmp_path,
             config_profile=load_config(),
         )
         return {

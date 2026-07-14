@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import cast
 
 from scopecat.application.services import WorkspaceServices
@@ -358,7 +357,6 @@ def start_run(
     *,
     config: ConfigProfileSnapshot,
     experiment: PreparedInvocation,
-    workspace: str | Path,
     services: WorkspaceServices,
     execution_backend: ExecutionBackend | None = None,
     execution_options: ExecutionOptions | None = None,
@@ -370,7 +368,6 @@ def start_run(
     return _start_compiled_run(
         config=config,
         experiment=compiled_invocation,
-        workspace=workspace,
         services=services,
         execution_backend=execution_backend,
         execution_options=execution_options,
@@ -384,7 +381,6 @@ def _start_compiled_run(
     *,
     config: ConfigProfileSnapshot,
     experiment: CompiledInvocation,
-    workspace: str | Path,
     services: WorkspaceServices,
     execution_backend: ExecutionBackend | None,
     execution_options: ExecutionOptions | None,
@@ -398,7 +394,6 @@ def _start_compiled_run(
     linked = link_experiment(
         experiment,
         environment=environment,
-        workspace=workspace,
         config_source=config_source,
     )
     if has_blocking_problems(linked.problems):
@@ -424,7 +419,6 @@ def _start_compiled_run(
 def run_experiment(
     experiment: PreparedInvocation,
     *,
-    workspace: str | Path,
     services: WorkspaceServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
@@ -442,7 +436,6 @@ def run_experiment(
     return _start_compiled_run(
         config=config_result.config,
         experiment=compiled_invocation,
-        workspace=workspace,
         services=services,
         execution_backend=execution_backend,
         execution_options=execution_options,
@@ -455,7 +448,6 @@ def run_experiment(
 def check_experiment(
     experiment: PreparedInvocation,
     *,
-    workspace: str | Path,
     services: WorkspaceServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
@@ -479,7 +471,6 @@ def check_experiment(
     return _check_compiled_experiment(
         compiled_invocation,
         authoring_phase=authoring_phase,
-        workspace=workspace,
         services=services,
         config=config,
         config_profile=config_profile,
@@ -492,7 +483,6 @@ def _check_compiled_experiment(
     experiment: CompiledInvocation,
     *,
     authoring_phase: CheckPhaseReport,
-    workspace: str | Path,
     services: WorkspaceServices,
     config: str | ConfigProfileSnapshot | CandidateConfig,
     config_profile: ConfigProfileInput | None,
@@ -519,7 +509,7 @@ def _check_compiled_experiment(
                 _skipped_phase(CheckPhase.PLANNING),
             ),
             template_id=experiment.request.template_id,
-            inputs=dict(experiment.inputs),
+            inputs=dict(experiment.assembly.source.inputs),
         )
     environment = validate_config_environment(config_result.config)
     configuration_status = (
@@ -538,7 +528,7 @@ def _check_compiled_experiment(
                 _skipped_phase(CheckPhase.PLANNING),
             ),
             template_id=experiment.request.template_id,
-            inputs=dict(experiment.inputs),
+            inputs=dict(experiment.assembly.source.inputs),
             config_source=config_result.config_source,
         )
 
@@ -546,7 +536,6 @@ def _check_compiled_experiment(
         linked = link_experiment(
             experiment,
             environment=environment,
-            workspace=workspace,
             config_source=config_result.config_source,
         )
         planning_problems = _new_problems(
@@ -590,7 +579,7 @@ def _check_compiled_experiment(
         template_id=(
             linked.template_id if linked is not None else experiment.request.template_id
         ),
-        inputs=(dict(linked.inputs) if linked is not None else dict(experiment.inputs)),
+        inputs=dict(experiment.assembly.source.inputs),
         config_source=(
             linked.config_source if linked is not None else config_result.config_source
         ),
@@ -722,7 +711,6 @@ def _problems_match_phase(
 def validate_experiment(
     experiment: PreparedInvocation,
     *,
-    workspace: str | Path,
     services: WorkspaceServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
@@ -731,7 +719,6 @@ def validate_experiment(
 ) -> ValidateExperimentResult:
     report = check_experiment(
         experiment,
-        workspace=workspace,
         services=services,
         config=config,
         config_profile=config_profile,
@@ -753,7 +740,6 @@ def validate_experiment(
 def preview_experiment(
     experiment: PreparedInvocation,
     *,
-    workspace: str | Path,
     services: WorkspaceServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
@@ -762,7 +748,6 @@ def preview_experiment(
 ) -> PreviewExperimentResult:
     validation = validate_experiment(
         experiment,
-        workspace=workspace,
         services=services,
         config=config,
         config_profile=config_profile,

@@ -234,7 +234,7 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
         parent.template("test.compiler.graph", kind="compiler_graph").build().bind()
     )
     compiled = compile_prepared_invocation(prepare_invocation(invocation))
-    graph = compiled.assembly.semantic_graph
+    graph = compiled.assembly.source.semantic_graph
     definitions = {definition.id: definition for definition in graph.value_defs}
 
     operations = graph.operations

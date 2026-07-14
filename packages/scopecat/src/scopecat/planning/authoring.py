@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from scopecat.authoring.templates import ConfigProfileInput, ExperimentInvocation
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.invocation import prepare_invocation
@@ -30,7 +28,6 @@ from scopecat.records.run import RunConfigSource
 def resolve_experiment(
     experiment: ExperimentInvocation,
     *,
-    workspace: str | Path,
     config_registry: WorkspaceUnitOfWorkFactory | None = None,
     config_entry: str | None = "active",
     config_profile: ConfigProfileInput | None = None,
@@ -46,7 +43,6 @@ def resolve_experiment(
     return resolve_compiled_invocation(
         compiled,
         environment=validate_config_environment(config),
-        workspace=workspace,
         config_source=source,
     )
 
@@ -55,7 +51,6 @@ def resolve_experiment_with_config(
     experiment: ExperimentInvocation,
     *,
     config: ConfigProfileSnapshot,
-    workspace: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> ResolvedExperiment:
     """Compile an invocation against an already loaded configuration snapshot."""
@@ -64,7 +59,6 @@ def resolve_experiment_with_config(
     return resolve_compiled_invocation(
         compiled,
         environment=validate_config_environment(config),
-        workspace=workspace,
         config_source=config_source,
     )
 

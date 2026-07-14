@@ -21,7 +21,6 @@ def test_recomposed_services_share_execution_recovery_state(tmp_path: Path) -> N
     manifest = start_run(
         config=load_config(),
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=initial,
         execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )

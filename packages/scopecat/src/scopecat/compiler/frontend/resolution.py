@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import cast
 
 from scopecat.authoring._intents import ParameterScanOverlayIntent
@@ -31,23 +30,21 @@ from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.authoring.values import ModuleInput, module_input_is_valid
 from scopecat.compiler.frontend.assembly_linking import (
-    link_experiment_assembly_internal,
+    bind_verified_assembly,
 )
-from scopecat.compiler.frontend.context import ExperimentAuthoringContext
-from scopecat.compiler.frontend.context import (
-    problem as _problem,
-)
+from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
     SemanticExperimentIR,
     elaborate_module,
     merge_semantic_experiments,
 )
 from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
-from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
+from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
 from scopecat.compiler.frontend.invocation import (
     InvocationRequestContext,
     PreparedInvocation,
 )
+from scopecat.compiler.frontend.problems import frontend_problem as _problem
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
@@ -68,11 +65,9 @@ from scopecat.compiler.relations.point_domain import (
     point_product,
 )
 from scopecat.compiler.typed.program import TypedProgram
+from scopecat.compiler.typed.verification import VerifiedTypedProgram
 from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import (
-    Problem,
-    has_blocking_problems,
-)
+from scopecat.kernel.problems import Problem
 from scopecat.kernel.value_type_compatibility import (
     describe_value_type,
     is_assignable,
@@ -85,26 +80,40 @@ from scopecat.records.run import RunConfigSource
 from scopecat.records.run_request import RunRequest
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ResolvedExperiment:
-    experiment: TypedProgram
+    verified_program: VerifiedTypedProgram
     request: RunRequest
-    template_id: str | None
-    inputs: dict[str, object]
-    config: ConfigProfileSnapshot
-    parameters: ParameterRelationData
     environment: ValidatedConfigEnvironment
     config_source: RunConfigSource | None = None
-    problems: tuple[Problem, ...] = ()
+
+    @property
+    def experiment(self) -> TypedProgram:
+        return self.verified_program.program
+
+    @property
+    def template_id(self) -> str | None:
+        return self.request.template_id
+
+    @property
+    def config(self) -> ConfigProfileSnapshot:
+        return self.environment.config
+
+    @property
+    def parameters(self) -> ParameterRelationData:
+        return self.environment.parameters
+
+    @property
+    def problems(self) -> tuple[Problem, ...]:
+        return self.environment.problems
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CompiledInvocation:
     """Config-free result of compiling one prepared DSL invocation."""
 
-    assembly: SemanticExperimentIR
+    assembly: VerifiedAssembly
     request: RunRequest
-    inputs: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -119,14 +128,12 @@ def resolve_prepared_invocation(
     prepared: PreparedInvocation,
     *,
     environment: ValidatedConfigEnvironment,
-    workspace: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> ResolvedExperiment:
     compiled = compile_prepared_invocation(prepared)
     return resolve_compiled_invocation(
         compiled,
         environment=environment,
-        workspace=workspace,
         config_source=config_source,
     )
 
@@ -135,17 +142,12 @@ def resolve_compiled_invocation(
     compiled: CompiledInvocation,
     *,
     environment: ValidatedConfigEnvironment,
-    workspace: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> ResolvedExperiment:
-    if not environment.valid:
-        raise CheckFailed(list(environment.problems))
     return _link_assembly(
         compiled.assembly,
         request=compiled.request,
-        inputs=compiled.inputs,
         environment=environment,
-        workspace=workspace,
         config_source=config_source,
     )
 
@@ -177,11 +179,9 @@ def compile_prepared_invocation(
         scans,
         inputs=inputs,
     )
-    verify_assembly_graph(assembly)
     return CompiledInvocation(
-        assembly=assembly,
+        assembly=verify_assembly(assembly),
         request=request,
-        inputs=merged_inputs,
     )
 
 
@@ -263,51 +263,13 @@ def _validate_invocation_inputs(
 
 
 def _link_assembly(
-    assembly: SemanticExperimentIR,
+    assembly: VerifiedAssembly,
     *,
     request: RunRequest,
-    inputs: Mapping[str, object],
     environment: ValidatedConfigEnvironment,
-    workspace: str | Path,
     config_source: RunConfigSource | None,
 ) -> ResolvedExperiment:
-    context = ExperimentAuthoringContext(
-        config=environment.config,
-        parameters=environment.parameters,
-        workspace=Path(workspace),
-        config_source=config_source,
-    )
-    experiment = link_experiment_assembly_internal(assembly, context)
-    return _resolved_invocation(
-        experiment,
-        environment=environment,
-        workspace=workspace,
-        config_source=config_source,
-        request=request,
-        inputs=inputs,
-        parameters=environment.parameters,
-        authoring_problems=[
-            *environment.problems,
-            *context.problems,
-        ],
-    )
-
-
-def _resolved_invocation(
-    experiment: TypedProgram,
-    *,
-    environment: ValidatedConfigEnvironment,
-    workspace: str | Path,
-    config_source: RunConfigSource | None,
-    request: RunRequest,
-    inputs: Mapping[str, object],
-    parameters: ParameterRelationData,
-    authoring_problems: list[Problem] | None = None,
-) -> ResolvedExperiment:
-    del workspace
-    problems = list(authoring_problems or [])
-    if has_blocking_problems(problems):
-        raise CheckFailed(problems)
+    verified_program = bind_verified_assembly(assembly, environment)
     resolved_request = request.model_copy(
         update={
             "config_source": (
@@ -318,15 +280,10 @@ def _resolved_invocation(
         }
     )
     return ResolvedExperiment(
-        experiment=experiment,
+        verified_program=verified_program,
         request=resolved_request,
-        template_id=resolved_request.template_id,
-        inputs=dict(inputs),
-        config=environment.config,
-        parameters=parameters,
         environment=environment,
         config_source=config_source,
-        problems=tuple(problems),
     )
 
 

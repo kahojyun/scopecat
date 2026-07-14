@@ -88,7 +88,7 @@ def test_invocation_check_compiles_the_complete_config_free_graph() -> None:
     assert invalid_report.problems[0].code == "experiment_template_missing_input"
     assert [phase.phase for phase in invalid_report.phases] == [CheckPhase.AUTHORING]
     assert valid_report.status is CheckStatus.PASSED
-    assert valid_report.inputs["subject"] == "q0"
+    assert valid_report.inputs["subject"] == sc.EntityRef(id="q0")
     assert check_invocation(invalid).explain() == invalid_report.explain()
     assert invalid_report.explain() == (
         "experiment check: failed\n"

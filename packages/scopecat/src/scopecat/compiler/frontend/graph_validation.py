@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import cast
 
 from scopecat.authoring._binding_intents import ResourcePort
 from scopecat.authoring._point_domain_intents import (
@@ -22,10 +23,12 @@ from scopecat.authoring._record_intents import (
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
+    internal_lower_value_ref,
     internal_value_ref_availability,
 )
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
+from scopecat.compiler.relations.model import ScalarExpr, SeriesExpr
 from scopecat.compiler.semantic.availability import (
     ValueAvailabilityError,
     ValueRate,
@@ -56,10 +59,10 @@ from scopecat.kernel.problems import (
     blocking_problem,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductId
+from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
-from scopecat.kernel.value_types import Payload, Route, Scalar
+from scopecat.kernel.value_types import Entity, Payload, Route, Scalar, Series, Table
 from scopecat.records.parameter import Quantity as QuantityValue
 
 
@@ -70,6 +73,27 @@ class VerifiedAssemblyGraph:
     semantic_graph: VerifiedSemanticGraph
     source_map: SourceMap
     resource_ports: Mapping[LogicalResourcePortId, ResourcePort]
+    product_ports: Mapping[ProductId, ModuleProductPort]
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedAssembly:
+    """One source assembly paired with its config-free verification proof."""
+
+    source: SemanticExperimentIR
+    graph: VerifiedAssemblyGraph
+
+    @property
+    def experiment_id(self) -> str:
+        """Return the entrypoint identity established by assembly verification."""
+
+        return cast("str", self.source.experiment_id)
+
+    @property
+    def kind(self) -> str:
+        """Return the experiment kind established by assembly verification."""
+
+        return cast("str", self.source.kind)
 
 
 def verify_assembly_graph(
@@ -109,7 +133,7 @@ def verify_assembly_graph(
     _verify_state_resource_ports(assembly, resource_ports, problems)
     if semantic_graph is not None:
         _verify_plan_value_availability(assembly, semantic_graph, problems)
-    _verify_record_schema(assembly, resource_ports, problems)
+    product_ports = _verify_record_schema(assembly, resource_ports, problems)
     if problems:
         raise CheckFailed(problems)
     if semantic_graph is None or source_map is None:
@@ -120,6 +144,7 @@ def verify_assembly_graph(
         semantic_graph=semantic_graph,
         source_map=source_map,
         resource_ports=MappingProxyType(resource_ports),
+        product_ports=MappingProxyType(product_ports),
     )
 
 
@@ -351,6 +376,17 @@ def _verify_state_compute_values(
             problems.append(_availability_problem(error))
             continue
         if availability.stage == ValueStage.PLAN:
+            lowered = internal_lower_value_ref(value)
+            if not (
+                isinstance(value.value_type, Scalar) and isinstance(lowered, ScalarExpr)
+            ):
+                problems.append(
+                    _problem(
+                        "state_binding_value_shape_invalid",
+                        "state binding value must be scalar-shaped",
+                        location,
+                    )
+                )
             continue
         value_id = semantic_value_id(value)
         definition = graph.value_defs.get(value_id)
@@ -403,6 +439,9 @@ def _verify_state_compute_values(
             problems.append(_availability_problem(error))
             continue
         if definition.availability.stage is ValueStage.PLAN:
+            assert isinstance(definition.value_type, Scalar), (
+                "verified row-region state values must be scalar-shaped"
+            )
             continue
         if not isinstance(definition.source, OperationOutputSource):
             problems.append(
@@ -445,6 +484,14 @@ def _verify_state_compute_values(
                 problems.append(_availability_problem(error))
                 continue
             if definition.availability.stage is ValueStage.PLAN:
+                if not isinstance(definition.value_type, Scalar):
+                    problems.append(
+                        _problem(
+                            "action_field_value_shape_invalid",
+                            "action field value must be scalar-shaped",
+                            location,
+                        )
+                    )
                 continue
             if not isinstance(definition.source, OperationOutputSource):
                 problems.append(
@@ -477,21 +524,31 @@ def _verify_plan_value_availability(
 ) -> None:
     for port in assembly.resource_ports:
         for index, value in enumerate(port.selector.entity_inputs):
-            _require_plan_value(
+            location = model_location(
+                "resources",
+                *port.scope,
+                port.id,
+                "selector",
+                "entity_inputs",
+                index,
+            )
+            if _require_plan_value(
                 value,
                 context="resource selector",
-                location=model_location(
-                    "resources",
-                    *port.scope,
-                    port.id,
-                    "selector",
-                    "entity_inputs",
-                    index,
-                ),
+                location=location,
                 problems=problems,
-            )
+            ):
+                _verify_resource_entity_input(
+                    value,
+                    location=location,
+                    problems=problems,
+                )
 
     for index, state in enumerate(graph.graph.row_regions):
+        relation = graph.value_defs[state.relation.value_id]
+        assert isinstance(relation.value_type, Table), (
+            "verified row-region relations must be table-shaped"
+        )
         _require_semantic_plan_value(
             graph,
             state.relation,
@@ -500,6 +557,10 @@ def _verify_plan_value_availability(
             problems=problems,
         )
         if state.resource is not None:
+            resource = graph.value_defs[state.resource.value_id]
+            assert isinstance(resource.value_type, Scalar), (
+                "verified row-region resource selectors must be scalar-shaped"
+            )
             _require_semantic_plan_value(
                 graph,
                 state.resource,
@@ -509,6 +570,10 @@ def _verify_plan_value_availability(
                 rates=(ValueRate.RUN, ValueRate.POINT, ValueRate.ROW),
             )
         for route_index, route_entity in enumerate(state.route_entities):
+            route = graph.value_defs[route_entity.value_id]
+            assert isinstance(route.value_type, Scalar | Series), (
+                "verified row-region route selectors must be scalar- or series-shaped"
+            )
             _require_semantic_plan_value(
                 graph,
                 route_entity,
@@ -545,6 +610,34 @@ def _verify_plan_value_availability(
                 problems.append(_availability_problem(error))
 
 
+def _verify_resource_entity_input(
+    value: ValueRef,
+    *,
+    location: ModelLocation,
+    problems: list[Problem],
+) -> None:
+    value_type = value.value_type
+    lowered = internal_lower_value_ref(value)
+    valid = (
+        isinstance(value_type, Scalar)
+        and isinstance(value_type.atom, Entity)
+        and isinstance(lowered, ScalarExpr)
+    ) or (
+        isinstance(value_type, Series)
+        and isinstance(value_type.item_type.atom, Entity)
+        and isinstance(lowered, SeriesExpr)
+    )
+    if valid:
+        return
+    problems.append(
+        _problem(
+            "module_resource_entity_input_invalid",
+            "resource entity source must be a scalar or series entity value",
+            location,
+        )
+    )
+
+
 def _require_plan_value(
     value: ValueRef,
     *,
@@ -552,7 +645,7 @@ def _require_plan_value(
     location: ModelLocation,
     problems: list[Problem],
     rates: tuple[ValueRate, ...] = (ValueRate.RUN, ValueRate.POINT),
-) -> None:
+) -> bool:
     try:
         require_value_availability(
             internal_value_ref_availability(value),
@@ -563,6 +656,8 @@ def _require_plan_value(
         )
     except ValueAvailabilityError as error:
         problems.append(_availability_problem(error))
+        return False
+    return True
 
 
 def _require_semantic_plan_value(
@@ -593,7 +688,7 @@ def _verify_record_schema(
     assembly: SemanticExperimentIR,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
-) -> None:
+) -> dict[ProductId, ModuleProductPort]:
     _verify_record_resource_ports(assembly, resource_ports, problems)
     product_by_id: dict[ProductId, ModuleProductPort] = {}
     duplicate_products: set[ProductId] = set()
@@ -616,7 +711,15 @@ def _verify_record_schema(
     records: list[tuple[str, RecordIntent | ModuleProductPort]] = [
         (record.id, record) for record in assembly.records
     ]
+    product_uses: dict[ProductUseId, ProductUse] = {}
+    conflicting_product_uses: dict[ProductUseId, tuple[ProductUse, ProductUse]] = {}
     for selection in assembly.record_selections:
+        use = selection.product_use
+        existing_use = product_uses.get(use.id)
+        if existing_use is None:
+            product_uses[use.id] = use
+        elif existing_use != use:
+            conflicting_product_uses.setdefault(use.id, (existing_use, use))
         record_id = selection.record_id or selection.product_id.qualified_name
         product = product_by_id.get(selection.product_id)
         if product is None:
@@ -645,6 +748,19 @@ def _verify_record_schema(
             )
             continue
         records.append((record_id, product))
+
+    for use_id in sorted(conflicting_product_uses, key=lambda item: item.value):
+        existing_use, conflicting_use = conflicting_product_uses[use_id]
+        problems.append(
+            _problem(
+                "product_use_identity_conflict",
+                f"product use {use_id.value!r} refers to both "
+                f"{existing_use.product_id.qualified_name!r} and "
+                f"{conflicting_use.product_id.qualified_name!r}",
+                model_location("records"),
+                category=ProblemCategory.CONFLICT,
+            )
+        )
 
     record_ids = [
         *(record.id for record in assembly.records),
@@ -712,6 +828,7 @@ def _verify_record_schema(
                         ),
                     )
                 )
+    return product_by_id
 
 
 def _verify_record_resource_ports(
@@ -888,4 +1005,8 @@ def _availability_problem(error: ValueAvailabilityError) -> Problem:
     return _problem(error.code, str(error), error.location)
 
 
-__all__ = ["VerifiedAssemblyGraph", "verify_assembly_graph"]
+__all__ = [
+    "VerifiedAssembly",
+    "VerifiedAssemblyGraph",
+    "verify_assembly_graph",
+]

@@ -14,7 +14,6 @@ from scopecat.authoring._point_domain_intents import (
     point_domain_intent_parameter_contracts,
 )
 from scopecat.compiler.frontend.assembly_lowering import (
-    coerce_assembly_inputs,
     input_row,
     lower_action_effect,
     lower_parameter_overlay_intent,
@@ -23,18 +22,15 @@ from scopecat.compiler.frontend.assembly_lowering import (
     lower_semantic_domain_graph,
     lower_state_region,
     state_specs,
-    validate_assembly_conflicts,
-    validate_consumed_inputs,
     validate_entity_inputs,
 )
 from scopecat.compiler.frontend.binding_lowering import (
     build_route_intents,
     lower_binding_intent,
-    ports_by_id,
 )
-from scopecat.compiler.frontend.context import ExperimentAuthoringContext
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
-from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
+from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
+from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
 from scopecat.compiler.frontend.measurement_transform_lowering import (
     authored_measurement_transform_output_product_ids,
     lower_semantic_measurement_transform_graph,
@@ -42,36 +38,54 @@ from scopecat.compiler.frontend.measurement_transform_lowering import (
 from scopecat.compiler.frontend.parameter_contract_validation import (
     validate_parameter_contracts,
 )
+from scopecat.compiler.frontend.problems import raise_frontend_problem
 from scopecat.compiler.frontend.record_lowering import (
     lower_product_selections,
     lower_records,
 )
+from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
 from scopecat.compiler.frontend.value_binding import (
     bind_relation_input_refs,
     bind_series_input_refs,
 )
+from scopecat.compiler.relations.backend import RelationBackend
+from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.relations.verification import (
     ParameterLookupSignature,
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.typed.graph import ComputeGraphError, order_compute_nodes
 from scopecat.compiler.typed.program import TypedProgram
-from scopecat.compiler.typed.verification import verify_typed_program
+from scopecat.compiler.typed.verification import (
+    VerifiedTypedProgram,
+    seal_typed_program,
+)
+from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.value_types import Scalar, Table, ValueType
+from scopecat.records.parameter import ParameterCatalog
 
 
-def link_experiment_assembly_internal(
-    assembly: SemanticExperimentIR,
-    ctx: ExperimentAuthoringContext,
-) -> TypedProgram:
-    """Link one assembly while mapping proof failures into authoring problems."""
+def bind_verified_assembly(
+    verified: VerifiedAssembly,
+    environment: ValidatedConfigEnvironment,
+    *,
+    static_relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
+) -> VerifiedTypedProgram:
+    """Bind a config-free assembly proof to one validated config environment."""
+
+    if not environment.valid:
+        raise CheckFailed(environment.problems)
 
     try:
-        return _link_experiment_assembly(assembly, ctx)
+        return _bind_verified_assembly(
+            verified,
+            environment,
+            static_relation_backend=static_relation_backend,
+        )
     except RelationPlanVerificationError as error:
-        ctx.raise_problem(
+        raise_frontend_problem(
             f"relation_plan_{error.code}",
             error.reason,
             "relation_plan",
@@ -83,34 +97,29 @@ def link_experiment_assembly_internal(
         )
 
 
-def _link_experiment_assembly(
-    assembly: SemanticExperimentIR,
-    ctx: ExperimentAuthoringContext,
-) -> TypedProgram:
-    if not assembly.experiment_id:
-        ctx.raise_problem(
-            "experiment_assembly_entrypoint_missing_id",
-            "experiment assembly must be linked with an experiment id",
-            "experiment_id",
-        )
-    if not assembly.kind:
-        ctx.raise_problem(
-            "experiment_assembly_entrypoint_missing_kind",
-            "experiment assembly must be linked with an experiment kind",
-            "kind",
-        )
-    verified_graph = verify_assembly_graph(assembly)
-    validate_parameter_contracts(ctx, _assembly_parameter_contracts(assembly))
-    validate_assembly_conflicts(ctx, assembly)
-    inputs = coerce_assembly_inputs(ctx, assembly.input_ports, assembly.inputs)
-    validate_consumed_inputs(ctx, assembly, inputs)
-    validate_entity_inputs(ctx, assembly.entity_inputs, inputs)
-    resource_ports = ports_by_id(ctx, assembly.resource_ports)
+def _bind_verified_assembly(
+    verified: VerifiedAssembly,
+    environment: ValidatedConfigEnvironment,
+    *,
+    static_relation_backend: RelationBackend,
+) -> VerifiedTypedProgram:
+    assembly = verified.source
+    verified_graph = verified.graph
+    config = environment.config
+    parameter_catalog = config.parameter_catalog
+    topology = config.topology
+    inputs = assembly.inputs
+    validate_parameter_contracts(
+        parameter_catalog,
+        _assembly_parameter_contracts(assembly),
+    )
+    validate_entity_inputs(topology, assembly.entity_inputs, inputs)
+    resource_ports = verified_graph.resource_ports
     bindings = [
-        lower_binding_intent(binding, ctx, resource_ports)
+        lower_binding_intent(binding, resource_ports[binding.port_id])
         for binding in assembly.bindings
     ]
-    root_type_bindings = _relation_type_bindings(assembly, ctx)
+    root_type_bindings = _relation_type_bindings(assembly, parameter_catalog)
     point_domain = lower_point_domain(
         assembly.point_domain,
         inputs=inputs,
@@ -122,13 +131,18 @@ def _link_experiment_assembly(
         point_row=RowType.from_table(point_domain.value_type),
     )
     route_intents = build_route_intents(
-        ctx,
+        topology,
         assembly.resource_ports,
         inputs=inputs,
         type_bindings=type_bindings,
     )
+    static_evaluator = StaticRelationEvaluator(
+        environment.parameters,
+        static_relation_backend,
+    )
     inline_products = lower_records(
-        ctx,
+        static_evaluator,
+        topology,
         assembly.records,
         inputs,
         type_bindings=type_bindings,
@@ -137,9 +151,10 @@ def _link_experiment_assembly(
         input_row=input_row,
     )
     declared_products = lower_product_selections(
-        ctx,
+        static_evaluator,
+        topology,
         assembly.record_selections,
-        assembly.product_ports,
+        verified_graph.product_ports,
         inputs,
         type_bindings=type_bindings,
         bind_series_input_refs=bind_series_input_refs,
@@ -156,21 +171,12 @@ def _link_experiment_assembly(
             )
         ),
     )
-    lowered_compute_nodes, implementation_catalog = lower_semantic_compute_graph(
+    compute_nodes, implementation_catalog = lower_semantic_compute_graph(
         verified_graph.semantic_graph,
         assembly.implementation_catalog,
         inputs,
         type_bindings=type_bindings,
     )
-    try:
-        compute_nodes = order_compute_nodes(lowered_compute_nodes)
-    except ComputeGraphError as error:
-        ctx.raise_problem(
-            error.code,
-            str(error),
-            error.location.root,
-            path=error.location.path,
-        )
     record_product_uses = (
         *inline_products.product_uses,
         *declared_products.product_uses,
@@ -192,8 +198,8 @@ def _link_experiment_assembly(
         )
     )
     program = TypedProgram(
-        id=assembly.experiment_id,
-        kind=assembly.kind,
+        id=verified.experiment_id,
+        kind=verified.kind,
         point_domain=point_domain,
         route_intents=tuple(route_intents),
         compute_nodes=compute_nodes,
@@ -204,7 +210,7 @@ def _link_experiment_assembly(
         source_map=verified_graph.source_map,
         parameter_overlays=tuple(
             lower_parameter_overlay_intent(
-                ctx,
+                parameter_catalog,
                 intent,
                 inputs,
                 type_bindings=type_bindings,
@@ -219,7 +225,6 @@ def _link_experiment_assembly(
             ),
             *(
                 lower_state_region(
-                    ctx,
                     region,
                     verified_graph.semantic_graph,
                     resource_ports,
@@ -231,7 +236,6 @@ def _link_experiment_assembly(
         ),
         actions=tuple(
             lower_action_effect(
-                ctx,
                 action,
                 verified_graph.semantic_graph,
                 resource_ports,
@@ -251,12 +255,12 @@ def _link_experiment_assembly(
         record_uses=(*inline_products.record_uses, *declared_products.record_uses),
         metadata=dict(assembly.metadata),
     )
-    return verify_typed_program(program)
+    return seal_typed_program(program, phase=ProblemPhase.PLANNING)
 
 
 def _relation_type_bindings(
     assembly: SemanticExperimentIR,
-    ctx: ExperimentAuthoringContext,
+    parameter_catalog: ParameterCatalog,
 ) -> RelationTypeBindings:
     """Project assembly contracts into the final plan-verification environment."""
 
@@ -265,7 +269,7 @@ def _relation_type_bindings(
         inputs={port.id: port.value_type for port in assembly.input_ports},
         parameters={
             contract.parameter_id: _catalog_parameter_type(
-                ctx,
+                parameter_catalog,
                 contract.parameter_id,
                 contract.value_type,
             )
@@ -277,7 +281,7 @@ def _relation_type_bindings(
                 table_id=contract.parameter_id,
                 key_input_types=contract.key_types,
                 column_id=contract.column_id,
-                result_type=_catalog_lookup_result_type(ctx, contract),
+                result_type=_catalog_lookup_result_type(parameter_catalog, contract),
             )
             for contract in contracts
             if isinstance(contract, ParameterLookupContract)
@@ -297,19 +301,19 @@ def _assembly_parameter_contracts(
 
 
 def _catalog_parameter_type(
-    ctx: ExperimentAuthoringContext,
+    parameter_catalog: ParameterCatalog,
     parameter_id: str,
     fallback: ValueType,
 ) -> ValueType:
-    definition = ctx.config.parameter_catalog.get(parameter_id)
+    definition = parameter_catalog.get(parameter_id)
     return definition.value_type if definition is not None else fallback
 
 
 def _catalog_lookup_result_type(
-    ctx: ExperimentAuthoringContext,
+    parameter_catalog: ParameterCatalog,
     contract: ParameterLookupContract,
 ) -> Scalar:
-    definition = ctx.config.parameter_catalog.get(contract.parameter_id)
+    definition = parameter_catalog.get(contract.parameter_id)
     if definition is not None and isinstance(definition.value_type, Table):
         for column in definition.value_type.columns:
             if column.id == contract.column_id:
@@ -317,4 +321,4 @@ def _catalog_lookup_result_type(
     return contract.value_type
 
 
-__all__ = ["link_experiment_assembly_internal"]
+__all__ = ["bind_verified_assembly"]

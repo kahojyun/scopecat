@@ -118,7 +118,6 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
 
     resolved = resolve_experiment(
         root.template("test.outputs.siblings", kind="module_outputs").build().bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
     linked_nodes = {node.id: node for node in resolved.experiment.compute_nodes}
@@ -204,7 +203,6 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         root.template("test.outputs.typed-result", kind="module_outputs")
         .build()
         .bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
     nodes = {node.id: node for node in resolved.experiment.compute_nodes}

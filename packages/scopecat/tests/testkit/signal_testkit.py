@@ -291,7 +291,6 @@ def execute_signal_run(
     manifest = start_run(
         config=config,
         experiment=prepare_invocation(experiment),
-        workspace=workspace,
         services=services,
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config_source=config_source,

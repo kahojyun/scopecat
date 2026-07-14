@@ -40,6 +40,16 @@ def _resource_module() -> sc.ExperimentModule:
     )
 
 
+def test_graph_proof_indexes_verified_product_ports() -> None:
+    assembly = elaborate_module(_resource_module())
+
+    verified = verify_assembly_graph(assembly)
+
+    assert tuple(verified.product_ports) == tuple(
+        product.product_id for product in assembly.product_ports
+    )
+
+
 def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> None:
     child = _resource_module()
     left = child.instantiate("left.arm")
@@ -86,7 +96,6 @@ def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> No
 
     resolved = resolve_experiment(
         root.template("test.resources.root", kind="resources").build().bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
     assert [state.capability_id for state in resolved.experiment.state] == [
@@ -308,7 +317,6 @@ def test_state_each_keeps_dotted_capability_and_field_ids_structured(
         root.template("test.resources.structured-state", kind="resources")
         .build()
         .bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
 

@@ -48,7 +48,6 @@ def _start_signal_run(workspace: Path):
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=prepare_invocation(experiment),
-        workspace=workspace,
         services=services,
     )
 
@@ -79,7 +78,6 @@ def exercise_preview(workspace: Path) -> None:
         config=config,
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         experiment=prepare_invocation(load_invocation()),
-        workspace=workspace,
         services=local_workspace_services(workspace),
     )
 
@@ -194,7 +192,6 @@ def exercise_instrument_provider_workflow(workspace: Path) -> None:
     start_run(
         config=config,
         experiment=prepare_invocation(experiment),
-        workspace=workspace,
         services=local_workspace_services(workspace),
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )

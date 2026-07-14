@@ -6,7 +6,7 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.linking.linked import link_program, link_verified_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -186,7 +186,9 @@ def test_unused_product_producer_is_linked_without_placement() -> None:
     assert linked.product_uses == ()
     assert linked.record_uses == ()
 
-    plan = materialize_local_plan(link_program(linked.program, linked.environment))
+    plan = materialize_local_plan(
+        link_verified_program(linked.verified_program, linked.environment)
+    )
 
     assert plan.valid, plan.problems
     assert plan.points[0].collect == ()

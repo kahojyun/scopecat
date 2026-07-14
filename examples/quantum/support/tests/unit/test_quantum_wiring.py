@@ -6,7 +6,7 @@ import pytest
 import scopecat as sc
 from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.linking.linked import link_verified_program
 from scopecat.composition.local import local_execution_services
 from scopecat.config.profiles import load_config_profile
 from scopecat.execution.local.plan_executor import execute_execution_plan
@@ -309,13 +309,12 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
     config = quantum_wiring_config_profile()
     resolved = resolve_experiment(
         SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=("q0", "q1")),
-        workspace=tmp_path,
         config_profile=config,
     )
     provider = _RecordingProvider(
         QuantumLabVirtualProvider(profile=EXPERIMENT_VIRTUAL_LAB_PROFILE)
     )
-    linked = link_program(resolved.experiment, resolved.environment)
+    linked = link_verified_program(resolved.verified_program, resolved.environment)
     prepared = sc.ExecutionBackend(provider=provider).prepare(linked, config=config)
 
     manifest, _snapshot = execute_execution_plan(

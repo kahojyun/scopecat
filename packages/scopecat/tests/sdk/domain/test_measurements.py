@@ -10,7 +10,7 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
-    link_program,
+    link_verified_program,
     materialize_linked_points,
 )
 from scopecat.measurements.host_transforms import HostMeasurementTransformCall
@@ -85,11 +85,10 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
     )
     resolved = resolve_experiment(
         template.bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
     linked_points = materialize_linked_points(
-        link_program(resolved.experiment, resolved.environment)
+        link_verified_program(resolved.verified_program, resolved.environment)
     )
     projection = project_domain_plan_internal(linked_points)
     call_view = projection.view(linked_points).require_one_call(

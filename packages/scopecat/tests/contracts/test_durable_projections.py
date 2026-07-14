@@ -86,7 +86,6 @@ def _canonical_projections(workspace: Path) -> tuple[RunRequest, RunPlanRecord]:
     compiled_experiment = compile_experiment(
         compiled_invocation,
         environment=environment,
-        workspace=workspace,
     )
     assert compiled_experiment.valid, compiled_experiment.problems
     return (
@@ -146,12 +145,10 @@ def test_preview_and_run_plan_resource_projections_are_repeatable_and_plain(
     compiled_first = compile_experiment(
         invocation,
         environment=environment,
-        workspace=tmp_path / "first",
     )
     compiled_second = compile_experiment(
         invocation,
         environment=environment,
-        workspace=tmp_path / "second",
     )
     assert compiled_first.valid, compiled_first.problems
     assert compiled_second.valid, compiled_second.problems
@@ -199,7 +196,6 @@ def test_compilation_workflow_threads_the_selected_relation_backend(
     compiled = compile_experiment(
         compiled_invocation,
         environment=environment,
-        workspace=tmp_path,
         relation_backend=backend,
     )
 
@@ -321,7 +317,6 @@ def test_stored_plan_remains_readable_when_stored_request_is_corrupt(
         execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=local_workspace_services(tmp_path),
     )
     storage = local_run_repository(tmp_path)
@@ -350,7 +345,6 @@ def test_stored_request_remains_readable_when_stored_plan_is_corrupt(
         execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=local_workspace_services(tmp_path),
     )
     storage = local_run_repository(tmp_path)

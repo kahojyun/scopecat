@@ -26,12 +26,20 @@ from scopecat.authoring.value_types import (
     ValueValidationError,
     coerce_literal,
 )
+from scopecat.compiler.entity_resolution import (
+    EntityResolutionError,
+    resolve_entities,
+    resolve_entity,
+)
 from scopecat.compiler.frontend.binding_lowering import (
     BindingSpec,
-    require_port_capability,
+    assert_port_capability,
 )
-from scopecat.compiler.frontend.context import ExperimentAuthoringContext
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
+from scopecat.compiler.frontend.problems import (
+    raise_entity_resolution_problem,
+    raise_frontend_problem,
+)
 from scopecat.compiler.frontend.value_binding import (
     bind_relation_input_refs,
     bind_scalar_input_refs,
@@ -109,6 +117,7 @@ from scopecat.compiler.typed.program import (
     set_state_field,
 )
 from scopecat.compiler.typed.state import StateSpec
+from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductProducerId,
@@ -118,17 +127,19 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.kernel.value_types import Route
+from scopecat.records.config import Topology
 from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import ParameterCatalog
 
 
 def lower_parameter_overlay_intent(
-    ctx: ExperimentAuthoringContext,
+    parameter_catalog: ParameterCatalog,
     intent: ParameterScanOverlayIntent,
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
 ) -> PointParameterOverlay:
-    definition = ctx.config.parameter_catalog.get(intent.table_id)
+    definition = parameter_catalog.get(intent.table_id)
     if definition is None or not isinstance(definition.value_type, TableType):
         raise AssertionError("validated parameter overlay table is missing")
     columns = {column.id: column for column in definition.value_type.columns}
@@ -168,7 +179,7 @@ def lower_parameter_overlay_intent(
 
 
 def validate_entity_inputs(
-    ctx: ExperimentAuthoringContext,
+    topology: Topology,
     entity_inputs: tuple[str, ...],
     inputs: Mapping[str, object],
 ) -> None:
@@ -176,17 +187,20 @@ def validate_entity_inputs(
         if input_id not in inputs:
             continue
         value = inputs.get(input_id)
-        if isinstance(value, str) and value:
-            ctx.require_entity(value)
-            continue
-        if isinstance(value, EntityRef):
-            ctx.require_entity(value)
-            continue
-        if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-            selected = cast("Sequence[EntityRef | str]", value)
-            ctx.require_entities(selected)
-            continue
-        ctx.raise_problem(
+        try:
+            if isinstance(value, str) and value:
+                resolve_entity(topology, value)
+                continue
+            if isinstance(value, EntityRef):
+                resolve_entity(topology, value)
+                continue
+            if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+                selected = cast("Sequence[EntityRef | str]", value)
+                resolve_entities(topology, selected)
+                continue
+        except EntityResolutionError as error:
+            raise_entity_resolution_problem(error)
+        raise_frontend_problem(
             "module_entity_input_invalid",
             f"module entity input {input_id} must be an entity or entity series",
             "inputs",
@@ -435,7 +449,6 @@ def _semantic_plan_expression(
 
 
 def lower_state_region(
-    ctx: ExperimentAuthoringContext,
     region: StateEachRegion,
     graph: VerifiedSemanticGraph,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
@@ -446,13 +459,11 @@ def lower_state_region(
     if region.resource_port is not None:
         port = resource_ports.get(region.resource_port)
         if port is None:
-            ctx.raise_problem(
-                "module_unknown_resource_port",
-                "state binding references unknown resource port "
-                f"{region.resource_port}",
-                "state",
+            raise AssertionError(
+                "verified state region references unknown resource port "
+                f"{region.resource_port}"
             )
-        require_port_capability(ctx, port, region.capability_id)
+        assert_port_capability(port, region.capability_id)
     operations = {operation.id: operation for operation in graph.graph.operations}
     row_type = RowType.from_table(region.row_argument.value_type)
     body_bindings = replace(
@@ -513,7 +524,6 @@ def lower_state_region(
 
 
 def lower_action_effect(
-    ctx: ExperimentAuthoringContext,
     action: InstrumentActionEffect,
     graph: VerifiedSemanticGraph,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
@@ -523,12 +533,11 @@ def lower_action_effect(
 ) -> ActionSpec:
     port = resource_ports.get(action.resource_port_id)
     if port is None:
-        ctx.raise_problem(
-            "module_unknown_resource_port",
-            f"action references unknown resource port {action.resource_port_id}",
-            "actions",
+        raise AssertionError(
+            "verified action references unknown resource port "
+            f"{action.resource_port_id}"
         )
-    require_port_capability(ctx, port, action.capability_id)
+    assert_port_capability(port, action.capability_id)
     operations = {operation.id: operation for operation in graph.graph.operations}
     return invoke_action(
         action.id,
@@ -643,44 +652,26 @@ def _required_region_use(use: ValueUse | None, *, role: str) -> ValueUse:
     return use
 
 
-def validate_assembly_conflicts(
-    ctx: ExperimentAuthoringContext,
-    assembly: SemanticExperimentIR,
-) -> None:
-    _reject_duplicates(
-        ctx,
-        ids=[
-            *(record.id for record in assembly.records),
-            *(
-                selection.record_id or selection.product_id.qualified_name
-                for selection in assembly.record_selections
-            ),
-        ],
-        code="module_record_duplicate",
-        message="experiment assembly defines duplicate records",
-        path="records",
-    )
-    _reject_duplicates(
-        ctx,
-        ids=[product.qualified_id for product in assembly.product_ports],
-        code="module_product_duplicate",
-        message="experiment assembly defines duplicate products",
-        path="products",
-    )
-    _reject_duplicates(
-        ctx,
-        ids=[
-            operation.id.qualified_name
-            for operation in assembly.semantic_graph.operations
-        ],
-        code="module_compute_node_duplicate",
-        message="experiment assembly defines duplicate program nodes",
-        path="compute_nodes",
-    )
+def validate_assembly_entrypoint(assembly: SemanticExperimentIR) -> None:
+    """Require the identity needed to lower a verified root assembly."""
+
+    if not assembly.experiment_id:
+        raise_frontend_problem(
+            "experiment_assembly_entrypoint_missing_id",
+            "experiment assembly must be linked with an experiment id",
+            "experiment_id",
+            phase=ProblemPhase.AUTHORING,
+        )
+    if not assembly.kind:
+        raise_frontend_problem(
+            "experiment_assembly_entrypoint_missing_kind",
+            "experiment assembly must be linked with an experiment kind",
+            "kind",
+            phase=ProblemPhase.AUTHORING,
+        )
 
 
 def coerce_assembly_inputs(
-    ctx: ExperimentAuthoringContext,
     ports: Sequence[ModuleInputPort],
     inputs: Mapping[str, object],
 ) -> dict[str, object]:
@@ -688,11 +679,12 @@ def coerce_assembly_inputs(
     for port in ports:
         existing = declared.get(port.id)
         if existing is not None and existing != port.value_type:
-            ctx.raise_problem(
+            raise_frontend_problem(
                 "module_input_type_conflict",
                 f"module input {port.id} has incompatible value types",
                 "inputs",
                 path=(port.id,),
+                phase=ProblemPhase.AUTHORING,
             )
         declared[port.id] = port.value_type
     result = dict(inputs)
@@ -708,11 +700,12 @@ def coerce_assembly_inputs(
                     path=("inputs", input_id),
                 )
             except ValueValidationError as error:
-                ctx.raise_problem(
+                raise_frontend_problem(
                     "module_input_type_mismatch",
                     str(error),
                     "inputs",
                     path=(input_id,),
+                    phase=ProblemPhase.AUTHORING,
                 )
             continue
         try:
@@ -722,17 +715,17 @@ def coerce_assembly_inputs(
                 path=("inputs", input_id),
             )
         except ValueValidationError as error:
-            ctx.raise_problem(
+            raise_frontend_problem(
                 "module_input_type_mismatch",
                 str(error),
                 "inputs",
                 path=(input_id,),
+                phase=ProblemPhase.AUTHORING,
             )
     return result
 
 
 def validate_consumed_inputs(
-    ctx: ExperimentAuthoringContext,
     assembly: SemanticExperimentIR,
     inputs: Mapping[str, object],
 ) -> None:
@@ -773,11 +766,12 @@ def validate_consumed_inputs(
         | (consumed_dependencies - provided - point_input_ids)
     )
     if missing:
-        ctx.raise_problem(
+        raise_frontend_problem(
             "module_input_binding_missing",
             "experiment assembly consumes module inputs without bindings or point "
             "values: " + ", ".join(missing),
             "inputs",
+            phase=ProblemPhase.AUTHORING,
         )
 
 
@@ -877,23 +871,6 @@ def _nested_input_dependencies(
             )
         }
     return set()
-
-
-def _reject_duplicates(
-    ctx: ExperimentAuthoringContext,
-    *,
-    ids: Sequence[str],
-    code: str,
-    message: str,
-    path: str,
-) -> None:
-    duplicates = sorted({item for item in ids if ids.count(item) > 1})
-    if duplicates:
-        ctx.raise_problem(
-            code,
-            f"{message}: {', '.join(duplicates)}",
-            path,
-        )
 
 
 def lower_point_domain(

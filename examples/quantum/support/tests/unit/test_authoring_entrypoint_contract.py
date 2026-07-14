@@ -127,7 +127,7 @@ def _compile_through_workspace(
 
 
 def _execution_semantics(compiled: CompiledInvocation) -> object:
-    assembly = compiled.assembly
+    assembly = compiled.assembly.source
     normalized_assembly = tuple(
         (
             selected.name,
@@ -139,7 +139,7 @@ def _execution_semantics(compiled: CompiledInvocation) -> object:
         mode="python",
         exclude={"id", "template_id", "template_inputs", "metadata"},
     )
-    return normalized_assembly, compiled.inputs, normalized_request
+    return normalized_assembly, assembly.inputs, normalized_request
 
 
 def _normalized_assembly_field(name: str, value: object) -> object:

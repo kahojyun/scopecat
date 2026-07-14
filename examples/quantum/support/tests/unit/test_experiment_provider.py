@@ -225,7 +225,6 @@ def test_rejects_invalid_compute_edge_payload_schema_during_planning(
 ) -> None:
     resolved = resolve_experiment(
         SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan(CLIFFORD_COUNT, [4]),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
     sequence_node_id = "build-sqg-rb-sequence"

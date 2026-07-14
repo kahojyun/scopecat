@@ -52,7 +52,6 @@ def test_start_run_uses_provider_selected_config_instrument(
     manifest = start_run(
         config=config_with_instrument_id("source-a"),
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=local_workspace_services(tmp_path),
         execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
     )
@@ -73,7 +72,6 @@ def test_start_run_reuses_point_provider_preflight(tmp_path: Path) -> None:
     manifest = start_run(
         config=load_config(),
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=local_workspace_services(tmp_path),
         execution_backend=ExecutionBackend(provider=provider),
     )
@@ -90,7 +88,6 @@ def test_start_run_requires_explicit_execution_backend(
         start_run(
             config=load_config(),
             experiment=load_prepared_invocation(),
-            workspace=tmp_path,
             services=local_workspace_services(tmp_path),
         )
 

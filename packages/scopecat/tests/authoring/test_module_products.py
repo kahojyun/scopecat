@@ -7,7 +7,10 @@ import pytest
 import scopecat as sc
 from scopecat.authoring._record_intents import ProductSelectionIntent
 from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.invocation import prepare_invocation
+from scopecat.compiler.frontend.resolution import compile_prepared_invocation
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductProducerId,
@@ -53,7 +56,6 @@ def test_inline_record_lowers_logical_and_producer_metadata_independently(
         )
         .build()
         .bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
 
@@ -94,7 +96,6 @@ def test_explicit_instances_select_same_named_products_independently(
     )
     resolved = resolve_experiment(
         template.bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
 
@@ -171,7 +172,6 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     )
     resolved = resolve_experiment(
         template.bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
 
@@ -233,7 +233,6 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
 
@@ -262,7 +261,6 @@ def test_record_aliases_share_one_public_product_use(tmp_path: Path) -> None:
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=tmp_path,
         config_profile=load_config(),
     )
 
@@ -277,9 +275,7 @@ def test_record_aliases_share_one_public_product_use(tmp_path: Path) -> None:
     assert resolved.experiment.record_uses[1].metadata == {"projection": "secondary"}
 
 
-def test_alias_lowering_rejects_one_use_identity_for_two_products(
-    tmp_path: Path,
-) -> None:
+def test_authoring_compile_rejects_one_use_identity_for_two_products() -> None:
     module = (
         sc.module("test.products.conflicting-use")
         .product(
@@ -312,15 +308,12 @@ def test_alias_lowering_rejects_one_use_identity_for_two_products(
     )
 
     with pytest.raises(CheckFailed) as error:
-        resolve_experiment(
-            template.bind(),
-            workspace=tmp_path,
-            config_profile=load_config(),
-        )
+        compile_prepared_invocation(prepare_invocation(template.bind()))
 
     assert [problem.code for problem in error.value.problems] == [
         "product_use_identity_conflict"
     ]
+    assert error.value.problems[0].phase is ProblemPhase.AUTHORING
 
 
 def test_module_is_not_an_anonymous_product_invocation_factory() -> None:

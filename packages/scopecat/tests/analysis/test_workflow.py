@@ -32,7 +32,6 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=services,
     )
     lab = sc.open(tmp_path, config=load_config())
@@ -56,7 +55,6 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=active_config.config,
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=services,
         config_source=active_config.config_source,
     )
@@ -78,7 +76,6 @@ def test_analysis_save_recovers_orphans_after_manifest_failure(
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=services,
     )
     analysis = (
@@ -142,7 +139,6 @@ def test_analysis_save_recovers_after_output_write_failure(
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
-        workspace=tmp_path,
         services=services,
     )
     analysis = (

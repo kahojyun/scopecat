@@ -292,7 +292,7 @@ def check_invocation(invocation: ExperimentInvocation) -> ExperimentCheckReport:
             ),
         ),
         template_id=compiled.request.template_id,
-        inputs=dict(compiled.inputs),
+        inputs=dict(compiled.assembly.source.inputs),
     )
 
 

@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
 
 import scopecat as sc
+import scopecat.compiler.frontend.assembly_verification as assembly_verification
+from scopecat.authoring._binding_intents import requires, resource_port
 from scopecat.authoring._record_intents import observable
 from scopecat.authoring._value_refs import internal_value_ref_from_expression
+from scopecat.compiler.frontend.assembly_lowering import validate_assembly_entrypoint
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
+from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.frontend.resolution import (
     compile_prepared_invocation,
+    resolve_compiled_invocation,
 )
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
@@ -28,17 +32,17 @@ from scopecat.compiler.semantic.model import (
 )
 from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
 from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import model_location
+from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.value_types import Float, Payload, Scalar, Table, TableColumn
 from scopecat.planning.authoring import resolve_experiment
+from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config
 
 
-def _resolve(module: sc.ExperimentModule, tmp_path: Path) -> None:
+def _resolve(module: sc.ExperimentModule) -> None:
     invocation = module.template("test.graph", kind="graph").build().bind()
     resolve_experiment(
         invocation,
-        workspace=tmp_path,
         config_profile=load_config(),
     )
 
@@ -81,7 +85,7 @@ def test_compute_route_requires_a_declared_port() -> None:
     assert error.value.problems[0].code == "module_resource_undeclared"
 
 
-def test_compute_route_requires_port_capabilities(tmp_path: Path) -> None:
+def test_compute_route_requires_port_capabilities() -> None:
     consume = sc.compute(
         "consume-route",
         fn=lambda *, route: route,
@@ -96,7 +100,7 @@ def test_compute_route_requires_port_capabilities(tmp_path: Path) -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        _resolve(module, tmp_path)
+        _resolve(module)
 
     assert error.value.problems[0].code == ("compute_route_capability_missing")
     assert "set_gain" in error.value.problems[0].message
@@ -124,7 +128,7 @@ def test_state_rejects_an_unregistered_compute_output() -> None:
     assert error.value.problems[0].code == "module_compute_foreign_definition"
 
 
-def test_state_rejects_a_non_payload_compute_output(tmp_path: Path) -> None:
+def test_state_rejects_a_non_payload_compute_output() -> None:
     compute_value = sc.compute(
         "numeric-value",
         fn=lambda: 1.0,
@@ -144,16 +148,113 @@ def test_state_rejects_a_non_payload_compute_output(tmp_path: Path) -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        _resolve(module, tmp_path)
+        _resolve(module)
 
     assert error.value.problems[0].code == "compute_payload_unavailable"
     assert error.value.problems[0].location == model_location("bindings", 0, "value")
     assert "numeric-value/outputs/result" in error.value.problems[0].message
 
 
-def test_static_record_schema_is_checked_before_parameter_catalog(
-    tmp_path: Path,
-) -> None:
+def test_compile_rejects_a_table_shaped_plan_state_binding() -> None:
+    rows = sc.input(
+        "rows",
+        sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
+    )
+    module = (
+        sc.module("test.graph.table-state-binding")
+        .inputs(rows)
+        .resource("drive", requires=("set_gain",))
+        .bind_field(
+            "drive",
+            capability="set_gain",
+            field="value",
+            value=rows,
+        )
+        .build()
+    )
+    invocation = (
+        module.template("test.graph.table-state-binding", kind="graph")
+        .build()
+        .bind(rows=({"value": 1.0},))
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        compile_prepared_invocation(prepare_invocation(invocation))
+
+    problem = error.value.problems[0]
+    assert problem.code == "state_binding_value_shape_invalid"
+    assert problem.phase is ProblemPhase.AUTHORING
+    assert problem.location == model_location("bindings", 0, "value")
+    assert problem.message == "state binding value must be scalar-shaped"
+
+
+def test_compile_rejects_a_table_shaped_plan_action_field() -> None:
+    rows = sc.input(
+        "rows",
+        sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
+    )
+    module = (
+        sc.module("test.graph.table-action-field")
+        .inputs(rows)
+        .resource("drive", requires=("set_gain",))
+        .action(
+            "set-gain",
+            resource="drive",
+            capability="set_gain",
+            fields={"value": rows},
+        )
+        .build()
+    )
+    invocation = (
+        module.template("test.graph.table-action-field", kind="graph")
+        .build()
+        .bind(rows=({"value": 1.0},))
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        compile_prepared_invocation(prepare_invocation(invocation))
+
+    problem = error.value.problems[0]
+    assert problem.code == "action_field_value_shape_invalid"
+    assert problem.phase is ProblemPhase.AUTHORING
+    assert problem.location == model_location("actions", 0, "fields", "value")
+    assert problem.message == "action field value must be scalar-shaped"
+
+
+def test_compile_rejects_a_table_shaped_plan_row_region_value() -> None:
+    rows = sc.input(
+        "rows",
+        sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
+    )
+    module = (
+        sc.module("test.graph.table-row-region-value")
+        .inputs(rows)
+        .resource("drive", requires=("set_gain",))
+        .state_each(
+            rows,
+            resource_port="drive",
+            capability="set_gain",
+            field="value",
+            value=rows,
+        )
+        .build()
+    )
+    invocation = (
+        module.template("test.graph.table-row-region-value", kind="graph")
+        .build()
+        .bind(rows=({"value": 1.0},))
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        compile_prepared_invocation(prepare_invocation(invocation))
+
+    problem = error.value.problems[0]
+    assert problem.code == "semantic_row_region_value_shape_invalid"
+    assert problem.phase is ProblemPhase.AUTHORING
+    assert problem.message == "row region state value must be scalar-shaped"
+
+
+def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
     missing_parameter = sc.parameter(
         "missing-record-parameter",
         sc.ScalarType(sc.FloatType()),
@@ -173,7 +274,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog(
     )
 
     with pytest.raises(CheckFailed) as error:
-        _resolve(module, tmp_path)
+        _resolve(module)
 
     assert error.value.problems[0].code == ("product_axis_duplicate")
     assert error.value.problems[0].location == model_location(
@@ -181,7 +282,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog(
     )
 
 
-def test_resource_selector_rejects_execute_stage_value(tmp_path: Path) -> None:
+def test_resource_selector_rejects_execute_stage_value() -> None:
     entity_type = sc.ScalarType(sc.EntityType())
     subject = sc.input("subject", entity_type)
     child = (
@@ -208,7 +309,7 @@ def test_resource_selector_rejects_execute_stage_value(tmp_path: Path) -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        _resolve(parent, tmp_path)
+        _resolve(parent)
 
     problem = error.value.problems[0]
     assert problem.code == "value_stage_unavailable"
@@ -224,7 +325,7 @@ def test_resource_selector_rejects_execute_stage_value(tmp_path: Path) -> None:
     assert "execute-stage" in problem.message
 
 
-def test_record_axis_rejects_execute_stage_value(tmp_path: Path) -> None:
+def test_record_axis_rejects_execute_stage_value() -> None:
     size = sc.compute(
         "axis-size",
         fn=lambda: 2,
@@ -238,7 +339,7 @@ def test_record_axis_rejects_execute_stage_value(tmp_path: Path) -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        _resolve(module, tmp_path)
+        _resolve(module)
 
     problem = error.value.problems[0]
     assert problem.code == "value_stage_unavailable"
@@ -247,7 +348,7 @@ def test_record_axis_rejects_execute_stage_value(tmp_path: Path) -> None:
     )
 
 
-def test_record_axis_rejects_point_rate_value(tmp_path: Path) -> None:
+def test_record_axis_rejects_point_rate_value() -> None:
     size = sc.point("axis-size", sc.ScalarType(sc.IntType(minimum=1)))
     module = (
         sc.module("test.stage.record-point")
@@ -264,7 +365,6 @@ def test_record_axis_rejects_point_rate_value(tmp_path: Path) -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             invocation,
-            workspace=tmp_path,
             config_profile=load_config(),
         )
 
@@ -275,7 +375,7 @@ def test_record_axis_rejects_point_rate_value(tmp_path: Path) -> None:
     )
 
 
-def test_state_route_selector_rejects_execute_stage_value(tmp_path: Path) -> None:
+def test_state_route_selector_rejects_execute_stage_value() -> None:
     rows = sc.parameter(
         "missing-state-rows",
         sc.TableType(columns=()),
@@ -301,7 +401,7 @@ def test_state_route_selector_rejects_execute_stage_value(tmp_path: Path) -> Non
     )
 
     with pytest.raises(CheckFailed) as error:
-        _resolve(module, tmp_path)
+        _resolve(module)
 
     problem = error.value.problems[0]
     assert problem.code == "value_stage_unavailable"
@@ -329,11 +429,105 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
 
     assert [
         operation.id.local_id
-        for operation in compiled.assembly.semantic_graph.operations
+        for operation in compiled.assembly.source.semantic_graph.operations
     ] == [
         "producer",
         "consumer",
     ]
+
+
+def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> None:
+    subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
+    module = sc.module("test.graph.verified-source").inputs(subject).build()
+    invocation = (
+        module.template("test.graph.verified-source", kind="graph")
+        .build()
+        .bind(subject="q0")
+    )
+
+    compiled = compile_prepared_invocation(prepare_invocation(invocation))
+
+    assert compiled.request.template_inputs == {"subject": "q0"}
+    assert compiled.assembly.source.inputs == {"subject": EntityRef(id="q0")}
+    assert (
+        compiled.assembly.graph.semantic_graph.graph
+        == compiled.assembly.source.semantic_graph
+    )
+
+
+def test_compile_verifies_the_final_assembly_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[SemanticExperimentIR] = []
+    original_verify = verify_assembly_graph
+
+    def counted_verify(assembly: SemanticExperimentIR):
+        calls.append(assembly)
+        return original_verify(assembly)
+
+    monkeypatch.setattr(
+        assembly_verification,
+        "verify_assembly_graph",
+        counted_verify,
+    )
+    module = sc.module("test.graph.single-proof").build()
+    invocation = module.template("test.graph.single-proof", kind="graph").build().bind()
+
+    compiled = compile_prepared_invocation(prepare_invocation(invocation))
+    resolved = resolve_compiled_invocation(
+        compiled,
+        environment=validate_config_environment(load_config()),
+    )
+
+    assert calls == [compiled.assembly.source]
+    assert resolved.experiment.id == "test.graph.single-proof"
+
+
+@pytest.mark.parametrize(
+    ("assembly", "code", "root"),
+    (
+        (
+            SemanticExperimentIR(kind="graph"),
+            "experiment_assembly_entrypoint_missing_id",
+            "experiment_id",
+        ),
+        (
+            SemanticExperimentIR(experiment_id="test.graph"),
+            "experiment_assembly_entrypoint_missing_kind",
+            "kind",
+        ),
+    ),
+)
+def test_entrypoint_closure_is_an_authoring_problem(
+    assembly: SemanticExperimentIR,
+    code: str,
+    root: str,
+) -> None:
+    with pytest.raises(CheckFailed) as error:
+        validate_assembly_entrypoint(assembly)
+
+    problem = error.value.problems[0]
+    assert problem.code == code
+    assert problem.phase is ProblemPhase.AUTHORING
+    assert problem.location == model_location(root)
+
+
+def test_resource_selector_requires_scalar_or_series_entity_values() -> None:
+    invalid_entity = sc.input("subject", sc.ScalarType(sc.StringType()))
+    port = resource_port(
+        "drive",
+        requires(for_entities=(invalid_entity,)),
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        verify_assembly_graph(SemanticExperimentIR(resource_ports=(port,)))
+
+    problem = error.value.problems[0]
+    assert problem.code == "module_resource_entity_input_invalid"
+    assert problem.phase is ProblemPhase.AUTHORING
+    assert problem.location == model_location(
+        "resources", "drive", "selector", "entity_inputs", 0
+    )
 
 
 def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
@@ -367,7 +561,7 @@ def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
         parent.template("test.graph.execute-expression", kind="graph").build().bind()
     )
     compiled = compile_prepared_invocation(prepare_invocation(invocation))
-    graph = compiled.assembly.semantic_graph
+    graph = compiled.assembly.source.semantic_graph
     definitions = {definition.id: definition for definition in graph.value_defs}
     producer_operation = next(
         operation
@@ -420,19 +614,21 @@ def test_execute_core_operation_defers_local_implementation_selection() -> None:
     compiled = compile_prepared_invocation(prepare_invocation(invocation))
     scalar_operation = next(
         operation
-        for operation in compiled.assembly.semantic_graph.operations
+        for operation in compiled.assembly.source.semantic_graph.operations
         if isinstance(operation.contract.semantics, ScalarBinarySemantics)
     )
     catalog = ImplementationCatalog(
         local_python=tuple(
             implementation
-            for implementation in compiled.assembly.implementation_catalog.local_python
+            for implementation in (
+                compiled.assembly.source.implementation_catalog.local_python
+            )
             if implementation.operation_id != scalar_operation.id
         )
     )
 
     verified = verify_assembly_graph(
-        replace(compiled.assembly, implementation_catalog=catalog)
+        replace(compiled.assembly.source, implementation_catalog=catalog)
     )
 
     selected = next(

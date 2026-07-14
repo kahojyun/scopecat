@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 import scopecat as sc
@@ -59,7 +57,6 @@ def _resolve_module(
     )
     resolve_experiment(
         invocation,
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
 
@@ -287,7 +284,6 @@ def test_parameter_contract_survives_scan_lowering() -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             invocation,
-            workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
 
@@ -337,7 +333,6 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             invocation,
-            workspace=Path("/tmp/scopecat-test"),
             config_profile=_config_with_parameter_table(),
         )
 
@@ -375,7 +370,6 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             invocation,
-            workspace=Path("/tmp/scopecat-test"),
             config_profile=_config_with_parameter_table(),
         )
 
@@ -471,7 +465,6 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
     )
     resolve_experiment(
         invocation,
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
 

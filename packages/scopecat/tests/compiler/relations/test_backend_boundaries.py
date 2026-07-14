@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 
 import scopecat as sc
 import scopecat.authoring as authoring
@@ -11,7 +10,7 @@ from scopecat.compiler.frontend.resolution import (
     compile_prepared_invocation,
     resolve_compiled_invocation,
 )
-from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.linking.linked import link_program, link_verified_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.analysis import RelationOperation
 from scopecat.compiler.relations.backend import (
@@ -86,9 +85,7 @@ def _static_record_axis_invocation() -> authoring.ExperimentInvocation:
     return template.bind(axis_size=2)
 
 
-def test_record_axis_static_evaluation_is_isolated_from_target_backend(
-    tmp_path: Path,
-) -> None:
+def test_record_axis_static_evaluation_is_isolated_from_target_backend() -> None:
     environment = validate_config_environment(load_config())
     target_backend = _TrackingBackend(
         backend_id="tests.target-without-static-binary",
@@ -101,7 +98,6 @@ def test_record_axis_static_evaluation_is_isolated_from_target_backend(
     resolved = resolve_compiled_invocation(
         compiled,
         environment=environment,
-        workspace=tmp_path,
     )
 
     assert target_backend.assessed_operations == []
@@ -109,7 +105,8 @@ def test_record_axis_static_evaluation_is_isolated_from_target_backend(
     assert resolved.experiment.product_defs[0].axes[0].size == 3
 
     plan = materialize_local_plan(
-        link_program(resolved.experiment, environment), relation_backend=target_backend
+        link_verified_program(resolved.verified_program, environment),
+        relation_backend=target_backend,
     )
 
     assert plan.valid, plan.problems

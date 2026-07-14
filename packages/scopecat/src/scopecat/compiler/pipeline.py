@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
-from pathlib import Path
 
 from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
 from scopecat.compiler.frontend.resolution import (
@@ -12,7 +11,7 @@ from scopecat.compiler.frontend.resolution import (
     resolve_compiled_invocation,
 )
 from scopecat.compiler.linking.bound import BoundPlan
-from scopecat.compiler.linking.linked import LinkedPlan, link_program
+from scopecat.compiler.linking.linked import LinkedPlan, link_verified_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.backend import RelationBackend
 from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
@@ -30,9 +29,11 @@ class CompiledExperiment:
     program: TypedProgram
     plan: BoundPlan
     request: RunRequest
-    template_id: str | None
-    inputs: dict[str, object]
     config_source: RunConfigSource | None
+
+    @property
+    def template_id(self) -> str | None:
+        return self.request.template_id
 
     @property
     def problems(self) -> tuple[Problem, ...]:
@@ -47,20 +48,27 @@ class CompiledExperiment:
 class LinkedExperiment:
     """Target-neutral compiler result shared by all execution backends."""
 
-    program: TypedProgram
     plan: LinkedPlan
     request: RunRequest
-    template_id: str | None
-    inputs: dict[str, object]
     config_source: RunConfigSource | None
-    problems: tuple[Problem, ...] = ()
+
+    @property
+    def program(self) -> TypedProgram:
+        return self.plan.program
+
+    @property
+    def template_id(self) -> str | None:
+        return self.request.template_id
+
+    @property
+    def problems(self) -> tuple[Problem, ...]:
+        return self.plan.environment.problems
 
 
 def link_experiment(
     invocation: CompiledInvocation,
     *,
     environment: ValidatedConfigEnvironment,
-    workspace: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> LinkedExperiment:
     """Resolve config-backed authoring and stop before target selection."""
@@ -68,18 +76,13 @@ def link_experiment(
     resolved = resolve_compiled_invocation(
         invocation,
         environment=environment,
-        workspace=workspace,
         config_source=config_source,
     )
-    plan = link_program(resolved.experiment, environment)
+    plan = link_verified_program(resolved.verified_program, environment)
     return LinkedExperiment(
-        program=resolved.experiment,
         plan=plan,
         request=resolved.request,
-        template_id=resolved.template_id,
-        inputs=dict(resolved.inputs),
         config_source=resolved.config_source,
-        problems=_merge_problem_references(resolved.problems),
     )
 
 
@@ -104,8 +107,6 @@ def compile_local_experiment(
         program=linked.program,
         plan=plan,
         request=linked.request,
-        template_id=linked.template_id,
-        inputs=dict(linked.inputs),
         config_source=linked.config_source,
     )
 
@@ -114,7 +115,6 @@ def compile_experiment(
     invocation: CompiledInvocation,
     *,
     environment: ValidatedConfigEnvironment,
-    workspace: str | Path,
     config_source: RunConfigSource | None = None,
     relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
 ) -> CompiledExperiment:
@@ -123,7 +123,6 @@ def compile_experiment(
     linked = link_experiment(
         invocation,
         environment=environment,
-        workspace=workspace,
         config_source=config_source,
     )
     return compile_local_experiment(

@@ -34,6 +34,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_point_dependencies,
 )
 from scopecat.authoring.assembly import ExperimentModule
+from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
     SemanticExperimentIR,
     elaborate_module,
@@ -228,7 +229,6 @@ def _template_invocation(
 def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
     resolved = resolve_experiment(
         simple_template().bind(subject="q0"),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -279,12 +279,10 @@ def test_template_selects_module_products_as_records() -> None:
 
     unselected = resolve_experiment(
         without_selection.bind(subject="q0"),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
     selected = resolve_experiment(
         with_selection.bind(subject="q0"),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -358,7 +356,7 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
     compiled = compile_prepared_invocation(
         prepare_invocation(template.bind(qubit="q0"))
     )
-    graph = compiled.assembly.semantic_graph
+    graph = compiled.assembly.source.semantic_graph
     operation = next(
         operation
         for operation in graph.operations
@@ -437,7 +435,6 @@ def test_template_can_scan_entity_input_without_subject_special_case() -> None:
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
     preview = preview_contract(resolved.experiment, resolved.parameters)
@@ -566,7 +563,6 @@ def test_entity_scan_routes_resources_per_point() -> None:
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
     preview = preview_contract(
@@ -727,7 +723,6 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
             ),
             ["q0", "q1"],
         ),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
     preview = preview_contract(
@@ -858,7 +853,6 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
             ),
             ["q0", "q1"],
         ),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
     preview = preview_contract(
@@ -906,7 +900,6 @@ def test_entity_series_input_can_define_record_axis() -> None:
 
     resolved = resolve_experiment(
         template.bind(qubits=("q0",)),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -922,7 +915,6 @@ def test_entity_series_input_can_define_record_axis() -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             template.bind(qubits=("missing",)),
-            workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
     assert error.value.problems[0].code == "unknown_authoring_entity"
@@ -930,7 +922,6 @@ def test_entity_series_input_can_define_record_axis() -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             template.bind(qubits=("q0", "q0")),
-            workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
     assert error.value.problems[0].code == "module_record_entity_axis_duplicate"
@@ -938,7 +929,6 @@ def test_entity_series_input_can_define_record_axis() -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             template.bind(qubits=()),
-            workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
     assert error.value.problems[0].code == "module_record_entity_axis_invalid"
@@ -975,7 +965,6 @@ def test_non_entity_string_series_defines_categorical_record_axis() -> None:
 
     resolved = resolve_experiment(
         template.bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -1067,7 +1056,6 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
 
     resolved = resolve_experiment(
         template.bind(qubits=("q0", "q1")),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
     preview = preview_contract(
@@ -1169,11 +1157,9 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
     )
 
     resolved = _link_assembly(
-        assembly,
+        verify_assembly(assembly),
         request=request,
-        inputs={"subject": "q0"},
         environment=validate_config_environment(load_config()),
-        workspace=Path("/tmp/scopecat-test"),
         config_source=None,
     )
 
@@ -1196,11 +1182,9 @@ def test_link_assembly_validates_parameter_contracts_owned_by_point_source() -> 
 
     with pytest.raises(CheckFailed) as caught:
         _link_assembly(
-            assembly,
+            verify_assembly(assembly),
             request=request,
-            inputs={},
             environment=validate_config_environment(load_config()),
-            workspace=Path("/tmp/scopecat-test"),
             config_source=None,
         )
 
@@ -1276,7 +1260,6 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
                 id="test.duplicate_record",
                 kind="simple_scan",
             ),
-            workspace=Path("/tmp/scopecat-test"),
             config_profile=load_config(),
         )
 
@@ -1720,7 +1703,6 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
             span=Quantity(value=200.0, unit="MHz"),
             points=5,
         ),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
     preview, _ = preview_result(
@@ -1729,7 +1711,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
     )
 
     assert resolved.template_id == "test.scripted_scan"
-    assert resolved.inputs == {}
+    assert resolved.request.template_inputs == {}
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"
     )
@@ -1777,7 +1759,6 @@ def test_module_uses_record_axes() -> None:
             span=Quantity(value=200.0, unit="MHz"),
             points=5,
         ),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -1802,7 +1783,6 @@ def test_module_invocation_resolves_multiple_entity_inputs() -> None:
             kind="multi_entity",
             inputs={"device": "q0", "drive_channel": "drive-q0"},
         ),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=load_config(),
     )
 
@@ -1892,7 +1872,6 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
                 kind="entity_routed_resource",
             ).experiment_id("entity-routed-resource")
         ).bind(qubit="q1"),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
 
@@ -1995,7 +1974,6 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
                 "test.background_flux", kind="background_flux"
             ).experiment_id("background-flux")
         ).bind(),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
     preview = preview_contract(
@@ -2045,7 +2023,6 @@ def test_module_assembler_reports_ambiguous_resource_port() -> None:
 
     resolved = resolve_experiment(
         simple_template().bind(subject="q0"),
-        workspace=Path("/tmp/scopecat-test"),
         config_profile=config,
     )
     _preview, problems = preview_result(
@@ -2071,7 +2048,6 @@ def test_resolve_experiment_uses_active_config_and_input_defaults(
 
     resolved = resolve_experiment(
         invocation,
-        workspace=tmp_path,
         config_registry=local_config_registry_unit_of_work(tmp_path),
     )
 

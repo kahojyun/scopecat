@@ -13,6 +13,7 @@ from scopecat.compiler.frontend.environment import (
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
     link_program,
+    link_verified_program,
     materialize_linked_points,
 )
 from scopecat.compiler.linking.materialization import materialize_local_plan
@@ -66,6 +67,7 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
+from scopecat.compiler.typed.verification import seal_typed_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ProblemCategory,
@@ -336,20 +338,17 @@ def test_link_retains_unit_domain() -> None:
     assert linked.coordinate_ids == ()
 
 
-def test_link_snapshots_program_and_environment_on_both_sides() -> None:
+def test_raw_link_seals_program_and_retains_accepted_environment() -> None:
     program = _symbolic_program()
     environment = _environment()
     linked = link_program(program, environment)
+
+    assert linked.environment is environment
 
     program.metadata["owner"] = {"name": "mutated-source"}
     program.product_defs[0].metadata["mutated-source"] = True
     program.instrument_product_producers[0].metadata["mutated-source"] = True
     program.record_uses[0].metadata["mutated-source"] = True
-    environment.config.metadata["mutated-source"] = True
-    environment.parameters.scalars["mutated-source"] = 1.0
-    assert environment.routing is not None
-    assert environment.routing.channel_lines_by_id is not None
-    environment.routing.channel_lines_by_id["mutated-source"] = "line"
 
     assert linked.program.metadata == {"owner": {"name": "original"}}
     assert linked.product_defs[0].metadata == {"owner": "selected"}
@@ -357,33 +356,17 @@ def test_link_snapshots_program_and_environment_on_both_sides() -> None:
         "owner": "selected-producer"
     }
     assert linked.record_uses[0].metadata == {"owner": "record"}
-    assert "mutated-source" not in linked.environment.config.metadata
-    assert "mutated-source" not in linked.environment.parameters.scalars
-    assert linked.environment.routing is not None
-    assert "mutated-source" not in (
-        linked.environment.routing.channel_lines_by_id or {}
-    )
 
-    exposed_program = linked.program
-    exposed_program.metadata["owner"] = {"name": "mutated-copy"}
-    exposed_environment = linked.environment
-    exposed_environment.config.metadata["mutated-copy"] = True
-    exposed_environment.parameters.scalars["mutated-copy"] = 2.0
-    exposed_product = linked.product_defs[0]
-    exposed_product.metadata["mutated-copy"] = True
-    exposed_producer = linked.instrument_product_producers[0]
-    exposed_producer.metadata["mutated-copy"] = True
-    exposed_record = linked.record_uses[0]
-    exposed_record.metadata["mutated-copy"] = True
 
-    assert linked.program.metadata == {"owner": {"name": "original"}}
-    assert "mutated-copy" not in linked.environment.config.metadata
-    assert "mutated-copy" not in linked.environment.parameters.scalars
-    assert linked.product_defs[0].metadata == {"owner": "selected"}
-    assert linked.instrument_product_producers[0].metadata == {
-        "owner": "selected-producer"
-    }
-    assert linked.record_uses[0].metadata == {"owner": "record"}
+def test_verified_link_reuses_proof_and_accepted_environment() -> None:
+    verified = seal_typed_program(_symbolic_program())
+    environment = _environment()
+
+    linked = link_verified_program(verified, environment)
+
+    assert linked.verified_program is verified
+    assert linked.program is verified.program
+    assert linked.environment is environment
 
 
 def test_unselected_product_definition_survives_link_without_collection() -> None:
@@ -950,6 +933,49 @@ def test_linked_points_reject_unknown_entities_at_the_planning_boundary() -> Non
     assert problem.phase is ProblemPhase.PLANNING
     assert problem.category is ProblemCategory.NOT_FOUND
     assert problem.location == model_location("entity", "missing")
+    assert dict(problem.details) == {}
+
+
+def test_linked_points_preserve_entity_kind_mismatch_problem() -> None:
+    point_type = Table(
+        columns=(TableColumn("subject", Scalar(Entity())),),
+        min_rows=1,
+        max_rows=1,
+    )
+    program = TypedProgram(
+        id="wrong-kind-linked-entity-point",
+        kind="compiler_test",
+        point_domain=PointDomain(
+            root=point_rows(
+                table_value_expr(
+                    literal_rows(
+                        [
+                            {
+                                "subject": EntityRef(
+                                    id="q0",
+                                    kind="logical_coupler",
+                                )
+                            }
+                        ]
+                    ),
+                    expected_type=point_type,
+                )
+            ),
+            entity_columns=("subject",),
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as caught:
+        materialize_linked_points(link_program(program, _environment()))
+
+    assert len(caught.value.problems) == 1
+    problem = caught.value.problems[0]
+    assert problem.code == "authoring_entity_kind_mismatch"
+    assert problem.phase is ProblemPhase.PLANNING
+    assert problem.category is ProblemCategory.INVALID_INPUT
+    assert problem.location == model_location("entity", "q0")
+    assert dict(problem.details) == {}
+    assert problem.message == ("entity q0 has kind logical_device, not logical_coupler")
 
 
 def test_linked_points_aggregate_entity_and_normalized_value_problems() -> None:

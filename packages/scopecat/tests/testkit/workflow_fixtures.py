@@ -46,7 +46,6 @@ def load_experiment() -> TypedProgram:
     return resolve_experiment_with_config(
         load_invocation(),
         config=load_config(),
-        workspace=WORKFLOW_FIXTURE_DIR,
     ).experiment
 
 

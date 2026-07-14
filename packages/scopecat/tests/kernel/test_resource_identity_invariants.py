@@ -9,7 +9,7 @@ import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
-from scopecat.compiler.linking.linked import link_program
+from scopecat.compiler.linking.linked import link_program, link_verified_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.model import (
     lit,
@@ -242,11 +242,10 @@ def test_public_dsl_direct_physical_state_is_not_captured_by_same_named_port(
 
     resolved = resolve_experiment(
         invocation,
-        workspace=tmp_path,
         config_profile=config,
     )
     plan = materialize_local_plan(
-        link_program(resolved.experiment, resolved.environment)
+        link_verified_program(resolved.verified_program, resolved.environment)
     )
 
     assert plan.valid, plan.problems
@@ -415,7 +414,9 @@ def test_unused_logical_product_producer_does_not_constrain_route_placement() ->
     )
 
     linked = link_program(program, environment)
-    plan = materialize_local_plan(link_program(linked.program, linked.environment))
+    plan = materialize_local_plan(
+        link_verified_program(linked.verified_program, linked.environment)
+    )
 
     assert plan.valid, plan.problems
     assert plan.points[0].routes[0].resource_kind == "scheduler"
@@ -452,7 +453,9 @@ def test_demanded_logical_product_producer_requires_instrument_during_binding() 
     )
 
     linked = link_program(program, environment)
-    plan = materialize_local_plan(link_program(linked.program, linked.environment))
+    plan = materialize_local_plan(
+        link_verified_program(linked.verified_program, linked.environment)
+    )
 
     assert not plan.valid
     assert [problem.code for problem in plan.problems] == [

@@ -89,8 +89,15 @@ from scopecat.kernel.value_types import Payload, Scalar, String
 def verify_typed_program(program: TypedProgram) -> TypedProgram:
     """Return a topologically ordered program after pure IR verification."""
 
+    return _verify_typed_program(program).program
+
+
+def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
+    """Normalize once and retain every proof derived during verification."""
+
     problems: list[Problem] = []
     verified_point_domain: VerifiedPointDomain | None = None
+    consumers: tuple[ProgramRelationConsumer, ...] | None = None
     try:
         verified_point_domain = verify_point_domain(
             program.point_domain,
@@ -116,6 +123,16 @@ def verify_typed_program(program: TypedProgram) -> TypedProgram:
         program
     )
     problems.extend(transform_problems)
+    if (
+        compute_nodes != program.compute_nodes
+        or measurement_transforms != program.measurement_transforms
+    ):
+        program = program.model_copy(
+            update={
+                "compute_nodes": compute_nodes,
+                "measurement_transforms": measurement_transforms,
+            }
+        )
     implementation_problems = validate_local_implementation_catalog(
         compute_nodes,
         program.implementation_catalog,
@@ -386,16 +403,12 @@ def verify_typed_program(program: TypedProgram) -> TypedProgram:
 
     if problems:
         raise CheckFailed(problems)
-    if (
-        compute_nodes == program.compute_nodes
-        and measurement_transforms == program.measurement_transforms
-    ):
-        return program
-    return program.model_copy(
-        update={
-            "compute_nodes": compute_nodes,
-            "measurement_transforms": measurement_transforms,
-        }
+    if verified_point_domain is None or consumers is None:
+        raise AssertionError("successful typed verification lost its program proof")
+    return _TypedProgramVerification(
+        program=program,
+        point_domain=verified_point_domain,
+        relation_consumers=consumers,
     )
 
 
@@ -687,6 +700,15 @@ class ProgramRelationConsumer:
     location: ModelLocation
 
 
+@dataclass(frozen=True, slots=True)
+class _TypedProgramVerification:
+    """One normalized program and the proofs established in the same pass."""
+
+    program: TypedProgram
+    point_domain: VerifiedPointDomain
+    relation_consumers: tuple[ProgramRelationConsumer, ...]
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class VerifiedTypedProgram:
     """A normalized TypedProgram whose complete executable surface was checked."""
@@ -709,7 +731,9 @@ class VerifiedTypedProgram:
 
     @property
     def program(self) -> TypedProgram:
-        return self._program.model_copy(deep=True)
+        """Return the trusted frozen program owned by this proof."""
+
+        return self._program
 
     @property
     def point_domain(self) -> VerifiedPointDomain:
@@ -856,10 +880,10 @@ def seal_typed_program(
     *,
     phase: ProblemPhase = ProblemPhase.AUTHORING,
 ) -> VerifiedTypedProgram:
-    """Verify, normalize, snapshot, and seal a complete transient program."""
+    """Verify, normalize, and seal one trusted transient program."""
 
     try:
-        normalized = verify_typed_program(program)
+        verified = _verify_typed_program(program)
     except CheckFailed as error:
         if phase is ProblemPhase.AUTHORING:
             raise
@@ -869,19 +893,10 @@ def seal_typed_program(
                 for problem in error.problems
             )
         ) from error
-    snapshot = normalized.model_copy(deep=True)
-    point_domain = verify_point_domain(snapshot.point_domain, program_id=snapshot.id)
-    consumers = tuple(
-        consumer
-        for consumer, _role in _program_relation_consumers_with_roles(
-            snapshot,
-            point_domain=point_domain,
-        )
-    )
     return VerifiedTypedProgram(
-        snapshot,
-        consumers,
-        point_domain,
+        verified.program,
+        verified.relation_consumers,
+        verified.point_domain,
     )
 
 

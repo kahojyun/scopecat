@@ -9,34 +9,34 @@ from scopecat.authoring._parameter_contracts import (
     ParameterLookupContract,
     ParameterValueContract,
 )
-from scopecat.compiler.frontend.context import ExperimentAuthoringContext
+from scopecat.compiler.frontend.problems import raise_frontend_problem
 from scopecat.kernel.problems import ProblemCategory
 from scopecat.kernel.value_type_compatibility import describe_value_type, is_assignable
 from scopecat.kernel.value_types import Entity, String, Table, ValueType
-from scopecat.records.parameter import ParameterDefinition
+from scopecat.records.parameter import ParameterCatalog, ParameterDefinition
 
 
 def validate_parameter_contracts(
-    ctx: ExperimentAuthoringContext,
+    catalog: ParameterCatalog,
     contracts: Sequence[ParameterContract],
 ) -> None:
     """Validate typed dependencies against the selected unified catalog."""
 
     for contract in contracts:
         if isinstance(contract, ParameterLookupContract):
-            _validate_parameter_lookup(ctx, contract)
+            _validate_parameter_lookup(catalog, contract)
         else:
-            _validate_parameter(ctx, contract)
+            _validate_parameter(catalog, contract)
 
 
 def _validate_parameter(
-    ctx: ExperimentAuthoringContext,
+    catalog: ParameterCatalog,
     contract: ParameterValueContract,
 ) -> None:
-    definition = ctx.config.parameter_catalog.get(contract.parameter_id)
+    definition = catalog.get(contract.parameter_id)
     path = (contract.parameter_id,)
     if definition is None:
-        ctx.raise_problem(
+        raise_frontend_problem(
             "unknown_authoring_parameter",
             "experiment authoring references unknown parameter "
             f"{contract.parameter_id}",
@@ -45,7 +45,6 @@ def _validate_parameter(
             category=ProblemCategory.NOT_FOUND,
         )
     _require_declared_type(
-        ctx,
         actual=definition.value_type,
         declared=contract.value_type,
         code="authoring_parameter_type_mismatch",
@@ -55,13 +54,13 @@ def _validate_parameter(
 
 
 def _validate_parameter_lookup(
-    ctx: ExperimentAuthoringContext,
+    catalog: ParameterCatalog,
     contract: ParameterLookupContract,
 ) -> None:
-    definition = ctx.config.parameter_catalog.get(contract.parameter_id)
+    definition = catalog.get(contract.parameter_id)
     table_path = (contract.parameter_id,)
     if definition is None:
-        ctx.raise_problem(
+        raise_frontend_problem(
             "unknown_authoring_parameter",
             "experiment authoring references unknown parameter "
             f"{contract.parameter_id}",
@@ -69,8 +68,8 @@ def _validate_parameter_lookup(
             path=table_path,
             category=ProblemCategory.NOT_FOUND,
         )
-    table_type = _require_table_definition(ctx, definition, table_path)
-    _validate_parameter_lookup_key(ctx, contract, table_type)
+    table_type = _require_table_definition(definition, table_path)
+    _validate_parameter_lookup_key(contract, table_type)
     column = next(
         (
             candidate
@@ -81,7 +80,7 @@ def _validate_parameter_lookup(
     )
     column_path = (*table_path, "columns", contract.column_id)
     if column is None:
-        ctx.raise_problem(
+        raise_frontend_problem(
             "unknown_authoring_parameter_column",
             f"parameter table {contract.parameter_id} has no column "
             f"{contract.column_id}",
@@ -90,7 +89,7 @@ def _validate_parameter_lookup(
             category=ProblemCategory.NOT_FOUND,
         )
     if not column.required:
-        ctx.raise_problem(
+        raise_frontend_problem(
             "authoring_parameter_lookup_column_optional",
             f"parameter table {contract.parameter_id} lookup result column "
             f"{contract.column_id} is not guaranteed to be present",
@@ -98,7 +97,6 @@ def _validate_parameter_lookup(
             path=column_path,
         )
     _require_declared_type(
-        ctx,
         actual=column.value_type,
         declared=contract.value_type,
         code="authoring_parameter_column_type_mismatch",
@@ -108,13 +106,12 @@ def _validate_parameter_lookup(
 
 
 def _require_table_definition(
-    ctx: ExperimentAuthoringContext,
     definition: ParameterDefinition,
     path: tuple[str | int, ...],
 ) -> Table:
     if isinstance(definition.value_type, Table):
         return definition.value_type
-    ctx.raise_problem(
+    raise_frontend_problem(
         "authoring_parameter_shape_mismatch",
         f"parameter {definition.id} is not table-shaped",
         "parameters",
@@ -123,7 +120,6 @@ def _require_table_definition(
 
 
 def _validate_parameter_lookup_key(
-    ctx: ExperimentAuthoringContext,
     contract: ParameterLookupContract,
     table_type: Table,
 ) -> None:
@@ -131,7 +127,7 @@ def _validate_parameter_lookup_key(
     if set(contract.key_columns) != set(table_type.primary_key) or len(
         contract.key_columns
     ) != len(table_type.primary_key):
-        ctx.raise_problem(
+        raise_frontend_problem(
             "authoring_parameter_lookup_key_mismatch",
             f"parameter table {contract.parameter_id} lookup requires exactly the "
             f"primary key columns {table_type.primary_key!r}; got "
@@ -149,7 +145,7 @@ def _validate_parameter_lookup_key(
             and isinstance(target_type.atom, Entity)
         ):
             continue
-        ctx.raise_problem(
+        raise_frontend_problem(
             "authoring_parameter_lookup_key_type_mismatch",
             f"parameter table {contract.parameter_id} key column {column_id} requires "
             f"{describe_value_type(target_type)}, got "
@@ -160,7 +156,6 @@ def _validate_parameter_lookup_key(
 
 
 def _require_declared_type(
-    ctx: ExperimentAuthoringContext,
     *,
     actual: ValueType,
     declared: ValueType,
@@ -170,7 +165,7 @@ def _require_declared_type(
 ) -> None:
     if is_assignable(actual, declared):
         return
-    ctx.raise_problem(
+    raise_frontend_problem(
         code,
         f"{label} has catalog type {describe_value_type(actual)}, which is not "
         f"compatible with declared type {describe_value_type(declared)}",
