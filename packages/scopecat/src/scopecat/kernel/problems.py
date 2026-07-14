@@ -1,4 +1,12 @@
-"""Structured, machine-readable problems reported at Scopecat boundaries."""
+"""Structured, machine-readable findings reported at Scopecat boundaries.
+
+A ``Problem`` describes an expected domain finding; it is not Python control
+flow, a run outcome, a live event, or a log record. Codes are stable
+domain-owned strings, while messages are presentation text and must not be
+parsed. Machine-readable context belongs in details and structural locations,
+never in delimiter-packed path strings. Advisory problems inform callers;
+blocking problems prevent the owning phase from completing.
+"""
 
 from __future__ import annotations
 

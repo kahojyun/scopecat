@@ -1,4 +1,10 @@
-"""Application composition roots."""
+"""Application composition roots.
+
+Concrete adapters are selected only here. Application use cases depend on
+ports bundled in ``WorkspaceServices`` and never infer filesystem or memory
+implementations from a workspace path. Keeping this wiring at the outer edge
+lets both adapter families satisfy the same contracts.
+"""
 
 from __future__ import annotations
 

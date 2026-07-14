@@ -1,140 +1,61 @@
 # Scopecat Project Charter
 
-Status: direction
+Scopecat is a local-first Python platform for experiment measurement workflows.
+It is for research labs that already rely on notebooks, scripts, local
+configuration, and instrument-specific code, but want their work to become more
+structured, auditable, and reproducible over time.
 
-Scopecat is a local-first Python platform for experiment measurement
-workflows. It targets research labs that already rely on notebooks, scripts,
-local configuration files, and instrument-specific code, but want structured,
-auditable, and increasingly reproducible work without freezing legacy side
-effects into the core model.
-
-The core package should stay domain-neutral. Domain-shaped examples,
-instrument providers, compiler policy, and reusable analysis logic belong in
-example support packages, private adapters, or future extensions until a real
-need is proven by repeated local workflows.
-
-The project has no external compatibility contract today. When a cleaner model
-is accepted, code, tests, fixtures, and docs should move decisively toward it
-instead of accumulating compatibility layers.
-
-## Problems To Solve
+## Long-Term Goals
 
 Scopecat should make it practical to:
 
-- run local experiment workflows from Python without letting notebooks become
-  the only owner of workflow state;
-- compile structured experiment requests into auditable inputs before hardware
-  side effects;
-- keep accepted configuration separate from run overrides, point-local patches,
-  analysis outputs, live device state, legacy registries, and GUI state;
-- capture legacy notebook/script runs with low intrusion when structured
-  execution is not yet available;
-- make raw data, derived data, analysis evidence, and candidate changes visible
-  enough to audit;
-- keep lab-specific configuration, instrument details, private identifiers, and
-  external runner quirks out of the open-source core model.
+- run local experiments from Python without making a notebook the sole owner
+  of workflow state;
+- describe intent and validate accepted inputs before hardware side effects;
+- preserve enough operator intent, configuration, data, analysis, and effect
+  evidence to understand what happened after a run;
+- keep configuration changes explicit and reviewable instead of hiding them in
+  mutable sessions or device state;
+- support manual analysis first and let repeated work grow into reusable
+  workflows without changing the evidence model;
+- let laboratories integrate domain semantics and hardware targets without
+  putting their private vocabulary, wiring, or provider policy into core;
+- remain useful in a local Python environment while leaving room for proven
+  execution and storage needs to grow behind explicit boundaries.
+
+## Enduring Principles
+
+- Keep core domain-neutral and Python-first.
+- Prefer explicit typed values and immutable records over hidden mutable
+  session objects.
+- Keep notebooks useful but thin: they may compose work and add
+  interpretation, while durable workflow state lives elsewhere.
+- Validate configuration and provider contracts before effects; represent
+  uncertain effects honestly and require reconciliation before unsafe retry.
+- Keep raw data, derived data, analysis evidence, and candidate configuration
+  changes independently inspectable.
+- Require explicit activation for accepted configuration changes.
+- Persist operator intent and execution evidence, not compiler or runtime
+  graphs. A user-visible plan is an inspectable projection, not a replay
+  program.
+- Prefer logical identities, typed metadata, provenance, and structured
+  problems over local paths or delimiter-packed names as workflow identity.
+- Add abstractions only when repeated workflows demonstrate that they remove
+  real complexity.
+- When a cleaner model wins, update code, tests, fixtures, and documentation
+  together instead of preserving unused internal compatibility layers.
 
 ## Non-Goals
 
-- Scopecat does not initially replace every legacy driver, notebook, runner,
-  plotting helper, or analysis script.
-- Scopecat does not preserve legacy hardware side effects, registry mutation,
-  Data Vault writes, GUI globals, background plotters, or notebook global state
-  as compatible behavior.
-- Scopecat does not force legacy pulse, sequence, or backend-program generation
-  code into a new IR before the need is proven.
-- Scopecat core does not encode one laboratory's qubit, pulse, device,
-  registry, file naming, or runner vocabulary.
-- Scopecat does not require a central server, Kubernetes, or a database-backed
-  deployment for first use.
-- Scopecat core is not a full electronic lab notebook, LIMS, data warehouse,
-  scheduler, plotting application, or general automation platform.
-
-## Design Principles
-
-- Keep the core generic and domain-neutral.
-- Optimize for local-first, Python-first workflows before distributed
-  operations.
-- Prefer explicit typed records over hidden mutable session objects.
-- Keep notebooks useful but thin: they may compose work and add interpretation.
-- Make configuration declarative, immutable at run time, and validated before
-  side effects.
-- Treat structured execution and legacy capture as different modes: one aims at
-  reproducibility, the other at auditable evidence.
-- Keep data and analysis independent enough that analysis can be manual first
-  and promoted later.
-- Require explicit activation for accepted configuration changes.
-- Prefer logical artifact names, typed metadata, provenance, and structured
-  problems over local paths as workflow identity.
-- Persist operator intent and execution evidence, not compiler IR or runtime
-  graphs. User-visible plan summaries are durable projections, not replayable
-  executable specifications.
-- Add abstractions only when they remove real complexity demonstrated by real
-  workflows.
-
-## Authoring and Persistence Boundaries
-
-The user-facing authoring surface is the Python DSL: experiment templates,
-invocations, scans, modules, and first-class typed values. Input, point, compute,
-and parameter declarations produce opaque typed handles that are passed directly
-through composition. Reusable config-dependent behavior belongs in modules, not
-in a separate pre-experiment transformation phase. The complete value type
-travels with each edge, allowing module wiring and scan values to be checked
-without asking users to construct compiler-facing dataclasses or identify point
-columns by strings.
-
-Modules own reusable typed dataflow, resource requirements, exported values,
-and available measurement products. Named module invocations must connect
-their complete input interface and own the hygienic identity of their compute
-nodes, logical resource ports, exported values, and products. Templates own
-workflow-level choices: exposed inputs and defaults, scans, and which products
-become durable records. Fixed records are not allowed inside reusable named
-instances. This keeps component composition separate from run shape and
-persistence policy.
-
-Value shape, availability stage, and update rate are orthogonal facts. A value
-may exist while planning or only during execution, and may be stable for a run
-or vary per point. Source-graph verification applies those facts consistently
-to routes, state, compute edges, and record schemas before configuration is
-loaded. Resource, capability, and field identities also remain structured
-through linking instead of being reconstructed from delimiter-packed strings.
-Linking then produces and defensively verifies a closed typed program.
-
-Compilation turns that DSL into a transient `LinkedProgram`, then planning and
-execution derive transient compiler and runtime graphs. Those objects are
-implementation details and may evolve with the compiler. They are not storage
-contracts, interchange formats, or replay inputs.
-
-A structured run has four durable categories:
-
-- the normalized `RunRequest`, which captures operator intent;
-- the accepted configuration snapshot, which fixes the configuration used for
-  the run;
-- the `RunPlanRecord`, which projects the accepted plan into a user-visible,
-  inspectable record without persisting compute nodes, payload topology, or
-  runtime graph details; and
-- execution evidence, including measurements, outcomes, journal transitions,
-  structured problems, and attached artifacts.
-
-This boundary keeps auditability independent of compiler representation.
-Reproducing a workflow means issuing authoring intent against accepted inputs
-and compiling it again; it does not mean deserializing an old compiler or
-runtime graph.
-
-These categories are independent evidence, not one aggregate object. Readers
-request the configuration, operator intent, accepted plan, or execution evidence
-they actually need, so damage or absence in one category does not hide another.
-Completed-run handles expose those first three records independently as
-`config`, optional `request`, and `plan`; they do not reconstruct authoring
-preview state from persisted evidence.
-
-Instrument-provider descriptions are pure, config-specific ABI declarations.
-Scopecat validates them and lowers the execution program before creating a
-durable run. Driver provisioning may acquire hardware and therefore happens
-only after run acceptance, inside the resource lease.
-
-Inspection terminals are read-only. Template and invocation checks, prepared
-validation, previews, explanations, and system summaries may resolve a
-candidate config snapshot, but they do not materialize candidate records or
-mutate the source run. Candidate evidence is written only by an execution or an
-explicit registration/activation workflow.
+- Replacing every legacy driver, notebook, runner, plotting helper, or analysis
+  script.
+- Preserving legacy side effects, global state, registry mutation, or external
+  storage behavior as compatibility contracts.
+- Forcing every domain program, pulse sequence, or backend into one universal
+  core intermediate representation.
+- Encoding a laboratory's qubits, devices, file naming, registries, or runner
+  vocabulary in the core package.
+- Requiring a central server, cluster scheduler, or database-backed deployment
+  for first use.
+- Becoming a full electronic lab notebook, LIMS, data warehouse, plotting
+  application, or general automation platform.

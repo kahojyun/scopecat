@@ -7,5 +7,4 @@ project.
 - `quantum/`: notebook-first quantum-flavored examples plus the local
   `quantum_lab_demo` support package.
 
-Example support packages are not product packages. Current product packages
-live under `packages/`.
+Example support packages are copyable teaching code, not product packages.

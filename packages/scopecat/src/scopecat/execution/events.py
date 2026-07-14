@@ -1,4 +1,11 @@
-"""Best-effort observation of transient and durable execution transitions."""
+"""Best-effort observation of transient and durable execution transitions.
+
+Runtime events are lossy projections for notebooks and user interfaces, not an
+audit log or replay protocol. Events derived from committed journal entries
+retain their sequence; transient progress has none. Observer failure is logged
+and cannot change run semantics. The execution journal remains the authority
+for externally relevant effects and recovery.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,17 @@
-"""Checked, hygienic lowering from calibrated circuits to pulse authoring IR."""
+"""Checked, hygienic lowering from calibrated circuits to pulse authoring IR.
+
+Lowering maps circuit composition homomorphically and keeps circuit,
+operation, calibration, template-event, and acquisition provenance in a
+sidecar rather than coupling Pulse IR back to Circuit IR. Template-relative
+event identities are structurally prefixed for each occurrence, while a
+measurement template's local acquisition slot is replaced by the exact slot
+declared by the circuit.
+
+This proof deliberately stops before scheduling. Disjoint circuit qubits do
+not prove that selected calibrations avoid a shared logical signal, so time
+normalization, acquisition closure, and overlap checks remain the independent
+scheduler's responsibility.
+"""
 
 from __future__ import annotations
 

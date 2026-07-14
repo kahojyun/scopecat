@@ -1,218 +1,35 @@
 # Quantum Lab Demo Support Package
 
 `quantum-lab-demo` is the installable support package behind
-`examples/quantum`. It exists to show how a real lab can keep experiment
-builders, virtual providers, reusable analysis steps, and fixture
-models next to the notebooks that exercise them.
+`examples/quantum`. It shows how a lab can keep reusable experiment builders,
+virtual providers, analysis steps, target adapters, and fixtures next to thin
+notebooks.
 
-This package is not a stable domain extension. It is intentionally local demo
-code used to validate Scopecat's notebook-first UX.
+This is copyable local example code, not a stable product API. Runnable
+user-facing examples live one directory up.
 
-## What Lives Here
-
-- experiment-system Rabi, simultaneous Rabi, manual and parameter-table background
-  Rabi, readout-frequency, multiplexed readout, multiplexed readout calibration,
-  single-qubit RB, CZ RB, CZ chevron, spectator-aware CZ, parallel gate-set,
-  toy surface-code round, QND repeated measurement, and backend-batch modules
-  and template entrypoints;
-- a promoted `AnalysisStep` implementation for repeated readout-frequency
-  analysis;
-- domain calculation and plotting helpers behind that promoted analysis step;
-- one backend combining the virtual provider with a runnable fake AWG +
-  digitizer domain adapter;
-- a mixed scalar DC-source × programmable X-count reference that demonstrates
-  capability-based batching;
-- support-package unit tests.
-
-## Where Users Customize
+## Where To Make Changes
 
 | Goal | Start here |
 |---|---|
-| Change reusable template inputs, default points, selected products, or seed inputs | `src/quantum_lab_demo/experiments/templates.py` |
-| Add one-off point or parameter scans | `Workspace.prepare(...).input(...).scan(sc.cartesian(sc.axis(...), sc.param_axis(...))).preview()/run()` in notebooks |
-| Reuse resource, state, compute, record, or product declarations | focused `src/quantum_lab_demo/experiments/*_modules.py` files |
-| Generate point-local pulse programs | `src/quantum_lab_demo/experiments/compute.py`, with in-memory payload types in `src/quantum_lab_demo/experiments/payloads.py` |
-| Edit lab wiring with qubit/coupler/line vocabulary | `quantum_wiring()`, `default_quantum_wiring()`, and `quantum_wiring_config_profile()` in `src/quantum_lab_demo/virtual_lab/wiring.py` |
-| Inspect related readout cases | `../notebooks/08_readout_family.py` |
-| Inspect surface-code-shaped and backend-batch cases | `../notebooks/09_system_scale_cases.py` |
-| Compare reusable and scratch fake-hardware authoring | `../notebooks/10_fake_awg_template.py` and `../notebooks/11_fake_awg_scratch.py` |
-| Inspect simple-instrument × programmable-target fusion | `../notebooks/12_fake_awg_with_bias.py` and `src/quantum_lab_demo/reference_experiments/fake_x_count_bias.py` |
-| Inspect route-aware waveform compute | `../notebooks/07_gate_calibration_family.py` |
-| Change workspace, config profile, or virtual profile paths | `src/quantum_lab_demo/lab.py` and `src/quantum_lab_demo/fixtures.py` |
-| Replace virtual hardware with a real adapter | `src/quantum_lab_demo/virtual_lab/provider.py` |
-| Keep domain calculations out of notebooks | `src/quantum_lab_demo/experiments/readout_analysis_calculations.py` |
-| Turn notebook analysis into reusable code | `src/quantum_lab_demo/experiments/readout_analysis_steps.py` |
-| Validate demo behavior | `tests/unit` and `../tests` |
+| Change reusable inputs, scan defaults, or selected products | `src/quantum_lab_demo/experiments/templates.py` |
+| Reuse resource, state, compute, or product declarations | `src/quantum_lab_demo/experiments/*_modules.py` |
+| Generate point-local programs | `src/quantum_lab_demo/experiments/compute.py` and `payloads.py` |
+| Edit qubit, coupler, line, channel, or shared-LO wiring | `src/quantum_lab_demo/virtual_lab/wiring.py` |
+| Change workspace, fixture, or profile paths | `src/quantum_lab_demo/lab.py` and `fixtures.py` |
+| Replace virtual instruments with a lab provider | `src/quantum_lab_demo/virtual_lab/provider.py` |
+| Adapt circuit and pulse compilation to a target | `src/quantum_lab_demo/targets/fake_list_mode/` |
+| Inspect reusable target preparation | `src/quantum_lab_demo/reference_experiments/` |
+| Keep analysis calculations out of notebooks | `src/quantum_lab_demo/experiments/readout_analysis_calculations.py` |
+| Promote repeated analysis | `src/quantum_lab_demo/experiments/readout_analysis_steps.py` |
+| Validate the support package | `tests/unit` and `../tests` |
 
-Runnable user-facing examples live one directory up in `examples/quantum`.
-Those examples should stay thin: they open `Workspace` objects, keep reusable
-`ExperimentModule` declarations in focused domain files such as
-`rabi_modules.py`, `readout_modules.py`, and `two_qubit_modules.py`. Products
-live with the module that owns their logical resource instead of depending on
-implicit same-name resource merging. Keep reusable `ExperimentTemplate`
-entrypoints in `templates.py`; pass template constants directly to notebooks;
-prepare or run them with fluent terminal calls such as
-`Workspace.prepare(...).input(...).scan(...).preview()/run()`, inspect
-`Run.data()`, save `Analysis`, try candidate configs, and review candidate run
-comparisons.
-
-Keep reusable declarations in module/template definitions when several users or
-experiments share them. Scratch workspace experiments remain a supported way to
-define one-off or locally composed work; the fake-hardware pair deliberately
-keeps both forms executable and checks that they converge on one execution path.
-
-The Rabi and CZ chevron modules intentionally return generated gate-sequence
-and waveform payloads as ordinary in-memory Python objects. The CZ chevron
-case combines scan variables with the `qubits` and
-`two_qubit_gates` parameter tables inside compute functions, then
-renders route-aware numpy waveform bundles for the virtual drive and coupler
-stacks. The parallel gate-set and toy surface-code cases keep gate schedules
-as ordinary in-memory Python objects while records remain dense arrays over
-round, shot, entity, or backend-point axes. The runtime wraps those payloads
-for instrument commands and emits compact compute summaries, including
-dependency metadata for point columns, parameter tables, route ports, and
-upstream compute nodes, without hashing arrays or requiring users to write
-temporary waveform files.
-
-The lab uses a small quantum wiring builder instead of requiring users
-to hand-author the core routing graph. Users describe qubits, couplers, logical
-lines, physical channels, and shared LO groups with `quantum_wiring()`, then
-the helper validates those references and compiles that view into core
-`Topology` lines/channels/groups plus routing channel bindings. Core stays
-domain-neutral, while examples remain editable in terms a lab user would
-recognize.
-
-## Domain Package Boundary
-
-`scopecat-quantum` now owns the hardware-independent gate, measurement,
-circuit, pulse, schedule, calibration-selection, and target-compiler contracts.
-This demo depends on that package and implements a concrete fake list-mode AWG
-and segmented-digitizer target against those contracts, including an
-end-to-end calibrated gate-plus-measurement example.
-
-The demo continues to own laboratory wiring, calibration values, readout
-workflows, virtual fixtures, response models, candidate activation policy, and
-notebook examples. Those are laboratory concerns and do not move into the
-foundational package.
-
-## Fake List-Mode Target
-
-`quantum_lab_demo.targets.fake_list_mode` provides an immutable target
-configuration, a pure compiler, a fake list-mode AWG, and a segmented
-digitizer runtime. Compilation requires exact sample-grid alignment and checks
-logical-to-physical bindings, physical channel overlap, amplitude, list depth,
-shot count, frame count, and waveform/capture memory before producing an
-artifact.
-
-The AWG repeats the complete ordered list for every shot. Every digitizer frame
-retains its target entry, shot, acquisition slot, segment, and physical channel
-identity; list and segment indices are never treated as logical identities.
-Prepared circuit-target batches use the frame's entry-qualified acquisition
-address to recover exact circuit and measurement provenance, including when
-several list entries reuse the same circuit-local result slot. A
-`CompiledCircuitTarget` first binds the compiled artifact back to that exact
-batch and its SDK-owned `DomainResultMapping`. One physical acquisition may
-serve several demanded uses of the same logical product, including an
-unrecorded authored-transform input, without creating extra target work. The
-demo then returns a
-`CorrelatedFakeListRun` whose frames are canonically projected by logical point,
-product-use occurrence, and shot while retaining the raw target-order run.
-The first target supports `Constant` envelopes only. Gaussian and DRAG are
-reported as unsupported target capabilities until their portable sampling
-semantics are specified.
-
-The lab installs the point-local provider and fake target adapter together in
-one `ExecutionBackend`. Its `select(DomainBatchView)` method returns a
-`DomainExecutionOffer` naming one authored call and the target's list capacity.
-Core derives that call's source product uses, live authored transform closure,
-derived product uses, and execution-task coverage from the typed producer
-graph. It then partitions contiguous logical points around point-local state
-changes and user fusion limits and creates the exact `DomainBatchContext`. The
-adapter's `prepare(context)` method calls `context.new_preparation()` and maps
-target entries with only the context's `DomainPointRef` and
-`DomainProductUseRef` values. The scalar bias × X-count example therefore runs
-one physical AWG list per voltage block under automatic fusion, or one list per
-logical point when fusion is disabled, without changing the experiment or
-dataset shape. Correlated frames remain raw evidence.
-
-Each selected domain batch still uses the synchronous v1 runtime contract: its
-first fetch must be terminal. Pending or submit-uncertain outcomes are
-terminalized as indeterminate Runs with durable target/artifact and
-reconciliation context; automatic polling and resume are not claimed by this
-slice.
-Callers explicitly bind every mapped result address with
-`integrated_iq_shots(address)` or `raw_trace_shots(address)`; the two policies
-may be freely mixed within one batch. `select_fake_measurement_realization`
-rejects missing, duplicate, and unknown bindings, restores canonical logical
-result order, and checks each product before effects. Its signature is
-`select_fake_measurement_realization(compiled_target, target, bindings)`:
-`target` must be the exact `FakeListTarget` selected by target identity and
-capability fingerprint, and its sample rate must equal the compiled artifact's
-sample rate. The proof also requires each prepared `Acquire` and artifact
-window to agree on entry/list position, scheduled program, acquisition event,
-logical signal, kind, target acquisition channel, sample-grid start, and sample
-count.
-
-Integrated-IQ bindings require observable `complex128` values in `ratio` with
-canonical `[shot]` shape. Raw-trace bindings require canonical
-`[shot, sample]` shape, with extents fixed by target repetitions and that
-result's checked acquisition window. `execute_realized_fake_measurements`
-executes the mixed target batch once, realizes each address under its selected
-policy, and returns ordered `DomainResultValue` declarations while retaining
-the raw frames. Core validates and closes those values after correlation.
-
-For host-visible execution, `fake_measurement_invocation_spec` declares the
-same selection with target/compiler/capability/artifact evidence and a stable
-adapter intent. `DomainPreparationBuilder.build` binds that declaration to the
-exact `DomainMeasurementPlan`, runtime, result realizer, and resource claims.
-`FakeListDomainRuntime` receives only core-minted `DomainSubmitRequest`,
-`DomainFetchRequest`, and `DomainReconcileRequest` values. It gives an
-idempotent submission key one job identity, registers that job before calling
-the device primitive, and makes fetch and reconcile read-only. Core owns and
-journals the durable submission transitions; the provider does not receive the
-Known, Uncertain, or Absent state types and cannot call orchestration helpers.
-Only a core-correlated `CorrelatedDomainFetch` reaches adapter validation.
-Fetched raw runs still pass through the existing correlation and realization
-proofs before values are accepted. A device exception without a returned run
-remains an explicit blocking unknown state rather than being reported as
-ordinary pending. After lab-owned payload validation, domain values enter core's
-producer-neutral fragment assembly through a result/carrier proof bound before
-submit. The fake X-count module authors the hardware-independent binary-IQ
-transform beside its products and domain call. Record-rooted demand closure
-mints an exact hidden consumer use for integrated-IQ shots even though the raw
-product is not recorded. The runtime keeps those shots in the domain-owned
-fragment, invokes the selected pure host `POINT` kernel once per logical point,
-and places `probability_0`/`probability_1` only in a transform-owned fragment.
-Each returned semantic output is fanned out to all of its demanded product-use
-references before final exact assembly feeds template-owned projection and
-receipt-bearing point-record commits. Aliases increase neither kernel calls nor
-physical record writes, and journal evidence retains no target result addresses
-or raw frames.
-The nearest-centroid reference remains host-only because numeric precision and
-rounding are not yet part of its semantic contract.
-
-The synchronous point-local laboratory path now stays on the public
-`scopecat.sdk.domain` contract from selection through preparation. Public
-mapping inventories expose target order, canonical logical order, exact point
-and product-use references, and fan-out lookups. Host transforms use
-core-minted `DomainMeasurementTransform` input/output refs plus
-`DomainHostTransformBinding`; adapters choose only the host implementation and
-must bind the exact context-owned transform inventory. Jobs use
-`DomainInvocationSpec`, `DomainTargetArtifactIdentity`, `DomainResultValue`,
-and `DomainResourceClaim`. Core alone lowers these declarations to native value
-fragments, transform plans, invocation proofs, and execution resources. Record
-projection remains an independent global core selection. Laboratory packages
-should not import compiler IR,
-`scopecat.sdk.domain.invocation`, or internal `Bound*`/`Closed*` types.
-
-The notebook-facing virtual provider still returns synthetic probability
-products directly. That path predates typed measurement transforms and remains
-legacy demo debt so the broader experiment catalog stays runnable during
-migration. The X-count Template, scratch, and mixed-bias examples use the
-domain path, author binary-IQ discrimination as a measurement transform, record
-only the derived probabilities, and produce standard durable Runs. `POINT_SET`,
-cross-point analysis, offload equivalence, dataset compaction, polling,
-cancellation, and a cross-process job store remain later work.
+Keep shared declarations in modules and templates; use
+`Workspace.experiment(...)` for one-off composition. Notebook code should stay
+on public Scopecat workflow objects and import focused definitions from this
+package. Laboratory adapters should use `scopecat.sdk` and
+`scopecat-quantum`, not compiler internals. The precise target, correlation,
+and runtime invariants are documented in the modules that implement them.
 
 ## Checks
 

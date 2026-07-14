@@ -4,7 +4,13 @@ The public builder and invocation objects are authoring handles.  ``ModuleIR``
 is the immutable definition they elaborate into: its interface declares the
 values and logical resources visible at the boundary, while its body retains
 child instances and local intents until the dedicated elaboration pass lowers
-the hierarchy.
+the hierarchy. Imports, definitions, uses, and exports remain distinct so
+instantiation can alpha-rename private identities without changing producer
+identity.
+
+Reusable modules own typed dataflow, resources, and available products.
+Templates own workflow policy such as exposed defaults, scans, and durable
+record selection; that policy must not leak into a reusable module instance.
 """
 
 from __future__ import annotations

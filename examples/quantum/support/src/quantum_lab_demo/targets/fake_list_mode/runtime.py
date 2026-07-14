@@ -1,4 +1,10 @@
-"""Deterministic runtime for the demo list-mode quantum target."""
+"""Deterministic runtime for the demo list-mode quantum target.
+
+The device simulation executes artifact order, but every returned frame echoes
+its target entry, shot, acquisition slot, segment, and physical channel. Those
+coordinates are evidence for later correlation; their list positions never
+replace logical point or product identity.
+"""
 
 from __future__ import annotations
 

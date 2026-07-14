@@ -1,4 +1,10 @@
-"""Immutable model for the demo list-mode quantum target."""
+"""Immutable model for the demo list-mode quantum target.
+
+Artifacts are content-addressed immutable values. Their canonical fingerprint
+covers the opaque target payload and all identities needed to prevent an
+artifact from being paired with another target, compiler, capability set, or
+prepared entry inventory.
+"""
 
 from __future__ import annotations
 

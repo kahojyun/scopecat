@@ -1,4 +1,11 @@
-"""Circuit composition and config-free structural verification."""
+"""Circuit composition and config-free structural verification.
+
+Circuit IR contains logical operands, typed gate calls, measurement
+declarations, and sequence or parallel composition. It contains no physical
+channels, waveforms, sample rates, products, or record policy. A measurement
+is an acquisition declaration with its own result slot, not a unitary gate.
+Physical meaning enters only through later calibration and target passes.
+"""
 
 from __future__ import annotations
 

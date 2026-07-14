@@ -4,6 +4,12 @@ This module closes the pure circuit-to-target boundary without introducing a
 runtime or a Scopecat domain-invocation contract.  It preserves the exact
 entry-qualified addresses that a target runtime must later return and relates
 each address to the existing circuit-to-pulse provenance proof.
+
+Entry identity qualifies event and acquisition addresses, so repeated use of
+the same circuit or template never depends on physical list positions or on
+manufacturing globally unique domain strings. A prepared batch retains its
+proofs while exposing only canonical scheduled programs to the target
+compiler.
 """
 
 from __future__ import annotations

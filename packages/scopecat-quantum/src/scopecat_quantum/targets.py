@@ -3,6 +3,12 @@
 The objects in this module describe the boundary between the reusable quantum
 package and a laboratory-owned target adapter.  They intentionally say
 nothing about physical instruments, transport, wiring, or artifact layout.
+
+A target compiler is pure and consumes only canonical scheduled programs.
+Concrete payloads remain opaque and laboratory-owned; stable target, compiler,
+capability, artifact, entry, and acquisition identities provide correlation
+without defining a universal hardware schema. Adapter fingerprints must cover
+opaque artifact content because core cannot interpret that content itself.
 """
 
 from __future__ import annotations

@@ -1,4 +1,12 @@
-"""Host-visible invocation adapter for the fake list-mode target."""
+"""Host-visible invocation adapter for the fake list-mode target.
+
+Submission assigns and stores one job before calling the synchronous device
+primitive, making a repeated idempotency key incapable of replaying physical
+work. Fetch and reconciliation are read-only. A device exception that yields
+no captured run remains unknown evidence rather than being reported as pending
+or definitive absence. Core, not this adapter, owns submission states,
+journaling, retry authority, and receipt correlation.
+"""
 
 from __future__ import annotations
 

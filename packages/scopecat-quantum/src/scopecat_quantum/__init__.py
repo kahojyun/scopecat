@@ -1,4 +1,17 @@
-"""Hardware-independent quantum domain building blocks for Scopecat."""
+"""Hardware-independent quantum domain building blocks for Scopecat.
+
+This package owns logical circuit, calibration, pulse, scheduling, and target
+compiler contracts. It deliberately does not own laboratory wiring,
+calibration values, concrete instrument artifacts, provider runtimes,
+experiments, or analysis. Those concerns belong to a laboratory adapter that
+depends on both ``scopecat`` and this package; core never imports quantum
+vocabulary.
+
+The transient lowering direction is circuit -> exact calibration selection ->
+pulse program -> canonical schedule -> prepared target batch. Each named pass
+establishes one immutable stage, and later stages rely on that proof while
+checking only newly bound facts.
+"""
 
 from scopecat_quantum import (
     acquisitions,

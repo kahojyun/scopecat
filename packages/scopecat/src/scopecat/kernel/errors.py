@@ -1,4 +1,12 @@
-"""Exception boundaries for expected Scopecat operation failures."""
+"""Exception boundaries for expected Scopecat operation failures.
+
+``ProblemFailure`` turns one or more structured findings, including at least
+one blocking problem, into Python control flow at an operation boundary.
+Programming errors and violated internal invariants are not normalized into
+expected problems. External-effect uncertainty and persistence failure retain
+their recovery context in specialized exceptions rather than pretending to be
+ordinary validation failures or safely retryable work.
+"""
 
 from __future__ import annotations
 

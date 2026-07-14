@@ -1,4 +1,10 @@
-"""Durable user-visible execution plan records."""
+"""Durable user-visible execution plan records.
+
+These records project accepted points, routes, state intent, outputs, and
+execution placement for inspection. They intentionally omit executable
+callables, compiler graph topology, opaque target payloads, and runtime state;
+completed runs do not reconstruct a transient preview from this projection.
+"""
 
 from __future__ import annotations
 

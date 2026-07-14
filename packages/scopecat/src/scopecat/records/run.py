@@ -1,4 +1,9 @@
-"""Run lifecycle models."""
+"""Run lifecycle models.
+
+Lifecycle, terminal result, and certainty are independent facts. In
+particular, cancellation or failure does not imply that every external effect
+is known; an indeterminate run requires reconciliation before an unsafe retry.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,11 @@
-"""Durable records for execution effects, readbacks, and payload evidence."""
+"""Durable records for externally relevant effects and recovery evidence.
+
+The journal records host-controlled effect transitions and the identities and
+hashes needed to reconcile them. Pure computation and best-effort progress do
+not become recovery facts merely because they can be observed at runtime.
+Provider payload contents and private configuration are evidence artifacts,
+not fields to copy into journal transitions.
+"""
 
 from __future__ import annotations
 

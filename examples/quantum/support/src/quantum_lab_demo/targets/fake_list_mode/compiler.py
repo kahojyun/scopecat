@@ -1,4 +1,14 @@
-"""Pure compiler for the demo list-mode AWG and segmented digitizer target."""
+"""Pure compiler for the demo list-mode AWG and segmented digitizer target.
+
+This laboratory-owned compiler translates canonical scheduled pulse programs
+into physical list entries and acquisition windows. It validates sample-grid
+alignment, signal bindings, overlap, amplitude, memory, list, shot, and frame
+limits before producing an artifact; no instrument effect occurs here.
+
+Physical list and segment positions are artifact layout, never logical result
+identity. Entry-qualified event and acquisition addresses survive compilation
+so runtime evidence can be correlated to the exact prepared quantum work.
+"""
 
 from __future__ import annotations
 
