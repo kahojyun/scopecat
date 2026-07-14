@@ -40,7 +40,7 @@ _RENDER_SQG_RB_PULSE_PROGRAM = sc.compute(
 )
 
 SQG_RB_MODULE = (
-    sc.module(SQG_RB_TEMPLATE_ID, metadata={"template_id": SQG_RB_TEMPLATE_ID})
+    sc.module(SQG_RB_TEMPLATE_ID)
     .inputs(_SQG_QUBIT, _SQG_SEED)
     .resource(
         "drive",
@@ -107,7 +107,7 @@ _RENDER_CZ_RB_COUPLER_PULSE = sc.compute(
 )
 
 CZ_RB_MODULE = (
-    sc.module(CZ_RB_TEMPLATE_ID, metadata={"template_id": CZ_RB_TEMPLATE_ID})
+    sc.module(CZ_RB_TEMPLATE_ID)
     .inputs(
         _CZ_CONTROL_QUBIT,
         _CZ_PARTNER_QUBIT,

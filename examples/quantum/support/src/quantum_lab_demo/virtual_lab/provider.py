@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import JsonValue
 from scopecat.sdk.instruments import (
     ActionReceipt,
     ApplyReceipt,
@@ -260,7 +261,7 @@ class _VirtualLabProvider:
         self._provider_id = provider_id
         self._label = label
         self._description = description
-        self._metadata = {
+        self._metadata: dict[str, JsonValue] = {
             "mode": "virtual_lab",
             "category": category,
             "virtual_lab_profile": self.profile.id,

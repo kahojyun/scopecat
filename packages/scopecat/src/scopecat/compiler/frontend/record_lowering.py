@@ -43,6 +43,7 @@ from scopecat.compiler.typed.products import (
 )
 from scopecat.compiler.typed.program import product_axis as compiler_product_axis
 from scopecat.compiler.typed.records import RecordUse
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -544,11 +545,11 @@ def _entity_axis_metadata(value: Sequence[EntityRef]) -> dict[str, Any]:
 
 def _durable_metadata(
     metadata: Mapping[str, MetadataValue],
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     normalized = normalize_json_value(metadata)
     if not isinstance(normalized, dict):
         raise AssertionError("record metadata normalization must produce an object")
-    return cast("dict[str, object]", normalized)
+    return cast("dict[str, JsonValue]", normalized)
 
 
 __all__ = [

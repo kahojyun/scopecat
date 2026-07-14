@@ -105,7 +105,7 @@ def test_recording_commits_canonical_points_with_strict_journal_evidence() -> No
     assert len(committed.receipts) == len(projected.records) == 2
     assert [chunk.point_index for chunk in committer.chunks] == [0, 1]
     assert [chunk.logical_point_id for chunk in committer.chunks] == [
-        record.metadata["logical_point_id"] for record in projected.records
+        record.logical_point_id for record in projected.records
     ]
     assert [
         (entry.stage, entry.effect, entry.state, entry.attempt, entry.point_index)
@@ -139,7 +139,7 @@ def test_chunk_operation_identity_is_stable_but_content_detects_conflict() -> No
     schema = projected.schema
     assert schema is not None
     record = projected.records[0]
-    logical_point_id = cast("str", record.metadata["logical_point_id"])
+    logical_point_id = cast("str", record.logical_point_id)
     chunk = MeasurementRecordChunk(
         run_id=projected.run_id,
         dataset_id=schema.dataset_id,

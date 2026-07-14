@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import cast
 
+from scopecat.kernel.json_types import JsonValue
 from scopecat.records.config import ConfigProfileSnapshot
 
 
@@ -15,7 +17,7 @@ class SystemEntitySummary:
     lines: tuple[str, ...]
     channels: tuple[str, ...]
     resources: tuple[str, ...]
-    metadata: dict[str, Any]
+    metadata: dict[str, JsonValue]
 
 
 @dataclass(frozen=True)
@@ -26,7 +28,7 @@ class SystemLineSummary:
     endpoints: tuple[str, ...]
     channels: tuple[str, ...]
     groups: tuple[str, ...]
-    metadata: dict[str, Any]
+    metadata: dict[str, JsonValue]
 
 
 @dataclass(frozen=True)
@@ -41,7 +43,7 @@ class SystemChannelSummary:
     max_route_ports_per_point: int | None
     groups: tuple[str, ...]
     resources: tuple[str, ...]
-    metadata: dict[str, Any]
+    metadata: dict[str, JsonValue]
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,7 @@ class SystemGroupSummary:
     entities: tuple[str, ...]
     capabilities: tuple[str, ...]
     binding_count: int
-    metadata: dict[str, Any]
+    metadata: dict[str, JsonValue]
 
 
 @dataclass(frozen=True)
@@ -66,7 +68,7 @@ class SystemResourceSummary:
     served_entities: tuple[str, ...]
     channels: tuple[str, ...]
     binding_count: int
-    metadata: dict[str, Any]
+    metadata: dict[str, JsonValue]
 
 
 @dataclass(frozen=True)
@@ -196,7 +198,7 @@ def build_system_summary(config: ConfigProfileSnapshot) -> SystemSummary:
                 lines=tuple(entity_lines.get(entity.id, ())),
                 channels=entity_channels.get(entity.id, ()),
                 resources=tuple(sorted(entity_resources.get(entity.id, ()))),
-                metadata=dict(entity.metadata),
+                metadata=_summary_metadata(entity.metadata),
             )
             for entity in topology.entities
         ),
@@ -216,7 +218,7 @@ def build_system_summary(config: ConfigProfileSnapshot) -> SystemSummary:
                         }
                     )
                 ),
-                metadata=dict(line.metadata),
+                metadata=_summary_metadata(line.metadata),
             )
             for line in topology.lines
         ),
@@ -232,7 +234,7 @@ def build_system_summary(config: ConfigProfileSnapshot) -> SystemSummary:
                 max_route_ports_per_point=channel.max_route_ports_per_point,
                 groups=tuple(channel.group_ids),
                 resources=tuple(sorted(channel_resources.get(channel.id, ()))),
-                metadata=dict(channel.metadata),
+                metadata=_summary_metadata(channel.metadata),
             )
             for channel in topology.channels
         ),
@@ -247,7 +249,7 @@ def build_system_summary(config: ConfigProfileSnapshot) -> SystemSummary:
                 entities=tuple(sorted(group_entities.get(group.id, ()))),
                 capabilities=tuple(sorted(group_capabilities.get(group.id, ()))),
                 binding_count=group_binding_count.get(group.id, 0),
-                metadata=dict(group.metadata),
+                metadata=_summary_metadata(group.metadata),
             )
             for group in topology.groups
         ),
@@ -259,11 +261,15 @@ def build_system_summary(config: ConfigProfileSnapshot) -> SystemSummary:
                 served_entities=tuple(resource.served_entities),
                 channels=tuple(resource.channels),
                 binding_count=binding_count_by_resource.get(resource.id, 0),
-                metadata=dict(resource.metadata),
+                metadata=_summary_metadata(resource.metadata),
             )
             for resource in routing.resources
         ),
     )
+
+
+def _summary_metadata(value: Mapping[str, object]) -> dict[str, JsonValue]:
+    return cast("dict[str, JsonValue]", dict(value))
 
 
 __all__ = [

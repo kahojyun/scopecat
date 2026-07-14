@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal, NoReturn, Protocol, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 from scopecat.application.services import WorkspaceServices
 from scopecat.config.changes import (
@@ -445,10 +445,10 @@ def _prepare_analysis_output_artifacts(
         selected_filename = _analysis_artifact_filename(spec, selected_artifact_id)
         media_type = _analysis_artifact_media_type(spec, selected_filename)
         metadata = _json_mapping(cast("Mapping[object, object]", spec.metadata))
-        metadata.update({"artifact_title": spec.title})
         artifact = RunArtifactEntry(
             id=selected_artifact_id,
             kind=spec.kind,
+            title=spec.title,
             media_type=media_type,
             produced_by=(
                 f"analysis_step:{step_id}"
@@ -577,9 +577,9 @@ def _raise_analysis_problem(
     )
 
 
-def _json_safe(value: object) -> object:
+def _json_safe(value: object) -> JsonValue:
     if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
+        return cast("JsonValue", value.model_dump(mode="json"))
     if is_dataclass(value) and not isinstance(value, type):
         return _json_mapping(cast("Mapping[object, object]", asdict(value)))
     if isinstance(value, Mapping):
@@ -591,7 +591,7 @@ def _json_safe(value: object) -> object:
     return str(value)
 
 
-def _json_mapping(value: Mapping[object, object]) -> dict[str, object]:
+def _json_mapping(value: Mapping[object, object]) -> dict[str, JsonValue]:
     return {str(key): _json_safe(item) for key, item in value.items()}
 
 

@@ -41,6 +41,7 @@ from scopecat.kernel.value_validation import (
     validate_literal,
 )
 from scopecat.measurements.results import MeasurementDType
+from scopecat.records._metadata import JsonMetadata
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.instrument import (
@@ -87,7 +88,7 @@ class CapabilityField(BaseModel):
 
     id: str
     value_type: CapabilityFieldScalar
-    metadata: dict[str, Any] = Field(
+    metadata: JsonMetadata = Field(
         default_factory=dict,
         json_schema_extra={
             "propertyNames": {"not": {"const": "payload_kinds"}},
@@ -133,7 +134,7 @@ class ProductAxisDescription(BaseModel):
     kind: str
     size: int | None = None
     unit: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class ProductDescription(BaseModel):
@@ -144,7 +145,7 @@ class ProductDescription(BaseModel):
     dtype: MeasurementDType = "float64"
     unit: str | None = None
     axes: list[ProductAxisDescription] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class CapabilityDescription(BaseModel):
@@ -153,7 +154,7 @@ class CapabilityDescription(BaseModel):
     id: str
     fields: list[CapabilityField] = Field(default_factory=list)
     products: list[ProductDescription] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class InstrumentDescription(BaseModel):
@@ -166,7 +167,7 @@ class InstrumentDescription(BaseModel):
     implementation_id: str
     implementation_version: str
     capabilities: list[CapabilityDescription] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class InstrumentStateCommandField(BaseModel):
@@ -188,8 +189,8 @@ class InstrumentStateCommandField(BaseModel):
 class InstrumentStateCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.instrument_state_command.v3"] = (
-        "scopecat.instrument_state_command.v3"
+    schema_version: Literal["scopecat.instrument_state_command.v4"] = (
+        "scopecat.instrument_state_command.v4"
     )
     operation_id: str | None = None
     attempt: int = Field(default=1, ge=1)
@@ -228,7 +229,7 @@ class ApplyReceipt(BaseModel):
     status: Literal["applied", "not_applied", "unknown"] = "applied"
     problems: tuple[Problem, ...] = ()
     state: _InstrumentStateSnapshot | None = None
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_outcome_truth_table(self) -> ApplyReceipt:
@@ -263,8 +264,8 @@ class InstrumentActionCommand(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.instrument_action_command.v1"] = (
-        "scopecat.instrument_action_command.v1"
+    schema_version: Literal["scopecat.instrument_action_command.v2"] = (
+        "scopecat.instrument_action_command.v2"
     )
     operation_id: _NonEmptyId
     attempt: int = Field(default=1, ge=1)
@@ -303,7 +304,7 @@ class ActionReceipt(BaseModel):
     schema_version: Literal["scopecat.action_receipt.v1"] = "scopecat.action_receipt.v1"
     status: Literal["performed", "not_performed", "unknown"] = "performed"
     problems: tuple[Problem, ...] = ()
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_outcome_truth_table(self) -> ActionReceipt:
@@ -324,7 +325,7 @@ class CollectAxisRequest(BaseModel):
     kind: str
     size: int
     unit: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class CollectProductRequest(BaseModel):
@@ -337,7 +338,7 @@ class CollectProductRequest(BaseModel):
     dimensions: list[CollectAxisRequest] = Field(default_factory=list)
     entity_ids: list[_NonEmptyId] = Field(default_factory=list)
     channel_bindings: list[_CommandChannelBinding] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_target(self) -> CollectProductRequest:
@@ -357,7 +358,7 @@ class CollectCommand(BaseModel):
     point_index: int
     point_count: int
     requests: list[CollectProductRequest] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_unique_requests(self) -> CollectCommand:
@@ -379,7 +380,7 @@ class CollectReceipt(BaseModel):
     status: Literal["collected", "not_collected", "unknown"] = "collected"
     problems: tuple[Problem, ...] = ()
     readback: _InstrumentReadback | None = None
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_readback_outcome(self) -> CollectReceipt:
@@ -454,7 +455,7 @@ class InstrumentProviderDescription:
     label: str | None = None
     description: str | None = None
     options: tuple[ProviderOptionDescription, ...] = ()
-    metadata: dict[str, Any] = dc_field(default_factory=dict)
+    metadata: dict[str, JsonValue] = dc_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.provider_id:
@@ -492,7 +493,7 @@ def capability(
     *,
     fields: list[CapabilityField] | tuple[CapabilityField, ...] = (),
     products: list[ProductDescription] | tuple[ProductDescription, ...] = (),
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonMetadata | None = None,
 ) -> CapabilityDescription:
     return CapabilityDescription(
         id=id,
@@ -508,7 +509,7 @@ def product_axis(
     size: int | None = None,
     kind: str | None = None,
     unit: str | None = None,
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonMetadata | None = None,
 ) -> ProductAxisDescription:
     return ProductAxisDescription(
         id=id,
@@ -526,7 +527,7 @@ def product(
     dtype: MeasurementDType = "float64",
     unit: str | None = None,
     axes: list[ProductAxisDescription] | tuple[ProductAxisDescription, ...] = (),
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonMetadata | None = None,
 ) -> ProductDescription:
     return ProductDescription(
         key=key,
@@ -542,7 +543,7 @@ def quantity_field(
     id: str,  # noqa: A002
     *,
     unit: str,
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
@@ -554,7 +555,7 @@ def quantity_field(
 def bool_field(
     id: str,  # noqa: A002
     *,
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
@@ -568,7 +569,7 @@ def int_field(
     *,
     minimum: int | None = None,
     maximum: int | None = None,
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
@@ -580,7 +581,7 @@ def int_field(
 def float_field(
     id: str,  # noqa: A002
     *,
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
@@ -596,7 +597,7 @@ def string_field(
     max_length: int | None = None,
     pattern: str | None = None,
     choices: tuple[str, ...] | None = None,
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
@@ -616,7 +617,7 @@ def enum_field(
     id: str,  # noqa: A002
     *,
     choices: tuple[str, ...],
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return string_field(id, choices=choices, metadata=metadata)
 
@@ -625,7 +626,7 @@ def payload_field(
     id: str,  # noqa: A002
     *,
     schema_id: str,
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,

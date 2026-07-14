@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from scopecat.records._metadata import JsonMetadata
+
 ANALYSIS_RECORD_SCHEMA_VERSION = "scopecat.analysis.v3"
 
 AnalysisRecordOutputKind = Literal[
@@ -25,7 +27,7 @@ class AnalysisRecordInput(BaseModel):
     kind: Literal["artifact", "dataset", "uri"]
     role: str
     title: str | None = None
-    metadata: dict[str, Any] | None = None
+    metadata: JsonMetadata | None = None
 
 
 class AnalysisRecordOutput(BaseModel):
@@ -34,7 +36,7 @@ class AnalysisRecordOutput(BaseModel):
     kind: AnalysisRecordOutputKind
     title: str
     content: Any
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class AnalysisRecord(BaseModel):

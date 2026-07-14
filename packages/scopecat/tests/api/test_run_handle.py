@@ -50,12 +50,13 @@ def simple_frequency_scan_template() -> ExperimentTemplate:
             points=3,
         )
         .label("Session test frequency scan")
-        .metadata(category="session-test")
+        .category("session-test")
         .build()
     )
 
 
 def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
+    assert simple_frequency_scan_template().category == "session-test"
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",

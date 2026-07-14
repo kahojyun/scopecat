@@ -966,6 +966,11 @@ def test_run_analysis_persists_output_artifacts(
         == b"\x89PNG\r\n"
     )
     assert saved.output_artifacts[0].metadata["section"] == "fit"
+    assert [artifact.title for artifact in saved.output_artifacts] == [
+        "source html",
+        "fit markdown",
+        "plot bytes",
+    ]
     assert overview.analysis_records[0].output_ids == [
         "manual-html-artifact",
         "analysis-manual-report-review-fit-markdown",

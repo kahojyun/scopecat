@@ -384,9 +384,8 @@ def test_local_collection_reaches_neutral_transform_and_recording() -> None:
         assert set(record.observables) == {"scaled", "scaled-alias"}
         assert record.observables["scaled"] == Quantity(expected, "ratio")
         assert record.observables["scaled-alias"] == record.observables["scaled"]
-        assert record.metadata == {
-            "logical_point_id": points[record.point_index].logical_id.value
-        }
+        assert record.logical_point_id == points[record.point_index].logical_id.value
+        assert record.metadata == {}
 
     recording_entries = tuple(
         entry for entry in journal.entries if entry.stage == "record_measurement"

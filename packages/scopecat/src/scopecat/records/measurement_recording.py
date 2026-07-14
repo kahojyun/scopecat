@@ -76,7 +76,7 @@ class MeasurementRecordChunk(BaseModel):
         if self.record.point_index != self.point_index:
             msg = "measurement record chunk and record point indices must match"
             raise ValueError(msg)
-        if self.record.metadata.get("logical_point_id") != self.logical_point_id:
+        if self.record.logical_point_id != self.logical_point_id:
             msg = "measurement record chunk logical point does not match its record"
             raise ValueError(msg)
         return self

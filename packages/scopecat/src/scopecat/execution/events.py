@@ -185,27 +185,21 @@ def observe_payload(
 ) -> None:
     if observer is None:
         return
-    point_index = payload.metadata.get("point_index")
-    operation_id = payload.metadata.get("operation_id")
-    semantic_operation_id = payload.metadata.get("semantic_operation_id")
-    implementation_id = payload.metadata.get("implementation_id")
-    compute_status = payload.metadata.get("compute_status")
+    point_index = payload.point_index
+    operation_id = payload.operation_id
+    semantic_operation_id = payload.semantic_operation_id
+    implementation_id = payload.implementation_id
+    compute_status = payload.compute_status
     try:
         observer(
             RuntimePayloadObservation(
                 run_id=run_id,
                 experiment_id=experiment_id,
-                point_index=point_index if isinstance(point_index, int) else None,
-                semantic_operation_id=(
-                    semantic_operation_id
-                    if isinstance(semantic_operation_id, str)
-                    else None
-                ),
+                point_index=point_index,
+                semantic_operation_id=semantic_operation_id,
                 payload_id=payload.id,
                 schema_id=payload.schema_id,
-                compute_status=(
-                    compute_status if isinstance(compute_status, str) else None
-                ),
+                compute_status=compute_status,
                 payload=payload,
                 summary={
                     "payload_id": payload.id,

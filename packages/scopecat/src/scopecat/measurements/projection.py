@@ -366,6 +366,7 @@ def project_measurement_records(
         records = tuple(
             MeasurementRecord(
                 run_id=run_id,
+                logical_point_id=point.logical_id.value,
                 point_index=point.logical_ordinal,
                 coordinates=_point_coordinates(point.row, projection.coordinate_ids),
                 observables={
@@ -375,7 +376,6 @@ def project_measurement_records(
                     ).value
                     for record in record_plans
                 },
-                metadata={"logical_point_id": point.logical_id.value},
             )
             for point in projection.linked_points.point_domain.points
         )

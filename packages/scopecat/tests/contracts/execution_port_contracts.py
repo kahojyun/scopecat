@@ -65,10 +65,10 @@ def _measurement_chunk(
         point_index=point_index,
         record=MeasurementRecord(
             run_id=run_id,
+            logical_point_id=logical_point_id,
             point_index=point_index,
             coordinates={},
             observables={"signal": Quantity(value=value, unit="ratio")},
-            metadata={"logical_point_id": logical_point_id},
         ),
     )
 

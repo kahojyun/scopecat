@@ -9,7 +9,6 @@ from quantum_lab_demo.experiments.compute import (
     render_surface_code_coupler_waveforms,
     render_surface_code_drive_waveforms,
 )
-from quantum_lab_demo.experiments.ids import TOY_SURFACE_CODE_ROUND_TEMPLATE_ID
 
 _QUBIT_SERIES = sc.SeriesType(sc.ScalarType(sc.EntityType(entity_kind="logical_qubit")))
 _COUPLER_SERIES = sc.SeriesType(
@@ -56,7 +55,6 @@ _RENDER_SURFACE_CODE_COUPLER_WAVEFORMS = sc.compute(
 TOY_SURFACE_CODE_ROUND_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.surface_code.toy_round",
-        metadata={"template_id": TOY_SURFACE_CODE_ROUND_TEMPLATE_ID},
     )
     .inputs(
         _PATCH_QUBITS,

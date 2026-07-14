@@ -10,9 +10,7 @@ from quantum_lab_demo.experiments.compute import (
     build_repeated_measurement_program,
 )
 from quantum_lab_demo.experiments.ids import (
-    MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE_ID,
     MULTIPLEXED_READOUT_TEMPLATE_ID,
-    QND_REPEATED_MEASUREMENT_TEMPLATE_ID,
     READOUT_TEMPLATE_ID,
 )
 from quantum_lab_demo.experiments.parameter_refs import qubit_param
@@ -57,7 +55,7 @@ _BUILD_READOUT_PROGRAM = sc.compute(
 )
 
 READOUT_MODULE = (
-    sc.module(READOUT_TEMPLATE_ID, metadata={"template_id": READOUT_TEMPLATE_ID})
+    sc.module(READOUT_TEMPLATE_ID)
     .inputs(_READOUT_QUBIT)
     .resource(
         "readout",
@@ -113,7 +111,6 @@ _BUILD_MULTIPLEXED_READOUT_PROGRAM = sc.compute(
 MULTIPLEXED_READOUT_PULSE_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.readout.multiplexed_pulse",
-        metadata={"template_id": MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE_ID},
     )
     .inputs(_MULTIPLEXED_QUBITS, _MULTIPLEXED_POWER)
     .resource(
@@ -174,7 +171,6 @@ _BUILD_REPEATED_MEASUREMENT_PROGRAM = sc.compute(
 QND_REPEATED_MEASUREMENT_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.readout.qnd_repeated_measurement",
-        metadata={"template_id": QND_REPEATED_MEASUREMENT_TEMPLATE_ID},
     )
     .inputs(_QND_QUBIT, _QND_ROUNDS, _QND_SHOTS)
     .resource(
@@ -225,7 +221,6 @@ _MULTIPLEXED_CAPTURE_QUBITS = sc.input("qubits", _QUBIT_SERIES)
 MULTIPLEXED_READOUT_MODULE = (
     sc.module(
         MULTIPLEXED_READOUT_TEMPLATE_ID,
-        metadata={"template_id": MULTIPLEXED_READOUT_TEMPLATE_ID},
     )
     .inputs(_MULTIPLEXED_CAPTURE_QUBITS)
     .resource(

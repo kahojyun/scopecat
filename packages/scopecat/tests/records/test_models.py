@@ -26,6 +26,8 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.records.artifact import RunArtifactEntry
+from scopecat.records.config import TopologyLine
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterCatalog,
@@ -62,6 +64,24 @@ from scopecat.records.run_request import (
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.records import assert_model_round_trip
+
+
+@pytest.mark.parametrize("value", [(1, 2), object(), float("nan")])
+@pytest.mark.parametrize(
+    "model",
+    [
+        lambda value: TopologyLine(id="line", kind="signal", metadata={"value": value}),
+        lambda value: RunArtifactEntry(
+            id="artifact", kind="attachment", metadata={"value": value}
+        ),
+    ],
+)
+def test_durable_metadata_boundaries_reject_non_json_values(
+    model: Any,
+    value: object,
+) -> None:
+    with pytest.raises(ValidationError):
+        model(value)
 
 
 def _valid_run_plan_data() -> dict[str, Any]:
@@ -187,7 +207,7 @@ def test_config_profile_snapshot_round_trip() -> None:
     snapshot = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     restored = assert_model_round_trip(
         snapshot,
-        schema_version="scopecat.config_profile_snapshot.v1",
+        schema_version="scopecat.config_profile_snapshot.v2",
     )
 
     assert "source" not in restored.model_dump(mode="python")

@@ -5,7 +5,6 @@ from __future__ import annotations
 import scopecat as sc
 
 from quantum_lab_demo.experiments.compute import build_backend_batch_job
-from quantum_lab_demo.experiments.ids import BACKEND_BATCH_TEMPLATE_ID
 
 _LOGICAL_POINTS = sc.input(
     "logical_points",
@@ -25,7 +24,6 @@ _BUILD_BACKEND_BATCH_JOB = sc.compute(
 BACKEND_BATCH_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.backend.batch",
-        metadata={"template_id": BACKEND_BATCH_TEMPLATE_ID},
     )
     .inputs(_LOGICAL_POINTS, _SEED)
     .resource(

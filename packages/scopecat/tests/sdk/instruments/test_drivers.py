@@ -488,7 +488,7 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
     )
     command_wire = durable_command.model_dump(mode="json")
 
-    assert command_wire["schema_version"] == "scopecat.instrument_state_command.v3"
+    assert command_wire["schema_version"] == "scopecat.instrument_state_command.v4"
     assert command_wire["payloads"][payload.id]["schema_id"] == "pulse_program"
     assert "kind" not in command_wire["payloads"][payload.id]
     assert (

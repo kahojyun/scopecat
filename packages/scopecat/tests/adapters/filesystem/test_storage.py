@@ -365,7 +365,9 @@ def test_immutable_publish_durably_creates_each_nested_directory(
     ]
 
 
-def test_collection_chunk_hashes_and_replays_non_finite_readbacks(tmp_path) -> None:
+def test_collection_chunk_hashes_and_replays_non_finite_readback_values(
+    tmp_path,
+) -> None:
     chunk = CollectionChunk(
         run_id="run-non-finite",
         operation_id="point-0.collect.source",
@@ -383,10 +385,7 @@ def test_collection_chunk_hashes_and_replays_non_finite_readbacks(tmp_path) -> N
                     unit="ratio",
                 ),
             },
-            metadata={
-                "nested": {"values": [1, None, True]},
-                "non-finite": float("nan"),
-            },
+            metadata={"nested": {"values": [1, None, True]}},
         ),
     )
     committer = FilesystemCollectionRepository(tmp_path, run_id=chunk.run_id)
@@ -467,7 +466,7 @@ def test_local_collection_resolve_rejects_corrupted_bytes(tmp_path: Path) -> Non
         repository.resolve(receipt)
 
 
-@pytest.mark.parametrize("value", [(1, 2), {1, 2}, object()])
+@pytest.mark.parametrize("value", [(1, 2), {1, 2}, object(), float("nan")])
 def test_instrument_readback_rejects_non_json_metadata(value: object) -> None:
     with pytest.raises(ValidationError):
         InstrumentReadback(metadata={"value": value})  # type: ignore[dict-item]
@@ -476,13 +475,11 @@ def test_instrument_readback_rejects_non_json_metadata(value: object) -> None:
 def test_local_measurement_commit_is_canonical_and_nan_idempotent(tmp_path) -> None:
     measurement = MeasurementRecord(
         run_id="run-measurement-replay",
+        logical_point_id="point-0",
         point_index=0,
         coordinates={},
         observables={"signal": Quantity(value=float("nan"), unit="ratio")},
-        metadata={
-            "logical_point_id": "point-0",
-            "stable": ["json", 1],
-        },
+        metadata={"stable": ["json", 1]},
     )
     committer = FilesystemMeasurementRecordCommitter(
         tmp_path,
@@ -516,10 +513,8 @@ def test_local_measurement_commit_is_canonical_and_nan_idempotent(tmp_path) -> N
     assert stored.operation_id == chunk.operation_id
     assert stored.content_hash == chunk.content_hash
     assert len(committer.measurements()) == 1
-    assert committer.measurements()[0].metadata == {
-        "logical_point_id": "point-0",
-        "stable": ["json", 1],
-    }
+    assert committer.measurements()[0].logical_point_id == "point-0"
+    assert committer.measurements()[0].metadata == {"stable": ["json", 1]}
     different = measurement.model_copy(
         update={"observables": {"signal": Quantity(value=float("inf"), unit="ratio")}}
     )
@@ -532,10 +527,10 @@ def test_local_measurement_commit_allows_distinct_datasets_for_same_point(
 ) -> None:
     measurement = MeasurementRecord(
         run_id="run-multi-dataset",
+        logical_point_id="point-3",
         point_index=3,
         coordinates={},
         observables={"signal": Quantity(value=1.0, unit="ratio")},
-        metadata={"logical_point_id": "point-3"},
     )
     committer = FilesystemMeasurementRecordCommitter(
         tmp_path,
@@ -569,10 +564,10 @@ def test_local_measurement_commit_rejects_contract_change_in_canonical_slot(
 ) -> None:
     measurement = MeasurementRecord(
         run_id="run-contract-conflict",
+        logical_point_id="point-4",
         point_index=4,
         coordinates={},
         observables={"signal": Quantity(value=1.0, unit="ratio")},
-        metadata={"logical_point_id": "point-4"},
     )
     committer = FilesystemMeasurementRecordCommitter(
         tmp_path,
@@ -598,7 +593,7 @@ def test_local_measurement_commit_rejects_contract_change_in_canonical_slot(
     assert len(committer.measurements()) == 1
 
 
-@pytest.mark.parametrize("value", [(1, 2), {1, 2}, object()])
+@pytest.mark.parametrize("value", [(1, 2), {1, 2}, object(), float("nan")])
 def test_measurement_record_rejects_non_json_metadata(value: object) -> None:
     with pytest.raises(ValidationError):
         MeasurementRecord(

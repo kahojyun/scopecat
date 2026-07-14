@@ -20,7 +20,7 @@ def test_measurement_record_round_trip() -> None:
 
     restored = assert_model_round_trip(
         measurement,
-        schema_version="scopecat.measurement_record.v0",
+        schema_version="scopecat.measurement_record.v1",
     )
 
     assert restored.point_index == 0
@@ -46,7 +46,7 @@ def test_measurement_array_record_round_trip() -> None:
 
     restored = assert_model_round_trip(
         measurement,
-        schema_version="scopecat.measurement_record.v0",
+        schema_version="scopecat.measurement_record.v1",
     )
     i0 = restored.observables["i0"]
 
@@ -86,7 +86,7 @@ def test_typed_measurement_array_leaves_survive_record_round_trip() -> None:
 
     restored = assert_model_round_trip(
         measurement,
-        schema_version="scopecat.measurement_record.v0",
+        schema_version="scopecat.measurement_record.v1",
     )
     iq = restored.observables["iq"]
     probability = restored.observables["probability"]
@@ -115,7 +115,7 @@ def test_complex_measurement_record_round_trip_and_infers_dtype() -> None:
 
     restored = assert_model_round_trip(
         measurement,
-        schema_version="scopecat.measurement_record.v0",
+        schema_version="scopecat.measurement_record.v1",
     )
     raw_iq = restored.observables["raw_iq"]
     schema = infer_measurement_dataset_schema(

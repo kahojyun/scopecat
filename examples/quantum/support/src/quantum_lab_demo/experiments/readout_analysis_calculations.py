@@ -119,7 +119,9 @@ def _process_measurement(
     s21_db = round(20 * math.log10(amplitude) - readout_power_dbm, 12)
     return MeasurementRecord(
         run_id=measurement.run_id,
+        logical_point_id=measurement.logical_point_id,
         point_index=measurement.point_index,
+        instrument_ids=measurement.instrument_ids,
         coordinates=measurement.coordinates,
         observables={
             "raw_iq": ComplexQuantity(

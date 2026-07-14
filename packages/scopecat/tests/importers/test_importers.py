@@ -119,9 +119,8 @@ def test_accept_parameter_import_validates_and_freezes_all_shapes() -> None:
     assert series.items == (1, 2)
     assert isinstance(table, TableParameterValue)
     assert table.rows == ({"id": "ch-0", "gain": 1.0},)
-    assert table.metadata["import_row_locations"] == (
-        {"kind": "external", "uri": source_uri, "row": 2, "path": ()},
-    )
+    assert table.source_location == location
+    assert table.row_locations == (row_location,)
     nested = snapshot.metadata["nested"]
     assert isinstance(nested, Mapping)
     with pytest.raises(TypeError):

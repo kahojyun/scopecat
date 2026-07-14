@@ -247,9 +247,7 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
         state="approved",
         reviewer="operator",
     )
-    newer_config = load_config().model_copy(
-        update={"metadata": {"config_revision": "newer"}}
-    )
+    newer_config = load_config().model_copy(update={"id": "newer-base"})
     _entry, active_state, _activation = register_and_activate_config_profile(
         config=newer_config,
         unit_of_work=local_config_registry_unit_of_work(tmp_path),
@@ -510,7 +508,7 @@ def test_registry_rejects_snapshot_content_that_no_longer_matches_entry(
         entry_id="seed",
         registered_by="operator",
     )
-    tampered = config.model_copy(update={"metadata": {"tampered": True}})
+    tampered = config.model_copy(update={"id": "tampered"})
     (tmp_path / entry.config_ref).write_text(tampered.model_dump_json())
 
     with pytest.raises(DataIntegrityError) as error:
@@ -562,9 +560,7 @@ def test_concurrent_composite_activations_apply_one_generation(
         barrier.wait()
         try:
             result = register_and_activate_config_profile(
-                config=load_config().model_copy(
-                    update={"metadata": {"entry_id": entry_id}}
-                ),
+                config=load_config().model_copy(update={"id": entry_id}),
                 unit_of_work=local_config_registry_unit_of_work(tmp_path),
                 entry_id=entry_id,
                 registered_by="operator",
@@ -850,7 +846,7 @@ def test_rollback_retry_recovers_a_visible_post_replace_state(
         operator="operator",
     )
     _second, second_state, _second_record = register_and_activate_config_profile(
-        config=load_config().model_copy(update={"metadata": {"revision": "b"}}),
+        config=load_config().model_copy(update={"id": "rollback-b"}),
         unit_of_work=local_config_registry_unit_of_work(tmp_path),
         entry_id="rollback-b",
         registered_by="operator",
@@ -893,7 +889,7 @@ def test_list_rejects_tampered_entry_and_config_files(tmp_path: Path) -> None:
         entry_id="seed",
         registered_by="operator",
     )
-    tampered = config.model_copy(update={"metadata": {"tampered": True}})
+    tampered = config.model_copy(update={"id": "tampered"})
     tampered_entry = entry.model_copy(
         update={"content_hash": config_content_hash(tampered)}
     )
@@ -985,9 +981,7 @@ def test_candidate_registration_is_bound_to_its_durable_record(
     tmp_path: Path,
 ) -> None:
     run_id, _proposal, resolved = _resolved_candidate(tmp_path)
-    forged = resolved.config.model_copy(
-        update={"metadata": {"not_from_candidate_record": True}}
-    )
+    forged = resolved.config.model_copy(update={"id": "not-from-candidate-record"})
 
     with pytest.raises(Conflict) as error:
         register_candidate_config(
@@ -1014,7 +1008,11 @@ def test_candidate_record_must_be_derived_from_its_proposals(tmp_path: Path) -> 
     run_id, _proposal, resolved = _resolved_candidate(tmp_path)
     storage = local_run_repository(tmp_path)
     forged = resolved.config.model_copy(
-        update={"metadata": {"not_derived_from_proposals": True}}
+        update={
+            "environment": resolved.config.environment.model_copy(
+                update={"id": "not-derived-from-proposals"}
+            )
+        }
     )
     storage.write_model(
         run_id,
@@ -1124,7 +1122,7 @@ def test_candidate_load_revalidates_content_addressed_evidence(
                 record_id=resolved.candidate_config_record.id,
                 kind=resolved.candidate_config_record.kind,
             ),
-            resolved.config.model_copy(update={"metadata": {"tampered": True}}),
+            resolved.config.model_copy(update={"id": "tampered"}),
         )
     else:
         evidence = entry.source.proposal_evidence[0]
@@ -1268,7 +1266,7 @@ def test_activation_validates_the_current_active_snapshot_before_stale_check(
         candidate_record_id=resolved.candidate_config_record_id,
         base_config_content_hash=resolved.candidate.base_config_content_hash,
     )
-    tampered = load_config().model_copy(update={"metadata": {"tampered": True}})
+    tampered = load_config().model_copy(update={"id": "tampered"})
     (tmp_path / "config-registry/configs/seed.config-profile-snapshot.json").write_text(
         tampered.model_dump_json()
     )
@@ -1300,7 +1298,7 @@ def test_same_entry_reactivation_still_validates_active_integrity(
         registered_by="operator",
         operator="operator",
     )
-    tampered = load_config().model_copy(update={"metadata": {"tampered": True}})
+    tampered = load_config().model_copy(update={"id": "tampered"})
     (tmp_path / entry.config_ref).write_text(tampered.model_dump_json())
 
     with pytest.raises(DataIntegrityError) as error:
@@ -1323,13 +1321,13 @@ def test_rollback_requires_the_historical_target_content_hash(tmp_path: Path) ->
         operator="operator",
     )
     _second, second_state, _second_activation = register_and_activate_config_profile(
-        config=load_config().model_copy(update={"metadata": {"revision": "b"}}),
+        config=load_config().model_copy(update={"id": "seed-b"}),
         unit_of_work=local_config_registry_unit_of_work(tmp_path),
         entry_id="seed-b",
         registered_by="operator",
         operator="operator",
     )
-    drifted = load_config().model_copy(update={"metadata": {"revision": "drifted"}})
+    drifted = load_config().model_copy(update={"id": "drifted"})
     drifted_entry = first.model_copy(
         update={"content_hash": config_content_hash(drifted)}
     )

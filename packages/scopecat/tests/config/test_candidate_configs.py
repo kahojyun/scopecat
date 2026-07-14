@@ -192,9 +192,7 @@ def test_candidate_config_rejects_stale_base_hash_before_registration(
         )
         .candidate_config()
     )
-    stale_source = run.config.model_copy(
-        update={"metadata": {"config_revision": "changed-after-fit"}},
-    )
+    stale_source = run.config.model_copy(update={"id": "changed-after-fit"})
     local_run_repository(tmp_path).write_model(
         run.id,
         "config-profile.snapshot.json",
@@ -323,7 +321,7 @@ def test_candidate_config_record_is_immutable(tmp_path: Path) -> None:
             record_id=resolved.candidate_config_record.id,
             kind=resolved.candidate_config_record.kind,
         ),
-        resolved.config.model_copy(update={"metadata": {"tampered": True}}),
+        resolved.config.model_copy(update={"id": "tampered"}),
     )
 
     with pytest.raises(Conflict) as error:

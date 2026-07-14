@@ -25,10 +25,10 @@
   ],
   "point_count": 3,
   "expected_dataset_schema": {
-    "schema_version": "scopecat.measurement_dataset_schema.v0",
+    "schema_version": "scopecat.measurement_dataset_schema.v1",
     "dataset_id": "raw-measurements",
     "dataset_role": "raw",
-    "record_schema": "scopecat.measurement_record.v0",
+    "record_schema": "scopecat.measurement_record.v1",
     "dimensions": [
       {
         "id": "point",
@@ -45,6 +45,8 @@
         "role": "coordinate",
         "dtype": "float64",
         "unit": "GHz",
+        "unit_policy": "uniform",
+        "allowed_units": [],
         "dims": [
           "point"
         ],
@@ -62,6 +64,8 @@
         "role": "observable",
         "dtype": "float64",
         "unit": "ratio",
+        "unit_policy": "uniform",
+        "allowed_units": [],
         "dims": [
           "point"
         ],

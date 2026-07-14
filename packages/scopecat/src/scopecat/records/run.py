@@ -121,7 +121,7 @@ class RunOutcome(BaseModel):
 class RunManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", revalidate_instances="always")
 
-    schema_version: Literal["scopecat.run_manifest.v7"] = "scopecat.run_manifest.v7"
+    schema_version: Literal["scopecat.run_manifest.v8"] = "scopecat.run_manifest.v8"
     run_id: str
     created_at: datetime = Field(default_factory=utc_now)
     lifecycle: RunLifecycle

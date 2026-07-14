@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+
+from scopecat.records._metadata import JsonMetadata
 
 
 class RunArtifactEntry(BaseModel):
@@ -20,9 +28,10 @@ class RunArtifactEntry(BaseModel):
 
     id: str
     kind: str
+    title: str | None = None
     media_type: str | None = None
     produced_by: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("id", "kind")
     @classmethod
@@ -41,7 +50,7 @@ class RunDatasetEntry(BaseModel):
     role: str | None = None
     data_schema: dict[str, Any] | None = Field(default=None, alias="schema")
     produced_by: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("id", "kind")
     @classmethod
@@ -81,7 +90,12 @@ class CommandPayload(BaseModel):
     evidence_ref: str | None = None
     content_hash: str | None = None
     media_type: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    operation_id: str | None = None
+    semantic_operation_id: str | None = None
+    implementation_id: str | None = None
+    point_index: int | None = Field(default=None, ge=0)
+    compute_status: Literal["evaluated", "reused"] | None = None
+    metadata: JsonMetadata = Field(default_factory=dict)
     payload: Any | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")

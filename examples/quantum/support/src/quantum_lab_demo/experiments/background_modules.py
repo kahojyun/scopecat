@@ -5,9 +5,6 @@ from __future__ import annotations
 import scopecat as sc
 
 from quantum_lab_demo.experiments.ids import (
-    FLUX_BACKGROUND_RABI_TEMPLATE_ID,
-    SPECTATOR_CZ_TEMPLATE_ID,
-    SYSTEM_BACKGROUND_RABI_TEMPLATE_ID,
     TWO_QUBIT_GATE_PARAMETER_TABLE,
 )
 
@@ -30,7 +27,6 @@ _FLUX_BIAS = sc.input("flux_bias", _QUANTITY)
 FLUX_BACKGROUND_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.background.flux",
-        metadata={"template_id": FLUX_BACKGROUND_RABI_TEMPLATE_ID},
     )
     .inputs(_FLUX_COUPLER, _FLUX_BIAS)
     .resource(
@@ -52,7 +48,6 @@ _SPECTATOR_FLUX_BIAS = sc.input("spectator_flux_bias", _QUANTITY)
 SPECTATOR_FLUX_BACKGROUND_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.background.spectator_flux",
-        metadata={"template_id": SPECTATOR_CZ_TEMPLATE_ID},
     )
     .inputs(_BACKGROUND_COUPLERS, _SPECTATOR_FLUX_BIAS)
     .resource(
@@ -72,7 +67,6 @@ SPECTATOR_FLUX_BACKGROUND_MODULE = (
 SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.background.system_coupler_parking",
-        metadata={"template_id": SYSTEM_BACKGROUND_RABI_TEMPLATE_ID},
     )
     .resource(
         "coupler_bias",

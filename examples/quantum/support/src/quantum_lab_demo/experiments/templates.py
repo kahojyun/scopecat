@@ -129,7 +129,7 @@ RABI_TEMPLATE = (
     .inputs(
         sc.InputDescription(id="qubit"),
     )
-    .metadata(category="rabi")
+    .category("rabi")
 )
 
 SIMULTANEOUS_RABI_TEMPLATE = (
@@ -172,7 +172,7 @@ SIMULTANEOUS_RABI_TEMPLATE = (
             default=sc.Quantity(value=5.1, unit="GHz"),
         ),
     )
-    .metadata(category="rabi")
+    .category("rabi")
 )
 
 FLUX_BACKGROUND_RABI_TEMPLATE = (
@@ -207,7 +207,7 @@ FLUX_BACKGROUND_RABI_TEMPLATE = (
             default=sc.Quantity(value=0.06, unit="arb"),
         ),
     )
-    .metadata(category="rabi")
+    .category("rabi")
 )
 
 SYSTEM_BACKGROUND_RABI_TEMPLATE = (
@@ -237,7 +237,7 @@ SYSTEM_BACKGROUND_RABI_TEMPLATE = (
     .inputs(
         sc.InputDescription(id="qubit"),
     )
-    .metadata(category="rabi")
+    .category("rabi")
 )
 
 READOUT_TEMPLATE = (
@@ -275,7 +275,7 @@ READOUT_TEMPLATE = (
     .inputs(
         sc.InputDescription(id="qubit"),
     )
-    .metadata(category="readout")
+    .category("readout")
 )
 
 MULTIPLEXED_READOUT_TEMPLATE = (
@@ -297,7 +297,7 @@ MULTIPLEXED_READOUT_TEMPLATE = (
             default=("q0", "q1"),
         ),
     )
-    .metadata(category="readout")
+    .category("readout")
 )
 
 MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
@@ -333,7 +333,7 @@ MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE = (
             default=sc.Quantity(value=-20.5, unit="dBm"),
         ),
     )
-    .metadata(category="readout")
+    .category("readout")
 )
 
 SQG_RB_TEMPLATE = (
@@ -356,7 +356,7 @@ SQG_RB_TEMPLATE = (
         sc.InputDescription(id="qubit"),
         sc.InputDescription(id="seed", default=0),
     )
-    .metadata(category="gate_based")
+    .category("gate_based")
 )
 
 CZ_RB_TEMPLATE = (
@@ -382,7 +382,7 @@ CZ_RB_TEMPLATE = (
         sc.InputDescription(id="seed", default=0),
         sc.InputDescription(id="interleaved_gate", default="CZ"),
     )
-    .metadata(category="gate_based")
+    .category("gate_based")
 )
 
 CZ_CHEVRON_TEMPLATE = (
@@ -411,7 +411,7 @@ CZ_CHEVRON_TEMPLATE = (
         sc.InputDescription(id="partner_qubit"),
         sc.InputDescription(id="coupler", default="coupler-q0-q1"),
     )
-    .metadata(category="gate_based")
+    .category("gate_based")
 )
 
 SPECTATOR_CZ_TEMPLATE = (
@@ -448,7 +448,7 @@ SPECTATOR_CZ_TEMPLATE = (
             default=sc.Quantity(value=0.025, unit="arb"),
         ),
     )
-    .metadata(category="gate_based")
+    .category("gate_based")
 )
 
 PARALLEL_GATE_SET_TEMPLATE = (
@@ -489,7 +489,7 @@ PARALLEL_GATE_SET_TEMPLATE = (
             ),
         ),
     )
-    .metadata(category="gate_based")
+    .category("gate_based")
 )
 
 TOY_SURFACE_CODE_ROUND_TEMPLATE = (
@@ -531,7 +531,7 @@ TOY_SURFACE_CODE_ROUND_TEMPLATE = (
             default=sc.Quantity(value=32.0, unit="ns"),
         ),
     )
-    .metadata(category="surface_code")
+    .category("surface_code")
 )
 
 QND_REPEATED_MEASUREMENT_TEMPLATE = (
@@ -555,7 +555,7 @@ QND_REPEATED_MEASUREMENT_TEMPLATE = (
             default=16,
         ),
     )
-    .metadata(category="readout")
+    .category("readout")
 )
 
 BACKEND_BATCH_TEMPLATE = (
@@ -581,7 +581,7 @@ BACKEND_BATCH_TEMPLATE = (
         ),
         sc.InputDescription(id="seed", default=7),
     )
-    .metadata(category="backend")
+    .category("backend")
 )
 
 __all__ = [

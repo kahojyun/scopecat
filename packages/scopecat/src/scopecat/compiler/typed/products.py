@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal
 
 from scopecat.compiler.semantic.model import DomainCallId, MeasurementTransformId
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import ProductId, ProductProducerId
 from scopecat.kernel.resource_identity import ResourceTarget
 from scopecat.measurements.results import MeasurementDType
@@ -21,7 +22,7 @@ class ProductAxisDef:
     kind: str
     size: int
     unit: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id or not self.kind or self.size <= 0:
@@ -39,7 +40,7 @@ class ProductDef:
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     axes: tuple[ProductAxisDef, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "metadata", dict(self.metadata))
@@ -54,7 +55,7 @@ class InstrumentProductProducer:
     provider_key: str
     resource_target: ResourceTarget | None = None
     capability: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.provider_key:

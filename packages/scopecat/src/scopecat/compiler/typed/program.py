@@ -62,6 +62,7 @@ from scopecat.compiler.typed.state import (
     PhysicalStateResourceTarget,
     StateSpec,
 )
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductProducerId,
@@ -138,7 +139,7 @@ def _empty_compute_inputs() -> dict[str, ComputeInput]:
     return {}
 
 
-def _empty_metadata() -> dict[str, Any]:
+def _empty_metadata() -> dict[str, JsonValue]:
     return {}
 
 
@@ -294,13 +295,13 @@ class TypedProgram:
     ] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()
-    metadata: Mapping[str, Any] = field(default_factory=_empty_metadata)
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
         if not self.id or not self.kind:
             msg = "typed program id and kind must be non-empty"
             raise ValueError(msg)
-        selected_metadata: dict[str, Any] = dict(self.metadata)
+        selected_metadata: dict[str, JsonValue] = dict(self.metadata)
         object.__setattr__(self, "metadata", selected_metadata)
 
 
@@ -443,7 +444,7 @@ def product_axis(
     size: int,
     kind: str | None = None,
     unit: str | None = None,
-    metadata: dict[str, Any] | None = None,
+    metadata: dict[str, JsonValue] | None = None,
 ) -> ProductAxisDef:
     return ProductAxisDef(
         id=id,
@@ -465,7 +466,7 @@ def product_output(
     unit: str | None = None,
     dtype: MeasurementDType = "float64",
     axes: Sequence[ProductAxisDef] = (),
-    metadata: dict[str, Any] | None = None,
+    metadata: dict[str, JsonValue] | None = None,
 ) -> ProductDef:
     selected_id = id if isinstance(id, ProductId) else product_id(id)
     return ProductDef(
@@ -484,7 +485,7 @@ def observable_product(
     unit: str | None = None,
     dtype: MeasurementDType = "float64",
     axes: Sequence[ProductAxisDef] = (),
-    metadata: dict[str, Any] | None = None,
+    metadata: dict[str, JsonValue] | None = None,
 ) -> ProductDef:
     return product_output(
         id,
@@ -504,7 +505,7 @@ def instrument_product_producer(
     physical_resource_id: PhysicalResourceId | str | None = None,
     capability: str | None = None,
     provider_key: str | None = None,
-    metadata: dict[str, Any] | None = None,
+    metadata: dict[str, JsonValue] | None = None,
 ) -> InstrumentProductProducer:
     """Declare an instrument edge separately from logical product schema."""
 
@@ -532,7 +533,7 @@ def record_product(
     product: ProductDef | ProductId,
     *,
     record_id: str | None = None,
-    metadata: dict[str, Any] | None = None,
+    metadata: dict[str, JsonValue] | None = None,
 ) -> tuple[ProductUse, RecordUse]:
     """Create one product-use occurrence and one durable record consumer."""
 
@@ -591,7 +592,7 @@ def typed_program(
     ] = (),
     product_uses: Sequence[ProductUse] = (),
     record_uses: Sequence[RecordUse] = (),
-    metadata: dict[str, Any] | None = None,
+    metadata: dict[str, JsonValue] | None = None,
 ) -> TypedProgram:
     """Build one low-level typed program with topologically ordered computes."""
 

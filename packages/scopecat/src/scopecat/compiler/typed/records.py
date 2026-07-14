@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Protocol, cast
+
+from pydantic import JsonValue as WireJsonValue
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.model import (
@@ -19,6 +21,8 @@ from scopecat.compiler.typed.products import (
     ProductAxisDef,
     ProductDef,
 )
+from scopecat.kernel.frozen import thaw_json_value
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
@@ -43,7 +47,7 @@ class RecordUse:
 
     id: str
     product_use_id: ProductUseId
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -58,7 +62,7 @@ class RecordAxisPlan:
     kind: str
     size: int
     unit: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "metadata", dict(self.metadata))
@@ -75,7 +79,7 @@ class RecordPlan:
     axes: tuple[RecordAxisPlan, ...] = ()
     dims: tuple[str, ...] = ()
     shape: tuple[int, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "axes", tuple(self.axes))
@@ -451,9 +455,7 @@ def expected_dataset_schema(
             unit=record.unit,
             dims=list(record.dims),
             shape=list(record.shape),
-            metadata={
-                **record.metadata,
-            },
+            metadata=_wire_metadata(record.metadata),
         )
         for record in observable_records
     ]
@@ -487,7 +489,7 @@ def _record_axes(records: Sequence[RecordPlan]) -> list[MeasurementDimension]:
                     kind=axis.kind,
                     size=axis.size,
                     unit=axis.unit,
-                    metadata=axis.metadata,
+                    metadata=_wire_metadata(axis.metadata),
                 )
             )
     return dimensions
@@ -534,7 +536,7 @@ def _coordinate_variable(
     if dtype is None:
         return None
     unit = _compatible_quantity_unit(values)
-    metadata: dict[str, Any] = {}
+    metadata: dict[str, WireJsonValue] = {}
     entity_kind = _entity_kind(values)
     if entity_kind is not None:
         metadata["entity_kind"] = entity_kind
@@ -547,6 +549,10 @@ def _coordinate_variable(
         shape=shape,
         metadata=metadata,
     )
+
+
+def _wire_metadata(metadata: dict[str, JsonValue]) -> dict[str, WireJsonValue]:
+    return cast("dict[str, WireJsonValue]", thaw_json_value(metadata))
 
 
 def _point_columns(points: Sequence[PointRecordLike]) -> list[str]:

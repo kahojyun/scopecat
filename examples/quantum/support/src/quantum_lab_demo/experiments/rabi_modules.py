@@ -12,7 +12,6 @@ from quantum_lab_demo.experiments.compute import (
 )
 from quantum_lab_demo.experiments.ids import (
     RABI_TEMPLATE_ID,
-    SIMULTANEOUS_RABI_TEMPLATE_ID,
 )
 from quantum_lab_demo.experiments.parameter_refs import qubit_param
 from quantum_lab_demo.experiments.points import DRIVE_LENGTH
@@ -44,7 +43,7 @@ _RENDER_RABI_WAVEFORMS = sc.compute(
 )
 
 RABI_MODULE = (
-    sc.module(RABI_TEMPLATE_ID, metadata={"template_id": RABI_TEMPLATE_ID})
+    sc.module(RABI_TEMPLATE_ID)
     .inputs(_RABI_QUBIT)
     .resource(
         "drive",
@@ -108,7 +107,6 @@ _RENDER_SIMULTANEOUS_RABI_WAVEFORMS = sc.compute(
 SIMULTANEOUS_RABI_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.rabi.simultaneous",
-        metadata={"template_id": SIMULTANEOUS_RABI_TEMPLATE_ID},
     )
     .inputs(
         _SIMULTANEOUS_QUBITS,

@@ -32,6 +32,7 @@ from scopecat.compiler.relations.model import (
     parameter_series,
     table,
 )
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
@@ -58,16 +59,7 @@ type RuntimeInput = (
     | tuple[RuntimeInput, ...]
     | Mapping[str, RuntimeInput]
 )
-type MetadataValue = (
-    str
-    | bool
-    | int
-    | float
-    | None
-    | list[MetadataValue]
-    | tuple[MetadataValue, ...]
-    | Mapping[str, MetadataValue]
-)
+type MetadataValue = JsonValue
 type ModuleInput = (
     ValueRef
     | ScalarInput

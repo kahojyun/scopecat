@@ -13,7 +13,7 @@ def test_config_profile_file_round_trip() -> None:
     profile = read_model(EXAMPLE_DIR / "config-profile.json", ConfigProfileFile)
     restored = assert_model_round_trip(
         profile,
-        schema_version="scopecat.config_profile.v1",
+        schema_version="scopecat.config_profile.v2",
     )
 
     assert restored.system_ref == "system-spec.json"

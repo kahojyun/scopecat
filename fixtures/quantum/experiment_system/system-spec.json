@@ -1,5 +1,5 @@
 {
-  "schema_version": "scopecat.system_spec.v1",
+  "schema_version": "scopecat.system_spec.v2",
   "id": "templates-system",
   "workspace_id": "templates",
   "primary_entity_id": "q0",
@@ -209,7 +209,6 @@
       }
     ]
   },
-  "metadata": {},
   "parameter_catalog": {
     "schema_version": "scopecat.parameter_catalog.v4",
     "id": "templates-parameter-definitions-catalog",

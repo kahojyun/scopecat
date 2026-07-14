@@ -86,6 +86,7 @@ class ExperimentTemplate:
     id: str
     experiment_id: str | None = None
     kind: str | None = None
+    category: str | None = None
     module: TemplateModule | None = None
     record_selections: tuple[TemplateRecordSelection, ...] = ()
     inputs: tuple[InputDescription, ...] = ()
@@ -194,6 +195,7 @@ class TemplateBuilder:
 
     id: str
     kind: str
+    _category: str | None = None
     _experiment_id: str | None = None
     _module: TemplateModule | None = None
     _record_selections: tuple[TemplateRecordSelection, ...] = ()
@@ -224,6 +226,7 @@ class TemplateBuilder:
             id=self.id,
             experiment_id=self._experiment_id,
             kind=self.kind,
+            category=self._category,
             module=self._module,
             record_selections=self._record_selections,
             inputs=self._inputs,
@@ -336,6 +339,9 @@ class TemplateBuilder:
 
     def description(self, description: str | None) -> TemplateBuilder:
         return replace_handle(self, _description=description)
+
+    def category(self, category: str | None) -> TemplateBuilder:
+        return replace_handle(self, _category=category)
 
     def metadata(self, **metadata: MetadataValue) -> TemplateBuilder:
         return replace_handle(

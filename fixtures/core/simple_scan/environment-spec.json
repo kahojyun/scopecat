@@ -1,5 +1,5 @@
 {
-  "schema_version": "scopecat.environment_spec.v0",
+  "schema_version": "scopecat.environment_spec.v1",
   "id": "example-workspace-environment",
   "workspace_id": "example-workspace",
   "connection_profile": {
@@ -10,6 +10,5 @@
         "kind": "offline"
       }
     ]
-  },
-  "metadata": {}
+  }
 }

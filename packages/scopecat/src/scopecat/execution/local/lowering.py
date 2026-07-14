@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Literal
+from typing import Literal, cast
+
+from pydantic import JsonValue
 
 from scopecat.compiler.linking.bound import (
     BoundAction,
@@ -37,6 +39,7 @@ from scopecat.execution.local.program import (
     StateTarget,
 )
 from scopecat.execution.ports.resources import ResourceClaim
+from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.problems import has_blocking_problems
 from scopecat.records.config import RoutingChannelBinding
 from scopecat.records.instrument import CommandChannelBinding
@@ -263,7 +266,10 @@ def _collect_stage(
                                     kind=axis.kind,
                                     size=axis.size,
                                     unit=axis.unit,
-                                    metadata=dict(axis.metadata),
+                                    metadata=cast(
+                                        "dict[str, JsonValue]",
+                                        thaw_json_value(axis.metadata),
+                                    ),
                                 )
                                 for axis in request.axes
                             ],
@@ -272,7 +278,10 @@ def _collect_stage(
                                 _command_channel_binding(binding)
                                 for binding in request.channel_bindings
                             ],
-                            metadata=dict(request.metadata),
+                            metadata=cast(
+                                "dict[str, JsonValue]",
+                                thaw_json_value(request.metadata),
+                            ),
                         )
                         for request in requests
                     ],

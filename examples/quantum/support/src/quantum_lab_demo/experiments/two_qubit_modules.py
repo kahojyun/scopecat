@@ -13,8 +13,6 @@ from quantum_lab_demo.experiments.compute import (
     render_parallel_gate_drive_waveforms,
 )
 from quantum_lab_demo.experiments.ids import (
-    CZ_CHEVRON_TEMPLATE_ID,
-    PARALLEL_GATE_SET_TEMPLATE_ID,
     QUBIT_PARAMETER_TABLE,
     TWO_QUBIT_GATE_PARAMETER_TABLE,
 )
@@ -93,7 +91,6 @@ _RENDER_CZ_COUPLER_WAVEFORMS = sc.compute(
 CZ_CHEVRON_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.two_qubit.cz_chevron",
-        metadata={"template_id": CZ_CHEVRON_TEMPLATE_ID},
     )
     .inputs(
         _CZ_CONTROL_QUBIT,
@@ -244,7 +241,6 @@ _RENDER_PARALLEL_GATE_COUPLER_WAVEFORMS = sc.compute(
 PARALLEL_GATE_SET_MODULE = (
     sc.module(
         "quantum_lab_demo.experiments.two_qubit.parallel_gate_set",
-        metadata={"template_id": PARALLEL_GATE_SET_TEMPLATE_ID},
     )
     .inputs(_PARALLEL_GATE_KEYS)
     .resource(

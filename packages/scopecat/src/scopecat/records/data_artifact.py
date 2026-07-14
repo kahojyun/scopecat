@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
+from scopecat.records._metadata import JsonMetadata
 from scopecat.records._schema_utils import (
     array_shape,
     declared_shape_for_dims,
@@ -43,7 +50,7 @@ class DataColumn(BaseModel):
     dtype: DataDType
     unit: str | None = None
     label: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("unit")
     @classmethod
@@ -57,7 +64,7 @@ class DataTableSchema(BaseModel):
     schema_version: str = DATA_TABLE_SCHEMA_VERSION
     columns: list[DataColumn]
     primary_key: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_references(self) -> DataTableSchema:
@@ -111,7 +118,7 @@ class DataArrayDimension(BaseModel):
     size: int = Field(ge=0)
     label: str | None = None
     unit: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("unit")
     @classmethod
@@ -132,7 +139,7 @@ class DataArrayVariable(BaseModel):
     uncertainty_of: str | None = None
     status_of: str | None = None
     mask_of: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("unit")
     @classmethod
@@ -157,7 +164,7 @@ class DataArraySchema(BaseModel):
     dimensions: list[DataArrayDimension]
     variables: list[DataArrayVariable]
     primary_variables: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_references(self) -> DataArraySchema:

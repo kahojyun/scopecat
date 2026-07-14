@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
+
+from pydantic import JsonValue
 
 from scopecat.api._services import workspace_services
 from scopecat.api.analysis import Analysis, AnalysisContext, AnalysisStep
@@ -164,7 +167,7 @@ class RunHandle:
         content: bytes | None = None,
         filename: str | None = None,
         media_type: str | None = None,
-        metadata: dict[str, object] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> RunArtifactEntry:
         return attach_run_artifact(
             services=workspace_services(self.session),

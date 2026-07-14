@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import mimetypes
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import NoReturn
+
+from pydantic import JsonValue
 
 from scopecat.application.services import WorkspaceServices
 from scopecat.kernel.errors import CheckFailed
@@ -31,7 +34,7 @@ def attach_run_artifact(
     content: bytes | None = None,
     filename: str | None = None,
     media_type: str | None = None,
-    metadata: dict[str, object] | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
 ) -> RunArtifactEntry:
     """Validate and ingest one user-owned attachment into a run."""
 

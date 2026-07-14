@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.state import StateValue
+from scopecat.records._metadata import JsonMetadata
 from scopecat.records.measurement import MeasurementValue
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
@@ -27,7 +28,7 @@ class CommandChannelBinding(BaseModel):
     line_id: _NonEmptyId | None = None
     capability: _NonEmptyId | None = None
     group_ids: list[_NonEmptyId] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 def validate_entity_target(
@@ -104,7 +105,7 @@ class InstrumentStateSnapshot(BaseModel):
     )
     instrument_id: str
     fields: list[InstrumentStateField] = Field(default_factory=list)
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_unique_targets(self) -> InstrumentStateSnapshot:
@@ -127,7 +128,7 @@ class InstrumentReadback(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     values: dict[str, MeasurementValue] = Field(default_factory=dict)
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 __all__ = [

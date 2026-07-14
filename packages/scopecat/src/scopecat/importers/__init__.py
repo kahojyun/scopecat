@@ -5,7 +5,14 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    ValidationError,
+    model_validator,
+)
 
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
 from scopecat.config.validation import coerce_stored_parameter_value
@@ -115,7 +122,7 @@ class ParameterImportResult(BaseModel):
     draft: ParameterDraft
     artifacts: list[RunArtifactEntry] = Field(default_factory=list)
     problems: tuple[Problem, ...] = ()
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     @property
     def has_blocking_problems(self) -> bool:
@@ -131,7 +138,7 @@ def parameter_import_result(
     artifacts: Sequence[RunArtifactEntry] = (),
     problems: Sequence[Problem] = (),
     draft_metadata: Mapping[str, Any] | None = None,
-    metadata: Mapping[str, Any] | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
 ) -> ParameterImportResult:
     """Build a raw draft without implying that its values are accepted."""
 
@@ -273,33 +280,27 @@ def import_problem(
 def _to_stored_parameter_value(
     draft: DraftParameterValue,
 ) -> StoredParameterValue:
-    metadata: dict[str, Any] = {
-        **draft.metadata,
-        "import_location": _location_metadata(draft.location),
-    }
+    metadata = dict(draft.metadata)
     if isinstance(draft, ScalarParameterDraftValue):
         return ScalarParameterValue(
             id=draft.id,
             value=draft.value,
+            source_location=draft.location,
             metadata=metadata,
         )
     if isinstance(draft, SeriesParameterDraftValue):
-        if draft.item_locations:
-            metadata["import_item_locations"] = [
-                _location_metadata(location) for location in draft.item_locations
-            ]
         return SeriesParameterValue(
             id=draft.id,
             items=draft.items,
+            source_location=draft.location,
+            item_locations=draft.item_locations,
             metadata=metadata,
         )
-    if draft.row_locations:
-        metadata["import_row_locations"] = [
-            _location_metadata(location) for location in draft.row_locations
-        ]
     return TableParameterValue(
         id=draft.id,
         rows=draft.rows,
+        source_location=draft.location,
+        row_locations=draft.row_locations,
         metadata=metadata,
     )
 
@@ -409,10 +410,6 @@ def _blocking_problems(problems: Sequence[Problem]) -> tuple[Problem, ...]:
     return tuple(
         problem for problem in problems if problem.impact is ProblemImpact.BLOCKING
     )
-
-
-def _location_metadata(location: ExternalLocation) -> dict[str, Any]:
-    return location.model_dump(mode="json", exclude_none=True)
 
 
 __all__ = [

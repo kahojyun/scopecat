@@ -195,7 +195,7 @@ def test_instrument_models_round_trip() -> None:
     )
     assert_model_round_trip(
         command,
-        schema_version="scopecat.instrument_state_command.v3",
+        schema_version="scopecat.instrument_state_command.v4",
     )
 
 

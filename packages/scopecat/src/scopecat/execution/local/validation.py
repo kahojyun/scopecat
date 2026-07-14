@@ -166,7 +166,7 @@ def _payload_stubs(stages: tuple[ExecutionStage, ...]) -> dict[str, CommandPaylo
             payloads[slot.id] = CommandPayload(
                 id=slot.id,
                 schema_id=slot.schema_id,
-                metadata={"operation_id": operation.operation_id},
+                operation_id=operation.operation_id,
                 payload=object(),
             )
     return payloads

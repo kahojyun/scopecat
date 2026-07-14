@@ -663,13 +663,11 @@ class ExecutionEngine:
                     if committed_payload is not None
                     else None,
                     content_hash=content_hash,
-                    metadata={
-                        "operation_id": operation.operation_id,
-                        "semantic_operation_id": operation.semantic_operation_id,
-                        "implementation_id": operation.implementation_id,
-                        "point_index": frame.point.point_index,
-                        "compute_status": "reused" if reused else "evaluated",
-                    },
+                    operation_id=operation.operation_id,
+                    semantic_operation_id=operation.semantic_operation_id,
+                    implementation_id=operation.implementation_id,
+                    point_index=frame.point.point_index,
+                    compute_status="reused" if reused else "evaluated",
                     payload=result,
                 )
                 frame.stats.compute_payload_count += 1
@@ -1456,15 +1454,11 @@ class ExecutionEngine:
     def _record_point_measurement(self, frame: _PointFrame) -> None:
         measurement = MeasurementRecord(
             run_id=self.run_id,
+            logical_point_id=frame.point.point_uid,
             point_index=frame.point.point_index,
+            instrument_ids=sorted(set(frame.instrument_ids)),
             coordinates=dict(frame.point.coordinates),
             observables=dict(frame.observables),
-            metadata={
-                "instruments": cast(
-                    "JsonValue",
-                    sorted(set(frame.instrument_ids)),
-                )
-            },
         )
         chunk = MeasurementRecordChunk(
             run_id=self.run_id,
@@ -1474,14 +1468,7 @@ class ExecutionEngine:
             ),
             logical_point_id=frame.point.point_uid,
             point_index=frame.point.point_index,
-            record=measurement.model_copy(
-                update={
-                    "metadata": {
-                        **measurement.metadata,
-                        "logical_point_id": frame.point.point_uid,
-                    }
-                }
-            ),
+            record=measurement,
         )
         measurement = chunk.record
         operation_id = chunk.operation_id

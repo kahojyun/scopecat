@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
+
+from pydantic import JsonValue
 
 from scopecat.kernel.problems import (
     LocationPathItem,
@@ -90,7 +92,7 @@ class SimpleCapability:
     id: str
     fields: tuple[SimpleStateField, ...] = ()
     products: tuple[SimpleProduct, ...] = ()
-    metadata: Mapping[str, Any] | None = None
+    metadata: Mapping[str, JsonValue] | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -111,7 +113,7 @@ def simple_capability(
     *,
     fields: Sequence[SimpleStateField] = (),
     products: Sequence[SimpleProduct] = (),
-    metadata: Mapping[str, Any] | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
 ) -> SimpleCapability:
     """Declare a callback-backed capability."""
 
@@ -139,7 +141,7 @@ class SimpleInstrumentDriver:
         implementation_id: str,
         implementation_version: str,
         capabilities: Sequence[SimpleCapability],
-        metadata: Mapping[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
         cleanup: SimpleLifecycleCallback | None = None,
         abort: SimpleLifecycleCallback | None = None,
     ) -> None:

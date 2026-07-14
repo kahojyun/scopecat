@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from scopecat.kernel.errors import DataIntegrityError, NotFound, StorageError
 from scopecat.kernel.problems import (
@@ -29,12 +29,11 @@ class ConfigProfileFile(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.config_profile.v1"] = "scopecat.config_profile.v1"
+    schema_version: Literal["scopecat.config_profile.v2"] = "scopecat.config_profile.v2"
     id: str
     system_ref: str
     environment_ref: str
     parameter_snapshot_ref: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def load_config_profile(path: str | Path) -> ConfigProfileSnapshot:
@@ -77,7 +76,6 @@ def load_config_profile(path: str | Path) -> ConfigProfileSnapshot:
             system=system,
             environment=environment,
             parameter_snapshot=parameter_snapshot,
-            metadata=profile.metadata,
         )
     except ValidationError as error:
         raise DataIntegrityError(

@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from scopecat.records._metadata import JsonMetadata
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterCatalog,
@@ -41,7 +42,6 @@ class Device(BaseModel):
     id: str
     kind: str = "device"
     channels: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class Link(BaseModel):
@@ -50,7 +50,6 @@ class Link(BaseModel):
     id: str
     endpoints: list[str] = Field(min_length=2)
     kind: str = "link"
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class TopologyLine(BaseModel):
@@ -60,7 +59,7 @@ class TopologyLine(BaseModel):
     kind: str
     signal: str | None = None
     endpoints: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class SharedResourceGroup(BaseModel):
@@ -70,7 +69,7 @@ class SharedResourceGroup(BaseModel):
     kind: str
     members: list[str] = Field(default_factory=list)
     max_resources_per_point: int | None = Field(default=1, ge=1)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class Channel(BaseModel):
@@ -85,7 +84,7 @@ class Channel(BaseModel):
     line_id: str | None = None
     group_ids: list[str] = Field(default_factory=list)
     max_route_ports_per_point: int | None = Field(default=1, ge=1)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class Topology(BaseModel):
@@ -142,7 +141,6 @@ class InstrumentSpec(BaseModel):
 
     id: str
     kind: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class InstrumentRegistry(BaseModel):
@@ -164,7 +162,7 @@ class RoutingResource(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     served_entities: list[str] = Field(default_factory=list)
     channels: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class RoutingChannelBinding(BaseModel):
@@ -175,7 +173,7 @@ class RoutingChannelBinding(BaseModel):
     line_id: str | None = None
     capability: str | None = None
     group_ids: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class RoutingEdge(BaseModel):
@@ -187,7 +185,6 @@ class RoutingEdge(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     channels: list[str] = Field(default_factory=list)
     bindings: list[RoutingChannelBinding] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RoutingGraph(BaseModel):
@@ -234,7 +231,7 @@ class SystemSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.system_spec.v1"] = "scopecat.system_spec.v1"
+    schema_version: Literal["scopecat.system_spec.v2"] = "scopecat.system_spec.v2"
     id: str
     workspace_id: str
     primary_entity_id: str
@@ -242,7 +239,6 @@ class SystemSpec(BaseModel):
     instrument_registry: InstrumentRegistry
     routing: RoutingGraph = Field(default_factory=RoutingGraph)
     parameter_catalog: ParameterCatalog
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class EnvironmentSpec(BaseModel):
@@ -250,13 +246,12 @@ class EnvironmentSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.environment_spec.v0"] = (
-        "scopecat.environment_spec.v0"
+    schema_version: Literal["scopecat.environment_spec.v1"] = (
+        "scopecat.environment_spec.v1"
     )
     id: str
     workspace_id: str
     connection_profile: ConnectionProfile = Field(default_factory=ConnectionProfile)
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConfigProfileSnapshot(BaseModel):
@@ -264,14 +259,13 @@ class ConfigProfileSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.config_profile_snapshot.v1"] = (
-        "scopecat.config_profile_snapshot.v1"
+    schema_version: Literal["scopecat.config_profile_snapshot.v2"] = (
+        "scopecat.config_profile_snapshot.v2"
     )
     id: str
     system: SystemSpec
     environment: EnvironmentSpec
     parameter_snapshot: ParameterSnapshot
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def workspace_id(self) -> str:
@@ -308,7 +302,6 @@ def snapshot_config_profile(
     system: SystemSpec,
     environment: EnvironmentSpec,
     parameter_snapshot: ParameterSnapshot,
-    metadata: dict[str, Any] | None = None,
 ) -> ConfigProfileSnapshot:
     """Freeze split config content as an immutable runtime snapshot."""
 
@@ -317,7 +310,6 @@ def snapshot_config_profile(
         system=system,
         environment=environment,
         parameter_snapshot=parameter_snapshot,
-        metadata=dict(metadata or {}),
     )
 
 

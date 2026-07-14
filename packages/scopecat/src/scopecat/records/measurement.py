@@ -24,6 +24,7 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.units import compatible_units
+from scopecat.records._metadata import JsonMetadata
 from scopecat.records._schema_utils import (
     ensure_unique_ids,
     missing_references,
@@ -33,8 +34,8 @@ from scopecat.records._schema_utils import (
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v0"
-MEASUREMENT_DATASET_SCHEMA_VERSION = "scopecat.measurement_dataset_schema.v0"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v1"
+MEASUREMENT_DATASET_SCHEMA_VERSION = "scopecat.measurement_dataset_schema.v1"
 MeasurementDatasetRole = Literal["raw", "derived"]
 
 MeasurementVariableRole = Literal[
@@ -57,7 +58,7 @@ class MeasurementDimension(BaseModel):
     label: str | None = None
     size: int | None = Field(default=None, ge=0)
     unit: str | None = None
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("unit")
     @classmethod
@@ -72,13 +73,15 @@ class MeasurementVariable(BaseModel):
     role: MeasurementVariableRole
     dtype: MeasurementDType
     unit: str | None = None
+    unit_policy: Literal["uniform", "per_record"] = "uniform"
+    allowed_units: list[str] = Field(default_factory=list)
     dims: list[str] = Field(default_factory=list)
     shape: list[int] = Field(default_factory=list)
     label: str | None = None
     uncertainty_of: str | None = None
     status_of: str | None = None
     mask_of: str | None = None
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("unit")
     @classmethod
@@ -95,6 +98,20 @@ class MeasurementVariable(BaseModel):
         )
         return self
 
+    @model_validator(mode="after")
+    def validate_unit_policy(self) -> MeasurementVariable:
+        if self.unit_policy == "per_record":
+            if self.unit is not None or not self.allowed_units:
+                msg = (
+                    "per-record measurement units require allowed_units and no "
+                    "uniform unit"
+                )
+                raise ValueError(msg)
+        elif self.allowed_units:
+            msg = "uniform measurement units must not declare allowed_units"
+            raise ValueError(msg)
+        return self
+
 
 class MeasurementDatasetSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -107,7 +124,7 @@ class MeasurementDatasetSchema(BaseModel):
     variables: list[MeasurementVariable] = Field(default_factory=list)
     primary_coordinates: list[str] = Field(default_factory=list)
     primary_observables: list[str] = Field(default_factory=list)
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_references(self) -> MeasurementDatasetSchema:
@@ -202,7 +219,7 @@ class MeasurementArray(BaseModel):
     unit: str | None = None
     shape: list[int] = Field(min_length=1)
     values: MeasurementArrayData
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
@@ -242,10 +259,12 @@ class MeasurementRecord(BaseModel):
 
     schema_version: str = MEASUREMENT_RECORD_SCHEMA_VERSION
     run_id: str
+    logical_point_id: str | None = None
     point_index: int
+    instrument_ids: list[str] = Field(default_factory=list)
     coordinates: dict[str, CoordinateValue]
     observables: dict[str, MeasurementValue]
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class MeasurementDataset(BaseModel):
@@ -254,7 +273,7 @@ class MeasurementDataset(BaseModel):
     dataset_id: str
     dataset_schema: MeasurementDatasetSchema = Field(alias="schema")
     records: list[MeasurementRecord]
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -584,14 +603,15 @@ def _measurement_variable(
     dimension_id: str,
     shape: list[int],
 ) -> tuple[MeasurementVariable, list[MeasurementDimension]]:
-    metadata: dict[str, JsonValue] = {}
     units = _measurement_value_units(values)
     unit: str | None = None
+    unit_policy: Literal["uniform", "per_record"] = "uniform"
+    allowed_units: list[str] = []
     if len(units) == 1:
         unit = units[0]
     elif units:
-        metadata["units"] = list(units)
-        metadata["unit_policy"] = "per_record"
+        unit_policy = "per_record"
+        allowed_units = list(units)
     dtype = _common_dtype(values)
     value_shape = _common_value_shape(values)
     dimensions: list[MeasurementDimension] = []
@@ -614,9 +634,10 @@ def _measurement_variable(
         role=role,
         dtype=dtype,
         unit=unit,
+        unit_policy=unit_policy,
+        allowed_units=allowed_units,
         dims=dims,
         shape=variable_shape,
-        metadata=metadata,
     ), dimensions
 
 

@@ -66,7 +66,7 @@ class StepArtifactHandle:
     dataset_role: str | None = None
     dataset_schema: dict[str, Any] | None = None
     produced_by: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
 
     @property
     def ref(self) -> str:
@@ -121,7 +121,7 @@ class StepArtifactWriter(Protocol):
         id: str,  # noqa: A002
         kind: str,
         media_type: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle: ...
 
     def write_model(
@@ -131,7 +131,7 @@ class StepArtifactWriter(Protocol):
         kind: str,
         model: BaseModel,
         media_type: str | None = "application/json",
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle: ...
 
     def write_jsonl(
@@ -141,7 +141,7 @@ class StepArtifactWriter(Protocol):
         kind: str,
         records: Iterable[BaseModel],
         media_type: str | None = "application/jsonl",
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle: ...
 
     def write_measurement_dataset(
@@ -164,7 +164,7 @@ class StepArtifactWriter(Protocol):
         rows: Iterable[Mapping[str, Any]],
         media_type: str | None = "application/json",
         source_step: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle: ...
 
     def write_data_array(
@@ -175,7 +175,7 @@ class StepArtifactWriter(Protocol):
         variables: Mapping[str, Any],
         media_type: str | None = "application/json",
         source_step: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle: ...
 
     def write_text(
@@ -185,7 +185,7 @@ class StepArtifactWriter(Protocol):
         kind: str,
         content: str,
         media_type: str | None = "text/plain",
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle: ...
 
     def write_bytes(
@@ -195,7 +195,7 @@ class StepArtifactWriter(Protocol):
         kind: str,
         content: bytes,
         media_type: str | None = "application/octet-stream",
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle: ...
 
 
@@ -251,7 +251,7 @@ class StepArtifactStore:
         id: str,  # noqa: A002
         kind: str,
         media_type: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle:
         handle = self._register(
             id=id,
@@ -272,7 +272,7 @@ class StepArtifactStore:
         kind: str,
         model: BaseModel,
         media_type: str | None = "application/json",
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle:
         handle = self.reserve_file(
             id=id,
@@ -291,7 +291,7 @@ class StepArtifactStore:
         kind: str,
         records: Iterable[BaseModel],
         media_type: str | None = "application/jsonl",
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle:
         handle = self.reserve_file(
             id=id,
@@ -350,7 +350,7 @@ class StepArtifactStore:
         rows: Iterable[Mapping[str, Any]],
         media_type: str | None = "application/json",
         source_step: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle:
         row_list = [dict(row) for row in rows]
         try:
@@ -383,7 +383,7 @@ class StepArtifactStore:
         variables: Mapping[str, Any],
         media_type: str | None = "application/json",
         source_step: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle:
         try:
             artifact = DataArrayArtifact(schema=schema, variables=dict(variables))
@@ -414,7 +414,7 @@ class StepArtifactStore:
         kind: str,
         content: str,
         media_type: str | None = "text/plain",
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle:
         handle = self.reserve_file(
             id=id,
@@ -434,7 +434,7 @@ class StepArtifactStore:
         kind: str,
         content: bytes,
         media_type: str | None = "application/octet-stream",
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> StepArtifactHandle:
         handle = self.reserve_file(
             id=id,
@@ -454,7 +454,7 @@ class StepArtifactStore:
         media_type: str | None,
         role: str | None,
         schema: dict[str, Any],
-        metadata: dict[str, Any] | None,
+        metadata: Mapping[str, JsonValue] | None,
         produced_by: str | None,
     ) -> StepArtifactHandle:
         handle = self._register(
@@ -478,7 +478,7 @@ class StepArtifactStore:
         content: str,
         media_type: str | None,
         schema: dict[str, Any],
-        metadata: dict[str, Any] | None,
+        metadata: Mapping[str, JsonValue] | None,
         produced_by: str | None,
     ) -> StepArtifactHandle:
         handle = self._register(
@@ -502,7 +502,7 @@ class StepArtifactStore:
         id: str,  # noqa: A002
         kind: str,
         media_type: str | None,
-        metadata: dict[str, Any] | None,
+        metadata: Mapping[str, JsonValue] | None,
         dataset_role: str | None,
         dataset_schema: dict[str, Any] | None,
         produced_by: str | None,
