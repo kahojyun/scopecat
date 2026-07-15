@@ -21,7 +21,6 @@ from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
-    VerifiedRelationPlan,
     verify_relation_plan,
 )
 from scopecat.compiler.semantic.availability import (
@@ -52,7 +51,6 @@ from scopecat.compiler.semantic.model import (
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
-    OperationSemantics,
     PlacementConstraint,
     Portability,
     scalar_binary_operation_contract,
@@ -596,10 +594,6 @@ def test_semantic_graph_rejects_conflicting_point_column_types() -> None:
         verify_semantic_graph(SemanticGraphIR(value_defs=definitions))
 
     assert _problem_codes(caught.value) == ["semantic_point_row_type_conflict"]
-    with pytest.raises(TypeError, match="VerifiedRelationPlan"):
-        PlanExpressionSource(
-            cast("VerifiedRelationPlan[ScalarExpr]", input_ref("gain"))
-        )
 
 
 def test_point_cross_internal_point_reference_does_not_raise_value_rate() -> None:
@@ -1038,30 +1032,6 @@ def test_implementation_catalog_rejects_mismatched_declared_contract() -> None:
                 ImplementationId("wrong-contract"),
                 operation.id,
                 scalar_binary_operation_contract("+"),
-                lambda: 1,
-            ),
-        )
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_implementation_catalog(graph, catalog)
-
-    assert _problem_codes(caught.value) == ["semantic_implementation_contract_mismatch"]
-
-
-def test_malformed_declared_contract_does_not_break_diagnostic_ordering() -> None:
-    operation, result = _opaque_operation("compute")
-    graph = SemanticGraphIR(value_defs=(result,), operations=(operation,))
-    malformed = replace(
-        operation.contract,
-        semantics=cast("OperationSemantics", object()),
-    )
-    catalog = ImplementationCatalog(
-        local_python=(
-            LocalPythonImplementation(
-                ImplementationId("malformed-contract"),
-                operation.id,
-                malformed,
                 lambda: 1,
             ),
         )

@@ -4,21 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import cast
 
 from scopecat import Quantity
 
 from scopecat_quantum._ids import CircuitOperationId, GateId, QubitId
-
-
-def _runtime_object(value: object) -> object:
-    """Erase a static field type before enforcing its runtime invariant."""
-
-    return value
-
-
-def _runtime_tuple(value: object) -> tuple[object, ...] | None:
-    return cast("tuple[object, ...]", value) if isinstance(value, tuple) else None
 
 
 class GateParameterKind(StrEnum):
@@ -37,13 +26,8 @@ class GateParameterDefinition:
     kind: GateParameterKind
 
     def __post_init__(self) -> None:
-        raw_id = _runtime_object(self.id)
-        raw_kind = _runtime_object(self.kind)
-        if not isinstance(raw_id, str) or not raw_id.strip():
+        if not self.id.strip():
             msg = "gate parameter id must be a non-empty string"
-            raise ValueError(msg)
-        if not isinstance(raw_kind, GateParameterKind):
-            msg = "gate parameter kind must be a GateParameterKind"
             raise ValueError(msg)
 
 
@@ -56,25 +40,8 @@ class GateDefinition:
     parameters: tuple[GateParameterDefinition, ...] = ()
 
     def __post_init__(self) -> None:
-        raw_id = _runtime_object(self.id)
-        raw_arity = _runtime_object(self.qubit_arity)
-        raw_parameters = _runtime_object(self.parameters)
-        parameter_values = _runtime_tuple(raw_parameters)
-        if not isinstance(raw_id, GateId):
-            msg = "gate id must be a GateId"
-            raise ValueError(msg)
-        if (
-            not isinstance(raw_arity, int)
-            or isinstance(raw_arity, bool)
-            or raw_arity <= 0
-        ):
+        if isinstance(self.qubit_arity, bool) or self.qubit_arity <= 0:
             msg = "gate qubit_arity must be a positive integer"
-            raise ValueError(msg)
-        if parameter_values is None or not all(
-            isinstance(parameter, GateParameterDefinition)
-            for parameter in parameter_values
-        ):
-            msg = "gate parameters must be a tuple of GateParameterDefinition values"
             raise ValueError(msg)
 
 
@@ -99,8 +66,7 @@ class GateArgument:
     value: GateArgumentValue
 
     def __post_init__(self) -> None:
-        raw_id = _runtime_object(self.id)
-        if not isinstance(raw_id, str) or not raw_id.strip():
+        if not self.id.strip():
             msg = "gate argument id must be a non-empty string"
             raise ValueError(msg)
 

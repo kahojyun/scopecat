@@ -181,9 +181,6 @@ def fit_cz_phase(observations: Sequence[CzPhaseObservation]) -> CzPhaseFit:
 def analyze_cz_phase_run(run: sc.RunHandle) -> CzPhaseRunAnalysis:
     """Fit a completed run and author a guarded CZ amplitude proposal."""
 
-    if not isinstance(run, sc.RunHandle):
-        msg = "CZ phase analysis requires a RunHandle"
-        raise TypeError(msg)
     if run.manifest.status != "completed":
         msg = "CZ phase analysis requires a completed run"
         raise ValueError(msg)

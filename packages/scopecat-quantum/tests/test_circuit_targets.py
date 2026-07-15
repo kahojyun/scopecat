@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import cast
-
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -273,40 +271,6 @@ def test_batch_request_and_origins_have_exact_ordered_coverage() -> None:
         *((second.source_circuit_id,) * len(second.event_origins)),
         *((first.source_circuit_id,) * len(first.event_origins)),
     )
-
-
-def test_factories_reject_wrong_runtime_identity_spaces_and_shapes() -> None:
-    circuit, selection = _verified_and_selection()
-    with pytest.raises(TypeError, match="TargetCompileEntryId"):
-        prepare_circuit_target_entry(
-            cast("TargetCompileEntryId", TargetId("wrong-space")),
-            circuit,
-            selection,
-            output_id=PulseProgramId("output"),
-        )
-    with pytest.raises(TypeError, match="VerifiedCircuitProgram"):
-        prepare_circuit_target_entry(
-            TargetCompileEntryId("entry"),
-            cast("VerifiedCircuitProgram", circuit.program),
-            selection,
-            output_id=PulseProgramId("output"),
-        )
-    with pytest.raises(TypeError, match="CalibrationSelection"):
-        prepare_circuit_target_entry(
-            TargetCompileEntryId("entry"),
-            circuit,
-            cast("CalibrationSelection", object()),
-            output_id=PulseProgramId("output"),
-        )
-    with pytest.raises(TypeError, match="PulseProgramId"):
-        prepare_circuit_target_entry(
-            TargetCompileEntryId("entry"),
-            circuit,
-            selection,
-            output_id=cast("PulseProgramId", CircuitId("wrong-space")),
-        )
-    with pytest.raises(TypeError, match="at least one"):
-        _batch(cast("tuple[PreparedCircuitTargetEntry, ...]", (object(),)))
 
 
 def test_duplicate_entry_addresses_fail_before_a_batch_is_returned() -> None:

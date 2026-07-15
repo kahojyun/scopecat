@@ -259,9 +259,6 @@ class PlanExpressionSource:
         self,
         verified_plan: VerifiedPlanExpression,
     ) -> None:
-        if not isinstance(cast("object", verified_plan), VerifiedRelationPlan):
-            msg = "plan expression sources require a VerifiedRelationPlan"
-            raise TypeError(msg)
         object.__setattr__(self, "_expression", verified_plan.root)
         object.__setattr__(self, "_certified_type", verified_plan.certified_type)
         object.__setattr__(self, "_imports", verified_plan.imports)

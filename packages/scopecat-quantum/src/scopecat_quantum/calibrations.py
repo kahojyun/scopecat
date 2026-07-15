@@ -10,22 +10,16 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import cast
-
-from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     CalibrationId,
     CircuitId,
     CircuitOperationId,
     GateId,
-    PulseEventId,
-    PulseProgramId,
     QubitId,
 )
 from scopecat_quantum.circuits import Measure, VerifiedCircuitProgram
 from scopecat_quantum.gates import (
-    GateArgument,
     GateArgumentValue,
     GateCall,
     canonical_angle_value,
@@ -44,43 +38,13 @@ from scopecat_quantum.pulses import (
 )
 
 
-def _runtime_object(value: object) -> object:
-    """Erase a public field's static type before checking its runtime shape."""
-
-    return value
-
-
-def _runtime_tuple(value: object) -> tuple[object, ...] | None:
-    return cast("tuple[object, ...]", value) if isinstance(value, tuple) else None
-
-
-def _is_finite_number(value: object) -> bool:
-    if not isinstance(value, int | float) or isinstance(value, bool):
-        return False
-    try:
-        return math.isfinite(value)
-    except OverflowError:
-        return False
-
-
 def _gate_template_leaves(
     pulse_template: PulseProgram,
     *,
     subject: str,
 ) -> tuple[PulseLeaf, ...]:
-    if not isinstance(_runtime_object(pulse_template.id), PulseProgramId):
-        msg = f"{subject} pulse template id must be a PulseProgramId"
-        raise ValueError(msg)
-    try:
-        leaves = tuple(iter_pulse_leaves(pulse_template.body))
-    except (AttributeError, TypeError) as error:
-        msg = f"{subject} pulse template body must contain pulse instructions"
-        raise ValueError(msg) from error
-    raw_event_ids = tuple(_runtime_object(leaf.id) for leaf in leaves)
-    if not all(isinstance(event_id, PulseEventId) for event_id in raw_event_ids):
-        msg = f"{subject} pulse template event ids must be PulseEventId values"
-        raise ValueError(msg)
-    event_ids = cast("tuple[PulseEventId, ...]", raw_event_ids)
+    leaves = tuple(iter_pulse_leaves(pulse_template.body))
+    event_ids = tuple(leaf.id for leaf in leaves)
     if len(set(event_ids)) != len(event_ids):
         msg = f"{subject} pulse template event ids must be unique"
         raise ValueError(msg)
@@ -95,11 +59,10 @@ class GateCalibrationArgument:
     value: GateArgumentValue
 
     def __post_init__(self) -> None:
-        argument_id = _runtime_object(self.id)
-        if not isinstance(argument_id, str) or not argument_id.strip():
+        if not self.id.strip():
             msg = "calibration argument id must be a non-empty string"
             raise ValueError(msg)
-        value = _runtime_object(self.value)
+        value = self.value
         if isinstance(value, bool):
             msg = "calibration argument value must be a finite gate argument value"
             raise ValueError(msg)
@@ -108,10 +71,8 @@ class GateCalibrationArgument:
         if isinstance(value, float):
             if math.isfinite(value):
                 return
-        elif isinstance(value, Quantity):
-            raw_value = _runtime_object(value.value)
-            raw_unit = _runtime_object(value.unit)
-            if _is_finite_number(raw_value) and isinstance(raw_unit, str):
+        else:
+            if math.isfinite(value.value):
                 try:
                     canonical = canonical_angle_value(value)
                 except ValueError:
@@ -132,32 +93,13 @@ class GateCalibrationKey:
     arguments: tuple[GateCalibrationArgument, ...] = ()
 
     def __post_init__(self) -> None:
-        gate_id = _runtime_object(self.gate_id)
-        if not isinstance(gate_id, GateId):
-            msg = "calibration key gate_id must be a GateId"
-            raise ValueError(msg)
-        raw_operands = _runtime_tuple(_runtime_object(self.operands))
-        if raw_operands is None or not all(
-            isinstance(operand, QubitId) for operand in raw_operands
-        ):
-            msg = "calibration key operands must be a tuple of QubitId values"
-            raise ValueError(msg)
-        if not raw_operands:
+        if not self.operands:
             msg = "calibration keys require at least one operand"
             raise ValueError(msg)
-        if len(set(raw_operands)) != len(raw_operands):
+        if len(set(self.operands)) != len(self.operands):
             msg = "calibration key operands must be unique"
             raise ValueError(msg)
-        raw_arguments = _runtime_tuple(_runtime_object(self.arguments))
-        if raw_arguments is None or not all(
-            isinstance(argument, GateCalibrationArgument) for argument in raw_arguments
-        ):
-            msg = (
-                "calibration key arguments must be a tuple of "
-                "GateCalibrationArgument values"
-            )
-            raise ValueError(msg)
-        arguments = cast("tuple[GateCalibrationArgument, ...]", raw_arguments)
+        arguments = self.arguments
         argument_ids = tuple(argument.id for argument in arguments)
         if len(set(argument_ids)) != len(argument_ids):
             msg = "calibration key argument ids must be unique"
@@ -170,22 +112,12 @@ class GateCalibrationKey:
 
     @classmethod
     def from_call(cls, call: GateCall) -> GateCalibrationKey:
-        if not isinstance(_runtime_object(call), GateCall):
-            msg = "calibration keys can only be created from a GateCall"
-            raise TypeError(msg)
-        raw_arguments = _runtime_tuple(_runtime_object(call.arguments))
-        if raw_arguments is None or not all(
-            isinstance(argument, GateArgument) for argument in raw_arguments
-        ):
-            msg = "gate call arguments must be a tuple of GateArgument values"
-            raise ValueError(msg)
-        arguments = cast("tuple[GateArgument, ...]", raw_arguments)
         return cls(
             gate_id=call.gate_id,
             operands=call.qubits,
             arguments=tuple(
                 GateCalibrationArgument(id=argument.id, value=argument.value)
-                for argument in arguments
+                for argument in call.arguments
             ),
         )
 
@@ -204,15 +136,6 @@ class GateCalibration:
     pulse_template: PulseProgram
 
     def __post_init__(self) -> None:
-        if not isinstance(_runtime_object(self.id), CalibrationId):
-            msg = "gate calibration id must be a CalibrationId"
-            raise ValueError(msg)
-        if not isinstance(_runtime_object(self.key), GateCalibrationKey):
-            msg = "gate calibration key must be a GateCalibrationKey"
-            raise ValueError(msg)
-        if not isinstance(_runtime_object(self.pulse_template), PulseProgram):
-            msg = "gate calibrations require a pulse template"
-            raise ValueError(msg)
         leaves = _gate_template_leaves(
             self.pulse_template,
             subject="gate calibration",
@@ -234,15 +157,7 @@ class GateCalibrationCatalog:
     entries: tuple[GateCalibration, ...]
 
     def __post_init__(self) -> None:
-        raw_entries = _runtime_tuple(_runtime_object(self.entries))
-        if raw_entries is None or not all(
-            isinstance(entry, GateCalibration) for entry in raw_entries
-        ):
-            msg = (
-                "calibration catalog entries must be a tuple of GateCalibration values"
-            )
-            raise ValueError(msg)
-        entries = cast("tuple[GateCalibration, ...]", raw_entries)
+        entries = self.entries
         calibration_ids = tuple(entry.id for entry in entries)
         if len(set(calibration_ids)) != len(calibration_ids):
             msg = "calibration ids must be unique within a catalog"
@@ -412,18 +327,6 @@ class CalibrationCatalog:
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(_runtime_object(self.gates), GateCalibrationCatalog):
-            msg = "calibration catalog gates must be a GateCalibrationCatalog"
-            raise ValueError(msg)
-        if not isinstance(
-            _runtime_object(self.measurements),
-            MeasurementCalibrationCatalog,
-        ):
-            msg = (
-                "calibration catalog measurements must be a "
-                "MeasurementCalibrationCatalog"
-            )
-            raise ValueError(msg)
         calibration_ids = tuple(
             entry.id for entry in (*self.gates.entries, *self.measurements.entries)
         )
@@ -454,33 +357,7 @@ class CalibrationSelectionIssue:
     message: str
 
     def __post_init__(self) -> None:
-        if not isinstance(_runtime_object(self.code), CalibrationSelectionIssueCode):
-            msg = "calibration selection issue code is invalid"
-            raise ValueError(msg)
-        if not isinstance(_runtime_object(self.operation_id), CircuitOperationId):
-            msg = (
-                "calibration selection issue operation_id must be a CircuitOperationId"
-            )
-            raise ValueError(msg)
-        if not isinstance(
-            _runtime_object(self.key),
-            GateCalibrationKey | MeasurementCalibrationKey,
-        ):
-            msg = "calibration selection issue key is invalid"
-            raise ValueError(msg)
-        raw_matching_ids = _runtime_tuple(
-            _runtime_object(self.matching_calibration_ids)
-        )
-        if raw_matching_ids is None or not all(
-            isinstance(calibration_id, CalibrationId)
-            for calibration_id in raw_matching_ids
-        ):
-            msg = (
-                "calibration selection issue matches must be a tuple of CalibrationId "
-                "values"
-            )
-            raise ValueError(msg)
-        matching_ids = cast("tuple[CalibrationId, ...]", raw_matching_ids)
+        matching_ids = self.matching_calibration_ids
         if len(set(matching_ids)) != len(matching_ids):
             msg = "calibration selection issue matching ids must be unique"
             raise ValueError(msg)
@@ -498,8 +375,7 @@ class CalibrationSelectionIssue:
         ):
             msg = "ambiguous calibration issues require at least two matching ids"
             raise ValueError(msg)
-        message = _runtime_object(self.message)
-        if not isinstance(message, str) or not message.strip():
+        if not self.message.strip():
             msg = "calibration selection issue message must be non-empty"
             raise ValueError(msg)
 
@@ -508,22 +384,12 @@ class CalibrationSelectionError(ValueError):
     """Aggregate exact-coverage failure, independent of catalog order."""
 
     def __init__(self, issues: tuple[CalibrationSelectionIssue, ...]) -> None:
-        raw_issues = _runtime_tuple(_runtime_object(issues))
-        if raw_issues is None or not all(
-            isinstance(issue, CalibrationSelectionIssue) for issue in raw_issues
-        ):
-            msg = (
-                "calibration selection errors require a tuple of "
-                "CalibrationSelectionIssue values"
-            )
-            raise ValueError(msg)
-        selected_issues = cast("tuple[CalibrationSelectionIssue, ...]", raw_issues)
-        if not selected_issues:
+        if not issues:
             msg = "calibration selection errors require at least one issue"
             raise ValueError(msg)
         self.issues = tuple(
             sorted(
-                selected_issues,
+                issues,
                 key=lambda issue: (
                     issue.operation_id.value,
                     issue.code.value,
@@ -601,13 +467,6 @@ def select_calibrations(
     catalog: CalibrationCatalog,
 ) -> CalibrationSelection:
     """Select one exact typed calibration per operation or aggregate failures."""
-
-    if not isinstance(_runtime_object(program), VerifiedCircuitProgram):
-        msg = "calibration selection requires a VerifiedCircuitProgram"
-        raise TypeError(msg)
-    if not isinstance(_runtime_object(catalog), CalibrationCatalog):
-        msg = "calibration selection requires a CalibrationCatalog"
-        raise TypeError(msg)
 
     gate_entries_by_key: dict[GateCalibrationKey, list[GateCalibration]] = {}
     for entry in catalog.gates.entries:

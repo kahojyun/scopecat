@@ -905,9 +905,6 @@ def select_typed_program(
 ) -> SelectedTypedProgram:
     """Preflight every relation consumer before any program materialization."""
 
-    if not isinstance(cast("object", verified_program), VerifiedTypedProgram):
-        msg = "program backend selection requires a VerifiedTypedProgram"
-        raise TypeError(msg)
     selections: list[SelectedProgramRelation] = []
     failures: list[ProgramRelationBackendFailure] = []
     for consumer in verified_program.relation_consumers:

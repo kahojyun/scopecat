@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import cast
 
 import pytest
 import scopecat as sc
@@ -85,11 +84,6 @@ def test_two_qubit_gate_declares_ordered_unique_operands() -> None:
     assert call.qubits == (QubitId("q0"), QubitId("q1"))
     with pytest.raises(ValueError, match="operands must be unique"):
         cz(q0, q0)
-    with pytest.raises(ValueError, match="arity must be 1 or 2"):
-        authoring.gate(  # pyright: ignore[reportCallIssue, reportArgumentType]
-            "ccz",
-            arity=3,  # pyright: ignore[reportArgumentType]
-        )
 
 
 def test_literal_zero_repeat_elides_dead_inputs_and_gate_definitions() -> None:
@@ -121,17 +115,17 @@ def test_symbolic_repeat_rejects_invalid_bound_counts(count: object) -> None:
     ):
         authoring.bind(
             declaration,
-            cast("dict[str, int]", {"x_count": count}),
+            {"x_count": count},
         )
 
 
-@pytest.mark.parametrize("count", [-1, 1.5, True])
-def test_repeat_rejects_invalid_literal_counts(count: object) -> None:
+@pytest.mark.parametrize("count", [-1, True])
+def test_repeat_rejects_invalid_literal_counts(count: int) -> None:
     q0 = authoring.qubit("q0")
     x = authoring.single_qubit_gate("x")
 
     with pytest.raises(ValueError, match="non-negative integer"):
-        authoring.repeat(x(q0), cast("int", count))
+        authoring.repeat(x(q0), count)
 
 
 def test_repeat_rejects_non_integer_input_and_measurement_results() -> None:
@@ -216,18 +210,6 @@ def test_domain_call_requires_exact_handle_bindings() -> None:
             "missing-result",
             program,
             inputs={x_count: 1},
-        )
-    with pytest.raises(TypeError, match="inputs must be a mapping"):
-        authoring.domain_call(
-            "invalid-inputs",
-            program,
-            inputs=[],  # pyright: ignore[reportArgumentType]
-            results={raw_iq: "integrated_iq_shots"},
-        )
-    with pytest.raises(TypeError, match="quantum program domain program"):
-        authoring.domain_call(
-            "invalid-program",
-            object(),  # pyright: ignore[reportArgumentType]
         )
 
 

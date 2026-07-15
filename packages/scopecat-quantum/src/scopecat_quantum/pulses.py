@@ -12,7 +12,6 @@ import math
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
-from typing import TypeGuard, cast
 
 from scopecat import Quantity
 
@@ -158,9 +157,6 @@ class Barrier:
     id: PulseEventId
     signals: tuple[LogicalSignal, ...]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "signals", tuple(self.signals))
-
 
 @dataclass(frozen=True, slots=True)
 class Sequence:
@@ -168,18 +164,12 @@ class Sequence:
 
     instructions: tuple[PulseInstruction, ...]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "instructions", tuple(self.instructions))
-
 
 @dataclass(frozen=True, slots=True)
 class Parallel:
     """Compose instruction branches from the same start time."""
 
     branches: tuple[PulseInstruction, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "branches", tuple(self.branches))
 
 
 type PulseLeaf = Play | Acquire | Delay | ShiftPhase | Barrier
@@ -189,17 +179,13 @@ type PulseInstruction = PulseLeaf | Sequence | Parallel
 def iter_pulse_leaves(instruction: PulseInstruction) -> Iterator[PulseLeaf]:
     """Yield pulse leaves in deterministic structural order."""
 
-    raw_instruction = cast("object", instruction)
-    if isinstance(raw_instruction, Play | Acquire | Delay | ShiftPhase | Barrier):
-        yield raw_instruction
+    if isinstance(instruction, Play | Acquire | Delay | ShiftPhase | Barrier):
+        yield instruction
         return
-    if isinstance(raw_instruction, Sequence):
-        children = raw_instruction.instructions
-    elif isinstance(raw_instruction, Parallel):
-        children = raw_instruction.branches
+    if isinstance(instruction, Sequence):
+        children = instruction.instructions
     else:
-        msg = "pulse tree contains an unsupported instruction node"
-        raise TypeError(msg)
+        children = instruction.branches
     for child in children:
         yield from iter_pulse_leaves(child)
 
@@ -211,9 +197,6 @@ class PulseProgram:
     id: PulseProgramId
     body: PulseInstruction
     acquisition_slots: tuple[AcquisitionSlot, ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "acquisition_slots", tuple(self.acquisition_slots))
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,8 +231,8 @@ class ScheduledPulseProgram:
     ) -> None:
         object.__setattr__(self, "id", id)
         object.__setattr__(self, "duration_seconds", duration_seconds)
-        object.__setattr__(self, "events", tuple(events))
-        object.__setattr__(self, "acquisition_slots", tuple(acquisition_slots))
+        object.__setattr__(self, "events", events)
+        object.__setattr__(self, "acquisition_slots", acquisition_slots)
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,7 +254,7 @@ class PulseValidationError(ValueError):
         if not issues:
             msg = "pulse validation errors require at least one issue"
             raise ValueError(msg)
-        self.issues = tuple(issues)
+        self.issues = issues
         summary = "; ".join(f"{issue.code}: {issue.message}" for issue in self.issues)
         super().__init__(summary)
 
@@ -292,87 +275,11 @@ _TIME_FACTORS: dict[str, Decimal] = {
     "ns": Decimal("1e-9"),
 }
 
-_MISSING = object()
-
-
-def _runtime_object(value: object) -> object:
-    """Erase a static authoring-IR type before checking its runtime shape."""
-
-    return value
-
-
-def _runtime_field(value: object, name: str) -> object:
-    """Read a field without allowing malformed runtime objects to leak errors."""
-
-    return getattr(value, name, _MISSING)
-
-
-def _runtime_tuple(value: object) -> tuple[object, ...] | None:
-    return cast("tuple[object, ...]", value) if isinstance(value, tuple) else None
-
-
-def _has_valid_nominal_value(value: object) -> bool:
-    raw_value = _runtime_field(value, "value")
-    return isinstance(raw_value, str) and bool(raw_value.strip())
-
-
-def _has_valid_structural_identity(
-    value: object,
-) -> TypeGuard[PulseEventId | AcquisitionSlotId]:
-    if not isinstance(value, PulseEventId | AcquisitionSlotId):
-        return False
-    local_id = _runtime_field(value, "local_id")
-    scope = _runtime_tuple(_runtime_field(value, "scope"))
-    structurally_valid = (
-        isinstance(local_id, str)
-        and bool(local_id.strip())
-        and scope is not None
-        and all(isinstance(segment, str) and bool(segment.strip()) for segment in scope)
-    )
-    if not structurally_valid:
-        return False
-    try:
-        _ = value.qualified_name
-    except UnicodeEncodeError:
-        return False
-    return True
-
-
-def _has_valid_pulse_event_identity(value: object) -> TypeGuard[PulseEventId]:
-    return isinstance(value, PulseEventId) and _has_valid_structural_identity(value)
-
-
-def _has_valid_acquisition_slot_identity(
-    value: object,
-) -> TypeGuard[AcquisitionSlotId]:
-    return isinstance(value, AcquisitionSlotId) and _has_valid_structural_identity(
-        value
-    )
-
 
 def _structural_identity_sort_key(
     value: PulseEventId | AcquisitionSlotId,
 ) -> tuple[tuple[str, ...], str]:
     return (value.scope, value.local_id)
-
-
-def _is_quantity(value: object) -> TypeGuard[Quantity]:
-    if not isinstance(value, Quantity):
-        return False
-    raw_value = _runtime_field(value, "value")
-    raw_unit = _runtime_field(value, "unit")
-    return (
-        isinstance(raw_value, int | float)
-        and not isinstance(raw_value, bool)
-        and isinstance(raw_unit, str)
-    )
-
-
-def _is_finite_number(value: float) -> bool:
-    try:
-        return math.isfinite(value)
-    except OverflowError:
-        return False
 
 
 def _issue(
@@ -412,7 +319,7 @@ def _time_value(
             path=path,
         )
         return None
-    if not _is_finite_number(quantity.value):
+    if not math.isfinite(quantity.value):
         _issue(
             issues,
             "pulse_quantity_nonfinite",
@@ -474,7 +381,7 @@ def _normalized_amplitude(
     instruction_id: PulseEventId,
     path: tuple[int, ...],
 ) -> Quantity | None:
-    if not _is_finite_number(quantity.value):
+    if not math.isfinite(quantity.value):
         _issue(
             issues,
             "pulse_quantity_nonfinite",
@@ -508,7 +415,7 @@ def _normalized_phase(
     instruction_id: PulseEventId,
     path: tuple[int, ...],
 ) -> Quantity | None:
-    if not _is_finite_number(quantity.value):
+    if not math.isfinite(quantity.value):
         _issue(
             issues,
             "pulse_quantity_nonfinite",
@@ -645,422 +552,6 @@ def _normalized_envelope(
     ), duration
 
 
-def _is_logical_signal(value: object) -> TypeGuard[LogicalSignal]:
-    if isinstance(value, DriveSignal | ReadoutSignal | AcquireSignal):
-        owner = _runtime_field(value, "qubit")
-        return isinstance(owner, QubitId) and _has_valid_nominal_value(owner)
-    if isinstance(value, FluxSignal):
-        owner = _runtime_field(value, "owner")
-        return isinstance(owner, QubitId | CouplerId) and _has_valid_nominal_value(
-            owner
-        )
-    return False
-
-
-def _is_play_signal(value: object) -> TypeGuard[PlaySignal]:
-    return isinstance(value, DriveSignal | ReadoutSignal | FluxSignal) and (
-        _is_logical_signal(value)
-    )
-
-
-def _is_frame_signal(value: object) -> TypeGuard[FrameSignal]:
-    return isinstance(value, DriveSignal | ReadoutSignal) and _is_logical_signal(value)
-
-
-def _is_acquire_signal(value: object) -> TypeGuard[AcquireSignal]:
-    return isinstance(value, AcquireSignal) and _is_logical_signal(value)
-
-
-def _is_acquisition_kind(value: object) -> TypeGuard[AcquisitionKind]:
-    return isinstance(value, AcquisitionKind)
-
-
-def _is_analytic_envelope(value: object) -> TypeGuard[AnalyticEnvelope]:
-    return isinstance(value, Constant | Gaussian | DRAG)
-
-
-def _validate_quantity_structure(
-    value: object,
-    *,
-    name: str,
-    issues: list[PulseIssue],
-    instruction_id: PulseEventId | None = None,
-    path: tuple[int, ...] = (),
-) -> bool:
-    if not _is_quantity(value):
-        _issue(
-            issues,
-            "pulse_quantity_invalid",
-            f"{name} must be a Quantity with numeric value and string unit",
-            instruction_id=instruction_id,
-            path=path,
-        )
-        return False
-    return True
-
-
-def _validate_envelope_structure(
-    envelope: object,
-    *,
-    issues: list[PulseIssue],
-    instruction_id: PulseEventId | None,
-    path: tuple[int, ...],
-) -> bool:
-    if not _is_analytic_envelope(envelope):
-        _issue(
-            issues,
-            "pulse_envelope_invalid",
-            "Play requires a supported analytic envelope",
-            instruction_id=instruction_id,
-            path=path,
-        )
-        return True
-    valid = _validate_quantity_structure(
-        _runtime_field(envelope, "duration"),
-        name="envelope duration",
-        issues=issues,
-        instruction_id=instruction_id,
-        path=path,
-    )
-    valid = (
-        _validate_quantity_structure(
-            _runtime_field(envelope, "amplitude"),
-            name="envelope amplitude",
-            issues=issues,
-            instruction_id=instruction_id,
-            path=path,
-        )
-        and valid
-    )
-    valid = (
-        _validate_quantity_structure(
-            _runtime_field(envelope, "phase"),
-            name="envelope phase",
-            issues=issues,
-            instruction_id=instruction_id,
-            path=path,
-        )
-        and valid
-    )
-    if isinstance(envelope, Gaussian | DRAG):
-        valid = (
-            _validate_quantity_structure(
-                _runtime_field(envelope, "sigma"),
-                name="Gaussian sigma",
-                issues=issues,
-                instruction_id=instruction_id,
-                path=path,
-            )
-            and valid
-        )
-    if isinstance(envelope, DRAG):
-        valid = (
-            _validate_quantity_structure(
-                _runtime_field(envelope, "beta"),
-                name="DRAG beta",
-                issues=issues,
-                instruction_id=instruction_id,
-                path=path,
-            )
-            and valid
-        )
-    return valid
-
-
-def _validate_instruction_id(
-    instruction: PulseLeaf,
-    *,
-    issues: list[PulseIssue],
-    path: tuple[int, ...],
-) -> PulseEventId | None:
-    raw_id = _runtime_field(instruction, "id")
-    if _has_valid_pulse_event_identity(raw_id):
-        assert isinstance(raw_id, PulseEventId)
-        return raw_id
-    _issue(
-        issues,
-        "pulse_instruction_id_invalid",
-        "pulse leaf id must be a PulseEventId",
-        path=path,
-    )
-    return None
-
-
-def _validate_instruction_structure(
-    instruction: object,
-    *,
-    issues: list[PulseIssue],
-    path: tuple[int, ...],
-) -> bool:
-    if isinstance(instruction, Sequence):
-        children = _runtime_tuple(_runtime_field(instruction, "instructions"))
-        if children is None:
-            _issue(
-                issues,
-                "pulse_sequence_instructions_invalid",
-                "Sequence instructions must be a tuple",
-                path=path,
-            )
-            return False
-        valid = True
-        for index, child in enumerate(children):
-            valid = (
-                _validate_instruction_structure(
-                    child,
-                    issues=issues,
-                    path=(*path, index),
-                )
-                and valid
-            )
-        return valid
-    if isinstance(instruction, Parallel):
-        branches = _runtime_tuple(_runtime_field(instruction, "branches"))
-        if branches is None:
-            _issue(
-                issues,
-                "pulse_parallel_branches_invalid",
-                "Parallel branches must be a tuple",
-                path=path,
-            )
-            return False
-        valid = True
-        for index, branch in enumerate(branches):
-            valid = (
-                _validate_instruction_structure(
-                    branch,
-                    issues=issues,
-                    path=(*path, index),
-                )
-                and valid
-            )
-        return valid
-    if not isinstance(instruction, Play | Acquire | Delay | ShiftPhase | Barrier):
-        _issue(
-            issues,
-            "pulse_instruction_invalid",
-            (
-                "pulse nodes must be Play, Acquire, Delay, ShiftPhase, Barrier, "
-                "Sequence, or Parallel"
-            ),
-            path=path,
-        )
-        return False
-
-    instruction_id = _validate_instruction_id(
-        instruction,
-        issues=issues,
-        path=path,
-    )
-    valid = instruction_id is not None
-    if isinstance(instruction, Play):
-        if not _is_play_signal(_runtime_field(instruction, "signal")):
-            _issue(
-                issues,
-                "pulse_signal_instruction_invalid",
-                "Play requires a drive, readout, or flux signal",
-                instruction_id=instruction_id,
-                path=path,
-            )
-        valid = (
-            _validate_envelope_structure(
-                _runtime_field(instruction, "envelope"),
-                issues=issues,
-                instruction_id=instruction_id,
-                path=path,
-            )
-            and valid
-        )
-        return valid
-    if isinstance(instruction, Acquire):
-        if not _is_acquire_signal(_runtime_field(instruction, "signal")):
-            _issue(
-                issues,
-                "pulse_signal_instruction_invalid",
-                "Acquire requires an acquisition signal",
-                instruction_id=instruction_id,
-                path=path,
-            )
-        slot_id = _runtime_field(instruction, "slot_id")
-        if not _has_valid_acquisition_slot_identity(slot_id):
-            _issue(
-                issues,
-                "pulse_acquisition_slot_id_invalid",
-                "Acquire slot_id must be an AcquisitionSlotId",
-                instruction_id=instruction_id,
-                path=path,
-            )
-            valid = False
-        valid = (
-            _validate_quantity_structure(
-                _runtime_field(instruction, "duration"),
-                name="acquisition duration",
-                issues=issues,
-                instruction_id=instruction_id,
-                path=path,
-            )
-            and valid
-        )
-        return valid
-    if isinstance(instruction, Delay):
-        if not _is_logical_signal(_runtime_field(instruction, "signal")):
-            _issue(
-                issues,
-                "pulse_signal_instruction_invalid",
-                "Delay requires one logical signal",
-                instruction_id=instruction_id,
-                path=path,
-            )
-        valid = (
-            _validate_quantity_structure(
-                _runtime_field(instruction, "duration"),
-                name="delay duration",
-                issues=issues,
-                instruction_id=instruction_id,
-                path=path,
-            )
-            and valid
-        )
-        return valid
-    if isinstance(instruction, ShiftPhase):
-        if not _is_frame_signal(_runtime_field(instruction, "signal")):
-            _issue(
-                issues,
-                "pulse_signal_instruction_invalid",
-                "ShiftPhase requires a drive or readout signal",
-                instruction_id=instruction_id,
-                path=path,
-            )
-        valid = (
-            _validate_quantity_structure(
-                _runtime_field(instruction, "phase"),
-                name="phase shift",
-                issues=issues,
-                instruction_id=instruction_id,
-                path=path,
-            )
-            and valid
-        )
-        return valid
-
-    signals = _runtime_tuple(_runtime_field(instruction, "signals"))
-    if signals is None:
-        _issue(
-            issues,
-            "pulse_barrier_signals_invalid",
-            "Barrier signals must be a tuple",
-            instruction_id=instruction_id,
-            path=path,
-        )
-        return False
-    if not all(_is_logical_signal(signal) for signal in signals):
-        _issue(
-            issues,
-            "pulse_signal_instruction_invalid",
-            "Barrier contains a non-logical signal",
-            instruction_id=instruction_id,
-            path=path,
-        )
-    return valid
-
-
-def _validate_acquisition_declarations_structure(
-    slots: object,
-    *,
-    issues: list[PulseIssue],
-) -> bool:
-    slot_values = _runtime_tuple(slots)
-    if slot_values is None:
-        _issue(
-            issues,
-            "pulse_acquisition_slots_invalid",
-            "PulseProgram acquisition_slots must be a tuple",
-        )
-        return False
-    valid = True
-    for index, slot in enumerate(slot_values):
-        path = (index,)
-        if not isinstance(slot, AcquisitionSlot):
-            _issue(
-                issues,
-                "pulse_acquisition_slot_invalid",
-                f"acquisition_slots[{index}] must be an AcquisitionSlot",
-                path=path,
-            )
-            valid = False
-            continue
-        slot_id = _runtime_field(slot, "id")
-        if not _has_valid_acquisition_slot_identity(slot_id):
-            _issue(
-                issues,
-                "pulse_acquisition_slot_id_invalid",
-                f"acquisition_slots[{index}].id must be an AcquisitionSlotId",
-                path=path,
-            )
-            valid = False
-        raw_kind = _runtime_field(slot, "kind")
-        if not isinstance(raw_kind, AcquisitionKind):
-            message = (
-                f"acquisition slot {slot_id.value!r} has an invalid kind"
-                if _has_valid_acquisition_slot_identity(slot_id)
-                else f"acquisition_slots[{index}].kind must be an AcquisitionKind"
-            )
-            _issue(
-                issues,
-                "pulse_acquisition_kind_invalid",
-                message,
-                path=() if _has_valid_acquisition_slot_identity(slot_id) else path,
-            )
-        raw_signal = _runtime_field(slot, "signal")
-        if not _is_acquire_signal(raw_signal):
-            message = (
-                f"acquisition slot {slot_id.value!r} requires an acquisition signal"
-                if _has_valid_acquisition_slot_identity(slot_id)
-                else (
-                    f"acquisition_slots[{index}].signal must be an AcquireSignal "
-                    "with nominal qubit owner"
-                )
-            )
-            _issue(
-                issues,
-                "pulse_acquisition_signal_invalid",
-                message,
-                path=() if _has_valid_acquisition_slot_identity(slot_id) else path,
-            )
-    return valid
-
-
-def _validate_program_structure(
-    program: object,
-    issues: list[PulseIssue],
-) -> tuple[PulseProgram | None, bool]:
-    if not isinstance(program, PulseProgram):
-        _issue(
-            issues,
-            "pulse_program_invalid",
-            "pulse program must be a PulseProgram",
-        )
-        return None, False
-    program_id = _runtime_field(program, "id")
-    if not (
-        isinstance(program_id, PulseProgramId) and _has_valid_nominal_value(program_id)
-    ):
-        _issue(
-            issues,
-            "pulse_program_id_invalid",
-            "pulse program id must be a PulseProgramId",
-        )
-    body_is_safe = _validate_instruction_structure(
-        _runtime_field(program, "body"),
-        issues=issues,
-        path=(),
-    )
-    declarations_are_safe = _validate_acquisition_declarations_structure(
-        _runtime_field(program, "acquisition_slots"),
-        issues=issues,
-    )
-    return program, body_is_safe and declarations_are_safe
-
-
 def _signal_key(signal: LogicalSignal) -> tuple[str, str, str]:
     if isinstance(signal, DriveSignal):
         return ("drive", "qubit", signal.qubit.value)
@@ -1145,42 +636,16 @@ def _place_instruction(
     normalized: PulseLeaf = instruction
     duration = Decimal(0)
     if isinstance(instruction, Play):
-        if not _is_play_signal(instruction.signal):
-            _issue(
-                issues,
-                "pulse_signal_instruction_invalid",
-                "Play requires a drive, readout, or flux signal",
-                instruction_id=event_id,
-                path=path,
-            )
-        envelope = None
-        if _is_analytic_envelope(instruction.envelope):
-            envelope = _normalized_envelope(
-                instruction.envelope,
-                issues=issues,
-                instruction_id=event_id,
-                path=path,
-            )
-        else:
-            _issue(
-                issues,
-                "pulse_envelope_invalid",
-                "Play requires a supported analytic envelope",
-                instruction_id=event_id,
-                path=path,
-            )
+        envelope = _normalized_envelope(
+            instruction.envelope,
+            issues=issues,
+            instruction_id=event_id,
+            path=path,
+        )
         if envelope is not None:
             normalized_envelope, duration = envelope
             normalized = replace(instruction, envelope=normalized_envelope)
     elif isinstance(instruction, Acquire):
-        if not _is_acquire_signal(instruction.signal):
-            _issue(
-                issues,
-                "pulse_signal_instruction_invalid",
-                "Acquire requires an acquisition signal",
-                instruction_id=event_id,
-                path=path,
-            )
         acquisition_uses.setdefault(instruction.slot_id, []).append(instruction)
         normalized_duration = _time_value(
             instruction.duration,
@@ -1205,14 +670,6 @@ def _place_instruction(
                     duration=Quantity(value=normalized_duration_value, unit="s"),
                 )
     elif isinstance(instruction, Delay):
-        if not _is_logical_signal(instruction.signal):
-            _issue(
-                issues,
-                "pulse_signal_instruction_invalid",
-                "Delay requires one logical signal",
-                instruction_id=event_id,
-                path=path,
-            )
         normalized_duration = _time_value(
             instruction.duration,
             name="delay duration",
@@ -1236,14 +693,6 @@ def _place_instruction(
                     duration=Quantity(value=normalized_duration_value, unit="s"),
                 )
     elif isinstance(instruction, ShiftPhase):
-        if not _is_frame_signal(instruction.signal):
-            _issue(
-                issues,
-                "pulse_signal_instruction_invalid",
-                "ShiftPhase requires a drive or readout signal",
-                instruction_id=event_id,
-                path=path,
-            )
         normalized_phase = _normalized_phase(
             instruction.phase,
             issues=issues,
@@ -1253,20 +702,7 @@ def _place_instruction(
         if normalized_phase is not None:
             normalized = replace(instruction, phase=normalized_phase)
     else:
-        invalid_signals = [
-            signal for signal in instruction.signals if not _is_logical_signal(signal)
-        ]
-        if invalid_signals:
-            _issue(
-                issues,
-                "pulse_signal_instruction_invalid",
-                "Barrier contains a non-logical signal",
-                instruction_id=event_id,
-                path=path,
-            )
-        if not invalid_signals and len(set(instruction.signals)) != len(
-            instruction.signals
-        ):
+        if len(set(instruction.signals)) != len(instruction.signals):
             _issue(
                 issues,
                 "pulse_barrier_signal_duplicate",
@@ -1274,11 +710,10 @@ def _place_instruction(
                 instruction_id=event_id,
                 path=path,
             )
-        if not invalid_signals:
-            normalized = replace(
-                instruction,
-                signals=tuple(sorted(instruction.signals, key=_signal_key)),
-            )
+        normalized = replace(
+            instruction,
+            signals=tuple(sorted(instruction.signals, key=_signal_key)),
+        )
     return [_PlacedLeaf(normalized, start, duration, path)], duration
 
 
@@ -1297,19 +732,6 @@ def _validate_acquisitions(
             )
         else:
             declarations[slot.id] = slot
-        if not _is_acquisition_kind(slot.kind):
-            _issue(
-                issues,
-                "pulse_acquisition_kind_invalid",
-                f"acquisition slot {slot.id.value!r} has an invalid kind",
-            )
-        if not _is_acquire_signal(slot.signal):
-            _issue(
-                issues,
-                "pulse_acquisition_signal_invalid",
-                f"acquisition slot {slot.id.value!r} requires an acquisition signal",
-            )
-
     for slot_id, instructions in uses.items():
         declaration = declarations.get(slot_id)
         if declaration is None:
@@ -1354,8 +776,7 @@ def _validate_overlaps(placed: list[_PlacedLeaf], issues: list[PulseIssue]) -> N
         if event.duration <= 0:
             continue
         for signal in _leaf_signals(event.leaf):
-            if _is_logical_signal(signal):
-                by_signal.setdefault(signal, []).append(event)
+            by_signal.setdefault(signal, []).append(event)
     for signal, events in by_signal.items():
         ordered = sorted(
             events,
@@ -1475,16 +896,9 @@ def schedule(program: PulseProgram) -> ScheduledPulseProgram:
     """
 
     issues: list[PulseIssue] = []
-    validated_program, structurally_safe = _validate_program_structure(
-        _runtime_object(program),
-        issues,
-    )
-    if validated_program is None or not structurally_safe:
-        raise PulseValidationError(_stable_issues(issues))
-
     acquisition_uses: dict[AcquisitionSlotId, list[Acquire]] = {}
     placed, duration = _place_instruction(
-        validated_program.body,
+        program.body,
         start=Decimal(0),
         path=(),
         issues=issues,
@@ -1492,7 +906,7 @@ def schedule(program: PulseProgram) -> ScheduledPulseProgram:
         acquisition_uses=acquisition_uses,
     )
     slots = _validate_acquisitions(
-        validated_program.acquisition_slots,
+        program.acquisition_slots,
         acquisition_uses,
         issues,
     )
@@ -1510,7 +924,7 @@ def schedule(program: PulseProgram) -> ScheduledPulseProgram:
         for event in _ordered_placed_leaves(placed)
     )
     return ScheduledPulseProgram(
-        id=validated_program.id,
+        id=program.id,
         duration_seconds=duration,
         events=events,
         acquisition_slots=slots,

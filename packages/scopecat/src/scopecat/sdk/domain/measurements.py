@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import Literal
 
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.product_identity import ProductUseId
@@ -59,33 +59,14 @@ class DomainHostTransformCall:
     inputs: Mapping[str, MeasurementValue] = field(repr=False)
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            cast("object", self.transform),
-            DomainMeasurementTransform,
-        ):
-            msg = "domain host transform calls require a transform declaration"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.point), DomainPointRef):
-            msg = "domain host transform calls require a DomainPointRef"
-            raise TypeError(msg)
-        raw_inputs = cast("Mapping[object, object]", cast("object", self.inputs))
-        try:
-            candidates = dict(raw_inputs)
-        except Exception as error:
-            msg = "domain host transform call inputs must be a readable mapping"
-            raise TypeError(msg) from error
+        candidates = dict(self.inputs)
         expected = {port.id for port in self.transform.inputs}
         if set(candidates) != expected:
             msg = "domain host transform call inputs must exactly match input roles"
             raise ValueError(msg)
-        if any(not isinstance(port_id, str) for port_id in candidates):
-            msg = "domain host transform call input ids must be strings"
-            raise TypeError(msg)
         try:
             selected = {
-                cast("str", port_id): validated_measurement_value_copy(
-                    cast("MeasurementValue", value)
-                )
+                port_id: validated_measurement_value_copy(value)
                 for port_id, value in candidates.items()
             }
         except (AttributeError, TypeError, ValueError) as error:
@@ -136,21 +117,12 @@ class DomainHostTransformImplementation:
             self.semantic_version,
             self.implementation_fingerprint,
         )
-        if any(not isinstance(cast("object", value), str) for value in text_fields):
-            msg = "domain host transform implementation fields must be strings"
-            raise TypeError(msg)
         if not all(text_fields):
             msg = "domain host transform implementation fields must be non-empty"
             raise ValueError(msg)
         if self.rate != "point":
             msg = "domain host transform implementations support point rate only"
             raise ValueError(msg)
-        if not callable(self.validate_transform):
-            msg = "domain host transform validator must be callable"
-            raise TypeError(msg)
-        if not callable(self.kernel):
-            msg = "domain host transform kernel must be callable"
-            raise TypeError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,18 +133,6 @@ class DomainHostTransformBinding:
     implementation: DomainHostTransformImplementation
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            cast("object", self.transform),
-            DomainMeasurementTransform,
-        ):
-            msg = "domain host transform bindings require a transform declaration"
-            raise TypeError(msg)
-        if not isinstance(
-            cast("object", self.implementation),
-            DomainHostTransformImplementation,
-        ):
-            msg = "domain host transform bindings require a host implementation"
-            raise TypeError(msg)
         semantic = self.transform.semantic
         implementation = self.implementation
         if (
@@ -190,10 +150,6 @@ def lower_domain_measurement_transform_internal(
 ) -> MeasurementTransformDef:
     """Lower one context-owned SDK declaration into the existing core graph."""
 
-    _require_context(context)
-    if not isinstance(cast("object", transform), DomainMeasurementTransform):
-        msg = "domain transform lowering requires DomainMeasurementTransform"
-        raise TypeError(msg)
     return MeasurementTransformDef(
         id=NativeMeasurementTransformId(transform.id),
         semantic=transform.semantic.model_copy(deep=True),
@@ -216,16 +172,6 @@ def lower_domain_host_transform_implementation_internal(
 ) -> HostMeasurementTransformImplementation:
     """Adapt one SDK validator/kernel pair to the existing host executor."""
 
-    _require_context(context)
-    if not isinstance(cast("object", transform), DomainMeasurementTransform):
-        msg = "domain host implementation lowering requires a transform"
-        raise TypeError(msg)
-    if not isinstance(
-        cast("object", implementation),
-        DomainHostTransformImplementation,
-    ):
-        msg = "domain host implementation lowering requires an implementation"
-        raise TypeError(msg)
     DomainHostTransformBinding(transform, implementation)
     native_transform = lower_domain_measurement_transform_internal(context, transform)
     point_refs = {point_id_internal(point): point for point in context.points}
@@ -280,9 +226,6 @@ def lower_domain_host_transform_binding_internal(
 ) -> tuple[MeasurementTransformDef, HostMeasurementTransformImplementation]:
     """Lower one complete SDK host binding as a consistent native pair."""
 
-    if not isinstance(cast("object", binding), DomainHostTransformBinding):
-        msg = "domain host binding lowering requires DomainHostTransformBinding"
-        raise TypeError(msg)
     transform = lower_domain_measurement_transform_internal(
         context,
         binding.transform,
@@ -353,12 +296,6 @@ def _native_product_def(
     except StopIteration as error:
         msg = "domain batch context lost its linked product contract"
         raise AssertionError(msg) from error
-
-
-def _require_context(context: DomainBatchContext) -> None:
-    if not isinstance(cast("object", context), DomainBatchContext):
-        msg = "domain transform lowering requires a DomainBatchContext"
-        raise TypeError(msg)
 
 
 __all__ = [

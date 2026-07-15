@@ -33,7 +33,6 @@ from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.sdk.domain.invocation import (
     AdapterEntryResults,
     ClosedDomainInvocation,
-    DomainInvocationIntent,
     EntryPointBinding,
     ResultUseBinding,
     close_domain_invocation,
@@ -543,12 +542,6 @@ class _ScriptedRuntime:
         )
 
 
-@dataclass(frozen=True)
-class _ForgedInvocation:
-    intent: DomainInvocationIntent
-    payload: object
-
-
 def test_submit_returns_known_and_fetch_returns_correlated_with_durable_journal() -> (
     None
 ):
@@ -611,27 +604,6 @@ def test_submit_returns_known_and_fetch_returns_correlated_with_durable_journal(
         (submission_id.fetch_operation_id, "domain_fetch", "read", "completed", 3),
     ]
     assert journal.entries[0].evidence["submission_generation"] == 1
-
-
-def test_submit_rejects_non_closed_payload_before_journal_or_runtime() -> None:
-    invocation = _closed_invocation()
-    runtime = _ScriptedRuntime()
-    journal = MemoryExecutionJournal()
-    forged = _ForgedInvocation(
-        intent=invocation.intent,
-        payload=invocation.payload,
-    )
-
-    with pytest.raises(TypeError, match="ClosedDomainInvocation"):
-        submit_domain_invocation(
-            runtime,
-            cast("_Invocation", forged),
-            _submission_id(invocation),
-            journal=journal,
-        )
-
-    assert runtime.submit_calls == 0
-    assert journal.entries == ()
 
 
 def test_definitive_submit_absence_authorizes_exactly_one_new_generation() -> None:
@@ -1188,13 +1160,6 @@ def test_fetch_and_reconcile_require_correlated_stage_values_before_runtime_call
     submission_id = _submission_id(invocation)
     runtime = _ScriptedRuntime()
 
-    with pytest.raises(TypeError, match="KnownDomainSubmission"):
-        fetch_domain_invocation(
-            runtime,
-            invocation.intent,
-            cast("KnownDomainSubmission", object()),
-            journal=MemoryExecutionJournal(),
-        )
     with pytest.raises(TypeError, match="UncertainDomainSubmission"):
         reconcile_domain_invocation(
             runtime,
@@ -1202,7 +1167,7 @@ def test_fetch_and_reconcile_require_correlated_stage_values_before_runtime_call
             cast("UncertainDomainSubmission", submission_id),
             journal=MemoryExecutionJournal(),
         )
-    assert runtime.fetch_calls == runtime.reconcile_calls == 0
+    assert runtime.reconcile_calls == 0
 
     foreign_invocation = _closed_invocation(adapter_intent={"different": True})
     foreign_submission_id = plan_domain_submission(

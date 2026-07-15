@@ -9,11 +9,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
-    MaterializedLinkedPoints,
-    MaterializedLinkedPointSet,
-)
+from scopecat.compiler.linking.linked import MaterializedLinkedPointSet
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.records import (
     RecordPlan,
@@ -168,12 +164,6 @@ def select_measurement_projection(
 ) -> SelectedMeasurementProjection:
     """Select observable RecordUse projections without choosing a producer."""
 
-    if not isinstance(
-        cast("object", linked_points),
-        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
-    ):
-        msg = "measurement projection requires materialized linked points"
-        raise TypeError(msg)
     linked_plan = linked_points.linked_plan
     all_record_uses = tuple(linked_plan.record_uses)
     product_uses = tuple(linked_plan.product_uses)
@@ -191,12 +181,9 @@ def select_measurement_projection(
         )
     else:
         requested_ids = tuple(record_ids)
-        if any(
-            not isinstance(cast("object", record_id), str) or not record_id
-            for record_id in requested_ids
-        ):
+        if any(not record_id for record_id in requested_ids):
             msg = "measurement projection record ids must be non-empty strings"
-            raise TypeError(msg)
+            raise ValueError(msg)
         for record_id, count in Counter(requested_ids).items():
             if count > 1:
                 problems.append(
@@ -295,7 +282,7 @@ def bind_measurement_projection(
 ) -> BoundMeasurementProjection:
     """Prove before effects that selected values cover all record inputs."""
 
-    selected_projection = _require_selected_projection(projection)
+    selected_projection = projection
     selected_values = require_measurement_value_assembly(product_values)
     problems: list[Problem] = []
     if (
@@ -347,7 +334,7 @@ def project_measurement_records(
 ) -> ProjectedMeasurementRecords:
     """Project complete canonical point records without changing product values."""
 
-    bound = _require_bound_projection(selection)
+    bound = selection
     if not run_id:
         msg = "measurement projection run_id must be non-empty"
         raise ValueError(msg)
@@ -392,28 +379,7 @@ def require_projected_measurement_records(
 ) -> ProjectedMeasurementRecords:
     """Require the projected stage produced by record projection."""
 
-    if not isinstance(cast("object", projected), ProjectedMeasurementRecords):
-        msg = "measurement recording requires ProjectedMeasurementRecords"
-        raise TypeError(msg)
     return projected
-
-
-def _require_selected_projection(
-    projection: SelectedMeasurementProjection,
-) -> SelectedMeasurementProjection:
-    if not isinstance(cast("object", projection), SelectedMeasurementProjection):
-        msg = "measurement projection requires SelectedMeasurementProjection"
-        raise TypeError(msg)
-    return projection
-
-
-def _require_bound_projection(
-    selection: BoundMeasurementProjection,
-) -> BoundMeasurementProjection:
-    if not isinstance(cast("object", selection), BoundMeasurementProjection):
-        msg = "measurement records require BoundMeasurementProjection"
-        raise TypeError(msg)
-    return selection
 
 
 def _projection_contract_fingerprint(
@@ -442,11 +408,6 @@ def _projection_contract_fingerprint(
 def _snapshot_measurement_records(
     records: Sequence[MeasurementRecord],
 ) -> tuple[MeasurementRecord, ...]:
-    if any(
-        not isinstance(cast("object", record), MeasurementRecord) for record in records
-    ):
-        msg = "projected values require MeasurementRecord instances"
-        raise TypeError(msg)
     return tuple(deepcopy(record) for record in records)
 
 

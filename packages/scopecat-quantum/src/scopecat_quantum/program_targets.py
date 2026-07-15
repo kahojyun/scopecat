@@ -16,7 +16,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TypeGuard, cast
 
 from scopecat_quantum._ids import (
     QuantumProgramId,
@@ -24,14 +23,7 @@ from scopecat_quantum._ids import (
     TargetCompilerId,
     TargetId,
 )
-from scopecat_quantum.circuit_pulses import (
-    CircuitPulseAcquisitionProvenance,
-    CircuitPulseEventProvenance,
-)
 from scopecat_quantum.programs import (
-    AuthoredPulseAcquisitionProvenance,
-    AuthoredPulseEventProvenance,
-    ImplementedGatePulseEventProvenance,
     LoweredQuantumPulseProgram,
     QuantumPulseAcquisitionProvenance,
     QuantumPulseEventProvenance,
@@ -43,26 +35,6 @@ from scopecat_quantum.targets import (
     TargetCompileRequest,
     TargetEventAddress,
 )
-
-
-def _is_event_provenance(
-    value: object,
-) -> TypeGuard[QuantumPulseEventProvenance]:
-    return isinstance(
-        value,
-        CircuitPulseEventProvenance
-        | AuthoredPulseEventProvenance
-        | ImplementedGatePulseEventProvenance,
-    )
-
-
-def _is_acquisition_provenance(
-    value: object,
-) -> TypeGuard[QuantumPulseAcquisitionProvenance]:
-    return isinstance(
-        value,
-        CircuitPulseAcquisitionProvenance | AuthoredPulseAcquisitionProvenance,
-    )
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -79,15 +51,6 @@ class QuantumTargetEventOrigin:
         address: TargetEventAddress,
         provenance: QuantumPulseEventProvenance,
     ) -> None:
-        if not isinstance(cast("object", source_program_id), QuantumProgramId):
-            msg = "quantum target event origins require a QuantumProgramId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", address), TargetEventAddress):
-            msg = "quantum target event origins require a TargetEventAddress"
-            raise TypeError(msg)
-        if not _is_event_provenance(cast("object", provenance)):
-            msg = "quantum target event origins require mixed pulse provenance"
-            raise TypeError(msg)
         if address.event_id != provenance.event_id:
             msg = "target event address must identify its mixed pulse provenance"
             raise ValueError(msg)
@@ -110,17 +73,6 @@ class QuantumTargetAcquisitionOrigin:
         address: TargetAcquisitionAddress,
         provenance: QuantumPulseAcquisitionProvenance,
     ) -> None:
-        if not isinstance(cast("object", source_program_id), QuantumProgramId):
-            msg = "quantum target acquisition origins require a QuantumProgramId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", address), TargetAcquisitionAddress):
-            msg = (
-                "quantum target acquisition origins require a TargetAcquisitionAddress"
-            )
-            raise TypeError(msg)
-        if not _is_acquisition_provenance(cast("object", provenance)):
-            msg = "quantum target acquisition origins require mixed pulse provenance"
-            raise TypeError(msg)
         if address.slot_id != provenance.acquisition_slot_id:
             msg = "target acquisition address must identify its mixed pulse provenance"
             raise ValueError(msg)
@@ -147,23 +99,21 @@ class PreparedQuantumTargetEntry:
         event_origins: tuple[QuantumTargetEventOrigin, ...],
         acquisition_origins: tuple[QuantumTargetAcquisitionOrigin, ...],
     ) -> None:
-        selected_event_origins = tuple(event_origins)
-        selected_acquisition_origins = tuple(acquisition_origins)
         _validate_entry_congruence(
             lowered=lowered,
             scheduled=scheduled,
             target_entry=target_entry,
-            event_origins=selected_event_origins,
-            acquisition_origins=selected_acquisition_origins,
+            event_origins=event_origins,
+            acquisition_origins=acquisition_origins,
         )
         object.__setattr__(self, "lowered", lowered)
         object.__setattr__(self, "scheduled", scheduled)
         object.__setattr__(self, "target_entry", target_entry)
-        object.__setattr__(self, "event_origins", selected_event_origins)
+        object.__setattr__(self, "event_origins", event_origins)
         object.__setattr__(
             self,
             "acquisition_origins",
-            selected_acquisition_origins,
+            acquisition_origins,
         )
 
     @property
@@ -211,13 +161,6 @@ def prepare_quantum_target_entry(
 ) -> PreparedQuantumTargetEntry:
     """Schedule one lowered mixed program and retain total source provenance."""
 
-    if not isinstance(cast("object", entry_id), TargetCompileEntryId):
-        msg = "quantum target entry_id must be a TargetCompileEntryId"
-        raise TypeError(msg)
-    if not isinstance(cast("object", lowered), LoweredQuantumPulseProgram):
-        msg = "quantum target preparation requires a LoweredQuantumPulseProgram"
-        raise TypeError(msg)
-
     scheduled = schedule(lowered.program)
     target_entry = TargetCompileEntry(id=entry_id, program=scheduled)
     event_origins = _event_origins(lowered, target_entry)
@@ -260,53 +203,39 @@ class PreparedQuantumTargetBatch:
         event_origins: tuple[QuantumTargetEventOrigin, ...],
         acquisition_origins: tuple[QuantumTargetAcquisitionOrigin, ...],
     ) -> None:
-        selected_entries = tuple(entries)
-        selected_event_origins = tuple(event_origins)
-        selected_acquisition_origins = tuple(acquisition_origins)
-        if not isinstance(cast("object", request), TargetCompileRequest):
-            msg = "prepared quantum target batches require a TargetCompileRequest"
-            raise TypeError(msg)
-        if not selected_entries or not all(
-            isinstance(entry, PreparedQuantumTargetEntry)
-            for entry in cast("tuple[object, ...]", selected_entries)
-        ):
-            msg = (
-                "prepared quantum target batches require "
-                "PreparedQuantumTargetEntry values"
-            )
-            raise TypeError(msg)
+        if not entries:
+            msg = "prepared quantum target batches require at least one entry"
+            raise ValueError(msg)
 
-        expected_target_entries = tuple(
-            entry.target_entry for entry in selected_entries
-        )
+        expected_target_entries = tuple(entry.target_entry for entry in entries)
         if request.entries != expected_target_entries:
             msg = "target compile request must exactly retain prepared entry order"
             raise ValueError(msg)
-        entry_ids = tuple(entry.id for entry in selected_entries)
+        entry_ids = tuple(entry.id for entry in entries)
         if len(set(entry_ids)) != len(entry_ids):
             msg = "prepared quantum target entry ids must be unique"
             raise ValueError(msg)
 
         expected_event_origins = tuple(
-            origin for entry in selected_entries for origin in entry.event_origins
+            origin for entry in entries for origin in entry.event_origins
         )
         expected_acquisition_origins = tuple(
-            origin for entry in selected_entries for origin in entry.acquisition_origins
+            origin for entry in entries for origin in entry.acquisition_origins
         )
-        if selected_event_origins != expected_event_origins:
+        if event_origins != expected_event_origins:
             msg = "batch event origins must exactly cover prepared entries in order"
             raise ValueError(msg)
-        if selected_acquisition_origins != expected_acquisition_origins:
+        if acquisition_origins != expected_acquisition_origins:
             msg = (
                 "batch acquisition origins must exactly cover prepared entries in order"
             )
             raise ValueError(msg)
-        if tuple(origin.address for origin in selected_event_origins) != (
+        if tuple(origin.address for origin in event_origins) != (
             request.event_addresses
         ):
             msg = "batch event origins must exactly cover target request addresses"
             raise ValueError(msg)
-        if tuple(origin.address for origin in selected_acquisition_origins) != (
+        if tuple(origin.address for origin in acquisition_origins) != (
             request.acquisition_addresses
         ):
             msg = (
@@ -314,27 +243,25 @@ class PreparedQuantumTargetBatch:
             )
             raise ValueError(msg)
 
-        entries_by_id = {entry.id: entry for entry in selected_entries}
-        event_origins_by_address = {
-            origin.address: origin for origin in selected_event_origins
-        }
+        entries_by_id = {entry.id: entry for entry in entries}
+        event_origins_by_address = {origin.address: origin for origin in event_origins}
         acquisition_origins_by_address = {
-            origin.address: origin for origin in selected_acquisition_origins
+            origin.address: origin for origin in acquisition_origins
         }
-        if len(event_origins_by_address) != len(selected_event_origins):
+        if len(event_origins_by_address) != len(event_origins):
             msg = "prepared quantum target event addresses must be unique"
             raise ValueError(msg)
-        if len(acquisition_origins_by_address) != len(selected_acquisition_origins):
+        if len(acquisition_origins_by_address) != len(acquisition_origins):
             msg = "prepared quantum target acquisition addresses must be unique"
             raise ValueError(msg)
 
-        object.__setattr__(self, "entries", selected_entries)
+        object.__setattr__(self, "entries", entries)
         object.__setattr__(self, "request", request)
-        object.__setattr__(self, "event_origins", selected_event_origins)
+        object.__setattr__(self, "event_origins", event_origins)
         object.__setattr__(
             self,
             "acquisition_origins",
-            selected_acquisition_origins,
+            acquisition_origins,
         )
         object.__setattr__(self, "_entries_by_id", MappingProxyType(entries_by_id))
         object.__setattr__(
@@ -398,12 +325,9 @@ def prepare_quantum_target_batch(
     """Close ordered mixed-program entries into one target compile request."""
 
     selected_entries = tuple(entries)
-    if not selected_entries or not all(
-        isinstance(entry, PreparedQuantumTargetEntry)
-        for entry in cast("tuple[object, ...]", selected_entries)
-    ):
+    if not selected_entries:
         msg = "quantum target batches require at least one PreparedQuantumTargetEntry"
-        raise TypeError(msg)
+        raise ValueError(msg)
     request = TargetCompileRequest(
         target_id=target_id,
         compiler_id=compiler_id,
@@ -475,30 +399,6 @@ def _validate_entry_congruence(
     event_origins: tuple[QuantumTargetEventOrigin, ...],
     acquisition_origins: tuple[QuantumTargetAcquisitionOrigin, ...],
 ) -> None:
-    if not isinstance(cast("object", lowered), LoweredQuantumPulseProgram):
-        msg = "prepared quantum target entries require a lowered pulse proof"
-        raise TypeError(msg)
-    if not isinstance(cast("object", scheduled), ScheduledPulseProgram):
-        msg = "prepared quantum target entries require a scheduled pulse proof"
-        raise TypeError(msg)
-    if not isinstance(cast("object", target_entry), TargetCompileEntry):
-        msg = "prepared quantum target entries require a target compile entry"
-        raise TypeError(msg)
-    if not all(
-        isinstance(origin, QuantumTargetEventOrigin)
-        for origin in cast("tuple[object, ...]", event_origins)
-    ):
-        msg = "prepared quantum target event origins have an invalid runtime shape"
-        raise TypeError(msg)
-    if not all(
-        isinstance(origin, QuantumTargetAcquisitionOrigin)
-        for origin in cast("tuple[object, ...]", acquisition_origins)
-    ):
-        msg = (
-            "prepared quantum target acquisition origins have an invalid runtime shape"
-        )
-        raise TypeError(msg)
-
     if scheduled.id != lowered.program.id:
         msg = "scheduled pulse proof must retain the lowered pulse program identity"
         raise ValueError(msg)

@@ -209,17 +209,12 @@ class ProductionDragProductBinding:
 
     def __post_init__(self) -> None:
         selected = tuple(self.iq_shots)
-        if not selected or any(
-            not isinstance(value, DomainProductUseRef) for value in selected
-        ):
-            msg = "production DRAG bindings require typed IQ product uses"
-            raise TypeError(msg)
+        if not selected:
+            msg = "production DRAG bindings require IQ product uses"
+            raise ValueError(msg)
         if len(set(selected)) != len(selected):
             msg = "production DRAG IQ product uses must be distinct"
             raise ValueError(msg)
-        if not isinstance(self.transform, DomainMeasurementTransform):
-            msg = "production DRAG bindings require one authored transform"
-            raise TypeError(msg)
         object.__setattr__(self, "iq_shots", selected)
 
 
@@ -282,28 +277,10 @@ def prepare_production_drag_gate(
 ) -> PreparedProductionDragGate:
     """Bind active beta, compile the mixed program, and close its result mapping."""
 
-    if not isinstance(preparation, DomainPreparationBuilder):
-        msg = "production DRAG preparation requires a domain preparation builder"
-        raise TypeError(msg)
-    if not isinstance(products, ProductionDragProductBinding):
-        msg = "production DRAG preparation requires a product binding"
-        raise TypeError(msg)
-    if not isinstance(result_slot_id, AcquisitionSlotId):
-        msg = "production DRAG preparation requires an acquisition slot"
-        raise TypeError(msg)
-    if not isinstance(declaration, quantum.Program):
-        msg = "production DRAG preparation requires a Program"
-        raise TypeError(msg)
-    if type(shots) is not int or shots <= 0:
+    if isinstance(shots, bool) or shots <= 0:
         msg = "production DRAG shots must be a positive integer"
         raise ValueError(msg)
     selected_target = default_fake_list_target() if target is None else target
-    if not isinstance(selected_target, FakeListTarget):
-        msg = "production DRAG preparation requires a FakeListTarget"
-        raise TypeError(msg)
-    if not isinstance(compiler_id, TargetCompilerId):
-        msg = "production DRAG compiler_id must be a TargetCompilerId"
-        raise TypeError(msg)
     if not invocation_id:
         msg = "production DRAG invocation_id must be non-empty"
         raise ValueError(msg)
@@ -393,9 +370,6 @@ class ProductionDragGateExecutionAdapter:
 
     def __init__(self, *, target: FakeListTarget | None = None) -> None:
         selected = default_fake_list_target() if target is None else target
-        if not isinstance(selected, FakeListTarget):
-            msg = "production DRAG adapter requires a FakeListTarget"
-            raise TypeError(msg)
         self.target = selected
         self._preparations: list[PreparedProductionDragGate] = []
 

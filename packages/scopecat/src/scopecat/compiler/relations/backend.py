@@ -452,9 +452,6 @@ def select_relation_plan[NodeT: PlanNode](
 ) -> SelectedRelationPlan[NodeT]:
     """Bind a static relation proof to a backend capability set."""
 
-    if not isinstance(cast("object", verified_plan), VerifiedRelationPlan):
-        msg = "backend selection requires a VerifiedRelationPlan"
-        raise TypeError(msg)
     issues = assess_relation_plan(backend, verified_plan)
     if issues:
         raise RelationBackendCapabilityError(backend.backend_id, issues)
@@ -470,9 +467,6 @@ def _unwrap_selected_plan[NodeT: PlanNode](
 ) -> NodeT:
     """Recover a defensive root for a backend-bound evaluator dispatch."""
 
-    if not isinstance(cast("object", selected_plan), SelectedRelationPlan):
-        msg = "backend evaluation requires a SelectedRelationPlan"
-        raise TypeError(msg)
     if selected_plan.backend_id != backend.backend_id:
         msg = (
             f"relation plan selected for backend {selected_plan.backend_id!r} "

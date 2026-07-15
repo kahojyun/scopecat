@@ -17,7 +17,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import cast
 
 from scopecat_quantum._ids import (
     CircuitId,
@@ -57,15 +56,6 @@ class CircuitTargetEventOrigin:
         address: TargetEventAddress,
         provenance: CircuitPulseEventProvenance,
     ) -> None:
-        if not isinstance(cast("object", source_circuit_id), CircuitId):
-            msg = "circuit target event origins require a CircuitId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", address), TargetEventAddress):
-            msg = "circuit target event origins require a TargetEventAddress"
-            raise TypeError(msg)
-        if not isinstance(cast("object", provenance), CircuitPulseEventProvenance):
-            msg = "circuit target event origins require circuit pulse provenance"
-            raise TypeError(msg)
         if address.event_id != provenance.event_id:
             msg = "target event address must identify its circuit pulse provenance"
             raise ValueError(msg)
@@ -88,20 +78,6 @@ class CircuitTargetAcquisitionOrigin:
         address: TargetAcquisitionAddress,
         provenance: CircuitPulseAcquisitionProvenance,
     ) -> None:
-        if not isinstance(cast("object", source_circuit_id), CircuitId):
-            msg = "circuit target acquisition origins require a CircuitId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", address), TargetAcquisitionAddress):
-            msg = (
-                "circuit target acquisition origins require a TargetAcquisitionAddress"
-            )
-            raise TypeError(msg)
-        if not isinstance(
-            cast("object", provenance),
-            CircuitPulseAcquisitionProvenance,
-        ):
-            msg = "circuit target acquisition origins require circuit pulse provenance"
-            raise TypeError(msg)
         if address.slot_id != provenance.acquisition_slot_id:
             msg = (
                 "target acquisition address must identify its circuit pulse provenance"
@@ -134,27 +110,25 @@ class PreparedCircuitTargetEntry:
         event_origins: tuple[CircuitTargetEventOrigin, ...],
         acquisition_origins: tuple[CircuitTargetAcquisitionOrigin, ...],
     ) -> None:
-        selected_event_origins = tuple(event_origins)
-        selected_acquisition_origins = tuple(acquisition_origins)
         _validate_entry_congruence(
             circuit=circuit,
             selection=selection,
             lowered=lowered,
             scheduled=scheduled,
             target_entry=target_entry,
-            event_origins=selected_event_origins,
-            acquisition_origins=selected_acquisition_origins,
+            event_origins=event_origins,
+            acquisition_origins=acquisition_origins,
         )
         object.__setattr__(self, "circuit", circuit)
         object.__setattr__(self, "selection", selection)
         object.__setattr__(self, "lowered", lowered)
         object.__setattr__(self, "scheduled", scheduled)
         object.__setattr__(self, "target_entry", target_entry)
-        object.__setattr__(self, "event_origins", selected_event_origins)
+        object.__setattr__(self, "event_origins", event_origins)
         object.__setattr__(
             self,
             "acquisition_origins",
-            selected_acquisition_origins,
+            acquisition_origins,
         )
 
     @property
@@ -205,19 +179,6 @@ def prepare_circuit_target_entry(
 ) -> PreparedCircuitTargetEntry:
     """Lower and schedule one exactly calibrated circuit target entry."""
 
-    if not isinstance(cast("object", entry_id), TargetCompileEntryId):
-        msg = "circuit target entry_id must be a TargetCompileEntryId"
-        raise TypeError(msg)
-    if not isinstance(cast("object", circuit), VerifiedCircuitProgram):
-        msg = "circuit target preparation requires a VerifiedCircuitProgram"
-        raise TypeError(msg)
-    if not isinstance(cast("object", selection), CalibrationSelection):
-        msg = "circuit target preparation requires a CalibrationSelection"
-        raise TypeError(msg)
-    if not isinstance(cast("object", output_id), PulseProgramId):
-        msg = "circuit target output_id must be a PulseProgramId"
-        raise TypeError(msg)
-
     lowered = lower_circuit_to_pulses(circuit, selection, output_id=output_id)
     scheduled = schedule(lowered.program)
     target_entry = TargetCompileEntry(id=entry_id, program=scheduled)
@@ -267,51 +228,37 @@ class PreparedCircuitTargetBatch:
         event_origins: tuple[CircuitTargetEventOrigin, ...],
         acquisition_origins: tuple[CircuitTargetAcquisitionOrigin, ...],
     ) -> None:
-        selected_entries = tuple(entries)
-        selected_event_origins = tuple(event_origins)
-        selected_acquisition_origins = tuple(acquisition_origins)
-        if not isinstance(cast("object", request), TargetCompileRequest):
-            msg = "prepared circuit target batches require a TargetCompileRequest"
-            raise TypeError(msg)
-        if not selected_entries or not all(
-            isinstance(entry, PreparedCircuitTargetEntry)
-            for entry in cast("tuple[object, ...]", selected_entries)
-        ):
-            msg = (
-                "prepared circuit target batches require PreparedCircuitTargetEntry "
-                "values"
-            )
-            raise TypeError(msg)
-        expected_target_entries = tuple(
-            entry.target_entry for entry in selected_entries
-        )
+        if not entries:
+            msg = "prepared circuit target batches require at least one entry"
+            raise ValueError(msg)
+        expected_target_entries = tuple(entry.target_entry for entry in entries)
         if request.entries != expected_target_entries:
             msg = "target compile request must exactly retain prepared entry order"
             raise ValueError(msg)
-        entry_ids = tuple(entry.id for entry in selected_entries)
+        entry_ids = tuple(entry.id for entry in entries)
         if len(set(entry_ids)) != len(entry_ids):
             msg = "prepared circuit target entry ids must be unique"
             raise ValueError(msg)
         expected_event_origins = tuple(
-            origin for entry in selected_entries for origin in entry.event_origins
+            origin for entry in entries for origin in entry.event_origins
         )
         expected_acquisition_origins = tuple(
-            origin for entry in selected_entries for origin in entry.acquisition_origins
+            origin for entry in entries for origin in entry.acquisition_origins
         )
-        if selected_event_origins != expected_event_origins:
+        if event_origins != expected_event_origins:
             msg = "batch event origins must exactly cover prepared entries in order"
             raise ValueError(msg)
-        if selected_acquisition_origins != expected_acquisition_origins:
+        if acquisition_origins != expected_acquisition_origins:
             msg = (
                 "batch acquisition origins must exactly cover prepared entries in order"
             )
             raise ValueError(msg)
-        if tuple(origin.address for origin in selected_event_origins) != (
+        if tuple(origin.address for origin in event_origins) != (
             request.event_addresses
         ):
             msg = "batch event origins must exactly cover target request addresses"
             raise ValueError(msg)
-        if tuple(origin.address for origin in selected_acquisition_origins) != (
+        if tuple(origin.address for origin in acquisition_origins) != (
             request.acquisition_addresses
         ):
             msg = (
@@ -319,26 +266,24 @@ class PreparedCircuitTargetBatch:
             )
             raise ValueError(msg)
 
-        entries_by_id = {entry.id: entry for entry in selected_entries}
-        event_origins_by_address = {
-            origin.address: origin for origin in selected_event_origins
-        }
+        entries_by_id = {entry.id: entry for entry in entries}
+        event_origins_by_address = {origin.address: origin for origin in event_origins}
         acquisition_origins_by_address = {
-            origin.address: origin for origin in selected_acquisition_origins
+            origin.address: origin for origin in acquisition_origins
         }
-        if len(event_origins_by_address) != len(selected_event_origins):
+        if len(event_origins_by_address) != len(event_origins):
             msg = "prepared circuit target event addresses must be unique"
             raise ValueError(msg)
-        if len(acquisition_origins_by_address) != len(selected_acquisition_origins):
+        if len(acquisition_origins_by_address) != len(acquisition_origins):
             msg = "prepared circuit target acquisition addresses must be unique"
             raise ValueError(msg)
-        object.__setattr__(self, "entries", selected_entries)
+        object.__setattr__(self, "entries", entries)
         object.__setattr__(self, "request", request)
-        object.__setattr__(self, "event_origins", selected_event_origins)
+        object.__setattr__(self, "event_origins", event_origins)
         object.__setattr__(
             self,
             "acquisition_origins",
-            selected_acquisition_origins,
+            acquisition_origins,
         )
         object.__setattr__(
             self,
@@ -406,12 +351,9 @@ def prepare_circuit_target_batch(
     """Close an ordered circuit-entry batch into one target compile request."""
 
     selected_entries = tuple(entries)
-    if not selected_entries or not all(
-        isinstance(entry, PreparedCircuitTargetEntry)
-        for entry in cast("tuple[object, ...]", selected_entries)
-    ):
+    if not selected_entries:
         msg = "circuit target batches require at least one PreparedCircuitTargetEntry"
-        raise TypeError(msg)
+        raise ValueError(msg)
     request = TargetCompileRequest(
         target_id=target_id,
         compiler_id=compiler_id,
@@ -473,36 +415,6 @@ def _validate_entry_congruence(
     event_origins: tuple[CircuitTargetEventOrigin, ...],
     acquisition_origins: tuple[CircuitTargetAcquisitionOrigin, ...],
 ) -> None:
-    if not isinstance(cast("object", circuit), VerifiedCircuitProgram):
-        msg = "prepared circuit target entries require a verified circuit"
-        raise TypeError(msg)
-    if not isinstance(cast("object", selection), CalibrationSelection):
-        msg = "prepared circuit target entries require a calibration selection"
-        raise TypeError(msg)
-    if not isinstance(cast("object", lowered), LoweredCircuitPulseProgram):
-        msg = "prepared circuit target entries require a lowered pulse proof"
-        raise TypeError(msg)
-    if not isinstance(cast("object", scheduled), ScheduledPulseProgram):
-        msg = "prepared circuit target entries require a scheduled pulse proof"
-        raise TypeError(msg)
-    if not isinstance(cast("object", target_entry), TargetCompileEntry):
-        msg = "prepared circuit target entries require a target compile entry"
-        raise TypeError(msg)
-    if not all(
-        isinstance(origin, CircuitTargetEventOrigin)
-        for origin in cast("tuple[object, ...]", event_origins)
-    ):
-        msg = "prepared circuit target event origins have an invalid runtime shape"
-        raise TypeError(msg)
-    if not all(
-        isinstance(origin, CircuitTargetAcquisitionOrigin)
-        for origin in cast("tuple[object, ...]", acquisition_origins)
-    ):
-        msg = (
-            "prepared circuit target acquisition origins have an invalid runtime shape"
-        )
-        raise TypeError(msg)
-
     source_circuit_id = circuit.program.id
     expected_operation_ids = tuple(operation.id for operation in circuit.operations)
     if (

@@ -389,19 +389,6 @@ def test_execution_collection_inventory_snapshots_runtime_sequence() -> None:
     assert snapshotted.collection_product_use_ids == (program.product_uses[0].id,)
 
 
-def test_execution_collection_inventory_rejects_invalid_runtime_id() -> None:
-    program = _source_and_derived_execution_program()
-
-    with pytest.raises(TypeError, match="ProductUseId"):
-        replace(
-            program,
-            collection_product_use_ids=cast(
-                "tuple[ProductUseId, ...]",
-                ("not-a-product-use-id",),
-            ),
-        )
-
-
 def test_zero_point_execution_retains_nonempty_collection_inventory() -> None:
     source_use = product_use(product_id("source"))
 

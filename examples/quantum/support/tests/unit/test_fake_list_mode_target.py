@@ -1395,12 +1395,3 @@ def test_default_target_is_explicit_lab_owned_hardware_configuration() -> None:
     assert len(target.acquisition_bindings) == 4
     assert target.supported_envelopes == ("constant", "drag")
     assert target.capability_fingerprint.startswith("sha256:")
-
-
-def test_runtime_rejects_raw_artifact_instead_of_bypassing_compiled_wrapper() -> None:
-    artifact = _compile_two_entries().artifact
-
-    with pytest.raises(TypeError, match="CompiledTargetArtifact"):
-        FakeListRuntime().execute(
-            cast("object", artifact)  # type: ignore[arg-type]
-        )

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from functools import partial
-from typing import cast
 
 import pytest
 from hypothesis import given
@@ -135,114 +133,6 @@ def test_operation_contract_fact_matrix_is_exhaustive(
     )
 
     assert valid is expected
-
-
-def test_operation_contract_rejects_unknown_orthogonal_facts() -> None:
-    contract = OperationContract(
-        semantics=cast("OperationSemantics", object()),
-        effect=cast("EffectClass", "future-effect"),
-        portability=cast("Portability", "future-portability"),
-        placement=cast("PlacementConstraint", "future-placement"),
-    )
-
-    assert {issue.code for issue in operation_contract_issues(contract)} == {
-        "semantic_operation_effect_unknown",
-        "semantic_operation_placement_unknown",
-        "semantic_operation_portability_unknown",
-        "semantic_operation_semantics_unknown",
-    }
-
-
-@pytest.mark.parametrize("operator", ["**", []], ids=("unknown", "unhashable"))
-def test_operation_contract_rejects_unknown_scalar_operator(
-    operator: object,
-) -> None:
-    contract = replace(
-        scalar_binary_operation_contract("+"),
-        semantics=ScalarBinarySemantics(cast("ScalarOperator", operator)),
-    )
-
-    assert [issue.code for issue in operation_contract_issues(contract)] == [
-        "semantic_scalar_binary_operator_invalid"
-    ]
-
-
-def test_semantic_verification_reports_unknown_contract_before_lowering() -> None:
-    operation_id = OperationId(SymbolId(local_id="unknown"))
-    output_id = operation_result_id(operation_id)
-    operation = SemanticOperation(
-        id=operation_id,
-        contract=replace(
-            LOCAL_OPAQUE_OPERATION_CONTRACT,
-            semantics=cast("OperationSemantics", object()),
-        ),
-        inputs=(),
-        outputs=(("result", output_id),),
-    )
-    output = ValueDef(
-        id=output_id,
-        value_type=_FLOAT,
-        availability=_EXECUTE_POINT,
-        source=OperationOutputSource(operation_id),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(
-            SemanticGraphIR(value_defs=(output,), operations=(operation,))
-        )
-
-    assert [problem.code for problem in caught.value.problems] == [
-        "semantic_operation_semantics_unknown"
-    ]
-
-
-def test_semantic_verification_does_not_reclassify_invalid_operator() -> None:
-    operation_id = OperationId(SymbolId(local_id="invalid-operator"))
-    left_id = ValueId(SymbolId(local_id="left"))
-    right_id = ValueId(SymbolId(local_id="right"))
-    output_id = operation_result_id(operation_id)
-    operation = SemanticOperation(
-        id=operation_id,
-        contract=replace(
-            scalar_binary_operation_contract("+"),
-            semantics=ScalarBinarySemantics(cast("ScalarOperator", "**")),
-        ),
-        inputs=(
-            ("left", ValueUse(left_id)),
-            ("right", ValueUse(right_id)),
-        ),
-        outputs=(("result", output_id),),
-    )
-    graph = SemanticGraphIR(
-        value_defs=(
-            ValueDef(
-                id=left_id,
-                value_type=_FLOAT,
-                availability=_PLAN_RUN,
-                source=LiteralValueSource(1.0),
-            ),
-            ValueDef(
-                id=right_id,
-                value_type=_FLOAT,
-                availability=_PLAN_RUN,
-                source=LiteralValueSource(2.0),
-            ),
-            ValueDef(
-                id=output_id,
-                value_type=_FLOAT,
-                availability=_PLAN_RUN,
-                source=OperationOutputSource(operation_id),
-            ),
-        ),
-        operations=(operation,),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(graph)
-
-    assert [problem.code for problem in caught.value.problems] == [
-        "semantic_scalar_binary_operator_invalid"
-    ]
 
 
 def test_typed_program_rechecks_scalar_contract_shape() -> None:

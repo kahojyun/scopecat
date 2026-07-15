@@ -35,41 +35,6 @@ type TargetEntryPoint = tuple[TargetCompileEntryId, DomainPointRef]
 type TargetAcquisitionUse = tuple[TargetAcquisitionAddress, DomainProductUseRef]
 
 
-def validate_target_entry_point_binding(
-    entry_id: object,
-    point: object,
-    *,
-    family: TargetResultFamily,
-) -> None:
-    """Validate one authoring-surface edge at its public ingress."""
-
-    if not isinstance(entry_id, TargetCompileEntryId):
-        msg = f"{family} target entry-point bindings require a TargetCompileEntryId"
-        raise TypeError(msg)
-    if not isinstance(point, DomainPointRef):
-        msg = f"{family} target entry-point bindings require a DomainPointRef"
-        raise TypeError(msg)
-
-
-def validate_target_acquisition_use_binding(
-    address: object,
-    product_use: object,
-    *,
-    family: TargetResultFamily,
-) -> None:
-    """Validate one qualified-result edge at its public ingress."""
-
-    if not isinstance(address, TargetAcquisitionAddress):
-        msg = (
-            f"{family} target acquisition-use bindings require a "
-            "TargetAcquisitionAddress"
-        )
-        raise TypeError(msg)
-    if not isinstance(product_use, DomainProductUseRef):
-        msg = f"{family} target acquisition-use bindings require a DomainProductUseRef"
-        raise TypeError(msg)
-
-
 def map_target_results(
     preparation: DomainPreparationBuilder,
     request: TargetCompileRequest,

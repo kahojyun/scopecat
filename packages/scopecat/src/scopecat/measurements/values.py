@@ -18,11 +18,7 @@ from typing import cast
 from pydantic import JsonValue
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
-    MaterializedLinkedPoints,
-    MaterializedLinkedPointSet,
-)
+from scopecat.compiler.linking.linked import MaterializedLinkedPointSet
 from scopecat.compiler.typed.point_domain import LogicalPointId, MaterializedPoint
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
@@ -39,12 +35,7 @@ from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
     validated_measurement_value_copy,
 )
-from scopecat.records.measurement import (
-    ComplexQuantity,
-    MeasurementArray,
-    MeasurementValue,
-)
-from scopecat.records.parameter import Quantity
+from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.domain.invocation import (
     ClosedDomainOutputValues,
     SelectedDomainMeasurementOutputs,
@@ -62,13 +53,6 @@ class ProductValueFragmentDef:
         if not self.id:
             msg = "measurement value fragment id must be non-empty"
             raise ValueError(msg)
-        selected = tuple(self.product_use_ids)
-        if any(
-            not isinstance(cast("object", use_id), ProductUseId) for use_id in selected
-        ):
-            msg = "measurement value fragment uses require ProductUseId values"
-            raise TypeError(msg)
-        object.__setattr__(self, "product_use_ids", selected)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -242,17 +226,6 @@ class MeasurementValueCandidate:
     product_use_id: ProductUseId
     value: MeasurementValue
 
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.logical_point_id), LogicalPointId):
-            msg = "measurement value candidates require a LogicalPointId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.product_use_id), ProductUseId):
-            msg = "measurement value candidates require a ProductUseId"
-            raise TypeError(msg)
-        if not _is_measurement_value(cast("object", self.value)):
-            msg = "measurement value candidates require a MeasurementValue"
-            raise TypeError(msg)
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class ClosedMeasurementProductValue:
@@ -394,23 +367,8 @@ def select_measurement_value_assembly(
 ) -> SelectedMeasurementValueAssembly:
     """Seal an exact, disjoint fragment cover before any producer effect."""
 
-    if not isinstance(
-        cast("object", linked_points),
-        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
-    ):
-        msg = "measurement value assembly requires materialized linked points"
-        raise TypeError(msg)
     required = tuple(required_product_use_ids)
-    if any(not isinstance(cast("object", use_id), ProductUseId) for use_id in required):
-        msg = "required measurement values require ProductUseId values"
-        raise TypeError(msg)
     definitions = tuple(fragment_defs)
-    if any(
-        not isinstance(cast("object", definition), ProductValueFragmentDef)
-        for definition in definitions
-    ):
-        msg = "measurement value assembly requires ProductValueFragmentDef values"
-        raise TypeError(msg)
 
     all_uses, product_by_use_id = _measurement_product_inventory(linked_points)
     all_use_by_id = {use.id: use for use in all_uses}
@@ -588,12 +546,6 @@ def seal_measurement_value_fragment(
     selected = require_measurement_value_assembly(selection)
     fragment = selected.fragment(fragment_id)
     supplied = tuple(candidates)
-    if any(
-        not isinstance(cast("object", candidate), MeasurementValueCandidate)
-        for candidate in supplied
-    ):
-        msg = "measurement value fragment requires MeasurementValueCandidate values"
-        raise TypeError(msg)
 
     points = selected.linked_points.point_domain.points
     expected_keys = {
@@ -703,12 +655,6 @@ def bind_domain_output_fragment[
     """Bind a real domain result/carrier proof to one fragment before effects."""
 
     selected = require_measurement_value_assembly(selection)
-    if not isinstance(
-        cast("object", domain_outputs),
-        SelectedDomainMeasurementOutputs,
-    ):
-        msg = "domain fragment binding requires SelectedDomainMeasurementOutputs"
-        raise TypeError(msg)
     normalized_outputs = domain_outputs
     fragment = selected.fragment(fragment_id)
     problems: list[Problem] = []
@@ -760,9 +706,6 @@ def domain_output_fragment[
     """Adapt bound, closed domain values into the producer-neutral data plane."""
 
     bound = _require_bound_domain_fragment(binding)
-    if not isinstance(cast("object", outputs), ClosedDomainOutputValues):
-        msg = "domain measurement ingress requires ClosedDomainOutputValues"
-        raise TypeError(msg)
     if outputs.mapping.contract_fingerprint != bound.result_contract_fingerprint:
         raise ProviderContractError(
             (
@@ -796,12 +739,6 @@ def assemble_measurement_values(
 
     selected = require_measurement_value_assembly(selection)
     supplied = tuple(fragments)
-    if any(
-        not isinstance(cast("object", fragment), ClosedMeasurementValueFragment)
-        for fragment in supplied
-    ):
-        msg = "measurement value assembly requires closed fragments"
-        raise TypeError(msg)
 
     expected_by_id = {fragment.id: fragment for fragment in selected.fragments}
     by_id: dict[str, ClosedMeasurementValueFragment] = {}
@@ -879,12 +816,6 @@ def _require_bound_domain_fragment[
         ResultAddressT,
     ],
 ) -> BoundDomainMeasurementValueFragment[EntryAddressT, ResultAddressT]:
-    if not isinstance(
-        cast("object", binding),
-        BoundDomainMeasurementValueFragment,
-    ):
-        msg = "domain measurement ingress requires a bound domain fragment"
-        raise TypeError(msg)
     return binding
 
 
@@ -893,9 +824,6 @@ def require_assembled_measurement_values(
 ) -> ClosedMeasurementProductValues:
     """Require the closed stage produced by measurement value assembly."""
 
-    if not isinstance(cast("object", values), ClosedMeasurementProductValues):
-        msg = "measurement projection requires ClosedMeasurementProductValues"
-        raise TypeError(msg)
     return values
 
 
@@ -904,9 +832,6 @@ def require_measurement_value_fragment(
 ) -> ClosedMeasurementValueFragment:
     """Require the closed stage produced by measurement fragment sealing."""
 
-    if not isinstance(cast("object", fragment), ClosedMeasurementValueFragment):
-        msg = "measurement fragments require ClosedMeasurementValueFragment"
-        raise TypeError(msg)
     return fragment
 
 
@@ -915,9 +840,6 @@ def require_measurement_value_assembly(
 ) -> SelectedMeasurementValueAssembly:
     """Require the selected stage produced by measurement value selection."""
 
-    if not isinstance(cast("object", selection), SelectedMeasurementValueAssembly):
-        msg = "measurement values require SelectedMeasurementValueAssembly"
-        raise TypeError(msg)
     return selection
 
 
@@ -1105,10 +1027,6 @@ def _problem_detail(value: object) -> JsonValue:
         selected = cast("tuple[object, ...]", value)
         return [_problem_detail(item) for item in selected]
     return repr(value)
-
-
-def _is_measurement_value(value: object) -> bool:
-    return isinstance(value, Quantity | ComplexQuantity | MeasurementArray)
 
 
 __all__ = [

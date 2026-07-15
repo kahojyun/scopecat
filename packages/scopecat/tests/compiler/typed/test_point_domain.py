@@ -50,8 +50,6 @@ from scopecat.compiler.typed.point_domain import (
     PointDomainId,
     PointDomainValueError,
     PointDomainVerificationError,
-    SelectedPointDomain,
-    VerifiedPointDomain,
     bind_selected_point_domain,
     materialize_point_domain,
     select_point_domain,
@@ -560,23 +558,12 @@ def test_selected_domain_requires_exact_single_backend_leaf_coverage() -> None:
         )
 
 
-def test_point_domain_stages_reject_wrong_artifacts_and_backend() -> None:
+def test_point_domain_stages_reject_wrong_ownership_and_backend() -> None:
     domain = _domain([1])
     verified = verify_point_domain(domain, program_id="program")
     selected = select_point_domain(REFERENCE_RELATION_BACKEND, verified)
     other_verified = verify_point_domain(_domain([2]), program_id="program")
 
-    with pytest.raises(TypeError, match="VerifiedPointDomain"):
-        select_point_domain(
-            REFERENCE_RELATION_BACKEND,
-            cast("VerifiedPointDomain", domain),
-        )
-    with pytest.raises(TypeError, match="SelectedPointDomain"):
-        materialize_point_domain(
-            REFERENCE_RELATION_BACKEND,
-            cast("SelectedPointDomain", verified),
-            ParameterRelationData(),
-        )
     with pytest.raises(ValueError, match="does not own"):
         bind_selected_point_domain(
             other_verified,

@@ -12,13 +12,12 @@ returned frame shape never select those policies implicitly.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
-from typing import TypeGuard, cast
+from typing import cast
 
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.problems import (
@@ -76,12 +75,6 @@ type _FakeListResultMapping = CircuitTargetResultMapping | QuantumTargetResultMa
 type _FakeListAcquisitionOrigin = (
     CircuitTargetAcquisitionOrigin | QuantumTargetAcquisitionOrigin
 )
-
-
-def _is_fake_list_compiled_target(
-    value: object,
-) -> TypeGuard[_FakeListCompiledTarget]:
-    return isinstance(value, CompiledCircuitTarget | CompiledQuantumTarget)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -160,10 +153,7 @@ class CorrelatedFakeListRun:
     ) -> None:
         mapping = compiled_target.mapping.domain_mapping
         compiled = compiled_target.compiled
-        artifact = cast("object", compiled.artifact)
-        if not isinstance(artifact, FakeListArtifact):
-            msg = "correlated fake-list runs require a FakeListArtifact"
-            raise TypeError(msg)
+        artifact = compiled.artifact
         if (
             target_run.artifact != artifact
             or target_run.artifact_id != compiled.artifact_id
@@ -340,16 +330,6 @@ class FakeMeasurementRealizationBinding:
     result_address: TargetAcquisitionAddress
     kind: FakeMeasurementRealizationKind
 
-    def __post_init__(self) -> None:
-        if not isinstance(
-            cast("object", self.result_address), TargetAcquisitionAddress
-        ):
-            msg = "fake realization bindings require a TargetAcquisitionAddress"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.kind), FakeMeasurementRealizationKind):
-            msg = "fake realization bindings require a realization kind"
-            raise TypeError(msg)
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class SelectedFakeMeasurementOutput:
@@ -419,21 +399,7 @@ class SelectedFakeMeasurementRealization:
         target: FakeListTarget,
         outputs: tuple[SelectedFakeMeasurementOutput, ...],
     ) -> None:
-        if not _is_fake_list_compiled_target(cast("object", compiled_target)):
-            msg = (
-                "fake measurement selection requires a CompiledCircuitTarget "
-                "or CompiledQuantumTarget"
-            )
-            raise TypeError(msg)
-        if not isinstance(
-            cast("object", compiled_target.compiled.artifact), FakeListArtifact
-        ):
-            msg = "fake measurement selection requires a FakeListArtifact"
-            raise TypeError(msg)
-        if not isinstance(cast("object", target), FakeListTarget):
-            msg = "fake measurement selection requires a FakeListTarget"
-            raise TypeError(msg)
-        artifact = cast("FakeListArtifact", compiled_target.compiled.artifact)
+        artifact = compiled_target.compiled.artifact
         if (
             target.id != compiled_target.compiled.target_id
             or target.capability_fingerprint
@@ -500,21 +466,7 @@ class RealizedFakeMeasurementRun:
         correlated_run: CorrelatedFakeListRun,
         result_values: tuple[DomainResultValue[TargetAcquisitionAddress], ...],
     ) -> None:
-        if not isinstance(
-            cast("object", selection), SelectedFakeMeasurementRealization
-        ):
-            msg = "realized fake measurement runs require a selected policy"
-            raise TypeError(msg)
-        if not isinstance(cast("object", correlated_run), CorrelatedFakeListRun):
-            msg = "fake measurement realization requires a correlated run"
-            raise TypeError(msg)
         selected_values = tuple(result_values)
-        if any(
-            not isinstance(cast("object", value), DomainResultValue)
-            for value in selected_values
-        ):
-            msg = "fake measurement realization requires DomainResultValue values"
-            raise TypeError(msg)
         if selection.compiled_target is not correlated_run.compiled_target:
             msg = (
                 "fake measurement realization must use the exact pre-effect "
@@ -591,27 +543,7 @@ def select_fake_measurement_realization(
 ) -> SelectedFakeMeasurementRealization:
     """Seal explicit per-result value policies before target effects."""
 
-    if not _is_fake_list_compiled_target(cast("object", compiled_target)):
-        msg = (
-            "fake measurement selection requires a CompiledCircuitTarget "
-            "or CompiledQuantumTarget"
-        )
-        raise TypeError(msg)
-    if not isinstance(
-        cast("object", compiled_target.compiled.artifact), FakeListArtifact
-    ):
-        msg = "fake measurement selection requires a compiled FakeListArtifact"
-        raise TypeError(msg)
-    if not isinstance(cast("object", target), FakeListTarget):
-        msg = "fake measurement selection requires a FakeListTarget"
-        raise TypeError(msg)
     selected_bindings = tuple(bindings)
-    if not all(
-        isinstance(binding, FakeMeasurementRealizationBinding)
-        for binding in cast("tuple[object, ...]", selected_bindings)
-    ):
-        msg = "fake measurement selection requires realization bindings"
-        raise TypeError(msg)
     selected_outputs = _select_fake_measurement_outputs(
         compiled_target,
         target,
@@ -630,37 +562,18 @@ def correlate_fake_list_run(
 ) -> CorrelatedFakeListRun:
     """Revalidate and correlate one raw fake run without interpreting values."""
 
-    if not _is_fake_list_compiled_target(cast("object", compiled_target)):
-        msg = (
-            "fake-list run correlation requires a CompiledCircuitTarget "
-            "or CompiledQuantumTarget"
-        )
-        raise TypeError(msg)
-    if not isinstance(cast("object", target_run), FakeListRun):
-        msg = "fake-list run correlation requires a FakeListRun"
-        raise TypeError(msg)
-    validated_run = FakeListRun(
-        playbacks=tuple(target_run.playbacks),
-        frames=tuple(target_run.frames),
-        artifact=target_run.artifact,
-        fingerprint=target_run.fingerprint,
-        response=target_run.response,
-    )
     target_mapping = compiled_target.mapping
     mapping = target_mapping.domain_mapping
     compiled = compiled_target.compiled
-    artifact = cast("object", compiled.artifact)
-    if not isinstance(artifact, FakeListArtifact):
-        msg = "fake-list run correlation requires a compiled FakeListArtifact"
-        raise TypeError(msg)
-    if validated_run.artifact != artifact:
+    artifact = compiled.artifact
+    if target_run.artifact != artifact:
         msg = "fake-list run does not retain the compiled target artifact"
         raise ValueError(msg)
 
     raw_by_address_shot = {
-        (frame.address, frame.shot_index): frame for frame in validated_run.frames
+        (frame.address, frame.shot_index): frame for frame in target_run.frames
     }
-    if len(raw_by_address_shot) != len(validated_run.frames):
+    if len(raw_by_address_shot) != len(target_run.frames):
         msg = "fake-list run contains duplicate acquisition-address shots"
         raise ValueError(msg)
     expected_keys = {
@@ -688,7 +601,7 @@ def correlate_fake_list_run(
     )
     return CorrelatedFakeListRun(
         compiled_target,
-        validated_run,
+        target_run,
         correlated_frames,
     )
 
@@ -699,15 +612,6 @@ def execute_correlated_fake_list(
 ) -> CorrelatedFakeListRun:
     """Execute the synchronous fake target and correlate its returned evidence."""
 
-    if not isinstance(cast("object", runtime), FakeListRuntime):
-        msg = "correlated fake-list execution requires a FakeListRuntime"
-        raise TypeError(msg)
-    if not _is_fake_list_compiled_target(cast("object", compiled_target)):
-        msg = (
-            "correlated fake-list execution requires a CompiledCircuitTarget "
-            "or CompiledQuantumTarget"
-        )
-        raise TypeError(msg)
     target_run = runtime.execute(compiled_target.compiled)
     return correlate_fake_list_run(compiled_target, target_run)
 
@@ -718,12 +622,6 @@ def realize_fake_measurements(
 ) -> RealizedFakeMeasurementRun:
     """Accept one correlated run under its exact per-result policies."""
 
-    if not isinstance(cast("object", selection), SelectedFakeMeasurementRealization):
-        msg = "fake measurement realization requires a selected policy"
-        raise TypeError(msg)
-    if not isinstance(cast("object", correlated_run), CorrelatedFakeListRun):
-        msg = "fake measurement realization requires a CorrelatedFakeListRun"
-        raise TypeError(msg)
     if selection.compiled_target is not correlated_run.compiled_target:
         msg = "fake measurement realization requires the selected compiled target"
         raise ValueError(msg)
@@ -764,9 +662,6 @@ def execute_realized_fake_measurements(
 ) -> RealizedFakeMeasurementRun:
     """Execute only after every mapped result has one selected policy."""
 
-    if not isinstance(cast("object", selection), SelectedFakeMeasurementRealization):
-        msg = "realized fake measurement execution requires a selected policy"
-        raise TypeError(msg)
     correlated_run = execute_correlated_fake_list(runtime, selection.compiled_target)
     return realize_fake_measurements(selection, correlated_run)
 
@@ -814,20 +709,7 @@ def _realize_integrated_iq_value(
                 )
             )
             continue
-        raw_value = cast("object", frame.frame.value)
-        if not isinstance(raw_value, complex) or not (
-            math.isfinite(raw_value.real) and math.isfinite(raw_value.imag)
-        ):
-            problems.append(
-                _realization_problem(
-                    "fake_integrated_iq_frame_value_invalid",
-                    "fake integrated-IQ frames require one finite complex value",
-                    path=(*frame_path, "value"),
-                    details=details,
-                )
-            )
-            continue
-        complex_values.append(raw_value)
+        complex_values.append(cast("complex", frame.frame.value))
     if len(problems) != initial_problem_count:
         return None
     return MeasurementArray(
@@ -889,8 +771,8 @@ def _realize_raw_trace_value(
                 )
             )
             continue
-        raw_value = cast("object", frame.frame.value)
-        if not isinstance(raw_value, tuple) or len(raw_value) != window.sample_count:
+        raw_value = cast("tuple[complex, ...]", frame.frame.value)
+        if len(raw_value) != window.sample_count:
             problems.append(
                 _raw_trace_realization_problem(
                     "fake_raw_trace_frame_shape_mismatch",
@@ -900,27 +782,8 @@ def _realize_raw_trace_value(
                     details={
                         **details,
                         "expected": window.sample_count,
-                        "actual": (
-                            len(raw_value)
-                            if isinstance(raw_value, tuple)
-                            else type(raw_value).__name__
-                        ),
+                        "actual": len(raw_value),
                     },
-                )
-            )
-            continue
-        if not all(
-            isinstance(sample, complex)
-            and math.isfinite(sample.real)
-            and math.isfinite(sample.imag)
-            for sample in cast("tuple[object, ...]", raw_value)
-        ):
-            problems.append(
-                _raw_trace_realization_problem(
-                    "fake_raw_trace_frame_value_invalid",
-                    "fake raw-trace frames require finite complex samples",
-                    path=(*frame_path, "value"),
-                    details=details,
                 )
             )
             continue
@@ -931,7 +794,7 @@ def _realize_raw_trace_value(
                     imag=sample.imag,
                     unit=_FAKE_RESPONSE_UNIT,
                 )
-                for sample in cast("tuple[complex, ...]", raw_value)
+                for sample in raw_value
             ]
         )
     if len(problems) != initial_problem_count:
@@ -969,7 +832,7 @@ def _select_fake_measurement_outputs(
 ) -> tuple[SelectedFakeMeasurementOutput, ...]:
     mapping = compiled_target.mapping.domain_mapping
     compiled = compiled_target.compiled
-    artifact = cast("FakeListArtifact", compiled.artifact)
+    artifact = compiled.artifact
     expected_addresses = {result.result_address for result in mapping.results}
     binding_by_address: dict[
         TargetAcquisitionAddress,
@@ -1176,7 +1039,7 @@ def _prepared_acquisitions(
 def _artifact_acquisitions(
     compiled_target: _FakeListCompiledTarget,
 ) -> dict[TargetAcquisitionAddress, _ArtifactAcquisition]:
-    artifact = cast("FakeListArtifact", compiled_target.compiled.artifact)
+    artifact = compiled_target.compiled.artifact
     acquisitions: dict[TargetAcquisitionAddress, _ArtifactAcquisition] = {}
     for entry in artifact.entries:
         for window in entry.acquisitions:

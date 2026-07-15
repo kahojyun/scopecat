@@ -849,21 +849,6 @@ def test_point_runner_fans_one_semantic_output_out_to_every_product_use() -> Non
         assert first.value == second.value
 
 
-def test_public_dataclasses_reject_wrong_runtime_field_types_early() -> None:
-    with pytest.raises(TypeError, match="must be a string"):
-        NativeMeasurementTransformId(cast("str", 1))
-    with pytest.raises(TypeError, match="validator must be callable"):
-        HostMeasurementTransformImplementation(
-            id="bad-validator",
-            semantic_id="identity",
-            semantic_version="1",
-            rate="point",
-            implementation_fingerprint="bad-validator-fingerprint",
-            validate_transform=cast("object", None),  # type: ignore[arg-type]
-            kernel=_identity_kernel,
-        )
-
-
 def test_native_transform_boundaries_accept_point_rate_only() -> None:
     scenario = measurement_assembly_scenario(use_count=2)
     source, output = scenario.uses

@@ -67,31 +67,6 @@ def test_domain_call_rejects_unknown_or_missing_bindings() -> None:
             inputs={},
             results={"result": "result"},
         )
-    with pytest.raises(TypeError, match="unsupported"):
-        sc.domain_call(
-            "call",
-            program,
-            inputs={"value": object()},  # pyright: ignore[reportArgumentType]
-            results={"result": "result"},
-        )
-    with pytest.raises(TypeError, match="local products"):
-        sc.domain_call(
-            "call",
-            program,
-            inputs={"value": 1},
-            results={"result": object()},  # pyright: ignore[reportArgumentType]
-        )
-
-
-def test_domain_program_rejects_non_value_type_ports() -> None:
-    with pytest.raises(TypeError, match="ValueType"):
-        sc.domain_program(
-            "program",
-            dialect_id="test",
-            dialect_version="1",
-            body=object(),
-            inputs={"value": object()},  # pyright: ignore[reportArgumentType]
-        )
 
 
 def test_domain_call_captures_literal_inputs_at_authoring_ingress() -> None:

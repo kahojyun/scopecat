@@ -36,14 +36,14 @@ from quantum_lab_demo.targets.fake_list_mode.model import (
 type FakeDigitizerValue = complex | tuple[complex, ...]
 
 
-def _require_non_negative_int(value: object, *, field_name: str) -> None:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+def _require_non_negative_int(value: int, *, field_name: str) -> None:
+    if isinstance(value, bool) or value < 0:
         msg = f"{field_name} must be a non-negative integer"
         raise ValueError(msg)
 
 
-def _require_text(value: object, *, field_name: str) -> None:
-    if not isinstance(value, str) or not value.strip():
+def _require_text(value: str, *, field_name: str) -> None:
+    if not value.strip():
         msg = f"{field_name} must be a non-empty string"
         raise ValueError(msg)
 
@@ -62,17 +62,10 @@ class FakeAwgPlayback:
     waveform_fingerprint: str
 
     def __post_init__(self) -> None:
-        _require_non_negative_int(
-            cast("object", self.shot_index), field_name="playback shot_index"
-        )
-        _require_non_negative_int(
-            cast("object", self.list_index), field_name="playback list_index"
-        )
-        if not isinstance(cast("object", self.entry_id), TargetCompileEntryId):
-            msg = "fake AWG playback entry_id must be a TargetCompileEntryId"
-            raise TypeError(msg)
+        _require_non_negative_int(self.shot_index, field_name="playback shot_index")
+        _require_non_negative_int(self.list_index, field_name="playback list_index")
         _require_text(
-            cast("object", self.waveform_fingerprint),
+            self.waveform_fingerprint,
             field_name="playback waveform_fingerprint",
         )
 
@@ -139,30 +132,18 @@ class FakeDigitizerFrame:
     value: FakeDigitizerValue
 
     def __post_init__(self) -> None:
-        for field_name in (
-            "frame_index",
-            "segment_index",
-            "shot_index",
-            "list_index",
+        for field_name, value in (
+            ("frame_index", self.frame_index),
+            ("segment_index", self.segment_index),
+            ("shot_index", self.shot_index),
+            ("list_index", self.list_index),
         ):
             _require_non_negative_int(
-                cast("object", getattr(self, field_name)),
+                value,
                 field_name=f"digitizer {field_name}",
             )
-        if not isinstance(cast("object", self.entry_id), TargetCompileEntryId):
-            msg = "fake digitizer frame entry_id must be a TargetCompileEntryId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.slot_id), AcquisitionSlotId):
-            msg = "fake digitizer frame slot_id must be an AcquisitionSlotId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.channel_id), FakeDigitizerChannelId):
-            msg = "fake digitizer frame channel_id must be a FakeDigitizerChannelId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.kind), AcquisitionKind):
-            msg = "fake digitizer frame kind must be an AcquisitionKind"
-            raise TypeError(msg)
 
-        value = cast("object", self.value)
+        value = self.value
         if self.kind is AcquisitionKind.INTEGRATED_IQ:
             if not isinstance(value, complex) or not _is_finite_complex(value):
                 msg = "integrated-IQ frames require one finite complex value"
@@ -172,10 +153,7 @@ class FakeDigitizerFrame:
             if (
                 not isinstance(value, tuple)
                 or not value
-                or not all(
-                    isinstance(sample, complex) and _is_finite_complex(sample)
-                    for sample in cast("tuple[object, ...]", value)
-                )
+                or not all(_is_finite_complex(sample) for sample in value)
             ):
                 msg = "raw-trace frames require a non-empty tuple of complex samples"
                 raise TypeError(msg)
@@ -206,26 +184,12 @@ class FakeListRun:
     )
 
     def __post_init__(self) -> None:
-        playbacks = cast("object", self.playbacks)
-        if not isinstance(playbacks, tuple) or not all(
-            isinstance(playback, FakeAwgPlayback)
-            for playback in cast("tuple[object, ...]", playbacks)
-        ):
-            msg = "fake list run playbacks must be FakeAwgPlayback values"
-            raise TypeError(msg)
-        if not playbacks:
+        if not self.playbacks:
             msg = "fake list runs require at least one AWG playback"
             raise ValueError(msg)
 
-        frames = cast("object", self.frames)
-        if not isinstance(frames, tuple) or not all(
-            isinstance(frame, FakeDigitizerFrame)
-            for frame in cast("tuple[object, ...]", frames)
-        ):
-            msg = "fake list run frames must be FakeDigitizerFrame values"
-            raise TypeError(msg)
-        selected_playbacks = cast("tuple[FakeAwgPlayback, ...]", playbacks)
-        selected_frames = cast("tuple[FakeDigitizerFrame, ...]", frames)
+        selected_playbacks = self.playbacks
+        selected_frames = self.frames
         if tuple(frame.frame_index for frame in selected_frames) != tuple(
             range(len(selected_frames))
         ):
@@ -260,9 +224,6 @@ class FakeListRun:
             msg = "fake digitizer frame addresses must be unique"
             raise ValueError(msg)
 
-        if not isinstance(cast("object", self.artifact), FakeListArtifact):
-            msg = "fake list run artifact must be a FakeListArtifact"
-            raise TypeError(msg)
         response = _validated_response(self.response)
         _validate_artifact(self.artifact)
         resolved = _resolve_playbacks(self.artifact, selected_playbacks)
@@ -271,7 +232,7 @@ class FakeListRun:
             frames=selected_frames,
             response=response,
         )
-        _require_text(cast("object", self.fingerprint), field_name="run fingerprint")
+        _require_text(self.fingerprint, field_name="run fingerprint")
         expected_fingerprint = _run_fingerprint(
             artifact=self.artifact,
             playbacks=selected_playbacks,
@@ -352,14 +313,6 @@ class FakeListRuntime:
     awg: FakeListAwg = field(default_factory=FakeListAwg)
     digitizer: FakeSegmentedDigitizer = field(default_factory=FakeSegmentedDigitizer)
 
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.awg), FakeListAwg):
-            msg = "fake list runtime requires a FakeListAwg"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.digitizer), FakeSegmentedDigitizer):
-            msg = "fake list runtime requires a FakeSegmentedDigitizer"
-            raise TypeError(msg)
-
     def execute(
         self,
         compiled: CompiledTargetArtifact[FakeListArtifact],
@@ -384,13 +337,7 @@ class FakeListRuntime:
 def _verified_fake_artifact(
     compiled: CompiledTargetArtifact[FakeListArtifact],
 ) -> FakeListArtifact:
-    if not isinstance(cast("object", compiled), CompiledTargetArtifact):
-        msg = "fake list runtime requires a CompiledTargetArtifact"
-        raise TypeError(msg)
-    artifact = cast("object", compiled.artifact)
-    if not isinstance(artifact, FakeListArtifact):
-        msg = "compiled artifact is not a FakeListArtifact"
-        raise TypeError(msg)
+    artifact = compiled.artifact
 
     mismatches: list[str] = []
     if compiled.artifact_id != artifact.id:
@@ -415,9 +362,6 @@ def _verified_fake_artifact(
 
 
 def _validate_artifact(artifact: FakeListArtifact) -> None:
-    if not isinstance(cast("object", artifact), FakeListArtifact):
-        msg = "fake target runtime requires a FakeListArtifact"
-        raise TypeError(msg)
     if not artifact.entries:
         msg = "fake list artifacts require at least one entry at runtime"
         raise ValueError(msg)
@@ -485,14 +429,6 @@ def _resolve_playbacks(
     artifact: FakeListArtifact,
     playbacks: tuple[FakeAwgPlayback, ...],
 ) -> tuple[tuple[FakeAwgPlayback, FakeListEntry], ...]:
-    raw_playbacks = cast("object", playbacks)
-    if not isinstance(raw_playbacks, tuple) or not all(
-        isinstance(playback, FakeAwgPlayback)
-        for playback in cast("tuple[object, ...]", raw_playbacks)
-    ):
-        msg = "fake digitizer playbacks must be FakeAwgPlayback values"
-        raise TypeError(msg)
-    selected = cast("tuple[FakeAwgPlayback, ...]", raw_playbacks)
     entries_by_identity = {
         (entry.list_index, entry.entry_id): entry for entry in artifact.entries
     }
@@ -505,7 +441,7 @@ def _resolve_playbacks(
     actual_addresses: set[tuple[int, int, TargetCompileEntryId]] = set()
     actual_address_order: list[tuple[int, int, TargetCompileEntryId]] = []
     resolved: list[tuple[FakeAwgPlayback, FakeListEntry]] = []
-    for playback in selected:
+    for playback in playbacks:
         entry = entries_by_identity.get((playback.list_index, playback.entry_id))
         if entry is None:
             msg = (

@@ -71,12 +71,6 @@ class DomainExecutionOffer:
         *,
         max_points_per_batch: int = 1,
     ) -> DomainExecutionOffer:
-        if not isinstance(cast("object", call), DomainCallView):
-            msg = "domain execution offers require a DomainCallView"
-            raise TypeError(msg)
-        if type(max_points_per_batch) is not int:
-            msg = "domain max_points_per_batch must be an integer"
-            raise TypeError(msg)
         if max_points_per_batch <= 0:
             msg = "domain max_points_per_batch must be positive"
             raise ValueError(msg)
@@ -308,9 +302,6 @@ class DomainPlanProjectionInternal:
 def project_domain_plan_internal(
     linked_points: MaterializedLinkedPoints,
 ) -> DomainPlanProjectionInternal:
-    if not isinstance(cast("object", linked_points), MaterializedLinkedPoints):
-        msg = "domain plan projection requires materialized linked points"
-        raise TypeError(msg)
     product_contracts = {
         product.id: _product_contract_view(product)
         for product in linked_points.linked_plan.product_defs

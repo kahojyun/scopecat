@@ -19,7 +19,6 @@ from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import cast
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -334,16 +333,6 @@ def lower_circuit_to_pulses(
     output_id: PulseProgramId,
 ) -> LoweredCircuitPulseProgram:
     """Instantiate every calibrated gate and measurement homomorphically."""
-
-    if not isinstance(cast("object", program), VerifiedCircuitProgram):
-        msg = "circuit pulse lowering requires a VerifiedCircuitProgram"
-        raise TypeError(msg)
-    if not isinstance(cast("object", selection), CalibrationSelection):
-        msg = "circuit pulse lowering requires a CalibrationSelection"
-        raise TypeError(msg)
-    if not isinstance(cast("object", output_id), PulseProgramId):
-        msg = "circuit pulse lowering output_id must be a PulseProgramId"
-        raise TypeError(msg)
 
     issues: list[CircuitPulseLoweringIssue] = []
     source_circuit_id = program.program.id

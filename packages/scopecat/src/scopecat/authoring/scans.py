@@ -261,17 +261,10 @@ def _scan_group(kind: Literal["cartesian", "zip"], scans: Sequence[Scan]) -> Sca
     if not scans:
         msg = f"{kind} scan group requires at least one scan"
         raise ValueError(msg)
-    untyped_scans = cast("Sequence[object]", scans)
-    if any(not isinstance(scan, Scan) for scan in untyped_scans):
-        msg = f"{kind} scan group accepts only Scan handles"
-        raise TypeError(msg)
     return _ScanGroupIntent(kind=kind, scans=tuple(scans))
 
 
 def _point_target_id(target: ValueRef) -> str:
-    if not isinstance(cast("object", target), ValueRef):
-        msg = "scan target must be a typed point value"
-        raise TypeError(msg)
     point_id = internal_value_ref_point_id(target)
     if point_id is None:
         msg = "scan target must be created with scopecat.point"

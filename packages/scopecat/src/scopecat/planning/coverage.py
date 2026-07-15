@@ -9,7 +9,7 @@ and therefore are not execution tasks of their own.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Literal
 
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.kernel.product_identity import ProductUseId
@@ -46,9 +46,6 @@ class ExecutionTask:
     id: str
 
     def __post_init__(self) -> None:
-        if self.kind not in _TASK_KIND_ORDER:
-            msg = f"unsupported execution task kind {self.kind!r}"
-            raise ValueError(msg)
         if not self.id:
             msg = "execution task ids must be non-empty"
             raise ValueError(msg)
@@ -62,9 +59,6 @@ class ExecutionResourceClaim:
     id: str
 
     def __post_init__(self) -> None:
-        if self.kind not in {"target", "instrument", "channel", "group"}:
-            msg = f"unsupported execution resource kind {self.kind!r}"
-            raise ValueError(msg)
         if not self.id:
             msg = "execution resource claim ids must be non-empty"
             raise ValueError(msg)
@@ -78,11 +72,6 @@ class ExecutionCoverage:
 
     def __init__(self, tasks: tuple[ExecutionTask, ...] = ()) -> None:
         selected = tuple(tasks)
-        if any(
-            not isinstance(cast("object", task), ExecutionTask) for task in selected
-        ):
-            msg = "execution coverage requires ExecutionTask values"
-            raise TypeError(msg)
         if len(selected) != len(set(selected)):
             msg = "execution coverage cannot claim one task more than once"
             raise ValueError(msg)

@@ -54,7 +54,6 @@ from scopecat.measurements.values import (
     SelectedMeasurementValueAssembly,
     assemble_measurement_values,
     require_measurement_value_assembly,
-    require_measurement_value_fragment,
     seal_measurement_value_fragment,
 )
 from scopecat.records.measurement import (
@@ -96,21 +95,12 @@ class HostMeasurementTransformImplementation:
             self.semantic_version,
             self.implementation_fingerprint,
         )
-        if any(not isinstance(cast("object", value), str) for value in fields):
-            msg = "host measurement transform implementation fields must be strings"
-            raise TypeError(msg)
         if not all(fields):
             msg = "host measurement transform implementation fields must be non-empty"
             raise ValueError(msg)
         if self.rate != "point":
             msg = "host measurement transform rate must be point"
             raise ValueError(msg)
-        if not callable(self.validate_transform):
-            msg = "host measurement transform validator must be callable"
-            raise TypeError(msg)
-        if not callable(self.kernel):
-            msg = "host measurement transform implementation kernel must be callable"
-            raise TypeError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,15 +111,6 @@ class HostMeasurementTransformImplementationBinding:
     implementation_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            cast("object", self.transform_id),
-            NativeMeasurementTransformId,
-        ):
-            msg = "host implementation bindings require NativeMeasurementTransformId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.implementation_id), str):
-            msg = "host implementation binding id must be a string"
-            raise TypeError(msg)
         if not self.implementation_id:
             msg = "host implementation binding id must be non-empty"
             raise ValueError(msg)
@@ -148,66 +129,26 @@ class HostMeasurementTransformCall:
     inputs: Mapping[str, MeasurementValue]
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            cast("object", self.transform_id),
-            NativeMeasurementTransformId,
-        ):
-            msg = "host transform calls require NativeMeasurementTransformId"
-            raise TypeError(msg)
-        if not isinstance(
-            cast("object", self.semantic),
-            MeasurementTransformSemanticContract,
-        ):
-            msg = "host transform calls require a semantic contract"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.logical_point_id), LogicalPointId):
-            msg = "host transform calls require LogicalPointId"
-            raise TypeError(msg)
-        if type(self.point_index) is not int or self.point_index < 0:
+        if self.point_index < 0:
             msg = "host transform call point_index must be a non-negative integer"
             raise ValueError(msg)
-        input_ports = tuple(self.input_ports)
-        output_ports = tuple(self.output_ports)
-        if any(
-            not isinstance(cast("object", port), MeasurementTransformInputPort)
-            for port in input_ports
-        ) or any(
-            not isinstance(cast("object", port), MeasurementTransformOutputPort)
-            for port in output_ports
-        ):
-            msg = "host transform calls require typed input and output ports"
-            raise TypeError(msg)
-        if len({port.id for port in input_ports}) != len(input_ports):
+        if len({port.id for port in self.input_ports}) != len(self.input_ports):
             msg = "host transform call input port ids must be unique"
             raise ValueError(msg)
-        if len({port.id for port in output_ports}) != len(output_ports):
+        if len({port.id for port in self.output_ports}) != len(self.output_ports):
             msg = "host transform call output port ids must be unique"
             raise ValueError(msg)
-        raw_inputs = cast("Mapping[object, object]", cast("object", self.inputs))
-        try:
-            input_candidates = dict(raw_inputs)
-        except Exception as error:
-            msg = "host transform call inputs must be a readable mapping"
-            raise TypeError(msg) from error
-        if set(input_candidates) != {port.id for port in input_ports}:
+        input_candidates = dict(self.inputs)
+        if set(input_candidates) != {port.id for port in self.input_ports}:
             msg = "host transform call inputs must exactly match its input ports"
             raise ValueError(msg)
-        if any(not isinstance(port_id, str) for port_id in input_candidates):
-            msg = "host transform call input ids must be strings"
-            raise TypeError(msg)
-        if any(not _is_measurement_value(value) for value in input_candidates.values()):
-            msg = "host transform call inputs must be MeasurementValue values"
-            raise TypeError(msg)
-        inputs = cast("dict[str, MeasurementValue]", input_candidates)
-        object.__setattr__(self, "input_ports", input_ports)
-        object.__setattr__(self, "output_ports", output_ports)
         object.__setattr__(
             self,
             "inputs",
             MappingProxyType(
                 {
                     port_id: validated_measurement_value_copy(value)
-                    for port_id, value in inputs.items()
+                    for port_id, value in input_candidates.items()
                 }
             ),
         )
@@ -238,17 +179,6 @@ class HostMeasurementTransformFragmentBinding:
     fragment_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            cast("object", self.transform_id),
-            NativeMeasurementTransformId,
-        ):
-            msg = (
-                "host transform fragment bindings require NativeMeasurementTransformId"
-            )
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.fragment_id), str):
-            msg = "host transform fragment id must be a string"
-            raise TypeError(msg)
         if not self.fragment_id:
             msg = "host measurement transform fragment id must be non-empty"
             raise ValueError(msg)
@@ -313,28 +243,9 @@ def select_host_measurement_transforms(
 ) -> SelectedHostMeasurementTransforms:
     """Select explicitly bound host implementations for every POINT transform."""
 
-    selected_graph = _require_verified_graph(graph)
-    raw_candidates = tuple(implementations)
-    if any(
-        not isinstance(
-            cast("object", implementation),
-            HostMeasurementTransformImplementation,
-        )
-        for implementation in raw_candidates
-    ):
-        msg = "host transform selection requires implementation sidecars"
-        raise TypeError(msg)
-    candidates = raw_candidates
+    selected_graph = graph
+    candidates = tuple(implementations)
     supplied_bindings = tuple(bindings)
-    if any(
-        not isinstance(
-            cast("object", binding),
-            HostMeasurementTransformImplementationBinding,
-        )
-        for binding in supplied_bindings
-    ):
-        msg = "host transform selection requires explicit implementation bindings"
-        raise TypeError(msg)
 
     problems: list[Problem] = []
     implementation_counts = Counter(candidate.id for candidate in candidates)
@@ -481,18 +392,9 @@ def bind_host_measurement_transforms(
 ) -> BoundHostMeasurementTransformPlan:
     """Bind transform outputs and source leaves to one value assembly."""
 
-    selected = _require_host_selection(selection)
+    selected = selection
     assembly = require_measurement_value_assembly(value_assembly)
     supplied = tuple(fragment_bindings)
-    if any(
-        not isinstance(
-            cast("object", binding),
-            HostMeasurementTransformFragmentBinding,
-        )
-        for binding in supplied
-    ):
-        msg = "host transform binding requires fragment bindings"
-        raise TypeError(msg)
 
     graph = selected.graph
     problems: list[Problem] = []
@@ -654,32 +556,14 @@ def execute_host_measurement_transforms(
 ) -> ExecutedHostMeasurementTransforms:
     """Execute POINT kernels in canonical graph order and assemble all values."""
 
-    bound = _require_bound_host_plan(plan)
+    bound = plan
     supplied = tuple(source_fragments)
-    if any(
-        not isinstance(cast("object", fragment), ClosedMeasurementValueFragment)
-        for fragment in supplied
-    ):
-        msg = "host transform execution requires closed measurement fragments"
-        raise TypeError(msg)
 
     by_id: dict[str, ClosedMeasurementValueFragment] = {}
     problems: list[Problem] = []
     expected_source_ids = set(bound.source_fragment_ids)
     for fragment_index, candidate in enumerate(supplied):
-        try:
-            fragment = require_measurement_value_fragment(candidate)
-        except (KeyError, TypeError, ValueError) as error:
-            problems.append(
-                _execution_problem(
-                    "measurement_transform_source_fragment_invalid",
-                    "host transform source fragment is invalid",
-                    path=("source_fragments", fragment_index),
-                    details={"error_type": _type_name(error)},
-                    category=ProblemCategory.INVALID_INPUT,
-                )
-            )
-            continue
+        fragment = candidate
         if fragment.fragment_id in by_id:
             problems.append(
                 _execution_problem(
@@ -937,36 +821,6 @@ def execute_host_measurement_transforms(
         selected_transform_fragments,
         values,
     )
-
-
-def _require_verified_graph(
-    graph: VerifiedMeasurementTransformGraph,
-) -> VerifiedMeasurementTransformGraph:
-    if not isinstance(cast("object", graph), VerifiedMeasurementTransformGraph):
-        msg = "host transform selection requires a verified transform graph"
-        raise TypeError(msg)
-    return graph
-
-
-def _require_host_selection(
-    selection: SelectedHostMeasurementTransforms,
-) -> SelectedHostMeasurementTransforms:
-    if not isinstance(
-        cast("object", selection),
-        SelectedHostMeasurementTransforms,
-    ):
-        msg = "host transform binding requires SelectedHostMeasurementTransforms"
-        raise TypeError(msg)
-    return selection
-
-
-def _require_bound_host_plan(
-    plan: BoundHostMeasurementTransformPlan,
-) -> BoundHostMeasurementTransformPlan:
-    if not isinstance(cast("object", plan), BoundHostMeasurementTransformPlan):
-        msg = "host transform execution requires BoundHostMeasurementTransformPlan"
-        raise TypeError(msg)
-    return plan
 
 
 def _host_selection_fingerprint(

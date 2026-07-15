@@ -392,9 +392,6 @@ class MaterializedLinkedPointBatch:
         parent: MaterializedLinkedPoints,
         point_indices: Sequence[int],
     ) -> None:
-        if not isinstance(cast("object", parent), MaterializedLinkedPoints):
-            msg = "linked point batches require MaterializedLinkedPoints"
-            raise TypeError(msg)
         indices = tuple(point_indices)
         if not indices:
             msg = "linked point batches require at least one point index"
@@ -479,9 +476,6 @@ def select_linked_program(
 ) -> SelectedTypedProgram:
     """Preflight every linked relation without evaluating any of them."""
 
-    if not isinstance(cast("object", linked), LinkedPlan):
-        msg = "linked point materialization requires a LinkedPlan"
-        raise TypeError(msg)
     try:
         return select_typed_program(
             relation_backend,

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import cast
 
 import pytest
 from scopecat import Quantity
@@ -55,7 +53,6 @@ from scopecat_quantum.pulses import (
     Delay,
     DriveSignal,
     Play,
-    PulseInstruction,
     PulseProgram,
     ReadoutSignal,
 )
@@ -410,53 +407,19 @@ def test_catalog_identity_is_unique_even_when_keys_differ() -> None:
         float("inf"),
         Quantity(float("nan"), "rad"),
         Quantity(1, "V"),
-        "not-a-gate-value",
     ],
 )
-def test_calibration_argument_rejects_invalid_runtime_values(value: object) -> None:
+def test_calibration_argument_rejects_invalid_values(
+    value: GateArgumentValue,
+) -> None:
     with pytest.raises(ValueError, match="finite gate argument value"):
-        GateCalibrationArgument(
-            id="angle",
-            value=cast("GateArgumentValue", value),
-        )
-
-
-def test_calibration_argument_rejects_malformed_quantity_shape() -> None:
-    malformed = Quantity.model_construct(
-        value=cast("float", "not-a-number"),
-        unit="rad",
-    )
-
-    with pytest.raises(ValueError, match="finite gate argument value"):
-        GateCalibrationArgument(id="angle", value=malformed)
+        GateCalibrationArgument(id="angle", value=value)
 
 
 def test_calibration_argument_accepts_arbitrarily_large_integers() -> None:
     argument = GateCalibrationArgument(id="count", value=10**1000)
 
     assert argument.value == 10**1000
-
-
-def test_calibration_key_closes_nominal_runtime_shapes() -> None:
-    argument = GateCalibrationArgument(id="angle", value=Quantity(0.5, "rad"))
-    with pytest.raises(ValueError, match="gate_id must be a GateId"):
-        GateCalibrationKey(
-            gate_id=cast("GateId", Q0),
-            operands=(Q0,),
-            arguments=(argument,),
-        )
-    with pytest.raises(ValueError, match="tuple of QubitId"):
-        GateCalibrationKey(
-            gate_id=X.id,
-            operands=cast("tuple[QubitId, ...]", (X.id,)),
-            arguments=(argument,),
-        )
-    with pytest.raises(ValueError, match="tuple of GateCalibrationArgument"):
-        GateCalibrationKey(
-            gate_id=X.id,
-            operands=(Q0,),
-            arguments=cast("tuple[GateCalibrationArgument, ...]", (Q0,)),
-        )
 
 
 @pytest.mark.parametrize("operands", [(), (Q0, Q0)])
@@ -467,85 +430,9 @@ def test_calibration_key_requires_nonempty_unique_operands(
         GateCalibrationKey(gate_id=X.id, operands=operands)
 
 
-def test_gate_calibration_and_catalog_close_runtime_shapes() -> None:
-    key = GateCalibrationKey.from_call(_call("call"))
-    pulse = _pulse_template()
-    with pytest.raises(ValueError, match="id must be a CalibrationId"):
-        GateCalibration(
-            id=cast("CalibrationId", CircuitOperationId("wrong-space")),
-            key=key,
-            pulse_template=pulse,
-        )
-    with pytest.raises(ValueError, match="key must be a GateCalibrationKey"):
-        GateCalibration(
-            id=CalibrationId("calibration"),
-            key=cast("GateCalibrationKey", _call("not-a-key")),
-            pulse_template=pulse,
-        )
-    with pytest.raises(ValueError, match="require a pulse template"):
-        GateCalibration(
-            id=CalibrationId("calibration"),
-            key=key,
-            pulse_template=cast("PulseProgram", object()),
-        )
-    invalid_template_id = PulseProgram(
-        id=cast("PulseProgramId", CalibrationId("wrong-space")),
-        body=pulse.body,
-    )
-    with pytest.raises(ValueError, match="template id must be a PulseProgramId"):
-        GateCalibration(
-            id=CalibrationId("calibration"),
-            key=key,
-            pulse_template=invalid_template_id,
-        )
-    with pytest.raises(ValueError, match="tuple of GateCalibration"):
-        GateCalibrationCatalog(
-            entries=cast(
-                "tuple[GateCalibration, ...]",
-                [_calibration("calibration", _call("catalog-call"))],
-            )
-        )
-    with pytest.raises(ValueError, match="tuple of GateCalibration"):
-        GateCalibrationCatalog(entries=cast("tuple[GateCalibration, ...]", (key,)))
-    with pytest.raises(ValueError, match="gates must be a GateCalibrationCatalog"):
-        CalibrationCatalog(gates=cast("GateCalibrationCatalog", ()))
-
-
-def test_issue_closes_nominal_runtime_shapes() -> None:
+def test_issue_enforces_value_invariants() -> None:
     call = _call("call")
     key = GateCalibrationKey.from_call(call)
-    with pytest.raises(ValueError, match="operation_id must be a CircuitOperationId"):
-        CalibrationSelectionIssue(
-            code=CalibrationSelectionIssueCode.MISSING,
-            operation_id=cast("CircuitOperationId", CalibrationId("wrong-space")),
-            key=key,
-            matching_calibration_ids=(),
-            message="missing",
-        )
-    with pytest.raises(ValueError, match="issue code is invalid"):
-        CalibrationSelectionIssue(
-            code=cast("CalibrationSelectionIssueCode", "missing"),
-            operation_id=call.id,
-            key=key,
-            matching_calibration_ids=(),
-            message="missing",
-        )
-    with pytest.raises(ValueError, match="issue key is invalid"):
-        CalibrationSelectionIssue(
-            code=CalibrationSelectionIssueCode.MISSING,
-            operation_id=call.id,
-            key=cast("GateCalibrationKey", call),
-            matching_calibration_ids=(),
-            message="missing",
-        )
-    with pytest.raises(ValueError, match="tuple of CalibrationId"):
-        CalibrationSelectionIssue(
-            code=CalibrationSelectionIssueCode.MISSING,
-            operation_id=call.id,
-            key=key,
-            matching_calibration_ids=cast("tuple[CalibrationId, ...]", (call.id,)),
-            message="missing",
-        )
     with pytest.raises(ValueError, match="message must be non-empty"):
         CalibrationSelectionIssue(
             code=CalibrationSelectionIssueCode.MISSING,
@@ -569,17 +456,6 @@ def test_issue_closes_nominal_runtime_shapes() -> None:
             key=key,
             matching_calibration_ids=(CalibrationId("only-one"),),
             message="ambiguous",
-        )
-    issue = CalibrationSelectionIssue(
-        code=CalibrationSelectionIssueCode.MISSING,
-        operation_id=call.id,
-        key=key,
-        matching_calibration_ids=(),
-        message="missing",
-    )
-    with pytest.raises(ValueError, match="tuple of CalibrationSelectionIssue"):
-        CalibrationSelectionError(
-            cast("tuple[CalibrationSelectionIssue, ...]", [issue])
         )
 
 
@@ -638,29 +514,6 @@ def test_gate_calibration_rejects_duplicate_template_event_identities_early() ->
     )
 
     with pytest.raises(ValueError, match="template event ids must be unique"):
-        GateCalibration(
-            id=CalibrationId("calibration"),
-            key=GateCalibrationKey.from_call(call),
-            pulse_template=pulse_template,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class _AlienPulseNode:
-    branches: tuple[PulseInstruction, ...]
-
-
-def test_gate_calibration_rejects_unknown_template_nodes_early() -> None:
-    call = _call("call")
-    pulse_template = PulseProgram(
-        id=PulseProgramId("alien"),
-        body=cast(
-            "PulseInstruction",
-            _AlienPulseNode((_pulse_template().body,)),
-        ),
-    )
-
-    with pytest.raises(ValueError, match="must contain pulse instructions"):
         GateCalibration(
             id=CalibrationId("calibration"),
             key=GateCalibrationKey.from_call(call),

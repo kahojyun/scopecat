@@ -9,14 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Hashable
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal
 
-from scopecat.records.measurement import (
-    ComplexQuantity,
-    MeasurementArray,
-    MeasurementValue,
-)
-from scopecat.records.parameter import Quantity
+from scopecat.records.measurement import MeasurementValue
 
 type DomainResourceKind = Literal["target", "instrument", "channel", "group"]
 
@@ -39,9 +34,6 @@ class DomainTargetArtifactIdentity:
             self.artifact_id,
             self.artifact_fingerprint,
         )
-        if any(type(value) is not str for value in fields):
-            msg = "domain target artifact identity fields must be strings"
-            raise TypeError(msg)
         if not all(fields):
             msg = "domain target artifact identity fields must be non-empty"
             raise ValueError(msg)
@@ -62,15 +54,9 @@ class DomainInvocationSpec[PayloadT]:
     payload: PayloadT = field(repr=False)
 
     def __post_init__(self) -> None:
-        if type(self.invocation_id) is not str:
-            msg = "domain invocation ids must be strings"
-            raise TypeError(msg)
         if not self.invocation_id:
             msg = "domain invocation ids must be non-empty"
             raise ValueError(msg)
-        if not isinstance(cast("object", self.target), DomainTargetArtifactIdentity):
-            msg = "domain invocation specs require target artifact identity"
-            raise TypeError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,19 +65,6 @@ class DomainResultValue[ResultAddressT: Hashable]:
 
     result_address: ResultAddressT
     value: MeasurementValue
-
-    def __post_init__(self) -> None:
-        try:
-            hash(self.result_address)
-        except TypeError as error:
-            msg = "domain result value addresses must be hashable"
-            raise TypeError(msg) from error
-        if not isinstance(
-            cast("object", self.value),
-            Quantity | ComplexQuantity | MeasurementArray,
-        ):
-            msg = "domain result values require a MeasurementValue"
-            raise TypeError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,9 +75,6 @@ class DomainResourceClaim:
     id: str
 
     def __post_init__(self) -> None:
-        if type(self.kind) is not str or type(self.id) is not str:
-            msg = "domain resource claim kind and id must be strings"
-            raise TypeError(msg)
         if self.kind not in {"target", "instrument", "channel", "group"}:
             msg = f"unsupported domain resource kind {self.kind!r}"
             raise ValueError(msg)

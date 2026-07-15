@@ -177,9 +177,6 @@ class DragBetaDomainExecutionAdapter:
         baseline_beta: Quantity = DEFAULT_BASELINE_BETA,
     ) -> None:
         selected_target = default_fake_list_target() if target is None else target
-        if not isinstance(selected_target, FakeListTarget):
-            msg = "DRAG-beta adapter requires a FakeListTarget"
-            raise TypeError(msg)
         self.target = selected_target
         self.baseline_beta = _decode_beta(baseline_beta)
         self._runtimes: list[FakeListDomainRuntime] = []

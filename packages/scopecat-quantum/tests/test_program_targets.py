@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from typing import cast
-
 import pytest
 from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
     CalibrationId,
-    CircuitId,
     CircuitOperationId,
     GateId,
     PulseEventId,
@@ -329,7 +326,7 @@ def test_prepared_entry_rejects_a_scheduled_subset_of_lowered_provenance() -> No
         )
 
 
-def test_origins_reject_wrong_address_identity_and_program_space() -> None:
+def test_origins_reject_wrong_address_identity() -> None:
     prepared = _prepared()
     first_event = prepared.event_origins[0]
     second_event = prepared.event_origins[1]
@@ -348,27 +345,10 @@ def test_origins_reject_wrong_address_identity_and_program_space() -> None:
             second_acquisition.address,
             first_acquisition.provenance,
         )
-    with pytest.raises(TypeError, match="QuantumProgramId"):
-        QuantumTargetEventOrigin(
-            cast("QuantumProgramId", CircuitId("wrong-space")),
-            first_event.address,
-            first_event.provenance,
-        )
 
 
-def test_factory_and_lookups_reject_foreign_runtime_identities() -> None:
+def test_entry_lookups_reject_foreign_addresses() -> None:
     lowered = _lowered_mixed_program()
-    with pytest.raises(TypeError, match="TargetCompileEntryId"):
-        prepare_quantum_target_entry(
-            cast("TargetCompileEntryId", TargetId("wrong-space")),
-            lowered,
-        )
-    with pytest.raises(TypeError, match="LoweredQuantumPulseProgram"):
-        prepare_quantum_target_entry(
-            TargetCompileEntryId("point"),
-            cast("LoweredQuantumPulseProgram", object()),
-        )
-
     prepared = prepare_quantum_target_entry(TargetCompileEntryId("point"), lowered)
     with pytest.raises(KeyError, match="does not belong"):
         prepared.event_origin_for(
@@ -463,10 +443,8 @@ def test_batch_constructor_rejects_order_and_origin_coverage_mismatches() -> Non
 
 def test_batch_factory_and_lookups_reject_duplicate_or_foreign_identities() -> None:
     prepared = _prepared("point")
-    with pytest.raises(TypeError, match="at least one"):
+    with pytest.raises(ValueError, match="at least one"):
         _batch(())
-    with pytest.raises(TypeError, match="PreparedQuantumTargetEntry"):
-        _batch(cast("tuple[PreparedQuantumTargetEntry, ...]", (object(),)))
     with pytest.raises(ValueError, match="entry ids must be unique"):
         _batch((prepared, prepared))
 

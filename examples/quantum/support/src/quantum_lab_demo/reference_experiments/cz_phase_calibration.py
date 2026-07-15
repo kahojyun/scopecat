@@ -251,19 +251,13 @@ class CzPhaseProductBinding:
             ("control", tuple(self.control_iq_shots)),
             ("target", tuple(self.target_iq_shots)),
         ):
-            if not values or any(
-                not isinstance(value, DomainProductUseRef) for value in values
-            ):
-                msg = f"CZ phase {name} IQ bindings require product-use references"
-                raise TypeError(msg)
+            if not values:
+                msg = f"CZ phase {name} IQ bindings require product uses"
+                raise ValueError(msg)
             if len(set(values)) != len(values):
                 msg = f"CZ phase {name} IQ product uses must be distinct"
                 raise ValueError(msg)
             object.__setattr__(self, f"{name}_iq_shots", values)
-        for transform in (self.control_transform, self.target_transform):
-            if not isinstance(transform, DomainMeasurementTransform):
-                msg = "CZ phase product bindings require authored transforms"
-                raise TypeError(msg)
         if self.control_transform == self.target_transform:
             msg = "CZ phase control and target transforms must differ"
             raise ValueError(msg)
@@ -316,30 +310,13 @@ def prepare_cz_phase_reference(
 ) -> PreparedCzPhaseReference:
     """Close one conditional-phase scan batch before hardware effects."""
 
-    if not isinstance(preparation, DomainPreparationBuilder):
-        msg = "CZ phase preparation requires a domain preparation builder"
-        raise TypeError(msg)
-    if not isinstance(products, CzPhaseProductBinding):
-        msg = "CZ phase preparation requires a product binding"
-        raise TypeError(msg)
-    if not isinstance(control_slot_id, AcquisitionSlotId) or not isinstance(
-        target_slot_id, AcquisitionSlotId
-    ):
-        msg = "CZ phase preparation requires typed acquisition slots"
-        raise TypeError(msg)
     if control_slot_id == target_slot_id:
         msg = "CZ phase acquisition slots must differ"
         raise ValueError(msg)
-    if not isinstance(declaration, q.Program):
-        msg = "CZ phase preparation requires a Program declaration"
-        raise TypeError(msg)
-    if type(shots) is not int or shots <= 0:
+    if isinstance(shots, bool) or shots <= 0:
         msg = "CZ phase shots must be a positive integer"
         raise ValueError(msg)
     selected_target = default_fake_list_target() if target is None else target
-    if not isinstance(selected_target, FakeListTarget):
-        msg = "CZ phase target must be a FakeListTarget"
-        raise TypeError(msg)
     if not invocation_id:
         msg = "CZ phase invocation_id must be non-empty"
         raise ValueError(msg)

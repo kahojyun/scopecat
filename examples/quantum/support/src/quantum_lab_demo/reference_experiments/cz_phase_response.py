@@ -7,7 +7,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import Literal
 
 from scopecat import Quantity
 from scopecat_quantum import AcquisitionKind, TargetAcquisitionAddress
@@ -40,13 +40,6 @@ class CzPhaseResponsePoint:
     analyzer_phase: Quantity
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            cast("object", self.control_address), TargetAcquisitionAddress
-        ) or not isinstance(
-            cast("object", self.target_address), TargetAcquisitionAddress
-        ):
-            msg = "CZ phase response points require typed acquisition addresses"
-            raise TypeError(msg)
         if self.control_address == self.target_address:
             msg = "CZ phase response control and target addresses must differ"
             raise ValueError(msg)
@@ -88,12 +81,9 @@ class CzPhaseAcquisitionResponse(FakeAcquisitionResponse):
 
     def __post_init__(self) -> None:
         selected = tuple(self.points)
-        if not selected or any(
-            not isinstance(point, CzPhaseResponsePoint)
-            for point in cast("tuple[object, ...]", selected)
-        ):
-            msg = "CZ phase responses require typed response points"
-            raise TypeError(msg)
+        if not selected:
+            msg = "CZ phase responses require response points"
+            raise ValueError(msg)
         shots = _positive_int(self.shots, field_name="shots")
         optimum = _amplitude(self.optimum_amplitude)
         contrast = _finite_float(self.contrast, field_name="contrast")
@@ -104,7 +94,7 @@ class CzPhaseAcquisitionResponse(FakeAcquisitionResponse):
         if not 0.0 <= jitter < 0.5:
             msg = "CZ phase response IQ jitter must lie in [0, 0.5)"
             raise ValueError(msg)
-        if not isinstance(self.model_version, str) or not self.model_version:
+        if not self.model_version:
             msg = "CZ phase response model_version must be non-empty"
             raise ValueError(msg)
 

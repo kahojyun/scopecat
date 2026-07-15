@@ -103,9 +103,6 @@ def render_sqg_rb_pulse_program(
     sequence: RandomizedBenchmarkingSequence,
     drive_route: sc.ResolvedRoute,
 ) -> RandomizedBenchmarkingPulseBundle:
-    if not isinstance(sequence, RandomizedBenchmarkingSequence):
-        msg = "render_sqg_rb_pulse_program expected a RandomizedBenchmarkingSequence"
-        raise TypeError(msg)
     count = max(8, sequence.clifford_count * 4)
     rng = np.random.default_rng(sequence.seed)
     samples = rng.normal(size=count) + 1j * rng.normal(size=count)
@@ -142,9 +139,6 @@ def render_cz_rb_coupler_pulse(
     sequence: RandomizedBenchmarkingSequence,
     coupler_route: sc.ResolvedRoute,
 ) -> RandomizedBenchmarkingPulseBundle:
-    if not isinstance(sequence, RandomizedBenchmarkingSequence):
-        msg = "render_cz_rb_coupler_pulse expected a RandomizedBenchmarkingSequence"
-        raise TypeError(msg)
     count = max(8, sequence.clifford_count * 6)
     phase = 0.0 if sequence.interleaved_gate == "CZ" else np.pi / 4.0
     t = np.linspace(0.0, 2.0 * np.pi, count, dtype=np.float64)
@@ -186,9 +180,6 @@ def render_rabi_waveforms(
     drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     sequence = program
-    if not isinstance(sequence, RabiGateSequence):
-        msg = "render_rabi_waveforms expected a RabiGateSequence payload"
-        raise TypeError(msg)
     gate = sequence.gates[0]
     samples = _render_drag_like_envelope(gate.length, gate.amplitude)
     return RenderedWaveformBundle(
@@ -206,9 +197,6 @@ def render_simultaneous_rabi_waveforms(
     program: RabiGateSequence,
     drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
-    if not isinstance(program, RabiGateSequence):
-        msg = "render_simultaneous_rabi_waveforms expected a RabiGateSequence payload"
-        raise TypeError(msg)
     if not program.gates:
         msg = "simultaneous Rabi sequence must contain at least one gate"
         raise ValueError(msg)
@@ -295,9 +283,6 @@ def render_cz_drive_waveforms(
     program: CzChevronProgram,
     drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
-    if not isinstance(program, CzChevronProgram):
-        msg = "render_cz_drive_waveforms expected a CzChevronProgram payload"
-        raise TypeError(msg)
     samples = np.vstack(
         [
             _render_drag_like_envelope(
@@ -322,9 +307,6 @@ def render_cz_coupler_waveforms(
     program: CzChevronProgram,
     coupler_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
-    if not isinstance(program, CzChevronProgram):
-        msg = "render_cz_coupler_waveforms expected a CzChevronProgram payload"
-        raise TypeError(msg)
     count = max(8, round(program.coupler_pulse.duration.value))
     plateau = np.full(
         count,
@@ -400,9 +382,6 @@ def render_parallel_gate_drive_waveforms(
     program: ParallelGateSetProgram,
     drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
-    if not isinstance(program, ParallelGateSetProgram):
-        msg = "render_parallel_gate_drive_waveforms expected a ParallelGateSetProgram"
-        raise TypeError(msg)
     samples = np.vstack(
         [
             _render_drag_like_envelope(
@@ -428,9 +407,6 @@ def render_parallel_gate_coupler_waveforms(
     program: ParallelGateSetProgram,
     coupler_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
-    if not isinstance(program, ParallelGateSetProgram):
-        msg = "render_parallel_gate_coupler_waveforms expected a ParallelGateSetProgram"
-        raise TypeError(msg)
     samples = np.vstack(
         [
             np.asarray(
@@ -485,9 +461,6 @@ def render_surface_code_drive_waveforms(
     program: SurfaceCodeRoundProgram,
     drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
-    if not isinstance(program, SurfaceCodeRoundProgram):
-        msg = "render_surface_code_drive_waveforms expected a SurfaceCodeRoundProgram"
-        raise TypeError(msg)
     samples = np.vstack(
         [
             _render_drag_like_envelope(
@@ -512,9 +485,6 @@ def render_surface_code_coupler_waveforms(
     program: SurfaceCodeRoundProgram,
     coupler_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
-    if not isinstance(program, SurfaceCodeRoundProgram):
-        msg = "render_surface_code_coupler_waveforms expected a SurfaceCodeRoundProgram"
-        raise TypeError(msg)
     count = max(8, round(program.cycle_time.value))
     samples = np.vstack(
         [

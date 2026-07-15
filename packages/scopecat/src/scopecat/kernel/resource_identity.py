@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 from scopecat.kernel.symbols import SymbolId
 
@@ -13,11 +12,6 @@ class LogicalResourcePortId:
     """Hygienic identity of one logical resource requirement."""
 
     symbol: SymbolId
-
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.symbol), SymbolId):
-            msg = "logical resource port ids require a structural symbol"
-            raise TypeError(msg)
 
     @property
     def qualified_name(self) -> str:
@@ -45,9 +39,6 @@ class PhysicalResourceId:
     value: str
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.value), str):
-            msg = "physical resource ids must be strings"
-            raise TypeError(msg)
         if not self.value:
             msg = "physical resource id must be non-empty"
             raise ValueError(msg)

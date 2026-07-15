@@ -16,7 +16,6 @@ import cmath
 import math
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import cast
 
 from scopecat_quantum import (
     DRAG,
@@ -98,14 +97,6 @@ class FakeListTargetCompiler:
     id: TargetCompilerId
     target: FakeListTarget
 
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.id), TargetCompilerId):
-            msg = "fake list compiler id must be a TargetCompilerId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.target), FakeListTarget):
-            msg = "fake list compiler target must be a FakeListTarget"
-            raise TypeError(msg)
-
     @property
     def target_id(self) -> TargetId:
         return self.target.id
@@ -117,9 +108,6 @@ class FakeListTargetCompiler:
     def compile(self, request: TargetCompileRequest) -> FakeListArtifact:
         """Compile one checked finite request without performing hardware effects."""
 
-        if not isinstance(cast("object", request), TargetCompileRequest):
-            msg = "fake list compilation requires a TargetCompileRequest"
-            raise TypeError(msg)
         self._validate_dispatch(request)
 
         issues: list[TargetCompilationIssue] = []

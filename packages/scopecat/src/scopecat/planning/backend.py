@@ -18,7 +18,7 @@ from scopecat.compiler.linking.product_realizations import (
 )
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.execution.local.executor import PreparedExecution, prepare_execution
-from scopecat.execution.local.program import ApplyStateStage, ComputeStage
+from scopecat.execution.local.program import ApplyStateStage, ComputeStage, PointProgram
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
@@ -436,9 +436,6 @@ class ExecutionBackend:
         options: ExecutionOptions | None = None,
     ) -> PreparedExecutionPlan:
         selected_options = ExecutionOptions() if options is None else options
-        if not isinstance(cast("object", selected_options), ExecutionOptions):
-            msg = "execution backend options must be ExecutionOptions"
-            raise TypeError(msg)
         linked_config_hash = config_content_hash(linked.environment.config)
         execution_config_hash = config_content_hash(config)
         if linked_config_hash != execution_config_hash:
@@ -945,11 +942,10 @@ def _plan_state_segments(
     return tuple(selected)
 
 
-def _point_state_signature(point: object) -> object:
-    stages = cast("object", getattr(point, "stages", ()))
+def _point_state_signature(point: PointProgram) -> object:
     return tuple(
         (operation.instrument_id, operation.targets)
-        for stage in cast("tuple[object, ...]", stages)
+        for stage in point.stages
         if isinstance(stage, ApplyStateStage)
         for operation in stage.operations
     )

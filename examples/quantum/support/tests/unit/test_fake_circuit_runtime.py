@@ -161,7 +161,6 @@ from scopecat_quantum import (
 
 from quantum_lab_demo.targets.fake_list_mode import (
     CorrelatedFakeListFrame,
-    CorrelatedFakeListRun,
     FakeAwgPlayback,
     FakeDigitizerChannelId,
     FakeListArtifact,
@@ -2245,9 +2244,9 @@ def test_correlation_rejects_a_run_from_another_compiled_artifact() -> None:
 @pytest.mark.parametrize(
     ("mutation", "message"),
     (
-        ("missing", "exactly cover artifact acquisition windows"),
-        ("duplicate", "addresses must be unique"),
-        ("foreign", "acquisition window"),
+        ("missing", "exactly cover every mapped acquisition"),
+        ("duplicate", "duplicate acquisition-address shots"),
+        ("foreign", "exactly cover every mapped acquisition"),
     ),
 )
 def test_correlation_rejects_invalid_frame_coverage(
@@ -2293,33 +2292,7 @@ def test_correlation_rejects_invalid_frame_coverage(
         correlate_fake_list_run(scenario.compiled_target, tampered)
 
 
-def test_fake_runtime_factories_reject_wrong_runtime_types() -> None:
-    scenario = _scenario()
-    correlated = execute_correlated_fake_list(
-        FakeListRuntime(),
-        scenario.compiled_target,
-    )
-    with pytest.raises(TypeError, match="CompiledCircuitTarget"):
-        correlate_fake_list_run(
-            cast("CompiledCircuitTarget[FakeListArtifact]", object()),
-            correlated.target_run,
-        )
-    with pytest.raises(TypeError, match="FakeListRun"):
-        correlate_fake_list_run(
-            scenario.compiled_target,
-            cast("FakeListRun", object()),
-        )
-    with pytest.raises(TypeError, match="FakeListRuntime"):
-        execute_correlated_fake_list(
-            cast("FakeListRuntime", object()),
-            scenario.compiled_target,
-        )
-    with pytest.raises(TypeError, match="CompiledCircuitTarget"):
-        execute_correlated_fake_list(
-            FakeListRuntime(),
-            cast("CompiledCircuitTarget[FakeListArtifact]", object()),
-        )
-
+def test_fake_runtime_selection_lookup_and_raw_trace_execution() -> None:
     shot_scenario = _scenario(
         product_unit="ratio",
         product_axes=(shot_axis(2),),
@@ -2329,42 +2302,6 @@ def test_fake_runtime_factories_reject_wrong_runtime_types() -> None:
         shot_scenario.compiler.target,
         _integrated_iq_bindings(shot_scenario),
     )
-    realized = execute_realized_fake_measurements(
-        FakeListRuntime(),
-        selection,
-    )
-    selected_output = selection.outputs[0]
-    with pytest.raises(TypeError, match="selected policy"):
-        realize_fake_measurements(
-            cast("SelectedFakeMeasurementRealization", object()),
-            realized.correlated_run,
-        )
-    with pytest.raises(TypeError, match="CorrelatedFakeListRun"):
-        realize_fake_measurements(
-            selection,
-            cast("CorrelatedFakeListRun", object()),
-        )
-    with pytest.raises(TypeError, match="selected policy"):
-        execute_realized_fake_measurements(
-            FakeListRuntime(),
-            cast("SelectedFakeMeasurementRealization", object()),
-        )
-    with pytest.raises(TypeError, match="TargetAcquisitionAddress"):
-        FakeMeasurementRealizationBinding(
-            cast("TargetAcquisitionAddress", object()),
-            FakeMeasurementRealizationKind.INTEGRATED_IQ_SHOTS,
-        )
-    with pytest.raises(TypeError, match="realization kind"):
-        FakeMeasurementRealizationBinding(
-            selected_output.result_address,
-            cast("FakeMeasurementRealizationKind", object()),
-        )
-    with pytest.raises(TypeError, match="realization bindings"):
-        select_fake_measurement_realization(
-            shot_scenario.compiled_target,
-            shot_scenario.compiler.target,
-            cast("tuple[FakeMeasurementRealizationBinding, ...]", (object(),)),
-        )
     with pytest.raises(KeyError, match="no selected fake policy"):
         selection.output_for_address(
             TargetAcquisitionAddress(

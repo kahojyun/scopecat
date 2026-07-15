@@ -4,7 +4,7 @@ import inspect
 from dataclasses import dataclass, replace
 from importlib import import_module
 from pathlib import Path
-from typing import cast, get_type_hints
+from typing import get_type_hints
 
 import pytest
 from scopecat import Quantity
@@ -35,9 +35,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.sdk.domain import (
     DomainExecutionOffer,
-    DomainPointRef,
     DomainPreparationBuilder,
-    DomainProductUseRef,
     DomainResultMapping,
 )
 from scopecat.sdk.domain.context import (
@@ -415,33 +413,6 @@ def test_acquisition_mapping_requires_exact_qualified_addresses(change: str) -> 
         )
 
 
-def test_quantum_mapping_types_keep_their_public_identity_space() -> None:
-    _, _, entry_bindings, acquisition_bindings = _valid_inputs()
-    with pytest.raises(TypeError, match=r"quantum target.*TargetCompileEntryId"):
-        QuantumTargetEntryPointBinding(
-            cast("TargetCompileEntryId", TargetId("wrong-space")),
-            entry_bindings[0].point,
-        )
-    with pytest.raises(TypeError, match=r"quantum target.*DomainPointRef"):
-        QuantumTargetEntryPointBinding(
-            entry_bindings[0].entry_id,
-            cast("DomainPointRef", object()),
-        )
-    with pytest.raises(
-        TypeError,
-        match=r"quantum target.*TargetAcquisitionAddress",
-    ):
-        QuantumTargetAcquisitionUseBinding(
-            cast("TargetAcquisitionAddress", object()),
-            acquisition_bindings[0].product_use,
-        )
-    with pytest.raises(TypeError, match=r"quantum target.*DomainProductUseRef"):
-        QuantumTargetAcquisitionUseBinding(
-            acquisition_bindings[0].address,
-            cast("DomainProductUseRef", object()),
-        )
-
-
 def test_compiled_target_binding_retains_exact_request_and_source_order() -> None:
     preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
     mapping = seal_quantum_target_result_mapping(
@@ -466,7 +437,7 @@ def test_compiled_target_binding_retains_exact_request_and_source_order() -> Non
     )
 
 
-def test_compiled_target_binding_rejects_another_request_and_runtime_types() -> None:
+def test_compiled_target_binding_rejects_another_request() -> None:
     preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
     mapping = seal_quantum_target_result_mapping(
         preparation,
@@ -474,22 +445,10 @@ def test_compiled_target_binding_rejects_another_request_and_runtime_types() -> 
         entry_bindings,
         acquisition_bindings,
     )
-    compiled = _compile(batch.request)
-
     with pytest.raises(ValueError, match="exactly match the mapped quantum batch"):
         bind_compiled_quantum_target(
             mapping,
             _compile(replace(batch.request, repetitions=12)),
-        )
-    with pytest.raises(TypeError, match="QuantumTargetResultMapping"):
-        bind_compiled_quantum_target(
-            cast("QuantumTargetResultMapping", object()),
-            compiled,
-        )
-    with pytest.raises(TypeError, match="CompiledTargetArtifact"):
-        bind_compiled_quantum_target(
-            mapping,
-            cast("CompiledTargetArtifact[_TargetArtifact]", object()),
         )
 
 

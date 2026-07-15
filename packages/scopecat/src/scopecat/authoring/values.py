@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from typing import cast
@@ -257,29 +257,17 @@ def parameter_lookup(
 def route(
     port_id: str,
     *,
-    capabilities: Sequence[str] = (),
+    capabilities: tuple[str, ...] = (),
 ) -> RouteRef:
     """Declare one explicit point-local route dependency."""
 
-    raw_capabilities = cast("object", capabilities)
-    if isinstance(raw_capabilities, str | bytes) or not isinstance(
-        raw_capabilities, Sequence
-    ):
+    if any(not capability for capability in capabilities):
         msg = "route capabilities must be a sequence of non-empty strings"
-        raise TypeError(msg)
-    selected_capabilities = tuple(cast("Sequence[object]", raw_capabilities))
-    if not all(
-        isinstance(capability, str) and capability
-        for capability in selected_capabilities
-    ):
-        msg = "route capabilities must be a sequence of non-empty strings"
-        raise TypeError(msg)
+        raise ValueError(msg)
     return create_handle(
         RouteRef,
         port_id=logical_resource_port_id(port_id),
-        value_type=Route(
-            capabilities=cast("tuple[str, ...]", selected_capabilities),
-        ),
+        value_type=Route(capabilities=capabilities),
     )
 
 

@@ -450,9 +450,6 @@ def select_point_domain(
 ) -> SelectedPointDomain:
     """Select a verified symbolic domain without materializing any rows."""
 
-    if not isinstance(cast("object", verified), VerifiedPointDomain):
-        msg = "point-domain selection requires a VerifiedPointDomain"
-        raise TypeError(msg)
     selections = {
         relation.id: select_relation_plan(backend, relation.value.plan)
         for relation in verified.relation_leaves
@@ -475,9 +472,6 @@ def bind_selected_point_domain(
 ) -> SelectedPointDomain:
     """Bind exact whole-program selections without reassessing any leaf."""
 
-    if not isinstance(cast("object", verified), VerifiedPointDomain):
-        msg = "point-domain selection requires a VerifiedPointDomain"
-        raise TypeError(msg)
     verified_by_id = {relation.id: relation for relation in verified.relation_leaves}
     bound = tuple(
         SelectedPointDomainRelation(
@@ -506,9 +500,6 @@ def materialize_point_domain(
 ) -> MaterializedPointDomain:
     """Coerce every row before assigning canonical ordinal identities."""
 
-    if not isinstance(cast("object", selected), SelectedPointDomain):
-        msg = "point-domain materialization requires a SelectedPointDomain"
-        raise TypeError(msg)
     if backend.backend_id != selected.backend_id:
         msg = (
             f"point domain selected for backend {selected.backend_id!r} cannot be "

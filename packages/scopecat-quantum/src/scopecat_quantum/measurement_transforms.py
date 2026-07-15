@@ -89,9 +89,6 @@ def binary_iq_probability_transform(
 ) -> MeasurementTransform:
     """Declare one authored point-local IQ-shot discrimination transform."""
 
-    if not isinstance(cast("object", transform_id), str):
-        msg = "binary IQ probability transform ids must be strings"
-        raise TypeError(msg)
     if not transform_id:
         msg = "binary IQ probability transform ids must be non-empty"
         raise ValueError(msg)
@@ -101,18 +98,12 @@ def binary_iq_probability_transform(
         _PROBABILITY_1_ROLE: probability_1,
     }
     for role, product_id in product_bindings.items():
-        if not isinstance(cast("object", product_id), str):
-            msg = f"binary IQ {role} product ids must be strings"
-            raise TypeError(msg)
         if not product_id:
             msg = f"binary IQ {role} product ids must be non-empty"
             raise ValueError(msg)
     if len(set(product_bindings.values())) != len(product_bindings):
         msg = "binary IQ probability transform products must be distinct"
         raise ValueError(msg)
-    if not isinstance(cast("object", discriminator), BinaryIqDiscriminator):
-        msg = "binary IQ probability transforms require BinaryIqDiscriminator"
-        raise TypeError(msg)
     return measurement_transform(
         transform_id,
         semantic=_binary_iq_semantic(discriminator),
@@ -223,9 +214,6 @@ def _discriminator_from_semantic(
 def _validate_binary_iq_probability_transform(
     transform: DomainMeasurementTransform,
 ) -> None:
-    if not isinstance(cast("object", transform), DomainMeasurementTransform):
-        msg = "binary IQ host validation requires DomainMeasurementTransform"
-        raise TypeError(msg)
     _discriminator_from_semantic(transform.semantic)
     if transform.rate != "point":
         msg = "binary IQ host implementation requires point rate"

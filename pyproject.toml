@@ -43,6 +43,19 @@ typeCheckingMode = "standard"
 strict = [
   "packages/scopecat/src",
   "packages/scopecat-quantum/src",
+  "packages/scopecat-quantum/tests/test_authoring.py",
+  "packages/scopecat-quantum/tests/test_calibrations.py",
+  "packages/scopecat-quantum/tests/test_circuit_pulses.py",
+  "packages/scopecat-quantum/tests/test_circuit_targets.py",
+  "packages/scopecat-quantum/tests/test_circuits.py",
+  "packages/scopecat-quantum/tests/test_circuit_results.py",
+  "packages/scopecat-quantum/tests/test_measurement_calibrations.py",
+  "packages/scopecat-quantum/tests/test_program_authoring.py",
+  "packages/scopecat-quantum/tests/test_program_results.py",
+  "packages/scopecat-quantum/tests/test_program_targets.py",
+  "packages/scopecat-quantum/tests/test_programs.py",
+  "packages/scopecat-quantum/tests/test_pulses.py",
+  "packages/scopecat-quantum/tests/test_targets.py",
 ]
 reportMissingImports = "error"
 reportMissingTypeStubs = "none"

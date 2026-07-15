@@ -484,9 +484,6 @@ class DomainFetchCandidate[ResultT]:
     result: ResultT | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.receipt), DomainFetchReceipt):
-            msg = "domain fetch candidates require a DomainFetchReceipt"
-            raise TypeError(msg)
         if self.receipt.status == "fetched" and self.result is None:
             msg = "a fetched domain candidate requires its transient payload"
             raise ValueError(msg)
@@ -515,12 +512,6 @@ def _correlated_domain_fetch[ResultT](
 ) -> CorrelatedDomainFetch[ResultT]:
     """Mint one fetched payload after core has correlated its durable state."""
 
-    if not isinstance(cast("object", submission), KnownDomainSubmission):
-        msg = "correlated domain fetches require a known submission"
-        raise TypeError(msg)
-    if not isinstance(cast("object", receipt), DomainFetchReceipt):
-        msg = "correlated domain fetches require a fetch receipt"
-        raise TypeError(msg)
     if receipt.status != "fetched" or result is None:
         msg = "correlated domain fetches require a fetched payload"
         raise ValueError(msg)
@@ -596,7 +587,6 @@ def plan_domain_submission[
 ) -> DomainSubmissionId:
     """Create the only unconditionally authorized, initial submit attempt."""
 
-    _require_closed_invocation(invocation)
     return _new_submission_id(
         invocation.intent,
         run_id=run_id,
@@ -611,7 +601,6 @@ def plan_domain_submission_retry(
 ) -> DomainSubmissionId:
     """Create a new key only from sealed definitive absence evidence."""
 
-    _require_intent(intent)
     sealed_absence = _require_absence(intent, absence)
     previous = sealed_absence.submission_id
     return _new_submission_id(
@@ -696,7 +685,6 @@ def submit_domain_invocation[
 ) -> KnownDomainSubmission:
     """Commit intent, perform submit, and accept only a correlated known job."""
 
-    _require_closed_invocation(invocation)
     intent = invocation.intent
     attempt = submission_id
     _validate_submit_authorization(intent, attempt, retry_from=retry_from)
@@ -1372,26 +1360,10 @@ def _submission_key(
     )
 
 
-def _require_closed_invocation(value: object) -> None:
-    if not isinstance(value, ClosedDomainInvocation):
-        msg = "domain runtime requires a ClosedDomainInvocation"
-        raise TypeError(msg)
-
-
-def _require_intent(value: object) -> None:
-    if not isinstance(value, DomainInvocationIntent):
-        msg = "domain runtime requires a DomainInvocationIntent"
-        raise TypeError(msg)
-
-
 def _validate_submission_id(
     intent: DomainInvocationIntent,
     attempt: DomainSubmissionId,
 ) -> None:
-    _require_intent(intent)
-    if not isinstance(cast("object", attempt), DomainSubmissionId):
-        msg = "domain runtime requires a DomainSubmissionId"
-        raise TypeError(msg)
     if (
         attempt.invocation_id != intent.invocation_id
         or attempt.intent_fingerprint != intent.intent_fingerprint
@@ -1449,9 +1421,6 @@ def _require_known_submission(
     intent: DomainInvocationIntent,
     submission: KnownDomainSubmission,
 ) -> None:
-    if not isinstance(cast("object", submission), KnownDomainSubmission):
-        msg = "domain fetch requires a KnownDomainSubmission"
-        raise TypeError(msg)
     _validate_submission_id(intent, submission.submission_id)
     _require_receipt_identity(
         submission.identity,

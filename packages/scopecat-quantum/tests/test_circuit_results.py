@@ -4,7 +4,7 @@ import inspect
 from dataclasses import dataclass, replace
 from importlib import import_module
 from pathlib import Path
-from typing import cast, get_type_hints
+from typing import get_type_hints
 
 import pytest
 from scopecat import Quantity
@@ -38,9 +38,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.sdk.domain import (
     DomainExecutionOffer,
-    DomainPointRef,
     DomainPreparationBuilder,
-    DomainProductUseRef,
     DomainResultMapping,
 )
 from scopecat.sdk.domain.context import (
@@ -582,27 +580,6 @@ def test_compiled_circuit_target_rejects_another_batch_request() -> None:
         bind_compiled_circuit_target(mapping, compiled)
 
 
-def test_compiled_circuit_target_binding_is_typed() -> None:
-    preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
-    mapping = _seal(
-        preparation,
-        batch,
-        entry_bindings,
-        acquisition_bindings,
-    )
-    compiled = _compile(batch.request)
-
-    with pytest.raises(TypeError, match="CircuitTargetResultMapping"):
-        bind_compiled_circuit_target(
-            cast("CircuitTargetResultMapping", object()), compiled
-        )
-    with pytest.raises(TypeError, match="CompiledTargetArtifact"):
-        bind_compiled_circuit_target(
-            mapping,
-            cast("CompiledTargetArtifact[_TargetArtifact]", object()),
-        )
-
-
 def test_public_mapping_boundaries_do_not_expose_compiler_types() -> None:
     public_callables = (seal_circuit_target_result_mapping,)
     public_types = (
@@ -718,27 +695,3 @@ def test_foreign_address_parent_is_derived_and_rejected() -> None:
 
     with pytest.raises(ValueError, match="exactly cover adapter result addresses"):
         _seal(preparation, batch, entry_bindings, selected)
-
-
-def test_quantum_mapping_types_close_runtime_identity_spaces() -> None:
-    _, _, entry_bindings, acquisition_bindings = _valid_inputs()
-    with pytest.raises(TypeError, match="TargetCompileEntryId"):
-        CircuitTargetEntryPointBinding(
-            cast("TargetCompileEntryId", TargetId("wrong-space")),
-            entry_bindings[0].point,
-        )
-    with pytest.raises(TypeError, match="DomainPointRef"):
-        CircuitTargetEntryPointBinding(
-            entry_bindings[0].entry_id,
-            cast("DomainPointRef", object()),
-        )
-    with pytest.raises(TypeError, match="TargetAcquisitionAddress"):
-        CircuitTargetAcquisitionUseBinding(
-            cast("TargetAcquisitionAddress", object()),
-            acquisition_bindings[0].product_use,
-        )
-    with pytest.raises(TypeError, match="DomainProductUseRef"):
-        CircuitTargetAcquisitionUseBinding(
-            acquisition_bindings[0].address,
-            cast("DomainProductUseRef", object()),
-        )

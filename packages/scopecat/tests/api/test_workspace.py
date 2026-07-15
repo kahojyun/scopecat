@@ -533,14 +533,6 @@ def test_workspace_terminals_reject_non_durable_metadata_immediately(
         prepared.preview(metadata={"callback": object()})  # type: ignore[dict-item]
     with pytest.raises(ValueError, match="finite"):
         prepared.validate(metadata={"score": float("nan")})
-    with pytest.raises(TypeError, match="run name"):
-        prepared.preview(name=object())  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="run operator"):
-        prepared.preview(operator=object())  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="sequence of strings"):
-        prepared.preview(tags="prod")
-    with pytest.raises(TypeError, match="sequence of strings"):
-        prepared.preview(tags=["ok", object()])  # type: ignore[list-item]
 
     request_context = prepared._prepared_invocation.request_context  # pyright: ignore[reportPrivateUsage]
     with pytest.raises(TypeError, match="immutable"):

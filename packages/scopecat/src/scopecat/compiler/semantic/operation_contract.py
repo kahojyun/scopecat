@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import cast
 
-from scopecat.compiler.relations.operators import ScalarOperator, is_scalar_operator
+from scopecat.compiler.relations.operators import ScalarOperator
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,70 +78,20 @@ def operation_contract_issues(
     """Return every target-independent consistency failure for one contract."""
 
     issues: list[OperationContractIssue] = []
-    effect = cast("object", contract.effect)
-    portability = cast("object", contract.portability)
-    placement = cast("object", contract.placement)
-    effect_valid = isinstance(effect, EffectClass)
-    portability_valid = isinstance(portability, Portability)
-    placement_valid = isinstance(placement, PlacementConstraint)
-    if not effect_valid:
-        issues.append(
-            OperationContractIssue(
-                "semantic_operation_effect_unknown",
-                f"unknown operation effect {effect!r}",
-            )
-        )
-    elif effect is not EffectClass.PURE:
-        issues.append(
-            OperationContractIssue(
-                "semantic_operation_effect_invalid",
-                "current semantic operations must declare a pure effect",
-            )
-        )
-    if not portability_valid:
-        issues.append(
-            OperationContractIssue(
-                "semantic_operation_portability_unknown",
-                f"unknown operation portability {portability!r}",
-            )
-        )
-    if not placement_valid:
-        issues.append(
-            OperationContractIssue(
-                "semantic_operation_placement_unknown",
-                f"unknown operation placement {placement!r}",
-            )
-        )
-
-    semantics = cast("object", contract.semantics)
+    semantics = contract.semantics
     if isinstance(semantics, OpaqueSemantics):
-        if portability_valid and portability is not Portability.IMPLEMENTATION_DEFINED:
+        if contract.portability is not Portability.IMPLEMENTATION_DEFINED:
             issues.append(
                 OperationContractIssue(
                     "semantic_opaque_operation_portability_invalid",
                     "opaque semantics must declare implementation-defined portability",
                 )
             )
-    elif isinstance(semantics, ScalarBinarySemantics):
-        if not is_scalar_operator(semantics.operator):
-            issues.append(
-                OperationContractIssue(
-                    "semantic_scalar_binary_operator_invalid",
-                    f"unknown scalar binary operator {semantics.operator!r}",
-                )
-            )
-        if portability_valid and portability is not Portability.PORTABLE:
-            issues.append(
-                OperationContractIssue(
-                    "semantic_scalar_binary_portability_invalid",
-                    "scalar binary semantics must declare portable semantics",
-                )
-            )
-    else:
+    elif contract.portability is not Portability.PORTABLE:
         issues.append(
             OperationContractIssue(
-                "semantic_operation_semantics_unknown",
-                f"unknown semantic operation {semantics!r}",
+                "semantic_scalar_binary_portability_invalid",
+                "scalar binary semantics must declare portable semantics",
             )
         )
     return tuple(issues)

@@ -14,7 +14,6 @@ from collections import Counter, defaultdict
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
 from dataclasses import dataclass, replace
-from typing import cast
 
 from scopecat import Quantity
 
@@ -34,36 +33,6 @@ from scopecat_quantum.gates import (
     GateParameterKind,
     canonical_angle_value,
 )
-
-
-def _runtime_object(value: object) -> object:
-    """Erase a static IR type before enforcing its runtime shape."""
-
-    return value
-
-
-def _runtime_tuple(value: object) -> tuple[object, ...] | None:
-    return cast("tuple[object, ...]", value) if isinstance(value, tuple) else None
-
-
-def _has_valid_acquisition_slot_identity(value: object) -> bool:
-    if not isinstance(value, AcquisitionSlotId):
-        return False
-    local_id = _runtime_object(value.local_id)
-    scope = _runtime_tuple(_runtime_object(value.scope))
-    structurally_valid = (
-        isinstance(local_id, str)
-        and bool(local_id.strip())
-        and scope is not None
-        and all(isinstance(segment, str) and bool(segment.strip()) for segment in scope)
-    )
-    if not structurally_valid:
-        return False
-    try:
-        _ = value.qualified_name
-    except UnicodeEncodeError:
-        return False
-    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,26 +148,6 @@ def verify_circuit_program(
     """
 
     issues: list[CircuitIssue] = []
-    raw_program = _runtime_object(program)
-    if not isinstance(raw_program, CircuitProgram):
-        raise CircuitVerificationError(
-            (
-                CircuitIssue(
-                    code="circuit_program_invalid",
-                    message="circuit program must be a CircuitProgram",
-                    path=("program",),
-                ),
-            )
-        )
-    raw_program_id = _runtime_object(program.id)
-    if not isinstance(raw_program_id, CircuitId):
-        issues.append(
-            CircuitIssue(
-                code="circuit_program_id_invalid",
-                message="circuit program id must be a CircuitId",
-                path=("id",),
-            )
-        )
     catalog = _verify_gate_catalog(gate_definitions, issues)
     operation_entries_buffer: list[
         tuple[CircuitOperation, tuple[CircuitIssuePathItem, ...]]
@@ -212,9 +161,6 @@ def verify_circuit_program(
     operation_entries = tuple(operation_entries_buffer)
     _verify_operation_identities(operation_entries, issues)
 
-    definition_values = tuple(
-        _runtime_object(definition) for definition in gate_definitions
-    )
     canonical_operations: list[CircuitOperation] = []
     for operation, path in operation_entries:
         if isinstance(operation, Measure):
@@ -223,8 +169,7 @@ def verify_circuit_program(
         definition = catalog.get(operation.gate_id)
         if definition is None:
             duplicate_count = sum(
-                _gate_definition_id(candidate) == operation.gate_id
-                for candidate in definition_values
+                candidate.id == operation.gate_id for candidate in gate_definitions
             )
             code = (
                 "circuit_gate_ambiguous"
@@ -264,21 +209,7 @@ def _verify_gate_catalog(
     issues: list[CircuitIssue],
 ) -> dict[GateId, GateDefinition]:
     grouped: dict[GateId, list[GateDefinition]] = defaultdict(list)
-    definition_values = tuple(_runtime_object(definition) for definition in definitions)
-    for index, definition in enumerate(definition_values):
-        if (
-            not isinstance(definition, GateDefinition)
-            or _gate_definition_id(definition) is None
-            or not _gate_definition_parameters_are_valid(definition)
-        ):
-            issues.append(
-                CircuitIssue(
-                    code="gate_definition_invalid",
-                    message="gate catalog entries must be GateDefinition values",
-                    path=("gate_definitions", index),
-                )
-            )
-            continue
+    for definition in definitions:
         grouped[definition.id].append(definition)
 
     catalog: dict[GateId, GateDefinition] = {}
@@ -314,32 +245,6 @@ def _verify_gate_catalog(
                     )
                 )
     return catalog
-
-
-def _gate_definition_id(definition: object) -> GateId | None:
-    if not isinstance(definition, GateDefinition):
-        return None
-    raw_id = _runtime_object(definition.id)
-    return raw_id if isinstance(raw_id, GateId) else None
-
-
-def _gate_definition_parameters_are_valid(definition: GateDefinition) -> bool:
-    raw_parameters = _runtime_object(definition.parameters)
-    parameter_values = _runtime_tuple(raw_parameters)
-    if parameter_values is None:
-        return False
-    for parameter in parameter_values:
-        if not isinstance(parameter, GateParameterDefinition):
-            return False
-        raw_id = _runtime_object(parameter.id)
-        raw_kind = _runtime_object(parameter.kind)
-        if (
-            not isinstance(raw_id, str)
-            or not raw_id.strip()
-            or not isinstance(raw_kind, GateParameterKind)
-        ):
-            return False
-    return True
 
 
 def _verify_operation_identities(
@@ -523,18 +428,7 @@ def _argument_matches(
     if parameter.kind is GateParameterKind.ANGLE:
         if not isinstance(value, Quantity):
             return False
-        raw_value = cast("object", value.value)
-        raw_unit = cast("object", value.unit)
-        if (
-            not isinstance(raw_value, int | float)
-            or isinstance(raw_value, bool)
-            or not isinstance(raw_unit, str)
-        ):
-            return False
-        try:
-            if not math.isfinite(raw_value):
-                return False
-        except OverflowError:
+        if not math.isfinite(value.value):
             return False
         try:
             value.to("rad")
@@ -545,127 +439,20 @@ def _argument_matches(
 
 
 def _analyze_circuit_node(
-    node: object,
+    node: CircuitNode,
     path: tuple[CircuitIssuePathItem, ...],
     issues: list[CircuitIssue],
     entries: list[tuple[CircuitOperation, tuple[CircuitIssuePathItem, ...]]],
 ) -> set[QubitId]:
     if isinstance(node, GateCall):
-        valid = True
-        gate_operation_id_value = _runtime_object(node.id)
-        raw_gate_id = _runtime_object(node.gate_id)
-        raw_qubits = _runtime_object(node.qubits)
-        raw_arguments = _runtime_object(node.arguments)
-        qubit_values = _runtime_tuple(raw_qubits)
-        argument_values = _runtime_tuple(raw_arguments)
-        if not isinstance(gate_operation_id_value, CircuitOperationId):
-            issues.append(
-                CircuitIssue(
-                    code="circuit_operation_id_invalid",
-                    message="gate call id must be a CircuitOperationId",
-                    path=(*path, "id"),
-                )
-            )
-            valid = False
-        if not isinstance(raw_gate_id, GateId):
-            issues.append(
-                CircuitIssue(
-                    code="circuit_gate_id_invalid",
-                    message="gate call gate_id must be a GateId",
-                    path=(*path, "gate_id"),
-                )
-            )
-            valid = False
-        if qubit_values is None or not all(
-            isinstance(qubit, QubitId) for qubit in qubit_values
-        ):
-            issues.append(
-                CircuitIssue(
-                    code="circuit_gate_qubits_invalid",
-                    message="gate call qubits must be a tuple of QubitId values",
-                    path=(*path, "qubits"),
-                )
-            )
-            valid = False
-        if argument_values is None or not all(
-            isinstance(argument, GateArgument) for argument in argument_values
-        ):
-            issues.append(
-                CircuitIssue(
-                    code="circuit_gate_arguments_invalid",
-                    message=(
-                        "gate call arguments must be a tuple of GateArgument values"
-                    ),
-                    path=(*path, "arguments"),
-                )
-            )
-            valid = False
-        if valid:
-            entries.append((node, path))
-        if qubit_values is None:
-            return set()
-        return {qubit for qubit in qubit_values if isinstance(qubit, QubitId)}
+        entries.append((node, path))
+        return set(node.qubits)
     if isinstance(node, Measure):
-        valid = True
-        measure_operation_id_value = _runtime_object(node.id)
-        raw_qubit = _runtime_object(node.qubit)
-        raw_slot_id = _runtime_object(node.acquisition_slot_id)
-        raw_acquisition_kind = _runtime_object(node.acquisition_kind)
-        if not isinstance(measure_operation_id_value, CircuitOperationId):
-            issues.append(
-                CircuitIssue(
-                    code="circuit_operation_id_invalid",
-                    message="measure id must be a CircuitOperationId",
-                    path=(*path, "id"),
-                )
-            )
-            valid = False
-        if not isinstance(raw_qubit, QubitId):
-            issues.append(
-                CircuitIssue(
-                    code="circuit_measure_qubit_invalid",
-                    message="measure qubit must be a QubitId",
-                    path=(*path, "qubit"),
-                )
-            )
-            valid = False
-        if not _has_valid_acquisition_slot_identity(raw_slot_id):
-            issues.append(
-                CircuitIssue(
-                    code="circuit_acquisition_slot_id_invalid",
-                    message=(
-                        "measure acquisition_slot_id must be an AcquisitionSlotId"
-                    ),
-                    path=(*path, "acquisition_slot_id"),
-                )
-            )
-            valid = False
-        if not isinstance(raw_acquisition_kind, AcquisitionKind):
-            issues.append(
-                CircuitIssue(
-                    code="circuit_acquisition_kind_invalid",
-                    message="measure acquisition_kind must be an AcquisitionKind",
-                    path=(*path, "acquisition_kind"),
-                )
-            )
-            valid = False
-        if valid:
-            entries.append((node, path))
-        return {raw_qubit} if isinstance(raw_qubit, QubitId) else set()
+        entries.append((node, path))
+        return {node.qubit}
     if isinstance(node, Sequence):
-        raw_operations = _runtime_object(node.operations)
-        operation_values = _runtime_tuple(raw_operations)
-        if operation_values is None:
-            issues.append(
-                CircuitIssue(
-                    code="circuit_sequence_operations_invalid",
-                    message="sequence operations must be a tuple",
-                    path=(*path, "operations"),
-                )
-            )
-            return set()
         sequence_touched: set[QubitId] = set()
-        for index, operation in enumerate(operation_values):
+        for index, operation in enumerate(node.operations):
             sequence_touched.update(
                 _analyze_circuit_node(
                     operation,
@@ -675,30 +462,8 @@ def _analyze_circuit_node(
                 )
             )
         return sequence_touched
-    if not isinstance(node, Parallel):
-        issues.append(
-            CircuitIssue(
-                code="circuit_node_invalid",
-                message=(
-                    "circuit nodes must be GateCall, Measure, Sequence, or Parallel"
-                ),
-                path=path,
-            )
-        )
-        return set()
-    raw_branches = _runtime_object(node.branches)
-    branch_values = _runtime_tuple(raw_branches)
-    if branch_values is None:
-        issues.append(
-            CircuitIssue(
-                code="circuit_parallel_branches_invalid",
-                message="parallel branches must be a tuple",
-                path=(*path, "branches"),
-            )
-        )
-        return set()
     branch_qubits: list[set[QubitId]] = []
-    for index, branch in enumerate(branch_values):
+    for index, branch in enumerate(node.branches):
         branch_qubits.append(
             _analyze_circuit_node(
                 branch,

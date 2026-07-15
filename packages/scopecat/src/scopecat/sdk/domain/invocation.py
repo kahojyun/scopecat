@@ -48,12 +48,7 @@ from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
     validated_measurement_value_copy,
 )
-from scopecat.records.measurement import (
-    ComplexQuantity,
-    MeasurementArray,
-    MeasurementValue,
-)
-from scopecat.records.parameter import Quantity
+from scopecat.records.measurement import MeasurementValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,14 +59,9 @@ class AdapterEntryResults[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     result_addresses: tuple[ResultAddressT, ...] = ()
 
     def __post_init__(self) -> None:
-        _require_hashable(self.entry_address, label="adapter entry address")
-        selected = tuple(self.result_addresses)
-        _require_unique_hashable(
-            selected,
-            label="adapter result addresses",
-            item_label="adapter result address",
-        )
-        object.__setattr__(self, "result_addresses", selected)
+        if len(set(self.result_addresses)) != len(self.result_addresses):
+            msg = "adapter result addresses must be unique"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,12 +71,6 @@ class EntryPointBinding[EntryAddressT: Hashable]:
     entry_address: EntryAddressT
     logical_point_id: LogicalPointId
 
-    def __post_init__(self) -> None:
-        _require_hashable(self.entry_address, label="adapter entry address")
-        if not isinstance(cast("object", self.logical_point_id), LogicalPointId):
-            msg = "entry-point bindings require a LogicalPointId"
-            raise TypeError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class ResultUseBinding[EntryAddressT: Hashable, ResultAddressT: Hashable]:
@@ -95,13 +79,6 @@ class ResultUseBinding[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     entry_address: EntryAddressT
     result_address: ResultAddressT
     product_use_id: ProductUseId
-
-    def __post_init__(self) -> None:
-        _require_hashable(self.entry_address, label="adapter entry address")
-        _require_hashable(self.result_address, label="adapter result address")
-        if not isinstance(cast("object", self.product_use_id), ProductUseId):
-            msg = "result-use bindings require a ProductUseId"
-            raise TypeError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,12 +92,6 @@ class DomainOutputValue[ResultAddressT: Hashable]:
 
     result_address: ResultAddressT
     value: MeasurementValue
-
-    def __post_init__(self) -> None:
-        _require_hashable(self.result_address, label="domain output result address")
-        if not _is_measurement_value(cast("object", self.value)):
-            msg = "domain output values require a MeasurementValue"
-            raise TypeError(msg)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -190,12 +161,6 @@ class ClosedDomainOutputValue[EntryAddressT: Hashable, ResultAddressT: Hashable]
         result: ClosedDomainResult[EntryAddressT, ResultAddressT],
         value: MeasurementValue,
     ) -> None:
-        if not isinstance(cast("object", result), ClosedDomainResult):
-            msg = "closed domain output values require a ClosedDomainResult"
-            raise TypeError(msg)
-        if not _is_measurement_value(cast("object", value)):
-            msg = "closed domain output values require a MeasurementValue"
-            raise TypeError(msg)
         object.__setattr__(self, "result", result)
         object.__setattr__(self, "_value", _copy_measurement_value(value))
 
@@ -309,30 +274,6 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
         entries: tuple[ClosedDomainEntry[EntryAddressT, ResultAddressT], ...],
         results: tuple[ClosedDomainResult[EntryAddressT, ResultAddressT], ...],
     ) -> None:
-        if not isinstance(
-            cast("object", linked_points),
-            MaterializedLinkedPoints | MaterializedLinkedPointBatch,
-        ):
-            msg = "closed domain result mappings require materialized linked points"
-            raise TypeError(msg)
-        if any(
-            not isinstance(cast("object", entry), AdapterEntryResults)
-            for entry in adapter_entries
-        ):
-            msg = "closed domain result mappings require adapter entry values"
-            raise TypeError(msg)
-        if any(
-            not isinstance(cast("object", entry), ClosedDomainEntry)
-            for entry in entries
-        ):
-            msg = "closed domain result mappings require closed entry values"
-            raise TypeError(msg)
-        if any(
-            not isinstance(cast("object", result), ClosedDomainResult)
-            for result in results
-        ):
-            msg = "closed domain result mappings require closed result values"
-            raise TypeError(msg)
         all_uses, products_by_id = _closed_product_inventory(linked_points)
         selected_uses = _canonical_selected_product_uses(
             all_uses,
@@ -562,9 +503,6 @@ class SelectedDomainMeasurementOutputs[
         self,
         mapping: ClosedDomainResultMapping[EntryAddressT, ResultAddressT],
     ) -> None:
-        if not isinstance(cast("object", mapping), ClosedDomainResultMapping):
-            msg = "domain measurement output selection requires a result mapping"
-            raise TypeError(msg)
         problems = _domain_measurement_output_selection_problems(mapping)
         if problems:
             raise CheckFailed(problems)
@@ -658,12 +596,6 @@ class ClosedDomainInvocation[
         ],
         payload: PayloadT,
     ) -> None:
-        if not isinstance(cast("object", intent), DomainInvocationIntent):
-            msg = "closed domain invocations require a DomainInvocationIntent"
-            raise TypeError(msg)
-        if not isinstance(cast("object", result_mapping), ClosedDomainResultMapping):
-            msg = "closed domain invocations require a closed result mapping"
-            raise TypeError(msg)
         if intent.result_contract_fingerprint != result_mapping.contract_fingerprint:
             msg = "domain invocation intent does not cover its output contract"
             raise ValueError(msg)
@@ -694,11 +626,8 @@ class ClosedDomainOutputValues[EntryAddressT: Hashable, ResultAddressT: Hashable
         selection: SelectedDomainMeasurementOutputs[EntryAddressT, ResultAddressT],
         outputs: tuple[ClosedDomainOutputValue[EntryAddressT, ResultAddressT], ...],
     ) -> None:
-        if not isinstance(cast("object", selection), SelectedDomainMeasurementOutputs):
-            msg = "closed domain output values require a selected measurement carrier"
-            raise TypeError(msg)
         mapping = selection.mapping
-        selected = tuple(outputs)
+        selected = outputs
         if len(selected) != len(mapping.results) or any(
             output.result is not result
             for output, result in zip(selected, mapping.results, strict=True)
@@ -772,9 +701,6 @@ def close_domain_invocation[
 ) -> ClosedDomainInvocation[EntryAddressT, ResultAddressT, PayloadT]:
     """Close stable target and output facts around an opaque adapter payload."""
 
-    if not isinstance(cast("object", result_mapping), ClosedDomainResultMapping):
-        msg = "domain invocation closure requires a closed result mapping"
-        raise TypeError(msg)
     result_contract_fingerprint = result_mapping.contract_fingerprint
     adapter_intent_fingerprint = stable_content_hash(
         content_fingerprint(
@@ -824,12 +750,6 @@ def seal_domain_result_mapping[
 ) -> ClosedDomainResultMapping[EntryAddressT, ResultAddressT]:
     """Close exact adapter coverage for selected uses of one linked point plan."""
 
-    if not isinstance(
-        cast("object", linked_points),
-        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
-    ):
-        msg = "domain result mapping requires materialized linked points"
-        raise TypeError(msg)
     all_uses, products_by_id = _closed_product_inventory(linked_points)
     selected_uses = _canonical_selected_product_uses(
         all_uses,
@@ -837,26 +757,8 @@ def seal_domain_result_mapping[
     )
     canonical_product_use_ids = tuple(use.id for use in selected_uses)
     selected_adapter_entries = tuple(adapter_entries)
-    if any(
-        not isinstance(cast("object", entry), AdapterEntryResults)
-        for entry in selected_adapter_entries
-    ):
-        msg = "adapter entry inventory requires AdapterEntryResults"
-        raise TypeError(msg)
     selected_entry_bindings = tuple(entry_bindings)
-    if any(
-        not isinstance(cast("object", binding), EntryPointBinding)
-        for binding in selected_entry_bindings
-    ):
-        msg = "entry mapping requires EntryPointBinding"
-        raise TypeError(msg)
     selected_result_bindings = tuple(result_bindings)
-    if any(
-        not isinstance(cast("object", binding), ResultUseBinding)
-        for binding in selected_result_bindings
-    ):
-        msg = "result mapping requires ResultUseBinding"
-        raise TypeError(msg)
 
     adapter_entries_by_address = _index_adapter_entries(selected_adapter_entries)
     point_bindings_by_entry = _close_entry_bindings(
@@ -1054,16 +956,8 @@ def seal_domain_output_values[
     closures rather than overloading ``MeasurementValue``.
     """
 
-    if not isinstance(cast("object", selection), SelectedDomainMeasurementOutputs):
-        msg = "domain output value sealing requires selected measurement outputs"
-        raise TypeError(msg)
     mapping = selection.mapping
     selected = tuple(values)
-    if any(
-        not isinstance(cast("object", value), DomainOutputValue) for value in selected
-    ):
-        msg = "domain output value sealing requires DomainOutputValue candidates"
-        raise TypeError(msg)
 
     expected_addresses = {result.result_address for result in mapping.results}
     by_address: dict[ResultAddressT, DomainOutputValue[ResultAddressT]] = {}
@@ -1284,12 +1178,6 @@ def _canonical_selected_product_uses(
     all_uses: tuple[ProductUse, ...],
     selected_product_use_ids: tuple[ProductUseId, ...],
 ) -> tuple[ProductUse, ...]:
-    if any(
-        not isinstance(cast("object", product_use_id), ProductUseId)
-        for product_use_id in selected_product_use_ids
-    ):
-        msg = "selected product uses require ProductUseId values"
-        raise TypeError(msg)
     if len(set(selected_product_use_ids)) != len(selected_product_use_ids):
         msg = "selected product use IDs must be unique"
         raise ValueError(msg)
@@ -1307,31 +1195,6 @@ def _canonical_selected_product_uses(
         raise ValueError(msg)
     selected_ids = set(selected_product_use_ids)
     return tuple(use for use in all_uses if use.id in selected_ids)
-
-
-def _require_hashable(value: object, *, label: str) -> None:
-    try:
-        hash(value)
-    except TypeError as error:
-        msg = f"{label} must be hashable"
-        raise TypeError(msg) from error
-
-
-def _require_unique_hashable(
-    values: Sequence[object],
-    *,
-    label: str,
-    item_label: str,
-) -> None:
-    for value in values:
-        _require_hashable(value, label=item_label)
-    if len(set(values)) != len(values):
-        msg = f"{label} must be unique"
-        raise ValueError(msg)
-
-
-def _is_measurement_value(value: object) -> bool:
-    return isinstance(value, Quantity | ComplexQuantity | MeasurementArray)
 
 
 def _copy_measurement_value(value: MeasurementValue) -> MeasurementValue:

@@ -101,15 +101,9 @@ class FakeXCountProductBinding:
         if not selected:
             msg = "fake X-count product bindings require at least one IQ use"
             raise ValueError(msg)
-        if any(not isinstance(value, DomainProductUseRef) for value in selected):
-            msg = "fake X-count product bindings require SDK product-use references"
-            raise TypeError(msg)
         if len(set(selected)) != len(selected):
             msg = "fake X-count IQ product uses must be distinct"
             raise ValueError(msg)
-        if not isinstance(self.transform, DomainMeasurementTransform):
-            msg = "fake X-count product bindings require an authored transform"
-            raise TypeError(msg)
         object.__setattr__(self, "iq_shots", selected)
 
 
@@ -161,34 +155,11 @@ def prepare_fake_x_count_reference(
     preparation no longer discovers authoring coordinates by a string name.
     """
 
-    if not isinstance(preparation, DomainPreparationBuilder):
-        msg = "fake X-count preparation requires a domain preparation builder"
-        raise TypeError(msg)
-    if not isinstance(products, FakeXCountProductBinding):
-        msg = "fake X-count preparation requires a product binding"
-        raise TypeError(msg)
-    if not isinstance(acquisition_slot_id, AcquisitionSlotId):
-        msg = "fake X-count preparation requires a typed acquisition slot"
-        raise TypeError(msg)
     selected_programs = tuple(programs)
-    if any(
-        not isinstance(program, VerifiedQuantumProgram) for program in selected_programs
-    ):
-        msg = "fake X-count preparation requires verified authored programs"
-        raise TypeError(msg)
-    if type(shots) is not int or shots <= 0:
+    if isinstance(shots, bool) or shots <= 0:
         msg = "fake X-count shots must be a positive integer"
         raise ValueError(msg)
-    if not isinstance(qubit, QubitId):
-        msg = "fake X-count qubit must be a QubitId"
-        raise TypeError(msg)
     selected_target = default_fake_list_target() if target is None else target
-    if not isinstance(selected_target, FakeListTarget):
-        msg = "fake X-count target must be a FakeListTarget"
-        raise TypeError(msg)
-    if not isinstance(compiler_id, TargetCompilerId):
-        msg = "fake X-count compiler_id must be a TargetCompilerId"
-        raise TypeError(msg)
     if not invocation_id:
         msg = "fake X-count invocation_id must be non-empty"
         raise ValueError(msg)

@@ -88,12 +88,6 @@ from scopecat_quantum.pulses import Parallel as IrPulseParallel
 from scopecat_quantum.pulses import Sequence as IrPulseSequence
 
 
-def _runtime_object(value: object) -> object:
-    """Erase a static authoring type before enforcing its runtime invariant."""
-
-    return value
-
-
 def _create_handle[HandleT](
     handle_type: type[HandleT],
     /,
@@ -361,19 +355,14 @@ def _author_gate_call(
     qubits: tuple[Qubit, ...],
     arguments: Mapping[str, CircuitArgument],
 ) -> CircuitFragment:
-    raw_qubits = tuple(_runtime_object(qubit) for qubit in qubits)
     definition = _gate_definition(gate_handle)
-    if len(raw_qubits) != definition.qubit_arity:
+    if len(qubits) != definition.qubit_arity:
         msg = (
             f"gate {gate_handle.id!r} requires {definition.qubit_arity} qubits, "
-            f"got {len(raw_qubits)}"
+            f"got {len(qubits)}"
         )
         raise ValueError(msg)
-    if not all(isinstance(qubit, Qubit) for qubit in raw_qubits):
-        msg = f"gate {gate_handle.id!r} calls require Qubit handles"
-        raise TypeError(msg)
-    selected_qubits = cast("tuple[Qubit, ...]", raw_qubits)
-    qubit_ids = tuple(_qubit_ir_id(qubit) for qubit in selected_qubits)
+    qubit_ids = tuple(_qubit_ir_id(qubit) for qubit in qubits)
     if len(set(qubit_ids)) != len(qubit_ids):
         msg = f"gate {gate_handle.id!r} operands must be unique"
         raise ValueError(msg)
@@ -411,7 +400,7 @@ def _author_gate_call(
     return _create_handle(
         _GateFragment,
         gate=gate_handle,
-        qubits=selected_qubits,
+        qubits=qubits,
         arguments=tuple(ordered_arguments),
     )
 
@@ -524,13 +513,13 @@ class _PlayFragment(PulseFragment):
 
 @dataclass(frozen=True, slots=True)
 class _DelayFragment(PulseFragment):
-    signal: LogicalSignal
+    signal: PlaySignal
     duration: QuantumQuantity
 
 
 @dataclass(frozen=True, slots=True)
 class _BarrierFragment(PulseFragment):
-    signals: tuple[LogicalSignal, ...]
+    signals: tuple[PlaySignal, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -706,35 +695,25 @@ def coupler(id: str) -> Coupler:  # noqa: A002
 def scalar_input(id: str, kind: GateParameterKind) -> CircuitInput:  # noqa: A002
     """Declare one typed scalar input port for a symbolic circuit."""
 
-    raw_id = _runtime_object(id)
-    raw_kind = _runtime_object(kind)
-    if not isinstance(raw_id, str) or not raw_id.strip():
+    if not id.strip():
         msg = "circuit input id must be a non-empty string"
         raise ValueError(msg)
-    if not isinstance(raw_kind, GateParameterKind):
-        msg = "circuit input kind must be a GateParameterKind"
-        raise TypeError(msg)
-    return _create_handle(CircuitInput, _id=raw_id, kind=raw_kind)
+    return _create_handle(CircuitInput, _id=id, kind=kind)
 
 
 def input(id: str, value_type: ScalarType) -> QuantumInput:  # noqa: A001, A002
     """Declare one core-typed scalar input for gate-and-pulse authoring."""
 
-    raw_id = _runtime_object(id)
-    raw_value_type = _runtime_object(value_type)
-    if not isinstance(raw_id, str) or not raw_id.strip():
+    if not id.strip():
         msg = "quantum input id must be a non-empty string"
         raise ValueError(msg)
-    if not isinstance(raw_value_type, ScalarType):
-        msg = "quantum input value_type must be a ScalarType"
-        raise TypeError(msg)
-    if raw_value_type.nullable:
+    if value_type.nullable:
         msg = "quantum program inputs cannot be nullable"
         raise ValueError(msg)
     return _create_handle(
         QuantumInput,
-        _id=raw_id,
-        value_type=raw_value_type,
+        _id=id,
+        value_type=value_type,
     )
 
 
@@ -783,44 +762,23 @@ def gate(
 def gate(
     id: str,  # noqa: A002
     *,
-    arity: int,
+    arity: Literal[1, 2],
     parameters: Mapping[str, GateParameterKind] | None = None,
 ) -> Gate:
     """Declare one hardware-independent one- or two-qubit gate semantic."""
 
-    raw_parameters = _runtime_object(parameters)
-    if raw_parameters is not None and not isinstance(raw_parameters, Mapping):
-        msg = "gate parameters must be a mapping from ids to parameter kinds"
-        raise TypeError(msg)
-    selected: Mapping[object, object] = (
-        {}
-        if raw_parameters is None
-        else cast("Mapping[object, object]", raw_parameters)
-    )
-    if not all(
-        isinstance(name, str)
-        and bool(name.strip())
-        and isinstance(kind, GateParameterKind)
-        for name, kind in selected.items()
-    ):
-        msg = "gate parameters must map non-empty strings to GateParameterKind values"
-        raise TypeError(msg)
-    raw_arity = _runtime_object(arity)
-    if not isinstance(raw_arity, int) or isinstance(raw_arity, bool):
-        msg = "gate arity must be 1 or 2"
-        raise TypeError(msg)
-    if raw_arity not in (1, 2):
-        msg = "gate arity must be 1 or 2"
+    selected: Mapping[str, GateParameterKind] = {} if parameters is None else parameters
+    if any(not name.strip() for name in selected):
+        msg = "gate parameter ids must be non-empty strings"
         raise ValueError(msg)
     definition = GateDefinition(
         id=GateId(id),
-        qubit_arity=raw_arity,
+        qubit_arity=arity,
         parameters=tuple(
-            GateParameterDefinition(name, kind)
-            for name, kind in cast("Mapping[str, GateParameterKind]", selected).items()
+            GateParameterDefinition(name, kind) for name, kind in selected.items()
         ),
     )
-    handle_type = SingleQubitGate if raw_arity == 1 else TwoQubitGate
+    handle_type = SingleQubitGate if arity == 1 else TwoQubitGate
     return _create_handle(handle_type, _definition=definition)
 
 
@@ -833,23 +791,14 @@ def measure(
 ) -> Measurement:
     """Author one single-qubit measurement and its result port."""
 
-    raw_qubit = _runtime_object(qubit)
-    raw_result = _runtime_object(result)
-    raw_acquisition_kind = _runtime_object(acquisition_kind)
-    if not isinstance(raw_qubit, Qubit):
-        msg = "measure requires a Qubit handle"
-        raise TypeError(msg)
-    if not isinstance(raw_result, str) or not raw_result.strip():
+    if not result.strip():
         msg = "measurement result id must be a non-empty string"
         raise ValueError(msg)
-    if not isinstance(raw_acquisition_kind, AcquisitionKind):
-        msg = "measurement acquisition_kind must be an AcquisitionKind"
-        raise TypeError(msg)
     result_handle = _create_handle(
         MeasurementResult,
-        _id=raw_result,
-        _qubit=raw_qubit,
-        acquisition_kind=raw_acquisition_kind,
+        _id=result,
+        _qubit=qubit,
+        acquisition_kind=acquisition_kind,
     )
     return _create_handle(Measurement, result=result_handle)
 
@@ -864,28 +813,19 @@ def acquire(
 ) -> Acquisition:
     """Acquire one physical signal and expose its typed result port."""
 
-    raw_qubit = _runtime_object(qubit)
-    raw_result = _runtime_object(result)
-    raw_acquisition_kind = _runtime_object(acquisition_kind)
-    if not isinstance(raw_qubit, Qubit):
-        msg = "acquire requires a Qubit handle"
-        raise TypeError(msg)
     _require_quantity_expression(duration, field="duration", kind="time")
-    if not isinstance(raw_result, str) or not raw_result.strip():
+    if not result.strip():
         msg = "acquisition result id must be a non-empty string"
         raise ValueError(msg)
-    if not isinstance(raw_acquisition_kind, AcquisitionKind):
-        msg = "acquire acquisition_kind must be an AcquisitionKind"
-        raise TypeError(msg)
     result_handle = _create_handle(
         MeasurementResult,
-        _id=raw_result,
-        _qubit=raw_qubit,
-        acquisition_kind=raw_acquisition_kind,
+        _id=result,
+        _qubit=qubit,
+        acquisition_kind=acquisition_kind,
     )
     return _create_handle(
         Acquisition,
-        signal=AcquireSignal(_qubit_ir_id(raw_qubit)),
+        signal=AcquireSignal(_qubit_ir_id(qubit)),
         duration=duration,
         result=result_handle,
     )
@@ -894,44 +834,28 @@ def acquire(
 def drive(qubit: Qubit, /) -> DriveSignal:
     """Select the logical drive signal for one authored qubit."""
 
-    raw_qubit = _runtime_object(qubit)
-    if not isinstance(raw_qubit, Qubit):
-        msg = "drive requires a Qubit handle"
-        raise TypeError(msg)
-    return DriveSignal(_qubit_ir_id(raw_qubit))
+    return DriveSignal(_qubit_ir_id(qubit))
 
 
 def flux(element: PulseElement, /) -> FluxSignal:
     """Select the logical flux signal for one authored qubit or coupler."""
 
-    raw_element = _runtime_object(element)
-    if not isinstance(raw_element, Qubit | Coupler):
-        msg = "flux requires a Qubit or Coupler handle"
-        raise TypeError(msg)
-    return FluxSignal(_element_ir_id(raw_element))
+    return FluxSignal(_element_ir_id(element))
 
 
 def readout(qubit: Qubit, /) -> ReadoutSignal:
     """Select the logical readout-stimulus signal for one authored qubit."""
 
-    raw_qubit = _runtime_object(qubit)
-    if not isinstance(raw_qubit, Qubit):
-        msg = "readout requires a Qubit handle"
-        raise TypeError(msg)
-    return ReadoutSignal(_qubit_ir_id(raw_qubit))
+    return ReadoutSignal(_qubit_ir_id(qubit))
 
 
 def shift_phase(signal: FrameSignal, phase: QuantumQuantity, /) -> PulseFragment:
     """Advance a drive or readout frame without consuming timeline duration."""
 
-    raw_signal = _runtime_object(signal)
-    if not isinstance(raw_signal, DriveSignal | ReadoutSignal):
-        msg = "shift_phase requires a drive or readout logical signal"
-        raise TypeError(msg)
     _require_quantity_expression(phase, field="phase shift", kind="phase")
     return _create_handle(
         _ShiftPhaseFragment,
-        signal=raw_signal,
+        signal=signal,
         phase=phase,
     )
 
@@ -945,26 +869,20 @@ def pulse_template(
 ) -> PulseTemplate:
     """Close a result-free symbolic pulse fragment as a reusable template."""
 
-    raw_body = _runtime_object(body)
-    if not isinstance(raw_body, QuantumFragment) or not _is_pulse_only(raw_body):
+    if not _is_pulse_only(body):
         msg = "pulse_template body must contain only pulse statements"
         raise TypeError(msg)
-    if _quantum_fragment_results(raw_body):
+    if _quantum_fragment_results(body):
         msg = "pulse templates cannot capture acquisition results"
         raise ValueError(msg)
     raw_elements = tuple(elements)
-    if not all(
-        isinstance(_runtime_object(item), Qubit | Coupler) for item in raw_elements
-    ):
-        msg = "pulse template elements must contain only Qubit or Coupler handles"
-        raise TypeError(msg)
     element_ids = tuple(_element_ir_id(item) for item in raw_elements)
     if len(set(element_ids)) != len(element_ids):
         msg = "pulse template elements must be unique"
         raise ValueError(msg)
 
     inputs_by_id: dict[str, QuantumInput] = {}
-    for input_handle in _quantum_fragment_inputs(raw_body):
+    for input_handle in _quantum_fragment_inputs(body):
         if not isinstance(input_handle, QuantumInput):
             msg = "pulse templates require QuantumInput rather than CircuitInput ports"
             raise TypeError(msg)
@@ -979,7 +897,7 @@ def pulse_template(
 
     formal_ids = set(element_ids)
     foreign_owners = {
-        owner for owner in _pulse_fragment_owners(raw_body) if owner not in formal_ids
+        owner for owner in _pulse_fragment_owners(body) if owner not in formal_ids
     }
     if foreign_owners:
         rendered = ", ".join(
@@ -992,7 +910,7 @@ def pulse_template(
     return _create_handle(
         PulseTemplate,
         _ir_id=PulseProgramId(id),
-        _body=raw_body,
+        _body=body,
         elements=raw_elements,
         inputs=tuple(inputs_by_id.values()),
     )
@@ -1059,47 +977,26 @@ def play(
 ) -> PulseFragment:
     """Play one concrete or symbolic envelope on a logical signal."""
 
-    raw_signal = _runtime_object(signal)
-    raw_envelope = _runtime_object(envelope)
-    if not isinstance(raw_signal, DriveSignal | FluxSignal | ReadoutSignal):
-        msg = "play requires a drive, flux, or readout logical signal"
-        raise TypeError(msg)
-    if not isinstance(raw_envelope, PulseEnvelope | Constant | Gaussian | DRAG):
-        msg = "play requires an analytic pulse envelope"
-        raise TypeError(msg)
     return _create_handle(
         _PlayFragment,
-        signal=raw_signal,
-        envelope=raw_envelope,
+        signal=signal,
+        envelope=envelope,
     )
 
 
-def delay(signal: LogicalSignal, duration: QuantumQuantity, /) -> PulseFragment:
+def delay(signal: PlaySignal, duration: QuantumQuantity, /) -> PulseFragment:
     """Reserve time on one logical signal."""
 
-    raw_signal = _runtime_object(signal)
-    if not isinstance(raw_signal, DriveSignal | FluxSignal | ReadoutSignal):
-        msg = "delay requires a drive, flux, or readout logical signal"
-        raise TypeError(msg)
     _require_quantity_expression(duration, field="duration", kind="time")
-    return _create_handle(_DelayFragment, signal=raw_signal, duration=duration)
+    return _create_handle(_DelayFragment, signal=signal, duration=duration)
 
 
-def barrier(*signals: LogicalSignal) -> PulseFragment:
+def barrier(*signals: PlaySignal) -> PulseFragment:
     """Synchronize one or more logical signals without advancing time."""
 
     if not signals:
         msg = "barrier requires at least one logical signal"
         raise ValueError(msg)
-    if not all(
-        isinstance(
-            _runtime_object(signal),
-            DriveSignal | FluxSignal | ReadoutSignal,
-        )
-        for signal in signals
-    ):
-        msg = "barrier accepts only logical signals"
-        raise TypeError(msg)
     return _create_handle(_BarrierFragment, signals=signals)
 
 
@@ -1113,29 +1010,23 @@ def implements(
 ) -> QuantumFragment:
     """Attach one explicit pulse implementation to a logical gate occurrence."""
 
-    raw_gate_call = _runtime_object(gate_call)
-    raw_pulse = _runtime_object(pulse)
-    if not isinstance(raw_gate_call, _GateFragment):
+    if not isinstance(gate_call, _GateFragment):
         msg = "implements requires one authored gate call"
         raise TypeError(msg)
-    if not isinstance(raw_pulse, QuantumFragment) or not _is_pulse_only(raw_pulse):
+    if not _is_pulse_only(pulse):
         msg = "implements pulse must contain only pulse statements"
         raise TypeError(msg)
-    if _quantum_fragment_results(raw_pulse):
+    if _quantum_fragment_results(pulse):
         msg = "implements pulse cannot acquire results"
         raise ValueError(msg)
-    raw_resources = tuple(_runtime_object(resource) for resource in resources)
-    if not all(isinstance(resource, Coupler) for resource in raw_resources):
-        msg = "implements resources must contain only Coupler handles"
-        raise TypeError(msg)
-    selected_resources = cast("tuple[Coupler, ...]", raw_resources)
+    selected_resources = tuple(resources)
     resource_ids = tuple(_coupler_ir_id(resource) for resource in selected_resources)
     if len(set(resource_ids)) != len(resource_ids):
         msg = "implements resources must be unique"
         raise ValueError(msg)
-    operand_ids = {_qubit_ir_id(qubit) for qubit in raw_gate_call.qubits}
+    operand_ids = {_qubit_ir_id(qubit) for qubit in gate_call.qubits}
     allowed_owners = {*operand_ids, *resource_ids}
-    pulse_owners = set(_pulse_fragment_owners(raw_pulse))
+    pulse_owners = set(_pulse_fragment_owners(pulse))
     foreign_owners = pulse_owners - allowed_owners
     if foreign_owners:
         rendered = ", ".join(
@@ -1158,8 +1049,8 @@ def implements(
         raise ValueError(msg)
     return _create_handle(
         _ImplementedGateFragment,
-        gate=raw_gate_call,
-        pulse=raw_pulse,
+        gate=gate_call,
+        pulse=pulse,
         candidate_id=candidate,
     )
 
@@ -1178,7 +1069,6 @@ def sequence(*operations: QuantumFragment) -> QuantumFragment:
     if not operations:
         msg = "sequence requires at least one quantum fragment"
         raise ValueError(msg)
-    _require_fragments(operations, composition="sequence")
     if all(isinstance(operation, CircuitFragment) for operation in operations):
         return _create_handle(
             _SequenceFragment,
@@ -1201,7 +1091,6 @@ def parallel(*branches: QuantumFragment) -> QuantumFragment:
     if len(branches) < 2:
         msg = "parallel requires at least two quantum branches"
         raise ValueError(msg)
-    _require_fragments(branches, composition="parallel")
     if all(isinstance(branch, CircuitFragment) for branch in branches):
         return _create_handle(
             _ParallelFragment,
@@ -1228,40 +1117,35 @@ def repeat(operation: QuantumFragment, count: RepeatCount) -> QuantumFragment:
     excluded because a single result handle cannot represent repeated slots.
     """
 
-    _require_fragments((operation,), composition="repeat")
     if _quantum_fragment_results(operation):
         msg = (
             "repeat does not support fragments that produce measurement results "
             "or physical acquisition results"
         )
         raise ValueError(msg)
-    raw_count = _runtime_object(count)
-    if isinstance(raw_count, CircuitInput | QuantumInput):
-        if not _is_integer_input(raw_count):
+    if isinstance(count, CircuitInput | QuantumInput):
+        if not _is_integer_input(count):
             msg = "repeat count inputs must have integer kind"
             raise TypeError(msg)
-    elif not isinstance(raw_count, int) or isinstance(raw_count, bool) or raw_count < 0:
+    elif isinstance(count, bool) or count < 0:
         msg = "repeat count must be a non-negative integer or integer input"
         raise ValueError(msg)
-    if isinstance(operation, CircuitFragment) and isinstance(
-        raw_count, int | CircuitInput
-    ):
+    if isinstance(operation, CircuitFragment) and isinstance(count, int | CircuitInput):
         return _create_handle(
             _RepeatFragment,
             operation=operation,
-            count=raw_count,
+            count=count,
         )
     return _create_handle(
         _QuantumRepeatFragment,
         operation=operation,
-        count=raw_count,
+        count=count,
     )
 
 
 def program(id: str, body: QuantumFragment) -> Program:  # noqa: A002
     """Close one unified gate-and-pulse fragment into a symbolic program."""
 
-    _require_fragments((body,), composition="program")
     ir_id = QuantumProgramId(id)
     collected_inputs = _quantum_fragment_inputs(body)
     inputs_by_id: dict[str, ProgramInput] = {}
@@ -1322,22 +1206,8 @@ def bind(
 ) -> BoundProgram:
     """Bind all inputs and return verified unified quantum IR."""
 
-    raw_declaration = _runtime_object(declaration)
-    if not isinstance(raw_declaration, Program):
-        msg = "bind requires a Program handle"
-        raise TypeError(msg)
-    raw_selected = _runtime_object(bindings)
-    if raw_selected is not None and not isinstance(raw_selected, Mapping):
-        msg = "quantum program bindings must be a mapping"
-        raise TypeError(msg)
-    raw_bindings: Mapping[object, object] = (
-        {} if raw_selected is None else cast("Mapping[object, object]", raw_selected)
-    )
-    if not all(isinstance(name, str) for name in raw_bindings):
-        msg = "quantum program binding ids must be strings"
-        raise ProgramBindingError(msg)
-    selected_bindings = cast("Mapping[str, object]", raw_bindings)
-    expected = {input_handle.id for input_handle in raw_declaration.inputs}
+    selected_bindings: Mapping[str, object] = {} if bindings is None else bindings
+    expected = {input_handle.id for input_handle in declaration.inputs}
     supplied = set(selected_bindings)
     missing = sorted(expected - supplied)
     unknown = sorted(supplied - expected)
@@ -1351,12 +1221,10 @@ def bind(
 
     repeat_input_ids = {
         input_handle.id
-        for input_handle in _quantum_fragment_repeat_inputs(
-            _program_body(raw_declaration)
-        )
+        for input_handle in _quantum_fragment_repeat_inputs(_program_body(declaration))
     }
     concrete_bindings: dict[str, object] = {}
-    for input_handle in raw_declaration.inputs:
+    for input_handle in declaration.inputs:
         value_type = _program_input_type(
             input_handle,
             non_negative=input_handle.id in repeat_input_ids,
@@ -1371,17 +1239,17 @@ def bind(
             raise ProgramBindingError(str(error)) from error
 
     concrete = QuantumProgramIR(
-        id=_program_ir_id(raw_declaration),
+        id=_program_ir_id(declaration),
         body=_bind_quantum_fragment(
-            _program_body(raw_declaration),
+            _program_body(declaration),
             concrete_bindings,
             path=("body",),
         ),
     )
-    verified = verify_quantum_program(concrete, raw_declaration.gate_definitions)
+    verified = verify_quantum_program(concrete, declaration.gate_definitions)
     return _create_handle(
         BoundProgram,
-        declaration=raw_declaration,
+        declaration=declaration,
         verified=verified,
     )
 
@@ -1389,29 +1257,23 @@ def bind(
 def domain_program(declaration: Program) -> DomainProgramDef:
     """Project a unified declaration into core's domain program seam."""
 
-    raw_declaration = _runtime_object(declaration)
-    if not isinstance(raw_declaration, Program):
-        msg = "domain_program requires a Program handle"
-        raise TypeError(msg)
     repeat_input_ids = {
         input_handle.id
-        for input_handle in _quantum_fragment_repeat_inputs(
-            _program_body(raw_declaration)
-        )
+        for input_handle in _quantum_fragment_repeat_inputs(_program_body(declaration))
     }
     return _core_domain_program(
-        raw_declaration.id,
+        declaration.id,
         dialect_id=QUANTUM_PROGRAM_DIALECT_ID,
         dialect_version=QUANTUM_PROGRAM_DIALECT_VERSION,
-        body=raw_declaration,
+        body=declaration,
         inputs={
             input_handle.id: _program_input_type(
                 input_handle,
                 non_negative=input_handle.id in repeat_input_ids,
             )
-            for input_handle in raw_declaration.inputs
+            for input_handle in declaration.inputs
         },
-        results={result.id: result for result in raw_declaration.results},
+        results={result.id: result for result in declaration.results},
     )
 
 
@@ -1424,39 +1286,27 @@ def domain_call(
 ) -> DomainCall:
     """Bind program handles to core values and logical products."""
 
-    raw_program = _runtime_object(program)
-    if not isinstance(raw_program, DomainProgramDef):
-        msg = "domain_call requires a quantum program domain program"
-        raise TypeError(msg)
     if (
-        raw_program.dialect_id != QUANTUM_PROGRAM_DIALECT_ID
-        or raw_program.dialect_version != QUANTUM_PROGRAM_DIALECT_VERSION
-        or not isinstance(raw_program.body, Program)
+        program.dialect_id != QUANTUM_PROGRAM_DIALECT_ID
+        or program.dialect_version != QUANTUM_PROGRAM_DIALECT_VERSION
+        or not isinstance(program.body, Program)
     ):
         msg = "domain_call requires a quantum program domain program"
         raise TypeError(msg)
-    declaration = raw_program.body
+    declaration = program.body
     expected_program = domain_program(declaration)
     if (
-        raw_program.id != expected_program.id
-        or raw_program.input_ports != expected_program.input_ports
-        or raw_program.result_ports != expected_program.result_ports
+        program.id != expected_program.id
+        or program.input_ports != expected_program.input_ports
+        or program.result_ports != expected_program.result_ports
     ):
         msg = "quantum program domain ports do not match its Program body"
         raise ValueError(msg)
-    raw_inputs = _runtime_object(inputs)
-    raw_results = _runtime_object(results)
-    if raw_inputs is not None and not isinstance(raw_inputs, Mapping):
-        raise TypeError("quantum program domain call inputs must be a mapping")
-    if raw_results is not None and not isinstance(raw_results, Mapping):
-        raise TypeError("quantum program domain call results must be a mapping")
-    selected_inputs: Mapping[ProgramInput, ComputeInput] = cast(
-        "Mapping[ProgramInput, ComputeInput]",
-        {} if raw_inputs is None else raw_inputs,
+    selected_inputs: Mapping[ProgramInput, ComputeInput] = (
+        {} if inputs is None else inputs
     )
-    selected_results: Mapping[MeasurementResult, str] = cast(
-        "Mapping[MeasurementResult, str]",
-        {} if raw_results is None else raw_results,
+    selected_results: Mapping[MeasurementResult, str] = (
+        {} if results is None else results
     )
     if set(selected_inputs) != set(declaration.inputs):
         msg = "quantum program domain call inputs must bind every declared input"
@@ -1477,7 +1327,7 @@ def domain_call(
     }
     return _core_domain_call(
         id,
-        raw_program,
+        program,
         inputs=normalized_inputs,
         results={handle.id: value for handle, value in selected_results.items()},
     )
@@ -1831,18 +1681,14 @@ def _instantiate_pulse_template(
     elements: tuple[PulseElement, ...],
     inputs: Mapping[str, PulseTemplateArgument],
 ) -> PulseFragment:
-    raw_elements = tuple(_runtime_object(element) for element in elements)
-    if len(raw_elements) != len(template.elements):
+    if len(elements) != len(template.elements):
         msg = (
             f"pulse template {template.id!r} requires {len(template.elements)} "
-            f"elements, got {len(raw_elements)}"
+            f"elements, got {len(elements)}"
         )
         raise ValueError(msg)
-    if not all(isinstance(element, Qubit | Coupler) for element in raw_elements):
-        msg = "pulse template calls require Qubit or Coupler handles"
-        raise TypeError(msg)
     for index, (formal, actual) in enumerate(
-        zip(template.elements, raw_elements, strict=True)
+        zip(template.elements, elements, strict=True)
     ):
         if type(formal) is not type(actual):
             msg = (
@@ -1850,8 +1696,7 @@ def _instantiate_pulse_template(
                 f"{type(formal).__name__}, got {type(actual).__name__}"
             )
             raise TypeError(msg)
-    selected_elements = cast("tuple[PulseElement, ...]", raw_elements)
-    actual_ids = tuple(_element_ir_id(element) for element in selected_elements)
+    actual_ids = tuple(_element_ir_id(element) for element in elements)
     if len(set(actual_ids)) != len(actual_ids):
         msg = f"pulse template {template.id!r} elements must be unique"
         raise ValueError(msg)
@@ -1872,7 +1717,7 @@ def _instantiate_pulse_template(
 
     input_bindings: dict[QuantumInput, Quantity | int | float | QuantumInput] = {}
     for input_id, formal in expected.items():
-        selected = _runtime_object(inputs[input_id])
+        selected = inputs[input_id]
         if isinstance(selected, QuantumInput):
             if selected.value_type != formal.value_type:
                 msg = (
@@ -1895,7 +1740,7 @@ def _instantiate_pulse_template(
 
     element_bindings = {
         _element_ir_id(formal): _element_ir_id(actual)
-        for formal, actual in zip(template.elements, selected_elements, strict=True)
+        for formal, actual in zip(template.elements, elements, strict=True)
     }
     instantiated = _substitute_pulse_fragment(
         _pulse_template_body(template),
@@ -1922,7 +1767,7 @@ def _substitute_pulse_fragment(
         )
     if isinstance(fragment, _DelayFragment):
         return delay(
-            _substitute_signal(fragment.signal, element_bindings),
+            cast("PlaySignal", _substitute_signal(fragment.signal, element_bindings)),
             cast(
                 "QuantumQuantity",
                 _substitute_template_value(fragment.duration, input_bindings),
@@ -1939,7 +1784,7 @@ def _substitute_pulse_fragment(
     if isinstance(fragment, _BarrierFragment):
         return barrier(
             *(
-                _substitute_signal(signal, element_bindings)
+                cast("PlaySignal", _substitute_signal(signal, element_bindings))
                 for signal in fragment.signals
             )
         )
@@ -2078,32 +1923,28 @@ def _pulse_envelope(
 
 
 def _require_quantity_expression(
-    value: object,
+    value: QuantumQuantity,
     *,
     field: str,
     kind: str,
 ) -> None:
-    raw_value = _runtime_object(value)
-    if isinstance(raw_value, Quantity):
+    if isinstance(value, Quantity):
         accepted = False
         if kind == "time":
-            accepted = _quantity_converts_to(raw_value, "s")
+            accepted = _quantity_converts_to(value, "s")
         elif kind == "phase":
-            accepted = _quantity_converts_to(raw_value, "rad")
+            accepted = _quantity_converts_to(value, "rad")
         else:
             accepted = any(
-                _quantity_converts_to(raw_value, unit) for unit in ("arb", "ratio", "V")
+                _quantity_converts_to(value, unit) for unit in ("arb", "ratio", "V")
             )
         if accepted:
             return
         msg = f"pulse {field} must use a {kind} quantity"
         raise TypeError(msg)
-    if not isinstance(raw_value, QuantumInput):
-        msg = f"pulse {field} must be a Quantity or QuantumInput"
-        raise TypeError(msg)
-    atom = raw_value.value_type.atom
+    atom = value.value_type.atom
     if not isinstance(atom, QuantityType):
-        msg = f"pulse {field} input {raw_value.id!r} must declare a quantity type"
+        msg = f"pulse {field} input {value.id!r} must declare a quantity type"
         raise TypeError(msg)
     declared_kind = atom.dimension
     if declared_kind is None and atom.unit is not None:
@@ -2118,9 +1959,7 @@ def _require_quantity_expression(
         {"amplitude", "ratio", "voltage"} if kind == "amplitude" else {kind}
     )
     if declared_kind not in accepted_kinds:
-        msg = (
-            f"pulse {field} input {raw_value.id!r} must declare {kind!r} quantity units"
-        )
+        msg = f"pulse {field} input {value.id!r} must declare {kind!r} quantity units"
         raise TypeError(msg)
 
 
@@ -2205,16 +2044,6 @@ def _signal_owner(signal: LogicalSignal) -> QubitId | CouplerId:
 
 def _operation_id(path: tuple[str, ...], kind: str) -> str:
     return "/".join((*path, kind))
-
-
-def _require_fragments(
-    values: tuple[QuantumFragment, ...],
-    *,
-    composition: str,
-) -> None:
-    if not all(isinstance(_runtime_object(value), QuantumFragment) for value in values):
-        msg = f"{composition} accepts only QuantumFragment handles"
-        raise TypeError(msg)
 
 
 def _quantum_fragment_inputs(

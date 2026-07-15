@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import cast
 
 from scopecat.compiler.relations.uses import RelationUseId
 from scopecat.kernel.value_types import Table, TableColumn
@@ -299,14 +298,7 @@ def analyze_point_domain[LeafT](
         if isinstance(node, PointUnit):
             shape = PointDomainShape(Table(columns=(), min_rows=1, max_rows=1))
         elif isinstance(node, PointRelationRows):
-            value_type = cast("object", leaf_value_type(node.rows, path))
-            if not isinstance(value_type, Table):
-                raise PointDomainShapeError(
-                    "point_domain_leaf_not_table",
-                    (*path, "rows"),
-                    "point-domain relation leaf must have a table value type",
-                )
-            shape = PointDomainShape(value_type)
+            shape = PointDomainShape(leaf_value_type(node.rows, path))
         elif isinstance(node, PointProduct):
             children = tuple(
                 analyze(factor, (*path, "factors", index))

@@ -15,6 +15,7 @@ from scopecat.composition.local import (
 )
 from scopecat.config.candidates import materialize_candidate_config
 from scopecat.config.changes import load_parameter_change_proposal
+from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry import list_config_registry_entries
 from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
@@ -119,7 +120,6 @@ def test_candidate_checks_are_read_only_until_run_materializes_evidence(
 @pytest.mark.parametrize(
     "update",
     [
-        object(),
         sc.replace_scalar_parameter(
             "missing_frequency",
             sc.Quantity(4.9, "GHz"),
@@ -131,17 +131,14 @@ def test_candidate_checks_are_read_only_until_run_materializes_evidence(
         sc.replace_scalar_parameter("drive_frequency", True),
     ],
 )
-def test_analysis_rejects_unknown_or_wrong_typed_update_at_propose(
+def test_analysis_rejects_invalid_update_at_propose(
     tmp_path: Path,
-    update: object,
+    update: ParameterUpdate,
 ) -> None:
     run = _lab(tmp_path).prepare(load_invocation()).run()
 
     with pytest.raises(CheckFailed) as error:
-        run.analysis("invalid proposal").propose(
-            "invalid",
-            update,  # type: ignore[arg-type]
-        )
+        run.analysis("invalid proposal").propose("invalid", update)
 
     assert error.value.problems[0].code == "analysis_parameter_proposal_invalid"
 

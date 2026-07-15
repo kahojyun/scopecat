@@ -131,11 +131,6 @@ class ProductRef:
         )
         raise TypeError(msg)
 
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self._product_id), ProductId):
-            msg = "product references require a nominal product id"
-            raise TypeError(msg)
-
     @property
     def id(self) -> str:
         """The injective, scope-qualified identity used during linking."""

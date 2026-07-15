@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import cast
 
 import pytest
@@ -11,7 +10,6 @@ from scopecat import Quantity
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
     CalibrationId,
-    CircuitId,
     CircuitOperationId,
     PulseEventId,
     PulseProgramId,
@@ -33,7 +31,6 @@ from scopecat_quantum.pulses import (
     Delay,
     DriveSignal,
     Play,
-    PulseInstruction,
     PulseProgram,
     ReadoutSignal,
 )
@@ -147,31 +144,6 @@ def test_measurement_calibration_key_snapshots_measurement_semantics() -> None:
     key = MeasurementCalibrationKey.from_measurement(measurement)
 
     assert key == MeasurementCalibrationKey(Q1, AcquisitionKind.RAW_TRACE)
-    with pytest.raises(TypeError, match="only be created from a Measure"):
-        MeasurementCalibrationKey.from_measurement(cast("Measure", object()))
-
-
-@pytest.mark.parametrize(
-    ("qubit", "kind", "message"),
-    [
-        (
-            CircuitOperationId("wrong-space"),
-            AcquisitionKind.INTEGRATED_IQ,
-            "qubit must be a QubitId",
-        ),
-        (Q0, "integrated_iq", "must be an AcquisitionKind"),
-    ],
-)
-def test_measurement_calibration_key_rejects_wrong_runtime_identity_spaces(
-    qubit: object,
-    kind: object,
-    message: str,
-) -> None:
-    with pytest.raises(ValueError, match=message):
-        MeasurementCalibrationKey(
-            qubit=cast("QubitId", qubit),
-            acquisition_kind=cast("AcquisitionKind", kind),
-        )
 
 
 def test_measurement_calibration_accepts_exact_single_slot_template() -> None:
@@ -226,14 +198,6 @@ def test_template_requires_exactly_one_declared_slot(slot_count: int) -> None:
         _calibration(pulse_template=pulse_template)
 
 
-def test_template_rejects_non_tuple_or_non_slot_declarations() -> None:
-    pulse_template = _template()
-    object.__setattr__(pulse_template, "acquisition_slots", [object()])
-
-    with pytest.raises(ValueError, match="tuple of AcquisitionSlot"):
-        _calibration(pulse_template=pulse_template)
-
-
 def test_template_slot_kind_must_match_key() -> None:
     pulse_template = _template(kind=AcquisitionKind.RAW_TRACE)
 
@@ -247,15 +211,6 @@ def test_template_slot_signal_must_match_key_qubit() -> None:
     object.__setattr__(slot, "signal", AcquireSignal(Q1))
 
     with pytest.raises(ValueError, match="slot signal must match"):
-        _calibration(pulse_template=pulse_template)
-
-
-def test_template_rejects_corrupted_structural_acquisition_slot_identity() -> None:
-    pulse_template = _template()
-    slot_id = pulse_template.acquisition_slots[0].id
-    object.__setattr__(slot_id, "scope", ("\ud800",))
-
-    with pytest.raises(ValueError, match="valid AcquisitionSlotId"):
         _calibration(pulse_template=pulse_template)
 
 
@@ -344,43 +299,6 @@ def test_template_accepts_same_local_event_id_in_distinct_structural_scopes() ->
     assert _calibration(pulse_template=pulse_template).pulse_template is pulse_template
 
 
-def test_template_rejects_wrong_or_corrupted_event_and_program_identities() -> None:
-    wrong_program_id = _template()
-    object.__setattr__(wrong_program_id, "id", CircuitId("wrong-space"))
-    with pytest.raises(ValueError, match="valid PulseProgramId"):
-        _calibration(pulse_template=wrong_program_id)
-
-    wrong_event_id = _template()
-    readout = cast("PulseParallel", wrong_event_id.body).branches[0]
-    object.__setattr__(readout, "id", CircuitOperationId("wrong-space"))
-    with pytest.raises(ValueError, match="valid PulseEventId"):
-        _calibration(pulse_template=wrong_event_id)
-
-    corrupted_event_id = _template()
-    readout = cast("Play", cast("PulseParallel", corrupted_event_id.body).branches[0])
-    event_id = readout.id
-    object.__setattr__(event_id, "local_id", "")
-    with pytest.raises(ValueError, match="valid PulseEventId"):
-        _calibration(pulse_template=corrupted_event_id)
-
-
-@dataclass(frozen=True, slots=True)
-class _AlienPulseNode:
-    branches: tuple[PulseInstruction, ...]
-
-
-def test_template_rejects_unknown_instruction_nodes() -> None:
-    pulse_template = _template()
-    pulse_template = PulseProgram(
-        id=pulse_template.id,
-        body=cast("PulseInstruction", _AlienPulseNode((pulse_template.body,))),
-        acquisition_slots=pulse_template.acquisition_slots,
-    )
-
-    with pytest.raises(ValueError, match="body must contain pulse instructions"):
-        _calibration(pulse_template=pulse_template)
-
-
 @given(order=st.permutations(("z", "a", "m")))
 def test_catalog_order_does_not_affect_canonical_entries(
     order: list[str],
@@ -399,28 +317,3 @@ def test_catalog_allows_same_key_but_rejects_duplicate_calibration_identity() ->
     assert len(MeasurementCalibrationCatalog((first, second)).entries) == 2
     with pytest.raises(ValueError, match="ids must be unique"):
         MeasurementCalibrationCatalog((first, first))
-
-
-def test_catalog_and_calibration_reject_invalid_runtime_shapes() -> None:
-    with pytest.raises(ValueError, match="catalog entries must be a tuple"):
-        MeasurementCalibrationCatalog(
-            cast("tuple[MeasurementCalibration, ...]", [_calibration()])
-        )
-    with pytest.raises(ValueError, match="id must be a CalibrationId"):
-        MeasurementCalibration(
-            id=cast("CalibrationId", CircuitOperationId("wrong-space")),
-            key=_key(),
-            pulse_template=_template(),
-        )
-    with pytest.raises(ValueError, match="key must be a MeasurementCalibrationKey"):
-        MeasurementCalibration(
-            id=CalibrationId("calibration"),
-            key=cast("MeasurementCalibrationKey", object()),
-            pulse_template=_template(),
-        )
-    with pytest.raises(ValueError, match="require a pulse template"):
-        MeasurementCalibration(
-            id=CalibrationId("calibration"),
-            key=_key(),
-            pulse_template=cast("PulseProgram", object()),
-        )

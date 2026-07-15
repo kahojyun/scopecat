@@ -11,7 +11,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal
 
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.value_types import ValueType
@@ -69,16 +69,13 @@ class DomainProductAxisView:
     def __post_init__(self) -> None:
         if not self.id or not self.kind:
             raise ValueError("domain product axis ids and kinds must be non-empty")
-        if type(self.size) is not int or self.size <= 0:
+        if self.size <= 0:
             raise ValueError("domain product axis sizes must be positive integers")
-        metadata = cast("object", self.metadata)
-        if not isinstance(metadata, Mapping):
-            raise TypeError("domain product axis metadata must be a mapping")
         object.__setattr__(
             self,
             "metadata",
             freeze_json_mapping(
-                cast("Mapping[str, object]", metadata),
+                self.metadata,
                 path=f"domain product axis {self.id!r}",
             ),
         )
@@ -102,20 +99,11 @@ class DomainProductContractView:
             raise ValueError("domain product contract kind is unsupported")
         if self.dtype not in _MEASUREMENT_DTYPES:
             raise ValueError("domain product contract dtype is unsupported")
-        axes = cast("object", self.axes)
-        if not isinstance(axes, tuple) or not all(
-            isinstance(axis, DomainProductAxisView)
-            for axis in cast("tuple[object, ...]", axes)
-        ):
-            raise TypeError("domain product contract axes require SDK axis views")
-        metadata = cast("object", self.metadata)
-        if not isinstance(metadata, Mapping):
-            raise TypeError("domain product contract metadata must be a mapping")
         object.__setattr__(
             self,
             "metadata",
             freeze_json_mapping(
-                cast("Mapping[str, object]", metadata),
+                self.metadata,
                 path=f"domain product {self.id!r}",
             ),
         )

@@ -273,15 +273,9 @@ class DragBetaProductBinding:
         if not selected:
             msg = "DRAG-beta product bindings require at least one IQ use"
             raise ValueError(msg)
-        if any(not isinstance(value, DomainProductUseRef) for value in selected):
-            msg = "DRAG-beta IQ bindings require SDK product-use references"
-            raise TypeError(msg)
         if len(set(selected)) != len(selected):
             msg = "DRAG-beta IQ product uses must be distinct"
             raise ValueError(msg)
-        if not isinstance(self.transform, DomainMeasurementTransform):
-            msg = "DRAG-beta product bindings require an authored transform"
-            raise TypeError(msg)
         object.__setattr__(self, "iq_shots", selected)
 
 
@@ -332,28 +326,10 @@ def prepare_drag_beta_reference(
 ) -> PreparedDragBetaReference:
     """Close one 2-D mixed program batch before any target effect occurs."""
 
-    if not isinstance(preparation, DomainPreparationBuilder):
-        msg = "DRAG-beta preparation requires a domain preparation builder"
-        raise TypeError(msg)
-    if not isinstance(products, DragBetaProductBinding):
-        msg = "DRAG-beta preparation requires a product binding"
-        raise TypeError(msg)
-    if not isinstance(result_slot_id, AcquisitionSlotId):
-        msg = "DRAG-beta preparation requires a typed acquisition slot"
-        raise TypeError(msg)
-    if not isinstance(declaration, q.Program):
-        msg = "DRAG-beta preparation requires a Program declaration"
-        raise TypeError(msg)
-    if type(shots) is not int or shots <= 0:
+    if isinstance(shots, bool) or shots <= 0:
         msg = "DRAG-beta shots must be a positive integer"
         raise ValueError(msg)
     selected_target = default_fake_list_target() if target is None else target
-    if not isinstance(selected_target, FakeListTarget):
-        msg = "DRAG-beta target must be a FakeListTarget"
-        raise TypeError(msg)
-    if not isinstance(compiler_id, TargetCompilerId):
-        msg = "DRAG-beta compiler_id must be a TargetCompilerId"
-        raise TypeError(msg)
     if not invocation_id:
         msg = "DRAG-beta invocation_id must be non-empty"
         raise ValueError(msg)

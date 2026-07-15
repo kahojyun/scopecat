@@ -16,7 +16,6 @@ from collections import Counter
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
 from dataclasses import dataclass, replace
-from typing import TypeGuard, cast
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -70,13 +69,6 @@ class PulseBlock:
         tuple[AcquisitionSlotId, AcquisitionSlotId], ...
     ] = ()
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "acquisition_slot_bindings",
-            tuple(self.acquisition_slot_bindings),
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class ImplementedGate:
@@ -97,18 +89,12 @@ class Sequence:
 
     operations: tuple[QuantumNode, ...]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "operations", tuple(self.operations))
-
 
 @dataclass(frozen=True, slots=True)
 class Parallel:
     """Mixed quantum branches that begin together."""
 
     branches: tuple[QuantumNode, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "branches", tuple(self.branches))
 
 
 type QuantumOperation = GateCall | Measure | PulseBlock | ImplementedGate
@@ -178,7 +164,7 @@ class VerifiedQuantumProgram:
         unresolved_circuit: VerifiedCircuitProgram,
     ) -> None:
         object.__setattr__(self, "program", program)
-        object.__setattr__(self, "gate_definitions", tuple(gate_definitions))
+        object.__setattr__(self, "gate_definitions", gate_definitions)
         object.__setattr__(self, "logical_circuit", logical_circuit)
         object.__setattr__(self, "unresolved_circuit", unresolved_circuit)
 
@@ -203,27 +189,6 @@ def verify_quantum_program(
     gate_definitions: SequenceCollection[GateDefinition],
 ) -> VerifiedQuantumProgram:
     """Verify the mixed source and both logical circuit projections."""
-
-    if not isinstance(cast("object", program), QuantumProgramIR):
-        raise QuantumProgramVerificationError(
-            (
-                QuantumProgramIssue(
-                    code="quantum_program_invalid",
-                    message="program must be a QuantumProgramIR",
-                    path=("program",),
-                ),
-            )
-        )
-    if not isinstance(cast("object", program.id), QuantumProgramId):
-        raise QuantumProgramVerificationError(
-            (
-                QuantumProgramIssue(
-                    code="quantum_program_id_invalid",
-                    message="program id must be a QuantumProgramId",
-                    path=("id",),
-                ),
-            )
-        )
 
     issues: list[QuantumProgramIssue] = []
     operation_entries = tuple(_iter_operations_with_paths(program.body, ("body",)))
@@ -250,14 +215,6 @@ def verify_quantum_program(
     ] = {}
     for operation, path in operation_entries:
         if isinstance(operation, PulseBlock):
-            if not isinstance(cast("object", operation.id), CircuitOperationId):
-                issues.append(
-                    QuantumProgramIssue(
-                        code="quantum_operation_id_invalid",
-                        message="pulse block id must be a CircuitOperationId",
-                        path=(*path, "id"),
-                    )
-                )
             _verify_pulse_template(
                 operation.pulse_template,
                 operation_id=operation.id,
@@ -271,11 +228,7 @@ def verify_quantum_program(
                 path=(*path, "acquisition_slot_bindings"),
                 issues=issues,
             )
-            if (
-                effective_outputs is not None
-                and isinstance(cast("object", operation.id), CircuitOperationId)
-                and operation_id_counts[operation.id] == 1
-            ):
+            if effective_outputs is not None and operation_id_counts[operation.id] == 1:
                 for output_id in effective_outputs:
                     existing = acquisition_output_owners.get(output_id)
                     if existing is not None:
@@ -343,23 +296,13 @@ def verify_quantum_program(
 
 
 def _verify_pulse_template(
-    template: object,
+    template: PulseProgram,
     *,
     operation_id: CircuitOperationId,
     path: tuple[QuantumIssuePathItem, ...],
     allow_acquisition: bool,
     issues: list[QuantumProgramIssue],
 ) -> None:
-    if not isinstance(template, PulseProgram):
-        issues.append(
-            QuantumProgramIssue(
-                code="quantum_pulse_template_invalid",
-                message="pulse implementation must be a PulseProgram",
-                path=path,
-                operation_id=operation_id,
-            )
-        )
-        return
     if not allow_acquisition and (
         template.acquisition_slots
         or any(isinstance(leaf, Acquire) for leaf in iter_pulse_leaves(template.body))
@@ -394,47 +337,10 @@ def _verify_acquisition_slot_bindings(
     path: tuple[QuantumIssuePathItem, ...],
     issues: list[QuantumProgramIssue],
 ) -> tuple[AcquisitionSlotId, ...] | None:
-    if not isinstance(cast("object", block.pulse_template), PulseProgram):
-        return None
-    raw_bindings_object = cast("object", block.acquisition_slot_bindings)
-    if not isinstance(raw_bindings_object, tuple):
-        issues.append(
-            QuantumProgramIssue(
-                code="quantum_pulse_acquisition_bindings_invalid",
-                message="pulse acquisition slot bindings must be a tuple",
-                path=path,
-                operation_id=block.id,
-            )
-        )
-        return None
-    raw_bindings = cast("tuple[object, ...]", raw_bindings_object)
-    if not all(_is_acquisition_slot_binding(binding) for binding in raw_bindings):
-        issues.append(
-            QuantumProgramIssue(
-                code="quantum_pulse_acquisition_bindings_invalid",
-                message=(
-                    "pulse acquisition bindings must map AcquisitionSlotId "
-                    "template slots to output slots"
-                ),
-                path=path,
-                operation_id=block.id,
-            )
-        )
-        return None
-    bindings = cast(
-        "tuple[tuple[AcquisitionSlotId, AcquisitionSlotId], ...]",
-        raw_bindings,
-    )
+    bindings = block.acquisition_slot_bindings
     template_ids = tuple(binding[0] for binding in bindings)
     output_ids = tuple(binding[1] for binding in bindings)
-    raw_slots = cast("object", block.pulse_template.acquisition_slots)
-    if not isinstance(raw_slots, tuple) or not all(
-        isinstance(slot, AcquisitionSlot)
-        and isinstance(cast("object", slot.id), AcquisitionSlotId)
-        for slot in cast("tuple[object, ...]", raw_slots)
-    ):
-        return None
-    slots = cast("tuple[AcquisitionSlot, ...]", raw_slots)
+    slots = block.pulse_template.acquisition_slots
     declared_ids = {slot.id for slot in slots}
     valid = True
     if len(set(template_ids)) != len(template_ids):
@@ -471,7 +377,7 @@ def _verify_acquisition_slot_bindings(
                 operation_id=block.id,
             )
         )
-    if not valid or not isinstance(cast("object", block.id), CircuitOperationId):
+    if not valid:
         return None
 
     substitutions = dict(bindings)
@@ -497,19 +403,6 @@ def _verify_acquisition_slot_bindings(
     return effective_outputs
 
 
-def _is_acquisition_slot_binding(
-    value: object,
-) -> TypeGuard[tuple[AcquisitionSlotId, AcquisitionSlotId]]:
-    if not isinstance(value, tuple):
-        return False
-    selected = cast("tuple[object, ...]", value)
-    return (
-        len(selected) == 2
-        and isinstance(selected[0], AcquisitionSlotId)
-        and isinstance(selected[1], AcquisitionSlotId)
-    )
-
-
 def _operation_id(operation: QuantumOperation) -> CircuitOperationId:
     return operation.id
 
@@ -528,19 +421,6 @@ def _iter_operations_with_paths(
                 (*path, "operations", index),
             )
         return
-    if not isinstance(cast("object", node), Parallel):
-        raise QuantumProgramVerificationError(
-            (
-                QuantumProgramIssue(
-                    code="quantum_node_invalid",
-                    message=(
-                        "quantum nodes must be gate, measure, pulse block, "
-                        "implemented gate, sequence, or parallel values"
-                    ),
-                    path=path,
-                ),
-            )
-        )
     for index, branch in enumerate(node.branches):
         yield from _iter_operations_with_paths(
             branch,
@@ -584,9 +464,6 @@ class AuthoredPulseEventProvenance:
     template_event_id: PulseEventId
     template_path: tuple[int, ...]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "template_path", tuple(self.template_path))
-
 
 @dataclass(frozen=True, slots=True)
 class ImplementedGatePulseEventProvenance:
@@ -599,9 +476,6 @@ class ImplementedGatePulseEventProvenance:
     template_program_id: PulseProgramId
     template_event_id: PulseEventId
     template_path: tuple[int, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "template_path", tuple(self.template_path))
 
 
 type QuantumPulseEventProvenance = (
@@ -645,8 +519,8 @@ class LoweredQuantumPulseProgram:
         event_provenance: tuple[QuantumPulseEventProvenance, ...],
         acquisition_provenance: tuple[QuantumPulseAcquisitionProvenance, ...],
     ) -> None:
-        selected_events = tuple(event_provenance)
-        selected_acquisitions = tuple(acquisition_provenance)
+        selected_events = event_provenance
+        selected_acquisitions = acquisition_provenance
         event_ids = tuple(leaf.id for leaf in iter_pulse_leaves(program.body))
         provenance_event_ids = tuple(item.event_id for item in selected_events)
         if event_ids != provenance_event_ids or len(set(event_ids)) != len(event_ids):
@@ -724,13 +598,6 @@ def lower_quantum_program_to_pulses(
     output_id: PulseProgramId,
 ) -> LoweredQuantumPulseProgram:
     """Resolve abstract leaves and lower one mixed program to pulse IR."""
-
-    if not isinstance(cast("object", program), VerifiedQuantumProgram):
-        raise TypeError("quantum pulse lowering requires a VerifiedQuantumProgram")
-    if not isinstance(cast("object", catalog), CalibrationCatalog):
-        raise TypeError("quantum pulse lowering requires a CalibrationCatalog")
-    if not isinstance(cast("object", output_id), PulseProgramId):
-        raise TypeError("quantum pulse lowering output_id must be a PulseProgramId")
 
     selection = select_calibrations(program.unresolved_circuit, catalog)
     event_provenance: list[QuantumPulseEventProvenance] = []

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, cast
+from typing import ClassVar
 from uuid import uuid4
 
 from pydantic import ConfigDict
@@ -17,11 +17,6 @@ class ProductId:
     """Hygienic identity of one logical product definition."""
 
     symbol: SymbolId
-
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.symbol), SymbolId):
-            msg = "product ids require a structural symbol"
-            raise TypeError(msg)
 
     @property
     def qualified_name(self) -> str:
@@ -47,11 +42,6 @@ class ProductProducerId:
     """Hygienic identity of one edge that can produce a logical product."""
 
     symbol: SymbolId
-
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.symbol), SymbolId):
-            msg = "product-producer ids require a structural symbol"
-            raise TypeError(msg)
 
     @property
     def qualified_name(self) -> str:
@@ -102,14 +92,6 @@ class ProductUse:
 
     product_id: ProductId
     id: ProductUseId = field(default_factory=ProductUseId.fresh)
-
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.product_id), ProductId):
-            msg = "product uses require a nominal product id"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.id), ProductUseId):
-            msg = "product uses require a nominal use id"
-            raise TypeError(msg)
 
 
 def product_id(value: str | SymbolId) -> ProductId:

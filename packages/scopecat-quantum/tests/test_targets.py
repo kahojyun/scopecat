@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import cast
 
 import pytest
 from scopecat import Quantity
@@ -219,42 +218,8 @@ def test_addresses_cover_entries_in_exact_schedule_order() -> None:
     assert len(set(request.acquisition_addresses)) == 2
 
 
-def test_target_addresses_close_runtime_identity_spaces() -> None:
-    entry_id = TargetCompileEntryId("point-0")
-    with pytest.raises(TypeError, match="event address entry_id"):
-        TargetEventAddress(
-            cast("TargetCompileEntryId", TargetId("wrong-space")),
-            PulseEventId("event"),
-        )
-    with pytest.raises(TypeError, match="event address event_id"):
-        TargetEventAddress(
-            entry_id,
-            cast("PulseEventId", AcquisitionSlotId("wrong-space")),
-        )
-    with pytest.raises(TypeError, match="acquisition address entry_id"):
-        TargetAcquisitionAddress(
-            cast("TargetCompileEntryId", TargetId("wrong-space")),
-            AcquisitionSlotId("result"),
-        )
-    with pytest.raises(TypeError, match="acquisition address slot_id"):
-        TargetAcquisitionAddress(
-            entry_id,
-            cast("AcquisitionSlotId", PulseEventId("wrong-space")),
-        )
-
-    corrupted_event_id = PulseEventId("event")
-    object.__setattr__(corrupted_event_id, "local_id", "\ud800")
-    with pytest.raises(ValueError, match="valid PulseEventId"):
-        TargetEventAddress(entry_id, corrupted_event_id)
-
-    corrupted_slot_id = AcquisitionSlotId("result")
-    object.__setattr__(corrupted_slot_id, "scope", ("",))
-    with pytest.raises(ValueError, match="valid AcquisitionSlotId"):
-        TargetAcquisitionAddress(entry_id, corrupted_slot_id)
-
-
-@pytest.mark.parametrize("repetitions", [0, -1, True])
-def test_compile_request_rejects_non_positive_finite_repetitions(
+@pytest.mark.parametrize("repetitions", [0, -1])
+def test_compile_request_rejects_non_positive_repetitions(
     repetitions: int,
 ) -> None:
     with pytest.raises(ValueError, match="positive finite integer"):
@@ -301,45 +266,6 @@ def test_compile_request_requires_a_capability_fingerprint() -> None:
         )
 
 
-def test_compile_entry_rejects_unscheduled_pulse_ir() -> None:
-    unscheduled = PulseProgram(
-        id=PulseProgramId("unscheduled"),
-        body=Delay(
-            id=PulseEventId("delay"),
-            signal=DriveSignal(QubitId("q0")),
-            duration=Quantity(20, "ns"),
-        ),
-    )
-
-    with pytest.raises(TypeError, match="scheduled pulse program"):
-        TargetCompileEntry(
-            id=TargetCompileEntryId("point-0"),
-            program=cast("ScheduledPulseProgram", unscheduled),
-        )
-
-
-def test_compile_request_closes_nominal_runtime_types() -> None:
-    scheduled = _scheduled_program()
-    with pytest.raises(TypeError, match="TargetCompileEntryId"):
-        TargetCompileEntry(
-            id=cast("TargetCompileEntryId", TargetId("wrong-space")),
-            program=scheduled,
-        )
-    with pytest.raises(TypeError, match="target_id must be a TargetId"):
-        TargetCompileRequest(
-            target_id=cast("TargetId", TargetCompilerId("wrong-space")),
-            compiler_id=TargetCompilerId("reference-compiler"),
-            capability_fingerprint="capabilities:v1",
-            entries=(
-                TargetCompileEntry(
-                    id=TargetCompileEntryId("point-0"),
-                    program=scheduled,
-                ),
-            ),
-            repetitions=1,
-        )
-
-
 def test_target_compilation_error_carries_stably_ordered_structured_issues() -> None:
     later = TargetCompilationIssue(
         dimension=TargetCompilationIssueDimension.PROGRAM,
@@ -357,29 +283,6 @@ def test_target_compilation_error_carries_stably_ordered_structured_issues() -> 
     error = TargetCompilationError((later, earlier))
 
     assert error.issues == (earlier, later)
-
-
-def test_target_compilation_issues_close_runtime_nominal_types() -> None:
-    with pytest.raises(TypeError, match="dimension"):
-        TargetCompilationIssue(
-            dimension=cast(
-                "TargetCompilationIssueDimension",
-                "compiler",
-            ),
-            code="invalid_dimension",
-            message="invalid dimension",
-        )
-    with pytest.raises(TypeError, match="entry_id"):
-        TargetCompilationIssue(
-            dimension=TargetCompilationIssueDimension.PROGRAM,
-            code="invalid_entry_id",
-            message="invalid entry id",
-            entry_id=cast("TargetCompileEntryId", TargetId("wrong-space")),
-        )
-    with pytest.raises(TypeError, match="tuple of TargetCompilationIssue"):
-        TargetCompilationError(
-            cast("tuple[TargetCompilationIssue, ...]", (TargetId("wrong"),))
-        )
 
 
 def test_compile_target_rejects_dispatch_mismatch_before_calling_compiler() -> None:
@@ -447,59 +350,6 @@ def test_compile_target_aggregates_bad_artifact_correlation() -> None:
         "target_artifact_entry_coverage_mismatch",
         "target_artifact_repetitions_mismatch",
         "target_artifact_fingerprint_missing",
-    }
-
-
-@dataclass
-class _InvalidNominalArtifact:
-    id: object
-    target_id: object
-    compiler_id: object
-    capability_fingerprint: object
-    artifact_fingerprint: str
-    source_entry_ids: object
-    repetitions: object
-
-
-@dataclass
-class _InvalidNominalArtifactCompiler:
-    id: TargetCompilerId
-    target_id: TargetId
-    capability_fingerprint: str
-
-    def compile(self, request: TargetCompileRequest) -> _Artifact:
-        _ = request
-        return cast(
-            "_Artifact",
-            _InvalidNominalArtifact(
-                id="artifact",
-                target_id="target",
-                compiler_id="compiler",
-                capability_fingerprint=1,
-                artifact_fingerprint="artifact-content:v1",
-                source_entry_ids=("point-0",),
-                repetitions=True,
-            ),
-        )
-
-
-def test_compile_target_rejects_string_impersonation_of_nominal_artifact_ids() -> None:
-    compiler = _InvalidNominalArtifactCompiler(
-        id=TargetCompilerId("reference-compiler"),
-        target_id=TargetId("reference-target"),
-        capability_fingerprint="capabilities:v1",
-    )
-
-    with pytest.raises(TargetCompilationError) as raised:
-        compile_target(compiler, _request())
-
-    assert {issue.code for issue in raised.value.issues} == {
-        "target_artifact_id_type_invalid",
-        "target_artifact_target_id_type_invalid",
-        "target_artifact_compiler_id_type_invalid",
-        "target_artifact_capability_fingerprint_type_invalid",
-        "target_artifact_source_entry_ids_type_invalid",
-        "target_artifact_repetitions_type_invalid",
     }
 
 

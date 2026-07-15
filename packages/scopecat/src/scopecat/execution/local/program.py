@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal
 
 from scopecat.compiler.semantic.model import ValueId
 from scopecat.compiler.semantic.operation_contract import (
@@ -271,17 +271,8 @@ class CollectOperation:
     result_bindings: tuple[CollectionResultBinding, ...]
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.command), CollectCommand):
-            msg = "collect operations require CollectCommand"
-            raise TypeError(msg)
         command = self.command.model_copy(deep=True)
         bindings = tuple(self.result_bindings)
-        if any(
-            not isinstance(cast("object", binding), CollectionResultBinding)
-            for binding in bindings
-        ):
-            msg = "collect operations require CollectionResultBinding values"
-            raise TypeError(msg)
         object.__setattr__(self, "command", command)
         object.__setattr__(self, "result_bindings", bindings)
         if not self.operation_id or not self.instrument_id:
@@ -392,12 +383,6 @@ class ExecutionProgram:
             msg = "execution program product-use identities must be unique"
             raise ValueError(msg)
         collection_use_ids = tuple(self.collection_product_use_ids)
-        if any(
-            not isinstance(cast("object", use_id), ProductUseId)
-            for use_id in collection_use_ids
-        ):
-            msg = "execution collection inventory requires ProductUseId values"
-            raise TypeError(msg)
         if len(collection_use_ids) != len(set(collection_use_ids)):
             msg = "execution collection product-use identities must be unique"
             raise ValueError(msg)

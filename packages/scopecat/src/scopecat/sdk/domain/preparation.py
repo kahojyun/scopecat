@@ -72,17 +72,9 @@ class DomainTargetEntry[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     result_addresses: tuple[ResultAddressT, ...] = ()
 
     def __post_init__(self) -> None:
-        _require_hashable(self.entry_address, label="domain target entry address")
-        selected = tuple(self.result_addresses)
-        if len(selected) != len(set(selected)):
+        if len(self.result_addresses) != len(set(self.result_addresses)):
             msg = "domain target result addresses must be unique within an entry"
             raise ValueError(msg)
-        for result_address in selected:
-            _require_hashable(
-                result_address,
-                label="domain target result address",
-            )
-        object.__setattr__(self, "result_addresses", selected)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,12 +84,6 @@ class DomainEntryPointBinding[EntryAddressT: Hashable]:
     entry_address: EntryAddressT
     point: DomainPointRef
 
-    def __post_init__(self) -> None:
-        _require_hashable(self.entry_address, label="domain target entry address")
-        if not isinstance(cast("object", self.point), DomainPointRef):
-            msg = "domain entry bindings require a DomainPointRef"
-            raise TypeError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class DomainResultUseBinding[EntryAddressT: Hashable, ResultAddressT: Hashable]:
@@ -106,13 +92,6 @@ class DomainResultUseBinding[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     entry_address: EntryAddressT
     result_address: ResultAddressT
     product_use: DomainProductUseRef
-
-    def __post_init__(self) -> None:
-        _require_hashable(self.entry_address, label="domain target entry address")
-        _require_hashable(self.result_address, label="domain target result address")
-        if not isinstance(cast("object", self.product_use), DomainProductUseRef):
-            msg = "domain result bindings require a DomainProductUseRef"
-            raise TypeError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,12 +190,6 @@ class DomainResultMapping[
     ) -> DomainMappedResult[EntryAddressT, ResultAddressT]:
         """Return the result supplying one exact context-owned logical output."""
 
-        if not isinstance(cast("object", point), DomainPointRef):
-            msg = "domain result lookup requires a DomainPointRef"
-            raise TypeError(msg)
-        if not isinstance(cast("object", product_use), DomainProductUseRef):
-            msg = "domain result lookup requires a DomainProductUseRef"
-            raise TypeError(msg)
         try:
             return self._result_by_output_identity[(id(point), id(product_use))]
         except KeyError as error:
@@ -441,26 +414,8 @@ class DomainPreparationBuilder:
         """Close exact direct-result coverage for the current selected batch."""
 
         selected_entries = tuple(entries)
-        if any(
-            not isinstance(cast("object", entry), DomainTargetEntry)
-            for entry in selected_entries
-        ):
-            msg = "domain measurement mappings require DomainTargetEntry values"
-            raise TypeError(msg)
         selected_entry_points = tuple(entry_points)
-        if any(
-            not isinstance(cast("object", binding), DomainEntryPointBinding)
-            for binding in selected_entry_points
-        ):
-            msg = "domain measurement mappings require entry-point bindings"
-            raise TypeError(msg)
         selected_results = tuple(results)
-        if any(
-            not isinstance(cast("object", binding), DomainResultUseBinding)
-            for binding in selected_results
-        ):
-            msg = "domain measurement mappings require result-use bindings"
-            raise TypeError(msg)
 
         context = self._context
         point_ids = {id(point) for point in context.points}
@@ -521,9 +476,6 @@ class DomainPreparationBuilder:
     ) -> DomainMeasurementPlan[EntryAddressT, ResultAddressT]:
         """Compile exact direct and host-derived value ownership before effects."""
 
-        if not isinstance(cast("object", mapping), DomainResultMapping):
-            msg = "domain measurement plans require a DomainResultMapping"
-            raise TypeError(msg)
         context = self._context
         if mapping.context is not context:
             msg = "domain measurement mapping belongs to another batch context"
@@ -532,12 +484,6 @@ class DomainPreparationBuilder:
             msg = "domain measurement mapping changed direct product ownership"
             raise ValueError(msg)
         supplied_bindings = tuple(host_transforms)
-        if any(
-            not isinstance(cast("object", binding), DomainHostTransformBinding)
-            for binding in supplied_bindings
-        ):
-            msg = "domain measurement plans require host transform bindings"
-            raise TypeError(msg)
 
         authored_identity = {
             id(transform): transform for transform in context.measurement_transforms
@@ -678,29 +624,10 @@ class DomainPreparationBuilder:
     ) -> PreparedDomainExecution:
         """Close one declarative target job behind the core execution ABI."""
 
-        if not isinstance(cast("object", measurements), DomainMeasurementPlan):
-            msg = "domain execution build requires a DomainMeasurementPlan"
-            raise TypeError(msg)
         if measurements.context is not self._context:
             msg = "domain measurement plan belongs to another batch context"
             raise ValueError(msg)
-        if not isinstance(cast("object", invocation), DomainInvocationSpec):
-            msg = "domain execution build requires a DomainInvocationSpec"
-            raise TypeError(msg)
-        if not callable(realize):
-            msg = "domain result realizer must be callable"
-            raise TypeError(msg)
-        for method_name in ("submit", "fetch", "reconcile"):
-            if not callable(getattr(runtime, method_name, None)):
-                msg = f"domain runtime requires a callable {method_name} method"
-                raise TypeError(msg)
         selected_claims = tuple(resource_claims)
-        if any(
-            not isinstance(cast("object", claim), DomainResourceClaim)
-            for claim in selected_claims
-        ):
-            msg = "domain execution build requires DomainResourceClaim values"
-            raise TypeError(msg)
         if len(selected_claims) != len(set(selected_claims)):
             msg = "domain execution resource claims must be unique"
             raise ValueError(msg)
@@ -725,12 +652,6 @@ class DomainPreparationBuilder:
             fetched: CorrelatedDomainFetch[ResultT],
         ) -> ClosedDomainOutputValues[EntryAddressT, ResultAddressT]:
             candidates = tuple(realize(fetched))
-            if any(
-                not isinstance(cast("object", candidate), DomainResultValue)
-                for candidate in candidates
-            ):
-                msg = "domain result realizer must return DomainResultValue values"
-                raise TypeError(msg)
             return seal_domain_output_values(
                 native_outputs,
                 tuple(
@@ -830,9 +751,6 @@ def domain_result_mapping_native_internal[
 ](
     mapping: DomainResultMapping[EntryAddressT, ResultAddressT],
 ) -> ClosedDomainResultMapping[EntryAddressT, ResultAddressT]:
-    if not isinstance(cast("object", mapping), DomainResultMapping):
-        msg = "native domain result mappings require a DomainResultMapping"
-        raise TypeError(msg)
     return cast(
         "ClosedDomainResultMapping[EntryAddressT, ResultAddressT]",
         object.__getattribute__(mapping, "_native"),
@@ -941,14 +859,6 @@ def _host_implementation_dispatcher(
         validate_transform=validate,
         kernel=kernel,
     )
-
-
-def _require_hashable(value: object, *, label: str) -> None:
-    try:
-        hash(value)
-    except TypeError as error:
-        msg = f"{label} must be hashable"
-        raise TypeError(msg) from error
 
 
 __all__ = [

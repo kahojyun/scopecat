@@ -45,8 +45,6 @@ def test_domain_job_values_validate_ingress() -> None:
         DomainTargetArtifactIdentity("", "compiler", "cap", "artifact", "hash")
     with pytest.raises(ValueError, match="non-empty"):
         DomainInvocationSpec("", _target(), {}, payload=None)
-    with pytest.raises(TypeError, match="MeasurementValue"):
-        DomainResultValue("result-1", object())  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="non-empty"):
         DomainResourceClaim("target", "")
     with pytest.raises(ValueError, match="unsupported domain resource kind"):

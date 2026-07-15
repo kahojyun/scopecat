@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Lock
-from typing import cast
 
 from scopecat.kernel.problems import (
     Problem,
@@ -76,9 +75,6 @@ def fake_measurement_invocation_spec(
     content covers that response's fingerprint and configuration.
     """
 
-    if not isinstance(cast("object", selection), SelectedFakeMeasurementRealization):
-        msg = "fake invocation spec requires a selected measurement realization"
-        raise TypeError(msg)
     compiled = selection.compiled_target.compiled
     selected_response_intent = (
         {
@@ -125,9 +121,6 @@ class FakeListDomainRuntime:
 
     def __init__(self, device: FakeListRuntime | None = None) -> None:
         selected = FakeListRuntime() if device is None else device
-        if not isinstance(cast("object", selected), FakeListRuntime):
-            msg = "fake domain runtime requires a FakeListRuntime"
-            raise TypeError(msg)
         self._device = selected
         self._jobs: dict[str, _FakeListDomainJob] = {}
         self._submit_calls = 0
@@ -163,12 +156,6 @@ class FakeListDomainRuntime:
         attempt = request.submission_id
         identity = request.identity
         selection = request.payload
-        if not isinstance(
-            cast("object", selection),
-            SelectedFakeMeasurementRealization,
-        ):
-            msg = "fake domain submit requires a selected measurement realization"
-            raise TypeError(msg)
         with self._lock:
             self._submit_calls += 1
             existing = self._jobs.get(attempt.submission_key)
@@ -347,18 +334,6 @@ def realize_fetched_fake_measurements(
 ) -> RealizedFakeMeasurementRun:
     """Correlate and decode one fetched raw run under selected policies."""
 
-    if not isinstance(
-        cast("object", selection),
-        SelectedFakeMeasurementRealization,
-    ):
-        msg = "fake measurement realization requires a selected policy"
-        raise TypeError(msg)
-    if not isinstance(cast("object", fetched), CorrelatedDomainFetch):
-        msg = "fake measurement realization requires a correlated domain fetch"
-        raise TypeError(msg)
-    if not isinstance(cast("object", fetched.result), FakeListRun):
-        msg = "fake measurement realization requires a FakeListRun payload"
-        raise TypeError(msg)
     if fetched.receipt.result_fingerprint != fetched.result.fingerprint:
         msg = "fetched fake target receipt does not cover its raw run"
         raise ValueError(msg)

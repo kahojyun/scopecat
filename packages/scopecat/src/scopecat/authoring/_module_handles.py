@@ -115,15 +115,11 @@ def _is_public_binding_input(value: object) -> bool:
     )
 
 
-def _resource_capabilities(requires: object) -> tuple[str, ...]:
-    if isinstance(requires, str | bytes) or not isinstance(requires, Sequence):
-        msg = "resource requires must be a sequence of capability ids"
-        raise TypeError(msg)
-    selected = cast("Sequence[object]", requires)
-    if not all(isinstance(capability, str) and capability for capability in selected):
-        msg = "resource requires must be a sequence of capability ids"
-        raise TypeError(msg)
-    return cast("tuple[str, ...]", tuple(selected))
+def _resource_capabilities(requires: tuple[str, ...]) -> tuple[str, ...]:
+    if any(not capability for capability in requires):
+        msg = "resource capability ids must be non-empty"
+        raise ValueError(msg)
+    return requires
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -233,17 +229,12 @@ class ModuleBuilder:
         existing = {port.id for port in self.output_ports}
         ports: list[ModuleValueExport] = []
         for output_id, value in values.items():
-            raw_value = cast("object", value)
             if not output_id:
                 msg = "module output ids must be non-empty"
                 raise ValueError(msg)
             if output_id in existing:
                 msg = f"module output {output_id!r} is already declared"
                 raise ValueError(msg)
-            if not isinstance(raw_value, ValueRef):
-                msg = f"module output {output_id!r} must be a typed value"
-                raise TypeError(msg)
-            value = raw_value
             existing.add(output_id)
             ports.append(
                 ModuleValueExport(
@@ -257,15 +248,11 @@ class ModuleBuilder:
         self,
         id: str,  # noqa: A002
         *,
-        requires: Sequence[str] = (),
+        requires: tuple[str, ...] = (),
         for_entities: Sequence[ValueRef] = (),
     ) -> ModuleBuilder:
         capabilities = _resource_capabilities(requires)
-        for raw_value in cast("Sequence[object]", for_entities):
-            if not isinstance(raw_value, ValueRef):
-                msg = "resource for_entities must contain typed values"
-                raise TypeError(msg)
-            value = raw_value
+        for value in for_entities:
             if not _is_entity_input_type(value.value_type):
                 msg = "resource for_entities values must be entity-shaped"
                 raise TypeError(msg)
@@ -490,12 +477,6 @@ class ModuleBuilder:
     ) -> ModuleBuilder:
         """Register pure product transforms independently of implementations."""
 
-        if any(
-            not isinstance(cast("object", transform), MeasurementTransform)
-            for transform in transforms
-        ):
-            msg = "module measurement transforms require MeasurementTransform values"
-            raise TypeError(msg)
         existing = {
             transform.symbol_id for transform in self.measurement_transform_intents
         }

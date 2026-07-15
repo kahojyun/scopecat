@@ -12,13 +12,11 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
-from typing import cast
 
 from scopecat_quantum import (
     AcquireSignal,
     AcquisitionKind,
     AcquisitionSlotId,
-    CouplerId,
     DriveSignal,
     FluxSignal,
     PulseEventId,
@@ -32,22 +30,22 @@ from scopecat_quantum import (
 )
 
 
-def _require_text(value: object, *, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+def _require_text(value: str, *, field_name: str) -> str:
+    if not value.strip():
         msg = f"{field_name} must be a non-empty string"
         raise ValueError(msg)
     return value
 
 
-def _require_positive_int(value: object, *, field_name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+def _require_positive_int(value: int, *, field_name: str) -> int:
+    if isinstance(value, bool) or value <= 0:
         msg = f"{field_name} must be a positive integer"
         raise ValueError(msg)
     return value
 
 
-def _require_positive_finite_float(value: object, *, field_name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
+def _require_positive_finite_float(value: float, *, field_name: str) -> float:
+    if isinstance(value, bool):
         msg = f"{field_name} must be a positive finite number"
         raise ValueError(msg)
     try:
@@ -68,7 +66,7 @@ class FakeAwgChannelId:
     value: str
 
     def __post_init__(self) -> None:
-        _require_text(cast("object", self.value), field_name="AWG channel id")
+        _require_text(self.value, field_name="AWG channel id")
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -78,7 +76,7 @@ class FakeDigitizerChannelId:
     value: str
 
     def __post_init__(self) -> None:
-        _require_text(cast("object", self.value), field_name="digitizer channel id")
+        _require_text(self.value, field_name="digitizer channel id")
 
 
 type FakeOutputSignal = DriveSignal | ReadoutSignal | FluxSignal
@@ -99,34 +97,12 @@ def signal_key(
     return ("flux", owner_kind, signal.owner.value)
 
 
-def _valid_output_signal(value: object) -> bool:
-    if isinstance(value, DriveSignal | ReadoutSignal):
-        return isinstance(cast("object", value.qubit), QubitId)
-    if isinstance(value, FluxSignal):
-        return isinstance(cast("object", value.owner), QubitId | CouplerId)
-    return False
-
-
-def _valid_acquisition_signal(value: object) -> bool:
-    return isinstance(value, AcquireSignal) and isinstance(
-        cast("object", value.qubit), QubitId
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class FakeOutputBinding:
     """Bind one logical pulse-output signal to a fake AWG channel."""
 
     signal: FakeOutputSignal
     channel_id: FakeAwgChannelId
-
-    def __post_init__(self) -> None:
-        if not _valid_output_signal(cast("object", self.signal)):
-            msg = "fake output bindings require a valid output logical signal"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.channel_id), FakeAwgChannelId):
-            msg = "fake output bindings require a FakeAwgChannelId"
-            raise TypeError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,14 +111,6 @@ class FakeAcquisitionBinding:
 
     signal: AcquireSignal
     channel_id: FakeDigitizerChannelId
-
-    def __post_init__(self) -> None:
-        if not _valid_acquisition_signal(cast("object", self.signal)):
-            msg = "fake acquisition bindings require a valid AcquireSignal"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.channel_id), FakeDigitizerChannelId):
-            msg = "fake acquisition bindings require a FakeDigitizerChannelId"
-            raise TypeError(msg)
 
 
 def canonical_fingerprint(payload: object) -> str:
@@ -161,9 +129,6 @@ def canonical_fingerprint(payload: object) -> str:
 def pulse_event_identity_payload(event_id: PulseEventId) -> dict[str, object]:
     """Project structural event identity without coupling hashes to its display."""
 
-    if not isinstance(cast("object", event_id), PulseEventId):
-        msg = "pulse event identity payload requires a PulseEventId"
-        raise TypeError(msg)
     return {
         "scope": list(event_id.scope),
         "local_id": event_id.local_id,
@@ -175,9 +140,6 @@ def acquisition_slot_identity_payload(
 ) -> dict[str, object]:
     """Project structural result identity without coupling hashes to display."""
 
-    if not isinstance(cast("object", slot_id), AcquisitionSlotId):
-        msg = "acquisition slot identity payload requires an AcquisitionSlotId"
-        raise TypeError(msg)
     return {
         "scope": list(slot_id.scope),
         "local_id": slot_id.local_id,
@@ -202,46 +164,22 @@ class FakeListTarget:
     _capability_fingerprint: str = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.id), TargetId):
-            msg = "fake list target id must be a TargetId"
-            raise TypeError(msg)
-        for field_name in (
-            "sample_rate_hz",
-            "max_list_entries",
-            "max_samples_per_entry",
-            "max_waveform_memory_samples",
-            "max_capture_memory_samples",
-            "max_repetitions",
-            "max_frames",
+        for field_name, value in (
+            ("sample_rate_hz", self.sample_rate_hz),
+            ("max_list_entries", self.max_list_entries),
+            ("max_samples_per_entry", self.max_samples_per_entry),
+            ("max_waveform_memory_samples", self.max_waveform_memory_samples),
+            ("max_capture_memory_samples", self.max_capture_memory_samples),
+            ("max_repetitions", self.max_repetitions),
+            ("max_frames", self.max_frames),
         ):
-            _require_positive_int(
-                cast("object", getattr(self, field_name)),
-                field_name=field_name,
-            )
+            _require_positive_int(value, field_name=field_name)
         amplitude = _require_positive_finite_float(
-            cast("object", self.max_abs_amplitude),
+            self.max_abs_amplitude,
             field_name="max_abs_amplitude",
         )
-        output_bindings = cast("object", self.output_bindings)
-        if not isinstance(output_bindings, tuple) or not all(
-            isinstance(binding, FakeOutputBinding)
-            for binding in cast("tuple[object, ...]", output_bindings)
-        ):
-            msg = "output_bindings must be a tuple of FakeOutputBinding values"
-            raise TypeError(msg)
-        acquisition_bindings = cast("object", self.acquisition_bindings)
-        if not isinstance(acquisition_bindings, tuple) or not all(
-            isinstance(binding, FakeAcquisitionBinding)
-            for binding in cast("tuple[object, ...]", acquisition_bindings)
-        ):
-            msg = (
-                "acquisition_bindings must be a tuple of FakeAcquisitionBinding values"
-            )
-            raise TypeError(msg)
-        selected_outputs = cast("tuple[FakeOutputBinding, ...]", output_bindings)
-        selected_acquisitions = cast(
-            "tuple[FakeAcquisitionBinding, ...]", acquisition_bindings
-        )
+        selected_outputs = self.output_bindings
+        selected_acquisitions = self.acquisition_bindings
         if not selected_outputs and not selected_acquisitions:
             msg = "fake list targets require at least one signal binding"
             raise ValueError(msg)
@@ -338,18 +276,6 @@ class FakeChannelWaveform:
     channel_id: FakeAwgChannelId
     samples: tuple[complex, ...]
 
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.channel_id), FakeAwgChannelId):
-            msg = "fake channel waveforms require a FakeAwgChannelId"
-            raise TypeError(msg)
-        samples = cast("object", self.samples)
-        if not isinstance(samples, tuple) or not all(
-            isinstance(sample, complex)
-            for sample in cast("tuple[object, ...]", samples)
-        ):
-            msg = "fake channel waveform samples must be a tuple of complex values"
-            raise TypeError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class FakeAcquisitionWindow:
@@ -364,32 +290,10 @@ class FakeAcquisitionWindow:
     kind: AcquisitionKind
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.event_id), PulseEventId):
-            msg = "fake acquisition event_id must be a PulseEventId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.slot_id), AcquisitionSlotId):
-            msg = "fake acquisition slot_id must be an AcquisitionSlotId"
-            raise TypeError(msg)
-        if not _valid_acquisition_signal(cast("object", self.signal)):
-            msg = "fake acquisition windows require a valid AcquireSignal"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.channel_id), FakeDigitizerChannelId):
-            msg = "fake acquisition windows require a FakeDigitizerChannelId"
-            raise TypeError(msg)
-        start_sample = cast("object", self.start_sample)
-        if (
-            isinstance(start_sample, bool)
-            or not isinstance(start_sample, int)
-            or start_sample < 0
-        ):
+        if isinstance(self.start_sample, bool) or self.start_sample < 0:
             msg = "fake acquisition start_sample must be a non-negative integer"
             raise ValueError(msg)
-        _require_positive_int(
-            cast("object", self.sample_count), field_name="acquisition sample_count"
-        )
-        if not isinstance(cast("object", self.kind), AcquisitionKind):
-            msg = "fake acquisition kind must be an AcquisitionKind"
-            raise TypeError(msg)
+        _require_positive_int(self.sample_count, field_name="acquisition sample_count")
 
 
 @dataclass(frozen=True, slots=True)
@@ -404,39 +308,12 @@ class FakeListEntry:
     acquisitions: tuple[FakeAcquisitionWindow, ...]
 
     def __post_init__(self) -> None:
-        list_index = cast("object", self.list_index)
-        if (
-            isinstance(list_index, bool)
-            or not isinstance(list_index, int)
-            or list_index < 0
-        ):
+        if isinstance(self.list_index, bool) or self.list_index < 0:
             msg = "fake list_index must be a non-negative integer"
             raise ValueError(msg)
-        if not isinstance(cast("object", self.entry_id), TargetCompileEntryId):
-            msg = "fake list entry_id must be a TargetCompileEntryId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.program_id), PulseProgramId):
-            msg = "fake list program_id must be a PulseProgramId"
-            raise TypeError(msg)
-        _require_positive_int(
-            cast("object", self.sample_count), field_name="list entry sample_count"
-        )
-        waveforms = cast("object", self.waveforms)
-        if not isinstance(waveforms, tuple) or not all(
-            isinstance(waveform, FakeChannelWaveform)
-            for waveform in cast("tuple[object, ...]", waveforms)
-        ):
-            msg = "fake list waveforms must be FakeChannelWaveform values"
-            raise TypeError(msg)
-        acquisitions = cast("object", self.acquisitions)
-        if not isinstance(acquisitions, tuple) or not all(
-            isinstance(window, FakeAcquisitionWindow)
-            for window in cast("tuple[object, ...]", acquisitions)
-        ):
-            msg = "fake list acquisitions must be FakeAcquisitionWindow values"
-            raise TypeError(msg)
-        selected_waveforms = cast("tuple[FakeChannelWaveform, ...]", waveforms)
-        selected_acquisitions = cast("tuple[FakeAcquisitionWindow, ...]", acquisitions)
+        _require_positive_int(self.sample_count, field_name="list entry sample_count")
+        selected_waveforms = self.waveforms
+        selected_acquisitions = self.acquisitions
         if len({waveform.channel_id for waveform in selected_waveforms}) != len(
             selected_waveforms
         ):
@@ -501,44 +378,17 @@ class FakeListArtifact:
     entries: tuple[FakeListEntry, ...]
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.id), TargetArtifactId):
-            msg = "fake list artifact id must be a TargetArtifactId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.target_id), TargetId):
-            msg = "fake list artifact target_id must be a TargetId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.compiler_id), TargetCompilerId):
-            msg = "fake list artifact compiler_id must be a TargetCompilerId"
-            raise TypeError(msg)
         _require_text(
-            cast("object", self.capability_fingerprint),
+            self.capability_fingerprint,
             field_name="capability_fingerprint",
         )
         _require_text(
-            cast("object", self.artifact_fingerprint),
+            self.artifact_fingerprint,
             field_name="artifact_fingerprint",
         )
-        source_ids = cast("object", self.source_entry_ids)
-        if not isinstance(source_ids, tuple) or not all(
-            isinstance(entry_id, TargetCompileEntryId)
-            for entry_id in cast("tuple[object, ...]", source_ids)
-        ):
-            msg = "fake artifact source_entry_ids must be TargetCompileEntryId values"
-            raise TypeError(msg)
-        _require_positive_int(
-            cast("object", self.repetitions), field_name="artifact repetitions"
-        )
-        _require_positive_int(
-            cast("object", self.sample_rate_hz), field_name="artifact sample_rate_hz"
-        )
-        entries = cast("object", self.entries)
-        if not isinstance(entries, tuple) or not all(
-            isinstance(entry, FakeListEntry)
-            for entry in cast("tuple[object, ...]", entries)
-        ):
-            msg = "fake artifact entries must be FakeListEntry values"
-            raise TypeError(msg)
-        selected_entries = cast("tuple[FakeListEntry, ...]", entries)
+        _require_positive_int(self.repetitions, field_name="artifact repetitions")
+        _require_positive_int(self.sample_rate_hz, field_name="artifact sample_rate_hz")
+        selected_entries = self.entries
         if not selected_entries:
             msg = "fake artifacts require at least one list entry"
             raise ValueError(msg)
@@ -547,7 +397,7 @@ class FakeListArtifact:
         ):
             msg = "fake artifact list indices must be contiguous and ordered"
             raise ValueError(msg)
-        selected_source_ids = cast("tuple[TargetCompileEntryId, ...]", source_ids)
+        selected_source_ids = self.source_entry_ids
         if len(set(selected_source_ids)) != len(selected_source_ids):
             msg = "fake artifact source_entry_ids must be unique"
             raise ValueError(msg)

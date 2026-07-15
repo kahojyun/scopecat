@@ -178,7 +178,7 @@ def test_shape_metadata_has_explicit_composition_rules() -> None:
     assert zip_type.allow_extra_columns
 
 
-def test_analysis_construction_and_leaf_adapter_are_runtime_sealed() -> None:
+def test_analysis_construction_snapshots_and_validates_root_fact() -> None:
     shape = PointDomainShape(Table(columns=(), min_rows=1, max_rows=1))
     facts = {(): shape}
     analysis = PointDomainAnalysis(root=shape, facts=facts)
@@ -187,12 +187,6 @@ def test_analysis_construction_and_leaf_adapter_are_runtime_sealed() -> None:
     assert analysis.facts == {(): shape}
     with pytest.raises(ValueError, match="root fact"):
         PointDomainAnalysis(root=shape, facts={})
-    with pytest.raises(PointDomainShapeError) as caught:
-        analyze_point_domain(
-            point_rows("not-table"),
-            leaf_value_type=lambda _leaf, _path: "not-table",  # type: ignore[return-value]
-        )
-    assert caught.value.code == "point_domain_leaf_not_table"
 
 
 @given(

@@ -7,7 +7,6 @@ from hypothesis import strategies as st
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
 )
-from scopecat.compiler.typed.point_domain import LogicalPointId
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.values import (
@@ -534,22 +533,3 @@ def test_zero_point_and_empty_required_assemblies_retain_their_contracts() -> No
 
     assert empty_assembled.values == ()
     assert empty_assembled.product_use_ids == ()
-
-
-def test_candidate_requires_nominal_point_and_use_identity() -> None:
-    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=1)
-    point = scenario.linked_points.point_domain.points[0]
-
-    with pytest.raises(TypeError, match="LogicalPointId"):
-        MeasurementValueCandidate(
-            logical_point_id=point.logical_id.value,  # type: ignore[arg-type]
-            product_use_id=scenario.uses[0].id,
-            value=Quantity(value=1.0, unit="ratio"),
-        )
-    with pytest.raises(TypeError, match="ProductUseId"):
-        MeasurementValueCandidate(
-            logical_point_id=point.logical_id,
-            product_use_id=scenario.uses[0].id.value,  # type: ignore[arg-type]
-            value=Quantity(value=1.0, unit="ratio"),
-        )
-    assert isinstance(point.logical_id, LogicalPointId)

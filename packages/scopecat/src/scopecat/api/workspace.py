@@ -242,7 +242,7 @@ class PreparedExperiment:
         self,
         *,
         name: str | None = None,
-        tags: Sequence[str] = (),
+        tags: tuple[str, ...] = (),
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
@@ -269,7 +269,7 @@ class PreparedExperiment:
         self,
         *,
         name: str | None = None,
-        tags: Sequence[str] = (),
+        tags: tuple[str, ...] = (),
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
@@ -298,7 +298,7 @@ class PreparedExperiment:
         self,
         *,
         name: str | None = None,
-        tags: Sequence[str] = (),
+        tags: tuple[str, ...] = (),
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
@@ -317,7 +317,7 @@ class PreparedExperiment:
         self,
         *,
         name: str | None = None,
-        tags: Sequence[str] = (),
+        tags: tuple[str, ...] = (),
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
@@ -344,7 +344,7 @@ class PreparedExperiment:
         self,
         *,
         name: str | None = None,
-        tags: Sequence[str] = (),
+        tags: tuple[str, ...] = (),
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
@@ -404,9 +404,9 @@ class Experiment:
         *,
         entity_kind: str | None = None,
     ) -> Experiment:
-        if not input_id or not isinstance(cast("object", entity), EntityRef | str):
-            msg = "experiment entity requires a non-empty input id and entity value"
-            raise TypeError(msg)
+        if not input_id:
+            msg = "experiment entity requires a non-empty input id"
+            raise ValueError(msg)
         if entity_kind == "":
             msg = "experiment entity kind must be non-empty when provided"
             raise ValueError(msg)
@@ -441,7 +441,7 @@ class Experiment:
         self,
         id: str,  # noqa: A002
         *,
-        requires: Sequence[str] = (),
+        requires: tuple[str, ...] = (),
         for_entities: Sequence[ValueRef] = (),
     ) -> Experiment:
         return replace_handle(
@@ -586,7 +586,7 @@ class Experiment:
         self,
         *,
         name: str | None = None,
-        tags: Sequence[str] = (),
+        tags: tuple[str, ...] = (),
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
@@ -1138,31 +1138,15 @@ def _validated_run_options(
     existing: _RunOptions,
     *,
     name: str | None,
-    tags: Sequence[str],
+    tags: tuple[str, ...],
     description: str | None,
     metadata: Mapping[str, MetadataValue] | None,
     operator: str | None,
 ) -> _RunOptions:
-    for field_name, value in (
-        ("name", name),
-        ("description", description),
-        ("operator", operator),
-    ):
-        if value is not None and not isinstance(cast("object", value), str):
-            msg = f"run {field_name} must be a string or None"
-            raise TypeError(msg)
-    raw_tags = cast("object", tags)
-    if isinstance(raw_tags, str | bytes) or not isinstance(raw_tags, Sequence):
-        msg = "run tags must be a sequence of strings"
-        raise TypeError(msg)
-    selected_tags = tuple(cast("Sequence[object]", raw_tags))
-    if not all(isinstance(tag, str) for tag in selected_tags):
-        msg = "run tags must be a sequence of strings"
-        raise TypeError(msg)
     return replace(
         existing,
         name=name,
-        tags=cast("tuple[str, ...]", selected_tags),
+        tags=tags,
         description=description,
         metadata=_merged_run_metadata(existing.metadata, metadata),
         operator=operator if operator is not None else existing.operator,

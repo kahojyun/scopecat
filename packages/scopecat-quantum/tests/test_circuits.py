@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence as SequenceCollection
-from typing import cast
 
 import pytest
 from hypothesis import assume, given
@@ -27,7 +26,6 @@ from scopecat_quantum._ids import (
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import (
-    CircuitNode,
     CircuitProgram,
     CircuitVerificationError,
     Measure,
@@ -186,26 +184,15 @@ def test_quantum_identities_reject_blank_values(value: str) -> None:
         CircuitId(value)
 
 
-@pytest.mark.parametrize("value", [None, 1, True, object()])
-def test_quantum_identities_reject_non_string_values(value: object) -> None:
-    with pytest.raises(TypeError, match="must be a string"):
-        CircuitId(cast("str", value))
-
-
 def test_nominal_quantum_identities_reject_unicode_surrogates() -> None:
     with pytest.raises(ValueError, match="Unicode surrogates"):
         CircuitId("\ud800")
 
 
-@pytest.mark.parametrize("arity", [0, -1, True, 1.5])
-def test_gate_definitions_require_positive_integer_arity(arity: object) -> None:
+@pytest.mark.parametrize("arity", [0, -1, True])
+def test_gate_definitions_require_positive_integer_arity(arity: int) -> None:
     with pytest.raises(ValueError, match="positive integer"):
-        GateDefinition(GateId("invalid"), cast("int", arity))
-
-
-def test_gate_parameter_definitions_require_a_parameter_kind() -> None:
-    with pytest.raises(ValueError, match="GateParameterKind"):
-        GateParameterDefinition("theta", cast("GateParameterKind", "angle"))
+        GateDefinition(GateId("invalid"), arity)
 
 
 @given(st.permutations(("z", "x", "y")))
@@ -424,34 +411,6 @@ def test_non_finite_or_unrepresentable_numbers_are_rejected() -> None:
         }
 
 
-def test_malformed_angle_quantity_is_reported_by_verification() -> None:
-    definition = GateDefinition(
-        GateId("rotation"),
-        qubit_arity=1,
-        parameters=(GateParameterDefinition("phase", GateParameterKind.ANGLE),),
-    )
-    malformed = Quantity.model_construct(
-        value=cast("float", "not-a-number"),
-        unit="rad",
-    )
-    program = CircuitProgram(
-        CircuitId("malformed-angle"),
-        GateCall(
-            CircuitOperationId("rotation-q0"),
-            definition.id,
-            (QubitId("q0"),),
-            (GateArgument("phase", malformed),),
-        ),
-    )
-
-    with pytest.raises(CircuitVerificationError) as error:
-        verify_circuit_program(program, (definition,))
-
-    assert "circuit_gate_argument_type_mismatch" in {
-        issue.code for issue in error.value.issues
-    }
-
-
 @given(st.sets(st.sampled_from(("turns", "scale", "phase", "extra"))))
 def test_generated_gate_argument_coverage_is_exact(supplied_ids: set[str]) -> None:
     definition = GateDefinition(
@@ -542,26 +501,6 @@ def test_verification_aggregates_unknown_gate_and_duplicate_identities() -> None
     }
 
 
-def test_measure_requires_a_runtime_acquisition_kind() -> None:
-    program = CircuitProgram(
-        CircuitId("invalid-measure-kind"),
-        Measure(
-            CircuitOperationId("measure-q0"),
-            QubitId("q0"),
-            AcquisitionSlotId("readout"),
-            cast("AcquisitionKind", "integrated_iq"),
-        ),
-    )
-
-    with pytest.raises(CircuitVerificationError) as error:
-        verify_circuit_program(program, ())
-
-    assert [issue.code for issue in error.value.issues] == [
-        "circuit_acquisition_kind_invalid"
-    ]
-    assert error.value.issues[0].path == ("body", "acquisition_kind")
-
-
 def test_measure_preserves_acquisition_contract_when_verified() -> None:
     measurement = Measure(
         CircuitOperationId("measure-q0"),
@@ -598,27 +537,3 @@ def test_generated_parallel_branches_with_distinct_qubits_verify(
     )
 
     assert tuple(verified.operations) == branches
-
-
-def test_verifier_reports_invalid_node_shape_without_masking_other_issues() -> None:
-    program = CircuitProgram(
-        CircuitId("invalid-node"),
-        Sequence(
-            (
-                cast("CircuitNode", object()),
-                GateCall(
-                    CircuitOperationId("unknown-call"),
-                    GateId("unknown"),
-                    (QubitId("q0"),),
-                ),
-            )
-        ),
-    )
-
-    with pytest.raises(CircuitVerificationError) as error:
-        verify_circuit_program(program, ())
-
-    assert {issue.code for issue in error.value.issues} == {
-        "circuit_gate_unknown",
-        "circuit_node_invalid",
-    }

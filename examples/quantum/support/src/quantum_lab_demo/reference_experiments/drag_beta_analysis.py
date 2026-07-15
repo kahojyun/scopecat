@@ -143,20 +143,9 @@ class DragBetaRunAnalysis:
 
     def __post_init__(self) -> None:
         selected = tuple(self.observations)
-        if not selected or any(
-            not isinstance(value, DragBetaObservation) for value in selected
-        ):
-            msg = "DRAG-beta run analysis requires typed observations"
-            raise TypeError(msg)
-        if not isinstance(self.fit, DragBetaFit):
-            msg = "DRAG-beta run analysis requires a DragBetaFit"
-            raise TypeError(msg)
-        if not isinstance(self.assessment, DragBetaFitAssessment):
-            msg = "DRAG-beta run analysis requires a DragBetaFitAssessment"
-            raise TypeError(msg)
-        if not isinstance(self.analysis, sc.Analysis):
-            msg = "DRAG-beta run analysis requires a native Analysis"
-            raise TypeError(msg)
+        if not selected:
+            msg = "DRAG-beta run analysis requires observations"
+            raise ValueError(msg)
         if self.analysis.run.id != self.run_id:
             msg = "DRAG-beta analysis record must belong to its analyzed run"
             raise ValueError(msg)
@@ -179,15 +168,10 @@ def assess_drag_beta_fit(
 ) -> DragBetaFitAssessment:
     """Assess one valid fit with explicit proposal guardrails."""
 
-    if not isinstance(fit, DragBetaFit):
-        msg = "DRAG-beta assessment requires a DragBetaFit"
-        raise TypeError(msg)
     selected = tuple(observations)
-    if not selected or any(
-        not isinstance(observation, DragBetaObservation) for observation in selected
-    ):
-        msg = "DRAG-beta assessment requires typed observations"
-        raise TypeError(msg)
+    if not selected:
+        msg = "DRAG-beta assessment requires observations"
+        raise ValueError(msg)
     fit_rmse = float(fit.rmse)
     if not math.isfinite(fit_rmse) or fit_rmse < 0.0:
         msg = "DRAG-beta fit RMSE must be finite and non-negative"
@@ -264,9 +248,6 @@ def assess_drag_beta_fit(
 def analyze_drag_beta_run(run: sc.RunHandle) -> DragBetaRunAnalysis:
     """Fit a completed run and author durable evidence plus an eligible proposal."""
 
-    if not isinstance(run, sc.RunHandle):
-        msg = "DRAG-beta analysis requires a RunHandle"
-        raise TypeError(msg)
     if run.manifest.status != "completed":
         msg = "DRAG-beta analysis requires a completed run"
         raise ValueError(msg)

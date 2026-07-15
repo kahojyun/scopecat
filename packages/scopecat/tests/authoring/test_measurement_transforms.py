@@ -53,14 +53,7 @@ def test_measurement_transform_captures_ordered_local_product_bindings() -> None
 
 
 def test_measurement_transform_validates_authoring_ingress() -> None:
-    with pytest.raises(TypeError, match="inputs must be a mapping"):
-        sc.measurement_transform(
-            "derive",
-            semantic=_semantic(),
-            inputs=object(),  # pyright: ignore[reportArgumentType]
-            outputs={"result": "derived"},
-        )
-    with pytest.raises(TypeError, match="non-empty role"):
+    with pytest.raises(ValueError, match="non-empty role"):
         sc.measurement_transform(
             "derive",
             semantic=_semantic(),

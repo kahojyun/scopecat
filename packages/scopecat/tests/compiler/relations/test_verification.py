@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import cast
 
 import pytest
 
@@ -47,7 +46,6 @@ from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
-    VerifiedRelationPlan,
     verify_relation_plan,
 )
 from scopecat.kernel.symbols import SymbolId
@@ -1338,17 +1336,6 @@ def test_backend_selection_retains_the_certified_contract() -> None:
     assert selected.required_operations == (RelationOperation.SCALAR_LITERAL,)
 
 
-def test_backend_selection_rejects_a_raw_plan_instead_of_implicitly_verifying() -> None:
-    with pytest.raises(TypeError):
-        relation_backend.select_relation_plan(
-            ReferenceRelationBackend(),
-            cast(
-                "VerifiedRelationPlan[RelationExpr]",
-                literal_rows([{"value": 1}]),
-            ),
-        )
-
-
 class _FiniteTableFactsBackend(ReferenceRelationBackend):
     def assess_relation_requirements(
         self,
@@ -1519,10 +1506,3 @@ def test_backend_dispatch_has_no_raw_ast_hook() -> None:
     assert not hasattr(backend, "evaluate_scalar_unchecked")
     assert not hasattr(backend, "evaluate_series_unchecked")
     assert not hasattr(backend, "evaluate_relation_unchecked")
-
-    with pytest.raises(TypeError, match="SelectedRelationPlan"):
-        relation_backend.evaluate_scalar(
-            backend,
-            cast("relation_backend.SelectedRelationPlan[ScalarExpr]", lit(1)),
-            relation_backend.EvalContext(),
-        )

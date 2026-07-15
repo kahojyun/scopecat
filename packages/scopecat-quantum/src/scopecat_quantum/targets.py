@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, cast, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -29,32 +29,9 @@ from scopecat_quantum.pulses import ScheduledPulseProgram
 
 
 def _require_text(value: str, *, field: str) -> None:
-    selected = cast("object", value)
-    if not isinstance(selected, str) or not selected.strip():
+    if not value.strip():
         msg = f"{field} must be non-empty"
         raise ValueError(msg)
-
-
-def _require_valid_event_id(value: object) -> None:
-    if not isinstance(value, PulseEventId):
-        msg = "target event address event_id must be a PulseEventId"
-        raise TypeError(msg)
-    try:
-        PulseEventId(local_id=value.local_id, scope=value.scope)
-    except (AttributeError, TypeError, ValueError) as error:
-        msg = "target event address event_id must be a valid PulseEventId"
-        raise ValueError(msg) from error
-
-
-def _require_valid_acquisition_slot_id(value: object) -> None:
-    if not isinstance(value, AcquisitionSlotId):
-        msg = "target acquisition address slot_id must be an AcquisitionSlotId"
-        raise TypeError(msg)
-    try:
-        AcquisitionSlotId(local_id=value.local_id, scope=value.scope)
-    except (AttributeError, TypeError, ValueError) as error:
-        msg = "target acquisition address slot_id must be a valid AcquisitionSlotId"
-        raise ValueError(msg) from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,12 +41,6 @@ class TargetEventAddress:
     entry_id: TargetCompileEntryId
     event_id: PulseEventId
 
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.entry_id), TargetCompileEntryId):
-            msg = "target event address entry_id must be a TargetCompileEntryId"
-            raise TypeError(msg)
-        _require_valid_event_id(cast("object", self.event_id))
-
 
 @dataclass(frozen=True, slots=True)
 class TargetAcquisitionAddress:
@@ -78,12 +49,6 @@ class TargetAcquisitionAddress:
     entry_id: TargetCompileEntryId
     slot_id: AcquisitionSlotId
 
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.entry_id), TargetCompileEntryId):
-            msg = "target acquisition address entry_id must be a TargetCompileEntryId"
-            raise TypeError(msg)
-        _require_valid_acquisition_slot_id(cast("object", self.slot_id))
-
 
 @dataclass(frozen=True, slots=True)
 class TargetCompileEntry:
@@ -91,14 +56,6 @@ class TargetCompileEntry:
 
     id: TargetCompileEntryId
     program: ScheduledPulseProgram
-
-    def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.id), TargetCompileEntryId):
-            msg = "target compile entry id must be a TargetCompileEntryId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.program), ScheduledPulseProgram):
-            msg = "target compile entries require a scheduled pulse program"
-            raise TypeError(msg)
 
     @property
     def event_addresses(self) -> tuple[TargetEventAddress, ...]:
@@ -135,23 +92,10 @@ class TargetCompileRequest:
     repetitions: int
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.target_id), TargetId):
-            msg = "target compile request target_id must be a TargetId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.compiler_id), TargetCompilerId):
-            msg = "target compile request compiler_id must be a TargetCompilerId"
-            raise TypeError(msg)
         _require_text(
             self.capability_fingerprint,
             field="target capability fingerprint",
         )
-        entries = cast("object", self.entries)
-        if not isinstance(entries, tuple) or not all(
-            isinstance(entry, TargetCompileEntry)
-            for entry in cast("tuple[object, ...]", entries)
-        ):
-            msg = "target compile request entries must be TargetCompileEntry values"
-            raise TypeError(msg)
         if not self.entries:
             msg = "target compile requests require at least one entry"
             raise ValueError(msg)
@@ -159,12 +103,7 @@ class TargetCompileRequest:
         if len(set(entry_ids)) != len(entry_ids):
             msg = "target compile entry ids must be unique"
             raise ValueError(msg)
-        repetitions = cast("object", self.repetitions)
-        if (
-            isinstance(repetitions, bool)
-            or not isinstance(repetitions, int)
-            or repetitions <= 0
-        ):
+        if self.repetitions <= 0:
             msg = "target compile repetitions must be a positive finite integer"
             raise ValueError(msg)
 
@@ -204,16 +143,6 @@ class TargetCompilationIssue:
     entry_id: TargetCompileEntryId | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            cast("object", self.dimension),
-            TargetCompilationIssueDimension,
-        ):
-            msg = "target compilation issue dimension is invalid"
-            raise TypeError(msg)
-        entry_id = cast("object", self.entry_id)
-        if entry_id is not None and not isinstance(entry_id, TargetCompileEntryId):
-            msg = "target compilation issue entry_id must be a TargetCompileEntryId"
-            raise TypeError(msg)
         _require_text(self.code, field="target compilation issue code")
         _require_text(self.message, field="target compilation issue message")
 
@@ -222,23 +151,12 @@ class TargetCompilationError(ValueError):
     """Aggregate deterministic rejection from a target compiler."""
 
     def __init__(self, issues: tuple[TargetCompilationIssue, ...]) -> None:
-        raw_issues = cast("object", issues)
-        if not isinstance(raw_issues, tuple) or not all(
-            isinstance(issue, TargetCompilationIssue)
-            for issue in cast("tuple[object, ...]", raw_issues)
-        ):
-            msg = (
-                "target compilation errors require a tuple of "
-                "TargetCompilationIssue values"
-            )
-            raise TypeError(msg)
-        selected_issues = cast("tuple[TargetCompilationIssue, ...]", raw_issues)
-        if not selected_issues:
+        if not issues:
             msg = "target compilation errors require at least one issue"
             raise ValueError(msg)
         self.issues = tuple(
             sorted(
-                selected_issues,
+                issues,
                 key=lambda issue: (
                     "" if issue.entry_id is None else issue.entry_id.value,
                     issue.dimension.value,
@@ -394,16 +312,7 @@ def compile_target[ArtifactT: TargetArtifact](
     """
 
     preflight_issues: list[TargetCompilationIssue] = []
-    compiler_target_id = cast("object", compiler.target_id)
-    if not isinstance(compiler_target_id, TargetId):
-        preflight_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_compiler_target_id_type_invalid",
-                message="target compiler target_id is not a TargetId",
-            )
-        )
-    elif request.target_id != compiler_target_id:
+    if request.target_id != compiler.target_id:
         preflight_issues.append(
             TargetCompilationIssue(
                 dimension=TargetCompilationIssueDimension.REQUEST,
@@ -411,16 +320,7 @@ def compile_target[ArtifactT: TargetArtifact](
                 message="compile request does not select this compiler's target",
             )
         )
-    compiler_id = cast("object", compiler.id)
-    if not isinstance(compiler_id, TargetCompilerId):
-        preflight_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_compiler_id_type_invalid",
-                message="target compiler id is not a TargetCompilerId",
-            )
-        )
-    elif request.compiler_id != compiler_id:
+    if request.compiler_id != compiler.id:
         preflight_issues.append(
             TargetCompilationIssue(
                 dimension=TargetCompilationIssueDimension.REQUEST,
@@ -428,16 +328,7 @@ def compile_target[ArtifactT: TargetArtifact](
                 message="compile request does not select this compiler",
             )
         )
-    compiler_capability = cast("object", compiler.capability_fingerprint)
-    if not isinstance(compiler_capability, str) or not compiler_capability.strip():
-        preflight_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_compiler_capability_fingerprint_invalid",
-                message="target compiler capability fingerprint must be non-empty",
-            )
-        )
-    elif request.capability_fingerprint != compiler_capability:
+    if request.capability_fingerprint != compiler.capability_fingerprint:
         preflight_issues.append(
             TargetCompilationIssue(
                 dimension=TargetCompilationIssueDimension.CAPABILITY,
@@ -449,38 +340,9 @@ def compile_target[ArtifactT: TargetArtifact](
         raise TargetCompilationError(tuple(preflight_issues))
 
     artifact = compiler.compile(request)
-    if not isinstance(cast("object", artifact), TargetArtifact):
-        raise TargetCompilationError(
-            (
-                TargetCompilationIssue(
-                    dimension=TargetCompilationIssueDimension.COMPILER,
-                    code="target_artifact_contract_invalid",
-                    message="target compiler returned an invalid artifact contract",
-                ),
-            )
-        )
-
     expected_entry_ids = tuple(entry.id for entry in request.entries)
     artifact_issues: list[TargetCompilationIssue] = []
-    artifact_id = cast("object", artifact.id)
-    if not isinstance(artifact_id, TargetArtifactId):
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_id_type_invalid",
-                message="target artifact id is not a TargetArtifactId",
-            )
-        )
-    artifact_target_id = cast("object", artifact.target_id)
-    if not isinstance(artifact_target_id, TargetId):
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_target_id_type_invalid",
-                message="target artifact target_id is not a TargetId",
-            )
-        )
-    elif artifact_target_id != request.target_id:
+    if artifact.target_id != request.target_id:
         artifact_issues.append(
             TargetCompilationIssue(
                 dimension=TargetCompilationIssueDimension.COMPILER,
@@ -488,16 +350,7 @@ def compile_target[ArtifactT: TargetArtifact](
                 message="target artifact identifies another target",
             )
         )
-    artifact_compiler_id = cast("object", artifact.compiler_id)
-    if not isinstance(artifact_compiler_id, TargetCompilerId):
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_compiler_id_type_invalid",
-                message="target artifact compiler_id is not a TargetCompilerId",
-            )
-        )
-    elif artifact_compiler_id != request.compiler_id:
+    if artifact.compiler_id != request.compiler_id:
         artifact_issues.append(
             TargetCompilationIssue(
                 dimension=TargetCompilationIssueDimension.COMPILER,
@@ -505,16 +358,7 @@ def compile_target[ArtifactT: TargetArtifact](
                 message="target artifact identifies another compiler",
             )
         )
-    artifact_capability = cast("object", artifact.capability_fingerprint)
-    if not isinstance(artifact_capability, str):
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_capability_fingerprint_type_invalid",
-                message="target artifact capability fingerprint must be a string",
-            )
-        )
-    elif artifact_capability != request.capability_fingerprint:
+    if artifact.capability_fingerprint != request.capability_fingerprint:
         artifact_issues.append(
             TargetCompilationIssue(
                 dimension=TargetCompilationIssueDimension.CAPABILITY,
@@ -522,22 +366,7 @@ def compile_target[ArtifactT: TargetArtifact](
                 message="target artifact has another capability fingerprint",
             )
         )
-    source_entry_ids = cast("object", artifact.source_entry_ids)
-    if not isinstance(source_entry_ids, tuple) or not all(
-        isinstance(entry_id, TargetCompileEntryId)
-        for entry_id in cast("tuple[object, ...]", source_entry_ids)
-    ):
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_source_entry_ids_type_invalid",
-                message=(
-                    "target artifact source_entry_ids must be "
-                    "TargetCompileEntryId values"
-                ),
-            )
-        )
-    elif source_entry_ids != expected_entry_ids:
+    if artifact.source_entry_ids != expected_entry_ids:
         artifact_issues.append(
             TargetCompilationIssue(
                 dimension=TargetCompilationIssueDimension.COMPILER,
@@ -545,18 +374,7 @@ def compile_target[ArtifactT: TargetArtifact](
                 message="target artifact does not preserve ordered entry coverage",
             )
         )
-    artifact_repetitions = cast("object", artifact.repetitions)
-    if isinstance(artifact_repetitions, bool) or not isinstance(
-        artifact_repetitions, int
-    ):
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_repetitions_type_invalid",
-                message="target artifact repetitions must be an integer",
-            )
-        )
-    elif artifact_repetitions != request.repetitions:
+    if artifact.repetitions != request.repetitions:
         artifact_issues.append(
             TargetCompilationIssue(
                 dimension=TargetCompilationIssueDimension.COMPILER,
@@ -564,8 +382,7 @@ def compile_target[ArtifactT: TargetArtifact](
                 message="target artifact does not preserve finite repetitions",
             )
         )
-    fingerprint = cast("object", artifact.artifact_fingerprint)
-    if not isinstance(fingerprint, str) or not fingerprint.strip():
+    if not artifact.artifact_fingerprint.strip():
         artifact_issues.append(
             TargetCompilationIssue(
                 dimension=TargetCompilationIssueDimension.COMPILER,
@@ -579,8 +396,8 @@ def compile_target[ArtifactT: TargetArtifact](
     return CompiledTargetArtifact(
         request,
         artifact,
-        _verified_artifact_id=cast("TargetArtifactId", artifact_id),
-        _verified_artifact_fingerprint=cast("str", fingerprint),
+        _verified_artifact_id=artifact.id,
+        _verified_artifact_fingerprint=artifact.artifact_fingerprint,
     )
 
 

@@ -17,12 +17,7 @@ from pydantic import JsonValue
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.typed.point_domain import LogicalPointId
-from scopecat.execution.local.program import (
-    CollectionResultBinding,
-    CollectOperation,
-    CollectStage,
-    ExecutionProgram,
-)
+from scopecat.execution.local.program import CollectStage, ExecutionProgram
 from scopecat.execution.ports.journal import CollectionRepository
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
@@ -100,12 +95,6 @@ def bind_local_collection_fragment(
     """
 
     selected = require_measurement_value_assembly(selection)
-    if not isinstance(cast("object", fragment_id), str):
-        msg = "local collection fragment id must be a string"
-        raise TypeError(msg)
-    if not isinstance(cast("object", program), ExecutionProgram):
-        msg = "local collection binding requires ExecutionProgram"
-        raise TypeError(msg)
 
     problems: list[Problem] = []
     linked_experiment_id = selected.linked_points.linked_plan.program.id
@@ -206,13 +195,7 @@ def local_collection_fragment(
 ) -> ClosedMeasurementValueFragment:
     """Resolve committed chunks and close their exact logical value entries."""
 
-    if not isinstance(cast("object", binding), BoundLocalCollectionFragment):
-        msg = "local collection ingress requires BoundLocalCollectionFragment"
-        raise TypeError(msg)
     bound = binding
-    if not isinstance(cast("object", run_id), str):
-        msg = "local collection fragment run_id must be a string"
-        raise TypeError(msg)
     if not run_id:
         msg = "local collection fragment run_id must be non-empty"
         raise ValueError(msg)
@@ -221,12 +204,6 @@ def local_collection_fragment(
         msg = "local collection fragments require a resolvable collection repository"
         raise TypeError(msg)
     supplied_receipts = tuple(receipts)
-    if any(
-        not isinstance(cast("object", receipt), CollectionChunkReceipt)
-        for receipt in supplied_receipts
-    ):
-        msg = "local collection fragments require CollectionChunkReceipt receipts"
-        raise TypeError(msg)
 
     operation_bindings = bound.operation_bindings
     operation_by_id = {
@@ -403,15 +380,6 @@ def _collect_program_contract(
         )
         for operation_index, operation in enumerate(collect_operations):
             path = ("points", point_index, "collection", operation_index)
-            if not isinstance(cast("object", operation), CollectOperation):
-                problems.append(
-                    _binding_problem(
-                        "local_collection_operation_invalid",
-                        "local collection stage contains an invalid operation",
-                        path=path,
-                    )
-                )
-                continue
             if operation.operation_id in operation_ids:
                 problems.append(
                     _binding_problem(
@@ -461,15 +429,6 @@ def _collect_program_contract(
                 zip(requests, result_bindings, strict=False)
             ):
                 result_path = (*path, "result_bindings", result_index)
-                if not isinstance(cast("object", result), CollectionResultBinding):
-                    problems.append(
-                        _binding_problem(
-                            "local_collection_result_binding_invalid",
-                            "collection result binding is invalid",
-                            path=result_path,
-                        )
-                    )
-                    continue
                 if result.product_use_id not in use_order:
                     problems.append(
                         _binding_problem(

@@ -5,14 +5,9 @@ from __future__ import annotations
 import heapq
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
-    MaterializedLinkedPoints,
-    MaterializedLinkedPointSet,
-)
+from scopecat.compiler.linking.linked import MaterializedLinkedPointSet
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem, ProblemCategory, model_location
@@ -31,19 +26,7 @@ def verify_measurement_transform_graph(
 ) -> VerifiedMeasurementTransformGraph:
     """Close a typed transform DAG without choosing a runtime implementation."""
 
-    if not isinstance(
-        cast("object", linked_points),
-        MaterializedLinkedPoints | MaterializedLinkedPointBatch,
-    ):
-        msg = "measurement transform graphs require materialized linked points"
-        raise TypeError(msg)
     supplied = tuple(transforms)
-    if any(
-        not isinstance(cast("object", transform), MeasurementTransformDef)
-        for transform in supplied
-    ):
-        msg = "measurement transform graphs require MeasurementTransformDef values"
-        raise TypeError(msg)
 
     problems: list[Problem] = []
     declarations = supplied

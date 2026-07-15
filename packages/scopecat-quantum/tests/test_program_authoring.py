@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, cast
 
 import pytest
 import scopecat as sc
@@ -584,7 +583,7 @@ def test_pulse_template_rejects_results_and_requires_exact_call_ports() -> None:
         template(formal_q, duration=Quantity(1, "rad"))
 
 
-def test_shift_phase_accepts_symbolic_phase_and_rejects_non_frame_signals() -> None:
+def test_shift_phase_accepts_symbolic_phase() -> None:
     q0 = authoring.qubit("q0")
     phase = authoring.input(
         "phase",
@@ -613,6 +612,3 @@ def test_shift_phase_accepts_symbolic_phase_and_rejects_non_frame_signals() -> N
     assert isinstance(shift.instruction, ShiftPhase)
     assert shift.duration_seconds == 0
     assert shift.instruction.phase == Quantity(180, "deg").to("rad")
-
-    with pytest.raises(TypeError, match="drive or readout"):
-        authoring.shift_phase(cast(Any, authoring.flux(q0)), Quantity(1, "rad"))

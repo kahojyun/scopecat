@@ -316,7 +316,7 @@ def test_result_mapping_canonicalizes_an_explicit_product_use_subset() -> None:
         )
 
 
-@pytest.mark.parametrize("selection", ["duplicate", "foreign", "wrong_type"])
+@pytest.mark.parametrize("selection", ["duplicate", "foreign"])
 def test_result_mapping_rejects_invalid_selected_product_uses(
     selection: str,
 ) -> None:
@@ -325,21 +325,12 @@ def test_result_mapping_rejects_invalid_selected_product_uses(
     entries, entry_bindings, result_bindings = _valid_mapping_inputs(linked_points)
     if selection == "duplicate":
         selected_ids = (uses[0].id, uses[0].id)
-        error_type = ValueError
         message = "must be unique"
-    elif selection == "foreign":
-        selected_ids = (uses[0].id, ProductUseId("foreign-use"))
-        error_type = ValueError
-        message = "not in the linked plan"
     else:
-        selected_ids = cast(
-            "tuple[ProductUseId, ...]",
-            (uses[0].id, "not-a-product-use-id"),
-        )
-        error_type = TypeError
-        message = "ProductUseId"
+        selected_ids = (uses[0].id, ProductUseId("foreign-use"))
+        message = "not in the linked plan"
 
-    with pytest.raises(error_type, match=message):
+    with pytest.raises(ValueError, match=message):
         seal_domain_result_mapping(
             linked_points,
             selected_ids,
@@ -1118,20 +1109,6 @@ def test_mapping_rejects_duplicate_adapter_identity_inventory() -> None:
             entry_bindings,
             result_bindings,
         )
-
-
-def test_mapping_inputs_require_hashable_nominal_addresses() -> None:
-    with pytest.raises(TypeError, match="entry address must be hashable"):
-        AdapterEntryResults(cast("str", []))
-    with pytest.raises(TypeError, match="result address must be hashable"):
-        AdapterEntryResults("entry", cast("tuple[str, ...]", ([],)))
-
-
-def test_domain_output_candidates_require_typed_values_and_hashable_addresses() -> None:
-    with pytest.raises(TypeError, match="result address must be hashable"):
-        DomainOutputValue(cast("str", []), Quantity(value=1.0, unit="ratio"))
-    with pytest.raises(TypeError, match="MeasurementValue"):
-        DomainOutputValue("result", cast("Quantity", object()))
 
 
 def test_mapping_lookups_reject_foreign_addresses_and_outputs() -> None:

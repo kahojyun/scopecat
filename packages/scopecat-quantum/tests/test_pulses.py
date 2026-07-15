@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from hypothesis import given
@@ -29,6 +29,7 @@ from scopecat_quantum.pulses import (
     Gaussian,
     Parallel,
     Play,
+    PulseInstruction,
     PulseProgram,
     PulseValidationError,
     ReadoutSignal,
@@ -58,7 +59,7 @@ def _play(event_id: str, signal: DriveSignal, duration_ns: int) -> Play:
     )
 
 
-def _program(body: Any) -> PulseProgram:
+def _program(body: PulseInstruction) -> PulseProgram:
     return PulseProgram(id=PulseProgramId("program"), body=body)
 
 
@@ -264,21 +265,12 @@ def test_shift_phase_cannot_occur_inside_an_active_parallel_play() -> None:
     assert _issue_codes(raised.value) == {"pulse_frame_shift_during_play"}
 
 
-def test_shift_phase_rejects_non_frame_signals_and_invalid_phases() -> None:
+def test_shift_phase_rejects_invalid_phases() -> None:
     program = _program(
-        Parallel(
-            (
-                ShiftPhase(
-                    PulseEventId("flux"),
-                    cast(Any, FluxSignal(Q0)),
-                    Quantity(1, "V"),
-                ),
-                ShiftPhase(
-                    PulseEventId("nonfinite"),
-                    DRIVE_Q0,
-                    Quantity(float("inf"), "rad"),
-                ),
-            )
+        ShiftPhase(
+            PulseEventId("nonfinite"),
+            DRIVE_Q0,
+            Quantity(float("inf"), "rad"),
         )
     )
 
@@ -286,9 +278,7 @@ def test_shift_phase_rejects_non_frame_signals_and_invalid_phases() -> None:
         schedule(program)
 
     assert {
-        "pulse_phase_unit_invalid",
         "pulse_quantity_nonfinite",
-        "pulse_signal_instruction_invalid",
     } <= _issue_codes(raised.value)
 
 
@@ -581,10 +571,10 @@ def test_duplicate_instruction_ids_are_rejected_across_composites() -> None:
     assert "pulse_instruction_duplicate" in _issue_codes(raised.value)
 
 
-def test_invalid_units_durations_and_signal_pairs_are_aggregated() -> None:
+def test_invalid_units_and_durations_are_aggregated() -> None:
     invalid_play = Play(
         id=PulseEventId("play"),
-        signal=cast(Any, AcquireSignal(Q0)),
+        signal=DRIVE_Q0,
         envelope=Constant(
             duration=Quantity(0, "ns"),
             amplitude=Quantity(1, "Hz"),
@@ -604,7 +594,6 @@ def test_invalid_units_durations_and_signal_pairs_are_aggregated() -> None:
         "pulse_amplitude_unit_invalid",
         "pulse_duration_nonpositive",
         "pulse_phase_unit_invalid",
-        "pulse_signal_instruction_invalid",
         "pulse_time_unit_invalid",
     } <= _issue_codes(raised.value)
 
@@ -654,185 +643,6 @@ def test_logical_flux_and_barrier_are_hardware_independent_and_canonical() -> No
         coupler_flux,
         qubit_flux,
     )
-
-
-def test_schedule_rejects_non_program_without_leaking_attribute_errors() -> None:
-    with pytest.raises(PulseValidationError) as raised:
-        schedule(cast(Any, object()))
-
-    assert _issue_codes(raised.value) == {"pulse_program_invalid"}
-
-
-def test_program_and_leaf_identities_are_checked_before_scheduling() -> None:
-    program = PulseProgram(
-        id=cast(Any, PulseEventId("not-a-program-id")),
-        body=Play(
-            id=cast(Any, PulseProgramId("not-an-event-id")),
-            signal=DRIVE_Q0,
-            envelope=_constant(10),
-        ),
-    )
-
-    with pytest.raises(PulseValidationError) as raised:
-        schedule(program)
-
-    assert _issue_codes(raised.value) == {
-        "pulse_instruction_id_invalid",
-        "pulse_program_id_invalid",
-    }
-
-
-@pytest.mark.parametrize(
-    ("node", "field_name", "replacement", "expected_code"),
-    [
-        (
-            Sequence((_play("sequence", DRIVE_Q0, 10),)),
-            "instructions",
-            [],
-            "pulse_sequence_instructions_invalid",
-        ),
-        (
-            Parallel((_play("parallel", DRIVE_Q0, 10),)),
-            "branches",
-            [],
-            "pulse_parallel_branches_invalid",
-        ),
-        (
-            Barrier(PulseEventId("barrier"), (DRIVE_Q0,)),
-            "signals",
-            [],
-            "pulse_barrier_signals_invalid",
-        ),
-    ],
-)
-def test_composite_node_collections_must_remain_tuples(
-    node: Any,
-    field_name: str,
-    replacement: object,
-    expected_code: str,
-) -> None:
-    object.__setattr__(node, field_name, replacement)
-
-    with pytest.raises(PulseValidationError) as raised:
-        schedule(_program(node))
-
-    assert _issue_codes(raised.value) == {expected_code}
-
-
-def test_program_acquisition_declarations_must_remain_a_tuple() -> None:
-    program = _program(_play("pulse", DRIVE_Q0, 10))
-    object.__setattr__(program, "acquisition_slots", [])
-
-    with pytest.raises(PulseValidationError) as raised:
-        schedule(program)
-
-    assert _issue_codes(raised.value) == {"pulse_acquisition_slots_invalid"}
-
-
-def test_invalid_nodes_and_quantities_are_aggregated_before_lowering() -> None:
-    malformed_quantity = Quantity.model_construct(value="not-numeric", unit=[])
-    invalid_envelope = Constant(
-        duration=cast(Any, object()),
-        amplitude=malformed_quantity,
-    )
-    program = _program(
-        Sequence(
-            (
-                cast(Any, object()),
-                Play(PulseEventId("bad-envelope"), DRIVE_Q0, invalid_envelope),
-                Play(
-                    PulseEventId("unsupported-envelope"),
-                    DRIVE_Q1,
-                    cast(Any, object()),
-                ),
-                Delay(
-                    PulseEventId("bad-duration"),
-                    DRIVE_Q1,
-                    cast(Any, object()),
-                ),
-            )
-        )
-    )
-
-    with pytest.raises(PulseValidationError) as raised:
-        schedule(program)
-
-    assert _issue_codes(raised.value) == {
-        "pulse_envelope_invalid",
-        "pulse_instruction_invalid",
-        "pulse_quantity_invalid",
-    }
-    assert (
-        sum(issue.code == "pulse_quantity_invalid" for issue in raised.value.issues)
-        == 3
-    )
-
-
-def test_nominal_signal_owners_and_structural_acquire_slot_id_are_checked() -> None:
-    invalid_play = Play(
-        PulseEventId("play"),
-        DriveSignal(cast(Any, CouplerId("not-a-qubit"))),
-        _constant(10),
-    )
-    invalid_acquire = Acquire(
-        PulseEventId("acquire"),
-        AcquireSignal(cast(Any, CouplerId("not-a-qubit"))),
-        cast(Any, PulseProgramId("not-a-slot-id")),
-        Quantity(10, "ns"),
-    )
-
-    with pytest.raises(PulseValidationError) as raised:
-        schedule(_program(Parallel((invalid_play, invalid_acquire))))
-
-    assert _issue_codes(raised.value) == {
-        "pulse_acquisition_slot_id_invalid",
-        "pulse_signal_instruction_invalid",
-    }
-
-
-def test_malformed_structural_acquisition_slot_ids_are_rejected_before_use() -> None:
-    slot_id = AcquisitionSlotId("readout", scope=("measure-q0",))
-    object.__setattr__(slot_id, "scope", ("measure-q0", "\ud800"))
-    signal = AcquireSignal(Q0)
-    program = PulseProgram(
-        id=PulseProgramId("malformed-slot"),
-        body=Acquire(
-            PulseEventId("acquire"),
-            signal,
-            slot_id,
-            Quantity(10, "ns"),
-        ),
-        acquisition_slots=(
-            AcquisitionSlot(slot_id, AcquisitionKind.INTEGRATED_IQ, signal),
-        ),
-    )
-
-    with pytest.raises(PulseValidationError) as raised:
-        schedule(program)
-
-    assert _issue_codes(raised.value) == {"pulse_acquisition_slot_id_invalid"}
-
-
-def test_acquisition_declaration_identity_kind_and_signal_are_aggregated() -> None:
-    invalid_slot = AcquisitionSlot(
-        id=cast(Any, PulseEventId("not-a-slot-id")),
-        kind=cast(Any, "integrated_iq"),
-        signal=cast(Any, DRIVE_Q0),
-    )
-    program = PulseProgram(
-        id=PulseProgramId("invalid-declaration"),
-        body=_play("pulse", DRIVE_Q0, 10),
-        acquisition_slots=(invalid_slot,),
-    )
-
-    with pytest.raises(PulseValidationError) as raised:
-        schedule(program)
-
-    assert _issue_codes(raised.value) == {
-        "pulse_acquisition_kind_invalid",
-        "pulse_acquisition_signal_invalid",
-        "pulse_acquisition_slot_id_invalid",
-    }
 
 
 def test_schedule_preserves_timeline_beyond_float_range() -> None:
@@ -905,27 +715,3 @@ def test_schedule_preserves_small_intervals_on_a_large_timeline() -> None:
     ]
     assert scheduled.events[1].start_seconds < scheduled.events[2].start_seconds
     assert scheduled.duration_seconds == large + 2
-
-
-def test_malformed_huge_integer_quantities_do_not_leak_overflow_errors() -> None:
-    huge = 10**10_000
-    program = _program(
-        Play(
-            PulseEventId("huge-quantity"),
-            DRIVE_Q0,
-            Constant(
-                duration=Quantity.model_construct(value=huge, unit="s"),
-                amplitude=Quantity.model_construct(value=huge, unit="ratio"),
-                phase=Quantity.model_construct(value=huge, unit="rad"),
-            ),
-        )
-    )
-
-    with pytest.raises(PulseValidationError) as raised:
-        schedule(program)
-
-    assert _issue_codes(raised.value) == {"pulse_quantity_nonfinite"}
-    assert (
-        sum(issue.code == "pulse_quantity_nonfinite" for issue in raised.value.issues)
-        == 3
-    )

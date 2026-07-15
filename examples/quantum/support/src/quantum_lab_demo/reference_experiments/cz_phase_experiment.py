@@ -157,9 +157,6 @@ class CzPhaseDomainExecutionAdapter:
 
     def __init__(self, *, target: FakeListTarget | None = None) -> None:
         selected = default_fake_list_target() if target is None else target
-        if not isinstance(selected, FakeListTarget):
-            msg = "CZ phase adapter requires a FakeListTarget"
-            raise TypeError(msg)
         self.target = selected
         self._preparations: list[PreparedCzPhaseReference] = []
 

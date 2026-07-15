@@ -13,7 +13,6 @@ import json
 import math
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import cast
 
 from scopecat import Quantity
 from scopecat_quantum import (
@@ -48,9 +47,6 @@ class DragBetaResponsePoint:
     amplification: int
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.address), TargetAcquisitionAddress):
-            msg = "DRAG response points require a TargetAcquisitionAddress"
-            raise TypeError(msg)
         _beta_ns(self.beta)
         _positive_int(self.amplification, field_name="amplification")
 
@@ -90,12 +86,9 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
 
     def __post_init__(self) -> None:
         selected = tuple(self.points)
-        if not selected or any(
-            not isinstance(point, DragBetaResponsePoint)
-            for point in cast("tuple[object, ...]", selected)
-        ):
-            msg = "DRAG acquisition responses require typed response points"
-            raise TypeError(msg)
+        if not selected:
+            msg = "DRAG acquisition responses require response points"
+            raise ValueError(msg)
         by_address = {point.address: point for point in selected}
         if len(by_address) != len(selected):
             msg = "DRAG response point addresses must be unique"
@@ -114,7 +107,7 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
         if not 0.0 <= jitter < 0.5:
             msg = "DRAG response IQ jitter must lie in [0, 0.5)"
             raise ValueError(msg)
-        if not isinstance(self.model_version, str) or not self.model_version:
+        if not self.model_version:
             msg = "DRAG response model_version must be a non-empty string"
             raise ValueError(msg)
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import cast
 
 from scopecat.config.validation import (
     coerce_parameter_table_cell,
@@ -159,17 +158,7 @@ def materialize_parameter_updates(
     selected = dict(original)
     order = [value.id for value in base.values]
     touched: list[str] = []
-    for raw_update in cast("Sequence[object]", updates):
-        if not isinstance(
-            raw_update,
-            ReplaceParameter
-            | UpdateParameterRows
-            | InsertParameterRows
-            | DeleteParameterRows,
-        ):
-            msg = "parameter proposal updates must be typed update intents"
-            raise TypeError(msg)
-        update = raw_update
+    for update in updates:
         parameter_id = update.parameter_id
         definition = catalog.get(parameter_id)
         if definition is None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.semantic.availability import (
@@ -20,10 +19,8 @@ from scopecat.compiler.semantic.model import (
 )
 from scopecat.compiler.semantic.operation_contract import (
     EffectClass,
-    OpaqueSemantics,
     OperationContract,
     PlacementConstraint,
-    ScalarBinarySemantics,
     operation_contract_issues,
 )
 from scopecat.compiler.typed.implementation_catalog import (
@@ -225,10 +222,8 @@ def select_local_implementations(
 
 
 def _local_python_accepts(contract: OperationContract) -> bool:
-    semantics = cast("object", contract.semantics)
     return (
         not operation_contract_issues(contract)
-        and isinstance(semantics, OpaqueSemantics | ScalarBinarySemantics)
         and contract.effect is EffectClass.PURE
         and (
             contract.placement is PlacementConstraint.HOST
