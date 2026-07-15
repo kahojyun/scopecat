@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import PurePosixPath
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -19,7 +19,6 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
-from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import (
@@ -35,41 +34,29 @@ type RunManifestEntry = RunArtifactEntry | RunDatasetEntry | RunRecordEntry
 _JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
 
 
-def load_config_profile_snapshot(
-    *, storage: RunRepository, run_id: str
-) -> ConfigProfileSnapshot:
-    return storage.read_config_profile_snapshot(run_id)
-
-
-def append_unique(values: list[str], value: str) -> list[str]:
-    if value in values:
-        return values
-    return [*values, value]
-
-
 def _upsert_entries[TRef: RunManifestEntry](
-    existing: list[TRef], additions: list[TRef]
-) -> list[TRef]:
+    existing: Sequence[TRef], additions: Sequence[TRef]
+) -> tuple[TRef, ...]:
     additions_by_id = {entry.id: entry for entry in additions}
     kept = [entry for entry in existing if entry.id not in additions_by_id]
-    return [*kept, *additions]
+    return (*kept, *additions)
 
 
 def upsert_artifacts(
-    existing: list[RunArtifactEntry], additions: list[RunArtifactEntry]
-) -> list[RunArtifactEntry]:
+    existing: Sequence[RunArtifactEntry], additions: Sequence[RunArtifactEntry]
+) -> tuple[RunArtifactEntry, ...]:
     return _upsert_entries(existing, additions)
 
 
 def upsert_datasets(
-    existing: list[RunDatasetEntry], additions: list[RunDatasetEntry]
-) -> list[RunDatasetEntry]:
+    existing: Sequence[RunDatasetEntry], additions: Sequence[RunDatasetEntry]
+) -> tuple[RunDatasetEntry, ...]:
     return _upsert_entries(existing, additions)
 
 
 def upsert_records(
-    existing: list[RunRecordEntry], additions: list[RunRecordEntry]
-) -> list[RunRecordEntry]:
+    existing: Sequence[RunRecordEntry], additions: Sequence[RunRecordEntry]
+) -> tuple[RunRecordEntry, ...]:
     return _upsert_entries(existing, additions)
 
 
@@ -97,7 +84,7 @@ def list_artifacts(
     metadata: Mapping[str, object] | None = None,
 ) -> tuple[RunArtifactEntry, ...]:
     """Return run artifact payloads matching simple typed index filters."""
-    artifacts = manifest.artifacts
+    artifacts = list(manifest.artifacts)
     if kind is not None:
         artifacts = list_artifacts_by_kind(manifest, kind)
     if metadata:
@@ -119,7 +106,7 @@ def list_datasets(
     kind: str | None = None,
     metadata: Mapping[str, object] | None = None,
 ) -> tuple[RunDatasetEntry, ...]:
-    datasets = manifest.datasets
+    datasets = list(manifest.datasets)
     if kind is not None:
         datasets = list_datasets_by_kind(manifest, kind)
     if metadata:

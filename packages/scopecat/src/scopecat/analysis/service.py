@@ -347,12 +347,19 @@ def save_analysis(
 
         # The manifest commits newly published content above. A failure before
         # this write leaves retryable, uncommitted content.
-        manifest.records = upsert_records(
-            manifest.records,
-            [*proposal_records, record],
+        updated_manifest = manifest.model_copy(
+            update={
+                "records": upsert_records(
+                    manifest.records,
+                    (*proposal_records, record),
+                ),
+                "artifacts": upsert_artifacts(
+                    manifest.artifacts,
+                    output_artifacts,
+                ),
+            }
         )
-        manifest.artifacts = upsert_artifacts(manifest.artifacts, output_artifacts)
-        storage.write_manifest(manifest)
+        storage.write_manifest(updated_manifest)
     return SavedAnalysis(
         record=record,
         analysis_key=analysis_key,

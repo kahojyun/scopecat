@@ -156,8 +156,6 @@ if TYPE_CHECKING:
     from scopecat.planning.preview_models import (
         ExperimentPreview,
         ExperimentPreviewComputeStep,
-        PreviewExperimentResult,
-        ValidateExperimentResult,
     )
     from scopecat.records.entity import EntityRef, entity_ref
     from scopecat.sdk.domain import (
@@ -340,14 +338,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.planning.preview_models",
         "ExperimentPreviewComputeStep",
     ),
-    "PreviewExperimentResult": (
-        "scopecat.planning.preview_models",
-        "PreviewExperimentResult",
-    ),
-    "ValidateExperimentResult": (
-        "scopecat.planning.preview_models",
-        "ValidateExperimentResult",
-    ),
     "ExternalLocation": ("scopecat.kernel.problems", "ExternalLocation"),
     "ModelLocation": ("scopecat.kernel.problems", "ModelLocation"),
     "Problem": ("scopecat.kernel.problems", "Problem"),
@@ -518,7 +508,6 @@ __all__ = [
     "PayloadType",
     "PreparedDomainExecution",
     "PreparedExperiment",
-    "PreviewExperimentResult",
     "Problem",
     "ProblemCategory",
     "ProblemImpact",
@@ -564,7 +553,6 @@ __all__ = [
     "TableRow",
     "TableType",
     "TemplateBuilder",
-    "ValidateExperimentResult",
     "ValueRef",
     "ValueType",
     "Workspace",

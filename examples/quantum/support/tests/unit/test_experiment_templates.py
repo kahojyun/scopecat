@@ -256,7 +256,6 @@ def test_experiment_system_resolve_to_and_preview_invocation(
 
     preview = _preview(tmp_path, invocation, config)
     assert preview.primary_observables, label
-    assert preview.template_id == template_id
 
 
 def test_rabi_infers_default_scan_from_config(tmp_path: Path) -> None:
@@ -547,16 +546,17 @@ def test_workspace_preview_accepts_template_with_run_inputs_and_scans(
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
 
-    preview = (
+    prepared = (
         lab.prepare(CZ_CHEVRON_TEMPLATE)
         .inputs(control_qubit="q0", partner_qubit="q1")
         .scan(COUPLER_DURATION, [24], unit="ns")
         .scan(COUPLER_AMPLITUDE, [0.18], unit="arb")
         .scan(PHASE_OFFSET, [0.0, 0.5], unit="rad")
-        .preview()
     )
+    report = prepared.check()
+    preview = prepared.preview()
 
-    assert preview.template_id == CZ_CHEVRON_TEMPLATE_ID
+    assert report.template_id == CZ_CHEVRON_TEMPLATE_ID
     assert preview.point_count == 2
     assert preview.coordinate_ids == (
         "coupler_duration",

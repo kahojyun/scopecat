@@ -11,22 +11,21 @@ from scopecat.kernel.problems import (
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import RunManifest
-from scopecat.records.run_plan import RunPlanRecord
 from scopecat.runs.refs import CONFIG_PROFILE_SNAPSHOT_REF
 
 
 def validate_run_config_provenance(
     *,
     manifest: RunManifest,
-    plan: RunPlanRecord | None,
     config: ConfigProfileSnapshot,
 ) -> None:
-    """Require manifest, plan, and persisted snapshot hashes to agree."""
+    """Require the manifest and persisted accepted snapshot hashes to agree."""
 
     actual_hash = config_content_hash(config)
-    hashes = {"config_snapshot": actual_hash}
-    if plan is not None:
-        hashes["run_plan"] = plan.config_content_hash
+    hashes = {
+        "config_snapshot": actual_hash,
+        "manifest": manifest.config_content_hash,
+    }
     if manifest.config_source is not None:
         hashes["manifest_config_source"] = manifest.config_source.content_hash
     if len(set(hashes.values())) == 1:

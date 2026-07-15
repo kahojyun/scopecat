@@ -8,6 +8,7 @@ import scopecat as sc
 from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
 from scopecat.composition.local import local_run_repository, local_workspace_services
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
+from scopecat.records.config import config_content_hash
 from scopecat.records.execution import ExecutionSummary
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import (
@@ -20,7 +21,6 @@ from scopecat.runs.service import (
     list_runs,
     load_run,
     load_run_config,
-    load_run_plan,
     load_run_request,
     read_run_artifact_bytes,
     read_run_artifact_text,
@@ -68,9 +68,6 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
     run_request = load_run_request(
         run_id=candidate.run_id, services=local_workspace_services(tmp_path)
     )
-    run_plan = load_run_plan(
-        run_id=candidate.run_id, services=local_workspace_services(tmp_path)
-    )
     artifacts = list_run_artifacts(
         run_id=candidate.run_id,
         services=local_workspace_services(tmp_path),
@@ -109,18 +106,16 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         baseline.run_id,
         candidate.run_id,
     ]
-    assert details.manifest.run_id == candidate.run_id
-    assert {dataset.id for dataset in details.manifest.datasets} >= {
+    assert details.run_id == candidate.run_id
+    assert {dataset.id for dataset in details.datasets} >= {
         "raw-measurements",
         "metrics",
         "readout-matrix",
     }
-    assert any(record.id == "execution-summary" for record in details.manifest.records)
+    assert any(record.id == "execution-summary" for record in details.records)
     assert run_config.workspace_id == "example-workspace"
     assert run_request is not None
     assert run_request.id == "test.workflow_scan.request"
-    assert run_plan.experiment_id == "simple-scan"
-    assert run_plan.records
     assert artifacts == ()
     assert {entry.id for entry in payload_entries} >= {
         "raw-measurements",
@@ -144,6 +139,7 @@ def test_run_inputs_are_loaded_independently_for_capture_runs(tmp_path: Path) ->
     manifest = RunManifest(
         run_id="run_capture",
         lifecycle="accepted",
+        config_content_hash=config_content_hash(load_config()),
     )
     config = load_config()
     storage = FilesystemRunRepository(tmp_path)
@@ -163,23 +159,14 @@ def test_run_inputs_are_loaded_independently_for_capture_runs(tmp_path: Path) ->
     loaded_request = load_run_request(
         run_id=manifest.run_id, services=local_workspace_services(tmp_path)
     )
-    with pytest.raises(DataIntegrityError) as plan_error:
-        load_run_plan(
-            run_id=manifest.run_id, services=local_workspace_services(tmp_path)
-        )
-
-    assert details.manifest == manifest
+    assert details == manifest
     assert loaded_config == config
     assert loaded_request is None
-    assert plan_error.value.problems[0].code == "run.plan_missing"
 
     workspace = sc.open(tmp_path, config_profile=config)
     handle = workspace.get_run(manifest.run_id)
     assert handle.config == config
     assert handle.request is None
-    with pytest.raises(DataIntegrityError) as handle_plan_error:
-        _ = handle.plan
-    assert handle_plan_error.value.problems[0].code == "run.plan_missing"
 
 
 def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:

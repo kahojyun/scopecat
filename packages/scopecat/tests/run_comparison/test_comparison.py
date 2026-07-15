@@ -185,11 +185,11 @@ def test_execute_run_comparison_tracks_compared_runs(
     lab = sc.open(tmp_path, config=config)
     baseline = sc.Run(
         session=lab,
-        manifest=baseline_manifest,
+        id=baseline_manifest.run_id,
     )
     candidate = sc.Run(
         session=lab,
-        manifest=candidate_manifest,
+        id=candidate_manifest.run_id,
     )
     baseline.analysis("baseline review").input(
         "raw-measurements",

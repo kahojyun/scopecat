@@ -11,6 +11,7 @@ from scopecat.execution.persistence import (
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.results import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.artifact import RunDatasetEntry, RunRecordEntry
+from scopecat.records.config import ConfigContentHash
 from scopecat.records.execution import (
     ComputeExecutionSummary,
     ExecutionSummary,
@@ -67,6 +68,7 @@ def build_execution_manifest(
     outcome: RunOutcome,
     measurements: list[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
+    config_content_hash: ConfigContentHash,
     config_source: RunConfigSource | None,
     include_instrument_state: bool = True,
 ) -> RunManifest:
@@ -104,6 +106,7 @@ def build_execution_manifest(
         run_id=run_id,
         lifecycle="terminal",
         outcome=outcome,
+        config_content_hash=config_content_hash,
         config_source=config_source,
         records=_records(include_instrument_state=include_instrument_state),
         datasets=datasets,

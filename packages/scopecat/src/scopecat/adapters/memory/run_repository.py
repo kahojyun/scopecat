@@ -24,13 +24,11 @@ from scopecat.kernel.problems import (
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
-from scopecat.records.run_plan import RunPlanRecord
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.provenance import validate_run_config_provenance
 from scopecat.runs.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
     MANIFEST_REF,
-    RUN_PLAN_REF,
     RUN_REQUEST_REF,
 )
 from scopecat.runs.repository import RunRefKind
@@ -91,50 +89,27 @@ class MemoryRunRepository:
             key=lambda manifest: manifest.created_at,
         )
 
-    def write_structured_run_inputs(
-        self,
-        *,
-        manifest: RunManifest,
-        request: RunRequest | None,
-        plan: RunPlanRecord,
-        config: ConfigProfileSnapshot,
-    ) -> None:
-        validate_run_config_provenance(
-            manifest=manifest,
-            plan=plan,
-            config=config,
-        )
-        if request is not None:
-            self.write_model(manifest.run_id, RUN_REQUEST_REF, request)
-        self.write_model(manifest.run_id, RUN_PLAN_REF, plan)
-        self.write_model(manifest.run_id, CONFIG_PROFILE_SNAPSHOT_REF, config)
-        self.write_manifest(manifest)
-
     def write_run_skeleton(
         self,
         *,
         manifest: RunManifest,
         request: RunRequest | None,
-        plan: RunPlanRecord,
         config: ConfigProfileSnapshot,
     ) -> None:
-        if manifest.status not in {"planned", "running"}:
-            msg = "run skeleton manifest must be planned or running"
+        if manifest.lifecycle != "accepted":
+            msg = "run skeleton manifest must be accepted"
             raise ValueError(msg)
-        self.write_structured_run_inputs(
+        validate_run_config_provenance(
             manifest=manifest,
-            request=request,
-            plan=plan,
             config=config,
         )
+        if request is not None:
+            self.write_model(manifest.run_id, RUN_REQUEST_REF, request)
+        self.write_model(manifest.run_id, CONFIG_PROFILE_SNAPSHOT_REF, config)
+        self.write_manifest(manifest)
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
         manifest = self.read_manifest(run_id)
-        plan = (
-            self.read_model(run_id, RUN_PLAN_REF, RunPlanRecord)
-            if self.exists(run_id, RUN_PLAN_REF)
-            else None
-        )
         config = self.read_model(
             run_id,
             CONFIG_PROFILE_SNAPSHOT_REF,
@@ -142,25 +117,9 @@ class MemoryRunRepository:
         )
         validate_run_config_provenance(
             manifest=manifest,
-            plan=plan,
             config=config,
         )
         return config
-
-    def read_run_plan(self, run_id: str) -> RunPlanRecord:
-        manifest = self.read_manifest(run_id)
-        plan = self.read_model(run_id, RUN_PLAN_REF, RunPlanRecord)
-        config = self.read_model(
-            run_id,
-            CONFIG_PROFILE_SNAPSHOT_REF,
-            ConfigProfileSnapshot,
-        )
-        validate_run_config_provenance(
-            manifest=manifest,
-            plan=plan,
-            config=config,
-        )
-        return plan
 
     def read_model[TModel: BaseModel](
         self,

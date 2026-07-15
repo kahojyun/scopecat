@@ -11,7 +11,6 @@ from scopecat.adapters.filesystem.execution import FilesystemExecutionJournal
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.records.execution import ExecutionSummary
 from scopecat.records.parameter import Quantity
-from scopecat.records.run_plan import RunPlanDomainExecution, RunPlanRecord
 from scopecat.sdk.domain.runtime import (
     DomainFetchCandidate,
     DomainFetchReceipt,
@@ -59,10 +58,8 @@ def test_scalar_voltage_partitions_programmable_x_count_batches(
         tmp_path,
         options=sc.ExecutionOptions(fusion="automatic"),
     )
-    plan = run.plan
     records = run.data().measurements().dataset.records
     journal = FilesystemExecutionJournal(tmp_path, run_id=run.id).entries()
-    domain = _domain_execution(plan)
 
     assert run.manifest.status == "completed"
     assert len(records) == 8
@@ -72,16 +69,6 @@ def test_scalar_voltage_partitions_programmable_x_count_batches(
     )
     assert adapter.runtime.physical_execution_count == 2
     assert adapter.runtime.submit_calls == adapter.runtime.fetch_calls == 2
-    assert plan.execution_options.requested.fusion == "automatic"
-    assert [batch.point_indices for batch in domain.batches] == [
-        [0, 1, 2, 3],
-        [4, 5, 6, 7],
-    ]
-    assert {record.id: record.producer_kind for record in plan.records} == {
-        "probability_0": "host_transform",
-        "probability_1": "host_transform",
-        "bias_voltage_readback": "instrument",
-    }
     assert all(
         record.observables["bias_voltage_readback"]
         == record.coordinates["bias_voltage"]
@@ -113,13 +100,8 @@ def test_fusion_option_changes_physical_jobs_without_changing_logical_records(
         tmp_path / "disabled",
         options=sc.ExecutionOptions(fusion="disabled"),
     )
-    disabled_plan = disabled.plan
-
     assert automatic_adapter.runtime.physical_execution_count == 2
     assert disabled_adapter.runtime.physical_execution_count == 8
-    assert [
-        batch.point_indices for batch in _domain_execution(disabled_plan).batches
-    ] == [[index] for index in range(8)]
     assert _logical_record_values(automatic) == _logical_record_values(disabled)
 
 
@@ -152,7 +134,7 @@ def test_later_batch_failure_has_one_domain_problem_and_no_partial_dataset(
     assert adapter.runtime.physical_execution_count == 2
     assert summary.completed_point_count == 0
     assert summary.measurement_count == 0
-    assert persisted.manifest.datasets == []
+    assert persisted.manifest.datasets == ()
 
 
 def _run_mixed_experiment(
@@ -188,13 +170,4 @@ def _logical_record_values(run: sc.RunHandle) -> dict[tuple[float, int], object]
             mode="json",
             include={"coordinates", "observables"},
         )
-    return selected
-
-
-def _domain_execution(plan: RunPlanRecord) -> RunPlanDomainExecution:
-    [selected] = [
-        unit
-        for unit in plan.execution_units
-        if isinstance(unit, RunPlanDomainExecution)
-    ]
     return selected

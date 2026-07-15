@@ -89,7 +89,6 @@ def test_candidate_checks_are_read_only_until_run_materializes_evidence(
     assert_source_run_unchanged()
     assert prepared.check().ok
     assert_source_run_unchanged()
-    assert prepared.validate().ok
     assert_source_run_unchanged()
     assert prepared.preview().point_count == 3
     assert_source_run_unchanged()

@@ -82,10 +82,9 @@ from scopecat.planning.backend import (
     PreparedExecutionPlan,
     PreparedExecutionSegment,
 )
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.execution import ExecutionSummary
 from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
-from scopecat.records.run_plan import RunPlanRecord
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.lifecycle import commit_terminal_evidence
 
@@ -137,18 +136,21 @@ def _execute_unified_run(
             program=replace(point.prepared.program, record_projections=()),
         )
     )
-    plan = prepared.run_plan_record()
+    program = prepared.linked_points.linked_plan.program
+    projection = prepared.projection.projection
+    point_count = len(prepared.linked_points.point_domain.points)
+    experiment_id = program.id
     run_id = new_run_id()
     storage = services.runs
     accepted = RunManifest(
         run_id=run_id,
         lifecycle="accepted",
+        config_content_hash=config_content_hash(config),
         config_source=config_source,
     )
     storage.write_run_skeleton(
         manifest=accepted,
         request=request,
-        plan=plan,
         config=config,
     )
     storage.write_manifest(accepted.model_copy(update={"lifecycle": "running"}))
@@ -157,17 +159,17 @@ def _execute_unified_run(
     emit_run_started(
         event_sink=event_sink,
         run_id=run_id,
-        experiment_id=plan.experiment_id,
-        point_count=plan.point_count,
+        experiment_id=experiment_id,
+        point_count=point_count,
         instrument_ids=instrument_ids,
-        output_ids=[record.id for record in plan.records],
+        output_ids=[record.id for record in projection.records],
     )
 
     journal = services.journal_for(run_id)
     transition_observer = RuntimeTransitionProjector(
         event_sink=event_sink,
-        experiment_id=plan.experiment_id,
-        point_count=plan.point_count,
+        experiment_id=experiment_id,
+        point_count=point_count,
     )
     measurements = services.measurements_for(run_id)
     readbacks = services.collections_for(run_id)
@@ -380,13 +382,13 @@ def _execute_unified_run(
     )
     if reload_uncertain:
         certainty = "indeterminate"
-    expected_schema = raw_measurement_schema(plan.expected_dataset_schema)
+    expected_schema = raw_measurement_schema(projection.schema)
     if committed_measurements or not has_blocking_problems(problems):
         problems.extend(
             contextualize_problems(
                 validate_measurement_index_shape(
                     measurements=committed_measurements,
-                    expected_indices=set(range(plan.point_count)),
+                    expected_indices=set(range(point_count)),
                     duplicate_code="execution_plan_measurement_point_duplicate",
                     duplicate_message="execution plan measurements repeat point index",
                     unknown_code="execution_plan_measurement_point_unknown",
@@ -440,7 +442,8 @@ def _execute_unified_run(
         problems=tuple(problems),
     )
     summary = _execution_summary(
-        plan=plan,
+        experiment_id=experiment_id,
+        point_count=point_count,
         outcome=outcome,
         local_result=local_result,
         measurements=committed_measurements,
@@ -455,6 +458,7 @@ def _execute_unified_run(
         outcome=outcome,
         measurements=committed_measurements,
         expected_schema=expected_schema,
+        config_content_hash=accepted.config_content_hash,
         config_source=config_source,
         include_instrument_state=instrument_state is not None,
     ).model_copy(update={"created_at": accepted.created_at})
@@ -470,10 +474,10 @@ def _execute_unified_run(
     emit_run_finished(
         event_sink=event_sink,
         run_id=run_id,
-        experiment_id=plan.experiment_id,
+        experiment_id=experiment_id,
         outcome=outcome,
         completed_point_count=summary.completed_point_count,
-        point_count=plan.point_count,
+        point_count=point_count,
         measurement_count=len(committed_measurements),
         problem_count=len(problems),
         compute_evaluated_node_count=(
@@ -705,7 +709,8 @@ def _reload_measurements(
 
 def _execution_summary(
     *,
-    plan: RunPlanRecord,
+    experiment_id: str,
+    point_count: int,
     outcome: RunOutcome,
     local_result: ExecutionEngineResult | None,
     measurements: list[MeasurementRecord],
@@ -726,19 +731,19 @@ def _execution_summary(
             ),
             outcome=outcome,
             instrument_ids=instrument_ids,
-            point_count=plan.point_count,
+            point_count=point_count,
             problems=problems,
         )
     completed_point_count = (
-        plan.point_count
+        point_count
         if outcome.result == "succeeded"
         else len({record.point_index for record in measurements})
     )
     return ExecutionSummary(
         run_id=outcome.run_id,
-        experiment_id=plan.experiment_id,
+        experiment_id=experiment_id,
         outcome=outcome,
-        point_count=plan.point_count,
+        point_count=point_count,
         completed_point_count=completed_point_count,
         measurement_count=len(measurements),
         instrument_ids=instrument_ids,

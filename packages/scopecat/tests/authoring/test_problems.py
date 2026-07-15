@@ -21,7 +21,7 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.planning.authoring import resolve_experiment
-from scopecat.runs.service import preview_experiment
+from scopecat.runs.service import check_experiment
 from tests.testkit.authoring import load_config, simple_template
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
@@ -164,10 +164,10 @@ def test_authoring_compile_precedes_config_validity_check(tmp_path: Path) -> Non
     assert error.value.problems[0].code == "experiment_template_missing_input"
 
 
-def test_preview_experiment_resolves_template_invocation_with_config_profile(
+def test_check_experiment_resolves_template_invocation_with_config_profile(
     tmp_path: Path,
 ) -> None:
-    result = preview_experiment(
+    result = check_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         services=local_workspace_services(tmp_path),
@@ -175,13 +175,14 @@ def test_preview_experiment_resolves_template_invocation_with_config_profile(
     )
 
     assert result.template_id == "test.simple_scan"
-    assert result.experiment_id == "authored-simple-scan"
+    assert result.summary is not None
+    assert result.summary.experiment_id == "authored-simple-scan"
 
 
-def test_preview_experiment_resolves_template_invocation_with_config_snapshot(
+def test_check_experiment_resolves_template_invocation_with_config_snapshot(
     tmp_path: Path,
 ) -> None:
-    result = preview_experiment(
+    result = check_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         services=local_workspace_services(tmp_path),
@@ -189,7 +190,8 @@ def test_preview_experiment_resolves_template_invocation_with_config_snapshot(
     )
 
     assert result.template_id == "test.simple_scan"
-    assert result.experiment_id == "authored-simple-scan"
+    assert result.summary is not None
+    assert result.summary.experiment_id == "authored-simple-scan"
 
 
 def _module_consuming_input() -> tuple[sc.ExperimentModule, sc.ValueRef]:

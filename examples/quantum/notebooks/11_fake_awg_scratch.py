@@ -38,7 +38,7 @@ measurements = completed_run.data().measurements().dataset.records
 scratch_summary = {
     "status": completed_run.manifest.status,
     "points": preview.point_count,
-    "record_producers": {record.id: record.producer_kind for record in preview.records},
+    "record_ids": [record.id for record in preview.records],
     "physical_executions": adapter.runtime.physical_execution_count,
     "measurement_count": len(measurements),
 }

@@ -97,10 +97,7 @@ def test_notebook_style_examples_execute_user_workflows(
     expected_fake_summary = {
         "status": "completed",
         "points": 4,
-        "record_producers": {
-            "probability_0": "host_transform",
-            "probability_1": "host_transform",
-        },
+        "record_ids": ["probability_0", "probability_1"],
         "physical_executions": 1,
         "measurement_count": 4,
     }
@@ -109,11 +106,11 @@ def test_notebook_style_examples_execute_user_workflows(
     mixed_summary = cast("dict[str, object]", fake_with_bias["mixed_execution_summary"])
     assert mixed_summary["status"] == "completed"
     assert mixed_summary["logical_points"] == 8
-    assert mixed_summary["record_producers"] == {
-        "probability_0": "host_transform",
-        "probability_1": "host_transform",
-        "bias_voltage_readback": "instrument",
-    }
+    assert mixed_summary["record_ids"] == [
+        "probability_0",
+        "probability_1",
+        "bias_voltage_readback",
+    ]
     assert mixed_summary["voltage_writes"] == [
         Quantity(value=-0.1, unit="V"),
         Quantity(value=0.1, unit="V"),
@@ -149,7 +146,6 @@ def test_notebook_style_examples_execute_user_workflows(
         "run_config_entry_id": f"drag-beta-baseline-{completed_run.id}",
         "run_registry_generation": 1,
         "production_beta_ns": pytest.approx(0.5),
-        "plan_artifact_matches": True,
         "config_hash_matches": True,
     }
     assert drag_summary["active"] == {
@@ -163,13 +159,7 @@ def test_notebook_style_examples_execute_user_workflows(
         "production_waveform_changed": True,
         "trusted_reference_unchanged": True,
         "artifact_changed": True,
-        "plan_artifact_matches": True,
         "config_hash_matches": True,
-        "config_binding": {
-            "input_id": "drag_beta",
-            "selector": "qubits[q0].drag_beta",
-            "value_ns": pytest.approx(0.765),
-        },
     }
     assert drag_summary["rollback"] == {
         "generation": 3,
@@ -181,7 +171,6 @@ def test_notebook_style_examples_execute_user_workflows(
         "production_beta_ns": pytest.approx(0.5),
         "production_waveform_restored": True,
         "artifact_restored": True,
-        "plan_artifact_matches": True,
         "config_hash_matches": True,
     }
     cz_summary = cast("dict[str, dict[str, object]]", cz_phase["summary"])

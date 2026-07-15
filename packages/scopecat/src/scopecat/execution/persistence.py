@@ -25,6 +25,7 @@ from scopecat.measurements.results import (
     MeasurementRecord,
 )
 from scopecat.records.artifact import RunDatasetEntry, RunRecordEntry
+from scopecat.records.config import ConfigContentHash
 from scopecat.records.run import RunConfigSource, RunLifecycle, RunManifest, RunOutcome
 from scopecat.runs.refs import dataset_content_ref
 
@@ -35,25 +36,6 @@ def ref_for_dataset(
     dataset_id: str, *, kind: str = RAW_MEASUREMENT_DATASET_KIND
 ) -> str:
     return dataset_content_ref(dataset_id=dataset_id, kind=kind)
-
-
-def parse_expected_dataset_schema(
-    expected_dataset_schema: MeasurementDatasetSchema | dict[str, object] | None,
-) -> tuple[MeasurementDatasetSchema | None, list[Problem]]:
-    if expected_dataset_schema is None:
-        return None, []
-    if isinstance(expected_dataset_schema, MeasurementDatasetSchema):
-        return expected_dataset_schema, []
-    try:
-        return MeasurementDatasetSchema.model_validate(expected_dataset_schema), []
-    except ValueError as error:
-        return None, [
-            _problem(
-                "invalid_expected_dataset_schema",
-                f"expected dataset schema is invalid: {error}",
-                "expected_dataset_schema",
-            )
-        ]
 
 
 def validate_measurement_index_shape(
@@ -136,6 +118,7 @@ def build_run_manifest(
     run_id: str,
     lifecycle: RunLifecycle,
     outcome: RunOutcome | None = None,
+    config_content_hash: ConfigContentHash,
     config_source: RunConfigSource | None = None,
     records: Sequence[RunRecordEntry] = (),
     datasets: Sequence[RunDatasetEntry] = (),
@@ -144,9 +127,10 @@ def build_run_manifest(
         run_id=run_id,
         lifecycle=lifecycle,
         outcome=outcome,
+        config_content_hash=config_content_hash,
         config_source=config_source,
-        records=list(records),
-        datasets=list(datasets),
+        records=tuple(records),
+        datasets=tuple(datasets),
     )
 
 

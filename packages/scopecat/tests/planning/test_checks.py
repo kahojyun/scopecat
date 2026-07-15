@@ -167,17 +167,13 @@ def test_check_report_inputs_are_read_only(tmp_path: Path) -> None:
         cast("dict[str, object]", report.inputs)["subject"] = "mutated"
 
 
-def test_preview_and_validation_problem_results_are_frozen(tmp_path: Path) -> None:
+def test_check_problem_results_are_frozen(tmp_path: Path) -> None:
     prepared = _workspace(tmp_path).prepare(load_invocation())
-    validation = prepared.validate()
-    preview = prepared.preview()
+    report = prepared.check()
 
-    assert isinstance(validation.problems, tuple)
-    assert isinstance(preview.problems, tuple)
+    assert isinstance(report.problems, tuple)
     with pytest.raises(TypeError):
-        cast("dict[str, object]", validation.inputs)["subject"] = "mutated"
-    with pytest.raises(TypeError):
-        cast("dict[str, object]", preview.inputs)["subject"] = "mutated"
+        cast("dict[str, object]", report.inputs)["subject"] = "mutated"
 
 
 def test_public_check_records_enforce_phase_invariants() -> None:
@@ -239,10 +235,10 @@ def test_check_does_not_hide_internal_programming_errors(
 
 @pytest.mark.parametrize(
     "terminal",
-    ["check", "validate", "preview", "explain", "run"],
+    ["check", "preview", "explain", "run"],
 )
 def test_session_candidate_config_is_not_read_before_authoring(
-    terminal: Literal["check", "validate", "preview", "explain", "run"],
+    terminal: Literal["check", "preview", "explain", "run"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -273,10 +269,6 @@ def test_session_candidate_config_is_not_read_before_authoring(
 
     if terminal == "check":
         assert prepared.check().problems[0].code == (
-            "experiment_template_missing_input"
-        )
-    elif terminal == "validate":
-        assert prepared.validate().problems[0].code == (
             "experiment_template_missing_input"
         )
     elif terminal == "explain":

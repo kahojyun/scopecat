@@ -159,7 +159,6 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
         (
             record.id,
             record.kind,
-            record.producer_kind,
             record.unit,
             record.dtype,
             record.dims,
@@ -170,7 +169,6 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
         (
             "signal",
             "observable",
-            "instrument",
             "ratio",
             "float64",
             ("point",),
@@ -457,7 +455,6 @@ def test_preview_contract_records_are_durable() -> None:
         (
             record.id,
             record.kind,
-            record.producer_kind,
             record.resource_port_id,
             record.physical_resource_id,
             record.unit,
@@ -470,7 +467,6 @@ def test_preview_contract_records_are_durable() -> None:
         (
             "iq_trace",
             "observable",
-            "instrument",
             None,
             "readout-a",
             "V",

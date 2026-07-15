@@ -99,7 +99,6 @@ from scopecat.records.instrument import (
 )
 from scopecat.records.parameter import Quantity
 from scopecat.records.run import RunManifest
-from scopecat.records.run_plan import RunPlanDeferredValue, RunPlanRecord
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.execution import inspect_run_execution
 from scopecat.sdk.instruments.contracts import (
@@ -245,15 +244,10 @@ def test_run_persists_measurements_and_run_files(
         run_dir / "config-profile.snapshot.json",
         ConfigProfileSnapshot,
     )
-    persisted_plan = read_model(run_dir / "run-plan.json", RunPlanRecord)
     state_evidence_path = run_dir / instrument_state_evidence_ref()
     state_evidence = read_model(state_evidence_path, InstrumentStateEvidence)
     assert persisted_manifest == manifest
     assert persisted_config == config
-    assert persisted_plan.experiment_id == summary.experiment_id
-    assert persisted_plan.schema_version == "scopecat.run_plan_record.v9"
-    assert persisted_plan.point_count == summary.point_count
-    assert not (run_dir / "experiment-spec.json").exists()
     assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v3"
     assert {
         snapshot.schema_version
@@ -1483,11 +1477,6 @@ def test_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
     assert finished.compute_evaluated_node_count == 2
     assert finished.compute_reused_node_count == 1
     assert finished.compute_payload_count == 3
-    persisted_plan = read_model(
-        tmp_path / "runs" / manifest.run_id / "run-plan.json",
-        RunPlanRecord,
-    )
-    assert persisted_plan.state_changes[0].after == RunPlanDeferredValue()
 
 
 def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:

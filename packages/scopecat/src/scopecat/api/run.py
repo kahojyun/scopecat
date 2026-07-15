@@ -15,7 +15,6 @@ from scopecat.application.services import WorkspaceServices
 from scopecat.records.artifact import RunArtifactEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
-from scopecat.records.run_plan import RunPlanRecord
 from scopecat.records.run_request import RunRequest
 from scopecat.run_comparison import RunComparisonView
 from scopecat.run_comparison.service import list_run_comparisons
@@ -31,7 +30,6 @@ from scopecat.runs.service import (
     list_run_artifacts,
     load_run,
     load_run_config,
-    load_run_plan,
     load_run_request,
     read_run_artifact_json,
     read_run_artifact_text,
@@ -65,11 +63,13 @@ class RunHandle:
     """Typed handle for a run created by a session."""
 
     session: RunSession
-    manifest: RunManifest
+    id: str
 
     @property
-    def id(self) -> str:
-        return self.manifest.run_id
+    def manifest(self) -> RunManifest:
+        """Load the current durable manifest for this run."""
+
+        return load_run(run_id=self.id, services=self.session.services)
 
     @property
     def config(self) -> ConfigProfileSnapshot:
@@ -83,15 +83,6 @@ class RunHandle:
         """Load the independently persisted operator request, when present."""
 
         return load_run_request(
-            run_id=self.id,
-            services=self.session.services,
-        )
-
-    @property
-    def plan(self) -> RunPlanRecord:
-        """Load the independently persisted accepted-plan evidence."""
-
-        return load_run_plan(
             run_id=self.id,
             services=self.session.services,
         )
@@ -113,7 +104,7 @@ class RunHandle:
             for dataset in load_run(
                 run_id=self.id,
                 services=self.session.services,
-            ).manifest.datasets
+            ).datasets
         )
 
     def measurements(

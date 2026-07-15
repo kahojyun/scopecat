@@ -90,15 +90,11 @@ from scopecat.config.resolution import (
     rollback_config,
 )
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
-from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.measurements.results import MeasurementDType
 from scopecat.planning.backend import ExecutionBackend, ExecutionOptions
 from scopecat.planning.checks import ExperimentCheckReport
-from scopecat.planning.preview_models import (
-    PreviewExperimentResult,
-    ValidateExperimentResult,
-)
+from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
@@ -111,7 +107,6 @@ from scopecat.runs.service import (
     load_run,
     preview_experiment,
     run_experiment,
-    validate_experiment,
 )
 
 
@@ -234,7 +229,7 @@ class PreparedExperiment:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
-    ) -> PreviewExperimentResult:
+    ) -> ExperimentPreview:
         run_options = _validated_run_options(
             self._run_options,
             name=name,
@@ -300,33 +295,6 @@ class PreparedExperiment:
             metadata=metadata,
             operator=operator,
         ).explain()
-
-    def validate(
-        self,
-        *,
-        name: str | None = None,
-        tags: tuple[str, ...] = (),
-        description: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-        operator: str | None = None,
-    ) -> ValidateExperimentResult:
-        run_options = _validated_run_options(
-            self._run_options,
-            name=name,
-            tags=tags,
-            description=description,
-            metadata=metadata,
-            operator=operator,
-        )
-        return _validate_prepared(
-            self._session,
-            self._prepared_invocation,
-            config=self._config,
-            config_profile=self._config_profile,
-            run_options=run_options,
-            execution_backend=self._execution_backend,
-            execution_options=self._execution_options,
-        )
 
     def run(
         self,
@@ -558,11 +526,11 @@ class Experiment:
     def measure(self, *observable_ids: str) -> Experiment:
         return self.record(*observable_ids)
 
-    def preview(self) -> PreviewExperimentResult:
+    def preview(self) -> ExperimentPreview:
         return self._require_session().prepare(self).preview()
 
-    def validate(self) -> ValidateExperimentResult:
-        return self._require_session().prepare(self).validate()
+    def check(self) -> ExperimentCheckReport:
+        return self._require_session().prepare(self).check()
 
     def run(
         self,
@@ -752,13 +720,13 @@ class Workspace:
 
     def runs(self) -> tuple[RunHandle, ...]:
         return tuple(
-            RunHandle(session=self, manifest=manifest)
+            RunHandle(session=self, id=manifest.run_id)
             for manifest in list_runs(services=self.services)
         )
 
     def get_run(self, run: RunSelector) -> RunHandle:
-        details = load_run(run_id=run_handle_id(run), services=self.services)
-        return RunHandle(session=self, manifest=details.manifest)
+        manifest = load_run(run_id=run_handle_id(run), services=self.services)
+        return RunHandle(session=self, id=manifest.run_id)
 
     def review_parameter_proposal(
         self,
@@ -889,7 +857,7 @@ def _preview_prepared(
     run_options: _RunOptions,
     execution_backend: ExecutionBackend | None,
     execution_options: ExecutionOptions | None,
-) -> PreviewExperimentResult:
+) -> ExperimentPreview:
     selected_config, selected_config_profile = _prepared_config_selection(
         session,
         config=config,
@@ -944,47 +912,6 @@ def _check_prepared(
     )
 
 
-def _validate_prepared(
-    session: Workspace,
-    prepared_invocation: PreparedInvocation,
-    *,
-    config: str | ConfigProfileSnapshot | CandidateConfig | None,
-    config_profile: ConfigProfileInput | None,
-    run_options: _RunOptions,
-    execution_backend: ExecutionBackend | None,
-    execution_options: ExecutionOptions | None,
-) -> ValidateExperimentResult:
-    try:
-        selected_config, selected_config_profile = _prepared_config_selection(
-            session,
-            config=config,
-            config_profile=config_profile,
-        )
-    except CheckFailed as error:
-        return ValidateExperimentResult(
-            problems=error.problems,
-            summary=None,
-            template_id=None,
-            inputs={},
-            config_source=None,
-        )
-    return validate_experiment(
-        _prepared_invocation_with_run_options(
-            prepared_invocation,
-            options=run_options,
-        ),
-        services=session.services,
-        config=selected_config,
-        config_profile=selected_config_profile,
-        execution_backend=(
-            session.execution_backend
-            if execution_backend is None
-            else execution_backend
-        ),
-        execution_options=execution_options,
-    )
-
-
 def _run_prepared(
     session: Workspace,
     prepared_invocation: PreparedInvocation,
@@ -1007,7 +934,7 @@ def _run_prepared(
     )
     return RunHandle(
         session=session,
-        manifest=run_experiment(
+        id=run_experiment(
             _prepared_invocation_with_run_options(
                 prepared_invocation,
                 options=run_options,
@@ -1019,7 +946,7 @@ def _run_prepared(
             execution_options=execution_options,
             event_sink=event_sink,
             payload_observer=payload_observer,
-        ),
+        ).run_id,
     )
 
 

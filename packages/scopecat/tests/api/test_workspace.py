@@ -10,7 +10,6 @@ import scopecat as sc
 from scopecat.kernel.errors import CheckFailed, Conflict, NotFound
 from scopecat.records.execution import ExecutionSummary
 from scopecat.records.parameter import Quantity
-from scopecat.records.run_plan import RunPlanRecord
 from scopecat.records.run_request import (
     AroundScanRecord,
     PointScanRecord,
@@ -300,7 +299,7 @@ def test_workspace_experiment_composes_module_source_with_fragments(
     assert set(preview.primary_observables) == {"signal", "manual_signal"}
 
 
-def test_prepared_experiment_validate_returns_authoring_problems(
+def test_prepared_experiment_check_returns_authoring_problems(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -308,7 +307,7 @@ def test_prepared_experiment_validate_returns_authoring_problems(
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
 
-    validation = lab.prepare(simple_template()).validate()
+    validation = lab.prepare(simple_template()).check()
 
     assert validation.ok is False
     assert validation.summary is None
@@ -317,7 +316,7 @@ def test_prepared_experiment_validate_returns_authoring_problems(
     ]
 
 
-def test_prepared_experiment_validate_returns_config_selection_problems(
+def test_prepared_experiment_check_returns_config_selection_problems(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(tmp_path)
@@ -329,20 +328,20 @@ def test_prepared_experiment_validate_returns_config_selection_problems(
             config_profile=EXAMPLE_DIR / "config-profile.json",
         )
         .input("subject", "q0")
-        .validate()
+        .check()
     )
 
     assert validation.ok is False
     assert validation.summary is None
-    assert validation.template_id is None
-    assert validation.inputs == {}
+    assert validation.template_id == "test.simple_scan"
+    assert validation.inputs == {"subject": sc.EntityRef(id="q0")}
     assert validation.config_source is None
     assert [problem.code for problem in validation.problems] == [
         "config.source_conflict"
     ]
 
 
-def test_prepared_experiment_validate_returns_record_schema_problems(
+def test_prepared_experiment_check_returns_record_schema_problems(
     tmp_path: Path,
 ) -> None:
     module = (
@@ -359,7 +358,7 @@ def test_prepared_experiment_validate_returns_record_schema_problems(
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
 
-    validation = lab.prepare(template).validate()
+    validation = lab.prepare(template).check()
 
     assert validation.ok is False
     assert validation.summary is None
@@ -368,7 +367,7 @@ def test_prepared_experiment_validate_returns_record_schema_problems(
     ]
 
 
-def test_prepared_experiment_validate_returns_candidate_config_problems(
+def test_prepared_experiment_check_returns_candidate_config_problems(
     tmp_path: Path,
 ) -> None:
     candidate = sc.CandidateConfig(
@@ -382,12 +381,12 @@ def test_prepared_experiment_validate_returns_candidate_config_problems(
         .input("subject", "q0")
     )
 
-    validation = prepared.validate()
+    validation = prepared.check()
 
     assert validation.ok is False
     assert validation.summary is None
-    assert validation.template_id is None
-    assert validation.inputs == {}
+    assert validation.template_id == "test.simple_scan"
+    assert validation.inputs == {"subject": sc.EntityRef(id="q0")}
     assert validation.config_source is None
     assert [problem.code for problem in validation.problems] == [
         "candidate_config_empty"
@@ -432,7 +431,6 @@ def test_workspace_experiment_lowers_to_runnable_spec(
     )
     run_dir = tmp_path / "runs" / run.id
     persisted_request = read_model(run_dir / "run-request.json", RunRequest)
-    persisted_plan = read_model(run_dir / "run-plan.json", RunPlanRecord)
     assert persisted_request.template_id == "scopecat.workspace.experiment"
     assert persisted_request.template_inputs["name"] == "manual signal scan"
     assert persisted_request.template_inputs["entity_inputs"] == {"qubit": "q0"}
@@ -440,37 +438,15 @@ def test_workspace_experiment_lowers_to_runnable_spec(
     drive_frequency_scan = scan_axes["drive_frequency"]
     assert isinstance(drive_frequency_scan, PointScanRecord)
     assert drive_frequency_scan.axis_id == "drive_frequency"
-    assert persisted_plan.experiment_id == "manual-signal-scan"
-    assert [
-        point.coordinates["drive_frequency"] for point in persisted_plan.points
-    ] == [
+    dataset = run.measurements().dataset
+    assert [point.coordinates["drive_frequency"] for point in dataset.records] == [
         Quantity(value=4.9, unit="GHz"),
         Quantity(value=5.0, unit="GHz"),
         Quantity(value=5.1, unit="GHz"),
     ]
-    assert persisted_plan.primary_observables == ["signal"]
-    assert not (run_dir / "experiment-spec.json").exists()
+    assert dataset.dataset_schema.primary_observables == ["signal"]
     assert run.config.workspace_id == "example-workspace"
     assert run.request == persisted_request
-    assert run.plan == persisted_plan
-
-
-def test_point_run_retains_requested_execution_options(tmp_path: Path) -> None:
-    lab = sc.open(
-        tmp_path,
-        config_profile=EXAMPLE_DIR / "config-profile.json",
-        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
-    )
-
-    run = lab.prepare(
-        load_invocation(),
-        execution_options=sc.ExecutionOptions(max_points_per_batch=2),
-    ).run()
-
-    assert run.plan.execution_options.requested.fusion == "automatic"
-    assert run.plan.execution_options.requested.max_points_per_batch == 2
-    assert run.plan.execution_options.resolved.fusion == "disabled"
-    assert run.plan.execution_options.resolved.max_points_per_batch == 1
 
 
 def test_workspace_run_options_materialize_internal_run_request(
@@ -501,10 +477,14 @@ def test_workspace_run_options_materialize_internal_run_request(
 
     run_dir = tmp_path / "runs" / run.id
     persisted_request = read_model(run_dir / "run-request.json", RunRequest)
-    persisted_plan = read_model(run_dir / "run-plan.json", RunPlanRecord)
 
     assert run.manifest.status == "completed"
-    assert persisted_plan.point_count == 3
+    assert (
+        ExecutionSummary.model_validate(
+            run.record_json("execution-summary").content
+        ).point_count
+        == 3
+    )
     assert persisted_request.template_id == "test.simple_scan"
     assert persisted_request.template_inputs["subject"] == "q0"
     drive_scan = scan_axis_index(persisted_request.scans)["drive_frequency"]
@@ -534,7 +514,7 @@ def test_workspace_terminals_reject_non_finite_metadata(
     prepared = lab.prepare(simple_template())
 
     with pytest.raises(ValueError, match="finite"):
-        prepared.validate(metadata={"score": float("nan")})
+        prepared.check(metadata={"score": float("nan")})
 
 
 def test_prepared_template_builder_preview_and_run_terminals(
@@ -802,16 +782,13 @@ def test_workspace_experiment_defines_complete_experiment(
         .record("signal", resource="source")
     )
 
+    preview = experiment.preview()
     run = experiment.run()
-    persisted_plan = read_model(
-        tmp_path / "runs" / run.id / "run-plan.json",
-        RunPlanRecord,
-    )
 
     assert run.manifest.status == "completed"
-    assert persisted_plan.state_changes[0].resource_id == "source-0"
-    assert persisted_plan.state_changes[0].field == "set_frequency.frequency"
-    assert persisted_plan.state_changes[0].after == Quantity(
+    assert preview.state_changes[0].resource_id == "source-0"
+    assert preview.state_changes[0].field == "set_frequency.frequency"
+    assert preview.state_changes[0].after == Quantity(
         value=4.9,
         unit="GHz",
     )

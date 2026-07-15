@@ -9,12 +9,6 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.measurements.results import MeasurementDataset
 from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
 from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
-from scopecat.records.run import RunManifest
-
-
-@dataclass(frozen=True)
-class RunDetails:
-    manifest: RunManifest
 
 
 @dataclass(frozen=True)
@@ -65,7 +59,6 @@ __all__ = [
     "RunArtifactTextResult",
     "RunDataArrayResult",
     "RunDataTableResult",
-    "RunDetails",
     "RunMeasurementDatasetResult",
     "RunRecordJsonResult",
 ]

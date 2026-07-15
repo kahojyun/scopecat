@@ -119,20 +119,31 @@ class RunOutcome(BaseModel):
 
 
 class RunManifest(BaseModel):
-    model_config = ConfigDict(extra="forbid", revalidate_instances="always")
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        revalidate_instances="always",
+    )
 
-    schema_version: Literal["scopecat.run_manifest.v8"] = "scopecat.run_manifest.v8"
+    schema_version: Literal["scopecat.run_manifest.v9"] = "scopecat.run_manifest.v9"
     run_id: str
     created_at: datetime = Field(default_factory=utc_now)
     lifecycle: RunLifecycle
     outcome: RunOutcome | None = None
+    config_content_hash: ConfigContentHash
     config_source: RunConfigSource | None = None
-    records: list[RunRecordEntry] = Field(default_factory=list)
-    datasets: list[RunDatasetEntry] = Field(default_factory=list)
-    artifacts: list[RunArtifactEntry] = Field(default_factory=list)
+    records: tuple[RunRecordEntry, ...] = ()
+    datasets: tuple[RunDatasetEntry, ...] = ()
+    artifacts: tuple[RunArtifactEntry, ...] = ()
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> RunManifest:
+        if (
+            self.config_source is not None
+            and self.config_source.content_hash != self.config_content_hash
+        ):
+            msg = "run config source hash does not match its accepted snapshot hash"
+            raise ValueError(msg)
         if self.lifecycle == "terminal":
             if self.outcome is None:
                 msg = "a terminal run manifest requires an outcome"

@@ -14,7 +14,6 @@ EXECUTION_PAYLOADS_DIR = f"{EXECUTION_DIR}/payloads"
 MANIFEST_REF = "manifest.json"
 CONFIG_PROFILE_SNAPSHOT_REF = "config-profile.snapshot.json"
 RUN_REQUEST_REF = "run-request.json"
-RUN_PLAN_REF = "run-plan.json"
 CONFIG_REGISTRY_LOCK_REF = "config-registry/registry.lock"
 
 

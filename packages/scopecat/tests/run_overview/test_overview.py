@@ -136,7 +136,7 @@ def test_build_run_overview_includes_manual_analysis_records(
     lab = sc.open(tmp_path, config=load_config())
     run = sc.Run(
         session=lab,
-        manifest=manifest,
+        id=manifest.run_id,
     )
     (
         run.analysis("report review")

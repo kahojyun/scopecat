@@ -2,19 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
-from types import MappingProxyType
+from dataclasses import dataclass
 
-from scopecat.kernel.problems import Problem, has_blocking_problems
 from scopecat.kernel.state import StateLiteral
 from scopecat.measurements.results import MeasurementDatasetSchema
-from scopecat.records.run import RunConfigSource
-from scopecat.records.run_plan import RunPlanProducerKind
-
-
-def _empty_inputs() -> Mapping[str, object]:
-    return {}
 
 
 @dataclass(frozen=True)
@@ -28,7 +19,6 @@ class ExperimentPreviewPoint:
 class ExperimentPreviewRecord:
     id: str
     kind: str
-    producer_kind: RunPlanProducerKind
     resource_port_id: str | None
     physical_resource_id: str | None
     capability: str | None
@@ -145,7 +135,6 @@ class ExperimentPreviewRuntimeSummary:
 class ExperimentPreview:
     experiment_id: str
     experiment_kind: str
-    point_count: int
     schema: MeasurementDatasetSchema | None
     coordinate_ids: tuple[str, ...]
     points: tuple[ExperimentPreviewPoint, ...]
@@ -155,107 +144,48 @@ class ExperimentPreview:
     state_fields: tuple[ExperimentPreviewStateField, ...]
     payloads: tuple[ExperimentPreviewPayload, ...]
     compute_steps: tuple[ExperimentPreviewComputeStep, ...]
-    runtime: ExperimentPreviewRuntimeSummary
-    dataset_dimensions: dict[str, int]
-    primary_observables: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class ValidateExperimentResult:
-    problems: tuple[Problem, ...]
-    summary: ExperimentPreview | None = None
-    template_id: str | None = None
-    inputs: Mapping[str, object] = field(default_factory=_empty_inputs)
-    config_source: RunConfigSource | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "problems", tuple(self.problems))
-        object.__setattr__(
-            self,
-            "inputs",
-            MappingProxyType(dict(self.inputs)),
-        )
-
-    @property
-    def ok(self) -> bool:
-        return not has_blocking_problems(self.problems)
-
-
-@dataclass(frozen=True)
-class PreviewExperimentResult:
-    summary: ExperimentPreview
-    problems: tuple[Problem, ...]
-    template_id: str | None = None
-    inputs: Mapping[str, object] = field(default_factory=_empty_inputs)
-    config_source: RunConfigSource | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "problems", tuple(self.problems))
-        object.__setattr__(
-            self,
-            "inputs",
-            MappingProxyType(dict(self.inputs)),
-        )
-
-    @property
-    def experiment_id(self) -> str:
-        return self.summary.experiment_id
-
-    @property
-    def experiment_kind(self) -> str:
-        return self.summary.experiment_kind
 
     @property
     def point_count(self) -> int:
-        return self.summary.point_count
-
-    @property
-    def coordinate_ids(self) -> tuple[str, ...]:
-        return self.summary.coordinate_ids
-
-    @property
-    def schema(self) -> MeasurementDatasetSchema | None:
-        return self.summary.schema
-
-    @property
-    def points(self) -> tuple[ExperimentPreviewPoint, ...]:
-        return self.summary.points
-
-    @property
-    def records(self) -> tuple[ExperimentPreviewRecord, ...]:
-        return self.summary.records
-
-    @property
-    def state_changes(self) -> tuple[ExperimentPreviewStateChange, ...]:
-        return self.summary.state_changes
-
-    @property
-    def routes(self) -> tuple[ExperimentPreviewRoute, ...]:
-        return self.summary.routes
-
-    @property
-    def state_fields(self) -> tuple[ExperimentPreviewStateField, ...]:
-        return self.summary.state_fields
-
-    @property
-    def payloads(self) -> tuple[ExperimentPreviewPayload, ...]:
-        return self.summary.payloads
-
-    @property
-    def compute_steps(self) -> tuple[ExperimentPreviewComputeStep, ...]:
-        return self.summary.compute_steps
+        return len(self.points)
 
     @property
     def runtime(self) -> ExperimentPreviewRuntimeSummary:
-        return self.summary.runtime
+        return ExperimentPreviewRuntimeSummary(
+            route_count=len(self.routes),
+            state_field_count=len(self.state_fields),
+            compute_operation_count=len(
+                {step.semantic_operation_id for step in self.compute_steps}
+            ),
+            compute_step_count=len(self.compute_steps),
+            payload_count=len(self.payloads),
+        )
 
     @property
     def dataset_dimensions(self) -> dict[str, int]:
-        return self.summary.dataset_dimensions
+        dimensions = (
+            {
+                dimension.id: dimension.size
+                for dimension in self.schema.dimensions
+                if dimension.size is not None
+            }
+            if self.schema is not None
+            else {}
+        )
+        if (
+            self.schema is not None
+            and any(dimension.id == "point" for dimension in self.schema.dimensions)
+        ) or any("point" in record.dims for record in self.records):
+            dimensions["point"] = self.point_count
+        return dimensions
 
     @property
     def primary_observables(self) -> tuple[str, ...]:
-        return self.summary.primary_observables
+        if self.schema is not None:
+            return tuple(self.schema.primary_observables)
+        return tuple(
+            record.id for record in self.records if record.kind == "observable"
+        )
 
 
 __all__ = [
@@ -271,6 +201,4 @@ __all__ = [
     "ExperimentPreviewStateChange",
     "ExperimentPreviewStateField",
     "ExperimentPreviewStateTarget",
-    "PreviewExperimentResult",
-    "ValidateExperimentResult",
 ]

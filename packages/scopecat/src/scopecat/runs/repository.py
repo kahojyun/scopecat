@@ -14,7 +14,6 @@ from pydantic import BaseModel
 
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
-from scopecat.records.run_plan import RunPlanRecord
 from scopecat.records.run_request import RunRequest
 
 type RunRefKind = Literal["missing", "file", "directory", "other"]
@@ -35,27 +34,15 @@ class RunRepository(Protocol):
 
     def list_runs(self) -> list[RunManifest]: ...
 
-    def write_structured_run_inputs(
-        self,
-        *,
-        manifest: RunManifest,
-        request: RunRequest | None,
-        plan: RunPlanRecord,
-        config: ConfigProfileSnapshot,
-    ) -> None: ...
-
     def write_run_skeleton(
         self,
         *,
         manifest: RunManifest,
         request: RunRequest | None,
-        plan: RunPlanRecord,
         config: ConfigProfileSnapshot,
     ) -> None: ...
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot: ...
-
-    def read_run_plan(self, run_id: str) -> RunPlanRecord: ...
 
     def read_model[TModel: BaseModel](
         self, run_id: str, ref: str, model_type: type[TModel]

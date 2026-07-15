@@ -181,7 +181,7 @@ class Data:
         return load_run(
             run_id=self.run.id,
             services=self.run.session.services,
-        ).manifest
+        )
 
     def _dataset_summary(self, dataset: RunDatasetEntry) -> DataDatasetSummary:
         if dataset.kind != "measurement_dataset":

@@ -62,7 +62,7 @@ from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.planning.backend import ExecutionBackend
 from scopecat.planning.preview import build_execution_plan_preview
-from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     ParameterDefinition,
     Quantity,
@@ -678,7 +678,9 @@ def test_varying_local_state_splits_automatic_domain_batches() -> None:
     plan = backend.prepare(linked, config=load_config())
 
     assert tuple(segment.point_indices for segment in plan.segments) == ((0,), (1,))
-    assert tuple(job.point_indices for job in plan.domain_jobs) == ((0,), (1,))
+    assert tuple(
+        job.point_indices for unit in plan.domain_units for job in unit.jobs
+    ) == ((0,), (1,))
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert adapter.select_calls == 1
@@ -696,31 +698,27 @@ def test_constant_local_state_is_automatically_fused() -> None:
     )
 
     plan = backend.prepare(linked, config=load_config())
-    record = plan.run_plan_record()
-
-    assert tuple(unit.id for unit in plan.units) == (
+    assert plan.point_unit is not None
+    assert (plan.point_unit.id, *(unit.id for unit in plan.domain_units)) == (
         "point-instrument",
         "domain-program-0-tests.constant-peripheral",
     )
     assert tuple(segment.point_indices for segment in plan.segments) == ((0, 1),)
-    assert tuple(job.point_indices for job in plan.domain_jobs) == ((0, 1),)
-    assert plan.point_unit is not None
+    assert tuple(
+        job.point_indices for unit in plan.domain_units for job in unit.jobs
+    ) == ((0, 1),)
     assert plan.point_unit.product_use_ids == ()
     assert len(plan.domain_units) == 1
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert adapter.select_calls == 1
     assert adapter.prepare_calls == 1
-    domain = record.execution_units[1]
-    assert domain.kind == "domain_program"
-    assert domain.semantic_operation_id == "execute-0"
-    assert [batch.semantic_operation_id for batch in domain.batches] == [
-        domain.semantic_operation_id
-    ]
+    [domain] = plan.domain_units
+    assert [job.prepared.semantic_operation_id for job in domain.jobs] == ["execute-0"]
     _assert_no_domain_effects(adapter)
 
 
-def test_run_plan_projects_direct_domain_config_lookup_bindings() -> None:
+def test_materialized_domain_call_retains_direct_config_lookup_bindings() -> None:
     config = _config_with_domain_lookup()
     adapter = _DomainAdapter("tests.config-provenance")
     prepared = ExecutionBackend(domain_adapters=(adapter,)).prepare(
@@ -731,27 +729,32 @@ def test_run_plan_projects_direct_domain_config_lookup_bindings() -> None:
         config=config,
     )
 
-    record = prepared.run_plan_record()
-    [domain] = record.execution_units
-
-    assert record.config_content_hash == config_content_hash(config)
-    assert domain.kind == "domain_program"
+    [call] = prepared.linked_points.domain_calls
     assert [
-        binding.model_dump(mode="json") for binding in domain.config_input_bindings
+        (
+            point.logical_ordinal,
+            binding.input_id,
+            binding.table_id,
+            dict(binding.key),
+            binding.column_id,
+            binding.resolved_value,
+        )
+        for point in call.points
+        for binding in point.config_input_bindings
     ] == [
-        {
-            "input_id": "drive_frequency",
-            "point_index": point_index,
-            "table_id": "drive_calibration",
-            "key": {"device": "q0"},
-            "column_id": "drive_frequency",
-            "resolved_value": {"value": 5.25, "unit": "GHz"},
-        }
+        (
+            point_index,
+            "drive_frequency",
+            "drive_calibration",
+            {"device": "q0"},
+            "drive_frequency",
+            Quantity(value=5.25, unit="GHz"),
+        )
         for point_index in range(2)
     ]
 
 
-def test_run_plan_does_not_project_transformed_config_lookup_as_direct() -> None:
+def test_materialized_domain_call_does_not_mark_transformed_lookup_as_direct() -> None:
     config = _config_with_domain_lookup()
     adapter = _DomainAdapter("tests.transformed-config-input")
     prepared = ExecutionBackend(domain_adapters=(adapter,)).prepare(
@@ -762,10 +765,8 @@ def test_run_plan_does_not_project_transformed_config_lookup_as_direct() -> None
         config=config,
     )
 
-    [domain] = prepared.run_plan_record().execution_units
-
-    assert domain.kind == "domain_program"
-    assert domain.config_input_bindings == []
+    [call] = prepared.linked_points.domain_calls
+    assert all(not point.config_input_bindings for point in call.points)
 
 
 def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None:
@@ -779,7 +780,7 @@ def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None
 
     preview = build_execution_plan_preview(plan)
 
-    assert [record.producer_kind for record in preview.records] == ["domain"]
+    assert [record.id for record in preview.records] == ["record-0"]
     assert preview.state_changes
     assert preview.state_fields
     assert preview.runtime.state_field_count == len(preview.state_fields)
@@ -805,7 +806,6 @@ def test_multiple_adapters_batch_independently_within_state_segment() -> None:
     )
 
     assert tuple(segment.point_indices for segment in plan.segments) == ((0, 1),)
-    assert plan.resolved_max_points_per_batch is None
     assert tuple(
         tuple(job.point_indices for job in unit.jobs) for unit in plan.domain_units
     ) == (((0,), (1,)), ((0, 1),))
@@ -821,15 +821,10 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
         linked,
         config=load_config(),
     )
-    record = plan.run_plan_record()
-
     assert plan.segments == ()
-    assert plan.domain_jobs == ()
+    assert all(not unit.jobs for unit in plan.domain_units)
     assert adapter.select_calls == 1
     assert adapter.prepare_calls == 0
-    assert record.point_count == 0
-    assert record.records[0].producer_kind == "domain"
-    [domain] = record.execution_units
-    assert domain.kind == "domain_program"
-    assert domain.semantic_operation_id == "execute-0"
-    assert domain.batches == []
+    assert len(plan.linked_points.point_domain.points) == 0
+    [domain] = plan.domain_units
+    assert domain.jobs == ()

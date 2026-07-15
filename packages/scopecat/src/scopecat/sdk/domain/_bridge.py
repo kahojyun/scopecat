@@ -18,9 +18,7 @@ from scopecat.planning.domain_placement import (
     DomainCallExecutionSlice,
     domain_call_execution_slices,
 )
-from scopecat.records.run_plan import RunPlanDomainBatch
 from scopecat.sdk.domain.context import DomainBatchContext, DomainExecutionOffer
-from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.view import (
     DomainBatchView,
     DomainCallPointView,
@@ -280,33 +278,6 @@ def point_id(ref: DomainPointRef) -> LogicalPointId:
 
 def product_use_id(ref: DomainProductUseRef) -> ProductUseId:
     return cast("ProductUseId", ref.native)
-
-
-def project_domain_run_plan_batch(
-    prepared: PreparedDomainExecution,
-    *,
-    context: DomainBatchContext,
-) -> RunPlanDomainBatch:
-    """Project one accepted batch identity without adapter payloads."""
-
-    if prepared.context is not context:
-        msg = "domain run-plan batches must retain their preparation context"
-        raise ValueError(msg)
-
-    intent = prepared.invocation.intent
-    return RunPlanDomainBatch(
-        batch_ordinal=context.batch_ordinal,
-        point_indices=list(context.linked_points.point_indices),
-        semantic_operation_id=prepared.semantic_operation_id,
-        completion_contract=prepared.completion_contract,
-        invocation_id=intent.invocation_id,
-        intent_fingerprint=intent.intent_fingerprint,
-        target_id=intent.target_id,
-        compiler_id=intent.compiler_id,
-        capability_fingerprint=intent.capability_fingerprint,
-        artifact_id=intent.artifact_id,
-        artifact_fingerprint=intent.artifact_fingerprint,
-    )
 
 
 def _product_contract_view(product: ProductDef) -> DomainProductContractView:

@@ -51,7 +51,7 @@ bias_readbacks = [
 mixed_execution_summary = {
     "status": completed_run.manifest.status,
     "logical_points": preview.point_count,
-    "record_producers": {record.id: record.producer_kind for record in preview.records},
+    "record_ids": [record.id for record in preview.records],
     "voltage_writes": list(voltage_source.writes),
     "physical_awg_executions": adapter.runtime.physical_execution_count,
     "bias_x_count_points": bias_x_count_points,

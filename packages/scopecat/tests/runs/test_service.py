@@ -19,10 +19,10 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from scopecat.runs.service import (
+    check_experiment,
     preview_experiment,
     run_experiment,
     start_run,
-    validate_experiment,
 )
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
@@ -82,6 +82,12 @@ def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> Non
         experiment=invocation,
         services=local_workspace_services(tmp_path / "preview"),
     )
+    report = check_experiment(
+        invocation,
+        config=config,
+        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        services=local_workspace_services(tmp_path / "preview"),
+    )
     provider_run = start_run(
         execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config=config,
@@ -89,15 +95,15 @@ def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> Non
         services=local_workspace_services(tmp_path / "provider"),
     )
 
-    assert preview.template_id == "test.workflow_request_scan"
-    assert preview.inputs == {"subject": EntityRef(id="q0")}
+    assert report.template_id == "test.workflow_request_scan"
+    assert report.inputs == {"subject": EntityRef(id="q0")}
     assert preview.experiment_id == "authored-simple-scan"
     assert provider_run.status == "completed"
 
 
-@pytest.mark.parametrize("workflow", ["run", "validate", "preview"])
+@pytest.mark.parametrize("workflow", ["run", "check", "preview"])
 def test_public_workflow_compiles_authoring_before_config_source_io(
-    workflow: Literal["run", "validate", "preview"],
+    workflow: Literal["run", "check", "preview"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -114,10 +120,8 @@ def test_public_workflow_compiles_authoring_before_config_source_io(
     monkeypatch.setattr(run_workflows, resolver, unexpected_config_read)
     invalid = prepare_invocation(simple_template().bind())
 
-    if workflow == "validate":
-        result = validate_experiment(
-            invalid, services=local_workspace_services(tmp_path)
-        )
+    if workflow == "check":
+        result = check_experiment(invalid, services=local_workspace_services(tmp_path))
         problem = result.problems[0]
     else:
         terminal = run_experiment if workflow == "run" else preview_experiment
@@ -163,9 +167,9 @@ def test_start_run_compiles_authoring_before_config_validation(
     assert config_validations == 0
 
 
-@pytest.mark.parametrize("workflow", ["start", "run", "validate", "preview"])
+@pytest.mark.parametrize("workflow", ["start", "run", "check", "preview"])
 def test_public_workflow_compiles_authoring_once(
-    workflow: Literal["start", "run", "validate", "preview"],
+    workflow: Literal["start", "run", "check", "preview"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -191,8 +195,8 @@ def test_public_workflow_compiles_authoring_once(
     )
     experiment = load_prepared_invocation()
 
-    if workflow == "validate":
-        result = validate_experiment(
+    if workflow == "check":
+        result = check_experiment(
             experiment,
             config=invalid_config,
             services=local_workspace_services(tmp_path),

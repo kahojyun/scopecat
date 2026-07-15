@@ -7,7 +7,6 @@ from scopecat import Quantity
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import TableParameterValue
-from scopecat.records.run_plan import RunPlanDomainExecution
 from scopecat_quantum import (
     CircuitPulseEventProvenance,
     GateId,
@@ -140,8 +139,10 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     assert trusted.calibration_id == XM90_CALIBRATION_ID
 
     assert baseline_run.manifest.status == active_run.manifest.status == "completed"
-    assert [point.coordinates for point in baseline_run.plan.points] == [{}]
-    assert [point.coordinates for point in active_run.plan.points] == [{}]
+    baseline_records = baseline_run.data().measurements().dataset.records
+    active_records = active_run.data().measurements().dataset.records
+    assert [point.coordinates for point in baseline_records] == [{}]
+    assert [point.coordinates for point in active_records] == [{}]
     assert baseline_adapter.physical_execution_count == 1
     assert active_adapter.physical_execution_count == 1
     assert baseline_run.manifest.config_source is not None
@@ -154,29 +155,19 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     assert active_run.manifest.config_source.content_hash == (
         active_activation.entry.content_hash
     )
-    assert baseline_run.plan.config_content_hash == (
+    assert baseline_run.manifest.config_content_hash == (
         baseline_run.manifest.config_source.content_hash
     )
-    assert active_run.plan.config_content_hash == (
+    assert active_run.manifest.config_content_hash == (
         active_run.manifest.config_source.content_hash
     )
-    [active_binding] = _domain_execution(active_run).config_input_bindings
-    assert active_binding.input_id == "drag_beta"
-    assert active_binding.point_index == 0
-    assert active_binding.table_id == "qubits"
-    assert active_binding.key == {"qubit": EntityRef(id="q0", kind="logical_qubit")}
-    assert active_binding.column_id == "drag_beta"
-    assert active_binding.resolved_value == active_beta
     assert rollback.active_state.active_entry_id == baseline_activation.entry.id
     assert restored_run.manifest.config_source is not None
     assert restored_run.manifest.config_source.entry_id == baseline_activation.entry.id
     assert restored_run.manifest.config_source.registry_generation == 3
-    assert restored_run.plan.config_content_hash == (
+    assert restored_run.manifest.config_content_hash == (
         restored_run.manifest.config_source.content_hash
     )
-    assert _domain_artifact_fingerprint(baseline_run) == baseline.artifact_fingerprint
-    assert _domain_artifact_fingerprint(active_run) == active.artifact_fingerprint
-    assert _domain_artifact_fingerprint(restored_run) == restored.artifact_fingerprint
     assert baseline.artifact_fingerprint != active.artifact_fingerprint
 
 
@@ -212,16 +203,3 @@ def _with_q0_drag_beta(
             "parameter_snapshot": snapshot,
         }
     )
-
-
-def _domain_artifact_fingerprint(run: sc.RunHandle) -> str:
-    [batch] = _domain_execution(run).batches
-    return batch.artifact_fingerprint
-
-
-def _domain_execution(run: sc.RunHandle) -> RunPlanDomainExecution:
-    [execution] = tuple(
-        unit for unit in run.plan.execution_units if unit.kind == "domain_program"
-    )
-    assert isinstance(execution, RunPlanDomainExecution)
-    return execution

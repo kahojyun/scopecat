@@ -166,8 +166,13 @@ def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
             variables={"readout_probability": [[0.99, 0.03], [0.01, 0.97]]},
         ).model_dump_json(by_alias=True)
     )
-    manifest.datasets.extend([metrics_entry, matrix_entry])
-    storage.write_manifest(manifest)
+    storage.write_manifest(
+        manifest.model_copy(
+            update={
+                "datasets": (*manifest.datasets, metrics_entry, matrix_entry),
+            }
+        )
+    )
 
 
 def attach_binary_artifact(workspace: Path, run_id: str) -> None:
@@ -182,5 +187,6 @@ def attach_binary_artifact(workspace: Path, run_id: str) -> None:
     binary_path = storage.ref_path(run_id, binary_ref)
     binary_path.parent.mkdir(parents=True, exist_ok=True)
     binary_path.write_bytes(b"\x00\x01")
-    manifest.artifacts.append(binary)
-    storage.write_manifest(manifest)
+    storage.write_manifest(
+        manifest.model_copy(update={"artifacts": (*manifest.artifacts, binary)})
+    )

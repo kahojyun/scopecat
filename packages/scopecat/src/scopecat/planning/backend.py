@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
-from scopecat.compiler.linking.bound import BoundPlan, BoundRecord
+from scopecat.compiler.linking.bound import BoundPlan
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
     MaterializedLinkedPointBatch,
@@ -13,9 +13,6 @@ from scopecat.compiler.linking.linked import (
     materialize_linked_points,
 )
 from scopecat.compiler.linking.materialization import materialize_local_plan
-from scopecat.compiler.linking.product_realizations import (
-    SelectedLocalProductRealization,
-)
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.execution.local.executor import PreparedExecution, prepare_execution
 from scopecat.execution.local.program import ApplyStateStage, ComputeStage
@@ -28,8 +25,6 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.product_identity import ProductUseId
-from scopecat.kernel.resource_identity import LogicalResourcePortId, PhysicalResourceId
-from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.measurements.projection import (
     BoundMeasurementProjection,
     bind_measurement_projection,
@@ -49,38 +44,15 @@ from scopecat.planning.coverage import (
 from scopecat.planning.domain_placement import domain_call_execution_slices
 from scopecat.records.config import (
     ConfigProfileSnapshot,
-    RoutingChannelBinding,
     config_content_hash,
-)
-from scopecat.records.measurement import CoordinateValue
-from scopecat.records.run_plan import (
-    RunPlanChannelBinding,
-    RunPlanConfigInputBinding,
-    RunPlanConfigValue,
-    RunPlanDeferredValue,
-    RunPlanDomainBatch,
-    RunPlanDomainCapabilities,
-    RunPlanDomainExecution,
-    RunPlanExecutionOptions,
-    RunPlanFusionOptions,
-    RunPlanOutput,
-    RunPlanPoint,
-    RunPlanPointInstrumentExecution,
-    RunPlanProducerKind,
-    RunPlanRecord,
-    RunPlanResolvedRoute,
-    RunPlanRoute,
-    RunPlanStateChange,
-    RunPlanValue,
 )
 from scopecat.sdk.domain._bridge import (
     DomainPlanProjection,
     make_domain_batch_context,
     offered_call,
     project_domain_plan,
-    project_domain_run_plan_batch,
 )
-from scopecat.sdk.domain.context import DomainBatchContext, DomainExecutionOffer
+from scopecat.sdk.domain.context import DomainExecutionOffer
 from scopecat.sdk.domain.execution import (
     DomainExecutionAdapter,
     PreparedDomainExecution,
@@ -117,15 +89,10 @@ class PreparedPointInstrumentUnit:
     """Prepared point-local host compute and instrument effects."""
 
     id: str
-    backend_id: str
-    coverage: ExecutionCoverage
+    product_use_ids: tuple[ProductUseId, ...]
     bound_plan: BoundPlan = field(repr=False)
     prepared: PreparedExecution = field(repr=False)
     provider: InstrumentProvider = field(repr=False, compare=False)
-
-    @property
-    def product_use_ids(self) -> tuple[ProductUseId, ...]:
-        return self.coverage.product_use_ids
 
     @property
     def resource_claims(self) -> tuple[ExecutionResourceClaim, ...]:
@@ -140,16 +107,11 @@ class PreparedDomainJob:
     """One physical domain invocation for a contiguous logical-point batch."""
 
     id: str
-    context: DomainBatchContext = field(repr=False)
     prepared: PreparedDomainExecution = field(repr=False)
 
     @property
-    def batch_ordinal(self) -> int:
-        return self.context.batch_ordinal
-
-    @property
     def point_indices(self) -> tuple[int, ...]:
-        return self.context.linked_points.point_indices
+        return self.prepared.context.linked_points.point_indices
 
     @property
     def resource_claims(self) -> tuple[ExecutionResourceClaim, ...]:
@@ -169,19 +131,8 @@ class PreparedDomainUnit:
     """One product-owning adapter lane containing ordered physical jobs."""
 
     id: str
-    adapter_id: str
-    offer: DomainExecutionOffer
-    coverage: ExecutionCoverage
-    direct_product_use_ids: tuple[ProductUseId, ...]
+    product_use_ids: tuple[ProductUseId, ...]
     jobs: tuple[PreparedDomainJob, ...]
-
-    @property
-    def product_use_ids(self) -> tuple[ProductUseId, ...]:
-        return self.coverage.product_use_ids
-
-    @property
-    def domain_product_use_ids(self) -> frozenset[ProductUseId]:
-        return frozenset(self.direct_product_use_ids)
 
     @property
     def resource_claims(self) -> tuple[ExecutionResourceClaim, ...]:
@@ -197,12 +148,11 @@ class PreparedDomainUnit:
 class PreparedExecutionSegment:
     """One local-state-stable point segment and its independently batched jobs."""
 
-    ordinal: int
     point_indices: tuple[int, ...]
     domain_jobs: tuple[PreparedDomainJob, ...]
 
 
-type PreparedExecutionUnit = PreparedPointInstrumentUnit | PreparedDomainUnit
+type _PreparedExecutionUnit = PreparedPointInstrumentUnit | PreparedDomainUnit
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,192 +160,13 @@ class PreparedExecutionPlan:
     """Trusted exact-cover plan consumed by the unified run workflow."""
 
     backend_id: str
-    options: ExecutionOptions
-    resolved_max_points_per_batch: int | None
     linked_points: MaterializedLinkedPoints = field(repr=False)
-    units: tuple[PreparedExecutionUnit, ...]
+    point_unit: PreparedPointInstrumentUnit | None
+    domain_units: tuple[PreparedDomainUnit, ...]
     segments: tuple[PreparedExecutionSegment, ...]
-    coverage: ExecutionCoverage
     value_assembly: SelectedMeasurementValueAssembly = field(repr=False)
     projection: BoundMeasurementProjection = field(repr=False)
     resource_claims: tuple[ExecutionResourceClaim, ...]
-
-    @property
-    def point_unit(self) -> PreparedPointInstrumentUnit | None:
-        return next(
-            (
-                unit
-                for unit in self.units
-                if isinstance(unit, PreparedPointInstrumentUnit)
-            ),
-            None,
-        )
-
-    @property
-    def domain_units(self) -> tuple[PreparedDomainUnit, ...]:
-        return tuple(
-            unit for unit in self.units if isinstance(unit, PreparedDomainUnit)
-        )
-
-    @property
-    def domain_jobs(self) -> tuple[PreparedDomainJob, ...]:
-        return tuple(job for unit in self.domain_units for job in unit.jobs)
-
-    def run_plan_record(self) -> RunPlanRecord:
-        """Project the exact selected unit graph into durable evidence."""
-
-        point = self.point_unit
-        domains = self.domain_units
-        point_execution = (
-            RunPlanPointInstrumentExecution(
-                unit_id=point.id,
-                backend_id=point.backend_id,
-                provider_id=point.prepared.provider_id,
-            )
-            if point is not None
-            else None
-        )
-        if point_execution is None and not domains:
-            raise AssertionError("prepared execution plan lost every unit")
-
-        domain_executions = tuple(
-            RunPlanDomainExecution(
-                unit_id=unit.id,
-                adapter_id=unit.adapter_id,
-                semantic_operation_id=unit.offer.call_id,
-                capabilities=RunPlanDomainCapabilities(
-                    max_points_per_batch=unit.offer.max_points_per_batch,
-                ),
-                batches=[_run_plan_domain_batch(job) for job in unit.jobs],
-                config_input_bindings=_run_plan_config_input_bindings(
-                    self.linked_points,
-                    call_id=unit.offer.call_id,
-                ),
-            )
-            for unit in domains
-        )
-        owner_by_use = {
-            use_id: unit for unit in self.units for use_id in unit.product_use_ids
-        }
-        local_outputs = _point_run_plan_outputs(point)
-        records: list[RunPlanOutput] = []
-        for record_plan in self.projection.projection.records:
-            owner = owner_by_use[record_plan.product_use_id]
-            producer_kind: RunPlanProducerKind
-            if isinstance(owner, PreparedPointInstrumentUnit):
-                producer_kind = "instrument"
-                retained_output = local_outputs.get(record_plan.id)
-                if retained_output is None:
-                    raise AssertionError(
-                        "point-owned output is missing from its local run plan"
-                    )
-            else:
-                producer_kind = (
-                    "domain"
-                    if record_plan.product_use_id in owner.domain_product_use_ids
-                    else "host_transform"
-                )
-                retained_output = RunPlanOutput(
-                    id=record_plan.id,
-                    kind=record_plan.kind,
-                    producer_kind=producer_kind,
-                    producer_unit_id=owner.id,
-                    unit=record_plan.unit,
-                    dtype=record_plan.dtype,
-                    dims=list(record_plan.dims),
-                    shape=list(record_plan.shape),
-                )
-            records.append(
-                retained_output.model_copy(
-                    update={
-                        "producer_kind": producer_kind,
-                        "producer_unit_id": owner.id,
-                    }
-                )
-            )
-        execution_units: list[
-            RunPlanPointInstrumentExecution | RunPlanDomainExecution
-        ] = [
-            *((point_execution,) if point_execution is not None else ()),
-            *domain_executions,
-        ]
-        selected = self.projection.projection
-        points = self.linked_points.point_domain.points
-        schema = selected.schema
-        dataset_dimensions = (
-            {
-                dimension.id: dimension.size
-                for dimension in schema.dimensions
-                if dimension.size is not None
-            }
-            if schema is not None
-            else {}
-        )
-        if (
-            schema is not None
-            and any(dimension.id == "point" for dimension in schema.dimensions)
-        ) or any("point" in record.dims for record in selected.records):
-            dataset_dimensions["point"] = len(points)
-        return RunPlanRecord(
-            config_content_hash=config_content_hash(
-                self.linked_points.linked_plan.environment.config
-            ),
-            backend_id=self.backend_id,
-            execution_options=self.run_plan_options(),
-            experiment_id=self.linked_points.linked_plan.program.id,
-            experiment_kind=self.linked_points.linked_plan.program.kind,
-            execution_units=execution_units,
-            point_count=len(points),
-            expected_dataset_schema=schema,
-            coordinate_ids=list(selected.coordinate_ids),
-            points=[
-                RunPlanPoint(
-                    point_index=point.logical_ordinal,
-                    point_uid=point.logical_id.value,
-                    coordinates=cast(
-                        "dict[str, CoordinateValue]",
-                        {
-                            coordinate_id: point.row[coordinate_id]
-                            for coordinate_id in selected.coordinate_ids
-                        },
-                    ),
-                )
-                for point in points
-            ],
-            records=records,
-            state_changes=_point_run_plan_state_changes(point),
-            routes=_point_run_plan_routes(point),
-            dataset_dimensions=dataset_dimensions,
-            primary_observables=(
-                list(schema.primary_observables)
-                if schema is not None
-                else [
-                    record.id
-                    for record in selected.records
-                    if record.kind == "observable"
-                ]
-            ),
-        )
-
-    def run_plan_options(self) -> RunPlanExecutionOptions:
-        """Return the requested and resolved fusion policy for durable evidence."""
-
-        resolved_mode: FusionMode = (
-            "disabled" if not self.domain_units else self.options.fusion
-        )
-        resolved_maximum = (
-            1 if resolved_mode == "disabled" else self.resolved_max_points_per_batch
-        )
-        return RunPlanExecutionOptions(
-            requested=RunPlanFusionOptions(
-                fusion=self.options.fusion,
-                max_points_per_batch=self.options.max_points_per_batch,
-            ),
-            resolved=RunPlanFusionOptions(
-                fusion=resolved_mode,
-                max_points_per_batch=resolved_maximum,
-            ),
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -460,190 +231,6 @@ class ExecutionBackend:
         )
 
 
-def _run_plan_domain_batch(job: PreparedDomainJob) -> RunPlanDomainBatch:
-    return project_domain_run_plan_batch(
-        job.prepared,
-        context=job.context,
-    )
-
-
-def _run_plan_config_input_bindings(
-    linked_points: MaterializedLinkedPoints,
-    *,
-    call_id: str,
-) -> list[RunPlanConfigInputBinding]:
-    call = next(
-        (
-            candidate
-            for candidate in linked_points.domain_calls
-            if candidate.call.id.qualified_name == call_id
-        ),
-        None,
-    )
-    if call is None:
-        raise AssertionError("selected domain unit lost its materialized call")
-    bindings = [
-        RunPlanConfigInputBinding(
-            input_id=binding.input_id,
-            point_index=point.logical_ordinal,
-            table_id=binding.table_id,
-            key={
-                column_id: cast("RunPlanConfigValue", value)
-                for column_id, value in binding.key
-            },
-            column_id=binding.column_id,
-            resolved_value=cast("RunPlanConfigValue", binding.resolved_value),
-        )
-        for point in call.points
-        for binding in point.config_input_bindings
-    ]
-    return sorted(
-        bindings,
-        key=lambda binding: (binding.point_index, binding.input_id),
-    )
-
-
-def _point_run_plan_outputs(
-    point: PreparedPointInstrumentUnit | None,
-) -> dict[str, RunPlanOutput]:
-    if point is None:
-        return {}
-    selected = point.bound_plan.local_product_realizations
-    if selected is None:
-        raise AssertionError("prepared point unit lost its product realizations")
-    realizations = {
-        realization.product_use_id: realization for realization in selected.entries
-    }
-    return {
-        record.id: _point_run_plan_output(
-            record,
-            realizations[record.product_use_id],
-            producer_unit_id=point.id,
-        )
-        for record in point.bound_plan.records
-    }
-
-
-def _point_run_plan_output(
-    record: BoundRecord,
-    realization: SelectedLocalProductRealization,
-    *,
-    producer_unit_id: str,
-) -> RunPlanOutput:
-    producer = realization.producer
-    return RunPlanOutput(
-        id=record.id,
-        kind=record.kind,
-        producer_kind="instrument",
-        producer_unit_id=producer_unit_id,
-        resource_port_id=(
-            producer.resource_target.qualified_name
-            if isinstance(producer.resource_target, LogicalResourcePortId)
-            else None
-        ),
-        physical_resource_id=(
-            producer.resource_target.value
-            if isinstance(producer.resource_target, PhysicalResourceId)
-            else (
-                realization.implicit_resource_id.value
-                if realization.implicit_resource_id is not None
-                else None
-            )
-        ),
-        capability=producer.capability,
-        unit=record.unit,
-        dtype=record.dtype,
-        dims=list(record.dims),
-        shape=list(record.shape),
-    )
-
-
-def _point_run_plan_state_changes(
-    point: PreparedPointInstrumentUnit | None,
-) -> list[RunPlanStateChange]:
-    if point is None:
-        return []
-    return [
-        RunPlanStateChange(
-            point_index=change.point_index,
-            resource_id=change.resource_id.value,
-            resource_port_id=(
-                change.resource_port_id.qualified_name
-                if change.resource_port_id is not None
-                else None
-            ),
-            capability_id=change.capability_id,
-            field_path=change.field_path,
-            before=cast("RunPlanValue", _run_plan_state_value(change.before)),
-            after=cast("RunPlanValue", _run_plan_state_value(change.after)),
-            entity_ids=list(change.entity_ids),
-            channel_bindings=[
-                _run_plan_channel_binding(binding)
-                for binding in change.channel_bindings
-            ],
-        )
-        for change in point.bound_plan.state_changes
-    ]
-
-
-def _point_run_plan_routes(
-    point: PreparedPointInstrumentUnit | None,
-) -> list[RunPlanRoute]:
-    if point is None:
-        return []
-    plan = point.bound_plan
-    return [
-        RunPlanRoute(
-            port_id=intent.port_id.qualified_name,
-            capabilities=list(intent.capabilities),
-            entity_expr_count=len(intent.entity_uses),
-            fixed_resource_id=(
-                intent.fixed_resource_id.value
-                if intent.fixed_resource_id is not None
-                else None
-            ),
-            resolved=[
-                RunPlanResolvedRoute(
-                    point_index=bound_point.point_index,
-                    port_id=route.port_id.qualified_name,
-                    resource_id=route.resource_id.value,
-                    resource_kind=route.resource_kind,
-                    entity_ids=list(route.entity_ids),
-                    served_entity_ids=list(route.served_entity_ids),
-                    product_axis_order=list(route.product_axis_order),
-                    channel_bindings=[
-                        _run_plan_channel_binding(binding)
-                        for binding in route.channel_bindings
-                    ],
-                )
-                for bound_point in plan.points
-                for route in bound_point.routes
-                if route.port_id == intent.port_id
-            ],
-        )
-        for intent in plan.route_intents
-    ]
-
-
-def _run_plan_state_value(value: object) -> object:
-    selected = value.root if isinstance(value, StateValue) else value
-    if isinstance(selected, PayloadRef):
-        return RunPlanDeferredValue()
-    return selected
-
-
-def _run_plan_channel_binding(
-    binding: RoutingChannelBinding,
-) -> RunPlanChannelBinding:
-    return RunPlanChannelBinding(
-        entity_id=binding.entity_id,
-        channel_id=binding.channel_id,
-        line_id=binding.line_id,
-        capability=binding.capability,
-        group_ids=list(binding.group_ids),
-    )
-
-
 def _prepare_backend_plan(
     *,
     backend: ExecutionBackend,
@@ -660,7 +247,7 @@ def _prepare_backend_plan(
     domain_task_owners = {
         task for selected in selected_adapters for task in selected.coverage.tasks
     }
-    domain_product_use_ids = {
+    domain_lane_product_use_ids = {
         use_id.value
         for use_ids in (
             *(
@@ -683,7 +270,7 @@ def _prepare_backend_plan(
             if task not in domain_task_owners
             and task.kind != "domain_call"
             and task.kind != "measurement_transform"
-            and not (task.kind == "product" and task.id in domain_product_use_ids)
+            and not (task.kind == "product" and task.id in domain_lane_product_use_ids)
         )
     )
     point_unit = _prepare_point_unit(
@@ -692,35 +279,26 @@ def _prepare_backend_plan(
         config=config,
         coverage=local_coverage,
     )
-    provisional_domains = tuple(
-        PreparedDomainUnit(
-            id=selected.unit_id,
-            adapter_id=selected.adapter_id,
-            offer=selected.offer,
-            coverage=selected.coverage,
-            direct_product_use_ids=selected.direct_product_use_ids,
-            jobs=(),
-        )
-        for selected in selected_adapters
-    )
-    provisional_units: tuple[PreparedExecutionUnit, ...] = (
-        *((point_unit,) if point_unit is not None else ()),
-        *provisional_domains,
+    covered_units = (
+        *(((_POINT_UNIT_ID, local_coverage),) if point_unit is not None else ()),
+        *((selected.unit_id, selected.coverage) for selected in selected_adapters),
     )
     problems = list(
         _coverage_problems(
             expected,
-            provisional_units,
+            covered_units,
             program=linked.program,
         )
     )
     problems.extend(
         domain_call_affinity_problems(
             linked.program,
-            tuple((unit.id, unit.coverage) for unit in provisional_domains),
+            tuple(
+                (selected.unit_id, selected.coverage) for selected in selected_adapters
+            ),
         )
     )
-    if point_unit is not None and provisional_domains:
+    if point_unit is not None and selected_adapters:
         problems.extend(_mixed_lane_point_shape_problems(point_unit))
     if problems:
         raise CheckFailed(problems)
@@ -738,7 +316,7 @@ def _prepare_backend_plan(
         state_segments,
         maximum=resolved_maximum,
     )
-    units: tuple[PreparedExecutionUnit, ...] = (
+    units: tuple[_PreparedExecutionUnit, ...] = (
         *((point_unit,) if point_unit is not None else ()),
         *domain_units,
     )
@@ -759,7 +337,6 @@ def _prepare_backend_plan(
             jobs_by_batch[segment_ordinal].append(job)
     segments = tuple(
         PreparedExecutionSegment(
-            ordinal=segment_ordinal,
             point_indices=segment.point_indices,
             domain_jobs=tuple(jobs_by_batch[segment_ordinal]),
         )
@@ -787,12 +364,10 @@ def _prepare_backend_plan(
     )
     return PreparedExecutionPlan(
         backend_id=backend.backend_id,
-        options=options,
-        resolved_max_points_per_batch=resolved_maximum,
         linked_points=linked_points,
-        units=units,
+        point_unit=point_unit,
+        domain_units=domain_units,
         segments=segments,
-        coverage=expected,
         value_assembly=value_assembly,
         projection=projection,
         resource_claims=resource_claims,
@@ -883,8 +458,7 @@ def _prepare_point_unit(
     )
     return PreparedPointInstrumentUnit(
         id=_POINT_UNIT_ID,
-        backend_id=backend.backend_id,
-        coverage=coverage,
+        product_use_ids=coverage.product_use_ids,
         bound_plan=plan,
         prepared=prepared,
         provider=backend.provider,
@@ -1019,17 +593,13 @@ def _prepare_domain_units(
             jobs.append(
                 PreparedDomainJob(
                     id=(f"{selected.unit_id}.batch-{batch_ordinal}"),
-                    context=context,
                     prepared=prepared,
                 )
             )
         units.append(
             PreparedDomainUnit(
                 id=selected.unit_id,
-                adapter_id=selected.adapter_id,
-                offer=selected.offer,
-                coverage=selected.coverage,
-                direct_product_use_ids=selected.direct_product_use_ids,
+                product_use_ids=selected.coverage.product_use_ids,
                 jobs=tuple(jobs),
             )
         )
@@ -1038,15 +608,15 @@ def _prepare_domain_units(
 
 def _coverage_problems(
     expected: ExecutionCoverage,
-    units: tuple[PreparedExecutionUnit, ...],
+    units: tuple[tuple[str, ExecutionCoverage], ...],
     *,
     program: TypedProgram,
 ) -> tuple[Problem, ...]:
     expected_set = set(expected.tasks)
     owners: dict[ExecutionTask, list[str]] = {}
-    for unit in units:
-        for task in unit.coverage.tasks:
-            owners.setdefault(task, []).append(unit.id)
+    for unit_id, coverage in units:
+        for task in coverage.tasks:
+            owners.setdefault(task, []).append(unit_id)
     unplaced_transforms = tuple(
         transform
         for transform in program.measurement_transforms
@@ -1164,7 +734,7 @@ def domain_call_affinity_problems(
 
 
 def _resource_claim_problems(
-    units: tuple[PreparedExecutionUnit, ...],
+    units: tuple[_PreparedExecutionUnit, ...],
 ) -> tuple[Problem, ...]:
     owners: dict[ExecutionResourceClaim, list[str]] = {}
     for unit in units:
@@ -1245,6 +815,5 @@ __all__ = [
     "PreparedDomainUnit",
     "PreparedExecutionPlan",
     "PreparedExecutionSegment",
-    "PreparedExecutionUnit",
     "PreparedPointInstrumentUnit",
 ]

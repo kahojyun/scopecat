@@ -17,7 +17,6 @@ from scopecat.kernel.problems import (
     blocking_problem,
 )
 from scopecat.planning import backend as execution_backends
-from scopecat.records.run_plan import RunPlanDomainExecution, RunPlanRecord
 from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import (
     PreparedDomainExecution,
@@ -34,7 +33,6 @@ from scopecat.sdk.domain.runtime import (
 from quantum_lab_demo import quantum_lab
 from quantum_lab_demo.experiments import READOUT_TEMPLATE
 from quantum_lab_demo.reference_experiments import (
-    FAKE_X_COUNT_ADAPTER_ID,
     FAKE_X_COUNT_CAPTURE_MODULE,
     FAKE_X_COUNT_TEMPLATE,
     FakeXCountDomainExecutionAdapter,
@@ -207,16 +205,15 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         preview = experiment.preview()
         run = experiment.run()
         dataset = run.data().measurements().dataset
-        plan = run.plan
         journal = FilesystemExecutionJournal(lab.workspace, run_id=run.id)
 
         assert run.manifest.status == "completed"
         assert adapter.runtime.physical_execution_count == 1
-        assert preview.point_count == plan.point_count == len(dataset.records) == 4
-        assert {record.id: record.producer_kind for record in preview.records} == {
-            "probability_0": "host_transform",
-            "probability_1": "host_transform",
-        }
+        assert preview.point_count == len(dataset.records) == 4
+        assert [record.id for record in preview.records] == [
+            "probability_0",
+            "probability_1",
+        ]
         assert all(
             record.kind != "instrument_state_evidence"
             for record in run.manifest.records
@@ -232,7 +229,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
             assert isinstance(probability_0, Quantity)
             assert isinstance(probability_1, Quantity)
             assert probability_0.value + probability_1.value == pytest.approx(1.0)
-        semantics[authoring] = _standard_domain_semantics(plan, journal)
+        semantics[authoring] = _standard_domain_semantics(preview, journal)
 
     assert semantics["template"] == semantics["scratch"]
 
@@ -330,9 +327,16 @@ def test_indeterminate_submit_retains_durable_target_reconciliation_context(
     assert recovery.details["retry_contract"] == "after_reconciliation"
     assert recovery.details["automatic_resume"] is False
     assert recovery.details["submission_key"]
-    plan = lab.get_run(caught.value.run_id).plan
-    assert _domain_execution(plan).batches[0].target_id
     journal = FilesystemExecutionJournal(lab.workspace, run_id=caught.value.run_id)
+    started = next(
+        entry
+        for entry in journal.entries()
+        if entry.stage == "domain_submit" and entry.state == "started"
+    )
+    intent = DomainInvocationIntent.model_validate(
+        started.evidence["invocation_intent"]
+    )
+    assert intent.target_id
     assert any(
         entry.stage == "domain_submit" and entry.state == "unknown"
         for entry in journal.entries()
@@ -447,7 +451,7 @@ def test_measurement_reload_failure_still_publishes_indeterminate_terminal_run(
 
 
 def _standard_domain_semantics(
-    plan: RunPlanRecord,
+    preview: sc.ExperimentPreview,
     journal: FilesystemExecutionJournal,
 ) -> object:
     submit_intent = next(
@@ -458,36 +462,14 @@ def _standard_domain_semantics(
     intent = DomainInvocationIntent.model_validate(
         submit_intent.evidence["invocation_intent"]
     )
-    execution = _domain_execution(plan)
-    [batch] = execution.batches
-    assert execution.adapter_id == FAKE_X_COUNT_ADAPTER_ID
-    assert batch.semantic_operation_id == "capture/execute"
-    assert batch.completion_contract == "synchronous"
-    assert batch.invocation_id == intent.invocation_id
-    assert batch.intent_fingerprint == intent.intent_fingerprint
-    assert batch.target_id == intent.target_id
-    assert batch.compiler_id == intent.compiler_id
-    assert batch.capability_fingerprint == intent.capability_fingerprint
-    assert batch.artifact_id == intent.artifact_id
-    assert batch.artifact_fingerprint == intent.artifact_fingerprint
     return (
         intent.target_id,
         intent.compiler_id,
         intent.capability_fingerprint,
         intent.artifact_fingerprint,
-        tuple(point.coordinates["x_count"] for point in plan.points),
-        tuple((record.id, record.producer_kind) for record in plan.records),
+        tuple(point.coordinates["x_count"] for point in preview.points),
+        tuple(record.id for record in preview.records),
     )
-
-
-def _domain_execution(plan: RunPlanRecord) -> RunPlanDomainExecution:
-    executions = [
-        unit
-        for unit in plan.execution_units
-        if isinstance(unit, RunPlanDomainExecution)
-    ]
-    assert len(executions) == 1
-    return executions[0]
 
 
 def _domain_only(adapter: sc.DomainExecutionAdapter) -> sc.ExecutionBackend:

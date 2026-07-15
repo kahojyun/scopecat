@@ -104,8 +104,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     assert raw.dataset_entry.id == "raw-measurements"
     assert [input_ref.target for input_ref in saved.inputs] == ["raw-measurements"]
     assert any(
-        record.kind == "candidate_config"
-        for record in lab.get_run(baseline.id).manifest.records
+        record.kind == "candidate_config" for record in baseline.manifest.records
     )
     assert candidate.manifest.status == "completed"
     assert comparison.result.outcome == "unchanged"

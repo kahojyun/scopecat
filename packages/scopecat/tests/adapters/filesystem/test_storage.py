@@ -168,6 +168,7 @@ def test_local_run_store_writes_manifest_atomically(tmp_path: Path) -> None:
         run_id=run_id,
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
         lifecycle="running",
+        config_content_hash="sha256:" + "0" * 64,
     )
     store.write_manifest(updated)
 
@@ -672,6 +673,7 @@ def _manifest(run_id: str, created_at: datetime) -> RunManifest:
         run_id=run_id,
         created_at=created_at,
         lifecycle="terminal",
+        config_content_hash="sha256:" + "0" * 64,
         outcome=RunOutcome(
             run_id=run_id,
             result="succeeded",

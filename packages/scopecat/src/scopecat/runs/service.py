@@ -48,15 +48,10 @@ from scopecat.planning.checks import (
     ExperimentCheckReport,
 )
 from scopecat.planning.preview import build_execution_plan_preview
-from scopecat.planning.preview_models import (
-    ExperimentPreview,
-    PreviewExperimentResult,
-    ValidateExperimentResult,
-)
+from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest
-from scopecat.records.run_plan import RunPlanRecord
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.access import (
     list_artifacts,
@@ -77,14 +72,12 @@ from scopecat.runs.data import (
     RunArtifactTextResult,
     RunDataArrayResult,
     RunDataTableResult,
-    RunDetails,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
 from scopecat.runs.measurements import read_measurement_dataset
 from scopecat.runs.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
-    RUN_PLAN_REF,
     RUN_REQUEST_REF,
 )
 from scopecat.runs.repository import RunRepository
@@ -94,8 +87,8 @@ def list_runs(*, services: WorkspaceServices) -> list[RunManifest]:
     return services.runs.list_runs()
 
 
-def load_run(*, run_id: str, services: WorkspaceServices) -> RunDetails:
-    return RunDetails(manifest=services.runs.read_manifest(run_id))
+def load_run(*, run_id: str, services: WorkspaceServices) -> RunManifest:
+    return services.runs.read_manifest(run_id)
 
 
 def load_run_config(
@@ -122,20 +115,6 @@ def load_run_request(*, run_id: str, services: WorkspaceServices) -> RunRequest 
     if not storage.exists(run_id, RUN_REQUEST_REF):
         return None
     return storage.read_model(run_id, RUN_REQUEST_REF, RunRequest)
-
-
-def load_run_plan(*, run_id: str, services: WorkspaceServices) -> RunPlanRecord:
-    """Load only the accepted plan evidence for a run."""
-
-    storage = services.runs
-    _require_run_ref(
-        storage=storage,
-        run_id=run_id,
-        ref=RUN_PLAN_REF,
-        code="run.plan_missing",
-        label="accepted plan record",
-    )
-    return storage.read_run_plan(run_id)
 
 
 def _require_run_ref(
@@ -551,7 +530,7 @@ def _check_compiled_experiment(
                 linked=linked.plan,
                 options=execution_options,
             )
-            summary = _build_execution_plan_preview(prepared)
+            summary = build_execution_plan_preview(prepared)
         planning_status = (
             CheckStatus.FAILED
             if has_blocking_problems(planning_problems)
@@ -695,46 +674,11 @@ def _safe_execution_backend_id(backend: ExecutionBackend) -> str | None:
     return backend_id if type(backend_id) is str and backend_id else None
 
 
-def _build_execution_plan_preview(
-    prepared: PreparedExecutionPlan,
-) -> ExperimentPreview:
-    return build_execution_plan_preview(prepared)
-
-
 def _problems_match_phase(
     problems: tuple[Problem, ...],
     phase: CheckPhase,
 ) -> bool:
     return all(problem.phase.value == phase.value for problem in problems)
-
-
-def validate_experiment(
-    experiment: PreparedInvocation,
-    *,
-    services: WorkspaceServices,
-    config: str | ConfigProfileSnapshot | CandidateConfig = "active",
-    config_profile: ConfigProfileInput | None = None,
-    execution_backend: ExecutionBackend | None = None,
-    execution_options: ExecutionOptions | None = None,
-) -> ValidateExperimentResult:
-    report = check_experiment(
-        experiment,
-        services=services,
-        config=config,
-        config_profile=config_profile,
-        execution_backend=execution_backend,
-        execution_options=execution_options,
-    )
-    planning_ran = (
-        report.for_phase(CheckPhase.PLANNING).status is not CheckStatus.SKIPPED
-    )
-    return ValidateExperimentResult(
-        problems=report.problems,
-        summary=report.summary,
-        template_id=report.template_id if planning_ran else None,
-        inputs=dict(report.inputs) if planning_ran else {},
-        config_source=report.config_source,
-    )
 
 
 def preview_experiment(
@@ -745,8 +689,8 @@ def preview_experiment(
     config_profile: ConfigProfileInput | None = None,
     execution_backend: ExecutionBackend | None = None,
     execution_options: ExecutionOptions | None = None,
-) -> PreviewExperimentResult:
-    validation = validate_experiment(
+) -> ExperimentPreview:
+    report = check_experiment(
         experiment,
         services=services,
         config=config,
@@ -754,16 +698,9 @@ def preview_experiment(
         execution_backend=execution_backend,
         execution_options=execution_options,
     )
-    if not validation.ok:
-        raise CheckFailed(validation.problems)
-    assert validation.summary is not None
-    return PreviewExperimentResult(
-        summary=validation.summary,
-        problems=validation.problems,
-        template_id=validation.template_id,
-        inputs=dict(validation.inputs),
-        config_source=validation.config_source,
-    )
+    if not report.complete or report.summary is None:
+        raise CheckFailed(report.problems)
+    return report.summary
 
 
 def _resolve_config_for_run(

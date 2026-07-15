@@ -240,7 +240,7 @@ def test_workspace_terminals_are_prepare_or_scratch_only() -> None:
 
     assert callable(sc.PreparedExperiment.run)
     assert callable(sc.PreparedExperiment.preview)
-    assert callable(sc.PreparedExperiment.validate)
+    assert callable(sc.PreparedExperiment.check)
     assert callable(sc.Experiment.run)
     assert callable(sc.Experiment.preview)
-    assert callable(sc.Experiment.validate)
+    assert callable(sc.Experiment.check)

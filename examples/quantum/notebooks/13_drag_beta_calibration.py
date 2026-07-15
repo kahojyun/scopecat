@@ -146,7 +146,7 @@ restored_production_run = lab.prepare(
 )
 
 
-def _scan_center(prepared_preview: sc.PreviewExperimentResult) -> float:
+def _scan_center(prepared_preview: sc.ExperimentPreview) -> float:
     beta_values = sorted(
         {
             _quantity_in_unit(point.coordinates["beta"], "ns")
@@ -161,14 +161,6 @@ def _quantity_in_unit(value: object, unit: str) -> float:
     return float(value.to(unit).value)
 
 
-def _domain_artifact_fingerprint(run: sc.RunHandle) -> str:
-    [execution] = tuple(
-        unit for unit in run.plan.execution_units if unit.kind == "domain_program"
-    )
-    [batch] = execution.batches
-    return batch.artifact_fingerprint
-
-
 [baseline_gate] = baseline_production_adapter.preparations
 [active_gate] = active_production_adapter.preparations
 [restored_gate] = restored_production_adapter.preparations
@@ -178,15 +170,6 @@ restored_source = restored_production_run.manifest.config_source
 if baseline_source is None or active_source is None or restored_source is None:
     msg = "production runs should retain registry provenance"
     raise RuntimeError(msg)
-[active_execution] = tuple(
-    unit
-    for unit in active_production_run.plan.execution_units
-    if unit.kind == "domain_program"
-)
-[active_config_binding] = active_execution.config_input_bindings
-active_binding_key = active_config_binding.key.get("qubit")
-active_binding_value = active_config_binding.resolved_value
-
 production_waveform_changed = (
     baseline_gate.production_samples != active_gate.production_samples
 )
@@ -204,30 +187,18 @@ active_artifact_changed = (
 rollback_restored_artifact = (
     restored_gate.artifact_fingerprint == baseline_gate.artifact_fingerprint
 )
-active_plan_artifact_matches = (
-    _domain_artifact_fingerprint(active_production_run)
-    == active_gate.artifact_fingerprint
-)
-baseline_plan_artifact_matches = (
-    _domain_artifact_fingerprint(baseline_production_run)
-    == baseline_gate.artifact_fingerprint
-)
-restored_plan_artifact_matches = (
-    _domain_artifact_fingerprint(restored_production_run)
-    == restored_gate.artifact_fingerprint
-)
 baseline_config_hash_matches = (
-    baseline_production_run.plan.config_content_hash
+    baseline_production_run.manifest.config_content_hash
     == baseline_source.content_hash
     == baseline_activation.entry.content_hash
 )
 active_config_hash_matches = (
-    active_production_run.plan.config_content_hash
+    active_production_run.manifest.config_content_hash
     == active_source.content_hash
     == activation.entry.content_hash
 )
 restored_config_hash_matches = (
-    restored_production_run.plan.config_content_hash
+    restored_production_run.manifest.config_content_hash
     == restored_source.content_hash
     == baseline_activation.entry.content_hash
 )
@@ -247,32 +218,18 @@ restored_source_matches = (
     and restored_source.entry_id == baseline_activation.entry.id
     and restored_source.registry_generation == rollback.active_state.generation
 )
-active_config_binding_matches = (
-    active_config_binding.input_id == "drag_beta"
-    and active_config_binding.point_index == 0
-    and active_config_binding.table_id == "qubits"
-    and active_config_binding.column_id == "drag_beta"
-    and isinstance(active_binding_key, sc.EntityRef)
-    and active_binding_key.id == "q0"
-    and isinstance(active_binding_value, sc.Quantity)
-    and active_binding_value.to("ns") == active_gate.resolved_drag_beta
-)
 production_evidence_checks = {
     "production_waveform_changed": production_waveform_changed,
     "trusted_reference_unchanged": trusted_reference_unchanged,
     "rollback_restored_waveform": rollback_restored_waveform,
     "active_artifact_changed": active_artifact_changed,
     "rollback_restored_artifact": rollback_restored_artifact,
-    "active_plan_artifact_matches": active_plan_artifact_matches,
-    "baseline_plan_artifact_matches": baseline_plan_artifact_matches,
-    "restored_plan_artifact_matches": restored_plan_artifact_matches,
     "baseline_config_hash_matches": baseline_config_hash_matches,
     "active_config_hash_matches": active_config_hash_matches,
     "restored_config_hash_matches": restored_config_hash_matches,
     "baseline_source_matches": baseline_source_matches,
     "active_source_matches": active_source_matches,
     "restored_source_matches": restored_source_matches,
-    "active_config_binding_matches": active_config_binding_matches,
 }
 failed_evidence_checks = tuple(
     name for name, passed in production_evidence_checks.items() if not passed
@@ -308,7 +265,6 @@ drag_beta_summary = {
         "run_config_entry_id": baseline_source.entry_id,
         "run_registry_generation": baseline_source.registry_generation,
         "production_beta_ns": float(baseline_gate.resolved_drag_beta.to("ns").value),
-        "plan_artifact_matches": baseline_plan_artifact_matches,
         "config_hash_matches": baseline_config_hash_matches,
     },
     "active": {
@@ -322,13 +278,7 @@ drag_beta_summary = {
         "production_waveform_changed": production_waveform_changed,
         "trusted_reference_unchanged": trusted_reference_unchanged,
         "artifact_changed": active_artifact_changed,
-        "plan_artifact_matches": active_plan_artifact_matches,
         "config_hash_matches": active_config_hash_matches,
-        "config_binding": {
-            "input_id": active_config_binding.input_id,
-            "selector": "qubits[q0].drag_beta",
-            "value_ns": float(active_gate.resolved_drag_beta.to("ns").value),
-        },
     },
     "rollback": {
         "generation": rollback.active_state.generation,
@@ -340,7 +290,6 @@ drag_beta_summary = {
         "production_beta_ns": float(restored_gate.resolved_drag_beta.to("ns").value),
         "production_waveform_restored": rollback_restored_waveform,
         "artifact_restored": rollback_restored_artifact,
-        "plan_artifact_matches": restored_plan_artifact_matches,
         "config_hash_matches": restored_config_hash_matches,
     },
 }

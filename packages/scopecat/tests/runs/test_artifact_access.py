@@ -118,13 +118,14 @@ def _manifest(
     return RunManifest(
         run_id="run_test",
         lifecycle="terminal",
+        config_content_hash="sha256:" + "0" * 64,
         outcome=RunOutcome(
             run_id="run_test",
             result="succeeded",
             certainty="known",
             termination_reason="completed",
         ),
-        records=records,
-        datasets=datasets,
-        artifacts=artifacts,
+        records=tuple(records),
+        datasets=tuple(datasets),
+        artifacts=tuple(artifacts),
     )

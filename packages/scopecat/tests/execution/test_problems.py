@@ -208,7 +208,7 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
 
     manifest = local_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "interrupted"
-    assert manifest.datasets == []
+    assert manifest.datasets == ()
     assert instrument.aborted
     snapshot = read_run_record_json(
         run_id=manifest.run_id,
@@ -248,7 +248,7 @@ def test_failed_run_retains_fragments_without_publishing_incomplete_dataset(
 
     manifest = local_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "unknown"
-    assert manifest.datasets == []
+    assert manifest.datasets == ()
     readback_files = list(
         (tmp_path / "runs" / manifest.run_id / "execution" / "readbacks").glob("*.json")
     )

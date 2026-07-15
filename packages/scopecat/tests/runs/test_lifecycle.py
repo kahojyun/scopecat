@@ -1,7 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
-from typing import cast
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -16,9 +15,24 @@ from scopecat.execution.evidence import (
 from scopecat.records.artifact import RunArtifactEntry, RunRecordEntry
 from scopecat.records.execution import ExecutionSummary
 from scopecat.records.run import RunManifest, RunOutcome
-from scopecat.records.run_plan import RunPlanOutput, RunPlanProducerKind
 from scopecat.runs.lifecycle import commit_terminal_evidence
 from scopecat.runs.manifest import write_manifest_artifacts, write_manifest_records
+
+_CONFIG_HASH = "sha256:" + "0" * 64
+
+
+def test_run_manifest_is_an_immutable_snapshot() -> None:
+    manifest = RunManifest(
+        run_id="run-immutable",
+        lifecycle="accepted",
+        config_content_hash=_CONFIG_HASH,
+    )
+
+    assert manifest.records == ()
+    assert manifest.datasets == ()
+    assert manifest.artifacts == ()
+    with pytest.raises(ValidationError):
+        manifest.__setattr__("lifecycle", "running")
 
 
 def _successful_outcome(run_id: str) -> RunOutcome:
@@ -51,6 +65,7 @@ def test_terminal_evidence_can_omit_instrument_state(tmp_path: Path) -> None:
         outcome=outcome,
         measurements=[],
         expected_schema=None,
+        config_content_hash=_CONFIG_HASH,
         config_source=None,
         include_instrument_state=False,
     )
@@ -60,6 +75,7 @@ def test_terminal_evidence_can_omit_instrument_state(tmp_path: Path) -> None:
             run_id=run_id,
             created_at=manifest.created_at,
             lifecycle="running",
+            config_content_hash=_CONFIG_HASH,
         )
     )
 
@@ -95,6 +111,7 @@ def test_terminal_manifest_preserves_a_concurrent_attachment(
         outcome=outcome,
         measurements=[],
         expected_schema=None,
+        config_content_hash=_CONFIG_HASH,
         config_source=None,
         include_instrument_state=False,
     )
@@ -104,6 +121,7 @@ def test_terminal_manifest_preserves_a_concurrent_attachment(
             run_id=run_id,
             created_at=terminal.created_at,
             lifecycle="running",
+            config_content_hash=_CONFIG_HASH,
         )
     )
     attachment = RunArtifactEntry(
@@ -164,7 +182,7 @@ def test_terminal_manifest_preserves_a_concurrent_attachment(
         committed = terminal_future.result(timeout=10)
         attachment_future.result(timeout=10)
 
-    assert committed.artifacts == [attachment]
+    assert committed.artifacts == (attachment,)
     assert workflow_record in committed.records
     assert storage.read_manifest(run_id) == committed
 
@@ -177,38 +195,8 @@ def test_execution_manifest_includes_instrument_state_by_default() -> None:
         outcome=outcome,
         measurements=[],
         expected_schema=None,
+        config_content_hash=_CONFIG_HASH,
         config_source=None,
     )
 
     assert "instrument-state-evidence" in {record.id for record in manifest.records}
-
-
-@pytest.mark.parametrize(
-    "producer_kind",
-    ["instrument", "domain", "host_transform"],
-)
-def test_run_plan_output_accepts_execution_producer_kinds(
-    producer_kind: str,
-) -> None:
-    output = RunPlanOutput(
-        id="signal",
-        kind="observable",
-        producer_kind=cast("RunPlanProducerKind", producer_kind),
-        producer_unit_id="producer-unit",
-        dtype="float64",
-    )
-
-    assert output.producer_kind == producer_kind
-
-
-def test_run_plan_output_rejects_unknown_producer_kind() -> None:
-    with pytest.raises(ValidationError, match="producer_kind"):
-        RunPlanOutput.model_validate(
-            {
-                "id": "signal",
-                "kind": "observable",
-                "producer_kind": "compute",
-                "producer_unit_id": "producer-unit",
-                "dtype": "float64",
-            }
-        )

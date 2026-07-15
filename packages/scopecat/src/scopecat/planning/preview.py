@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 
 from scopecat.compiler.linking.bound import BoundComputeCall, BoundPlan, BoundRecord
 from scopecat.compiler.linking.product_realizations import (
@@ -21,17 +20,15 @@ from scopecat.planning.preview_models import (
     ExperimentPreviewRecord,
     ExperimentPreviewResolvedRoute,
     ExperimentPreviewRoute,
-    ExperimentPreviewRuntimeSummary,
     ExperimentPreviewStateChange,
     ExperimentPreviewStateField,
     ExperimentPreviewStateTarget,
 )
 from scopecat.records.config import RoutingChannelBinding
-from scopecat.records.run_plan import RunPlanRecord
 
 
 def build_experiment_preview(plan: BoundPlan) -> ExperimentPreview:
-    """Project one accepted plan without rebuilding any compiler graph."""
+    """Project one bound plan without rebuilding any compiler graph."""
 
     coordinate_ids = _coordinate_ids(plan)
     payloads = _preview_payloads(plan)
@@ -59,35 +56,15 @@ def build_experiment_preview(plan: BoundPlan) -> ExperimentPreview:
         for state in point.desired_state
         for field in state.fields
     )
-    dataset_dimensions = (
-        {
-            dimension.id: dimension.size
-            for dimension in plan.expected_dataset_schema.dimensions
-            if dimension.size is not None
-        }
-        if plan.expected_dataset_schema is not None
-        else {}
-    )
     selected = plan.local_product_realizations
     realizations_by_use = (
         {realization.product_use_id: realization for realization in selected.entries}
         if selected is not None
         else {}
     )
-    primary_observables = (
-        tuple(plan.expected_dataset_schema.primary_observables)
-        if plan.expected_dataset_schema is not None
-        else tuple(
-            record.id
-            for record in plan.records
-            if record.kind == "observable"
-            and record.product_use_id in realizations_by_use
-        )
-    )
     return ExperimentPreview(
         experiment_id=plan.experiment_id,
         experiment_kind=plan.experiment_kind,
-        point_count=plan.point_count,
         schema=plan.expected_dataset_schema,
         coordinate_ids=coordinate_ids,
         points=tuple(
@@ -157,17 +134,6 @@ def build_experiment_preview(plan: BoundPlan) -> ExperimentPreview:
         state_fields=state_fields,
         payloads=payloads,
         compute_steps=compute_steps,
-        runtime=ExperimentPreviewRuntimeSummary(
-            route_count=len(plan.route_intents),
-            state_field_count=len(state_fields),
-            compute_operation_count=len(
-                {call.operation_id for point in plan.points for call in point.compute}
-            ),
-            compute_step_count=len(compute_steps),
-            payload_count=len(payloads),
-        ),
-        dataset_dimensions=dataset_dimensions,
-        primary_observables=primary_observables,
     )
 
 
@@ -176,71 +142,56 @@ def build_execution_plan_preview(
 ) -> ExperimentPreview:
     """Project one unified prepared plan into its complete user preview."""
 
-    preview = _build_run_plan_preview(prepared.run_plan_record())
+    selected = prepared.projection.projection
+    program = prepared.linked_points.linked_plan.program
+    points = prepared.linked_points.point_domain.points
     point = prepared.point_unit
-    if point is None:
-        return preview
-    local = build_experiment_preview(point.bound_plan)
-    return replace(
-        preview,
-        state_changes=local.state_changes,
-        routes=local.routes,
-        state_fields=local.state_fields,
-        payloads=local.payloads,
-        compute_steps=local.compute_steps,
-        runtime=replace(
-            local.runtime,
-            route_count=len(preview.routes),
-        ),
+    local = build_experiment_preview(point.bound_plan) if point is not None else None
+    local_records = (
+        {record.id: record for record in local.records} if local is not None else {}
     )
-
-
-def _build_run_plan_preview(plan: RunPlanRecord) -> ExperimentPreview:
-    """Project durable accepted-plan evidence into the common user preview."""
-
-    return ExperimentPreview(
-        experiment_id=plan.experiment_id,
-        experiment_kind=plan.experiment_kind,
-        point_count=plan.point_count,
-        schema=plan.expected_dataset_schema,
-        coordinate_ids=tuple(plan.coordinate_ids),
-        points=tuple(
-            ExperimentPreviewPoint(
-                point_index=point.point_index,
-                point_uid=point.point_uid,
-                coordinates=dict(point.coordinates),
-            )
-            for point in plan.points
-        ),
-        records=tuple(
+    records: list[ExperimentPreviewRecord] = []
+    for record in selected.records:
+        retained = local_records.get(record.id)
+        if retained is not None:
+            records.append(retained)
+            continue
+        records.append(
             ExperimentPreviewRecord(
                 id=record.id,
                 kind=record.kind,
-                producer_kind=record.producer_kind,
-                resource_port_id=record.resource_port_id,
-                physical_resource_id=record.physical_resource_id,
-                capability=record.capability,
+                resource_port_id=None,
+                physical_resource_id=None,
+                capability=None,
                 unit=record.unit,
                 dtype=record.dtype,
                 dims=tuple(record.dims),
                 shape=tuple(record.shape),
             )
-            for record in plan.records
+        )
+    schema = selected.schema
+    return ExperimentPreview(
+        experiment_id=program.id,
+        experiment_kind=program.kind,
+        schema=schema,
+        coordinate_ids=tuple(selected.coordinate_ids),
+        points=tuple(
+            ExperimentPreviewPoint(
+                point_index=resolved.logical_ordinal,
+                point_uid=resolved.logical_id.value,
+                coordinates={
+                    coordinate_id: resolved.row[coordinate_id]
+                    for coordinate_id in selected.coordinate_ids
+                },
+            )
+            for resolved in points
         ),
-        state_changes=(),
-        routes=(),
-        state_fields=(),
-        payloads=(),
-        compute_steps=(),
-        runtime=ExperimentPreviewRuntimeSummary(
-            route_count=0,
-            state_field_count=0,
-            compute_operation_count=0,
-            compute_step_count=0,
-            payload_count=0,
-        ),
-        dataset_dimensions=dict(plan.dataset_dimensions),
-        primary_observables=tuple(plan.primary_observables),
+        records=tuple(records),
+        state_changes=local.state_changes if local is not None else (),
+        routes=local.routes if local is not None else (),
+        state_fields=local.state_fields if local is not None else (),
+        payloads=local.payloads if local is not None else (),
+        compute_steps=local.compute_steps if local is not None else (),
     )
 
 
@@ -252,7 +203,6 @@ def _preview_record(
     return ExperimentPreviewRecord(
         id=record.id,
         kind=record.kind,
-        producer_kind="instrument",
         resource_port_id=(
             producer.resource_target.qualified_name
             if isinstance(producer.resource_target, LogicalResourcePortId)

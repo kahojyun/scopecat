@@ -28,8 +28,9 @@ def test_build_run_overview_rejects_directory_artifact(tmp_path: Path) -> None:
         kind="bad",
         media_type="application/json",
     )
-    manifest.artifacts.append(artifact)
-    storage.write_manifest(manifest)
+    storage.write_manifest(
+        manifest.model_copy(update={"artifacts": (*manifest.artifacts, artifact)})
+    )
     storage.ref_path(run_id, artifact_storage_ref(artifact)).mkdir(parents=True)
 
     with pytest.raises(DataIntegrityError) as error:
