@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import partial
+from typing import override
 
 import pytest
 from hypothesis import given
@@ -89,6 +90,7 @@ class _TrackingBackend(ReferenceRelationBackend):
         super().__init__(backend_id="tests.operation-contract")
         self.materialization_count = 0
 
+    @override
     def materialize_relation(
         self,
         evaluation: PreparedRelationEvaluation[RelationExpr],

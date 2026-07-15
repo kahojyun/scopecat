@@ -556,7 +556,7 @@ def _nested_value_refs(
             for item in _nested_value_refs(nested, seen=nested_seen)
         )
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        selected = cast("Sequence[object]", value)
+        selected = value
         marker = id(selected)
         if marker in seen:
             return ()

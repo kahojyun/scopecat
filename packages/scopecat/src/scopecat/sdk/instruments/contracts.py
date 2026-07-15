@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Annotated, Any, Literal, Protocol
+from typing import Annotated, Literal, Protocol
 
 from pydantic import (
     BaseModel,
@@ -117,7 +117,7 @@ class CapabilityField(BaseModel):
 
     @field_validator("metadata")
     @classmethod
-    def reject_legacy_payload_kinds(cls, value: dict[str, Any]) -> dict[str, Any]:
+    def reject_legacy_payload_kinds(cls, value: dict[str, object]) -> dict[str, object]:
         if "payload_kinds" in value:
             msg = (
                 "payload_kinds is no longer metadata; declare Payload.schema_id "
@@ -412,9 +412,11 @@ class DriverFault(Exception):
 
 
 class InstrumentDriver(Protocol):
-    instrument_id: str
     implementation_id: str
     implementation_version: str
+
+    @property
+    def instrument_id(self) -> str: ...
 
     def describe(self) -> InstrumentDescription: ...
 

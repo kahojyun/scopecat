@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import override
 
 import scopecat as sc
 import scopecat.authoring as authoring
@@ -46,6 +47,7 @@ class _TrackingBackend(ReferenceRelationBackend):
         self.assessed_operations = []
         self.materialized_relations = []
 
+    @override
     def assess_relation_requirements(
         self,
         requirements: RelationPlanRequirements,
@@ -53,6 +55,7 @@ class _TrackingBackend(ReferenceRelationBackend):
         self.assessed_operations.append(requirements.required_operations)
         return super().assess_relation_requirements(requirements)
 
+    @override
     def materialize_relation(
         self,
         evaluation: PreparedRelationEvaluation[RelationExpr],

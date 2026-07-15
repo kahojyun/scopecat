@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 
 from scopecat.authoring._record_intents import (
     AxisSizeInput,
@@ -114,6 +114,9 @@ def lower_records(
     )
 
 
+_EMPTY_PRODUCT_IDS: frozenset[ProductId] = frozenset()
+
+
 def lower_product_selections(
     static_evaluator: StaticRelationEvaluator,
     topology: Topology,
@@ -125,7 +128,7 @@ def lower_product_selections(
     bind_series_input_refs: BindSeriesInputRefs,
     bind_relation_input_refs: BindRelationInputRefs,
     input_row: InputRow,
-    non_instrument_product_ids: frozenset[ProductId] = frozenset(),
+    non_instrument_product_ids: frozenset[ProductId] = _EMPTY_PRODUCT_IDS,
 ) -> LoweredProductModel:
     lowered = tuple(
         _lower_product_port(
@@ -363,7 +366,7 @@ def _static_axis_size(
     bind_series_input_refs: BindSeriesInputRefs,
     bind_relation_input_refs: BindRelationInputRefs,
     input_row: InputRow,
-) -> tuple[int, dict[str, Any]]:
+) -> tuple[int, dict[str, JsonValue]]:
     selected_value: object = value
     selected_type: ValueType | None = None
     if isinstance(value, ValueRef):
@@ -533,7 +536,7 @@ def _axis_entities(
     return resolved
 
 
-def _entity_axis_metadata(value: Sequence[EntityRef]) -> dict[str, Any]:
+def _entity_axis_metadata(value: Sequence[EntityRef]) -> dict[str, JsonValue]:
     entity_kind = value[0].kind if value else None
     if entity_kind is None or any(entity.kind != entity_kind for entity in value):
         entity_kind = None

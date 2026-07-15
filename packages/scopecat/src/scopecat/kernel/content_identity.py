@@ -43,7 +43,7 @@ def content_fingerprint(value: object) -> object:
         return {
             "kind": "enum",
             "type": _type_name(value),
-            "value": content_fingerprint(value.value),
+            "value": content_fingerprint(cast("object", value.value)),
         }
     if isinstance(value, bool):
         return {"kind": "bool", "value": value}
@@ -83,7 +83,7 @@ def content_fingerprint(value: object) -> object:
             # Read declared fields directly so intentionally excluded wire
             # fields still participate in transient content identity.
             "fields": [
-                [name, content_fingerprint(getattr(value, name))]
+                [name, content_fingerprint(cast("object", getattr(value, name)))]
                 for name in type(value).model_fields
             ],
         }
@@ -92,7 +92,10 @@ def content_fingerprint(value: object) -> object:
             "kind": "dataclass",
             "type": _type_name(value),
             "fields": [
-                [field.name, content_fingerprint(getattr(value, field.name))]
+                [
+                    field.name,
+                    content_fingerprint(cast("object", getattr(value, field.name))),
+                ]
                 for field in dataclass_fields(value)
             ],
         }
@@ -118,16 +121,16 @@ def content_fingerprint(value: object) -> object:
             "items": items,
         }
     if isinstance(value, Sequence):
-        sequence = cast("Sequence[object]", value)
+        sequence = value
         return {
             "kind": "sequence",
             "type": _type_name(cast("object", value)),
             "items": [content_fingerprint(item) for item in sequence],
         }
-    shape = getattr(value, "shape", None)
-    dtype = getattr(value, "dtype", None)
+    shape = cast("Sequence[object] | None", getattr(value, "shape", None))
+    dtype = cast("object | None", getattr(value, "dtype", None))
     if shape is not None or dtype is not None:
-        if bool(getattr(dtype, "hasobject", False)):
+        if cast("bool", getattr(dtype, "hasobject", False)):
             msg = f"cannot fingerprint object-backed array {_type_name(value)}"
             raise TypeError(msg)
         to_bytes = getattr(value, "tobytes", None)
@@ -142,7 +145,7 @@ def content_fingerprint(value: object) -> object:
         if not isinstance(encoded, bytes):
             msg = f"array-like value {_type_name(value)} returned non-byte content"
             raise TypeError(msg)
-        strides = getattr(value, "strides", None)
+        strides = cast("Sequence[object] | None", getattr(value, "strides", None))
         return {
             "kind": "array",
             "type": _type_name(value),

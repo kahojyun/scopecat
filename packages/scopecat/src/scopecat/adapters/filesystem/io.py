@@ -51,8 +51,8 @@ def ensure_durable_directory(path: Path) -> None:
         except FileExistsError:
             if not directory.is_dir():
                 raise
-        _fsync_directory(directory)
-        _fsync_directory(directory.parent)
+        fsync_directory(directory)
+        fsync_directory(directory.parent)
 
 
 def write_model(path: Path, model: BaseModel) -> None:
@@ -77,7 +77,7 @@ def write_model_if_absent(path: Path, model: BaseModel) -> bool:
         return True
     finally:
         temporary_path.unlink(missing_ok=True)
-        _fsync_directory(path.parent)
+        fsync_directory(path.parent)
 
 
 def _fsync_file(path: Path) -> None:
@@ -85,7 +85,7 @@ def _fsync_file(path: Path) -> None:
         os.fsync(persisted_file.fileno())
 
 
-def _fsync_directory(path: Path) -> None:
+def fsync_directory(path: Path) -> None:
     directory_fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(directory_fd)
@@ -133,7 +133,7 @@ def _write_atomic(path: Path, write_temporary: Callable[[Path], object]) -> None
         write_temporary(temporary_path)
         _fsync_file(temporary_path)
         temporary_path.replace(path)
-        _fsync_directory(path.parent)
+        fsync_directory(path.parent)
     finally:
         temporary_path.unlink(missing_ok=True)
 

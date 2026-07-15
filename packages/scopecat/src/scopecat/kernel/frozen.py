@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Iterator, Mapping
 from types import MappingProxyType
-from typing import Never, TypeVar, cast
+from typing import Never, TypeVar, cast, override
 
 _K = TypeVar("_K")
 _V = TypeVar("_V")
@@ -19,18 +19,23 @@ class FrozenMapping(Mapping[_K, _V]):
     def __init__(self, values: Iterable[tuple[_K, _V]] = ()) -> None:
         self._values = MappingProxyType(dict(values))
 
+    @override
     def __getitem__(self, key: _K) -> _V:
         return self._values[key]
 
+    @override
     def __iter__(self) -> Iterator[_K]:
         return iter(self._values)
 
+    @override
     def __len__(self) -> int:
         return len(self._values)
 
+    @override
     def __repr__(self) -> str:
         return repr(dict(self._values))
 
+    @override
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Mapping):
             return False

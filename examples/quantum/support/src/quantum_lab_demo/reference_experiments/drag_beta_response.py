@@ -13,6 +13,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import override
 
 from scopecat import Quantity
 from scopecat_quantum import (
@@ -165,6 +166,7 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
         object.__setattr__(self, "_fingerprint", fingerprint)
 
     @property
+    @override
     def fingerprint(self) -> str:
         """Return the stable identity of all response-affecting facts."""
 
@@ -216,6 +218,7 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
             curvature=self.curvature,
         )
 
+    @override
     def value_for(
         self,
         *,

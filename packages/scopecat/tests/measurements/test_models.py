@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from scopecat.records.measurement import (
     MEASUREMENT_DATASET_SCHEMA_VERSION,
     MEASUREMENT_RECORD_SCHEMA_VERSION,
@@ -95,7 +97,7 @@ def test_typed_measurement_array_leaves_survive_record_round_trip() -> None:
 
     assert isinstance(iq, MeasurementArray)
     assert isinstance(original_iq, MeasurementArray)
-    assert isinstance(iq.values[0][0], ComplexQuantity)
+    assert isinstance(cast("list[object]", iq.values[0])[0], ComplexQuantity)
     assert iq.values == original_iq.values
     assert isinstance(probability, MeasurementArray)
     assert isinstance(original_probability, MeasurementArray)

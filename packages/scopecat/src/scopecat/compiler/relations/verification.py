@@ -454,6 +454,9 @@ class _Rows:
         )
 
 
+_EMPTY_COLUMN_IDS: frozenset[str] = frozenset()
+
+
 class _Verifier:
     def __init__(self, bindings: RelationTypeBindings) -> None:
         self.bindings = bindings
@@ -1496,7 +1499,7 @@ class _Verifier:
         node: RelationExpr,
         expected: Table | None,
         *,
-        excluded_column_ids: set[str] | frozenset[str] = frozenset(),
+        excluded_column_ids: set[str] | frozenset[str] = _EMPTY_COLUMN_IDS,
     ) -> Table | None:
         """Project a consumer row contract onto one compositional child."""
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self
+from typing import Self, override
 from urllib.parse import quote
 
 
@@ -23,6 +23,7 @@ class _NominalId:
             msg = f"{type(self).__name__} cannot contain Unicode surrogates"
             raise ValueError(msg)
 
+    @override
     def __str__(self) -> str:
         return self.value
 
@@ -108,6 +109,7 @@ class _StructuralId:
             scope=(*segments, *self.scope),
         )
 
+    @override
     def __str__(self) -> str:
         return self.qualified_name
 

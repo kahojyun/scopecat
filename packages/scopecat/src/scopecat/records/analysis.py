@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,7 +35,7 @@ class AnalysisRecordOutput(BaseModel):
 
     kind: AnalysisRecordOutputKind
     title: str
-    content: Any
+    content: object
     metadata: JsonMetadata = Field(default_factory=dict)
 
 

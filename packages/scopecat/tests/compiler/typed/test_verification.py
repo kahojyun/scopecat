@@ -78,7 +78,7 @@ def _catalog(operation_id: OperationId) -> ImplementationCatalog:
                 id=ImplementationId(f"python.{operation_id.qualified_name}.v1"),
                 operation_id=operation_id,
                 operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                kernel=lambda **_inputs: None,
+                kernel=_empty_kernel,
             ),
         )
     )
@@ -229,3 +229,7 @@ def test_typed_program_seal_reuses_a_trusted_normalized_program() -> None:
     sealed = seal_typed_program(program)
 
     assert sealed.program is program
+
+
+def _empty_kernel(**_inputs: object) -> None:
+    return None

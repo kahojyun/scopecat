@@ -36,8 +36,8 @@ from scopecat.compiler.typed.program import (
     ValueInput,
     typed_program,
 )
-from scopecat.execution.local.engine import (  # pyright: ignore[reportPrivateUsage]
-    _versioned_value,
+from scopecat.execution.local.engine import (
+    versioned_value,
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table
@@ -108,7 +108,7 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
                     id=ImplementationId("python.consume-parameters.v1"),
                     operation_id=operation_id,
                     operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                    kernel=lambda **_inputs: True,
+                    kernel=_true_kernel,
                 ),
             )
         ),
@@ -148,11 +148,11 @@ def test_entity_cache_fingerprint_uses_identity_not_metadata() -> None:
         metadata={"label": "observed"},
     )
 
-    assert _versioned_value(configured) == _versioned_value(observed)
-    assert _versioned_value(configured) != _versioned_value(
+    assert versioned_value(configured) == versioned_value(observed)
+    assert versioned_value(configured) != versioned_value(
         EntityRef(id="q0", kind="physical_qubit")
     )
-    assert _versioned_value(configured) != _versioned_value(
+    assert versioned_value(configured) != versioned_value(
         EntityRef(id="q1", kind="logical_qubit")
     )
 
@@ -164,3 +164,7 @@ def test_parameter_relation_data_rejects_cross_shape_id_collisions() -> None:
             series={"shared": [2]},
             tables={"shared": [{"value": 3}]},
         )
+
+
+def _true_kernel(**_inputs: object) -> bool:
+    return True

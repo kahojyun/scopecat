@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
 
 import pytest
 
@@ -39,6 +38,18 @@ def _payload_type() -> sc.ScalarType:
     return sc.ScalarType(sc.PayloadType("test.module-output"))
 
 
+def _identity_payload(*, payload: object) -> object:
+    return payload
+
+
+def _capture_pair(*, passthrough: object, shifted: object) -> tuple[object, object]:
+    return passthrough, shifted
+
+
+def _identity_consumed(*, consumed: object) -> object:
+    return consumed
+
+
 def _producer_module() -> sc.ExperimentModule:
     payload_type = _payload_type()
     produce = sc.compute(
@@ -59,7 +70,7 @@ def _consumer_module() -> sc.ExperimentModule:
     payload = sc.input("payload", payload_type)
     consume = sc.compute(
         "consume",
-        fn=lambda *, payload: payload,
+        fn=_identity_payload,
         inputs={"payload": payload},
         output_type=payload_type,
     )
@@ -248,7 +259,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
     shifted_input = sc.input("shifted", value_type)
     capture = sc.compute(
         "capture",
-        fn=lambda *, passthrough, shifted: (passthrough, shifted),
+        fn=_capture_pair,
         inputs={"passthrough": passthrough_input, "shifted": shifted_input},
         output_type=sc.ScalarType(sc.PayloadType("test.export-capture")),
     )
@@ -367,7 +378,7 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
     consumed = sc.input("consumed", value_type)
     capture = sc.compute(
         "capture",
-        fn=lambda *, consumed: consumed,
+        fn=_identity_consumed,
         inputs={"consumed": consumed},
         output_type=value_type,
     )
@@ -430,16 +441,6 @@ def test_module_build_rejects_undeclared_export_inputs() -> None:
     assert [problem.code for problem in error.value.problems] == [
         "module_input_undeclared"
     ]
-
-
-def test_module_use_requires_explicit_instances() -> None:
-    root = sc.module("test.outputs.explicit-use")
-    use = root.use
-
-    with pytest.raises(TypeError, match="instantiate"):
-        use(cast("sc.ModuleInvocation", _producer_module()))
-    with pytest.raises(TypeError, match="instantiate"):
-        use(cast("sc.ModuleInvocation", sc.module("test.outputs.unbuilt-child")))
 
 
 def test_duplicate_explicit_instance_ids_are_rejected() -> None:

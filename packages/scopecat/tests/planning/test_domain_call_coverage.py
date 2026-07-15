@@ -15,7 +15,7 @@ from scopecat.kernel.product_identity import (
     product_id,
 )
 from scopecat.kernel.symbols import SymbolId
-from scopecat.planning.backend import _domain_call_affinity_problems
+from scopecat.planning.backend import domain_call_affinity_problems
 from scopecat.planning.coverage import ExecutionCoverage, ExecutionTask
 
 
@@ -45,7 +45,7 @@ def _program_with_demanded_domain_result() -> TypedProgram:
 
 def test_domain_call_and_demanded_results_require_one_owner() -> None:
     program = _program_with_demanded_domain_result()
-    problems = _domain_call_affinity_problems(
+    problems = domain_call_affinity_problems(
         program,
         (
             (
@@ -66,7 +66,7 @@ def test_domain_call_and_demanded_results_require_one_owner() -> None:
 
 def test_domain_call_and_demanded_results_accept_one_owner() -> None:
     program = _program_with_demanded_domain_result()
-    problems = _domain_call_affinity_problems(
+    problems = domain_call_affinity_problems(
         program,
         (
             (

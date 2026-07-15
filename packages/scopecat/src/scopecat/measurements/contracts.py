@@ -82,13 +82,14 @@ def measurement_value_contract_issues(
             include_context=False,
             include_input=False,
         )
-        first_path = _validation_error_path(errors[0].get("loc", ()))
+        first_error = cast("dict[str, object]", cast("object", errors[0]))
+        first_path = _validation_error_path(first_error.get("loc", ()))
         return (
             MeasurementValueContractIssue(
                 code=MeasurementValueContractIssueCode.VALUE_MODEL_INVALID,
                 path=first_path,
                 expected=type(value).__name__,
-                actual=str(errors[0].get("type", "validation_error")),
+                actual=str(first_error.get("type", "validation_error")),
             ),
         )
     except (TypeError, ValueError) as error:

@@ -303,7 +303,10 @@ def compute(
 def compute_declaration_key_internal(definition: Compute) -> ComputeDeclarationKey:
     """Return the typed identity shared by a declaration and its output."""
 
-    return object.__getattribute__(definition, "_declaration_key")
+    return cast(
+        "ComputeDeclarationKey",
+        object.__getattribute__(definition, "_declaration_key"),
+    )
 
 
 def _capture_compute_input(value: ComputeInput) -> ComputeInput:

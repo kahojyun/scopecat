@@ -8,6 +8,7 @@ import scopecat as sc
 from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
 from scopecat.composition.local import local_run_repository, local_workspace_services
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
+from scopecat.records.execution import ExecutionSummary
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import (
     dataset_storage_ref,
@@ -88,6 +89,7 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         selector="execution-summary",
         services=local_workspace_services(tmp_path),
     )
+    summary = ExecutionSummary.model_validate(snapshot.content)
     raw_dataset = read_run_measurement_dataset(
         run_id=candidate.run_id,
         services=local_workspace_services(tmp_path),
@@ -126,8 +128,8 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         "readout-matrix",
     }
     assert [dataset.id for dataset in measurement_datasets] == ["raw-measurements"]
-    assert snapshot.content["outcome"]["result"] == "succeeded"
-    assert snapshot.content["measurement_count"] == 3
+    assert summary.outcome.result == "succeeded"
+    assert summary.measurement_count == 3
     assert raw_dataset.dataset_entry.id == "raw-measurements"
     assert raw_dataset.dataset.dataset_schema.dataset_id == "raw-measurements"
     assert len(raw_dataset.dataset.records) == 3

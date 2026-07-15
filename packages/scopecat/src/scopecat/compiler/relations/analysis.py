@@ -640,7 +640,7 @@ def _prefix_plan_row_scopes(
                 for name, value in node.key.items()
             }
         for field_name in ("left", "right", "fallback"):
-            value = getattr(node, field_name)
+            value = cast("PlanNode | None", getattr(node, field_name))
             if value is not None:
                 update[field_name] = _prefix_plan_row_scopes(value, scope)
         if node.cases is not None:
@@ -661,7 +661,7 @@ def _prefix_plan_row_scopes(
     if isinstance(node, SeriesExpr):
         update = {}
         for field_name in ("start", "stop", "step", "source"):
-            value = getattr(node, field_name)
+            value = cast("PlanNode | None", getattr(node, field_name))
             if value is not None:
                 update[field_name] = _prefix_plan_row_scopes(value, scope)
         return node.model_copy(update=update) if update else node
@@ -670,7 +670,7 @@ def _prefix_plan_row_scopes(
     if node.row_scope_id is not None:
         update["row_scope_id"] = node.row_scope_id.prefixed(*scope)
     for field_name in ("source", "left", "right", "condition"):
-        value = getattr(node, field_name)
+        value = cast("PlanNode | None", getattr(node, field_name))
         if value is not None:
             update[field_name] = _prefix_plan_row_scopes(value, scope)
     if node.sources is not None:
@@ -683,7 +683,8 @@ def _prefix_plan_row_scopes(
             column_update = {
                 field_name: _prefix_plan_row_scopes(value, scope)
                 for field_name in ("scalar", "series", "relation")
-                if (value := getattr(column, field_name)) is not None
+                if (value := cast("PlanNode | None", getattr(column, field_name)))
+                is not None
             }
             columns[name] = (
                 column.model_copy(update=column_update) if column_update else column

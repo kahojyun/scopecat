@@ -6,7 +6,7 @@ import math
 from collections.abc import Mapping, Sequence
 from functools import cmp_to_key
 from itertools import product
-from typing import Any, cast
+from typing import cast
 
 from scopecat.compiler.relations.analysis import RelationOperation
 from scopecat.compiler.relations.backend import (
@@ -384,9 +384,10 @@ def _evaluate_relation(expression: RelationExpr, ctx: EvalContext) -> list[Row]:
             msg = "zip relation requires sources with equal length"
             raise ValueError(msg)
         zipped: list[Row] = []
-        for row_group in zip(*rows_by_source, strict=True):
+        for row_index in range(next(iter(lengths), 0)):
             merged: Row = {}
-            for row in row_group:
+            for rows in rows_by_source:
+                row = rows[row_index]
                 overlap = set(merged).intersection(row)
                 if overlap:
                     msg = "zip relation contains duplicate columns: " + ", ".join(
@@ -545,7 +546,7 @@ def _input_series(inputs: Mapping[str, object], name: str) -> list[CellValue]:
         msg = f"series input {name!r} must be a sequence"
         raise TypeError(msg)
     items: list[CellValue] = []
-    for item in cast("Sequence[object]", value):
+    for item in value:
         if not is_cell_value(item):
             msg = f"series input {name!r} contains unsupported value {item!r}"
             raise TypeError(msg)
@@ -563,7 +564,7 @@ def _input_table(inputs: Mapping[str, object], name: str) -> list[Row]:
         msg = f"table input {name!r} must be a sequence of rows"
         raise TypeError(msg)
     rows: list[Row] = []
-    for row in cast("Sequence[object]", value):
+    for row in value:
         if not isinstance(row, Mapping):
             msg = f"table input {name!r} contains non-row value {row!r}"
             raise TypeError(msg)
@@ -594,7 +595,7 @@ def _normalize_input_cell(value: object) -> CellValue:
     if not all(isinstance(key, str) for key in mapping):
         msg = "input table mapping cells must use string keys"
         raise TypeError(msg)
-    return dict(cast("Mapping[str, Any]", mapping))
+    return dict(cast("Mapping[str, object]", mapping))
 
 
 def _required[T](value: T | None) -> T:

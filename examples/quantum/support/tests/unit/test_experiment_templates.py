@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 import scopecat as sc
-from demo_lab_experiment_testkit import load_experiment_config
 from scopecat.authoring import (
     ExperimentInvocation,
     ValueValidationError,
@@ -70,6 +69,8 @@ from quantum_lab_demo.experiments.templates import (
     TOY_SURFACE_CODE_ROUND_TEMPLATE,
 )
 from quantum_lab_demo.lab import quantum_lab
+
+from .demo_lab_experiment_testkit import load_experiment_config
 
 
 def test_template_constants_cover_experiment_system() -> None:

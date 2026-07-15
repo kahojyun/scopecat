@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
 
 from pydantic import BaseModel
 
@@ -26,9 +25,8 @@ def assert_model_round_trip[ModelT: BaseModel](
     schema_version: str | None = None,
     by_alias: bool = False,
 ) -> ModelT:
-    restored = cast(
-        ModelT,
-        type(record).model_validate_json(record.model_dump_json(by_alias=by_alias)),
+    restored = type(record).model_validate_json(
+        record.model_dump_json(by_alias=by_alias)
     )
     assert restored == record
     if schema_version is not None:

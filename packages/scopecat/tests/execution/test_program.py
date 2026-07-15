@@ -382,7 +382,9 @@ def test_execution_collection_inventory_snapshots_runtime_sequence() -> None:
 
     snapshotted = replace(
         program,
-        collection_product_use_ids=cast("tuple[ProductUseId, ...]", supplied),
+        collection_product_use_ids=cast(
+            "tuple[ProductUseId, ...]", cast("object", supplied)
+        ),
     )
     supplied.clear()
 
@@ -457,7 +459,7 @@ def test_point_program_rejects_non_topological_compute_order() -> None:
         semantic_operation_id="consumer",
         implementation_id="python.consumer.v1",
         contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        kernel=lambda *, value: value,
+        kernel=_identity_value,
         inputs={"value": OutputInput(producer.result.id)},
         result=ComputeResultSlot(
             id=operation_result_id(consumer_id),
@@ -498,7 +500,7 @@ def test_point_compute_order_does_not_alias_operation_and_value_namespaces() -> 
         semantic_operation_id="consumer",
         implementation_id="python.consumer.v1",
         contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        kernel=lambda *, value: value,
+        kernel=_identity_value,
         inputs={"value": OutputInput(wrong_value_id)},
         result=ComputeResultSlot(
             id=operation_result_id(OperationId(SymbolId(local_id="consumer"))),
@@ -594,3 +596,7 @@ def _gain_state(instrument_id: str, value: float) -> BoundResourceState:
         capability_id="set_gain",
         fields=(BoundStateField(field_path="gain", value=StateValue(value)),),
     )
+
+
+def _identity_value(*, value: object) -> object:
+    return value

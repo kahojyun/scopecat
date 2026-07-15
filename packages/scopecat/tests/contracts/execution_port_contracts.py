@@ -129,10 +129,13 @@ class ExecutionJournalContract:
         run_id = "run-journal-concurrency-contract"
         journal = self.make_journal(tmp_path, run_id=run_id)
 
+        def append_transition(ordinal: int) -> ExecutionTransition:
+            return journal.append(_transition(run_id, ordinal))
+
         with ThreadPoolExecutor(max_workers=4) as executor:
             committed = tuple(
                 executor.map(
-                    lambda ordinal: journal.append(_transition(run_id, ordinal)),
+                    append_transition,
                     range(12),
                 )
             )
@@ -225,10 +228,13 @@ class MeasurementRecordCommitterContract:
         committer = self.make_committer(tmp_path, run_id=run_id)
         chunk = _measurement_chunk(run_id)
 
+        def replay_chunk(_ordinal: int) -> MeasurementRecordReceipt:
+            return committer.commit(chunk.model_copy(deep=True))
+
         with ThreadPoolExecutor(max_workers=4) as executor:
             receipts = tuple(
                 executor.map(
-                    lambda _ordinal: committer.commit(chunk.model_copy(deep=True)),
+                    replay_chunk,
                     range(8),
                 )
             )

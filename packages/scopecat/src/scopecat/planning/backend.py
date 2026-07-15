@@ -720,7 +720,7 @@ def _prepare_backend_plan(
         )
     )
     problems.extend(
-        _domain_call_affinity_problems(
+        domain_call_affinity_problems(
             linked.program,
             tuple((unit.id, unit.coverage) for unit in provisional_domains),
         )
@@ -1128,7 +1128,7 @@ def _coverage_problems(
     return tuple(problems)
 
 
-def _domain_call_affinity_problems(
+def domain_call_affinity_problems(
     program: TypedProgram,
     domain_owners: tuple[tuple[str, ExecutionCoverage], ...],
 ) -> tuple[Problem, ...]:

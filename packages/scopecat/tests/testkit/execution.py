@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import cast
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import link_program
@@ -110,7 +109,7 @@ def execute_program_run(
         event_sink=event_sink,
         payload_observer=payload_observer,
     )
-    return manifest, cast("ExecutionSummary", summary)
+    return manifest, summary
 
 
 __all__ = ["execute_bound_run", "execute_program_run"]

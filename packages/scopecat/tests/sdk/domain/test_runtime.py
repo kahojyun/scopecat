@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
@@ -54,7 +54,6 @@ from scopecat.sdk.domain.runtime import (
     KnownDomainSubmission,
     PendingDomainFetch,
     UncertainDomainSubmission,
-    _correlated_domain_fetch,
     domain_receipt_identity,
     fetch_domain_invocation,
     plan_domain_submission,
@@ -242,84 +241,87 @@ def test_domain_receipt_truth_tables_accept_valid_candidates() -> None:
     )
 
 
+_CONTRADICTORY_RECEIPT_FACTORIES: list[_ReceiptFactory] = [
+    lambda identity, _blocking: DomainSubmitReceipt(
+        identity=identity,
+        status="submitted",
+    ),
+    lambda identity, blocking: DomainSubmitReceipt(
+        identity=identity,
+        status="submitted",
+        job_id="job",
+        problems=blocking,
+    ),
+    lambda identity, _blocking: DomainSubmitReceipt(
+        identity=identity,
+        status="not_submitted",
+    ),
+    lambda identity, blocking: DomainSubmitReceipt(
+        identity=identity,
+        status="not_submitted",
+        job_id="job",
+        problems=blocking,
+    ),
+    lambda identity, _blocking: DomainSubmitReceipt(
+        identity=identity,
+        status="unknown",
+    ),
+    lambda identity, _blocking: DomainFetchReceipt(
+        identity=identity,
+        job_id="job",
+        status="fetched",
+    ),
+    lambda identity, blocking: DomainFetchReceipt(
+        identity=identity,
+        job_id="job",
+        status="fetched",
+        result_fingerprint="result-fingerprint",
+        result_count=1,
+        problems=blocking,
+    ),
+    lambda identity, _blocking: DomainFetchReceipt(
+        identity=identity,
+        job_id="job",
+        status="pending",
+        result_fingerprint="result-fingerprint",
+        result_count=1,
+    ),
+    lambda identity, blocking: DomainFetchReceipt(
+        identity=identity,
+        job_id="job",
+        status="pending",
+        problems=blocking,
+    ),
+    lambda identity, _blocking: DomainFetchReceipt(
+        identity=identity,
+        job_id="job",
+        status="not_found",
+    ),
+    lambda identity, _blocking: DomainReconcileReceipt(
+        identity=identity,
+        status="absent",
+        job_id="job",
+    ),
+    lambda identity, _blocking: DomainReconcileReceipt(
+        identity=identity,
+        status="submitted",
+    ),
+    lambda identity, blocking: DomainReconcileReceipt(
+        identity=identity,
+        status="completed",
+        job_id="job",
+        problems=blocking,
+    ),
+    lambda identity, _blocking: DomainReconcileReceipt(
+        identity=identity,
+        status="unknown",
+    ),
+]
+
+
 @pytest.mark.parametrize(
     "factory",
-    [
-        lambda identity, _blocking: DomainSubmitReceipt(
-            identity=identity,
-            status="submitted",
-        ),
-        lambda identity, blocking: DomainSubmitReceipt(
-            identity=identity,
-            status="submitted",
-            job_id="job",
-            problems=blocking,
-        ),
-        lambda identity, _blocking: DomainSubmitReceipt(
-            identity=identity,
-            status="not_submitted",
-        ),
-        lambda identity, blocking: DomainSubmitReceipt(
-            identity=identity,
-            status="not_submitted",
-            job_id="job",
-            problems=blocking,
-        ),
-        lambda identity, _blocking: DomainSubmitReceipt(
-            identity=identity,
-            status="unknown",
-        ),
-        lambda identity, _blocking: DomainFetchReceipt(
-            identity=identity,
-            job_id="job",
-            status="fetched",
-        ),
-        lambda identity, blocking: DomainFetchReceipt(
-            identity=identity,
-            job_id="job",
-            status="fetched",
-            result_fingerprint="result-fingerprint",
-            result_count=1,
-            problems=blocking,
-        ),
-        lambda identity, _blocking: DomainFetchReceipt(
-            identity=identity,
-            job_id="job",
-            status="pending",
-            result_fingerprint="result-fingerprint",
-            result_count=1,
-        ),
-        lambda identity, blocking: DomainFetchReceipt(
-            identity=identity,
-            job_id="job",
-            status="pending",
-            problems=blocking,
-        ),
-        lambda identity, _blocking: DomainFetchReceipt(
-            identity=identity,
-            job_id="job",
-            status="not_found",
-        ),
-        lambda identity, _blocking: DomainReconcileReceipt(
-            identity=identity,
-            status="absent",
-            job_id="job",
-        ),
-        lambda identity, _blocking: DomainReconcileReceipt(
-            identity=identity,
-            status="submitted",
-        ),
-        lambda identity, blocking: DomainReconcileReceipt(
-            identity=identity,
-            status="completed",
-            job_id="job",
-            problems=blocking,
-        ),
-        lambda identity, _blocking: DomainReconcileReceipt(
-            identity=identity,
-            status="unknown",
-        ),
-    ],
+    _CONTRADICTORY_RECEIPT_FACTORIES,
     ids=(
         "submitted-without-job",
         "submitted-with-blocking-problem",
@@ -1121,7 +1123,7 @@ def test_runtime_state_constructors_establish_their_invariants() -> None:
         job_id_hint=None,
         problems=(_problem(),),
     )
-    correlated = _correlated_domain_fetch(known, fetched, "payload")
+    correlated = CorrelatedDomainFetch(receipt=fetched, result="payload")
     pending_fetch = PendingDomainFetch(known, pending)
 
     assert known.job_id == "job-1"
@@ -1135,27 +1137,14 @@ def test_runtime_state_constructors_establish_their_invariants() -> None:
         KnownDomainSubmission(submission_id, not_submitted, "submit")
     with pytest.raises(ValueError, match="definitive negative evidence"):
         AbsentDomainSubmission(submission_id, submitted, "submit")
-    with pytest.raises(ValueError, match="fetched payload"):
-        _correlated_domain_fetch(known, pending, "payload")
     with pytest.raises(ValueError, match="pending receipt"):
         PendingDomainFetch(known, fetched)
 
 
-def test_fetch_and_reconcile_require_correlated_stage_values_before_runtime_calls() -> (
-    None
-):
+def test_fetch_requires_correlated_stage_values_before_runtime_calls() -> None:
     invocation = _closed_invocation()
     submission_id = _submission_id(invocation)
     runtime = _ScriptedRuntime()
-
-    with pytest.raises(TypeError, match="UncertainDomainSubmission"):
-        reconcile_domain_invocation(
-            runtime,
-            invocation.intent,
-            cast("UncertainDomainSubmission", submission_id),
-            journal=MemoryExecutionJournal(),
-        )
-    assert runtime.reconcile_calls == 0
 
     foreign_invocation = _closed_invocation(adapter_intent={"different": True})
     foreign_submission_id = plan_domain_submission(

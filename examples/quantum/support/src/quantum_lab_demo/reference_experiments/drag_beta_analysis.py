@@ -61,7 +61,7 @@ class DragBetaFitAssessment:
             ("beta_signal_to_rmse", self.beta_signal_to_rmse),
             ("edge_margin_fraction", self.edge_margin_fraction),
         ):
-            if isinstance(value, bool) or not isinstance(value, int | float):
+            if isinstance(value, bool):
                 msg = f"DRAG-beta assessment {name} must be a finite number"
                 raise TypeError(msg)
             if not math.isfinite(float(value)):
@@ -92,7 +92,7 @@ class DragBetaFitAssessment:
             raise ValueError(msg)
         selected_checks = tuple(self.failed_checks)
         if len(set(selected_checks)) != len(selected_checks) or any(
-            not isinstance(check, str) or not check for check in selected_checks
+            not check for check in selected_checks
         ):
             msg = "DRAG-beta failed quality checks must be unique non-empty text"
             raise ValueError(msg)

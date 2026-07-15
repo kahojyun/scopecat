@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import FrozenInstanceError, dataclass
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast, override
 from uuid import UUID, uuid4
 
 from scopecat.authoring._parameter_contracts import (
@@ -125,12 +125,15 @@ class _LoweredValueRefInputs(Mapping[str, object]):
     def __init__(self, values: Mapping[str, ValueRef]) -> None:
         self._values = values
 
+    @override
     def __getitem__(self, key: str) -> object:
         return internal_lower_value_ref(self._values[key])
 
+    @override
     def __iter__(self) -> Iterator[str]:
         return iter(self._values)
 
+    @override
     def __len__(self) -> int:
         return len(self._values)
 
@@ -182,11 +185,13 @@ class TableRow:
         msg = "TableRow is a callback scope and cannot be constructed directly"
         raise TypeError(msg)
 
+    @override
     def __setattr__(self, name: str, value: object) -> None:
         del value
         msg = f"cannot assign to field {name!r}"
         raise FrozenInstanceError(msg)
 
+    @override
     def __delattr__(self, name: str) -> None:
         msg = f"cannot delete field {name!r}"
         raise FrozenInstanceError(msg)
@@ -198,6 +203,7 @@ class TableRow:
         del memo
         return self
 
+    @override
     def __repr__(self) -> str:
         return (
             f"{type(self).__qualname__}("
@@ -253,6 +259,9 @@ class TableRow:
         return row
 
 
+_EMPTY_BOUND_POINT_INPUT_IDS: frozenset[str] = frozenset()
+
+
 class ValueRef:
     """Opaque first-class typed edge in the public authoring value graph.
 
@@ -293,11 +302,13 @@ class ValueRef:
         msg = "ValueRef is an opaque handle; create values with scopecat DSL factories"
         raise TypeError(msg)
 
+    @override
     def __setattr__(self, name: str, value: object) -> None:
         del value
         msg = f"cannot assign to field {name!r}"
         raise FrozenInstanceError(msg)
 
+    @override
     def __delattr__(self, name: str) -> None:
         msg = f"cannot delete field {name!r}"
         raise FrozenInstanceError(msg)
@@ -309,9 +320,11 @@ class ValueRef:
         del memo
         return self
 
+    @override
     def __repr__(self) -> str:
         return f"{type(self).__qualname__}()"
 
+    @override
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ValueRef) and (
             self._declaration_key,
@@ -321,6 +334,7 @@ class ValueRef:
             other._declaration_scope,
         )
 
+    @override
     def __hash__(self) -> int:
         return hash((self._declaration_key, self._declaration_scope))
 
@@ -339,7 +353,7 @@ class ValueRef:
         parameter_contracts: tuple[ParameterContract, ...] = (),
         point_dependencies: tuple[PointValueDependency, ...] = (),
         free_point_dependencies: tuple[PointValueDependency, ...] | None = None,
-        bound_point_input_ids: frozenset[str] = frozenset(),
+        bound_point_input_ids: frozenset[str] = _EMPTY_BOUND_POINT_INPUT_IDS,
     ) -> ValueRef:
         value = object.__new__(cls)
         object.__setattr__(
@@ -1754,7 +1768,7 @@ def internal_value_ref_from_expression(
     parameter_contracts: tuple[ParameterContract, ...] = (),
     point_dependencies: tuple[PointValueDependency, ...] = (),
     free_point_dependencies: tuple[PointValueDependency, ...] | None = None,
-    bound_point_input_ids: frozenset[str] = frozenset(),
+    bound_point_input_ids: frozenset[str] = _EMPTY_BOUND_POINT_INPUT_IDS,
 ) -> ValueRef:
     """Construct a typed expression edge inside the authoring implementation."""
 

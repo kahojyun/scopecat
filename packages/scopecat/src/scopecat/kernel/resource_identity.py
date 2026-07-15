@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import override
 
 from scopecat.kernel.symbols import SymbolId
 
@@ -28,6 +29,7 @@ class LogicalResourcePortId:
     def prefixed(self, *scope: str) -> LogicalResourcePortId:
         return LogicalResourcePortId(self.symbol.prefixed(*scope))
 
+    @override
     def __str__(self) -> str:
         return self.qualified_name
 
@@ -43,6 +45,7 @@ class PhysicalResourceId:
             msg = "physical resource id must be non-empty"
             raise ValueError(msg)
 
+    @override
     def __str__(self) -> str:
         return self.value
 

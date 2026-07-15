@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Any, Literal, Self
+from typing import Literal, Self, override
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -97,10 +97,11 @@ class ParameterChangeDecisionRecord(BaseModel):
                 raise ValueError(msg)
         return value
 
+    @override
     def model_copy(
         self,
         *,
-        update: Mapping[str, Any] | None = None,
+        update: Mapping[str, object] | None = None,
         deep: bool = False,
     ) -> Self:
         """Copy through validation so durable decision invariants cannot drift."""

@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 
-from scopecat.execution.local.engine import _validate_readback
+from scopecat.execution.local.engine import validate_readback
 from scopecat.execution.local.program import CollectionResultBinding, CollectOperation
 from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.product_identity import ProductUseId, product_id
@@ -369,7 +369,7 @@ def test_execution_readback_preserves_top_level_problem_codes() -> None:
         }
     )
 
-    problems = _validate_readback(operation, readback)
+    problems = validate_readback(operation, readback)
 
     assert tuple(problem.code for problem in problems) == (
         "instrument_readback_dtype_mismatch",
@@ -406,7 +406,7 @@ def test_execution_readback_maps_leaf_issues_to_value_mismatch() -> None:
         }
     )
 
-    problems = _validate_readback(operation, readback)
+    problems = validate_readback(operation, readback)
 
     assert tuple(problem.code for problem in problems) == (
         "instrument_readback_value_mismatch",
@@ -432,7 +432,7 @@ def test_execution_readback_maps_nested_structure_to_shape_mismatch() -> None:
     retained = cast("MeasurementArray", readback.values["iq"])
     retained.values[1] = []
 
-    problems = _validate_readback(operation, readback)
+    problems = validate_readback(operation, readback)
 
     assert tuple(problem.code for problem in problems) == (
         "instrument_readback_shape_mismatch",

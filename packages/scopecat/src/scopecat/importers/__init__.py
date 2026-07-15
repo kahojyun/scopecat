@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -47,9 +47,9 @@ class ScalarParameterDraftValue(BaseModel):
 
     shape: Literal["scalar"] = "scalar"
     id: str
-    value: Any
+    value: object
     location: ExternalLocation
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 class SeriesParameterDraftValue(BaseModel):
@@ -59,10 +59,10 @@ class SeriesParameterDraftValue(BaseModel):
 
     shape: Literal["series"] = "series"
     id: str
-    items: list[Any] = Field(default_factory=list)
+    items: list[object] = Field(default_factory=list)
     location: ExternalLocation
     item_locations: list[ExternalLocation] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_item_locations(self) -> SeriesParameterDraftValue:
@@ -79,10 +79,10 @@ class TableParameterDraftValue(BaseModel):
 
     shape: Literal["table"] = "table"
     id: str
-    rows: list[dict[str, Any]] = Field(default_factory=list)
+    rows: list[dict[str, object]] = Field(default_factory=list)
     location: ExternalLocation
     row_locations: list[ExternalLocation] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_row_locations(self) -> TableParameterDraftValue:
@@ -105,7 +105,7 @@ class ParameterDraft(BaseModel):
 
     id: str
     values: list[DraftParameterValue] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 class ParameterImportResult(BaseModel):
@@ -137,7 +137,7 @@ def parameter_import_result(
     values: Sequence[DraftParameterValue] = (),
     artifacts: Sequence[RunArtifactEntry] = (),
     problems: Sequence[Problem] = (),
-    draft_metadata: Mapping[str, Any] | None = None,
+    draft_metadata: Mapping[str, object] | None = None,
     metadata: Mapping[str, JsonValue] | None = None,
 ) -> ParameterImportResult:
     """Build a raw draft without implying that its values are accepted."""
@@ -282,26 +282,32 @@ def _to_stored_parameter_value(
 ) -> StoredParameterValue:
     metadata = dict(draft.metadata)
     if isinstance(draft, ScalarParameterDraftValue):
-        return ScalarParameterValue(
-            id=draft.id,
-            value=draft.value,
-            source_location=draft.location,
-            metadata=metadata,
+        return ScalarParameterValue.model_validate(
+            {
+                "id": draft.id,
+                "value": draft.value,
+                "source_location": draft.location,
+                "metadata": metadata,
+            }
         )
     if isinstance(draft, SeriesParameterDraftValue):
-        return SeriesParameterValue(
-            id=draft.id,
-            items=draft.items,
-            source_location=draft.location,
-            item_locations=draft.item_locations,
-            metadata=metadata,
+        return SeriesParameterValue.model_validate(
+            {
+                "id": draft.id,
+                "items": draft.items,
+                "source_location": draft.location,
+                "item_locations": draft.item_locations,
+                "metadata": metadata,
+            }
         )
-    return TableParameterValue(
-        id=draft.id,
-        rows=draft.rows,
-        source_location=draft.location,
-        row_locations=draft.row_locations,
-        metadata=metadata,
+    return TableParameterValue.model_validate(
+        {
+            "id": draft.id,
+            "rows": draft.rows,
+            "source_location": draft.location,
+            "row_locations": draft.row_locations,
+            "metadata": metadata,
+        }
     )
 
 

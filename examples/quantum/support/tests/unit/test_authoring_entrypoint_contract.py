@@ -7,6 +7,7 @@ from typing import cast
 
 import pytest
 import scopecat as sc
+from scopecat.authoring._record_intents import ProductSelectionIntent
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_table_value_ref,
@@ -22,7 +23,6 @@ from scopecat.compiler.relations.point_domain import (
     PointProduct,
     PointRelationRows,
     PointUnit,
-    PointZip,
 )
 
 _TEMPLATE_ID = "examples.quantum.x-repetition-iq"
@@ -121,7 +121,9 @@ def _compile_through_workspace(
     experiment: sc.ExperimentInvocation | sc.Experiment,
 ) -> CompiledInvocation:
     prepared_handle = workspace.prepare(experiment)
-    prepared = object.__getattribute__(prepared_handle, "_prepared_invocation")
+    prepared = cast(
+        "object", object.__getattribute__(prepared_handle, "_prepared_invocation")
+    )
     assert isinstance(prepared, PreparedInvocation)
     return compile_prepared_invocation(prepared)
 
@@ -131,7 +133,10 @@ def _execution_semantics(compiled: CompiledInvocation) -> object:
     normalized_assembly = tuple(
         (
             selected.name,
-            _normalized_assembly_field(selected.name, getattr(assembly, selected.name)),
+            _normalized_assembly_field(
+                selected.name,
+                cast("object", getattr(assembly, selected.name)),
+            ),
         )
         for selected in fields(assembly)
     )
@@ -149,24 +154,16 @@ def _normalized_assembly_field(name: str, value: object) -> object:
             key: item for key, item in metadata.items() if key not in {"source", "name"}
         }
     if name == "point_domain":
-        assert isinstance(
-            value,
-            PointUnit
-            | PointRelationRows
-            | PointProduct
-            | PointDependentProduct
-            | PointZip,
-        )
-        return _point_domain_semantics(value)
+        return _point_domain_semantics(cast("PointDomainExpr[ValueRef]", value))
     if name == "record_selections":
-        assert isinstance(value, tuple)
+        selections = cast("tuple[ProductSelectionIntent, ...]", value)
         return tuple(
             (
                 selection.product_id.qualified_name,
                 selection.record_id,
                 dict(selection.metadata),
             )
-            for selection in value
+            for selection in selections
         )
     return value
 

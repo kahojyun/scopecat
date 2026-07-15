@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import SupportsInt, cast
 
 import numpy as np
 import scopecat as sc
@@ -528,7 +529,11 @@ def build_backend_batch_job(
 ) -> BackendBatchJob:
     point_count = _required_int(logical_points, "logical_points")
     rng = np.random.default_rng(_required_int(seed, "seed"))
-    returned_order = tuple(int(index) for index in rng.permutation(point_count))
+    permutation = cast(
+        "Sequence[SupportsInt]",
+        cast("object", rng.permutation(point_count)),
+    )
+    returned_order = tuple(int(index) for index in permutation)
     return BackendBatchJob(
         logical_points=point_count,
         submitted_point_uids=tuple(
@@ -575,14 +580,6 @@ def _row_quantity(row: Mapping[str, object], column: str, table_id: str) -> sc.Q
     if isinstance(value, sc.Quantity):
         return value
     msg = f"{table_id}.{column} must resolve to a Quantity, got {value!r}"
-    raise TypeError(msg)
-
-
-def _row_float(row: Mapping[str, object], column: str, table_id: str) -> float:
-    value = row.get(column)
-    if isinstance(value, int | float):
-        return float(value)
-    msg = f"{table_id}.{column} must resolve to a number, got {value!r}"
     raise TypeError(msg)
 
 

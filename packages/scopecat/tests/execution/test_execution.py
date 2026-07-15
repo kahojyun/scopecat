@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import pytest
 from pydantic import BaseModel, JsonValue
@@ -341,6 +341,7 @@ def test_terminal_persistence_error_reports_committed_and_pending_evidence(
 
 
 class _NonFiniteSignalInstrument(TestSignalInstrument):
+    @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
         values = (float("nan"), float("inf"), float("-inf"))
@@ -392,7 +393,10 @@ class _RecordingLeaseManager:
         self.claims: tuple[ResourceClaim, ...] = ()
 
     @contextmanager
-    def acquire(self, claims: tuple[ResourceClaim, ...]) -> Iterator[None]:
+    def acquire(
+        self,
+        claims: tuple[ResourceClaim, ...],
+    ) -> Generator[None, None, None]:
         self.claims = claims
         self.events.append("lease.enter")
         self.active = True
@@ -453,17 +457,21 @@ class _PersistentInterruptingIdentityDriver(SignalInstrumentDriver):
     implementation_version = "v1"
 
     def __init__(self) -> None:
+        super().__init__()
         self.cleanup_count = 0
         self.terminal_read_count = 0
 
     @property
+    @override
     def instrument_id(self) -> str:
         raise KeyboardInterrupt("identity lookup cancelled")
 
+    @override
     def read_state(self) -> InstrumentStateSnapshot:
         self.terminal_read_count += 1
         return InstrumentStateSnapshot(instrument_id="source-0")
 
+    @override
     def cleanup(self) -> None:
         self.cleanup_count += 1
 
@@ -500,7 +508,7 @@ class _InterruptingIdentityProvider:
     ) -> InstrumentProviderResult:
         del context
         return InstrumentProviderResult(
-            drivers=(cast("InstrumentDriver", self.driver),)
+            drivers=(cast("InstrumentDriver", cast("object", self.driver)),)
         )
 
 
@@ -510,10 +518,12 @@ class _TrackedSetupDriver(TestSignalInstrument):
         self.cleanup_count = 0
         self.terminal_read_count = 0
 
+    @override
     def read_state(self) -> InstrumentStateSnapshot:
         self.terminal_read_count += 1
         return super().read_state()
 
+    @override
     def cleanup(self) -> None:
         self.cleanup_count += 1
 

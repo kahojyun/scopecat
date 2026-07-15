@@ -803,7 +803,7 @@ def _realize_raw_trace_value(
         dtype="complex128",
         unit=_FAKE_RESPONSE_UNIT,
         shape=[len(frames), window.sample_count],
-        values=trace_values,
+        values=list[object](trace_values),
     )
 
 

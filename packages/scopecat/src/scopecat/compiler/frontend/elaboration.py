@@ -501,10 +501,13 @@ def _module_value_roots(module: ModuleIR) -> tuple[object, ...]:
     return tuple(values)
 
 
+_EMPTY_VISITED_VALUE_IDS: frozenset[int] = frozenset()
+
+
 def _nested_value_refs(
     value: object,
     *,
-    seen: frozenset[int] = frozenset(),
+    seen: frozenset[int] = _EMPTY_VISITED_VALUE_IDS,
 ) -> tuple[ValueRef, ...]:
     if isinstance(value, ValueRef):
         return (value,)
@@ -520,7 +523,7 @@ def _nested_value_refs(
             for value_ref in _nested_value_refs(item, seen=nested_seen)
         )
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        selected = cast("Sequence[object]", value)
+        selected = value
         marker = id(selected)
         if marker in seen:
             return ()

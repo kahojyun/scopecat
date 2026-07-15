@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 from scopecat.compiler.relations.model import (
     RowScopeId,
@@ -161,7 +161,7 @@ class TypedDomainProgram:
 
     def __deepcopy__(
         self,
-        _memo: dict[int, Any] | None = None,
+        _memo: dict[int, object] | None = None,
     ) -> TypedDomainProgram:
         return self
 

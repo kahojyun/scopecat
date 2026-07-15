@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -262,7 +262,7 @@ class EvalContext(BaseModel):
     outer_row: Row | None = None
     point_row: Row = Field(default_factory=dict)
     row_scopes: dict[RowScopeId, Row] = Field(default_factory=dict)
-    inputs: dict[str, Any] = Field(default_factory=dict)
+    inputs: dict[str, object] = Field(default_factory=dict)
 
 
 class RelationBackendCapabilityDimension(StrEnum):
@@ -714,7 +714,7 @@ def _normalize_evaluation_context[NodeT: PlanNode](
 ) -> EvalContext:
     """Snapshot and normalize every dynamic value the proof actually consumes."""
 
-    inputs: dict[str, Any] = dict(ctx.inputs)
+    inputs: dict[str, object] = dict(ctx.inputs)
     parameter_scalars = ctx.params.snapshot_scalars()
     parameter_series = ctx.params.snapshot_series()
     tables_by_parameter = ctx.params.snapshot_tables()
@@ -855,8 +855,8 @@ def _replace_path_value(
     source: Mapping[str, object],
     path: str,
     value: object,
-) -> dict[str, Any]:
-    selected: dict[str, Any] = dict(source)
+) -> dict[str, object]:
+    selected: dict[str, object] = dict(source)
     if path in selected:
         selected[path] = value
         return selected
@@ -867,7 +867,7 @@ def _replace_path_value(
         nested = current.get(part)
         if not isinstance(nested, Mapping):
             raise AssertionError(f"validated path {path!r} is unexpectedly absent")
-        nested_copy: dict[str, Any] = dict(cast("Mapping[str, object]", nested))
+        nested_copy: dict[str, object] = dict(cast("Mapping[str, object]", nested))
         current[part] = nested_copy
         current = nested_copy
     current[parts[-1]] = value

@@ -27,6 +27,7 @@ from scopecat.compiler.typed.program import (
     set_state_field,
     typed_program,
 )
+from scopecat.compiler.typed.state import StateSpec
 from scopecat.execution.local.engine import ExecutionEngine
 from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import (
@@ -99,7 +100,7 @@ def _unit_program(
     *,
     experiment_id: str,
     route_intents: tuple[ResourceRouteIntent, ...] = (),
-    state=(),
+    state: tuple[StateSpec, ...] = (),
     products: tuple[ProductDef, ...] = (),
     producers: tuple[InstrumentProductProducer, ...] = (),
 ) -> TypedProgram:

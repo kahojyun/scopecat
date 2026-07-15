@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import FrozenInstanceError, dataclass, field, replace
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import scopecat.authoring as public_authoring
 from scopecat.analysis.online import EarlyStopDecision, decide_online_convergence
@@ -650,10 +650,12 @@ class Workspace:
         msg = "Workspace is an opaque handle; create it with scopecat.open(...)"
         raise TypeError(msg)
 
+    @override
     def __setattr__(self, name: str, _value: object) -> None:
         msg = f"cannot assign to field {name!r}"
         raise FrozenInstanceError(msg)
 
+    @override
     def __delattr__(self, name: str) -> None:
         msg = f"cannot delete field {name!r}"
         raise FrozenInstanceError(msg)

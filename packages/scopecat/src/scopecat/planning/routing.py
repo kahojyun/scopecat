@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import cast
 
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
@@ -510,7 +509,7 @@ def _entity_ids(values: Sequence[object]) -> tuple[str, ...]:
                     "module_resource_entity_invalid",
                     "route entity series must not be empty",
                 )
-            entity_ids.extend(_entity_ids(cast("Sequence[object]", value)))
+            entity_ids.extend(_entity_ids(value))
         else:
             raise RoutingError(
                 "module_resource_entity_invalid",

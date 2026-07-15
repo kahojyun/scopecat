@@ -6,7 +6,7 @@ import math
 from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import replace
-from typing import Any, cast
+from typing import cast
 
 from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
 from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
@@ -132,6 +132,7 @@ from scopecat.planning.coverage import ExecutionCoverage
 from scopecat.planning.routing import RoutingError, RoutingView
 from scopecat.records.config import RoutingChannelBinding
 from scopecat.records.entity import EntityRef
+from scopecat.records.measurement import CoordinateValue
 from scopecat.records.parameter import Quantity
 
 type _ChannelBindingIdentity = tuple[
@@ -491,7 +492,7 @@ def materialize_local_plan(
                     resource.capability_id,
                     field.field_path,
                     field.entity_ids,
-                    _channel_signature(field.channel_bindings),
+                    channel_signature(field.channel_bindings),
                 )
                 before = previous_state.get(key)
                 if before != field.value:
@@ -515,14 +516,11 @@ def materialize_local_plan(
                 logical_id=point.logical_id,
                 row=dict(point.row),
                 parameters=params,
-                coordinates=cast(
-                    "dict[str, Any]",
-                    {
-                        name: value
-                        for name, value in point.row.items()
-                        if name in coordinate_ids
-                    },
-                ),
+                coordinates={
+                    name: cast("CoordinateValue", value)
+                    for name, value in point.row.items()
+                    if name in coordinate_ids
+                },
                 compute=compute,
                 routes=routes,
                 desired_state=desired,
@@ -1102,7 +1100,7 @@ def _bind_desired_state(
                 )
             )
             continue
-        channel_key = _channel_signature(channel_bindings)
+        channel_key = channel_signature(channel_bindings)
         group = grouped.setdefault((resource_id, capability_id), {})
         key = (field_path, entity_ids, channel_key)
         signature_key = (
@@ -1302,7 +1300,7 @@ def _channel_binding_identity(
     )
 
 
-def _channel_signature(
+def channel_signature(
     bindings: Sequence[RoutingChannelBinding],
 ) -> _ChannelSignature:
     return tuple(_channel_binding_identity(binding) for binding in bindings)

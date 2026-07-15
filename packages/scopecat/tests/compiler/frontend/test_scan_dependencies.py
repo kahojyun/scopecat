@@ -24,11 +24,11 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_point_dependencies,
 )
 from scopecat.compiler.frontend.assembly_lowering import (
-    _point_domain_input_dependencies,
     lower_point_domain,
+    point_domain_input_dependencies,
 )
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
-from scopecat.compiler.frontend.resolution import _apply_scans
+from scopecat.compiler.frontend.resolution import apply_scans
 from scopecat.compiler.frontend.scan_dependencies import (
     ScanDependencyError,
     verify_scan_dependencies,
@@ -333,7 +333,7 @@ def test_dependency_errors_are_projected_as_authoring_problems() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        _apply_scans(assembly, scans, inputs={})
+        apply_scans(assembly, scans, inputs={})
 
     assert "scan_dependency_cycle" in {
         problem.code for problem in caught.value.problems
@@ -347,7 +347,7 @@ def test_dependency_errors_are_projected_as_authoring_problems() -> None:
 def test_independent_scans_remain_an_explicit_product() -> None:
     assembly = SemanticExperimentIR(experiment_id="test", kind="test")
 
-    resolved = _apply_scans(
+    resolved = apply_scans(
         assembly,
         (_values("left"), _values("right")),
         inputs={},
@@ -360,7 +360,7 @@ def test_independent_scans_remain_an_explicit_product() -> None:
 def test_scan_dependency_chain_remains_directional_in_domain_ir() -> None:
     assembly = SemanticExperimentIR(experiment_id="test", kind="test")
 
-    resolved = _apply_scans(
+    resolved = apply_scans(
         assembly,
         (
             _dependent("third", "second", direct_point=True),
@@ -402,7 +402,7 @@ def test_scan_dependency_chain_remains_directional_in_domain_ir() -> None:
 def test_positional_scan_group_remains_an_explicit_zip() -> None:
     assembly = SemanticExperimentIR(experiment_id="test", kind="test")
 
-    resolved = _apply_scans(
+    resolved = apply_scans(
         assembly,
         (sc.zip(_values("left"), _values("right")),),
         inputs={},
@@ -421,7 +421,7 @@ def test_base_point_source_and_scans_share_one_topological_order() -> None:
         point_domain=point_rows(base),
     )
 
-    resolved = _apply_scans(
+    resolved = apply_scans(
         assembly,
         (_values("independent"), _values("a")),
         inputs={},
@@ -429,7 +429,7 @@ def test_base_point_source_and_scans_share_one_topological_order() -> None:
 
     assert isinstance(resolved.point_domain, PointDependentProduct)
     assert _domain_columns(resolved.point_domain) == ("independent", "a", "base")
-    assert _point_domain_input_dependencies(resolved.point_domain, inputs={}) == set()
+    assert point_domain_input_dependencies(resolved.point_domain, inputs={}) == set()
 
 
 def test_scan_can_depend_on_a_base_point_source() -> None:
@@ -439,7 +439,7 @@ def test_scan_can_depend_on_a_base_point_source() -> None:
         point_domain=point_rows(lower_scan_points(_values("base"))),
     )
 
-    resolved = _apply_scans(
+    resolved = apply_scans(
         assembly,
         (_dependent("scan", "base", direct_point=True),),
         inputs={},
@@ -458,7 +458,7 @@ def test_base_and_scan_dependency_cycle_is_an_authoring_problem() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        _apply_scans(
+        apply_scans(
             assembly,
             (_dependent("scan", "base", direct_point=True),),
             inputs={},
@@ -477,7 +477,7 @@ def test_base_only_missing_input_fails_at_the_dependency_boundary() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        _apply_scans(assembly, (), inputs={})
+        apply_scans(assembly, (), inputs={})
 
     assert [problem.code for problem in caught.value.problems] == [
         "scan_dependency_missing"
@@ -494,7 +494,7 @@ def test_base_only_self_dependency_is_rejected() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        _apply_scans(assembly, (), inputs={})
+        apply_scans(assembly, (), inputs={})
 
     assert [problem.code for problem in caught.value.problems] == [
         "scan_dependency_self"
@@ -516,10 +516,10 @@ def test_point_cross_closes_the_right_source_point_dependency(
         point_domain=base_domain,
     )
 
-    resolved = _apply_scans(assembly, (), inputs={})
+    resolved = apply_scans(assembly, (), inputs={})
 
     assert resolved.point_domain == base_domain
-    assert _point_domain_input_dependencies(resolved.point_domain, inputs={}) == set()
+    assert point_domain_input_dependencies(resolved.point_domain, inputs={}) == set()
 
 
 def test_invocation_zip_length_mismatch_is_a_stable_problem() -> None:

@@ -205,7 +205,7 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
     child_input = sc.input("program", payload_type)
     consume = sc.compute(
         "consume",
-        fn=lambda *, program: program,
+        fn=_identity_program,
         inputs={"program": child_input},
         output_type=payload_type,
     )
@@ -251,3 +251,7 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
         assert isinstance(use, ValueUse)
         source = definitions[use.value_id].source
         assert source == OperationOutputSource(operations[0].id)
+
+
+def _identity_program(*, program: object) -> object:
+    return program

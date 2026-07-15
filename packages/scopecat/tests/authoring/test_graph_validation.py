@@ -47,6 +47,18 @@ def _resolve(module: sc.ExperimentModule) -> None:
     )
 
 
+def _pair_values(*, upstream: object, parameter: object) -> tuple[object, object]:
+    return upstream, parameter
+
+
+def _identity_route(*, route: object) -> object:
+    return route
+
+
+def _identity_value(*, value: object) -> object:
+    return value
+
+
 def test_compute_graph_is_verified_before_parameter_contracts() -> None:
     missing = sc.compute(
         "missing-producer",
@@ -59,7 +71,7 @@ def test_compute_graph_is_verified_before_parameter_contracts() -> None:
     )
     consumer = sc.compute(
         "consumer",
-        fn=lambda *, upstream, parameter: (upstream, parameter),
+        fn=_pair_values,
         inputs={
             "upstream": missing.output,
             "parameter": missing_parameter,
@@ -75,7 +87,7 @@ def test_compute_graph_is_verified_before_parameter_contracts() -> None:
 def test_compute_route_requires_a_declared_port() -> None:
     consume = sc.compute(
         "consume-route",
-        fn=lambda *, route: route,
+        fn=_identity_route,
         inputs={"route": sc.route("drive")},
         output_type=sc.ScalarType(sc.StringType()),
     )
@@ -88,7 +100,7 @@ def test_compute_route_requires_a_declared_port() -> None:
 def test_compute_route_requires_port_capabilities() -> None:
     consume = sc.compute(
         "consume-route",
-        fn=lambda *, route: route,
+        fn=_identity_route,
         inputs={"route": sc.route("drive", capabilities=("set_gain",))},
         output_type=sc.ScalarType(sc.StringType()),
     )
@@ -261,7 +273,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
     )
     consume = sc.compute(
         "consume-parameter",
-        fn=lambda *, value: value,
+        fn=_identity_value,
         inputs={"value": missing_parameter},
         output_type=missing_parameter.value_type,
     )
@@ -418,7 +430,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
     )
     consumer = sc.compute(
         "consumer",
-        fn=lambda *, value: value,
+        fn=_identity_value,
         inputs={"value": producer.output},
         output_type=value_type,
     )
@@ -535,7 +547,7 @@ def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
     child_value = sc.input("value", value_type)
     consumer = sc.compute(
         "consumer",
-        fn=lambda *, value: value,
+        fn=_identity_value,
         inputs={"value": child_value + 1.0},
         output_type=value_type,
     )
@@ -601,7 +613,7 @@ def test_execute_core_operation_defers_local_implementation_selection() -> None:
     produce = sc.compute("produce", fn=lambda: 1.0, output_type=value_type)
     consume = sc.compute(
         "consume",
-        fn=lambda *, value: value,
+        fn=_identity_value,
         inputs={"value": produce.output + 1.0},
         output_type=value_type,
     )

@@ -566,7 +566,7 @@ def _state_command(
     *,
     capability_id: str,
     field_path: str,
-    value,
+    value: StateValue,
     payloads: dict[str, CommandPayload] | None = None,
 ) -> InstrumentStateCommand:
     return InstrumentStateCommand(

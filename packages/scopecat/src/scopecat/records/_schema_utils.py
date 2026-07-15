@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import cast
 
 from scopecat.kernel.units import is_supported_unit
 
@@ -37,10 +37,10 @@ def declared_shape_for_dims(
     return [sizes_by_dimension[dimension_id] for dimension_id in dims]
 
 
-def array_shape(value: Any, path: str) -> list[int]:
+def array_shape(value: object, path: str) -> list[int]:
     if not isinstance(value, list):
         return []
-    items = cast(list[Any], value)
+    items = cast(list[object], value)
     if not items:
         return [0]
     child_shapes = [array_shape(item, path) for item in items]
@@ -52,15 +52,15 @@ def array_shape(value: Any, path: str) -> list[int]:
     return [len(items), *first_shape]
 
 
-def validate_array_dtype(value: Any, dtype: str, path: str) -> None:
+def validate_array_dtype(value: object, dtype: str, path: str) -> None:
     if isinstance(value, list):
-        for index, item in enumerate(cast(list[Any], value)):
+        for index, item in enumerate(cast(list[object], value)):
             validate_array_dtype(item, dtype, f"{path}[{index}]")
         return
     validate_scalar_dtype(value, dtype, path)
 
 
-def validate_scalar_dtype(value: Any, dtype: str, path: str) -> None:
+def validate_scalar_dtype(value: object, dtype: str, path: str) -> None:
     if dtype == "float64":
         if isinstance(value, bool) or not isinstance(value, int | float):
             _raise_dtype_error(path, dtype)

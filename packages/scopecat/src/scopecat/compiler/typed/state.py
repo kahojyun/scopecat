@@ -128,7 +128,7 @@ class StateSpec:
         unexpected = [
             field_name
             for field_name in field_names
-            if _is_present(getattr(self, field_name))
+            if _is_present(cast("object", getattr(self, field_name)))
         ]
         if unexpected:
             msg = f"{self.kind} state cannot contain: {', '.join(unexpected)}"

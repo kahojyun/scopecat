@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, override
 
 import pytest
 
@@ -225,6 +225,7 @@ class _DomainAdapter:
 
 
 class _ForgedOfferAdapter(_DomainAdapter):
+    @override
     def select(self, view: DomainBatchView) -> DomainExecutionOffer:
         self.select_calls += 1
         offer = object.__new__(DomainExecutionOffer)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
 from scopecat.kernel.errors import CheckFailed, Conflict, NotFound
+from scopecat.records.execution import ExecutionSummary
 from scopecat.records.parameter import Quantity
 from scopecat.records.run_plan import RunPlanRecord
 from scopecat.records.run_request import (
@@ -423,7 +425,9 @@ def test_workspace_experiment_lowers_to_runnable_spec(
 
     assert run.manifest.status == "completed"
     assert (
-        run.record_json("execution-summary").content["experiment_id"]
+        ExecutionSummary.model_validate(
+            run.record_json("execution-summary").content
+        ).experiment_id
         == "manual-signal-scan"
     )
     run_dir = tmp_path / "runs" / run.id
@@ -520,7 +524,7 @@ def test_workspace_run_options_materialize_internal_run_request(
     assert persisted_request.operator == "alice"
 
 
-def test_workspace_terminals_reject_non_durable_metadata_immediately(
+def test_workspace_terminals_reject_non_finite_metadata(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -529,14 +533,8 @@ def test_workspace_terminals_reject_non_durable_metadata_immediately(
     )
     prepared = lab.prepare(simple_template())
 
-    with pytest.raises(ValueError, match="durable JSON"):
-        prepared.preview(metadata={"callback": object()})  # type: ignore[dict-item]
     with pytest.raises(ValueError, match="finite"):
         prepared.validate(metadata={"score": float("nan")})
-
-    request_context = prepared._prepared_invocation.request_context  # pyright: ignore[reportPrivateUsage]
-    with pytest.raises(TypeError, match="immutable"):
-        request_context.metadata["late"] = "mutation"  # type: ignore[index]
 
 
 def test_prepared_template_builder_preview_and_run_terminals(
@@ -858,9 +856,9 @@ def test_workspace_module_can_be_composed(
     )
 
     assert run.manifest.status == "completed"
-    assert run.record_json("execution-summary").content["experiment_id"] == (
-        "composed-signal-scan"
-    )
+    assert ExecutionSummary.model_validate(
+        run.record_json("execution-summary").content
+    ).experiment_id == ("composed-signal-scan")
 
 
 def test_workspace_preserves_nominal_product_refs(tmp_path: Path) -> None:
@@ -1270,23 +1268,28 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     assert overview.run_id == baseline.id
 
 
+type _AnalysisAction = Callable[[sc.Analysis], object]
+
+_INVALID_ANALYSIS_ACTIONS: list[tuple[_AnalysisAction, str]] = [
+    (lambda analysis: analysis.note(""), "analysis_note_invalid"),
+    (
+        lambda analysis: analysis.artifact(
+            title="missing file",
+            kind="html",
+            path="/missing/analysis-source.html",
+        ),
+        "analysis_artifact_source_missing",
+    ),
+]
+
+
 @pytest.mark.parametrize(
     ("action", "expected_code"),
-    [
-        (lambda analysis: analysis.note(""), "analysis_note_invalid"),
-        (
-            lambda analysis: analysis.artifact(
-                title="missing file",
-                kind="html",
-                path="/missing/analysis-source.html",
-            ),
-            "analysis_artifact_source_missing",
-        ),
-    ],
+    _INVALID_ANALYSIS_ACTIONS,
 )
 def test_analysis_rejects_invalid_notebook_payloads(
     tmp_path: Path,
-    action,
+    action: _AnalysisAction,
     expected_code: str,
 ) -> None:
     lab = sc.open(

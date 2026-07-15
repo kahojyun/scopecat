@@ -33,6 +33,11 @@ from quantum_lab_demo.reference_experiments.production_drag_gate import (
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
 
+def _entity_id(value: object) -> str:
+    assert isinstance(value, EntityRef)
+    return value.id
+
+
 def test_production_drag_gate_authors_config_lookup_into_program_input() -> None:
     declaration = production_drag_gate_program()
     body = PRODUCTION_DRAG_GATE_CAPTURE_MODULE.ir.body
@@ -186,7 +191,9 @@ def _with_q0_drag_beta(
         rows=tuple(
             {
                 **dict(row),
-                "drag_beta": beta if row["qubit"].id == "q0" else row["drag_beta"],  # type: ignore[union-attr]
+                "drag_beta": (
+                    beta if _entity_id(row["qubit"]) == "q0" else row["drag_beta"]
+                ),
             }
             for row in qubits.rows
         ),

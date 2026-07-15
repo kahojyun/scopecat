@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -18,7 +16,7 @@ class PayloadValue(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     schema_id: str
-    payload: Any = Field(default=None, exclude=True)
+    payload: object = Field(default=None, exclude=True)
 
 
 __all__ = ["PayloadValue"]

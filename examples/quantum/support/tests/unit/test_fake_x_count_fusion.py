@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import override
 
 import pytest
 import scopecat as sc
 from scopecat.adapters.filesystem.execution import FilesystemExecutionJournal
 from scopecat.kernel.errors import RunIndeterminate
+from scopecat.records.execution import ExecutionSummary
 from scopecat.records.parameter import Quantity
-from scopecat.records.run_plan import RunPlanDomainExecution
+from scopecat.records.run_plan import RunPlanDomainExecution, RunPlanRecord
 from scopecat.sdk.domain.runtime import (
     DomainFetchCandidate,
     DomainFetchReceipt,
@@ -33,6 +35,7 @@ class _SecondBatchPendingRuntime(FakeListDomainRuntime):
         super().__init__()
         self._seen_fetches = 0
 
+    @override
     def fetch(
         self,
         request: DomainFetchRequest,
@@ -140,13 +143,15 @@ def test_later_batch_failure_has_one_domain_problem_and_no_partial_dataset(
 
     codes = [problem.code for problem in captured.value.outcome.problems]
     [persisted] = lab.runs()
-    summary = persisted.record_json("execution-summary").content
+    summary = ExecutionSummary.model_validate(
+        persisted.record_json("execution-summary").content
+    )
 
     assert codes.count("domain_synchronous_completion_contract_violated") == 1
     assert "execution_middle_effect_failed" not in codes
     assert adapter.runtime.physical_execution_count == 2
-    assert summary["completed_point_count"] == 0
-    assert summary["measurement_count"] == 0
+    assert summary.completed_point_count == 0
+    assert summary.measurement_count == 0
     assert persisted.manifest.datasets == []
 
 
@@ -186,7 +191,7 @@ def _logical_record_values(run: sc.RunHandle) -> dict[tuple[float, int], object]
     return selected
 
 
-def _domain_execution(plan) -> RunPlanDomainExecution:
+def _domain_execution(plan: RunPlanRecord) -> RunPlanDomainExecution:
     [selected] = [
         unit
         for unit in plan.execution_units

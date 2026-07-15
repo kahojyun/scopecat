@@ -46,6 +46,11 @@ from quantum_lab_demo.targets.fake_list_mode import (
 )
 
 
+def _entity_id(value: object) -> str:
+    assert isinstance(value, sc.EntityRef)
+    return value.id
+
+
 def test_cz_phase_program_keeps_two_qubit_gate_and_coupler_pulse_provenance() -> None:
     declaration = cz_conditional_phase_program()
     prepared = prepare_cz_phase_entry(
@@ -164,8 +169,8 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
     q0_q1 = next(
         row
         for row in delta.after.rows
-        if row["control_qubit"].id == "q0"  # type: ignore[union-attr]
-        and row["partner_qubit"].id == "q1"  # type: ignore[union-attr]
+        if _entity_id(row["control_qubit"]) == "q0"
+        and _entity_id(row["partner_qubit"]) == "q1"
         and row["gate"] == "cz"
     )
     assert q0_q1[CZ_AMPLITUDE_COLUMN] == result.fit.selected.amplitude

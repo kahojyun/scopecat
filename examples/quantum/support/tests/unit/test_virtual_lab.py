@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
-from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     DriverFault,
@@ -13,6 +14,8 @@ from scopecat.sdk.instruments import (
 from quantum_lab_demo.virtual_lab import load_virtual_lab_profile
 from quantum_lab_demo.virtual_lab.devices import VirtualDevice
 from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile, VirtualLabProfile
+
+from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 
 
 def test_virtual_lab_profile_loads_configured_devices_and_responses() -> None:
@@ -45,7 +48,9 @@ def test_virtual_lab_profile_round_trips_structural_initial_state() -> None:
     )
 
     restored = VirtualLabProfile.model_validate_json(profile.model_dump_json())
-    initial_state_wire = profile.model_dump(mode="json")["devices"][0]["initial_state"]
+    initial_state_wire = cast(
+        "object", profile.model_dump(mode="json")["devices"][0]["initial_state"]
+    )
 
     assert restored == profile
     assert initial_state_wire == {

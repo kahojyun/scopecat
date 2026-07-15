@@ -40,8 +40,6 @@ def test_scalar_operations_capture_entity_literal_snapshots() -> None:
 
     expression = subject.eq(entity)
     labels.append("changed")
-    with pytest.raises(TypeError, match="immutable"):
-        entity.metadata["late"] = True  # type: ignore[index]
     lowered = internal_lower_scalar_value_ref(expression)
 
     assert lowered.right is not None

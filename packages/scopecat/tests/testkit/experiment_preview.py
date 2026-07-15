@@ -26,7 +26,7 @@ def config_with_physical_resources(
         instrument.id for instrument in config.instrument_registry.instruments
     }
     seed_instrument = config.instrument_registry.instruments[0]
-    routing_resources = list(config.routing.resources)
+    routing_resources: list[RoutingResource] = list(config.routing.resources)
     for resource_id, capabilities in resources.items():
         if resource_id in existing_resource_ids:
             routing_resources = [

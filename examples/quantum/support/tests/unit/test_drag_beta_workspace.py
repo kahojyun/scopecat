@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from quantum_lab_demo.reference_experiments.drag_beta_analysis import (
 from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
     AMPLIFICATION_INPUT,
     BETA_INPUT,
+    DragBetaFit,
     DragBetaObservation,
     drag_beta_calibration_program,
     fit_drag_beta,
@@ -37,6 +39,16 @@ from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
     drag_beta_scratch_experiment,
 )
 from quantum_lab_demo.targets.fake_list_mode import default_fake_list_target
+
+
+def _entity_id(value: object) -> str:
+    assert isinstance(value, sc.EntityRef)
+    return value.id
+
+
+def _quantity_in_unit(value: object, unit: str) -> float:
+    assert isinstance(value, Quantity)
+    return float(value.to(unit).value)
 
 
 def test_drag_beta_authors_one_mixed_program_for_both_scan_axes() -> None:
@@ -152,11 +164,7 @@ def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
     [delta] = proposal.deltas
     assert delta.parameter_id == DRAG_BETA_PARAMETER_ID
     assert isinstance(delta.after, TableParameterValue)
-    q0 = next(
-        row
-        for row in delta.after.rows
-        if row["qubit"].id == "q0"  # type: ignore[union-attr]
-    )
+    q0 = next(row for row in delta.after.rows if _entity_id(row["qubit"]) == "q0")
     assert q0[DRAG_BETA_PARAMETER_COLUMN] == analysis.fit.beta_hat
 
     saved = analysis.analysis.save()
@@ -181,9 +189,11 @@ def test_drag_beta_low_quality_fit_saves_evidence_without_a_proposal(
         DRAG_BETA_TEMPLATE,
         execution_backend=sc.ExecutionBackend(domain_adapters=(adapter,)),
     ).run()
-    original_fit = analysis_module.fit_drag_beta
+    original_fit = fit_drag_beta
 
-    def low_quality_fit(observations):
+    def low_quality_fit(
+        observations: Sequence[DragBetaObservation],
+    ) -> DragBetaFit:
         return replace(original_fit(observations), rmse=0.03)
 
     monkeypatch.setattr(analysis_module, "fit_drag_beta", low_quality_fit)
@@ -303,7 +313,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
 
     active_betas = sorted(
         {
-            float(point.coordinates["beta"].to("ns").value)  # type: ignore[union-attr]
+            _quantity_in_unit(point.coordinates["beta"], "ns")
             for point in active_preview.points
         }
     )
@@ -338,7 +348,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     ).preview()
     restored_betas = sorted(
         {
-            float(point.coordinates["beta"].to("ns").value)  # type: ignore[union-attr]
+            _quantity_in_unit(point.coordinates["beta"], "ns")
             for point in restored_preview.points
         }
     )

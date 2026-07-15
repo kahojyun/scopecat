@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from pathlib import PurePosixPath
-from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -32,6 +31,8 @@ from scopecat.runs.repository import RunRepository
 
 type RunPayloadEntry = RunArtifactEntry | RunDatasetEntry
 type RunManifestEntry = RunArtifactEntry | RunDatasetEntry | RunRecordEntry
+
+_JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
 
 
 def load_config_profile_snapshot(
@@ -522,9 +523,9 @@ def read_artifact_json(
     run_id: str,
     selector: str,
     expected_kind: str | None = None,
-) -> Any:
+) -> Mapping[str, JsonValue]:
     try:
-        return json.loads(
+        return _JSON_OBJECT_ADAPTER.validate_json(
             read_artifact_text(
                 storage=storage,
                 run_id=run_id,
@@ -532,7 +533,7 @@ def read_artifact_json(
                 expected_kind=expected_kind,
             )
         )
-    except json.JSONDecodeError as error:
+    except ValidationError as error:
         raise DataIntegrityError(
             [
                 _access_problem(
@@ -570,9 +571,9 @@ def read_record_json(
     run_id: str,
     selector: str,
     expected_kind: str | None = None,
-) -> Any:
+) -> Mapping[str, JsonValue]:
     try:
-        return json.loads(
+        return _JSON_OBJECT_ADAPTER.validate_json(
             read_record_text(
                 storage=storage,
                 run_id=run_id,
@@ -580,7 +581,7 @@ def read_record_json(
                 expected_kind=expected_kind,
             )
         )
-    except json.JSONDecodeError as error:
+    except ValidationError as error:
         raise DataIntegrityError(
             [
                 _access_problem(

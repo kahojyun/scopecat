@@ -10,8 +10,10 @@ for externally relevant effects and recovery.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
+from typing import SupportsInt, cast
 
 from pydantic import JsonValue
 
@@ -241,29 +243,44 @@ def payload_summary(value: object) -> dict[str, JsonValue]:
     }
     if is_dataclass(value) and not isinstance(value, type):
         summary["fields"] = [field.name for field in dataclass_fields(value)]
-    shape = getattr(value, "shape", None)
-    dtype = getattr(value, "dtype", None)
+    shape = cast("Sequence[SupportsInt] | None", getattr(value, "shape", None))
+    dtype = cast("object | None", getattr(value, "dtype", None))
     if shape is not None:
-        summary["shape"] = [int(dimension) for dimension in shape]
+        shape_summary: list[JsonValue] = [int(dimension) for dimension in shape]
+        summary["shape"] = shape_summary
     if dtype is not None:
         summary["dtype"] = str(dtype)
-    samples = getattr(value, "samples", None)
+    samples = cast("object | None", getattr(value, "samples", None))
     if samples is not None:
-        sample_shape = getattr(samples, "shape", None)
-        sample_dtype = getattr(samples, "dtype", None)
+        sample_shape = cast(
+            "Sequence[SupportsInt] | None",
+            getattr(samples, "shape", None),
+        )
+        sample_dtype = cast("object | None", getattr(samples, "dtype", None))
         if sample_shape is not None:
-            summary["sample_shape"] = [int(dimension) for dimension in sample_shape]
+            sample_shape_summary: list[JsonValue] = [
+                int(dimension) for dimension in sample_shape
+            ]
+            summary["sample_shape"] = sample_shape_summary
         if sample_dtype is not None:
             summary["sample_dtype"] = str(sample_dtype)
-    channel_order = getattr(value, "channel_order", None)
+    channel_order = cast(
+        "Sequence[object] | None",
+        getattr(value, "channel_order", None),
+    )
     if channel_order is not None:
-        summary["channel_order"] = [str(channel) for channel in channel_order]
+        channel_summary: list[JsonValue] = [str(channel) for channel in channel_order]
+        summary["channel_order"] = channel_summary
         summary["channel_count"] = len(channel_order)
-    entity_ids = getattr(value, "entity_ids", None)
+    entity_ids = cast(
+        "Sequence[object] | None",
+        getattr(value, "entity_ids", None),
+    )
     if entity_ids is not None:
-        summary["entity_ids"] = [str(entity_id) for entity_id in entity_ids]
+        entity_summary: list[JsonValue] = [str(entity_id) for entity_id in entity_ids]
+        summary["entity_ids"] = entity_summary
     for attribute in ("compiler_id", "source_program_id"):
-        selected = getattr(value, attribute, None)
+        selected = cast("object | None", getattr(value, attribute, None))
         if isinstance(selected, str):
             summary[attribute] = selected
     return summary

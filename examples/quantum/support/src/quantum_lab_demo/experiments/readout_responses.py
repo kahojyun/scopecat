@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict
-from scopecat.measurements.results import ComplexQuantity
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
@@ -39,13 +37,13 @@ class ReadoutResponseModel(BaseModel):
     phase_slope: float = 0.55
 
 
-def _settings_from_config(
+def settings_from_config(
     config: ConfigProfileSnapshot,
     *,
     qubit: str,
 ) -> ReadoutSettings:
     return ReadoutSettings(
-        readout_frequency_ghz=_frequency_to_ghz(
+        readout_frequency_ghz=frequency_to_ghz(
             _qubit_quantity(config, qubit=qubit, column="readout_frequency")
         ),
         readout_power_dbm=_power_to_dbm(
@@ -101,59 +99,7 @@ def _entity_id(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _record_raw_measurement(
-    *,
-    point_index: int,
-    settings: ReadoutSettings,
-    response_model: ReadoutResponseModel,
-    producer_id: str,
-) -> dict[str, ComplexQuantity]:
-    del producer_id
-    frequency_ghz = settings.readout_frequency_ghz
-    detuning_mhz = round(
-        (frequency_ghz - response_model.resonance_frequency_ghz) * 1000,
-        12,
-    )
-
-    iq_amplitude = _modeled_iq_amplitude(detuning_mhz, response_model, point_index)
-    iq_phase = round(
-        settings.phase_offset_rad
-        + response_model.phase_slope
-        * math.atan2(
-            detuning_mhz,
-            response_model.linewidth_mhz,
-        ),
-        12,
-    )
-    i_value = round(iq_amplitude * math.cos(iq_phase), 12)
-    q_value = round(iq_amplitude * math.sin(iq_phase), 12)
-    lo_frequency_ghz = round(
-        frequency_ghz - settings.demod_frequency_mhz / 1000,
-        12,
-    )
-
-    del lo_frequency_ghz
-    return {"raw_iq": ComplexQuantity(real=i_value, imag=q_value, unit="ratio")}
-
-
-def _modeled_iq_amplitude(
-    detuning_mhz: float,
-    response_model: ReadoutResponseModel,
-    point_index: int,
-) -> float:
-    dip = response_model.dip_depth / (
-        1.0 + (detuning_mhz / response_model.linewidth_mhz) ** 2
-    )
-    small_repeatable_variation = response_model.repeatable_variation_amplitude * (
-        math.sin(point_index + 1)
-    )
-    return round(
-        response_model.baseline_amplitude - dip + small_repeatable_variation,
-        12,
-    )
-
-
-def _frequency_to_ghz(quantity: Quantity) -> float:
+def frequency_to_ghz(quantity: Quantity) -> float:
     value = quantity.value
     unit = quantity.unit
     if unit == "GHz":
@@ -177,4 +123,6 @@ def _power_to_dbm(quantity: Quantity) -> float:
 __all__ = [
     "ReadoutResponseModel",
     "ReadoutSettings",
+    "frequency_to_ghz",
+    "settings_from_config",
 ]

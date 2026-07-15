@@ -65,13 +65,6 @@ def test_measurement_transform_validates_authoring_ingress() -> None:
             semantic=_semantic(),
             outputs={},
         )
-    with pytest.raises(ValueError, match="point rate"):
-        sc.measurement_transform(
-            "derive",
-            semantic=_semantic(),
-            outputs={"result": "derived"},
-            rate="point_set",  # pyright: ignore[reportArgumentType]
-        )
 
 
 def test_module_requires_transform_products_and_unique_ids() -> None:

@@ -8,7 +8,7 @@ plan fingerprint; those are independent compiler facts.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import ClassVar, override
 from uuid import uuid4
 
 from pydantic import ConfigDict
@@ -29,6 +29,7 @@ class RelationUseId:
     def fresh(cls) -> RelationUseId:
         return cls(uuid4().hex)
 
+    @override
     def __str__(self) -> str:
         return self.value
 

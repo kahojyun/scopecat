@@ -39,26 +39,35 @@ exclude = [
 ]
 pythonVersion = "3.12"
 pythonPlatform = "All"
-typeCheckingMode = "standard"
-strict = [
+typeCheckingMode = "recommended"
+extraPaths = [
+  "packages/scopecat",
   "packages/scopecat/src",
+  "packages/scopecat-quantum",
   "packages/scopecat-quantum/src",
-  "packages/scopecat-quantum/tests/test_authoring.py",
-  "packages/scopecat-quantum/tests/test_calibrations.py",
-  "packages/scopecat-quantum/tests/test_circuit_pulses.py",
-  "packages/scopecat-quantum/tests/test_circuit_targets.py",
-  "packages/scopecat-quantum/tests/test_circuits.py",
-  "packages/scopecat-quantum/tests/test_circuit_results.py",
-  "packages/scopecat-quantum/tests/test_measurement_calibrations.py",
-  "packages/scopecat-quantum/tests/test_program_authoring.py",
-  "packages/scopecat-quantum/tests/test_program_results.py",
-  "packages/scopecat-quantum/tests/test_program_targets.py",
-  "packages/scopecat-quantum/tests/test_programs.py",
-  "packages/scopecat-quantum/tests/test_pulses.py",
-  "packages/scopecat-quantum/tests/test_targets.py",
+  "examples/quantum/support",
+  "examples/quantum/support/src",
+  "examples/quantum",
 ]
 reportMissingImports = "error"
 reportMissingTypeStubs = "none"
+reportImplicitStringConcatenation = "none"
+reportUnannotatedClassAttribute = "none"
+reportUnusedCallResult = "none"
+reportUnusedParameter = "hint"
+reportUnreachable = "hint"
+
+# Execution environments use first-match semantics, so nested and test-specific
+# roots must precede their parent projects.
+[[tool.basedpyright.executionEnvironments]]
+root = "packages/scopecat/tests"
+reportAny = "none"
+reportExplicitAny = "none"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "packages/scopecat"
+reportImportCycles = "none"
+reportUninitializedInstanceVariable = "none"
 
 [tool.pytest]
 minversion = "9.0"

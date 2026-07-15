@@ -5,10 +5,6 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from demo_lab_test_paths import (
-    EXPERIMENT_FIXTURE_DIR,
-    EXPERIMENT_VIRTUAL_LAB_PROFILE,
-)
 from scopecat.authoring import (
     ExperimentInvocation,
     PayloadType,
@@ -37,8 +33,13 @@ from quantum_lab_demo.experiments.points import (
     COUPLER_AMPLITUDE,
     COUPLER_DURATION,
 )
-from quantum_lab_demo.experiments.readout_responses import _settings_from_config
+from quantum_lab_demo.experiments.readout_responses import settings_from_config
 from quantum_lab_demo.lab import quantum_lab
+
+from .demo_lab_test_paths import (
+    EXPERIMENT_FIXTURE_DIR,
+    EXPERIMENT_VIRTUAL_LAB_PROFILE,
+)
 
 _CZ_CHEVRON_SCOPE = "cz_chevron"
 _BACKEND_BATCH_SCOPE = "batch"
@@ -49,8 +50,8 @@ def load_config() -> ConfigProfileSnapshot:
 
 
 def test_readout_settings_come_from_the_typed_qubit_table() -> None:
-    q0 = _settings_from_config(load_config(), qubit="q0")
-    q1 = _settings_from_config(load_config(), qubit="q1")
+    q0 = settings_from_config(load_config(), qubit="q0")
+    q1 = settings_from_config(load_config(), qubit="q1")
 
     assert q0.readout_frequency_ghz == 6.5
     assert q0.readout_power_dbm == -20.0

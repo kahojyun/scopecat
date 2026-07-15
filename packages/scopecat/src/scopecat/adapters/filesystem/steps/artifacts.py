@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
@@ -64,7 +64,7 @@ class StepArtifactHandle:
     path: Path
     media_type: str | None = None
     dataset_role: str | None = None
-    dataset_schema: dict[str, Any] | None = None
+    dataset_schema: dict[str, object] | None = None
     produced_by: str | None = None
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
@@ -161,7 +161,7 @@ class StepArtifactWriter(Protocol):
         *,
         id: str,  # noqa: A002
         schema: DataTableSchema,
-        rows: Iterable[Mapping[str, Any]],
+        rows: Iterable[Mapping[str, object]],
         media_type: str | None = "application/json",
         source_step: str | None = None,
         metadata: Mapping[str, JsonValue] | None = None,
@@ -172,7 +172,7 @@ class StepArtifactWriter(Protocol):
         *,
         id: str,  # noqa: A002
         schema: DataArraySchema,
-        variables: Mapping[str, Any],
+        variables: Mapping[str, object],
         media_type: str | None = "application/json",
         source_step: str | None = None,
         metadata: Mapping[str, JsonValue] | None = None,
@@ -347,7 +347,7 @@ class StepArtifactStore:
         *,
         id: str,  # noqa: A002
         schema: DataTableSchema,
-        rows: Iterable[Mapping[str, Any]],
+        rows: Iterable[Mapping[str, object]],
         media_type: str | None = "application/json",
         source_step: str | None = None,
         metadata: Mapping[str, JsonValue] | None = None,
@@ -380,7 +380,7 @@ class StepArtifactStore:
         *,
         id: str,  # noqa: A002
         schema: DataArraySchema,
-        variables: Mapping[str, Any],
+        variables: Mapping[str, object],
         media_type: str | None = "application/json",
         source_step: str | None = None,
         metadata: Mapping[str, JsonValue] | None = None,
@@ -453,7 +453,7 @@ class StepArtifactStore:
         records: Iterable[BaseModel],
         media_type: str | None,
         role: str | None,
-        schema: dict[str, Any],
+        schema: dict[str, object],
         metadata: Mapping[str, JsonValue] | None,
         produced_by: str | None,
     ) -> StepArtifactHandle:
@@ -477,7 +477,7 @@ class StepArtifactStore:
         kind: str,
         content: str,
         media_type: str | None,
-        schema: dict[str, Any],
+        schema: dict[str, object],
         metadata: Mapping[str, JsonValue] | None,
         produced_by: str | None,
     ) -> StepArtifactHandle:
@@ -504,7 +504,7 @@ class StepArtifactStore:
         media_type: str | None,
         metadata: Mapping[str, JsonValue] | None,
         dataset_role: str | None,
-        dataset_schema: dict[str, Any] | None,
+        dataset_schema: dict[str, object] | None,
         produced_by: str | None,
     ) -> StepArtifactHandle:
         problems = self._registration_problems(

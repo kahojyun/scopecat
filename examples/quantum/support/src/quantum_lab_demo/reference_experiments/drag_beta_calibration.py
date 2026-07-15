@@ -19,6 +19,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import SupportsFloat, cast
 
 import numpy as np
 from scopecat import IntType, Quantity, QuantityType, ScalarType
@@ -465,7 +466,7 @@ class DragBetaObservation:
     def __post_init__(self) -> None:
         _beta_ns(self.beta)
         _require_positive_amplification(self.amplification)
-        if not isinstance(self.p1, int | float) or isinstance(self.p1, bool):
+        if isinstance(self.p1, bool):
             msg = "DRAG-beta p1 observations must be finite numbers"
             raise TypeError(msg)
         selected = float(self.p1)
@@ -516,9 +517,7 @@ def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
     """
 
     selected = tuple(observations)
-    if len(selected) < 4 or any(
-        not isinstance(observation, DragBetaObservation) for observation in selected
-    ):
+    if len(selected) < 4:
         msg = "DRAG-beta fitting requires at least four typed observations"
         raise ValueError(msg)
     rows: list[tuple[float, float, float, float]] = []
@@ -552,7 +551,7 @@ def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
         msg = "fitted DRAG beta lies outside the scanned beta range"
         raise ValueError(msg)
     residual = design @ coefficients - response
-    rmse = float(np.sqrt(np.mean(residual**2)))
+    rmse = float(cast("SupportsFloat", np.sqrt(np.mean(residual**2))))
     return DragBetaFit(
         beta_hat=Quantity(beta_hat, "ns"),
         baseline=baseline,

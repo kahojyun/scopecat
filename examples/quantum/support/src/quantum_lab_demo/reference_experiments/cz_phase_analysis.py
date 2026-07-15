@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import SupportsFloat, cast
 
 import numpy as np
 import scopecat as sc
@@ -96,9 +97,7 @@ def fit_cz_phase(observations: Sequence[CzPhaseObservation]) -> CzPhaseFit:
     """Fit both control-state fringes and select the point nearest pi."""
 
     selected = tuple(observations)
-    if len(selected) < 8 or any(
-        not isinstance(value, CzPhaseObservation) for value in selected
-    ):
+    if len(selected) < 8:
         msg = "CZ phase fitting requires typed observations for both control states"
         raise ValueError(msg)
     grouped: dict[float, dict[int, list[CzPhaseObservation]]] = {}
@@ -306,7 +305,7 @@ def _fit_fringe(
         raise ValueError(msg)
     offset, cosine, sine = (float(value) for value in coefficients)
     fitted = design @ coefficients
-    rmse = float(np.sqrt(np.mean((fitted - values) ** 2)))
+    rmse = float(cast("SupportsFloat", np.sqrt(np.mean((fitted - values) ** 2))))
     control_errors = tuple(
         value.control_p1 if control_state == 0 else 1.0 - value.control_p1
         for value in selected

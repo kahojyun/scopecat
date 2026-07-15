@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from typing import override
 
 from scopecat.compiler.linking.linked import MaterializedLinkedPointSet
 from scopecat.compiler.typed.products import ProductDef
@@ -25,6 +26,7 @@ class NativeMeasurementTransformId:
             msg = "measurement transform identity must be non-empty"
             raise ValueError(msg)
 
+    @override
     def __str__(self) -> str:
         return self.value
 

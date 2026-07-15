@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
 
+from scopecat.kernel.json_types import JsonValue
 from scopecat.measurements.results import MeasurementDataset
 from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
 from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
@@ -25,13 +26,13 @@ class RunArtifactTextResult:
 @dataclass(frozen=True)
 class RunArtifactJsonResult:
     artifact: RunArtifactEntry
-    content: Any
+    content: Mapping[str, JsonValue]
 
 
 @dataclass(frozen=True)
 class RunRecordJsonResult:
     record: RunRecordEntry
-    content: Any
+    content: Mapping[str, JsonValue]
 
 
 @dataclass(frozen=True)

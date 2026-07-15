@@ -12,21 +12,6 @@ dependencies = [
 requires = ["uv_build>=0.11.20,<0.12.0"]
 build-backend = "uv_build"
 
-[tool.basedpyright]
-include = ["src", "tests"]
-exclude = [
-  "**/__pycache__",
-  ".pytest_cache",
-  ".ruff_cache",
-  ".venv",
-]
-pythonVersion = "3.12"
-pythonPlatform = "All"
-typeCheckingMode = "standard"
-strict = ["src"]
-reportMissingImports = "error"
-reportMissingTypeStubs = "none"
-
 [tool.pytest]
 minversion = "9.0"
 strict_config = true

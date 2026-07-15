@@ -21,7 +21,7 @@ def _resource_module() -> sc.ExperimentModule:
     route = sc.route("drive.v1", capabilities=("set.frequency",))
     program = sc.compute(
         "program",
-        fn=lambda *, route: {"route": route},
+        fn=_capture_route,
         inputs={"route": route},
         output_type=sc.ScalarType(sc.PayloadType("test.resource-program")),
     )
@@ -324,3 +324,7 @@ def test_state_each_keeps_dotted_capability_and_field_ids_structured(
     assert state.state is not None
     assert state.state[0].capability_id == "set.offset"
     assert state.state[0].field_path == "value.path"
+
+
+def _capture_route(*, route: object) -> dict[str, object]:
+    return {"route": route}

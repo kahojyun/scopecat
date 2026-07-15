@@ -18,8 +18,8 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
 
 from quantum_lab_demo.experiments.readout_responses import (
-    _frequency_to_ghz,
-    _settings_from_config,
+    frequency_to_ghz,
+    settings_from_config,
 )
 
 READOUT_PARAMETER_ID = "readout_frequency"
@@ -42,7 +42,7 @@ def analyze_readout_frequency_measurements(
     config: ConfigProfileSnapshot,
     qubit: str,
 ) -> ReadoutFrequencyAnalysisSummary:
-    settings = _settings_from_config(config, qubit=qubit)
+    settings = settings_from_config(config, qubit=qubit)
     processed_measurements = [
         _process_measurement(
             measurement=measurement,
@@ -111,7 +111,7 @@ def _process_measurement(
                 )
             ]
         )
-    frequency_ghz = _frequency_to_ghz(frequency)
+    frequency_ghz = frequency_to_ghz(frequency)
     detuning_mhz = round(
         (frequency_ghz - configured_readout_frequency_ghz) * 1000,
         12,

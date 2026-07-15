@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol, cast, runtime_checkable
 
@@ -547,7 +548,7 @@ def _validated_response(response: object) -> FakeAcquisitionResponse:
 
 def _deterministic_complex(
     *,
-    address: dict[str, object],
+    address: Mapping[str, object],
     sample_index: int | None,
 ) -> complex:
     encoded = json.dumps(

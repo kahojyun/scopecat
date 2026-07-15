@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -22,7 +22,7 @@ from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
 type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | PayloadValue
-type CellValue = ScalarValue | dict[str, Any]
+type CellValue = ScalarValue | dict[str, object]
 type Row = dict[str, CellValue]
 type ScalarExprKind = Literal[
     "literal",
@@ -758,7 +758,7 @@ def _grid_column(source: object) -> GridColumn:
     if isinstance(source, RelationExpr):
         return GridColumn(kind="relation", relation=source)
     if isinstance(source, Sequence) and not isinstance(source, str | bytes):
-        source_items = cast(Sequence[object], source)
+        source_items = source
         column_values: list[CellValue] = []
         for item in source_items:
             if not is_cell_value(item):

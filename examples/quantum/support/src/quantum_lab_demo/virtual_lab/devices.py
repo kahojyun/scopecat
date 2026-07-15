@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
+from pydantic import JsonValue
 from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemPhase,
@@ -88,19 +88,20 @@ class VirtualDevice:
             return None
         return value.root.payload_id
 
-    def measurement_metadata(self) -> dict[str, Any]:
-        payloads: dict[str, str] = {}
+    def measurement_metadata(self) -> dict[str, JsonValue]:
+        payloads: dict[str, JsonValue] = {}
         for (capability_id, field_path), value in self._state.items():
             if isinstance(value.root, PayloadRef):
                 payloads[_encode_state_key(capability_id, field_path)] = (
                     value.root.payload_id
                 )
-        return {
+        metadata: dict[str, JsonValue] = {
             "virtual_device": self.id,
             "virtual_device_kind": self.kind,
             "virtual_payloads": payloads,
             "applied_patch_count": len(self._patch_log),
         }
+        return metadata
 
     def _apply_field(self, field: InstrumentStateCommandField) -> None:
         key = (field.capability_id, field.field_path)

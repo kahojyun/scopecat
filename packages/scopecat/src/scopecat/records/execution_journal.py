@@ -10,7 +10,7 @@ not fields to copy into journal transitions.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
@@ -132,7 +132,7 @@ class PayloadEvidence(BaseModel):
     payload_id: str
     schema_id: str
     content_hash: str
-    fingerprint: Any
+    fingerprint: object
 
 
 class CommittedPayloadEvidence(BaseModel):

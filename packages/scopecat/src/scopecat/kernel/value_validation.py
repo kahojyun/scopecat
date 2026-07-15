@@ -452,7 +452,7 @@ def _sequence(
 ) -> Sequence[object]:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
         raise ValueValidationError(path, f"expected {label} sequence, got {value!r}")
-    return cast("Sequence[object]", value)
+    return value
 
 
 def _python_type_name(

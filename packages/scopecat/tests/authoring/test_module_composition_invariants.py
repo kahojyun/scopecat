@@ -17,6 +17,7 @@ from scopecat.compiler.semantic.model import (
     OperationOutputSource,
     RouteValueSource,
     SemanticOperation,
+    SourceAnchor,
     ValueDef,
     ValueUse,
 )
@@ -24,7 +25,11 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Route
-from scopecat.planning.checks import check_invocation, check_template_builder
+from scopecat.planning.checks import (
+    ExperimentCheckReport,
+    check_invocation,
+    check_template_builder,
+)
 
 _INSTANCE_IDS = (
     "alpha",
@@ -52,6 +57,14 @@ def _payload_type() -> sc.ScalarType:
     return sc.ScalarType(sc.PayloadType("test.composition-invariant"))
 
 
+def _combine_payload_and_route(*, payload: object, route: object) -> dict[str, object]:
+    return {"payload": payload, "route": route}
+
+
+def _identity_payload(*, payload: object) -> object:
+    return payload
+
+
 def _composable_module() -> sc.ExperimentModule:
     payload_type = _payload_type()
     produce = sc.compute(
@@ -61,7 +74,7 @@ def _composable_module() -> sc.ExperimentModule:
     )
     consume = sc.compute(
         "consume",
-        fn=lambda *, payload, route: {"payload": payload, "route": route},
+        fn=_combine_payload_and_route,
         inputs={
             "payload": produce.output,
             "route": sc.route("source", capabilities=("measure",)),
@@ -88,7 +101,7 @@ def _consumer_module() -> sc.ExperimentModule:
     payload = sc.input("payload", _payload_type())
     consume = sc.compute(
         "consume-export",
-        fn=lambda *, payload: payload,
+        fn=_identity_payload,
         inputs={"payload": payload},
         output_type=_payload_type(),
     )
@@ -234,7 +247,7 @@ def test_alpha_renaming_changes_only_structural_instance_scope() -> None:
 
 
 def test_alpha_renaming_keeps_synthetic_source_declarations_stable() -> None:
-    anchors = []
+    anchors: list[SourceAnchor] = []
     child = _composable_module()
     for instance_id in ("alpha", "beta"):
         instance = child.instantiate(instance_id)
@@ -256,7 +269,7 @@ def test_child_module_metadata_does_not_implicitly_merge_into_entrypoint() -> No
     left = sc.module("test.metadata.left", metadata={"shared": "left"}).build()
     right = sc.module("test.metadata.right", metadata={"shared": "right"}).build()
 
-    assemblies = []
+    assemblies: list[SemanticExperimentIR] = []
     for first, second in ((left, right), (right, left)):
         root = (
             sc.module("test.metadata.root", metadata={"owner": "root"})
@@ -275,7 +288,7 @@ def test_child_module_metadata_does_not_implicitly_merge_into_entrypoint() -> No
 def test_generated_alpha_renaming_preserves_normalized_semantics(
     instance_ids: list[str],
 ) -> None:
-    reports = []
+    reports: list[ExperimentCheckReport] = []
     for instance_id in instance_ids:
         instance = _composable_module().instantiate(instance_id)
         root = (
@@ -317,7 +330,7 @@ def test_generated_state_region_alpha_renaming_preserves_public_checks(
     offsets: list[float],
 ) -> None:
     child, row_type = _stateful_module()
-    reports = []
+    reports: list[ExperimentCheckReport] = []
     for instance_id in instance_ids:
         rows = sc.input("rows", row_type)
         instance = child.instantiate(instance_id, rows=rows)
@@ -410,7 +423,7 @@ def test_repeated_config_free_verification_is_deterministic() -> None:
     instance = _composable_module().instantiate("stable")
     root = sc.module("test.composition-invariant.stable").use(instance).build()
 
-    signatures = []
+    signatures: list[tuple[object, ...]] = []
     for _ in range(5):
         assembly = elaborate_module(root)
         verified = verify_assembly_graph(assembly)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import override
+
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from scopecat.kernel.qualified_name import qualified_name
@@ -44,9 +46,11 @@ class SymbolId(BaseModel):
             return self
         return SymbolId(scope=(*segments, *self.scope), local_id=self.local_id)
 
+    @override
     def __str__(self) -> str:
         return self.qualified_name
 
+    @override
     def __hash__(self) -> int:
         return hash((self.scope, self.local_id))
 

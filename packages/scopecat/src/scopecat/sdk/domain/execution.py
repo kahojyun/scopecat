@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable
-from typing import Literal, Protocol, cast
+from typing import Literal, Protocol, cast, override
 
 from scopecat.measurements.host_transforms import BoundHostMeasurementTransformPlan
 from scopecat.measurements.values import BoundDomainMeasurementValueFragment
@@ -114,14 +114,17 @@ class _PreparedDomainExecution(PreparedDomainExecution):
         self._transforms = transforms
 
     @property
+    @override
     def adapter_id(self) -> str:
         return self._adapter_id
 
     @property
+    @override
     def context(self) -> DomainBatchContext:
         return self._context
 
     @property
+    @override
     def completion_contract(self) -> Literal["synchronous"]:
         return "synchronous"
 

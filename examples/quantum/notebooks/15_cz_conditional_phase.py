@@ -19,6 +19,17 @@ from quantum_lab_demo.reference_experiments import (
 from scopecat.records.parameter import TableParameterValue
 from scopecat_quantum import ImplementedGatePulseEventProvenance
 
+
+def _entity_id(value: object) -> str:
+    assert isinstance(value, sc.EntityRef)
+    return value.id
+
+
+def _quantity_in_unit(value: object, unit: str) -> float:
+    assert isinstance(value, sc.Quantity)
+    return float(value.to(unit).value)
+
+
 # %%
 # One Program contains all of these first-class statements:
 #
@@ -127,8 +138,8 @@ assert isinstance(delta.after, TableParameterValue)
 q0_q1 = next(
     row
     for row in delta.after.rows
-    if row["control_qubit"].id == "q0"  # type: ignore[union-attr]
-    and row["partner_qubit"].id == "q1"  # type: ignore[union-attr]
+    if _entity_id(row["control_qubit"]) == "q0"
+    and _entity_id(row["partner_qubit"]) == "q1"
     and row["gate"] == "cz"
 )
 fit_summary = {
@@ -141,13 +152,11 @@ fit_summary = {
     "quality_score": result.fit.quality_score,
     "failed_checks": result.fit.failed_checks,
     "proposal_id": result.proposal_id,
-    "candidate_amplitude": float(
-        q0_q1[CZ_AMPLITUDE_COLUMN].to("arb").value  # type: ignore[union-attr]
-    ),
+    "candidate_amplitude": _quantity_in_unit(q0_q1[CZ_AMPLITUDE_COLUMN], "arb"),
     "candidate_proposal_ids": candidate.proposal_ids,
     "analysis_record_id": saved.record.id,
 }
-assert math.isclose(fit_summary["conditional_phase"], math.pi)
+assert math.isclose(result.fit.selected.conditional_phase, math.pi)
 assert fit_summary["failed_checks"] == ()
 assert physical_summary["candidate_ids"] == (CZ_CANDIDATE_ID,)
 print(fit_summary)

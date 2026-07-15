@@ -7,6 +7,7 @@ import pytest
 from scopecat.composition.local import local_workspace_services
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.backend import ExecutionBackend
+from scopecat.records.execution import ExecutionSummary
 from scopecat.runs.service import read_run_record_json, start_run
 from scopecat.sdk.instruments import (
     InstrumentProviderContext,
@@ -61,9 +62,10 @@ def test_start_run_uses_provider_selected_config_instrument(
         services=local_workspace_services(tmp_path),
         expected_kind="execution_summary",
     )
+    summary = ExecutionSummary.model_validate(snapshot.content)
 
     assert manifest.status == "completed"
-    assert snapshot.content["instrument_ids"] == ["source-a"]
+    assert summary.instrument_ids == ["source-a"]
 
 
 def test_start_run_reuses_point_provider_preflight(tmp_path: Path) -> None:

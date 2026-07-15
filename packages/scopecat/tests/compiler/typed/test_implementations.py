@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import replace
+from typing import override
 
 import pytest
 from hypothesis import given
@@ -70,6 +71,7 @@ class _TrackingBackend(ReferenceRelationBackend):
         super().__init__(backend_id="tests.compute-availability")
         self.materialization_count = 0
 
+    @override
     def materialize_relation(
         self,
         evaluation: PreparedRelationEvaluation[RelationExpr],

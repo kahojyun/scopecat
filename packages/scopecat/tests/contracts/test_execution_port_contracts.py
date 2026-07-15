@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import override
 
 from scopecat.adapters.filesystem.execution import (
     FilesystemExecutionJournal,
@@ -26,10 +27,12 @@ from tests.contracts.execution_port_contracts import (
 
 
 class TestMemoryExecutionJournalContract(ExecutionJournalContract):
+    @override
     def make_journal(self, tmp_path: Path, *, run_id: str) -> ExecutionJournal:
         del tmp_path, run_id
         return MemoryExecutionJournal()
 
+    @override
     def read_entries(
         self,
         journal: ExecutionJournal,
@@ -39,9 +42,11 @@ class TestMemoryExecutionJournalContract(ExecutionJournalContract):
 
 
 class TestFilesystemExecutionJournalContract(ExecutionJournalContract):
+    @override
     def make_journal(self, tmp_path: Path, *, run_id: str) -> ExecutionJournal:
         return FilesystemExecutionJournal(tmp_path, run_id=run_id)
 
+    @override
     def read_entries(
         self,
         journal: ExecutionJournal,
@@ -51,6 +56,7 @@ class TestFilesystemExecutionJournalContract(ExecutionJournalContract):
 
 
 class TestMemoryMeasurementRecordCommitterContract(MeasurementRecordCommitterContract):
+    @override
     def make_committer(
         self,
         tmp_path: Path,
@@ -64,6 +70,7 @@ class TestMemoryMeasurementRecordCommitterContract(MeasurementRecordCommitterCon
 class TestFilesystemMeasurementRecordCommitterContract(
     MeasurementRecordCommitterContract
 ):
+    @override
     def make_committer(
         self,
         tmp_path: Path,
@@ -74,6 +81,7 @@ class TestFilesystemMeasurementRecordCommitterContract(
 
 
 class TestMemoryPayloadEvidenceCommitterContract(PayloadEvidenceCommitterContract):
+    @override
     def make_committer(
         self,
         tmp_path: Path,
@@ -85,6 +93,7 @@ class TestMemoryPayloadEvidenceCommitterContract(PayloadEvidenceCommitterContrac
 
 
 class TestFilesystemPayloadEvidenceCommitterContract(PayloadEvidenceCommitterContract):
+    @override
     def make_committer(
         self,
         tmp_path: Path,

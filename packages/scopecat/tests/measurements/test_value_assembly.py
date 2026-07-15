@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -8,8 +10,9 @@ from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
 )
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
-from scopecat.kernel.product_identity import ProductUseId
+from scopecat.kernel.product_identity import ProductUse, ProductUseId
 from scopecat.measurements.values import (
+    ClosedMeasurementValueFragment,
     MeasurementValueCandidate,
     ProductValueFragmentDef,
     assemble_measurement_values,
@@ -59,23 +62,31 @@ def test_assembly_selection_accepts_a_linked_point_batch() -> None:
     )
 
 
+type _FragmentDefinitions = Callable[
+    [tuple[ProductUse, ...]],
+    tuple[ProductValueFragmentDef, ...],
+]
+
+_INVALID_FRAGMENT_DEFINITIONS: tuple[_FragmentDefinitions, ...] = (
+    lambda uses: (
+        measurement_fragment_definition("first", (uses[0],)),
+        measurement_fragment_definition("overlap", (uses[0], uses[1])),
+    ),
+    lambda uses: (measurement_fragment_definition("missing", (uses[0],)),),
+    lambda uses: (
+        measurement_fragment_definition("duplicate", (uses[0],)),
+        measurement_fragment_definition("duplicate", (uses[1],)),
+    ),
+)
+
+
 @pytest.mark.parametrize(
     "definitions",
-    (
-        lambda uses: (
-            measurement_fragment_definition("first", (uses[0],)),
-            measurement_fragment_definition("overlap", (uses[0], uses[1])),
-        ),
-        lambda uses: (measurement_fragment_definition("missing", (uses[0],)),),
-        lambda uses: (
-            measurement_fragment_definition("duplicate", (uses[0],)),
-            measurement_fragment_definition("duplicate", (uses[1],)),
-        ),
-    ),
+    _INVALID_FRAGMENT_DEFINITIONS,
     ids=("overlap", "missing", "duplicate-fragment-id"),
 )
 def test_assembly_selection_rejects_non_exact_fragment_ownership_before_values(
-    definitions,
+    definitions: _FragmentDefinitions,
 ) -> None:
     scenario = measurement_assembly_scenario(use_count=2)
 
@@ -218,7 +229,7 @@ def test_arbitrary_use_partitions_have_one_canonical_assembly(
         scenario,
         tuple(definitions[index] for index in reversed(range(4))),
     )
-    fragments = []
+    fragments: list[ClosedMeasurementValueFragment] = []
     for owner, owned_uses in enumerate(uses_by_owner):
         candidates = measurement_value_candidates(scenario, owned_uses)
         fragments.append(

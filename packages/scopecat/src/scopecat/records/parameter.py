@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Any, Literal, Self, cast
+from typing import Annotated, Literal, Protocol, Self, cast, override
 
 from pydantic import (
     BaseModel,
@@ -59,7 +59,11 @@ from scopecat.kernel.value_types import (
 from scopecat.records.entity import EntityRef, normalize_entity_metadata
 
 
-def _ensure_unique_ids[T: Any](items: list[T], label: str) -> list[T]:
+class _Identified(Protocol):
+    id: str
+
+
+def _ensure_unique_ids[T: _Identified](items: list[T], label: str) -> list[T]:
     seen: set[str] = set()
     for item in items:
         item_id = item.id
@@ -94,7 +98,7 @@ class Quantity(BaseModel):
         self,
         value: float | None = None,
         unit: str | None = None,
-        **data: Any,
+        **data: object,
     ) -> None:
         if value is not None:
             if "value" in data:
@@ -116,10 +120,11 @@ class Quantity(BaseModel):
             raise ValueError(msg)
         return value
 
+    @override
     def model_copy(
         self,
         *,
-        update: Mapping[str, Any] | None = None,
+        update: Mapping[str, object] | None = None,
         deep: bool = False,
     ) -> Self:
         """Copy through validation so durable quantity invariants cannot drift."""
@@ -514,10 +519,11 @@ class ParameterDefinition(BaseModel):
     def serialize_metadata(self, value: Mapping[str, object]) -> object:
         return thaw_json_value(value)
 
+    @override
     def model_copy(
         self,
         *,
-        update: Mapping[str, Any] | None = None,
+        update: Mapping[str, object] | None = None,
         deep: bool = False,
     ) -> Self:
         """Copy through validation so the durable definition stays well-typed."""
@@ -569,10 +575,11 @@ class ParameterCatalog(BaseModel):
                 return definition
         return None
 
+    @override
     def model_copy(
         self,
         *,
-        update: Mapping[str, Any] | None = None,
+        update: Mapping[str, object] | None = None,
         deep: bool = False,
     ) -> Self:
         """Copy through validation so namespace and metadata remain immutable."""
@@ -612,10 +619,11 @@ class _StoredParameterValue(BaseModel):
     def serialize_metadata(self, value: Mapping[str, object]) -> object:
         return thaw_json_value(value)
 
+    @override
     def model_copy(
         self,
         *,
-        update: Mapping[str, Any] | None = None,
+        update: Mapping[str, object] | None = None,
         deep: bool = False,
     ) -> Self:
         """Copy through validation so durable nested values cannot drift."""
@@ -781,10 +789,11 @@ class ParameterSnapshot(BaseModel):
                 return value
         return None
 
+    @override
     def model_copy(
         self,
         *,
-        update: Mapping[str, Any] | None = None,
+        update: Mapping[str, object] | None = None,
         deep: bool = False,
     ) -> ParameterSnapshot:
         """Copy through validation so the snapshot remains immutable."""

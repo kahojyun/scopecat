@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import ClassVar, override
 from uuid import uuid4
 
 from pydantic import ConfigDict
@@ -33,6 +33,7 @@ class ProductId:
     def prefixed(self, *scope: str) -> ProductId:
         return ProductId(self.symbol.prefixed(*scope))
 
+    @override
     def __str__(self) -> str:
         return self.qualified_name
 
@@ -58,6 +59,7 @@ class ProductProducerId:
     def prefixed(self, *scope: str) -> ProductProducerId:
         return ProductProducerId(self.symbol.prefixed(*scope))
 
+    @override
     def __str__(self) -> str:
         return self.qualified_name
 
@@ -77,6 +79,7 @@ class ProductUseId:
     def fresh(cls) -> ProductUseId:
         return cls(uuid4().hex)
 
+    @override
     def __str__(self) -> str:
         return self.value
 

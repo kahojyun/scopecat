@@ -732,7 +732,7 @@ def validate_consumed_inputs(
     """Reject only free module inputs that the assembled program actually uses."""
 
     point_input_ids = set(point_domain_intent_output_types(assembly.point_domain))
-    point_domain_dependencies = _point_domain_input_dependencies(
+    point_domain_dependencies = point_domain_input_dependencies(
         assembly.point_domain,
         inputs=inputs,
     )
@@ -775,7 +775,7 @@ def validate_consumed_inputs(
         )
 
 
-def _point_domain_input_dependencies(
+def point_domain_input_dependencies(
     domain: PointDomainIntent,
     *,
     inputs: Mapping[str, object],
@@ -821,11 +821,14 @@ def _point_domain_input_dependencies(
     return dependencies
 
 
+_EMPTY_VISITED_VALUE_IDS: frozenset[int] = frozenset()
+
+
 def _nested_input_dependencies(
     value: object,
     *,
     inputs: Mapping[str, object],
-    seen: frozenset[int] = frozenset(),
+    seen: frozenset[int] = _EMPTY_VISITED_VALUE_IDS,
 ) -> set[str]:
     if isinstance(value, ValueRef):
         lowered = internal_lower_value_ref(value)
@@ -856,7 +859,7 @@ def _nested_input_dependencies(
             )
         }
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        selected = cast("Sequence[object]", value)
+        selected = value
         marker = id(selected)
         if marker in seen:
             return set()

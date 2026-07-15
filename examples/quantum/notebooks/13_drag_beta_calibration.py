@@ -149,11 +149,16 @@ restored_production_run = lab.prepare(
 def _scan_center(prepared_preview: sc.PreviewExperimentResult) -> float:
     beta_values = sorted(
         {
-            float(point.coordinates["beta"].to("ns").value)  # type: ignore[union-attr]
+            _quantity_in_unit(point.coordinates["beta"], "ns")
             for point in prepared_preview.points
         }
     )
     return beta_values[len(beta_values) // 2]
+
+
+def _quantity_in_unit(value: object, unit: str) -> float:
+    assert isinstance(value, sc.Quantity)
+    return float(value.to(unit).value)
 
 
 def _domain_artifact_fingerprint(run: sc.RunHandle) -> str:

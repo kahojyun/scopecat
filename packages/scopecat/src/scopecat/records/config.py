@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Annotated, Any, Literal, Protocol
+from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -333,7 +333,7 @@ def config_content_hash(config: ConfigProfileSnapshot) -> ConfigContentHash:
     return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def _config_content(config: ConfigProfileSnapshot) -> dict[str, Any]:
+def _config_content(config: ConfigProfileSnapshot) -> dict[str, object]:
     return config.model_dump(
         mode="python",
         exclude={"schema_version"},

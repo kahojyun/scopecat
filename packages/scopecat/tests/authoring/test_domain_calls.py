@@ -210,7 +210,7 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
     value_type = sc.ScalarType(sc.IntType())
     compute = sc.compute(
         "same-id",
-        fn=lambda value: value,
+        fn=_identity_value,
         inputs={"value": 1},
         output_type=value_type,
     )
@@ -240,3 +240,7 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
     value_ids = {definition.id.qualified_name for definition in graph.value_defs}
     assert "same-id/inputs/value" in value_ids
     assert "domain_calls/same-id/inputs/value" in value_ids
+
+
+def _identity_value(value: object) -> object:
+    return value

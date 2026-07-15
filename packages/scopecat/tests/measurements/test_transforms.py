@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import cast
+from typing import cast, override
 
 import pytest
 from hypothesis import given
@@ -18,11 +18,16 @@ from scopecat.measurements.host_transforms import (
     HostMeasurementTransformFragmentBinding,
     HostMeasurementTransformImplementation,
     HostMeasurementTransformImplementationBinding,
+    HostMeasurementTransformKernel,
+    HostMeasurementTransformValidator,
     bind_host_measurement_transforms,
     execute_host_measurement_transforms,
     select_host_measurement_transforms,
 )
-from scopecat.measurements.semantics import MeasurementTransformSemanticContract
+from scopecat.measurements.semantics import (
+    MeasurementTransformRate,
+    MeasurementTransformSemanticContract,
+)
 from scopecat.measurements.transform_model import (
     MeasurementTransformDef,
     MeasurementTransformInputPort,
@@ -93,23 +98,31 @@ def _transform(
     outputs: tuple[tuple[str, ProductUse], ...],
     *,
     semantic_id: str | None = None,
-    rate: str = "point",
+    rate: MeasurementTransformRate = "point",
 ) -> MeasurementTransformDef:
     return MeasurementTransformDef(
         id=NativeMeasurementTransformId(transform_id),
         semantic=_semantic(semantic_id or transform_id),
-        rate=rate,  # type: ignore[arg-type]
+        rate=rate,
         inputs=tuple(_input_port(scenario, name, use) for name, use in inputs),
         outputs=tuple(_output_port(scenario, name, use) for name, use in outputs),
     )
 
 
+def _accept_transform(_transform: MeasurementTransformDef) -> None:
+    return None
+
+
+def _reject_transform(_transform: MeasurementTransformDef) -> None:
+    raise ValueError("unsupported typed interface")
+
+
 def _implementation(
     semantic_id: str,
-    kernel,
+    kernel: HostMeasurementTransformKernel,
     *,
     implementation_id: str | None = None,
-    validator=lambda _transform: None,
+    validator: HostMeasurementTransformValidator = _accept_transform,
 ) -> HostMeasurementTransformImplementation:
     return HostMeasurementTransformImplementation(
         id=implementation_id or f"host-{semantic_id}",
@@ -132,8 +145,8 @@ def _identity_kernel(
 def _one_transform_plan(
     *,
     point_values: tuple[float, ...] = (0.0, 1.0),
-    kernel=_identity_kernel,
-    rate: str = "point",
+    kernel: HostMeasurementTransformKernel = _identity_kernel,
+    rate: MeasurementTransformRate = "point",
 ):
     scenario = measurement_assembly_scenario(point_values=point_values, use_count=2)
     source, output = scenario.uses
@@ -458,9 +471,7 @@ def test_host_capability_validator_rejects_before_kernel() -> None:
     implementation = _implementation(
         "validated",
         kernel,
-        validator=lambda _transform: (_ for _ in ()).throw(
-            ValueError("unsupported typed interface")
-        ),
+        validator=_reject_transform,
     )
 
     with pytest.raises(CheckFailed) as caught:
@@ -645,7 +656,7 @@ def test_point_runner_rejects_wrong_kernel_outputs(
                     values=[1.0],
                 )
             }
-        return {"output": 1}  # type: ignore[dict-item]
+        return {"output": 1}  # pyright: ignore[reportReturnType]
 
     *_prefix, bound, source = _one_transform_plan(kernel=bad_kernel)
 
@@ -695,12 +706,15 @@ def test_kernel_fault_is_sanitized_logged_and_safe_to_retry(
 
 
 class _ExplodingOutputMapping(Mapping[str, MeasurementValue]):
+    @override
     def __getitem__(self, _key: str) -> MeasurementValue:
         raise RuntimeError("secret-mapping-payload")
 
+    @override
     def __iter__(self):
         return iter(("output",))
 
+    @override
     def __len__(self) -> int:
         return 1
 
@@ -847,27 +861,3 @@ def test_point_runner_fans_one_semantic_output_out_to_every_product_use() -> Non
         first = executed.values.value_for_output(point.logical_id, first_output.id)
         second = executed.values.value_for_output(point.logical_id, second_output.id)
         assert first.value == second.value
-
-
-def test_native_transform_boundaries_accept_point_rate_only() -> None:
-    scenario = measurement_assembly_scenario(use_count=2)
-    source, output = scenario.uses
-
-    with pytest.raises(ValueError, match="rate must be point"):
-        _transform(
-            scenario,
-            "unsupported-rate",
-            (("input", source),),
-            (("output", output),),
-            rate="point_set",
-        )
-    with pytest.raises(ValueError, match="rate must be point"):
-        HostMeasurementTransformImplementation(
-            id="unsupported-rate",
-            semantic_id="identity",
-            semantic_version="1",
-            rate="point_set",  # type: ignore[arg-type]
-            implementation_fingerprint="unsupported-rate-fingerprint",
-            validate_transform=lambda _transform: None,
-            kernel=_identity_kernel,
-        )

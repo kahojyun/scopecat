@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 from pydantic import (
     BaseModel,
@@ -47,7 +47,7 @@ MeasurementVariableRole = Literal[
     "mask",
 ]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
-MeasurementArrayData = list[Any]
+MeasurementArrayData = list[object]
 
 
 class MeasurementDimension(BaseModel):
@@ -299,8 +299,14 @@ def infer_measurement_dataset_schema(
 ) -> MeasurementDatasetSchema:
     """Infer the compatible point-table dataset schema for record JSONL data."""
 
-    coordinate_values = _values_by_id(records=records, field_name="coordinates")
-    observable_values = _values_by_id(records=records, field_name="observables")
+    coordinate_values = _values_by_id(
+        records=records,
+        select=lambda record: record.coordinates,
+    )
+    observable_values = _values_by_id(
+        records=records,
+        select=lambda record: record.observables,
+    )
     point_shape = [len(records)]
     variables: list[MeasurementVariable] = []
     dimensions = [
@@ -582,14 +588,14 @@ def _problem(
     )
 
 
-def _values_by_id(
+def _values_by_id[T](
     *,
     records: Sequence[MeasurementRecord],
-    field_name: Literal["coordinates", "observables"],
-) -> dict[str, list[MeasurementValue]]:
-    values_by_id: dict[str, list[MeasurementValue]] = {}
+    select: Callable[[MeasurementRecord], Mapping[str, T]],
+) -> dict[str, list[T]]:
+    values_by_id: dict[str, list[T]] = {}
     for record in records:
-        values = getattr(record, field_name)
+        values = select(record)
         for variable_id, value in values.items():
             values_by_id.setdefault(variable_id, []).append(value)
     return values_by_id
@@ -599,7 +605,7 @@ def _measurement_variable(
     *,
     variable_id: str,
     role: Literal["coordinate", "observable"],
-    values: Sequence[MeasurementValue],
+    values: Sequence[MeasurementValue | CoordinateValue],
     dimension_id: str,
     shape: list[int],
 ) -> tuple[MeasurementVariable, list[MeasurementDimension]]:
@@ -641,7 +647,9 @@ def _measurement_variable(
     ), dimensions
 
 
-def _measurement_value_units(values: Sequence[MeasurementValue]) -> tuple[str, ...]:
+def _measurement_value_units(
+    values: Sequence[MeasurementValue | CoordinateValue],
+) -> tuple[str, ...]:
     units: list[str] = []
     for value in values:
         unit = _measurement_value_unit(value)
@@ -656,7 +664,9 @@ def _measurement_value_unit(value: MeasurementValue | CoordinateValue) -> str | 
     return None
 
 
-def _common_dtype(values: Sequence[MeasurementValue]) -> MeasurementDType:
+def _common_dtype(
+    values: Sequence[MeasurementValue | CoordinateValue],
+) -> MeasurementDType:
     dtypes: list[MeasurementDType] = []
     for value in values:
         dtype = _measurement_value_dtype(value)
@@ -700,7 +710,9 @@ def _dtype_compatible(
     return False
 
 
-def _common_value_shape(values: Sequence[MeasurementValue]) -> list[int]:
+def _common_value_shape(
+    values: Sequence[MeasurementValue | CoordinateValue],
+) -> list[int]:
     shapes: list[list[int]] = []
     for value in values:
         shape = _measurement_value_shape(value)

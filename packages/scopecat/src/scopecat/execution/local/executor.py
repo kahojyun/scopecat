@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import cast
 
 from pydantic import JsonValue, TypeAdapter
 
@@ -771,9 +772,12 @@ def _provider_result_evidence(
     validated_metadata = _PROVIDER_METADATA_ADAPTER.validate_python(
         provider_result.metadata
     )
-    metadata = _PROVIDER_METADATA_ADAPTER.dump_python(
-        validated_metadata,
-        mode="json",
+    metadata = cast(
+        "dict[str, JsonValue]",
+        _PROVIDER_METADATA_ADAPTER.dump_python(
+            validated_metadata,
+            mode="json",
+        ),
     )
     receipt = {
         "provider_id": provider_id,
@@ -786,9 +790,12 @@ def _provider_result_evidence(
         "provisioning_receipt": receipt,
         "provisioning_receipt_content_hash": stable_content_hash(receipt),
     }
-    return _JSON_OBJECT_ADAPTER.dump_python(
-        _JSON_OBJECT_ADAPTER.validate_python(evidence),
-        mode="json",
+    return cast(
+        "dict[str, JsonValue]",
+        _JSON_OBJECT_ADAPTER.dump_python(
+            _JSON_OBJECT_ADAPTER.validate_python(evidence),
+            mode="json",
+        ),
     )
 
 
@@ -799,7 +806,10 @@ def _normalize_provider_description(value: object) -> InstrumentProviderDescript
             f"got {type(value).__module__}.{type(value).__qualname__}"
         )
         raise TypeError(msg)
-    wire = _PROVIDER_DESCRIPTION_ADAPTER.dump_python(value, mode="json")
+    wire = cast(
+        "object",
+        _PROVIDER_DESCRIPTION_ADAPTER.dump_python(value, mode="json"),
+    )
     return _PROVIDER_DESCRIPTION_ADAPTER.validate_python(wire)
 
 

@@ -22,7 +22,6 @@ from scopecat_quantum import (
     Acquire,
     AcquireSignal,
     AcquisitionKind,
-    Barrier,
     Constant,
     Delay,
     DriveSignal,
@@ -393,23 +392,13 @@ class FakeListTargetCompiler:
                     frame_phases.get(instruction.signal, 0.0)
                     + _wrapped_phase(float(instruction.phase.value))
                 )
-            elif isinstance(instruction, Barrier):
+            else:
                 for signal in instruction.signals:
                     self._validate_signal_binding(
                         entry_id=entry.id,
                         signal=signal,
                         issues=issues,
                     )
-            else:
-                _entry_capability_issue(
-                    issues,
-                    entry.id,
-                    code="fake_list_instruction_unsupported",
-                    message=(
-                        f"event {event.id.value!r} uses unsupported instruction "
-                        f"{type(instruction).__name__!r}"
-                    ),
-                )
 
         if duration_samples is None or duration_samples <= 0:
             return None
@@ -475,15 +464,6 @@ class FakeListTargetCompiler:
                 ),
             )
             return
-        if not isinstance(envelope, Constant | DRAG):
-            _entry_capability_issue(
-                issues,
-                entry_id,
-                code="fake_list_envelope_unsupported",
-                message=f"event {event_id!r} uses an unsupported envelope",
-            )
-            return
-
         if envelope.amplitude.unit not in {"arb", "ratio"}:
             _entry_capability_issue(
                 issues,

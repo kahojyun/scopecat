@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import override
 
 import pytest
 
@@ -1337,6 +1338,7 @@ def test_backend_selection_retains_the_certified_contract() -> None:
 
 
 class _FiniteTableFactsBackend(ReferenceRelationBackend):
+    @override
     def assess_relation_requirements(
         self,
         requirements: RelationPlanRequirements,
@@ -1354,6 +1356,7 @@ class _FiniteTableFactsBackend(ReferenceRelationBackend):
 
 
 class _RestrictedExternalRowsBackend(ReferenceRelationBackend):
+    @override
     def assess_relation_requirements(
         self,
         requirements: RelationPlanRequirements,

@@ -144,7 +144,7 @@ def resolve_compiled_invocation(
     environment: ValidatedConfigEnvironment,
     config_source: RunConfigSource | None = None,
 ) -> ResolvedExperiment:
-    return _link_assembly(
+    return link_assembly(
         compiled.assembly,
         request=compiled.request,
         environment=environment,
@@ -174,7 +174,7 @@ def compile_prepared_invocation(
         inputs=merged_inputs,
     )
     _validate_point_dependencies(assembly, scans)
-    assembly = _apply_scans(
+    assembly = apply_scans(
         assembly,
         scans,
         inputs=inputs,
@@ -262,7 +262,7 @@ def _validate_invocation_inputs(
         raise CheckFailed(problems)
 
 
-def _link_assembly(
+def link_assembly(
     assembly: VerifiedAssembly,
     *,
     request: RunRequest,
@@ -411,7 +411,7 @@ def _materialized_request(
     )
 
 
-def _apply_scans(
+def apply_scans(
     assembly: SemanticExperimentIR,
     scans: Sequence[Scan],
     *,

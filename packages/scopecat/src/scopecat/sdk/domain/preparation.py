@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import cast
+from typing import cast, override
 
 from scopecat.measurements.host_transforms import (
     BoundHostMeasurementTransformPlan,
@@ -243,32 +243,38 @@ class _DomainResultMapping[
         self._native = native
 
     @property
+    @override
     def context(self) -> DomainBatchContext:
         return self.__context
 
     @property
+    @override
     def product_uses(self) -> tuple[DomainProductUseRef, ...]:
         return self.__product_uses
 
     @property
+    @override
     def target_entries(
         self,
     ) -> tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...]:
         return self.__target_entries
 
     @property
+    @override
     def entries(
         self,
     ) -> tuple[DomainMappedEntry[EntryAddressT, ResultAddressT], ...]:
         return self.__entries
 
     @property
+    @override
     def results(
         self,
     ) -> tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]:
         return self.__results
 
     @property
+    @override
     def _result_by_address(
         self,
     ) -> Mapping[
@@ -278,6 +284,7 @@ class _DomainResultMapping[
         return self.__result_by_address
 
     @property
+    @override
     def _result_by_output_identity(
         self,
     ) -> Mapping[
@@ -360,26 +367,32 @@ class _DomainMeasurementPlan[
         self._transforms = transforms
 
     @property
+    @override
     def context(self) -> DomainBatchContext:
         return self.__context
 
     @property
+    @override
     def mapping(self) -> DomainResultMapping[EntryAddressT, ResultAddressT]:
         return self.__mapping
 
     @property
+    @override
     def source_product_uses(self) -> tuple[DomainProductUseRef, ...]:
         return self.__source_product_uses
 
     @property
+    @override
     def derived_product_uses(self) -> tuple[DomainProductUseRef, ...]:
         return self.__derived_product_uses
 
     @property
+    @override
     def product_uses(self) -> tuple[DomainProductUseRef, ...]:
         return self.__product_uses
 
     @property
+    @override
     def host_transforms(self) -> tuple[DomainHostTransformBinding, ...]:
         return self.__host_transforms
 

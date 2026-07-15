@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Literal
 
 import pytest
 
@@ -60,7 +61,7 @@ def _transform(
     source_use: ProductUse,
     output: ProductId,
     output_uses: tuple[ProductUse, ...],
-    rate: str = "point",
+    rate: Literal["point"] = "point",
 ) -> TypedMeasurementTransform:
     transform_id = _transform_id(name)
     return TypedMeasurementTransform(
@@ -69,7 +70,7 @@ def _transform(
             id=f"test.{name}",
             version="1",
         ),
-        rate=rate,  # pyright: ignore[reportArgumentType]
+        rate=rate,
         inputs=(
             TypedMeasurementTransformInput(
                 id="source",

@@ -7,7 +7,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, override
 
 from scopecat import Quantity
 from scopecat_quantum import AcquisitionKind, TargetAcquisitionAddress
@@ -173,6 +173,7 @@ class CzPhaseAcquisitionResponse(FakeAcquisitionResponse):
         object.__setattr__(self, "_fingerprint", fingerprint)
 
     @property
+    @override
     def fingerprint(self) -> str:
         return self._fingerprint
 
@@ -208,6 +209,7 @@ class CzPhaseAcquisitionResponse(FakeAcquisitionResponse):
             contrast=self.contrast,
         )
 
+    @override
     def value_for(
         self,
         *,

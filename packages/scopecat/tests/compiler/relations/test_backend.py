@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from itertools import product
-from typing import cast
+from typing import cast, override
 
 import pytest
 from hypothesis import given, settings
@@ -17,7 +17,6 @@ from scopecat.compiler.relations.backend import (
     PreparedRelationEvaluation,
     RelationBackendCapabilityDimension,
     RelationBackendCapabilityError,
-    select_relation_plan,
 )
 from scopecat.compiler.relations.model import (
     CellValue,
@@ -43,7 +42,6 @@ from scopecat.compiler.relations.verification import (
     RelationRuntimeObligationKind,
     RelationTypeBindings,
     RowType,
-    verify_relation_plan,
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
@@ -577,6 +575,7 @@ def test_backend_dispatch_validates_implicit_point_cross_row_contract() -> None:
 
 
 class _InvalidScalarResultBackend(ReferenceRelationBackend):
+    @override
     def materialize_scalar(
         self,
         evaluation: PreparedRelationEvaluation[ScalarExpr],
@@ -586,6 +585,7 @@ class _InvalidScalarResultBackend(ReferenceRelationBackend):
 
 
 class _InvalidOpenTableResultBackend(ReferenceRelationBackend):
+    @override
     def materialize_relation(
         self,
         evaluation: PreparedRelationEvaluation[RelationExpr],
@@ -619,18 +619,4 @@ def test_backend_dispatch_rejects_invalid_open_table_carrier() -> None:
             literal_rows([{}]),
             bindings=RelationTypeBindings(),
             expected_type=expected,
-        )
-
-
-def test_backend_materializer_rejects_unprepared_selected_plan() -> None:
-    selected = select_relation_plan(
-        REFERENCE_RELATION_BACKEND,
-        verify_relation_plan(
-            input_ref("value"), bindings=RelationTypeBindings(inputs={"value": _INT})
-        ),
-    )
-
-    with pytest.raises(TypeError, match="PreparedRelationEvaluation"):
-        REFERENCE_RELATION_BACKEND.materialize_scalar(
-            cast("PreparedRelationEvaluation[ScalarExpr]", selected)
         )

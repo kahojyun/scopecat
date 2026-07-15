@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -49,7 +49,7 @@ class EarlyStopDecision(BaseModel):
 
 
 def decide_online_convergence(
-    rows: Sequence[Mapping[str, Any]],
+    rows: Sequence[Mapping[str, object]],
     *,
     point_count: int,
     x_column: str,
@@ -140,11 +140,11 @@ def decide_online_convergence(
 
 
 def _online_accepted_rows(
-    rows: Sequence[Mapping[str, Any]],
+    rows: Sequence[Mapping[str, object]],
     *,
     point_count: int,
-) -> list[dict[str, Any]]:
-    accepted: list[dict[str, Any]] = []
+) -> list[dict[str, object]]:
+    accepted: list[dict[str, object]] = []
     seen_points: set[int] = set()
     for row in rows:
         point_index = row.get("point_index")
@@ -157,7 +157,7 @@ def _online_accepted_rows(
     return sorted(accepted, key=lambda row: cast("int", row["point_index"]))
 
 
-def _completed_point_indices(rows: Sequence[Mapping[str, Any]]) -> tuple[int, ...]:
+def _completed_point_indices(rows: Sequence[Mapping[str, object]]) -> tuple[int, ...]:
     point_indices: list[int] = []
     for row in rows:
         point_index = row.get("point_index")

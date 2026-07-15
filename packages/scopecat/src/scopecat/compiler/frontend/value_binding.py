@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from typing import override
 
 from scopecat.authoring._value_refs import ValueRef, internal_lower_value_ref
 from scopecat.compiler.relations import input_binding as relation_input_binding
@@ -22,12 +23,15 @@ class _ResolvedInputs(Mapping[str, object]):
     def __init__(self, values: Mapping[str, object]) -> None:
         self._values = values
 
+    @override
     def __getitem__(self, key: str) -> object:
         return _lower_authoring_value(self._values[key])
 
+    @override
     def __iter__(self) -> Iterator[str]:
         return iter(self._values)
 
+    @override
     def __len__(self) -> int:
         return len(self._values)
 

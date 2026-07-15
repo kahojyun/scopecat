@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import pytest
 import scopecat as sc
@@ -48,6 +48,7 @@ from quantum_lab_demo.targets.fake_list_mode import (
 
 
 class _PendingFakeListDomainRuntime(FakeListDomainRuntime):
+    @override
     def fetch(
         self,
         request: DomainFetchRequest,
@@ -62,6 +63,7 @@ class _PendingFakeListDomainRuntime(FakeListDomainRuntime):
 
 
 class _RaisingFetchFakeListDomainRuntime(FakeListDomainRuntime):
+    @override
     def fetch(
         self,
         request: DomainFetchRequest,
@@ -71,6 +73,7 @@ class _RaisingFetchFakeListDomainRuntime(FakeListDomainRuntime):
 
 
 class _UnknownFetchFakeListDomainRuntime(FakeListDomainRuntime):
+    @override
     def fetch(
         self,
         request: DomainFetchRequest,
@@ -99,6 +102,7 @@ class _PendingFakeXCountAdapter(FakeXCountDomainExecutionAdapter):
 
 
 class _IndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
+    @override
     def submit(
         self,
         request: DomainSubmitRequest[SelectedFakeMeasurementRealization],
@@ -115,9 +119,11 @@ class _IndeterminateFakeXCountAdapter(FakeXCountDomainExecutionAdapter):
 
 class _RaisingAdapter(FakeXCountDomainExecutionAdapter):
     @property
+    @override
     def adapter_id(self) -> str:
         return "tests.raising-domain-adapter"
 
+    @override
     def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
         del context
         raise RuntimeError("adapter implementation defect")
@@ -125,9 +131,11 @@ class _RaisingAdapter(FakeXCountDomainExecutionAdapter):
 
 class _WrongResultAdapter(FakeXCountDomainExecutionAdapter):
     @property
+    @override
     def adapter_id(self) -> str:
         return "tests.wrong-result-domain-adapter"
 
+    @override
     def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
         del context
         return cast("PreparedDomainExecution", object())

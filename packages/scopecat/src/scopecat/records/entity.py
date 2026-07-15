@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import cast, override
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
@@ -47,10 +47,11 @@ class EntityRef(BaseModel):
 
         return thaw_json_value(normalize_entity_metadata(value))
 
+    @override
     def model_copy(
         self,
         *,
-        update: Mapping[str, Any] | None = None,
+        update: Mapping[str, object] | None = None,
         deep: bool = False,
     ) -> EntityRef:
         """Copy through validation so metadata remains recursively immutable."""

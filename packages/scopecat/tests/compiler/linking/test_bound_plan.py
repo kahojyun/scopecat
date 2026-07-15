@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from enum import IntEnum, StrEnum
 
@@ -124,6 +124,22 @@ def _catalog(
             for operation_id, kernel in entries
         )
     )
+
+
+def _wrap_value(*, value: object) -> dict[str, object]:
+    return {"value": value}
+
+
+def _identity_value(*, value: object) -> object:
+    return value
+
+
+def _quantity_value(*, frequency: Quantity) -> float:
+    return frequency.value
+
+
+def _mapping_size(*, payload: Mapping[object, object]) -> float:
+    return float(len(payload))
 
 
 def _point_domain(
@@ -325,9 +341,9 @@ def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() 
             ),
         ),
         implementation_catalog=_catalog(
-            (consumer_id, lambda *, value: {"value": value}),
+            (consumer_id, _wrap_value),
             (unused_id, lambda: {"unused": True}),
-            (producer_id, lambda *, value: value),
+            (producer_id, _identity_value),
         ),
         state=(
             set_state_field(
@@ -522,7 +538,7 @@ def test_compute_inputs_are_normalized_before_binding_and_hashing() -> None:
             ),
         ),
         implementation_catalog=_catalog(
-            (node_id, lambda *, frequency: frequency.value),
+            (node_id, _quantity_value),
         ),
     )
 
@@ -598,7 +614,7 @@ def test_compute_mapping_fingerprint_preserves_key_types_and_values() -> None:
             ),
         ),
         implementation_catalog=_catalog(
-            (node_id, lambda *, payload: float(len(payload))),
+            (node_id, _mapping_size),
         ),
     )
 

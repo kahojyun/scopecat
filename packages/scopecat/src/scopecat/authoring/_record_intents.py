@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal, cast
+from typing import Literal, cast, override
 
 from scopecat.authoring._frozen_values import (
     empty_frozen_mapping,
@@ -159,12 +159,15 @@ class ProductOutputs(Mapping[str, ProductRef]):
         )
         raise TypeError(msg)
 
+    @override
     def __getitem__(self, product_id: str) -> ProductRef:
         return self._values[product_id]
 
+    @override
     def __iter__(self) -> Iterator[str]:
         return iter(self._values)
 
+    @override
     def __len__(self) -> int:
         return len(self._values)
 
@@ -175,6 +178,7 @@ class ProductOutputs(Mapping[str, ProductRef]):
             msg = f"module instance has no product {product_id!r}"
             raise AttributeError(msg) from None
 
+    @override
     def __dir__(self) -> list[str]:
         return sorted((*super().__dir__(), *self._values))
 

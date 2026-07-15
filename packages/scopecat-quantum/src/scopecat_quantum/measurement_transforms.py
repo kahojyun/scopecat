@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from typing import Literal, cast
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
 from scopecat import MeasurementTransform, Quantity, measurement_transform
@@ -168,7 +168,7 @@ def _binary_iq_probability_kernel(
     if value.shape[0] <= 0:
         msg = "binary IQ host implementation requires at least one shot"
         raise ValueError(msg)
-    shots = cast("list[object]", value.values)
+    shots = value.values
     state_0_count = 0
     for shot in shots:
         if not isinstance(shot, ComplexQuantity):

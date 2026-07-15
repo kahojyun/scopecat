@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import override
+
 from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.problems import (
     ProblemCategory,
@@ -33,13 +35,17 @@ from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 
 class SignalInstrumentDriver:
     def __init__(self, *, instrument_id: str = "source-0") -> None:
-        self.instrument_id = instrument_id
+        self._instrument_id = instrument_id
         self.implementation_id = "tests.signal_driver"
         self.implementation_version = "v0"
         self._state: dict[tuple[str, str], StateValue] = {}
         self.applied: list[InstrumentStateCommand] = []
         self.action_commands: list[InstrumentActionCommand] = []
         self.collect_commands: list[CollectCommand] = []
+
+    @property
+    def instrument_id(self) -> str:
+        return self._instrument_id
 
     def describe(self) -> InstrumentDescription:
         return InstrumentDescription(
@@ -107,6 +113,7 @@ class SignalInstrumentDriver:
 
 
 class BlockingSignalInstrumentDriver(SignalInstrumentDriver):
+    @override
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         del command
         return ApplyReceipt(
@@ -124,6 +131,7 @@ class BlockingSignalInstrumentDriver(SignalInstrumentDriver):
 
 
 class FailingSignalInstrumentDriver(SignalInstrumentDriver):
+    @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         del command
         raise DriverFault(

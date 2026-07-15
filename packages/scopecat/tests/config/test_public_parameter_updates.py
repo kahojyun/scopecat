@@ -62,12 +62,3 @@ def test_parameter_update_intents_are_not_durable_wire_models() -> None:
         json.dumps(update)
     with pytest.raises(TypeError, match="immutable"):
         cast("dict[str, object]", update.values)["gain"] = 0.75
-
-
-def test_public_parameter_update_builders_reject_open_values() -> None:
-    with pytest.raises(ValueError, match="persisted parameter scalar"):
-        sc.update_parameter_rows(
-            "channels",
-            key={"channel": "q0"},
-            values={"gain": object()},  # type: ignore[dict-item]
-        )

@@ -108,7 +108,7 @@ def _create_handle[HandleT](
         if name in values:
             selected = values[name]
         elif descriptor.default is not MISSING:
-            selected = descriptor.default
+            selected = cast("object", descriptor.default)
         elif descriptor.default_factory is not MISSING:
             factory = cast("Callable[[], object]", descriptor.default_factory)
             selected = factory()
@@ -245,26 +245,11 @@ class CircuitFragment(QuantumFragment):
 
     __slots__ = ()
 
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "CircuitFragment",
-            "gate calls, measure, sequence, parallel, or repeat",
-        )
-
 
 class PulseFragment(QuantumFragment):
     """Opaque pulse statement that composes beside gates and measurements."""
 
     __slots__ = ()
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "PulseFragment",
-            (
-                "pulse-template calls, play, acquire, shift_phase, delay, "
-                "barrier, sequence, parallel, or repeat"
-            ),
-        )
 
 
 type CircuitArgument = GateArgumentValue | CircuitInput
@@ -411,12 +396,6 @@ class Measurement(CircuitFragment):
 
     result: MeasurementResult
 
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "Measurement",
-            "scopecat_quantum.authoring.measure",
-        )
-
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class PulseEnvelope:
@@ -443,12 +422,6 @@ class Acquisition(PulseFragment):
     signal: AcquireSignal
     duration: QuantumQuantity
     result: MeasurementResult
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "Acquisition",
-            "scopecat_quantum.authoring.acquire",
-        )
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)

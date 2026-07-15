@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -85,7 +85,7 @@ class DataTableArtifact(BaseModel):
 
     schema_version: str = DATA_TABLE_ARTIFACT_SCHEMA_VERSION
     data_schema: DataTableSchema = Field(alias="schema")
-    rows: list[dict[str, Any]]
+    rows: list[dict[str, object]]
 
     @model_validator(mode="after")
     def validate_rows(self) -> DataTableArtifact:
@@ -215,7 +215,7 @@ class DataArrayArtifact(BaseModel):
 
     schema_version: str = DATA_ARRAY_ARTIFACT_SCHEMA_VERSION
     data_schema: DataArraySchema = Field(alias="schema")
-    variables: dict[str, Any]
+    variables: dict[str, object]
 
     @model_validator(mode="after")
     def validate_variables(self) -> DataArrayArtifact:

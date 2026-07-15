@@ -359,7 +359,7 @@ def test_zero_point_mapping_retains_and_checks_selected_product_contracts() -> N
         product_kind="readback",
     )
     use = linked_points.linked_plan.product_uses[0]
-    mapping = seal_domain_result_mapping(
+    mapping: ClosedDomainResultMapping[str, str] = seal_domain_result_mapping(
         linked_points,
         (use.id,),
         (),
@@ -387,14 +387,14 @@ def test_empty_result_contract_fingerprint_covers_use_subset_and_entry_mapping()
 ):
     zero_points = _linked_points(point_count=0, product_count=2)
     uses = zero_points.linked_plan.product_uses
-    first_mapping = seal_domain_result_mapping(
+    first_mapping: ClosedDomainResultMapping[str, str] = seal_domain_result_mapping(
         zero_points,
         (uses[0].id,),
         (),
         (),
         (),
     )
-    second_mapping = seal_domain_result_mapping(
+    second_mapping: ClosedDomainResultMapping[str, str] = seal_domain_result_mapping(
         zero_points,
         (uses[1].id,),
         (),
@@ -419,14 +419,14 @@ def test_empty_result_contract_fingerprint_covers_use_subset_and_entry_mapping()
 
     points = _linked_points(point_count=1, product_count=1)
     point = points.point_domain.points[0]
-    mapping_a = seal_domain_result_mapping(
+    mapping_a: ClosedDomainResultMapping[str, str] = seal_domain_result_mapping(
         points,
         (),
         (AdapterEntryResults("entry-a"),),
         (EntryPointBinding("entry-a", point.logical_id),),
         (),
     )
-    mapping_b = seal_domain_result_mapping(
+    mapping_b: ClosedDomainResultMapping[str, str] = seal_domain_result_mapping(
         points,
         (),
         (AdapterEntryResults("entry-b"),),
@@ -439,7 +439,7 @@ def test_empty_result_contract_fingerprint_covers_use_subset_and_entry_mapping()
 def test_mapping_snapshots_selected_product_contracts_for_invocation_identity() -> None:
     linked_points = _linked_points(point_count=0, product_count=1)
     use = linked_points.linked_plan.product_uses[0]
-    mapping = seal_domain_result_mapping(
+    mapping: ClosedDomainResultMapping[str, str] = seal_domain_result_mapping(
         linked_points,
         (use.id,),
         (),

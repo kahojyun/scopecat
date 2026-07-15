@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from scopecat.sdk.instruments import StateValue
 
 
@@ -13,7 +13,7 @@ class VirtualResponseProfile(BaseModel):
 
     id: str
     kind: str
-    parameters: dict[str, Any]
+    parameters: dict[str, JsonValue]
 
 
 class VirtualDeviceProfile(BaseModel):
@@ -23,7 +23,7 @@ class VirtualDeviceProfile(BaseModel):
     kind: str
     response_model_id: str | None = None
     initial_state: dict[str, StateValue] = Field(default_factory=dict)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class VirtualLabProfile(BaseModel):
@@ -35,7 +35,7 @@ class VirtualLabProfile(BaseModel):
     id: str
     devices: list[VirtualDeviceProfile]
     response_models: list[VirtualResponseProfile] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     def device_profile(self, device_id: str) -> VirtualDeviceProfile:
         for device in self.devices:

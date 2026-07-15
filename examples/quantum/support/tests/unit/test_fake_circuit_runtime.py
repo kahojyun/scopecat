@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import cast
+from typing import TypedDict, cast, override
 
 import pytest
 from hypothesis import given, settings
@@ -86,7 +86,7 @@ from scopecat.sdk.domain.runtime import (
     DomainSubmitReceipt,
     DomainSubmitRequest,
     KnownDomainSubmission,
-    _domain_submit_request,
+    domain_receipt_identity,
     fetch_domain_invocation,
     plan_domain_submission,
     reconcile_domain_invocation,
@@ -266,11 +266,9 @@ class _FaultyAcquisitionCompiler:
 class _CountingFakeListAwg(FakeListAwg):
     """Observe the host-visible fake AWG call without changing playback."""
 
-    __slots__ = ("play_calls",)
+    play_calls: int = 0
 
-    def __init__(self) -> None:
-        object.__setattr__(self, "play_calls", 0)
-
+    @override
     def play(self, artifact: FakeListArtifact) -> tuple[FakeAwgPlayback, ...]:
         object.__setattr__(self, "play_calls", self.play_calls + 1)
         return super().play(artifact)
@@ -279,6 +277,7 @@ class _CountingFakeListAwg(FakeListAwg):
 class _UnavailableResultFakeListRuntime(FakeListRuntime):
     """Fail after physical execution without returning the captured run."""
 
+    @override
     def execute(
         self,
         compiled: CompiledTargetArtifact[FakeListArtifact],
@@ -832,6 +831,17 @@ def _scenario(
     )
 
 
+class _ScenarioKwargs(TypedDict, total=False):
+    repetitions: int
+    product_use_count: int
+    product_kind: ProductKind
+    product_dtype: MeasurementDType
+    product_unit: str | None
+    product_axes: tuple[ProductAxisDef, ...]
+    acquisition_kind: AcquisitionKind
+    sample_count: int
+
+
 def _mixed_scenario(
     *,
     repetitions: int = 2,
@@ -1363,10 +1373,10 @@ def test_integrated_iq_realization_preserves_generated_shot_cardinality(
     ),
 )
 def test_integrated_iq_realization_rejects_implicit_or_incompatible_policies(
-    scenario_kwargs: dict[str, object],
+    scenario_kwargs: _ScenarioKwargs,
     expected_code: str,
 ) -> None:
-    scenario = _scenario(**scenario_kwargs)  # type: ignore[arg-type]
+    scenario = _scenario(**scenario_kwargs)
 
     with pytest.raises(CheckFailed) as captured:
         select_fake_measurement_realization(
@@ -1588,10 +1598,10 @@ def test_raw_trace_realization_preserves_generated_shot_sample_cardinality(
     ),
 )
 def test_raw_trace_realization_rejects_incompatible_policy_before_effects(
-    scenario_kwargs: dict[str, object],
+    scenario_kwargs: _ScenarioKwargs,
     expected_code: str,
 ) -> None:
-    scenario = _scenario(**scenario_kwargs)  # type: ignore[arg-type]
+    scenario = _scenario(**scenario_kwargs)
 
     with pytest.raises(CheckFailed) as captured:
         select_fake_measurement_realization(
@@ -2079,10 +2089,10 @@ def test_fake_domain_lost_submit_response_reconciles_without_replay() -> None:
     assert delegate.reconcile_calls == 1
 
     repeated = runtime.submit(
-        _domain_submit_request(
-            submission_id,
-            invocation.intent,
-            invocation.payload,
+        DomainSubmitRequest(
+            submission_id=submission_id,
+            identity=domain_receipt_identity(submission_id, invocation.intent),
+            payload=invocation.payload,
         )
     )
     assert repeated.status == "submitted"
@@ -2151,10 +2161,10 @@ def test_fake_device_failure_is_terminal_unknown_not_permanent_pending() -> None
     )
     assert reconcile_error.value.problems[0].code == ("fake_domain_result_unavailable")
     repeated = runtime.submit(
-        _domain_submit_request(
-            submission_id,
-            invocation.intent,
-            invocation.payload,
+        DomainSubmitRequest(
+            submission_id=submission_id,
+            identity=domain_receipt_identity(submission_id, invocation.intent),
+            payload=invocation.payload,
         )
     )
     assert repeated.status == "unknown"

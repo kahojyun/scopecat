@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from demo_lab_experiment_testkit import load_experiment_config
 from scopecat.authoring import ExperimentInvocation
 from scopecat.execution.observation import RuntimePayloadObservation
 from scopecat.records.artifact import CommandPayload
@@ -15,6 +14,8 @@ from quantum_lab_demo.experiments.payloads import (
 )
 from quantum_lab_demo.experiments.points import CLIFFORD_COUNT
 from quantum_lab_demo.lab import quantum_lab
+
+from .demo_lab_experiment_testkit import load_experiment_config
 
 
 def test_sequence_compilation_stays_memory_payload_boundary(

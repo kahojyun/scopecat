@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -48,7 +48,7 @@ class RunDatasetEntry(BaseModel):
     kind: str
     media_type: str | None = None
     role: str | None = None
-    data_schema: dict[str, Any] | None = Field(default=None, alias="schema")
+    data_schema: dict[str, object] | None = Field(default=None, alias="schema")
     produced_by: str | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
 
@@ -96,7 +96,7 @@ class CommandPayload(BaseModel):
     point_index: int | None = Field(default=None, ge=0)
     compute_status: Literal["evaluated", "reused"] | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
-    payload: Any | None = Field(default=None, exclude=True)
+    payload: object | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def validate_location(self) -> CommandPayload:

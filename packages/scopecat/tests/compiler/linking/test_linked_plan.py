@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from typing import cast
+from typing import cast, override
 
 import pytest
 
@@ -97,13 +97,14 @@ from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
 from tests.testkit.workflow_fixtures import load_experiment
 
 _FLOAT = Scalar(Float())
+_NO_UNSUPPORTED_OPERATIONS: frozenset[RelationOperation] = frozenset()
 
 
 class _BackendProbe:
     def __init__(
         self,
         *,
-        unsupported: frozenset[RelationOperation] = frozenset(),
+        unsupported: frozenset[RelationOperation] = _NO_UNSUPPORTED_OPERATIONS,
     ) -> None:
         self.backend_id = "tests.linked-plan"
         self.supported_operations = frozenset(RelationOperation) - unsupported
@@ -159,6 +160,7 @@ class _MaterializationProbe(ReferenceRelationBackend):
         self.relation_materialization_count = 0
         self.events = []
 
+    @override
     def assess_relation_requirements(
         self,
         requirements: RelationPlanRequirements,
@@ -167,6 +169,7 @@ class _MaterializationProbe(ReferenceRelationBackend):
         self.assessment_count += 1
         return super().assess_relation_requirements(requirements)
 
+    @override
     def materialize_scalar(
         self,
         evaluation: PreparedRelationEvaluation[ScalarExpr],
@@ -175,6 +178,7 @@ class _MaterializationProbe(ReferenceRelationBackend):
         self.scalar_materialization_count += 1
         return super().materialize_scalar(evaluation)
 
+    @override
     def materialize_series(
         self,
         evaluation: PreparedRelationEvaluation[SeriesExpr],
@@ -183,6 +187,7 @@ class _MaterializationProbe(ReferenceRelationBackend):
         self.series_materialization_count += 1
         return super().materialize_series(evaluation)
 
+    @override
     def materialize_relation(
         self,
         evaluation: PreparedRelationEvaluation[RelationExpr],
@@ -196,6 +201,7 @@ class _FailingMaterializationBackend(ReferenceRelationBackend):
     def __init__(self) -> None:
         super().__init__(backend_id="tests.failing-linked-points")
 
+    @override
     def materialize_relation(
         self,
         evaluation: PreparedRelationEvaluation[RelationExpr],

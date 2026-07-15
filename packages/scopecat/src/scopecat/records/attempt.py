@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal
+from typing import Literal, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -54,7 +54,7 @@ class PointAttemptSummary(BaseModel):
 
 
 def summarize_point_attempts(
-    rows: Sequence[Mapping[str, Any]],
+    rows: Sequence[Mapping[str, object]],
     *,
     point_index: int,
     max_attempts: int,
@@ -175,7 +175,7 @@ def summarize_point_attempts(
     )
 
 
-def _is_attempt_value(value: object) -> bool:
+def _is_attempt_value(value: object) -> TypeGuard[AttemptValue]:
     return isinstance(value, str | int | float | bool)
 
 

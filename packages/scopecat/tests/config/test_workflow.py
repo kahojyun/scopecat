@@ -16,12 +16,8 @@ from scopecat.config.resolution import (
     validate_config_profile,
 )
 from scopecat.kernel.errors import CheckFailed
-from tests.testkit.workflow_fixtures import (
-    WORKFLOW_FIXTURE_DIR as EXAMPLE_DIR,
-)
-from tests.testkit.workflow_fixtures import (
-    load_config,
-)
+from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
+from tests.testkit.workflow_fixtures import load_config
 
 
 def test_resolve_config_source_loads_file_or_active_registry(

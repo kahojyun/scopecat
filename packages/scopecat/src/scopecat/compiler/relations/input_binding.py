@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast, override
 
 from scopecat.compiler.relations.analysis import plan_input_refs
 from scopecat.compiler.relations.model import (
@@ -42,12 +42,15 @@ class _LexicalReplacements(Mapping[str, object]):
     def __init__(self, values: Mapping[str, object]) -> None:
         self._values = values
 
+    @override
     def __getitem__(self, key: str) -> object:
         return _LexicalReplacement(self._values[key])
 
+    @override
     def __iter__(self) -> Iterator[str]:
         return iter(self._values)
 
+    @override
     def __len__(self) -> int:
         return len(self._values)
 
@@ -221,7 +224,7 @@ def bind_series_input_refs(
         )
     update: dict[str, object] = {}
     for field_name in ("start", "stop", "step"):
-        value = getattr(expression, field_name)
+        value = cast("ScalarExpr | None", getattr(expression, field_name))
         if value is not None:
             update[field_name] = bind_scalar_input_refs(
                 value,
@@ -268,7 +271,7 @@ def bind_relation_input_refs(
         )
     update: dict[str, object] = {}
     for field_name in ("source", "left", "right"):
-        value = getattr(expression, field_name)
+        value = cast("RelationExpr | None", getattr(expression, field_name))
         if value is not None:
             update[field_name] = bind_relation_input_refs(
                 value,
@@ -363,7 +366,7 @@ def series_input_value(input_name: str, value: object) -> SeriesExpr:
     if isinstance(value, SeriesExpr):
         return value
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        sequence = cast("Sequence[object]", value)
+        sequence = value
         return values([input_cell(item) for item in sequence])
     msg = f"series input {input_name!r} must bind to a sequence"
     raise TypeError(msg)
@@ -376,7 +379,7 @@ def table_input_value(input_name: str, value: object) -> RelationExpr:
         msg = f"table input {input_name!r} must bind to a sequence of rows"
         raise TypeError(msg)
     rows: list[dict[str, CellValue]] = []
-    sequence = cast("Sequence[object]", value)
+    sequence = value
     for index, item in enumerate(sequence):
         if not isinstance(item, Mapping):
             msg = f"table input {input_name!r} row {index} must be a mapping"
@@ -390,7 +393,7 @@ def literal_data_expr(value: object) -> _DataExpr:
     if isinstance(value, ScalarExpr | SeriesExpr | RelationExpr):
         return value
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        sequence = cast("Sequence[object]", value)
+        sequence = value
         if sequence and all(isinstance(item, Mapping) for item in sequence):
             return table_input_value("literal", sequence)
         return values([input_cell(item) for item in sequence])
@@ -411,7 +414,7 @@ def input_cell(value: object) -> CellValue:
         if not all(isinstance(key, str) for key in mapping):
             msg = "record input keys must be strings"
             raise TypeError(msg)
-        return cast("dict[str, Any]", dict(mapping))
+        return cast("dict[str, object]", dict(mapping))
     msg = f"input value is not available as a scalar expression value: {value!r}"
     raise TypeError(msg)
 

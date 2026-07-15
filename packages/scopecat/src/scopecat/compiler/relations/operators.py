@@ -243,11 +243,11 @@ def compare_ordered_values(left: object, right: object) -> int:
     require_runtime_operator("<", left, right)
     if isinstance(left, QuantityValue) and isinstance(right, QuantityValue):
         left_value, right_value = _quantity_comparison_values(left, right)
-        return _three_way(left_value, right_value)
+        return _three_way_number(left_value, right_value)
     if _is_number(left) and _is_number(right):
-        return _three_way(left, right)
+        return _three_way_number(left, right)
     if isinstance(left, str) and isinstance(right, str):
-        return _three_way(left, right)
+        return _three_way_string(left, right)
     raise _unsupported_runtime_operator(left, right, "<")
 
 
@@ -363,6 +363,10 @@ def _require_finite_ordering_value(
         raise _unsupported_runtime_operator(value, value, operator)
 
 
+def _is_object_sequence(value: object) -> TypeGuard[Sequence[object]]:
+    return isinstance(value, Sequence) and not isinstance(value, str | bytes)
+
+
 def _nested_values_equal(left: object, right: object) -> bool:
     if isinstance(left, Mapping) and isinstance(right, Mapping):
         left_mapping = cast("Mapping[object, object]", left)
@@ -373,26 +377,20 @@ def _nested_values_equal(left: object, right: object) -> bool:
             _nested_values_equal(left_mapping[key], right_mapping[key])
             for key in left_mapping
         )
-    if (
-        isinstance(left, Sequence)
-        and not isinstance(left, str | bytes)
-        and isinstance(right, Sequence)
-        and not isinstance(right, str | bytes)
-    ):
-        left_sequence = cast("Sequence[object]", left)
-        right_sequence = cast("Sequence[object]", right)
-        return len(left_sequence) == len(right_sequence) and all(
+    left_value = cast("object", left)
+    if _is_object_sequence(left_value) and _is_object_sequence(right):
+        return len(left_value) == len(right) and all(
             _nested_values_equal(left_item, right_item)
             for left_item, right_item in zip(
-                left_sequence,
-                right_sequence,
+                left_value,
+                right,
                 strict=True,
             )
         )
     try:
         return runtime_values_equal(
             cast("object", left),
-            cast("object", right),
+            right,
         )
     except TypeError:
         return False
@@ -512,10 +510,18 @@ def _unsupported_runtime_operator(
     return TypeError(f"operator {operator!r} is not defined for {left!r} and {right!r}")
 
 
-def _three_way(left: float | str, right: float | str) -> int:
-    if left < right:  # pyright: ignore[reportOperatorIssue]
+def _three_way_number(left: float, right: float) -> int:
+    if left < right:
         return -1
-    if left > right:  # pyright: ignore[reportOperatorIssue]
+    if left > right:
+        return 1
+    return 0
+
+
+def _three_way_string(left: str, right: str) -> int:
+    if left < right:
+        return -1
+    if left > right:
         return 1
     return 0
 

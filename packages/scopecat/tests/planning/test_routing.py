@@ -7,8 +7,8 @@ import pytest
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.bound import BoundPlan
 from scopecat.compiler.linking.linked import link_program
-from scopecat.compiler.linking.materialization import (  # pyright: ignore[reportPrivateUsage]
-    _channel_signature,
+from scopecat.compiler.linking.materialization import (
+    channel_signature,
     materialize_local_plan,
 )
 from scopecat.compiler.relations.model import (
@@ -427,10 +427,10 @@ def test_channel_state_identity_is_structured_and_injective() -> None:
         ),
     )
 
-    assert _channel_signature(delimiter_in_entity) != _channel_signature(
+    assert channel_signature(delimiter_in_entity) != channel_signature(
         delimiter_in_channel
     )
-    assert _channel_signature(delimiter_in_group) != _channel_signature(separate_groups)
+    assert channel_signature(delimiter_in_group) != channel_signature(separate_groups)
 
 
 def test_routing_view_fallback_channel_bindings_follow_served_entity_order() -> None:

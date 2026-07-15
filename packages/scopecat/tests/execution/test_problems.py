@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import override
 
 import pytest
 
@@ -11,6 +12,7 @@ from scopecat.composition.local import (
     local_workspace_services,
 )
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
+from scopecat.records.execution import ExecutionSummary
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.parameter import Quantity
 from scopecat.runs.service import read_run_record_json
@@ -26,6 +28,7 @@ from tests.testkit.workflow_fixtures import load_config, load_experiment
 class FailingCollectInstrument(TestSignalInstrument):
     implementation_id = "test.failing_instrument"
 
+    @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         del command
         raise RuntimeError("boom")
@@ -34,6 +37,7 @@ class FailingCollectInstrument(TestSignalInstrument):
 class UnexpectedProductInstrument(TestSignalInstrument):
     implementation_id = "test.unexpected_product_instrument"
 
+    @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         del command
         return CollectReceipt(
@@ -53,10 +57,12 @@ class InterruptingCollectInstrument(TestSignalInstrument):
         super().__init__()
         self.aborted = False
 
+    @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         del command
         raise KeyboardInterrupt("operator cancelled")
 
+    @override
     def abort(self) -> None:
         self.aborted = True
 
@@ -68,6 +74,7 @@ class FailAfterFirstCollectInstrument(TestSignalInstrument):
         super().__init__()
         self.collect_count = 0
 
+    @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_count += 1
         if self.collect_count > 1:
@@ -166,9 +173,10 @@ def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
         services=local_workspace_services(tmp_path),
         expected_kind="execution_summary",
     )
-    assert snapshot.content["outcome"]["result"] == "failed"
-    assert snapshot.content["outcome"]["certainty"] == "indeterminate"
-    assert {problem["code"] for problem in snapshot.content["problems"]} >= {
+    summary = ExecutionSummary.model_validate(snapshot.content)
+    assert summary.outcome.result == "failed"
+    assert summary.outcome.certainty == "indeterminate"
+    assert {problem.code for problem in summary.problems} >= {
         "instrument_collect_unknown"
     }
 
@@ -208,10 +216,9 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
         services=local_workspace_services(tmp_path),
         expected_kind="execution_summary",
     )
-    assert snapshot.content["outcome"]["result"] == "cancelled"
-    assert "execution_interrupted" in {
-        problem["code"] for problem in snapshot.content["problems"]
-    }
+    summary = ExecutionSummary.model_validate(snapshot.content)
+    assert summary.outcome.result == "cancelled"
+    assert "execution_interrupted" in {problem.code for problem in summary.problems}
     journal_entries = [
         json.loads(path.read_text())
         for path in sorted(

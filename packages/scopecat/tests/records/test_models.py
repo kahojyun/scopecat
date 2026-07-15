@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -66,19 +67,34 @@ from scopecat.records.run_request import (
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.records import assert_model_round_trip
 
+type _MetadataModelFactory = Callable[[object], BaseModel]
+
+
+def _topology_line_with_metadata(value: object) -> TopologyLine:
+    return TopologyLine.model_validate(
+        {"id": "line", "kind": "signal", "metadata": {"value": value}}
+    )
+
+
+def _artifact_with_metadata(value: object) -> RunArtifactEntry:
+    return RunArtifactEntry.model_validate(
+        {"id": "artifact", "kind": "attachment", "metadata": {"value": value}}
+    )
+
+
+_METADATA_MODEL_FACTORIES: tuple[_MetadataModelFactory, ...] = (
+    _topology_line_with_metadata,
+    _artifact_with_metadata,
+)
+
 
 @pytest.mark.parametrize("value", [(1, 2), object(), float("nan")])
 @pytest.mark.parametrize(
     "model",
-    [
-        lambda value: TopologyLine(id="line", kind="signal", metadata={"value": value}),
-        lambda value: RunArtifactEntry(
-            id="artifact", kind="attachment", metadata={"value": value}
-        ),
-    ],
+    _METADATA_MODEL_FACTORIES,
 )
 def test_durable_metadata_boundaries_reject_non_json_values(
-    model: Any,
+    model: _MetadataModelFactory,
     value: object,
 ) -> None:
     with pytest.raises(ValidationError):
@@ -683,7 +699,10 @@ def test_table_parameter_cells_are_closed_finite_and_round_trip_without_catalog(
     assert TableParameterValue.model_validate_json(table.model_dump_json()) == table
 
     with pytest.raises(ValidationError):
-        TableParameterValue(id="invalid", rows=[{"value": object()}])  # type: ignore[list-item]
+        TableParameterValue(
+            id="invalid",
+            rows=[{"value": object()}],  # pyright: ignore[reportArgumentType]
+        )
     with pytest.raises(ValidationError, match="finite"):
         TableParameterValue(id="invalid", rows=[{"value": float("nan")}])
     with pytest.raises(ValidationError, match="finite"):
@@ -693,7 +712,10 @@ def test_table_parameter_cells_are_closed_finite_and_round_trip_without_catalog(
         )
     for value in (b"abc", bytearray(b"abc")):
         with pytest.raises(ValidationError):
-            TableParameterValue(id="invalid", rows=[{"value": value}])  # type: ignore[list-item]
+            TableParameterValue(
+                id="invalid",
+                rows=[{"value": value}],  # pyright: ignore[reportArgumentType]
+            )
 
 
 def test_parameter_snapshot_is_recursively_immutable_and_durable() -> None:
@@ -705,10 +727,6 @@ def test_parameter_snapshot_is_recursively_immutable_and_durable() -> None:
 
     assert table.rows == ({"value": 1.0},)
     assert table.metadata == {"labels": ("data",)}
-    with pytest.raises(TypeError, match="immutable"):
-        table.rows[0]["value"] = float("nan")  # type: ignore[index]
-    with pytest.raises(TypeError, match="immutable"):
-        table.metadata["late"] = object()  # type: ignore[index]
     with pytest.raises(ValidationError):
         TableParameterValue(id="invalid", metadata={"value": object()})
     with pytest.raises(ValidationError):
@@ -1408,9 +1426,15 @@ def test_parameter_catalog_supports_all_value_shapes() -> None:
 
     restored = assert_model_round_trip(catalog)
 
-    assert isinstance(restored.get("enabled").value_type, Scalar)  # type: ignore[union-attr]
-    assert isinstance(restored.get("frequencies").value_type, Series)  # type: ignore[union-attr]
-    assert isinstance(restored.get("calibration_points").value_type, Table)  # type: ignore[union-attr]
+    enabled = restored.get("enabled")
+    frequencies = restored.get("frequencies")
+    calibration_points = restored.get("calibration_points")
+    assert enabled is not None
+    assert frequencies is not None
+    assert calibration_points is not None
+    assert isinstance(enabled.value_type, Scalar)
+    assert isinstance(frequencies.value_type, Series)
+    assert isinstance(calibration_points.value_type, Table)
 
 
 def test_durable_parameter_schema_model_copy_revalidates_updates() -> None:

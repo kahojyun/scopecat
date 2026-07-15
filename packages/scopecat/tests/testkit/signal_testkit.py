@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -505,7 +505,7 @@ def _flatten_numeric_array_values(values: Sequence[object]) -> list[float]:
     flattened: list[float] = []
     for value in values:
         if isinstance(value, list):
-            flattened.extend(_flatten_numeric_array_values(value))
+            flattened.extend(_flatten_numeric_array_values(cast("list[object]", value)))
         elif isinstance(value, int | float):
             flattened.append(float(value))
         else:

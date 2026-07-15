@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Literal, Self, override
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,10 +31,11 @@ class _FrozenValidatedModel(BaseModel):
         revalidate_instances="always",
     )
 
+    @override
     def model_copy(
         self,
         *,
-        update: Mapping[str, Any] | None = None,
+        update: Mapping[str, object] | None = None,
         deep: bool = False,
     ) -> Self:
         _ = deep

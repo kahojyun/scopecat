@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, override
 
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
@@ -164,30 +164,37 @@ class _DomainBatchContext(DomainBatchContext):
         self._adapter_id = adapter_id
 
     @property
+    @override
     def batch_ordinal(self) -> int:
         return self._batch_ordinal
 
     @property
+    @override
     def call(self) -> DomainCallView:
         return self._call
 
     @property
+    @override
     def points(self) -> tuple[DomainPointRef, ...]:
         return self._points
 
     @property
+    @override
     def product_uses(self) -> tuple[DomainProductUseRef, ...]:
         return self._product_uses
 
     @property
+    @override
     def direct_product_uses(self) -> tuple[DomainProductUseRef, ...]:
         return self._direct_product_uses
 
     @property
+    @override
     def derived_product_uses(self) -> tuple[DomainProductUseRef, ...]:
         return self._derived_product_uses
 
     @property
+    @override
     def measurement_transforms(self) -> tuple[DomainMeasurementTransform, ...]:
         return self._measurement_transforms
 
@@ -451,7 +458,7 @@ def context_linked_points_internal(
 
 
 def context_adapter_id_internal(context: DomainBatchContext) -> str:
-    return object.__getattribute__(context, "_adapter_id")
+    return cast("str", object.__getattribute__(context, "_adapter_id"))
 
 
 def point_id_internal(ref: DomainPointRef) -> LogicalPointId:

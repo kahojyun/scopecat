@@ -712,14 +712,13 @@ class ExecutionEngine:
             operation.cache_key
             if operation.cache_key is not None
             else tuple(
-                (name, _versioned_value(value))
-                for name, value in sorted(inputs.items())
+                (name, versioned_value(value)) for name, value in sorted(inputs.items())
             )
         )
         key = (
             operation.implementation_id,
             operation.cache_namespace,
-            _versioned_value(selected_key),
+            versioned_value(selected_key),
         )
         if key in self._compute_cache:
             return self._compute_cache[key], True
@@ -1367,7 +1366,7 @@ class ExecutionEngine:
             )
             return False
         validation_problems = contextualize_problems(
-            _validate_readback(operation, readback),
+            validate_readback(operation, readback),
             run_id=self.run_id,
             operation_id=operation.operation_id,
             point_index=frame.point.point_index,
@@ -1941,7 +1940,7 @@ def _dependency_summary(
     }
 
 
-def _validate_readback(
+def validate_readback(
     operation: CollectOperation,
     readback: InstrumentReadback,
 ) -> list[Problem]:
@@ -2204,7 +2203,7 @@ def _unwrap_payload_values(value: object) -> object:
     return value
 
 
-def _versioned_value(value: object) -> object:
+def versioned_value(value: object) -> object:
     return stable_content_hash(content_fingerprint(value))
 
 

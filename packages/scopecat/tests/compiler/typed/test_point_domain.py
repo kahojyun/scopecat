@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import cast
+from collections.abc import Callable
+from typing import cast, override
 
 import pytest
 from hypothesis import given, settings
@@ -21,6 +22,7 @@ from scopecat.compiler.relations.model import (
 )
 from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
+    PointDomainExpr,
     PointRelationRows,
     point_dependent_product,
     point_product,
@@ -362,8 +364,13 @@ def test_dependent_zip_branches_share_the_outer_ambient_row() -> None:
     ]
 
 
+type _PointComposition = Callable[..., PointDomainExpr[TableValueExpr]]
+
+
 @pytest.mark.parametrize("compose", [point_product, point_zip])
-def test_independent_composition_rejects_sibling_point_capture(compose) -> None:
+def test_independent_composition_rejects_sibling_point_capture(
+    compose: _PointComposition,
+) -> None:
     left = _integer_rows("left", [1])
     right_type = Table(
         (TableColumn("right", _INT),),
@@ -485,6 +492,7 @@ class _SelectionOnlyBackend(ReferenceRelationBackend):
     def __init__(self) -> None:
         super().__init__(backend_id="test.selection-only")
 
+    @override
     def materialize_relation(
         self,
         evaluation: PreparedRelationEvaluation[RelationExpr],
@@ -638,6 +646,7 @@ class _FailingBackend(ReferenceRelationBackend):
     def __init__(self) -> None:
         super().__init__(backend_id="test.failing")
 
+    @override
     def materialize_relation(
         self,
         evaluation: PreparedRelationEvaluation[RelationExpr],
@@ -725,6 +734,7 @@ class _MutableRowsBackend(ReferenceRelationBackend):
         super().__init__(backend_id="test.mutable-rows")
         self.returned_rows = [{"x": 1}]
 
+    @override
     def materialize_relation(
         self,
         evaluation: PreparedRelationEvaluation[RelationExpr],

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -25,7 +25,7 @@ class ArtifactChunk(BaseModel):
 
     artifact_ref: str
     index: int
-    values: tuple[Any, ...] = ()
+    values: tuple[object, ...] = ()
     final: bool = False
 
 
@@ -208,13 +208,13 @@ def assemble_chunked_artifact(
 
 
 def evaluate_artifact_availability(
-    rows: Sequence[Mapping[str, Any]],
+    rows: Sequence[Mapping[str, object]],
     requirements: Sequence[ArtifactRequirement],
     *,
     point_count: int,
 ) -> ArtifactAvailabilityReport:
     problems: list[Problem] = []
-    by_point: dict[int, Mapping[str, Any]] = {}
+    by_point: dict[int, Mapping[str, object]] = {}
     for row_index, row in enumerate(rows):
         point_index = row.get("point_index")
         if not isinstance(point_index, int) or isinstance(point_index, bool):
@@ -340,7 +340,7 @@ def evaluate_artifact_availability(
     )
 
 
-def _has_artifact_ref(value: Any) -> bool:
+def _has_artifact_ref(value: object) -> bool:
     if not isinstance(value, Mapping):
         return False
     artifact_value = cast("Mapping[str, object]", value)

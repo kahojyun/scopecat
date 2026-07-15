@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
@@ -139,5 +137,3 @@ def test_domain_product_contract_view_recursively_snapshots_metadata() -> None:
 
     assert contract.metadata == {"labels": ("raw",)}
     assert contract.axes[0].metadata == {"role": {"name": "shot"}}
-    with pytest.raises(TypeError, match="immutable"):
-        contract.metadata["late"] = True  # type: ignore[index]

@@ -9,6 +9,7 @@ from scopecat.compiler.relations.point_domain import (
     PointCardinality,
     PointDependentProduct,
     PointDomainAnalysis,
+    PointDomainExpr,
     PointDomainShape,
     PointDomainShapeError,
     PointProduct,
@@ -36,8 +37,12 @@ def _table(column_id: str, minimum: int, maximum: int | None) -> Table:
     )
 
 
-def _analyze(root):
-    return analyze_point_domain(root, leaf_value_type=lambda table, _path: table)
+def _table_leaf_type(table: Table, _path: tuple[str | int, ...]) -> Table:
+    return table
+
+
+def _analyze(root: PointDomainExpr[Table]) -> PointDomainAnalysis:
+    return analyze_point_domain(root, leaf_value_type=_table_leaf_type)
 
 
 def test_point_product_is_canonical_ordered_and_unit_normalized() -> None:

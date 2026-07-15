@@ -223,14 +223,6 @@ def _call_or_none(view: DomainBatchView) -> DomainCallView | None:
     return selected[0]
 
 
-def _require_call(view: DomainBatchView) -> DomainCallView:
-    call = _call_or_none(view)
-    if call is None:
-        msg = "fake X-count adapter requires one authored quantum program call"
-        raise ValueError(msg)
-    return call
-
-
 def _product_binding(view: DomainCallView) -> FakeXCountProductBinding:
     [transform] = view.measurement_transforms
     return FakeXCountProductBinding(

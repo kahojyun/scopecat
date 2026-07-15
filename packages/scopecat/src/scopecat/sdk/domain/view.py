@@ -11,7 +11,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast, override
 
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.value_types import ValueType
@@ -136,10 +136,12 @@ class _DomainPointRef(DomainPointRef):
         self._native = native
 
     @property
+    @override
     def id(self) -> str:
         return self._id
 
     @property
+    @override
     def ordinal(self) -> int:
         return self._ordinal
 
@@ -173,10 +175,12 @@ class _DomainProductUseRef(DomainProductUseRef):
         self._native = native
 
     @property
+    @override
     def id(self) -> str:
         return self._id
 
     @property
+    @override
     def product(self) -> DomainProductContractView:
         return self._product
 
@@ -399,11 +403,11 @@ def domain_measurement_transform_internal(
 
 
 def domain_point_native_internal(ref: DomainPointRef) -> object:
-    return object.__getattribute__(ref, "_native")
+    return cast("object", object.__getattribute__(ref, "_native"))
 
 
 def domain_product_use_native_internal(ref: DomainProductUseRef) -> object:
-    return object.__getattribute__(ref, "_native")
+    return cast("object", object.__getattribute__(ref, "_native"))
 
 
 __all__ = [

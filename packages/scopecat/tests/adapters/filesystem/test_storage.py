@@ -107,7 +107,7 @@ def test_collection_repository_contract(repository_kind: str, tmp_path: Path) ->
         repository.commit(conflicting)
 
 
-def test_local_run_layout_resolves_run_relative_refs(tmp_path) -> None:
+def test_local_run_layout_resolves_run_relative_refs(tmp_path: Path) -> None:
     layout = FilesystemRunLayout.from_workspace(tmp_path)
 
     assert layout.ref_path("run-000001", "artifacts/result.json") == (
@@ -127,7 +127,7 @@ def test_local_run_layout_resolves_run_relative_refs(tmp_path) -> None:
     assert run_escape.value.problems[0].code == "run.id_invalid"
 
 
-def test_local_run_store_round_trips_model_text_and_jsonl(tmp_path) -> None:
+def test_local_run_store_round_trips_model_text_and_jsonl(tmp_path: Path) -> None:
     store = FilesystemRunRepository(tmp_path)
     run_id = "run-000001"
     manifest = _manifest(run_id, datetime(2026, 1, 1, tzinfo=UTC))
@@ -145,7 +145,7 @@ def test_local_run_store_round_trips_model_text_and_jsonl(tmp_path) -> None:
     assert store.read_jsonl(run_id, "records.jsonl", JsonlRecord) == records
 
 
-def test_local_run_store_lists_runs_by_created_at(tmp_path) -> None:
+def test_local_run_store_lists_runs_by_created_at(tmp_path: Path) -> None:
     store = FilesystemRunRepository(tmp_path)
     later = _manifest("run-000002", datetime(2026, 1, 2, tzinfo=UTC))
     earlier = _manifest("run-000001", datetime(2026, 1, 1, tzinfo=UTC))
@@ -159,7 +159,7 @@ def test_local_run_store_lists_runs_by_created_at(tmp_path) -> None:
     ]
 
 
-def test_local_run_store_writes_manifest_atomically(tmp_path) -> None:
+def test_local_run_store_writes_manifest_atomically(tmp_path: Path) -> None:
     store = FilesystemRunRepository(tmp_path)
     run_id = "run-000001"
     store.write_manifest(_manifest(run_id, datetime(2026, 1, 1, tzinfo=UTC)))
@@ -244,7 +244,7 @@ def test_local_run_store_maps_io_failure_without_exposing_raw_message(
 
 
 def test_atomic_models_and_journal_fsync_file_and_parent(
-    tmp_path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = FilesystemRunRepository(tmp_path)
@@ -336,17 +336,17 @@ def test_replace_writes_fsync_temporary_file_and_parent(
 
 
 def test_immutable_publish_durably_creates_each_nested_directory(
-    tmp_path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     synced_directories: list[Path] = []
-    real_fsync_directory = local_io._fsync_directory
+    real_fsync_directory = local_io.fsync_directory
 
     def recording_fsync_directory(path: Path) -> None:
         synced_directories.append(path)
         real_fsync_directory(path)
 
-    monkeypatch.setattr(local_io, "_fsync_directory", recording_fsync_directory)
+    monkeypatch.setattr(local_io, "fsync_directory", recording_fsync_directory)
     first = tmp_path / "first"
     second = first / "second"
     path = second / "immutable.json"
@@ -366,7 +366,7 @@ def test_immutable_publish_durably_creates_each_nested_directory(
 
 
 def test_collection_chunk_hashes_and_replays_non_finite_readback_values(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     chunk = CollectionChunk(
         run_id="run-non-finite",
@@ -414,7 +414,7 @@ def test_collection_chunk_hashes_and_replays_non_finite_readback_values(
     ],
 )
 def test_local_collection_resolve_rejects_mismatched_receipt(
-    tmp_path,
+    tmp_path: Path,
     receipt_update: dict[str, str],
 ) -> None:
     chunk = CollectionChunk(
@@ -434,7 +434,7 @@ def test_local_collection_resolve_rejects_mismatched_receipt(
         committer.resolve(receipt.model_copy(update=receipt_update))
 
 
-def test_local_collection_resolve_rejects_unbacked_receipt(tmp_path) -> None:
+def test_local_collection_resolve_rejects_unbacked_receipt(tmp_path: Path) -> None:
     operation_id = "point-0.collect.source"
     operation_digest = sha256(operation_id.encode("utf-8")).hexdigest()
     receipt = CollectionChunkReceipt(
@@ -469,10 +469,12 @@ def test_local_collection_resolve_rejects_corrupted_bytes(tmp_path: Path) -> Non
 @pytest.mark.parametrize("value", [(1, 2), {1, 2}, object(), float("nan")])
 def test_instrument_readback_rejects_non_json_metadata(value: object) -> None:
     with pytest.raises(ValidationError):
-        InstrumentReadback(metadata={"value": value})  # type: ignore[dict-item]
+        InstrumentReadback(metadata={"value": value})  # pyright: ignore[reportArgumentType]
 
 
-def test_local_measurement_commit_is_canonical_and_nan_idempotent(tmp_path) -> None:
+def test_local_measurement_commit_is_canonical_and_nan_idempotent(
+    tmp_path: Path,
+) -> None:
     measurement = MeasurementRecord(
         run_id="run-measurement-replay",
         logical_point_id="point-0",
@@ -523,7 +525,7 @@ def test_local_measurement_commit_is_canonical_and_nan_idempotent(tmp_path) -> N
 
 
 def test_local_measurement_commit_allows_distinct_datasets_for_same_point(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     measurement = MeasurementRecord(
         run_id="run-multi-dataset",
@@ -560,7 +562,7 @@ def test_local_measurement_commit_allows_distinct_datasets_for_same_point(
 
 
 def test_local_measurement_commit_rejects_contract_change_in_canonical_slot(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     measurement = MeasurementRecord(
         run_id="run-contract-conflict",
@@ -601,12 +603,12 @@ def test_measurement_record_rejects_non_json_metadata(value: object) -> None:
             point_index=0,
             coordinates={},
             observables={},
-            metadata={"value": value},  # type: ignore[dict-item]
+            metadata={"value": value},  # pyright: ignore[reportArgumentType]
         )
 
 
 def test_collection_chunk_digest_failure_precedes_publish(
-    tmp_path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     chunk = CollectionChunk(
@@ -636,7 +638,7 @@ def test_collection_chunk_digest_failure_precedes_publish(
 
 
 def test_measurement_dataset_fsyncs_file_and_parent(
-    tmp_path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fsync_calls: list[int] = []

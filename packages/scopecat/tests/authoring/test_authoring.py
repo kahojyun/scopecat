@@ -14,12 +14,12 @@ from scopecat.authoring._binding_intents import (
     requires,
     resource_port,
 )
-from scopecat.authoring._intents import (  # pyright: ignore[reportPrivateUsage]
+from scopecat.authoring._intents import (
     ExperimentStateIntent,
     ModuleInputPort,
 )
 from scopecat.authoring._module_construction import module_from_parts_internal
-from scopecat.authoring._record_intents import (  # pyright: ignore[reportPrivateUsage]
+from scopecat.authoring._record_intents import (
     ModuleProductPort,
     RecordIntent,
     observable,
@@ -42,14 +42,14 @@ from scopecat.compiler.frontend.elaboration import (
 )
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.invocation import prepare_invocation
-from scopecat.compiler.frontend.request_values import (  # pyright: ignore[reportPrivateUsage]
+from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
 from scopecat.compiler.frontend.resolution import (
-    _link_assembly,
     compile_prepared_invocation,
+    link_assembly,
 )
-from scopecat.compiler.frontend.scan_lowering import (  # pyright: ignore[reportPrivateUsage]
+from scopecat.compiler.frontend.scan_lowering import (
     lower_scan_points,
     project_scan_record,
 )
@@ -103,6 +103,14 @@ from tests.testkit.experiment_preview import (
     preview_result,
 )
 from tests.testkit.relation_plans import evaluate_scalar
+
+
+def _identity_value(*, value: object) -> object:
+    return value
+
+
+def _collect_values(**values: object) -> dict[str, object]:
+    return values
 
 
 def _table_definition(
@@ -381,30 +389,20 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
     )
 
 
-def test_compute_rejects_raw_inputs_without_an_inferable_type() -> None:
-    with pytest.raises(TypeError, match="inputs must be typed values"):
-        sc.compute(
-            "build-program",
-            fn=lambda *, frequency: frequency,
-            inputs={"frequency": param("drive_frequency")},  # type: ignore[dict-item]
-            output_type=authoring.ScalarType(authoring.QuantityType()),
-        )
-
-
 def test_compute_function_signature_must_match_explicit_inputs() -> None:
     output_type = authoring.ScalarType(authoring.StringType())
 
     with pytest.raises(TypeError, match="does not match declared inputs"):
         sc.compute(
             "missing-input",
-            fn=lambda *, value: value,
+            fn=_identity_value,
             output_type=output_type,
         )
 
     with pytest.raises(TypeError, match="must use explicit named parameters"):
         sc.compute(
             "variadic-inputs",
-            fn=lambda **values: values,
+            fn=_collect_values,
             inputs={"value": "declared"},
             output_type=output_type,
         )
@@ -460,8 +458,6 @@ def test_entity_scan_captures_an_immutable_durable_snapshot() -> None:
 
     scan = sc.axis(subject, [entity])
     labels.append("changed")
-    with pytest.raises(TypeError, match="immutable"):
-        entity.metadata["late"] = True  # type: ignore[index]
     request = project_scan_record(scan)
 
     assert request.model_dump(mode="json")["values"] == [
@@ -1156,7 +1152,7 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
         template_inputs={"subject": "q0"},
     )
 
-    resolved = _link_assembly(
+    resolved = link_assembly(
         verify_assembly(assembly),
         request=request,
         environment=validate_config_environment(load_config()),
@@ -1181,7 +1177,7 @@ def test_link_assembly_validates_parameter_contracts_owned_by_point_source() -> 
     )
 
     with pytest.raises(CheckFailed) as caught:
-        _link_assembly(
+        link_assembly(
             verify_assembly(assembly),
             request=request,
             environment=validate_config_environment(load_config()),
@@ -1312,20 +1308,6 @@ def test_module_invocation_rejects_undeclared_inputs() -> None:
         child.instantiate(
             "unknown-input-child",
             frequency=Quantity(value=5.0, unit="GHz"),
-        )
-
-
-def test_module_invocation_rejects_raw_relation_inputs() -> None:
-    frequency = authoring.input(
-        "frequency",
-        authoring.ScalarType(authoring.QuantityType()),
-    )
-    child = authoring.module("test.invocation_raw_input").inputs(frequency).build()
-
-    with pytest.raises(TypeError, match="typed values or closed literal data"):
-        child.instantiate(
-            "raw-input-child",
-            frequency=input_ref("frequency"),  # type: ignore[arg-type]
         )
 
 

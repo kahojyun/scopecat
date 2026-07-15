@@ -27,7 +27,7 @@ def create_handle[HandleT](
         if name in values:
             selected = values[name]
         elif descriptor.default is not MISSING:
-            selected = descriptor.default
+            selected = cast("object", descriptor.default)
         elif descriptor.default_factory is not MISSING:
             factory = cast("Callable[[], object]", descriptor.default_factory)
             selected = factory()
@@ -37,7 +37,7 @@ def create_handle[HandleT](
         object.__setattr__(result, name, selected)
     post_init = getattr(result, "__post_init__", None)
     if callable(post_init):
-        post_init()
+        cast("Callable[[], object]", post_init)()
     return result
 
 
@@ -45,7 +45,7 @@ def replace_handle[HandleT](value: HandleT, /, **changes: object) -> HandleT:
     """Return an updated immutable handle without calling its public constructor."""
 
     selected = {
-        descriptor.name: getattr(value, descriptor.name)
+        descriptor.name: cast("object", getattr(value, descriptor.name))
         for descriptor in fields(value)  # pyright: ignore[reportArgumentType]
     }
     selected.update(changes)

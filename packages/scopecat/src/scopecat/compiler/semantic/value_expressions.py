@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
-from typing import ClassVar, Literal, Self, cast, overload
+from typing import ClassVar, Literal, Self, cast, overload, override
 
 from scopecat.compiler.relations.model import RelationExpr, ScalarExpr, SeriesExpr
 from scopecat.compiler.relations.verification import (
@@ -17,10 +17,12 @@ from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 class _FrozenProofEnvelope:
     __slots__ = ()
 
+    @override
     def __setattr__(self, name: str, _value: object) -> None:
         msg = f"cannot assign to field {name!r}"
         raise FrozenInstanceError(msg)
 
+    @override
     def __delattr__(self, name: str) -> None:
         msg = f"cannot delete field {name!r}"
         raise FrozenInstanceError(msg)

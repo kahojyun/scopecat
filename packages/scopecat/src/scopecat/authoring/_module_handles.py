@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, override
 
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
@@ -716,12 +716,15 @@ class ModuleOutputs(Mapping[str, ValueRef]):
         )
         raise TypeError(msg)
 
+    @override
     def __getitem__(self, output_id: str) -> ValueRef:
         return self._values[output_id]
 
+    @override
     def __iter__(self) -> Iterator[str]:
         return iter(self._values)
 
+    @override
     def __len__(self) -> int:
         return len(self._values)
 
@@ -732,6 +735,7 @@ class ModuleOutputs(Mapping[str, ValueRef]):
             msg = f"module instance has no output {output_id!r}"
             raise AttributeError(msg) from None
 
+    @override
     def __dir__(self) -> list[str]:
         return sorted((*super().__dir__(), *self._values))
 
@@ -970,7 +974,7 @@ def _state_route_expr(value: object) -> StateRouteValue:
             raise TypeError(msg)
         return value
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        selected = cast("Sequence[object]", value)
+        selected = value
         return cast(
             "tuple[ClosedScalarValue, ...]",
             tuple(_capture_state_literal(item) for item in selected),

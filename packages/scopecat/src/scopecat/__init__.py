@@ -7,7 +7,7 @@ not construct the authoring, compiler, session, and storage dependency graph.
 from __future__ import annotations
 
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from scopecat.api.data import DataDatasetSummary, DataSummary
@@ -416,12 +416,12 @@ _EXPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> object:
     target = _EXPORTS.get(name)
     if target is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     module_name, attribute_name = target
-    value = getattr(import_module(module_name), attribute_name)
+    value = cast("object", getattr(import_module(module_name), attribute_name))
     globals()[name] = value
     return value
 

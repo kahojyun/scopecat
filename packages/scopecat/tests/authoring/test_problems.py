@@ -22,11 +22,8 @@ from scopecat.kernel.problems import (
 )
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.runs.service import preview_experiment
-from tests.testkit.authoring import (
-    EXAMPLE_DIR,
-    load_config,
-    simple_template,
-)
+from tests.testkit.authoring import load_config, simple_template
+from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
 
@@ -199,7 +196,7 @@ def _module_consuming_input() -> tuple[sc.ExperimentModule, sc.ValueRef]:
     value = sc.input("value", sc.ScalarType(sc.FloatType()))
     consume = sc.compute(
         "consume-value",
-        fn=lambda value: value,
+        fn=_identity_value,
         inputs={"value": value},
         output_type=value.value_type,
     )
@@ -281,3 +278,7 @@ def test_scan_point_satisfies_consumed_module_input(tmp_path: Path) -> None:
     )
 
     resolve_experiment(invocation, config_profile=load_config())
+
+
+def _identity_value(value: object) -> object:
+    return value

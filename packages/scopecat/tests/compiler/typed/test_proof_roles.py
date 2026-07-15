@@ -22,6 +22,7 @@ from scopecat.compiler.typed.program import (
     bind_each,
     set_state_field,
 )
+from scopecat.compiler.typed.state import StateSpec
 from scopecat.compiler.typed.verification import verify_typed_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
@@ -39,7 +40,11 @@ _FLOAT = Scalar(Float())
 _STRING = Scalar(String())
 
 
-def _empty_program(*, state: tuple = (), route_intents: tuple = ()) -> TypedProgram:
+def _empty_program(
+    *,
+    state: tuple[StateSpec, ...] = (),
+    route_intents: tuple[ResourceRouteIntent, ...] = (),
+) -> TypedProgram:
     return TypedProgram(
         id="proof-roles",
         kind="compiler_test",

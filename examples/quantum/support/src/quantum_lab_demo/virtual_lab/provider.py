@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
+from typing import override
 
 from pydantic import JsonValue
+from scopecat.kernel.problems import Problem
 from scopecat.sdk.instruments import (
     ActionReceipt,
     ApplyReceipt,
+    CapabilityDescription,
     CollectCommand,
     CollectReceipt,
     DriverFault,
     InstrumentActionCommand,
     InstrumentDescription,
+    InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
@@ -46,8 +50,8 @@ class _VirtualInstrumentDriver:
         device: VirtualDevice,
         implementation_id: str,
         implementation_version: str,
-        capabilities,
-        metadata: dict[str, Any] | None = None,
+        capabilities: Sequence[CapabilityDescription],
+        metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         self._device = device
         self.instrument_id = device.id
@@ -210,6 +214,7 @@ class QuantumReadoutStack(_VirtualInstrumentDriver):
             metadata={"mode": "virtual_lab", "source": "quantum-lab-demo"},
         )
 
+    @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         if not command.requests:
             return CollectReceipt(readback=InstrumentReadback())
@@ -284,7 +289,7 @@ class _VirtualLabProvider:
         self, context: InstrumentProviderContext
     ) -> InstrumentProviderDescription:
         del context
-        problems = []
+        problems: list[Problem] = []
         try:
             instruments = tuple(
                 driver.describe()
@@ -305,7 +310,7 @@ class _VirtualLabProvider:
 
     def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
         del context
-        problems = []
+        problems: list[Problem] = []
         try:
             drivers = tuple(self._build_virtual_instruments(self._lab()))
         except DriverFault as error:
@@ -323,13 +328,11 @@ class _VirtualLabProvider:
     def _lab(self) -> VirtualLab:
         return VirtualLab.from_profiles(self.profile.devices)
 
-    def _build_virtual_instruments(self, lab: VirtualLab):
+    def _build_virtual_instruments(
+        self,
+        lab: VirtualLab,
+    ) -> Sequence[InstrumentDriver]:
         raise NotImplementedError
-
-    def _response_profile(self, device: VirtualDevice):
-        if device.response_model_id is None:
-            return None
-        return self.profile.response_profile(device.response_model_id)
 
 
 class QuantumLabVirtualProvider(_VirtualLabProvider):
@@ -349,7 +352,11 @@ class QuantumLabVirtualProvider(_VirtualLabProvider):
             category="experiment_system",
         )
 
-    def _build_virtual_instruments(self, lab: VirtualLab):
+    @override
+    def _build_virtual_instruments(
+        self,
+        lab: VirtualLab,
+    ) -> Sequence[InstrumentDriver]:
         return [
             QuantumDriveStack(device=lab.device("drive-stack")),
             QuantumReadoutStack(device=lab.device("readout-stack")),

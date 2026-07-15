@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeGuard, cast
+from typing import TypeGuard, cast
 
 from scopecat.compiler.relations.operators import (
     ScalarOperator,
@@ -17,7 +17,7 @@ from scopecat.records.entity import EntityRef, same_entity_identity
 from scopecat.records.parameter import Quantity
 
 type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | PayloadValue
-type CellValue = ScalarValue | dict[str, Any]
+type CellValue = ScalarValue | dict[str, object]
 
 
 def read_path(row: Mapping[str, object], path: str) -> CellValue:

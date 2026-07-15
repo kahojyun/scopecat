@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import pytest
 
@@ -342,6 +342,7 @@ def test_compute_cache_is_partitioned_by_implementation_identity() -> None:
 
 
 class _BlockingStateDriver(SignalInstrumentDriver):
+    @override
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self.applied.append(command)
         return ApplyReceipt(
@@ -359,6 +360,7 @@ class _BlockingStateDriver(SignalInstrumentDriver):
 
 
 class _UnknownAppliedStateDriver(SignalInstrumentDriver):
+    @override
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         super().apply_state(command)
         return ApplyReceipt(
@@ -381,14 +383,17 @@ class _MalformedApplyDriver(SignalInstrumentDriver):
         self.abort_count = 0
         self.read_count = 0
 
+    @override
     def read_state(self) -> InstrumentStateSnapshot:
         self.read_count += 1
         return super().read_state()
 
+    @override
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         super().apply_state(command)
         return cast("ApplyReceipt", object())
 
+    @override
     def abort(self) -> None:
         self.abort_count += 1
 
@@ -399,21 +404,25 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
         self.abort_count = 0
         self.read_count = 0
 
+    @override
     def read_state(self) -> InstrumentStateSnapshot:
         self.read_count += 1
         return super().read_state()
 
+    @override
     def abort(self) -> None:
         self.abort_count += 1
 
 
 class _MalformedCollectDriver(SignalInstrumentDriver):
+    @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         super().collect(command)
         return cast("CollectReceipt", object())
 
 
 class _UnknownActionDriver(SignalInstrumentDriver):
+    @override
     def action(self, command: InstrumentActionCommand) -> ActionReceipt:
         self.action_commands.append(command)
         return ActionReceipt(
@@ -525,12 +534,14 @@ class _MismatchedCollectionReceiptRepository(MemoryCollectionRepository):
         super().__init__()
         self._update = update
 
+    @override
     def commit(self, chunk: CollectionChunk) -> CollectionChunkReceipt:
         receipt = super().commit(chunk)
         return receipt.model_copy(update=self._update)
 
 
 class _BrokenFinalizationJournal(MemoryExecutionJournal):
+    @override
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         if entry.stage == "abort":
             raise RuntimeError("lifecycle journal unavailable")
@@ -727,6 +738,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
 
 
 class _ReceiptEvidenceStateDriver(SignalInstrumentDriver):
+    @override
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         super().apply_state(command)
         return ApplyReceipt(
@@ -866,6 +878,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
 
 
 class _UnexpectedProductDriver(SignalInstrumentDriver):
+    @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
         return CollectReceipt(
@@ -966,6 +979,7 @@ def test_one_collected_product_projects_to_two_record_aliases() -> None:
 
 
 class _FailMeasurementCompletionJournal(MemoryExecutionJournal):
+    @override
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         if entry.stage == "record_measurement" and entry.state == "completed":
             raise ExecutionJournalError("measurement completion journal unavailable")
@@ -977,6 +991,7 @@ class _NoSequenceMeasurementJournal(MemoryExecutionJournal):
         super().__init__()
         self.recording_attempts: list[ExecutionTransition] = []
 
+    @override
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         if entry.stage == "record_measurement":
             self.recording_attempts.append(entry.model_copy(deep=True))
@@ -985,6 +1000,7 @@ class _NoSequenceMeasurementJournal(MemoryExecutionJournal):
 
 
 class _MutatingMeasurementJournal(MemoryExecutionJournal):
+    @override
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         if entry.stage == "record_measurement":
             return super().append(
@@ -1105,6 +1121,7 @@ def test_measurement_receipt_followed_by_journal_failure_is_indeterminate() -> N
 
 
 class _MismatchedMeasurementReceiptCommitter(MemoryMeasurementRecordCommitter):
+    @override
     def commit(self, chunk: MeasurementRecordChunk) -> MeasurementRecordReceipt:
         receipt = super().commit(chunk)
         return receipt.model_copy(update={"chunk_content_hash": "wrong-chunk-hash"})

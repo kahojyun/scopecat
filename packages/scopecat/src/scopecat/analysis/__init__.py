@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from scopecat.analysis.online import EarlyStopDecision, decide_online_convergence
@@ -36,7 +36,7 @@ def __getattr__(name: str) -> object:
         module_name, attribute_name = _EXPORTS[name]
     except KeyError as error:
         raise AttributeError(name) from error
-    value = getattr(import_module(module_name), attribute_name)
+    value = cast("object", getattr(import_module(module_name), attribute_name))
     globals()[name] = value
     return value
 

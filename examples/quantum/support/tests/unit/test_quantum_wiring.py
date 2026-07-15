@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 import scopecat as sc
-from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.linking.linked import link_verified_program
 from scopecat.composition.local import local_execution_services
@@ -46,6 +46,8 @@ from quantum_lab_demo.virtual_lab.wiring import (
     quantum_wiring,
     quantum_wiring_config_profile,
 )
+
+from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 
 
 def test_quantum_wiring_builder_compiles_lab_vocabulary_to_core_config() -> None:
@@ -171,7 +173,9 @@ def test_default_quantum_wiring_config_describes_lines_groups_and_channel_routes
     ]
 
 
-def test_workspace_system_summary_describes_default_quantum_wiring(tmp_path) -> None:
+def test_workspace_system_summary_describes_default_quantum_wiring(
+    tmp_path: Path,
+) -> None:
     lab = sc.open(tmp_path, config_profile=quantum_wiring_config_profile())
 
     summary = lab.system()
@@ -247,7 +251,7 @@ def test_modules_leave_resource_selection_to_routing() -> None:
 
 
 def test_default_quantum_wiring_preview_includes_resolved_channel_routes(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     preview = (
         quantum_lab(
@@ -303,7 +307,7 @@ def test_virtual_provider_description_declares_full_instrument_schemas() -> None
 
 
 def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     config = quantum_wiring_config_profile()
     resolved = resolve_experiment(

@@ -97,6 +97,7 @@ from tests.testkit.relation_plans import (
 
 _FLOAT = Scalar(Float())
 _STRING = Scalar(String())
+_NO_UNSUPPORTED_OPERATIONS: frozenset[RelationOperation] = frozenset()
 _EXECUTE_POINT = ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
 _POINTS = Table(
     columns=(TableColumn("x", _FLOAT),),
@@ -109,7 +110,7 @@ class _BackendProbe:
     def __init__(
         self,
         *,
-        unsupported: frozenset[RelationOperation] = frozenset(),
+        unsupported: frozenset[RelationOperation] = _NO_UNSUPPORTED_OPERATIONS,
     ) -> None:
         self.backend_id = "tests.program-preflight"
         self.supported_operations = frozenset(RelationOperation) - unsupported
@@ -250,7 +251,7 @@ def _inventory_program() -> TypedProgram:
                     id=ImplementationId("python.consume.v1"),
                     operation_id=operation_id,
                     operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                    kernel=lambda *, x: x,
+                    kernel=_identity_x,
                 ),
             )
         ),
@@ -941,3 +942,7 @@ def test_binding_reports_all_backend_rejections_before_point_materialization() -
             RelationOperation.SCALAR_BINARY.value,
         ),
     )
+
+
+def _identity_x(*, x: object) -> object:
+    return x

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, Literal, Self
+from typing import Literal, Self, override
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -43,10 +43,11 @@ class ParameterValueDelta(BaseModel):
             raise ValueError(msg)
         return self
 
+    @override
     def model_copy(
         self,
         *,
-        update: Mapping[str, Any] | None = None,
+        update: Mapping[str, object] | None = None,
         deep: bool = False,
     ) -> Self:
         """Copy through validation so durable delta invariants cannot drift."""
@@ -110,10 +111,11 @@ class ParameterChangeProposal(BaseModel):
                 raise ValueError(msg)
         return self
 
+    @override
     def model_copy(
         self,
         *,
-        update: Mapping[str, Any] | None = None,
+        update: Mapping[str, object] | None = None,
         deep: bool = False,
     ) -> Self:
         """Copy through validation so durable proposal invariants cannot drift."""
