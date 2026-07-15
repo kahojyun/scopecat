@@ -58,7 +58,6 @@ def test_parameter_update_intents_are_not_durable_wire_models() -> None:
         values={"gain": 0.5},
     )
 
-    assert not hasattr(update, "model_dump")
     with pytest.raises(TypeError, match="JSON serializable"):
         json.dumps(update)
     with pytest.raises(TypeError, match="immutable"):

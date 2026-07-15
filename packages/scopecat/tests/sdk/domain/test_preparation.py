@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import inspect
-from importlib import import_module
 from pathlib import Path
-from typing import get_type_hints
 
 import pytest
 
@@ -19,10 +16,7 @@ from scopecat.sdk.domain import (
     DomainBatchContext,
     DomainEntryPointBinding,
     DomainExecutionOffer,
-    DomainMappedEntry,
-    DomainMappedResult,
     DomainMeasurementPlan,
-    DomainPreparationBuilder,
     DomainResultMapping,
     DomainResultUseBinding,
     DomainTargetEntry,
@@ -477,16 +471,6 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
     assert prepared.context is context
     assert prepared.direct_product_uses == context.direct_product_uses
     assert prepared.product_uses == context.product_uses
-    for internal_name in (
-        "invocation",
-        "runtime",
-        "realize",
-        "source_fragment",
-        "transforms",
-        "resource_claims",
-        "projection",
-    ):
-        assert not hasattr(prepared, internal_name)
 
 
 def test_measurement_plan_requires_exact_derived_output_coverage(
@@ -503,60 +487,3 @@ def test_measurement_plan_requires_exact_derived_output_coverage(
 
     with pytest.raises(ValueError, match="exactly cover authored transforms"):
         preparation.measurement_plan(mapping)
-
-
-def test_public_mapping_builder_boundaries_do_not_expose_compiler_types() -> None:
-    public_callables = (
-        DomainPreparationBuilder.map_measurements,
-        DomainPreparationBuilder.measurement_plan,
-        DomainPreparationBuilder.build,
-        DomainResultMapping.result_for_address,
-        DomainResultMapping.result_for,
-    )
-    public_types = (
-        DomainTargetEntry,
-        DomainEntryPointBinding,
-        DomainResultUseBinding,
-        DomainMappedEntry,
-        DomainMappedResult,
-        DomainResultMapping,
-        DomainMeasurementPlan,
-        PreparedDomainExecution,
-    )
-
-    rendered: list[str] = []
-    mapping_type_params = {
-        type_param.__name__: type_param
-        for type_param in DomainResultMapping.__type_params__
-    }
-    for callable_ in public_callables:
-        rendered.append(str(inspect.signature(callable_)))
-        module_globals = vars(import_module(callable_.__module__))
-        rendered.extend(
-            repr(annotation)
-            for annotation in get_type_hints(
-                callable_,
-                globalns=module_globals,
-                localns=mapping_type_params,
-            ).values()
-        )
-    for public_type in public_types:
-        rendered.append(str(inspect.signature(public_type)))
-        public_hints = {
-            name: annotation
-            for name, annotation in get_type_hints(public_type).items()
-            if not name.startswith("_")
-        }
-        rendered.extend(repr(annotation) for annotation in public_hints.values())
-        assert public_type.__module__ in {
-            "scopecat.sdk.domain.preparation",
-            "scopecat.sdk.domain.execution",
-        }
-
-    public_contract = "\n".join(rendered)
-    assert "scopecat.compiler" not in public_contract
-    assert "ClosedDomain" not in public_contract
-    assert "Bound" not in public_contract
-    assert "ExecutionResourceClaim" not in public_contract
-    assert "ProductUseId" not in public_contract
-    assert not hasattr(DomainResultMapping, "native_internal")

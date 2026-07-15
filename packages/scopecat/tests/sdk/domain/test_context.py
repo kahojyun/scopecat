@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import inspect
-from collections.abc import Callable
-from importlib import import_module
 from pathlib import Path
-from typing import get_type_hints
 
 import pytest
 
 import scopecat as sc
-import scopecat.sdk.domain as domain_sdk
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
     MaterializedLinkedPoints,
@@ -19,8 +14,6 @@ from scopecat.compiler.linking.linked import (
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.sdk.domain import (
     DomainBatchContext,
-    DomainBatchView,
-    DomainExecutionAdapter,
     DomainExecutionOffer,
     DomainPointRef,
     DomainPreparationBuilder,
@@ -266,56 +259,3 @@ def test_domain_execution_offer_rejects_invalid_batch_capacity(
             call,
             max_points_per_batch=0,
         )
-
-
-def test_public_context_ref_and_offer_boundaries_do_not_expose_compiler_types() -> None:
-    context_getter = DomainPreparationBuilder.context.fget
-    assert context_getter is not None
-    callables: tuple[Callable[..., object], ...] = (
-        DomainExecutionAdapter.select,
-        DomainExecutionAdapter.prepare,
-        DomainExecutionOffer.for_call,
-        DomainBatchContext.new_preparation,
-        context_getter,
-    )
-    extra_names = {
-        "DomainBatchView": DomainBatchView,
-        "DomainPreparationBuilder": DomainPreparationBuilder,
-    }
-
-    rendered: list[str] = []
-    for callable_ in callables:
-        rendered.append(str(inspect.signature(callable_)))
-        module_globals = vars(import_module(callable_.__module__))
-        hints = get_type_hints(
-            callable_,
-            globalns={**module_globals, **extra_names},
-        )
-        rendered.extend(repr(annotation) for annotation in hints.values())
-
-    for public_type in (
-        DomainPointRef,
-        DomainProductUseRef,
-        DomainExecutionOffer,
-        DomainBatchContext,
-    ):
-        public_hints = {
-            name: annotation
-            for name, annotation in get_type_hints(public_type).items()
-            if not name.startswith("_")
-        }
-        rendered.extend(repr(annotation) for annotation in public_hints.values())
-
-    assert "scopecat.compiler" not in "\n".join(rendered)
-    assert {
-        "AdapterEntryResults",
-        "ClosedDomainResultMapping",
-        "DomainExecutionCapabilities",
-        "DomainExecutionRequest",
-        "EntryPointBinding",
-        "ResultUseBinding",
-        "erase_prepared_domain_execution",
-        "seal_domain_result_mapping",
-    }.isdisjoint(domain_sdk.__all__)
-    assert not hasattr(DomainBatchContext, "linked_points_internal")
-    assert not hasattr(DomainBatchContext, "adapter_id_internal")

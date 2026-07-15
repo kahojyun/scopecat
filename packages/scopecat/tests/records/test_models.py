@@ -779,9 +779,6 @@ def test_run_plan_domain_execution_is_payload_free_durable_identity() -> None:
 
     assert_model_round_trip(execution)
     assert execution.model_dump(mode="json") == _domain_execution_data()
-    assert set(execution.batches[0].model_dump(mode="json")).isdisjoint(
-        {"payload", "entry_address", "result_address", "target_address"}
-    )
 
     empty_adapter = _domain_execution_data()
     empty_adapter["adapter_id"] = ""

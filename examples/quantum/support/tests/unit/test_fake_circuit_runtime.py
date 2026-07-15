@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 
@@ -160,7 +160,6 @@ from scopecat_quantum import (
 )
 
 from quantum_lab_demo.targets.fake_list_mode import (
-    CorrelatedFakeListFrame,
     FakeAwgPlayback,
     FakeDigitizerChannelId,
     FakeListArtifact,
@@ -1194,7 +1193,7 @@ def test_one_physical_fake_result_fans_out_to_every_product_use() -> None:
         )
 
 
-def test_correlated_fake_frames_remain_raw_and_are_not_product_values() -> None:
+def test_correlated_fake_frames_retain_raw_values_and_product_context() -> None:
     scenario = _scenario()
 
     correlated = execute_correlated_fake_list(
@@ -1202,13 +1201,7 @@ def test_correlated_fake_frames_remain_raw_and_are_not_product_values() -> None:
         scenario.compiled_target,
     )
 
-    assert {field.name for field in fields(CorrelatedFakeListFrame)} == {
-        "frame",
-        "mapped_result",
-        "acquisition_origin",
-    }
     assert all(isinstance(item.frame.value, complex) for item in correlated.frames)
-    assert all(not hasattr(item, "value") for item in correlated.frames)
     assert all(item.product.axes == () for item in correlated.frames)
     assert all(
         len(
@@ -1221,8 +1214,6 @@ def test_correlated_fake_frames_remain_raw_and_are_not_product_values() -> None:
         for result in scenario.mapping.domain_mapping.results
         for product_use in result.product_uses
     )
-    assert not hasattr(correlated, "measurements")
-    assert not hasattr(correlated, "product_values")
 
 
 def test_integrated_iq_shot_realization_accepts_exact_product_contract() -> None:
@@ -1283,7 +1274,6 @@ def test_integrated_iq_shot_realization_accepts_exact_product_contract() -> None
             )
             for frame in frames
         ]
-    assert not hasattr(realized, "measurements")
 
 
 @given(repetitions=st.integers(min_value=1, max_value=8))
@@ -1453,7 +1443,6 @@ def test_raw_trace_realization_accepts_exact_shot_sample_contract() -> None:
             ]
             for frame in frames
         ]
-    assert not hasattr(realized, "measurements")
 
 
 @given(

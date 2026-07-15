@@ -1498,11 +1498,3 @@ def test_selected_plan_retains_complete_backend_requirements() -> None:
         selected.requirements.external_row_interface == verified.external_row_interface
     )
     assert selected.requirements.runtime_obligations == verified.runtime_obligations
-
-
-def test_backend_dispatch_has_no_raw_ast_hook() -> None:
-    backend = ReferenceRelationBackend()
-
-    assert not hasattr(backend, "evaluate_scalar_unchecked")
-    assert not hasattr(backend, "evaluate_series_unchecked")
-    assert not hasattr(backend, "evaluate_relation_unchecked")

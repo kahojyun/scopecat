@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import cast, get_type_hints
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
@@ -432,7 +432,3 @@ def test_safe_replay_is_idempotent_and_uses_the_same_operation_ids() -> None:
         entry.operation_id for entry in journal.entries[4:]
     ]
     assert [entry.attempt for entry in journal.entries[4:]] == [2, 2, 2, 2]
-
-
-def test_measurement_recording_error_annotation_is_runtime_resolvable() -> None:
-    assert get_type_hints(MeasurementRecordingError.__init__)

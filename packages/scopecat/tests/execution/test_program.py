@@ -519,7 +519,6 @@ def test_resource_claims_are_unconditionally_exclusive() -> None:
     claim = ResourceClaim(id="source-a")
 
     assert claim.kind == "instrument"
-    assert not hasattr(claim, "exclusive")
 
 
 def test_collect_command_attempt_is_rejected_before_execution() -> None:

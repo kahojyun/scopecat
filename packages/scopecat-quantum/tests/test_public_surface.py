@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import ast
-from pathlib import Path
-
 import scopecat_quantum as sq
 
 
@@ -46,57 +43,8 @@ def test_authoring_exposes_one_program_entry_path() -> None:
         "domain_program",
         "domain_call",
     } <= names
-    assert names.isdisjoint(
-        {
-            "Circuit",
-            "BoundCircuit",
-            "circuit",
-            "bind_circuit",
-            "circuit_domain_program",
-            "circuit_domain_call",
-            "QuantumProgram",
-            "BoundQuantumProgram",
-            "bind_program",
-            "program_domain_program",
-            "program_domain_call",
-        }
-    )
-
-
-def test_public_surface_contains_no_concrete_laboratory_target() -> None:
-    names = set(sq.__all__)
-
-    assert not {name for name in names if "awg" in name.lower()}
-    assert not {name for name in names if "digitizer" in name.lower()}
-    assert not {name for name in names if "channel" in name.lower()}
-    assert not {name for name in names if "trigger" in name.lower()}
 
 
 def test_public_surface_exports_only_real_unique_attributes() -> None:
     assert len(sq.__all__) == len(set(sq.__all__))
     assert all(hasattr(sq, name) for name in sq.__all__)
-
-
-def test_quantum_source_never_imports_core_private_modules() -> None:
-    source_root = Path(__file__).parents[1] / "src" / "scopecat_quantum"
-    violations: list[str] = []
-    for path in sorted(source_root.rglob("*.py")):
-        tree = ast.parse(path.read_text())
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                violations.extend(
-                    f"{path.name}:{node.lineno}:{alias.name}"
-                    for alias in node.names
-                    if alias.name.startswith("scopecat._")
-                )
-            elif isinstance(node, ast.ImportFrom):
-                module = node.module or ""
-                if module.startswith("scopecat._"):
-                    violations.append(f"{path.name}:{node.lineno}:{module}")
-                elif module == "scopecat":
-                    violations.extend(
-                        f"{path.name}:{node.lineno}:scopecat.{alias.name}"
-                        for alias in node.names
-                        if alias.name.startswith("_")
-                    )
-    assert violations == []

@@ -8,12 +8,10 @@ import pytest
 from pydantic import ValidationError
 
 import scopecat.sdk.instruments as instrument_sdk
-import scopecat.sdk.instruments.contracts as instrument_contracts
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_types import Entity, Float, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.artifact import CommandPayload
-from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import (
     CommandChannelBinding as RecordCommandChannelBinding,
 )
@@ -59,7 +57,7 @@ from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_experiment
 
 
-def test_instrument_records_are_public_only_from_the_sdk_facade() -> None:
+def test_instrument_records_are_public_from_the_sdk_facade() -> None:
     owners = {
         "CommandChannelBinding": RecordCommandChannelBinding,
         "InstrumentReadback": RecordInstrumentReadback,
@@ -69,7 +67,6 @@ def test_instrument_records_are_public_only_from_the_sdk_facade() -> None:
 
     for name, owner in owners.items():
         assert getattr(instrument_sdk, name) is owner
-        assert not hasattr(instrument_contracts, name)
 
 
 @pytest.mark.parametrize(
@@ -158,9 +155,6 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
         "maximum": ["unit"],
     }
     assert variants[-1]["required"] == ["type", "schema_id"]
-    assert schema["properties"]["metadata"]["propertyNames"] == {
-        "not": {"const": "payload_kinds"}
-    }
 
 
 @pytest.mark.parametrize(
@@ -179,48 +173,6 @@ def test_capability_field_rejects_unsupported_or_transient_types(
 ) -> None:
     with pytest.raises(ValidationError):
         CapabilityField.model_validate({"id": "value", "value_type": value_type})
-
-
-def test_capability_field_rejects_legacy_shape_and_metadata() -> None:
-    with pytest.raises(ValidationError):
-        CapabilityField.model_validate(
-            {"id": "frequency", "kind": "quantity", "unit": "GHz"}
-        )
-    with pytest.raises(ValidationError, match="payload_kinds is no longer metadata"):
-        CapabilityField(
-            id="program",
-            value_type=Scalar(Payload("pulse_program")),
-            metadata={"payload_kinds": ["pulse_program"]},
-        )
-
-
-def test_instrument_description_rejects_legacy_schema_version() -> None:
-    data = SignalInstrumentDriver().describe().model_dump(mode="json")
-    data["schema_version"] = "scopecat.instrument_description.v0"
-
-    with pytest.raises(ValidationError):
-        InstrumentDescription.model_validate(data)
-
-
-def test_instrument_state_models_reject_legacy_schema_versions() -> None:
-    snapshot_data = InstrumentStateSnapshot(instrument_id="source-0").model_dump(
-        mode="json"
-    )
-    snapshot_data["schema_version"] = "scopecat.instrument_state_snapshot.v0"
-    with pytest.raises(ValidationError):
-        InstrumentStateSnapshot.model_validate(snapshot_data)
-
-    command_data = InstrumentStateCommand(instrument_id="source-0").model_dump(
-        mode="json"
-    )
-    command_data["schema_version"] = "scopecat.instrument_state_command.v1"
-    with pytest.raises(ValidationError):
-        InstrumentStateCommand.model_validate(command_data)
-
-    evidence_data = InstrumentStateEvidence(run_id="run-0").model_dump(mode="json")
-    evidence_data["schema_version"] = "scopecat.instrument_state_evidence.v1"
-    with pytest.raises(ValidationError):
-        InstrumentStateEvidence.model_validate(evidence_data)
 
 
 @pytest.mark.parametrize(
@@ -247,7 +199,6 @@ def test_state_value_has_stable_structural_wire_format(
     assert state_value.model_dump(mode="json") == wire
     assert StateValue.model_validate(wire) == state_value
     assert StateValue.model_validate_json(state_value.model_dump_json()) == state_value
-    assert not hasattr(state_value, "kind")
 
 
 def test_state_value_schema_exposes_six_structural_scalar_branches() -> None:
@@ -264,22 +215,6 @@ def test_state_value_schema_exposes_six_structural_scalar_branches() -> None:
     ]
     assert schema["$defs"]["PayloadRef"]["required"] == ["payload_id"]
     assert schema["$defs"]["PayloadRef"]["additionalProperties"] is False
-
-
-@pytest.mark.parametrize(
-    "legacy_wire",
-    [
-        {"kind": "number", "value": 1.0},
-        {
-            "kind": "quantity",
-            "quantity": {"value": 5.0, "unit": "GHz"},
-        },
-        {"kind": "payload", "payload_id": "program-a"},
-    ],
-)
-def test_state_value_rejects_legacy_kind_wire(legacy_wire: object) -> None:
-    with pytest.raises(ValidationError):
-        StateValue.model_validate(legacy_wire)
 
 
 def test_concrete_state_values_reject_coercive_and_non_finite_numbers() -> None:

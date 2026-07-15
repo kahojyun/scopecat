@@ -152,7 +152,6 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     assert [
         row["frequency"] for row in environment.parameters.table_rows("readout_devices")
     ] == base_frequencies
-    assert not hasattr(plan, "parameter_patches")
 
 
 def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> None:

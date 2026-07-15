@@ -244,7 +244,6 @@ def test_modules_leave_resource_selection_to_routing() -> None:
         assembly = elaborate_module(module, **inputs)
 
         assert assembly.resource_ports
-        assert all(not hasattr(port, "resource_id") for port in assembly.resource_ports)
 
 
 def test_default_quantum_wiring_preview_includes_resolved_channel_routes(

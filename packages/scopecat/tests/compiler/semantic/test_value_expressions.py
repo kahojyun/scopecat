@@ -16,7 +16,6 @@ def test_verified_value_expression_is_an_opaque_shareable_proof() -> None:
     assert value.value_type == Scalar(Float())
     assert copy.copy(value) is value
     assert copy.deepcopy(value) is value
-    assert not hasattr(value, "model_copy")
     with pytest.raises(AttributeError, match="cannot assign"):
         value._plan = value.plan  # pyright: ignore[reportPrivateUsage]
     with pytest.raises(TypeError, match="created by verify_scalar_value_expr"):

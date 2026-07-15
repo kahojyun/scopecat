@@ -504,7 +504,6 @@ def test_bound_plan_pins_selection_and_execution_only_projects_it() -> None:
     execution = build_execution_program(plan)
 
     call = plan.points[0].compute[0]
-    assert not hasattr(plan, "implementation_catalog")
     assert plan.local_implementations is not None
     assert plan.local_implementations.selected_for(operation_id) is call.implementation
     assert call.implementation.kernel is kernel

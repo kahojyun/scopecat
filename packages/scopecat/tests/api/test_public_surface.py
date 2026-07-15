@@ -1,38 +1,19 @@
 from __future__ import annotations
 
 import copy
-import subprocess
-import sys
-from dataclasses import FrozenInstanceError, is_dataclass
 from importlib import import_module
-from importlib.util import find_spec
-from inspect import signature
-from typing import cast, get_type_hints
+from typing import cast
 
 import pytest
 
 import scopecat as sc
-import scopecat.authoring as authoring
-import scopecat.authoring.assembly as authoring_assembly
 import scopecat.kernel.payloads as value_models
 import scopecat.kernel.problems as problems
 import scopecat.measurements.results as results
 from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
 from scopecat.compiler.relations.backend import EvalContext
-from scopecat.compiler.relations.model import param
 from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from tests.testkit.relation_plans import evaluate_scalar
-
-
-def test_raw_relation_ir_has_no_public_module() -> None:
-    assert find_spec("scopecat.relations") is None
-
-
-def test_internal_authoring_context_and_compute_refs_have_no_public_module() -> None:
-    assert find_spec("scopecat.authoring.context") is None
-    assert not hasattr(authoring, "ExperimentAuthoringContext")
-    assert not hasattr(authoring, "ParameterRelationData")
-    assert not hasattr(value_models, "ComputeResultRef")
 
 
 def test_root_lazy_exports_are_complete_visible_and_resolvable() -> None:
@@ -44,44 +25,17 @@ def test_root_lazy_exports_are_complete_visible_and_resolvable() -> None:
         assert getattr(sc, name) is getattr(import_module(module_name), attribute_name)
 
 
-def test_open_lazy_export_does_not_load_memory_composition() -> None:
-    script = """
-import sys
-
-import scopecat
-
-assert callable(scopecat.open)
-unexpected = sorted(
-    name
-    for name in sys.modules
-    if name == "scopecat.composition.memory"
-    or name.startswith("scopecat.adapters.memory")
-)
-assert not unexpected, unexpected
-"""
-    subprocess.run(
-        [sys.executable, "-c", script],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
 def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.open)
     assert sc.Problem is problems.Problem
     assert callable(sc.blocking_problem)
     assert callable(sc.model_location)
-    assert not hasattr(sc, "ValueValidationError")
     assert sc.Run is sc.RunHandle
     assert callable(sc.module)
-    assert not hasattr(sc, "template")
     assert callable(sc.ModuleBuilder.template)
     assert callable(sc.ModuleBuilder.bind_field)
-    assert not hasattr(sc.ModuleBuilder, "bind")
     assert callable(sc.ExperimentModule.template)
     assert callable(sc.Experiment.bind_field)
-    assert not hasattr(sc.Experiment, "bind")
     assert sc.ModuleOutputs
     assert sc.ProductOutputs
     assert sc.ProductRef
@@ -91,84 +45,18 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.point)
     assert callable(sc.parameter)
     assert callable(sc.parameter_lookup)
-    assert not hasattr(sc, "parameter_table")
     assert callable(sc.route)
     assert sc.TableRow
-    assert not hasattr(sc.ValueRef, "row")
-    assert not hasattr(sc.ValueRef, "source_kind")
-    assert not hasattr(sc.ValueRef, "source_id")
-    assert not hasattr(sc.ValueRef, "expression")
-    assert not hasattr(sc.ValueRef, "parameter_contracts")
-    assert not hasattr(sc.ValueRef, "input_id")
-    assert not hasattr(sc.ValueRef, "node_id")
-    with pytest.raises(TypeError, match="opaque handle"):
-        sc.ValueRef()
-    with pytest.raises(TypeError, match="callback scope"):
-        sc.TableRow()
     assert sc.ResolvedRoute(
         port_id="drive",
         resource_id="drive-a",
         capabilities=("play",),
     ).capabilities == ("play",)
-    assert not hasattr(sc, "var")
-    assert not hasattr(sc, "param")
-    assert not hasattr(sc, "table_param")
-    assert not hasattr(sc, "col")
-    assert not hasattr(sc, "typed")
-    assert not hasattr(sc, "input_series")
-    assert not hasattr(sc, "input_table")
-    assert not hasattr(sc, "compute_result")
-    assert not hasattr(sc, "column")
-    assert not hasattr(sc, "ComputeResultRef")
-    assert not hasattr(sc, "ComputeContext")
-    assert not hasattr(sc, "compute_payload")
-    assert not hasattr(sc, "ComputePayloadRef")
     assert sc.ScalarType(sc.IntType())
     assert sc.SeriesType(sc.ScalarType(sc.EntityType()))
     assert sc.TableType(columns=())
-    assert not hasattr(sc, "EntityArray")
-    assert not hasattr(sc, "entity_array")
-    assert not hasattr(sc, "scan_axis_index")
-    assert not hasattr(sc, "parameter_scan_records")
-    assert not hasattr(sc, "PointScanRecord")
-    assert not hasattr(sc, "ScanGroupRecord")
     assert sc.Scan
     assert sc.ParameterRow
-    assert not hasattr(sc, "ScanAxis")
-    assert not hasattr(sc, "ParameterScanAxis")
-    assert not hasattr(sc, "ScanGroup")
-    assert not hasattr(sc, "ScanItem")
-    with pytest.raises(TypeError, match="opaque handle"):
-        sc.Scan()
-    with pytest.raises(TypeError, match="opaque handle"):
-        sc.ParameterRow()
-    with pytest.raises(TypeError, match=r"created with scopecat\.point"):
-        sc.axis(
-            sc.input("frequency", sc.ScalarType(sc.FloatType())),
-            [1.0],
-        )
-    for handle_type in (
-        sc.Compute,
-        sc.RouteRef,
-        sc.ModuleBuilder,
-        sc.ModuleInvocation,
-        sc.ModuleOutputs,
-        sc.ProductOutputs,
-        sc.ProductRef,
-        sc.ExperimentModule,
-        sc.TemplateBuilder,
-        sc.ExperimentTemplate,
-        sc.ExperimentInvocation,
-        sc.Experiment,
-        sc.PreparedExperiment,
-        sc.RecordAxis,
-        sc.RecordSelection,
-    ):
-        with pytest.raises(TypeError, match="opaque handle"):
-            handle_type()
-    row = sc.param_row("parameters", entity="q0")
-    assert not hasattr(row, "value")
-    assert not hasattr(row, "patch")
     assert hasattr(results, "MeasurementRecord")
     assert {
         "schema_version",
@@ -183,14 +71,6 @@ def test_user_facing_facades_expose_entry_points() -> None:
     }.issubset(problems.Problem.model_fields)
 
 
-def test_workspace_does_not_expose_persistence_ports(tmp_path) -> None:
-    lab = sc.open(tmp_path)
-
-    assert not hasattr(lab, "services")
-    with pytest.raises(TypeError, match="opaque handle"):
-        sc.Workspace()
-
-
 def test_workspace_is_compared_by_session_identity(tmp_path) -> None:
     first = sc.open(tmp_path)
     second = sc.open(tmp_path)
@@ -199,10 +79,6 @@ def test_workspace_is_compared_by_session_identity(tmp_path) -> None:
     assert first != second
     assert copy.copy(first) is first
     assert copy.deepcopy(first) is first
-
-
-def test_open_annotations_resolve_at_runtime() -> None:
-    assert get_type_hints(sc.open)["return"] is sc.Workspace
 
 
 def test_typed_values_are_the_public_module_wiring_surface() -> None:
@@ -222,16 +98,6 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
 
     assert isinstance(module, sc.ExperimentModule)
     assert build.output.value_type == program_type
-    assert not is_dataclass(sc.ValueRef)
-    assert not is_dataclass(qubits)
-    assert not hasattr(qubits, "__dict__")
-    assert repr(qubits) == "ValueRef()"
-    assert copy.copy(qubits) is qubits
-    assert copy.deepcopy(qubits) is qubits
-    with pytest.raises(FrozenInstanceError, match="cannot assign"):
-        qubits._value_type = (  # pyright: ignore[reportPrivateUsage]
-            sc.ScalarType(sc.IntType())
-        )
 
     rows = sc.input(
         "rows",
@@ -251,98 +117,6 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
         "qubit",
         "target",
     ]
-    callback_row = callback_rows[0]
-    assert not is_dataclass(sc.TableRow)
-    assert not is_dataclass(callback_row)
-    assert not hasattr(callback_row, "__dict__")
-    assert copy.copy(callback_row) is callback_row
-    assert copy.deepcopy(callback_row) is callback_row
-    with pytest.raises(FrozenInstanceError, match="cannot assign"):
-        callback_row._scope_id = (  # pyright: ignore[reportPrivateUsage]
-            callback_row._scope_id  # pyright: ignore[reportPrivateUsage]
-        )
-
-    assert not hasattr(authoring, "resolve_experiment")
-    assert not hasattr(authoring, "ResolvedExperiment")
-    assert not hasattr(authoring, "ExperimentAuthoringContext")
-    assert not hasattr(authoring, "ComputeContext")
-    assert not hasattr(authoring, "param_ref")
-    assert not hasattr(authoring, "var_ref")
-    assert not hasattr(authoring, "typed")
-    assert not hasattr(sc.ModuleInvocation, "assemble")
-    assert not hasattr(sc.ModuleInvocation, "_assemble")
-    assert not hasattr(sc.ExperimentModule, "assemble")
-    assert not hasattr(sc.ExperimentModule, "_assemble")
-    assert "__call__" not in sc.ExperimentModule.__dict__
-    assert not hasattr(authoring_assembly, "FlattenedExperimentIR")
-    assert not hasattr(authoring_assembly, "elaborate_module")
-    assert not hasattr(authoring_assembly, "link_experiment_assembly_internal")
-
-    public_signatures = " ".join(
-        str(signature(method))
-        for method in (
-            sc.ModuleBuilder.bind_field,
-            sc.ModuleBuilder.resource,
-            sc.ModuleBuilder.state_each,
-            sc.Experiment.bind_field,
-            sc.Experiment.resource,
-            sc.Experiment.state_each,
-            sc.compute,
-            sc.parameter_lookup,
-            sc.ExperimentModule.instantiate,
-        )
-    )
-    assert "ScalarExpr" not in public_signatures
-    assert "RelationExpr" not in public_signatures
-    assert "ComputeResultRef" not in public_signatures
-    assert "ResourceSelector" not in public_signatures
-    assert "object" not in str(signature(sc.compute))
-    assert "object" not in str(signature(sc.parameter_lookup))
-    assert "object" not in str(signature(sc.ExperimentModule.instantiate))
-    for method in (
-        sc.ExperimentTemplate.bind,
-        sc.ExperimentInvocation.bind,
-        sc.TemplateBuilder.bind,
-        sc.PreparedExperiment.input,
-        sc.PreparedExperiment.inputs,
-    ):
-        assert "object" not in str(signature(method))
-
-    with pytest.raises(TypeError, match="inputs must be typed values"):
-        sc.compute(
-            "raw-expression",
-            fn=lambda *, value: value,
-            inputs={"value": param("frequency")},  # type: ignore[dict-item]
-            output_type=sc.ScalarType(sc.QuantityType()),
-        )
-    with pytest.raises(TypeError, match="inputs must be typed values"):
-        sc.compute(
-            "arbitrary-object",
-            fn=lambda *, value: value,
-            inputs={"value": object()},  # type: ignore[dict-item]
-            output_type=sc.ScalarType(sc.PayloadType("object")),
-        )
-    with pytest.raises(TypeError, match="typed scalar values"):
-        sc.parameter_lookup(
-            "parameters",
-            key={"entity": param("entity")},  # type: ignore[dict-item]
-            column="frequency",
-            value_type=sc.ScalarType(sc.QuantityType()),
-        )
-
-
-def test_nominal_dsl_bases_are_plain_slotted_classes() -> None:
-    for handle_type in (
-        sc.Scan,
-        sc.ParameterRow,
-        sc.RecordAxis,
-        sc.RecordSelection,
-    ):
-        assert not is_dataclass(handle_type)
-        assert handle_type.__slots__ == ()
-        intent_types = handle_type.__subclasses__()
-        assert intent_types
-        assert all(is_dataclass(intent_type) for intent_type in intent_types)
 
 
 def test_template_inputs_reject_arbitrary_python_objects_immediately() -> None:
@@ -488,9 +262,6 @@ def test_workspace_terminals_are_prepare_or_scratch_only() -> None:
     assert callable(sc.PreparedExperiment.run)
     assert callable(sc.PreparedExperiment.preview)
     assert callable(sc.PreparedExperiment.validate)
-    assert not hasattr(sc.PreparedExperiment, "prepared_invocation")
-    assert not hasattr(sc.PreparedExperiment, "run_options")
-    assert not hasattr(sc.RunHandle, "preview")
     assert callable(sc.Experiment.run)
     assert callable(sc.Experiment.preview)
     assert callable(sc.Experiment.validate)

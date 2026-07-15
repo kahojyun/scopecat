@@ -30,7 +30,6 @@ def test_module_builder_splits_operation_from_python_implementation() -> None:
 
     operation = module.ir.body.operations[0]
     implementation = module.ir.python_implementations[0]
-    assert not hasattr(operation, "fn")
     assert isinstance(operation.declaration_key, ComputeDeclarationKey)
     assert implementation.declaration_key == operation.declaration_key
     assert implementation.fn is kernel

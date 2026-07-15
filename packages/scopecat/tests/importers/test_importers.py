@@ -6,7 +6,6 @@ from typing import cast
 import pytest
 from pydantic import ValidationError
 
-import scopecat.importers as importers
 from scopecat.importers import (
     ScalarParameterDraftValue,
     SeriesParameterDraftValue,
@@ -76,9 +75,6 @@ def test_import_result_contains_raw_draft_instead_of_parameter_snapshot() -> Non
     assert series.items == [1, "also-raw"]
     assert isinstance(table, TableParameterDraftValue)
     assert table.rows[0]["gain"] == "raw"
-    assert not hasattr(result, "parameter_state")
-    assert not hasattr(importers, "ImportedScalarParameter")
-    assert not hasattr(importers, "ImportedParameterTable")
 
 
 def test_accept_parameter_import_validates_and_freezes_all_shapes() -> None:

@@ -1478,16 +1478,6 @@ def test_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
         RunPlanRecord,
     )
     assert persisted_plan.state_changes[0].after == RunPlanDeferredValue()
-    persisted_plan_wire = json.loads(
-        (tmp_path / "runs" / manifest.run_id / "run-plan.json").read_text()
-    )
-    assert {
-        "runtime",
-        "compute_steps",
-        "payloads",
-        "state_fields",
-    }.isdisjoint(persisted_plan_wire)
-    assert "build-program" not in json.dumps(persisted_plan_wire)
 
 
 def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:

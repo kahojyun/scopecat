@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 from demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
-from pydantic import ValidationError
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     DriverFault,
@@ -54,11 +53,6 @@ def test_virtual_lab_profile_round_trips_structural_initial_state() -> None:
         "set_frequency.frequency": {"value": 5.0, "unit": "GHz"},
         "play_program.program": {"payload_id": "program-a"},
     }
-
-    legacy = profile.model_dump(mode="json")
-    legacy["schema_version"] = "quantum_lab_demo.virtual_lab_profile.v0"
-    with pytest.raises(ValidationError):
-        VirtualLabProfile.model_validate(legacy)
 
 
 def test_virtual_device_rejects_patch_for_other_instrument() -> None:

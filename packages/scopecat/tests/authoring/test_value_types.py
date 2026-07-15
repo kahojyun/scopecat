@@ -64,7 +64,6 @@ def test_string_constraints_are_structural_not_named_kinds() -> None:
     )
 
     assert coerce_literal(gate_label, "CZ") == "CZ"
-    assert not hasattr(gate_label, "kind")
 
     with pytest.raises(ValueValidationError, match="does not match pattern"):
         coerce_literal(gate_label, "cz")

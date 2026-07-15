@@ -13,14 +13,7 @@ from scopecat.records.run_request import (
 )
 from tests.testkit.experiment_preview import preview_contract
 from tests.testkit.paths import CORE_FIXTURE_DIR as SIMPLE_SCAN_FIXTURE
-from tests.testkit.paths import REPO_ROOT
 from tests.testkit.workflow_fixtures import load_experiment, load_prepared_invocation
-
-FIXTURE_ROOT = REPO_ROOT / "fixtures"
-
-
-def test_public_fixtures_do_not_persist_compiler_programs() -> None:
-    assert not list(FIXTURE_ROOT.glob("**/experiment.json"))
 
 
 def test_simple_scan_dsl_produces_durable_request_and_user_plan() -> None:

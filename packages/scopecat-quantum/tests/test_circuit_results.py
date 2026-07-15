@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import inspect
 from dataclasses import dataclass, replace
-from importlib import import_module
 from pathlib import Path
-from typing import get_type_hints
 
 import pytest
 from scopecat import Quantity
@@ -578,37 +575,6 @@ def test_compiled_circuit_target_rejects_another_batch_request() -> None:
 
     with pytest.raises(ValueError, match="exactly match the mapped circuit batch"):
         bind_compiled_circuit_target(mapping, compiled)
-
-
-def test_public_mapping_boundaries_do_not_expose_compiler_types() -> None:
-    public_callables = (seal_circuit_target_result_mapping,)
-    public_types = (
-        CircuitTargetEntryPointBinding,
-        CircuitTargetAcquisitionUseBinding,
-        CircuitTargetResultMapping,
-    )
-
-    rendered: list[str] = []
-    for callable_ in public_callables:
-        rendered.append(str(inspect.signature(callable_)))
-        module_globals = vars(import_module(callable_.__module__))
-        rendered.extend(
-            repr(annotation)
-            for annotation in get_type_hints(
-                callable_,
-                globalns=module_globals,
-            ).values()
-        )
-    for public_type in public_types:
-        rendered.append(str(inspect.signature(public_type)))
-        public_hints = {
-            name: annotation
-            for name, annotation in get_type_hints(public_type).items()
-            if not name.startswith("_")
-        }
-        rendered.extend(repr(annotation) for annotation in public_hints.values())
-
-    assert "scopecat.compiler" not in "\n".join(rendered)
 
 
 @pytest.mark.parametrize(

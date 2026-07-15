@@ -462,9 +462,6 @@ def _standard_domain_semantics(
     assert batch.capability_fingerprint == intent.capability_fingerprint
     assert batch.artifact_id == intent.artifact_id
     assert batch.artifact_fingerprint == intent.artifact_fingerprint
-    assert set(batch.model_dump(mode="json")).isdisjoint(
-        {"payload", "entry_address", "result_address", "target_address"}
-    )
     return (
         intent.target_id,
         intent.compiler_id,

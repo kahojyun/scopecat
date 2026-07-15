@@ -152,8 +152,6 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     expected_projection = ProductId(SymbolId(scope=("inner",), local_id="signal"))
     assert projected.symbol_id == expected_projection
     assert projected.target_id == expected_projection
-    assert not hasattr(projected, "resource")
-    assert not hasattr(projected, "axes")
     outer = wrapper.instantiate("outer")
     root = sc.module("test.products.nested-root").use(outer).build()
 

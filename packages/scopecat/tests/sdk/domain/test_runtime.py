@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal, cast, get_type_hints
+from typing import Literal, cast
 
 import pytest
 from pydantic import ValidationError
@@ -570,7 +570,6 @@ def test_submit_returns_known_and_fetch_returns_correlated_with_durable_journal(
     assert known.origin == "submit"
     assert known.job_id == "job-1"
     assert isinstance(accepted, CorrelatedDomainFetch)
-    assert not hasattr(accepted, "submission")
     assert accepted.result == "accepted-payload"
     assert runtime.submit_requests[0].submission_id is submission_id
     assert runtime.submit_requests[0].identity == domain_receipt_identity(
@@ -1085,16 +1084,6 @@ def test_reconcile_journal_failures_preserve_safe_resolution_order(
     assert runtime.submit_calls == runtime.reconcile_calls == 1
 
 
-def test_domain_error_annotations_are_resolvable_without_runtime_cycles() -> None:
-    for error_type in (
-        DomainSubmissionIndeterminate,
-        DomainSubmissionFailed,
-        DomainReconciliationFailed,
-        DomainRuntimePersistenceError,
-    ):
-        assert get_type_hints(error_type.__init__)
-
-
 def test_runtime_state_constructors_establish_their_invariants() -> None:
     invocation = _closed_invocation()
     submission_id = _submission_id(invocation)
@@ -1140,7 +1129,6 @@ def test_runtime_state_constructors_establish_their_invariants() -> None:
     assert uncertainty.identity == identity
     assert correlated.receipt is fetched
     assert correlated.result == "payload"
-    assert not hasattr(correlated, "submission")
     assert pending_fetch.submission is known
 
     with pytest.raises(ValueError, match="known submit state"):

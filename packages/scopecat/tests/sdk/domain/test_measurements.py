@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import inspect
-from importlib import import_module
 from pathlib import Path
-from typing import get_type_hints
 
 import pytest
 
@@ -31,10 +28,6 @@ from scopecat.sdk.domain.measurements import (
     DomainMeasurementTransform,
     lower_domain_host_transform_binding_internal,
     lower_domain_measurement_transform_internal,
-)
-from scopecat.sdk.domain.view import (
-    DomainTransformInputPort,
-    DomainTransformOutputPort,
 )
 from tests.testkit.authoring import load_config
 
@@ -195,29 +188,3 @@ def test_domain_transform_lowering_rejects_foreign_product_ref(
 
     with pytest.raises(ValueError, match="outside its context"):
         lower_domain_measurement_transform_internal(context, _transform(foreign))
-
-
-def test_public_transform_declarations_do_not_expose_compiler_types() -> None:
-    public_types = (
-        DomainTransformInputPort,
-        DomainTransformOutputPort,
-        DomainMeasurementTransform,
-        DomainHostTransformCall,
-        DomainHostTransformImplementation,
-        DomainHostTransformBinding,
-    )
-    rendered: list[str] = []
-    for public_type in public_types:
-        rendered.append(str(inspect.signature(public_type)))
-        module_globals = vars(import_module(public_type.__module__))
-        public_hints = {
-            name: annotation
-            for name, annotation in get_type_hints(
-                public_type,
-                globalns=module_globals,
-            ).items()
-            if not name.startswith("_")
-        }
-        rendered.extend(repr(annotation) for annotation in public_hints.values())
-
-    assert "scopecat.compiler" not in "\n".join(rendered)

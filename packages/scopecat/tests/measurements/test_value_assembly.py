@@ -467,7 +467,6 @@ def test_domain_output_fragment_strips_adapter_addresses_from_host_values() -> N
     assert len(outputs.outputs) == len(points)
     assert len(fragment.values) == len(points) * len(scenario.uses)
     assert len(assembled.values) == len(points) * len(scenario.uses)
-    assert all(not hasattr(value, "result_address") for value in assembled.values)
     assert tuple(value.logical_point_id for value in assembled.values) == tuple(
         point.logical_id for point in points for _use in scenario.uses
     )

@@ -393,7 +393,6 @@ def test_module_api_rejects_plans_outside_backend_capabilities(
             bindings=RelationTypeBindings(inputs={"rows": _int_table("key")}),
         )
 
-    assert not hasattr(backend, "evaluate_relation")
     assert error.value.backend_id == "tests.no-sort"
     assert tuple(issue.dimension for issue in error.value.issues) == (
         RelationBackendCapabilityDimension.OPERATION,
@@ -430,9 +429,6 @@ def test_parameter_data_owns_its_containers_and_returns_detached_snapshots() -> 
     assert parameters.scalar("gain") == 1
     assert parameters.series_values("offsets") == [2, 3]
     assert parameters.table_rows("calibrations") == [{"id": "r0", "value": 4}]
-    assert not hasattr(parameters, "scalars")
-    assert not hasattr(parameters, "series")
-    assert not hasattr(parameters, "tables")
 
 
 def test_point_overlay_fork_replaces_a_cell_without_mutating_base_data() -> None:

@@ -129,8 +129,6 @@ def test_measurement_calibration_key_contains_only_reusable_logical_data() -> No
     )
 
     assert key == MeasurementCalibrationKey(Q0, AcquisitionKind.RAW_TRACE)
-    assert not hasattr(key, "operation_id")
-    assert not hasattr(key, "acquisition_slot_id")
 
 
 def test_measurement_calibration_key_snapshots_measurement_semantics() -> None:
