@@ -1,0 +1,370 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+import scopecat as sc
+from scopecat import Quantity
+from scopecat.config.registry import CandidateConfigRegistrySource
+from scopecat.kernel.errors import Conflict
+from scopecat.records.parameter import TableParameterValue
+from scopecat_quantum import authoring as quantum
+
+from quantum_lab_demo import quantum_lab
+from quantum_lab_demo.reference_experiments import drag_beta_analysis as analysis_module
+from quantum_lab_demo.reference_experiments.drag_beta_analysis import (
+    DRAG_BETA_PROPOSAL_ID,
+    DragBetaFitAssessment,
+    analyze_drag_beta_run,
+    assess_drag_beta_fit,
+)
+from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
+    AMPLIFICATION_INPUT,
+    BETA_INPUT,
+    DragBetaObservation,
+    drag_beta_calibration_program,
+    fit_drag_beta,
+)
+from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
+    DEFAULT_AMPLIFICATIONS,
+    DEFAULT_BETAS,
+    DRAG_BETA_CAPTURE_MODULE,
+    DRAG_BETA_PARAMETER_COLUMN,
+    DRAG_BETA_PARAMETER_ID,
+    DRAG_BETA_TEMPLATE,
+    DragBetaDomainExecutionAdapter,
+    drag_beta_scratch_experiment,
+)
+from quantum_lab_demo.targets.fake_list_mode import default_fake_list_target
+
+
+def test_drag_beta_authors_one_mixed_program_for_both_scan_axes() -> None:
+    declaration = drag_beta_calibration_program()
+    body = DRAG_BETA_CAPTURE_MODULE.ir.body
+    [program] = body.domain_programs
+    [call] = body.domain_calls
+
+    assert declaration.id == "drag-beta-rough-calibration"
+    assert declaration.inputs == (AMPLIFICATION_INPUT, BETA_INPUT)
+    assert tuple(result.id for result in declaration.results) == ("iq_shots",)
+    assert program.dialect_id == "scopecat.quantum.program"
+    assert isinstance(program.body, quantum.Program)
+    assert program.body.id == declaration.id
+    assert tuple(port.id for port in program.input_ports) == (
+        "amplification",
+        "beta",
+    )
+    assert tuple(port.id for port in program.result_ports) == ("iq_shots",)
+    assert tuple(name for name, _value in call.input_bindings) == (
+        "amplification",
+        "beta",
+    )
+    assert tuple(name for name, _value in call.result_bindings) == ("iq_shots",)
+
+
+def test_drag_beta_template_and_scratch_share_the_2d_point_model(
+    tmp_path: Path,
+) -> None:
+    lab = quantum_lab(workspace=tmp_path)
+    template_preview = lab.prepare(
+        DRAG_BETA_TEMPLATE,
+        execution_backend=sc.ExecutionBackend(
+            domain_adapters=(DragBetaDomainExecutionAdapter(),)
+        ),
+    ).preview()
+    scratch_preview = lab.prepare(
+        drag_beta_scratch_experiment(lab),
+        execution_backend=sc.ExecutionBackend(
+            domain_adapters=(DragBetaDomainExecutionAdapter(),)
+        ),
+    ).preview()
+
+    assert template_preview.point_count == scratch_preview.point_count == 15
+    assert (
+        template_preview.coordinate_ids
+        == scratch_preview.coordinate_ids
+        == (
+            "beta",
+            "amplification",
+        )
+    )
+    expected = [
+        {"beta": beta, "amplification": amplification}
+        for beta in DEFAULT_BETAS
+        for amplification in DEFAULT_AMPLIFICATIONS
+    ]
+    assert [point.coordinates for point in template_preview.points] == expected
+    assert [point.coordinates for point in scratch_preview.points] == expected
+
+
+def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
+    tmp_path: Path,
+) -> None:
+    adapter = DragBetaDomainExecutionAdapter()
+    lab = quantum_lab(workspace=tmp_path)
+    experiment = lab.prepare(
+        DRAG_BETA_TEMPLATE,
+        execution_backend=sc.ExecutionBackend(domain_adapters=(adapter,)),
+    )
+
+    run = experiment.run()
+    records = run.data().measurements().dataset.records
+    for record in records:
+        beta = record.coordinates["beta"]
+        amplification = record.coordinates["amplification"]
+        probability_0 = record.observables["probability_0"]
+        probability_1 = record.observables["probability_1"]
+        assert isinstance(beta, Quantity)
+        assert type(amplification) is int
+        assert isinstance(probability_0, Quantity)
+        assert isinstance(probability_1, Quantity)
+        assert probability_0.value + probability_1.value == pytest.approx(1.0)
+    analysis = analyze_drag_beta_run(run)
+
+    assert run.manifest.status == "completed"
+    assert adapter.physical_execution_count == 1
+    assert len(records) == 15
+    assert len(analysis.observations) == 15
+    assert float(analysis.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
+    assert isinstance(analysis.assessment, DragBetaFitAssessment)
+    assert analysis.assessment.eligible
+    assert analysis.assessment.recommendation == "propose"
+    assert analysis.assessment.score_kind == "heuristic"
+    assert 0.0 <= analysis.assessment.quality_score <= 1.0
+    assert analysis.assessment.observed_beta_span > 0.02
+    assert analysis.assessment.fitted_beta_span > 0.02
+    assert analysis.assessment.beta_signal_span > 0.02
+    assert analysis.assessment.beta_signal_to_rmse > 3.0
+    assert analysis.proposal_id == DRAG_BETA_PROPOSAL_ID
+    assert isinstance(analysis.analysis, sc.Analysis)
+    assert [output.kind for output in analysis.analysis.outputs] == [
+        "table",
+        "table",
+        "figure",
+        "parameter_change_proposal",
+    ]
+
+    [proposal] = analysis.analysis.parameter_proposals
+    assert proposal.id == DRAG_BETA_PROPOSAL_ID
+    assert proposal.source_run_id == run.id
+    assert proposal.confidence == analysis.assessment.quality_score
+    [delta] = proposal.deltas
+    assert delta.parameter_id == DRAG_BETA_PARAMETER_ID
+    assert isinstance(delta.after, TableParameterValue)
+    q0 = next(
+        row
+        for row in delta.after.rows
+        if row["qubit"].id == "q0"  # type: ignore[union-attr]
+    )
+    assert q0[DRAG_BETA_PARAMETER_COLUMN] == analysis.fit.beta_hat
+
+    saved = analysis.analysis.save()
+    rebuilt = analyze_drag_beta_run(run)
+    assert rebuilt.analysis.parameter_proposals[0].proposed_at != proposal.proposed_at
+    rebuilt.analysis.save()
+    overview = lab.overview(run)
+
+    assert saved.record.id == "analysis-drag-beta-calibration"
+    [durable] = overview.parameter_change_proposals
+    assert durable.id == DRAG_BETA_PROPOSAL_ID
+    assert durable.decision_info.status == "not_reviewed"
+
+
+def test_drag_beta_low_quality_fit_saves_evidence_without_a_proposal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = DragBetaDomainExecutionAdapter()
+    lab = quantum_lab(workspace=tmp_path)
+    run = lab.prepare(
+        DRAG_BETA_TEMPLATE,
+        execution_backend=sc.ExecutionBackend(domain_adapters=(adapter,)),
+    ).run()
+    original_fit = analysis_module.fit_drag_beta
+
+    def low_quality_fit(observations):
+        return replace(original_fit(observations), rmse=0.03)
+
+    monkeypatch.setattr(analysis_module, "fit_drag_beta", low_quality_fit)
+
+    result = analyze_drag_beta_run(run)
+    saved = result.analysis.save()
+    overview = lab.overview(run)
+
+    assert not result.assessment.eligible
+    assert result.assessment.recommendation == "hold"
+    assert result.assessment.failed_checks == (
+        "rmse_above_limit",
+        "beta_signal_to_rmse_below_limit",
+    )
+    assert result.proposal_id is None
+    assert result.analysis.parameter_proposals == ()
+    assert [output.kind for output in result.analysis.outputs] == [
+        "table",
+        "table",
+        "figure",
+    ]
+    assert saved.record.id == "analysis-drag-beta-calibration"
+    assert overview.parameter_change_proposals == []
+
+
+def test_drag_beta_assessment_rejects_amplification_offset_without_beta_signal() -> (
+    None
+):
+    observations = tuple(
+        DragBetaObservation(
+            beta=beta,
+            amplification=amplification,
+            p1=(
+                0.04
+                + amplification**2
+                * (0.015 + 1e-6 * (float(beta.to("ns").value) - 0.75) ** 2)
+            ),
+        )
+        for amplification in DEFAULT_AMPLIFICATIONS
+        for beta in DEFAULT_BETAS
+    )
+
+    fit = fit_drag_beta(observations)
+    assessment = assess_drag_beta_fit(fit, observations)
+
+    assert (
+        max(observation.p1 for observation in observations)
+        - min(observation.p1 for observation in observations)
+        > 0.1
+    )
+    assert assessment.observed_beta_span < 1e-5
+    assert assessment.fitted_beta_span < 1e-5
+    assert assessment.beta_signal_span < 1e-5
+    assert not assessment.eligible
+    assert "beta_signal_span_below_limit" in assessment.failed_checks
+
+
+def test_drag_beta_review_activate_active_replay_and_rollback(
+    tmp_path: Path,
+) -> None:
+    lab = quantum_lab(workspace=tmp_path)
+    source_adapter = DragBetaDomainExecutionAdapter()
+    source_run = lab.prepare(
+        DRAG_BETA_TEMPLATE,
+        execution_backend=sc.ExecutionBackend(domain_adapters=(source_adapter,)),
+    ).run()
+    result = analyze_drag_beta_run(source_run)
+    result.analysis.save()
+    candidate = result.analysis.candidate_config()
+    assert result.proposal_id is not None
+
+    baseline = lab.activate_config(
+        source_run.config,
+        entry_id="drag-beta-baseline",
+        expected_generation=0,
+    )
+    rejected = lab.review_parameter_proposal(
+        source_run,
+        result.proposal_id,
+        decision="rejected",
+        note="operator rejected the first review",
+    )
+
+    with pytest.raises(Conflict) as rejection:
+        lab.activate(
+            candidate,
+            entry_id="drag-beta-q0",
+            expected_generation=baseline.active_state.generation,
+        )
+
+    assert rejected.decision == "rejected"
+    assert rejection.value.problems[0].code == (
+        "config_registry.candidate_proposal_not_approved"
+    )
+    assert lab.system(config="active").config_id == source_run.config.id
+
+    approved = lab.review_parameter_proposal(
+        source_run,
+        result.proposal_id,
+        decision="approved",
+        note="fit evidence reviewed",
+    )
+    activated = lab.activate(
+        candidate,
+        entry_id="drag-beta-q0",
+        expected_generation=baseline.active_state.generation,
+        activation_note="use reviewed DRAG beta",
+    )
+    active_adapter = DragBetaDomainExecutionAdapter()
+    active_experiment = lab.prepare(
+        DRAG_BETA_TEMPLATE,
+        config="active",
+        execution_backend=sc.ExecutionBackend(domain_adapters=(active_adapter,)),
+    )
+    active_preview = active_experiment.preview()
+    active_run = active_experiment.run()
+
+    active_betas = sorted(
+        {
+            float(point.coordinates["beta"].to("ns").value)  # type: ignore[union-attr]
+            for point in active_preview.points
+        }
+    )
+    fitted_beta = float(result.fit.beta_hat.to("ns").value)
+    assert approved.decision == "approved"
+    assert activated.active_state.generation == 2
+    assert isinstance(activated.entry.source, CandidateConfigRegistrySource)
+    [proposal_evidence] = activated.entry.source.proposal_evidence
+    assert proposal_evidence.proposal_id == result.proposal_id
+    assert proposal_evidence.approval_event_id == approved.event_id
+    assert proposal_evidence.proposal_record_content_hash.startswith("sha256:")
+    assert proposal_evidence.approval_record_content_hash.startswith("sha256:")
+    assert activated.entry.source.candidate_record_content_hash.startswith("sha256:")
+    assert activated.entry.source.base_config_content_hash.startswith("sha256:")
+    assert active_betas == pytest.approx(
+        [fitted_beta + offset for offset in (-0.5, -0.25, 0.0, 0.25, 0.5)]
+    )
+    assert active_run.manifest.config_source is not None
+    assert active_run.manifest.config_source.entry_id == activated.entry.id
+    assert active_run.manifest.config_source.registry_generation == 2
+
+    restored = lab.rollback(
+        expected_generation=activated.active_state.generation,
+        note="restore baseline after active-config provenance replay",
+    )
+    restored_preview = lab.prepare(
+        DRAG_BETA_TEMPLATE,
+        config="active",
+        execution_backend=sc.ExecutionBackend(
+            domain_adapters=(DragBetaDomainExecutionAdapter(),)
+        ),
+    ).preview()
+    restored_betas = sorted(
+        {
+            float(point.coordinates["beta"].to("ns").value)  # type: ignore[union-attr]
+            for point in restored_preview.points
+        }
+    )
+
+    assert restored.active_state.generation == 3
+    assert restored.active_state.active_entry_id == baseline.entry.id
+    assert restored.activation.action == "rollback"
+    assert restored_betas == pytest.approx(
+        [float(beta.to("ns").value) for beta in DEFAULT_BETAS]
+    )
+
+
+def test_drag_beta_response_and_evidence_remain_batch_local(tmp_path: Path) -> None:
+    target = replace(default_fake_list_target(), max_list_entries=4)
+    adapter = DragBetaDomainExecutionAdapter(target=target)
+    lab = quantum_lab(workspace=tmp_path)
+
+    run = lab.prepare(
+        DRAG_BETA_TEMPLATE,
+        execution_backend=sc.ExecutionBackend(domain_adapters=(adapter,)),
+    ).run()
+    analysis = analyze_drag_beta_run(run)
+
+    assert run.manifest.status == "completed"
+    assert len(run.data().measurements().dataset.records) == 15
+    assert adapter.physical_execution_count == 4
+    assert float(analysis.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
+    assert analysis.assessment.eligible
+    assert analysis.proposal_id == DRAG_BETA_PROPOSAL_ID

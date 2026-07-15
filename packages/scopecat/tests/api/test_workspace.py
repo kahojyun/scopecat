@@ -6,7 +6,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
-from scopecat.kernel.errors import CheckFailed, NotFound
+from scopecat.kernel.errors import CheckFailed, Conflict, NotFound
 from scopecat.records.parameter import Quantity
 from scopecat.records.run_plan import RunPlanRecord
 from scopecat.records.run_request import (
@@ -129,6 +129,51 @@ def test_workspace_system_summary_describes_active_config(tmp_path: Path) -> Non
     assert q0.resources == ("source-0",)
     assert source.capabilities == ("set_frequency",)
     assert source.channels == ("drive-q0",)
+
+
+def test_workspace_activates_direct_configs_and_rolls_back_with_cas(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(tmp_path, config_profile=EXAMPLE_DIR / "config-profile.json")
+    baseline = lab.activate_config(
+        load_config(),
+        entry_id="workspace-baseline",
+        registered_by="registrar",
+        operator="deployer",
+        note="register baseline",
+        activation_note="select baseline",
+        expected_generation=0,
+    )
+    updated = lab.activate_config(
+        load_config().model_copy(update={"id": "workspace-updated"}),
+        entry_id="workspace-updated",
+        expected_generation=baseline.active_state.generation,
+    )
+
+    with pytest.raises(Conflict) as stale:
+        lab.activate_config(
+            load_config().model_copy(update={"id": "workspace-stale"}),
+            entry_id="workspace-stale",
+            expected_generation=baseline.active_state.generation,
+        )
+
+    restored = lab.rollback(
+        expected_generation=updated.active_state.generation,
+        operator="rollback-operator",
+        note="restore baseline",
+    )
+
+    assert baseline.entry.registered_by == "registrar"
+    assert baseline.entry.note == "register baseline"
+    assert baseline.activation.operator == "deployer"
+    assert baseline.activation.note == "select baseline"
+    assert updated.active_state.generation == 2
+    assert stale.value.problems[0].code == "config_registry.conflict"
+    assert restored.active_state.generation == 3
+    assert restored.active_state.active_entry_id == baseline.entry.id
+    assert restored.activation.action == "rollback"
+    assert restored.activation.operator == "rollback-operator"
+    assert restored.activation.note == "restore baseline"
 
 
 def test_data_selectors_report_structured_problems(tmp_path: Path) -> None:
@@ -904,6 +949,49 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     assert [record.id for record in run.overview().analysis_records] == [
         "analysis-manual-readout-review"
     ]
+
+
+def test_workspace_candidate_activation_honors_expected_generation(
+    tmp_path: Path,
+) -> None:
+    lab = sc.open(
+        tmp_path,
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
+    )
+    baseline = lab.activate_config(
+        load_config(),
+        entry_id="candidate-baseline",
+        expected_generation=0,
+    )
+    run = lab.prepare(load_invocation(), config="active").run()
+    analysis = run.analysis("candidate activation").propose(
+        "drive-frequency",
+        sc.replace_scalar_parameter(
+            "drive_frequency",
+            sc.Quantity(5.1, "GHz"),
+        ),
+    )
+    analysis.save()
+    lab.review_parameter_proposal(run, "drive-frequency")
+    candidate = analysis.candidate_config()
+
+    with pytest.raises(Conflict) as stale:
+        lab.activate(
+            candidate,
+            entry_id="workspace-candidate",
+            expected_generation=0,
+        )
+
+    published = lab.activate(
+        candidate,
+        entry_id="workspace-candidate",
+        expected_generation=baseline.active_state.generation,
+    )
+
+    assert stale.value.problems[0].code == "config_registry.conflict"
+    assert published.active_state.generation == 2
+    assert published.active_state.active_entry_id == published.entry.id
 
 
 def test_run_analysis_persists_output_artifacts(

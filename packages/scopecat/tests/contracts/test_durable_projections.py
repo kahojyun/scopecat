@@ -112,15 +112,15 @@ def test_run_request_v4_projector_matches_golden_and_round_trips(
     assert restored == request
 
 
-def test_run_plan_v8_projector_matches_golden_and_round_trips(
+def test_run_plan_v9_projector_matches_golden_and_round_trips(
     tmp_path: Path,
 ) -> None:
-    golden = _golden("run-plan-v8.json")
+    golden = _golden("run-plan-v9.json")
     _request, plan = _canonical_projections(tmp_path)
 
     restored = RunPlanRecord.model_validate_json(json.dumps(golden))
 
-    assert plan.schema_version == "scopecat.run_plan_record.v8"
+    assert plan.schema_version == "scopecat.run_plan_record.v9"
     assert plan.model_dump(mode="json") == golden
     assert restored == plan
     assert plan.backend_id == "scopecat.execution.v2"
@@ -220,7 +220,7 @@ def test_durable_goldens_exclude_transient_compiler_identity() -> None:
     }
 
     request_keys = _all_mapping_keys(_golden("run-request-v4.json"))
-    plan_keys = _all_mapping_keys(_golden("run-plan-v8.json"))
+    plan_keys = _all_mapping_keys(_golden("run-plan-v9.json"))
 
     assert request_keys.isdisjoint(forbidden_keys)
     assert plan_keys.isdisjoint(forbidden_keys)
@@ -276,7 +276,7 @@ def test_corrupt_run_request_is_rejected(
 def test_corrupt_run_plan_is_rejected(
     corruption: str,
 ) -> None:
-    plan = deepcopy(_golden("run-plan-v8.json"))
+    plan = deepcopy(_golden("run-plan-v9.json"))
     if corruption == "legacy_schema":
         plan["schema_version"] = "scopecat.run_plan_record.v3"
     elif corruption == "compiler_root":
@@ -335,7 +335,7 @@ def test_stored_plan_remains_readable_when_stored_request_is_corrupt(
         run_id=run.run_id,
         services=local_workspace_services(tmp_path),
     )
-    assert plan.model_dump(mode="json") == _golden("run-plan-v8.json")
+    assert plan.model_dump(mode="json") == _golden("run-plan-v9.json")
 
 
 def test_stored_request_remains_readable_when_stored_plan_is_corrupt(

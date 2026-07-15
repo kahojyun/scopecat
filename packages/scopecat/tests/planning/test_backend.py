@@ -14,15 +14,18 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.relations.model import (
     lit,
     literal_rows,
+    param,
     point_col,
 )
 from scopecat.compiler.relations.point_domain import POINT_UNIT, point_rows
 from scopecat.compiler.relations.verification import (
+    ParameterLookupSignature,
     RelationTypeBindings,
     RowType,
 )
 from scopecat.compiler.semantic.model import (
     DomainCallId,
+    DomainInputPortDef,
     DomainProgramId,
     DomainResultPortDef,
     MeasurementTransformId,
@@ -40,6 +43,7 @@ from scopecat.compiler.typed.program import (
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
     TypedProgram,
+    ValueInput,
     instrument_product_producer,
     product_output,
     record_product,
@@ -58,7 +62,12 @@ from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.planning.backend import ExecutionBackend
 from scopecat.planning.preview import build_execution_plan_preview
-from scopecat.records.parameter import Quantity
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.parameter import (
+    ParameterDefinition,
+    Quantity,
+    TableParameterValue,
+)
 from scopecat.sdk.domain.context import (
     DomainBatchContext,
     DomainExecutionOffer,
@@ -264,6 +273,8 @@ def _linked_program(
     domain_product_count: int | None = None,
     state_mode: Literal["none", "constant", "varying"] = "none",
     point_count: Literal[0, 2] = 2,
+    domain_input: ValueInput | None = None,
+    config: ConfigProfileSnapshot | None = None,
 ) -> LinkedPlan:
     point_type = Table(
         columns=(
@@ -316,6 +327,11 @@ def _linked_program(
                 dialect_id="tests.domain",
                 dialect_version="1",
                 body=("test-program", index),
+                input_ports=(
+                    (DomainInputPortDef("drive_frequency", domain_input.value_type),)
+                    if domain_input is not None
+                    else ()
+                ),
                 result_ports=(DomainResultPortDef("result"),),
             )
         )
@@ -323,6 +339,11 @@ def _linked_program(
             TypedDomainCall(
                 id=call_id,
                 program_id=program_id,
+                inputs=(
+                    {"drive_frequency": domain_input}
+                    if domain_input is not None
+                    else {}
+                ),
                 results=(
                     TypedDomainResultBinding(
                         id="result",
@@ -388,7 +409,67 @@ def _linked_program(
     )
     return link_program(
         program,
-        validate_config_environment(load_config()),
+        validate_config_environment(load_config() if config is None else config),
+    )
+
+
+def _config_with_domain_lookup() -> ConfigProfileSnapshot:
+    config = load_config()
+    table_type = Table(
+        columns=(
+            TableColumn("device", Scalar(String())),
+            TableColumn(
+                "drive_frequency",
+                Scalar(QuantityType(unit="GHz")),
+            ),
+        ),
+        primary_key=("device",),
+        min_rows=1,
+        max_rows=1,
+    )
+    definition = ParameterDefinition(
+        id="drive_calibration",
+        value_type=table_type,
+    )
+    value = TableParameterValue(
+        id="drive_calibration",
+        rows=(
+            {
+                "device": "q0",
+                "drive_frequency": Quantity(value=5.25, unit="GHz"),
+            },
+        ),
+    )
+    catalog = config.parameter_catalog.model_copy(
+        update={"definitions": (*config.parameter_catalog.definitions, definition)}
+    )
+    system = config.system.model_copy(update={"parameter_catalog": catalog})
+    snapshot = config.parameter_snapshot.model_copy(
+        update={"values": (*config.parameter_snapshot.values, value)}
+    )
+    return config.model_copy(update={"system": system, "parameter_snapshot": snapshot})
+
+
+def _domain_lookup_input(*, transformed: bool) -> ValueInput:
+    result_type = Scalar(QuantityType(unit="GHz"))
+    signature = ParameterLookupSignature(
+        table_id="drive_calibration",
+        key_input_types=(("device", Scalar(String())),),
+        column_id="drive_frequency",
+        result_type=result_type,
+    )
+    lookup = param(
+        "drive_calibration",
+        key={"device": "q0"},
+        column="drive_frequency",
+    )
+    expression = lookup + Quantity(value=0.1, unit="GHz") if transformed else lookup
+    return ValueInput(
+        scalar_value_expr(
+            expression,
+            bindings=RelationTypeBindings(parameter_lookups=(signature,)),
+            expected_type=result_type,
+        )
     )
 
 
@@ -481,6 +562,23 @@ def test_unified_planning_rejects_missing_task_claim_before_effects() -> None:
         problem.phase is ProblemPhase.PLANNING for problem in captured.value.problems
     )
     assert adapter.select_calls == 1
+    assert adapter.prepare_calls == 0
+    _assert_no_domain_effects(adapter)
+
+
+def test_execution_config_must_match_linked_snapshot_before_adapter_effects() -> None:
+    linked = _linked_program()
+    adapter = _DomainAdapter("tests.config-mismatch")
+    different_config = load_config().model_copy(update={"id": "different-config"})
+
+    with pytest.raises(CheckFailed) as captured:
+        ExecutionBackend(domain_adapters=(adapter,)).prepare(
+            linked,
+            config=different_config,
+        )
+
+    assert _problem_codes(captured.value) == {"execution_config_snapshot_mismatch"}
+    assert adapter.select_calls == 0
     assert adapter.prepare_calls == 0
     _assert_no_domain_effects(adapter)
 
@@ -619,6 +717,54 @@ def test_constant_local_state_is_automatically_fused() -> None:
         domain.semantic_operation_id
     ]
     _assert_no_domain_effects(adapter)
+
+
+def test_run_plan_projects_direct_domain_config_lookup_bindings() -> None:
+    config = _config_with_domain_lookup()
+    adapter = _DomainAdapter("tests.config-provenance")
+    prepared = ExecutionBackend(domain_adapters=(adapter,)).prepare(
+        _linked_program(
+            domain_input=_domain_lookup_input(transformed=False),
+            config=config,
+        ),
+        config=config,
+    )
+
+    record = prepared.run_plan_record()
+    [domain] = record.execution_units
+
+    assert record.config_content_hash == config_content_hash(config)
+    assert domain.kind == "domain_program"
+    assert [
+        binding.model_dump(mode="json") for binding in domain.config_input_bindings
+    ] == [
+        {
+            "input_id": "drive_frequency",
+            "point_index": point_index,
+            "table_id": "drive_calibration",
+            "key": {"device": "q0"},
+            "column_id": "drive_frequency",
+            "resolved_value": {"value": 5.25, "unit": "GHz"},
+        }
+        for point_index in range(2)
+    ]
+
+
+def test_run_plan_does_not_project_transformed_config_lookup_as_direct() -> None:
+    config = _config_with_domain_lookup()
+    adapter = _DomainAdapter("tests.transformed-config-input")
+    prepared = ExecutionBackend(domain_adapters=(adapter,)).prepare(
+        _linked_program(
+            domain_input=_domain_lookup_input(transformed=True),
+            config=config,
+        ),
+        config=config,
+    )
+
+    [domain] = prepared.run_plan_record().execution_units
+
+    assert domain.kind == "domain_program"
+    assert domain.config_input_bindings == []
 
 
 def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None:

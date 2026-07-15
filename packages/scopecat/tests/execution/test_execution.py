@@ -251,7 +251,7 @@ def test_run_persists_measurements_and_run_files(
     assert persisted_manifest == manifest
     assert persisted_config == config
     assert persisted_plan.experiment_id == summary.experiment_id
-    assert persisted_plan.schema_version == "scopecat.run_plan_record.v8"
+    assert persisted_plan.schema_version == "scopecat.run_plan_record.v9"
     assert persisted_plan.point_count == summary.point_count
     assert not (run_dir / "experiment-spec.json").exists()
     assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v3"

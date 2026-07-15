@@ -477,7 +477,7 @@ def write_parameter_change_proposal_contents_locked(
                 run_id=run_id,
                 proposal_record=entry,
             )
-            if existing != proposal:
+            if not _same_parameter_change_proposal(existing, proposal):
                 raise Conflict(
                     [
                         _parameter_problem(
@@ -492,6 +492,27 @@ def write_parameter_change_proposal_contents_locked(
                     ]
                 )
     return entries
+
+
+def _same_parameter_change_proposal(
+    existing: ParameterChangeProposal,
+    candidate: ParameterChangeProposal,
+) -> bool:
+    """Compare one idempotent proposal intent, preserving its first timestamp.
+
+    A stable proposal ID is the idempotency key for repeatable analysis cells.
+    ``proposed_at`` records the first successful publication and therefore does
+    not make an otherwise identical retry new content. Every scientific and
+    provenance-bearing field remains part of the immutable comparison.
+    """
+
+    return existing.model_dump(
+        mode="python",
+        exclude={"proposed_at"},
+    ) == candidate.model_dump(
+        mode="python",
+        exclude={"proposed_at"},
+    )
 
 
 def _resolve_proposal_ref(

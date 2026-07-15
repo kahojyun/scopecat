@@ -13,16 +13,20 @@ from dataclasses import dataclass
 from typing import cast
 
 from scopecat.sdk.domain import (
-    DomainEntryPointBinding,
     DomainPointRef,
     DomainPreparationBuilder,
     DomainProductUseRef,
     DomainResultMapping,
-    DomainResultUseBinding,
-    DomainTargetEntry,
 )
 
 from scopecat_quantum._ids import TargetCompileEntryId
+from scopecat_quantum._target_results import (
+    map_target_results,
+    validate_compiled_target_request,
+    validate_target_acquisition_use_binding,
+    validate_target_entry_point_binding,
+    validate_target_result_mapping,
+)
 from scopecat_quantum.circuit_targets import PreparedCircuitTargetBatch
 from scopecat_quantum.targets import (
     CompiledTargetArtifact,
@@ -39,12 +43,11 @@ class CircuitTargetEntryPointBinding:
     point: DomainPointRef
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.entry_id), TargetCompileEntryId):
-            msg = "circuit target entry-point bindings require a TargetCompileEntryId"
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.point), DomainPointRef):
-            msg = "circuit target entry-point bindings require a DomainPointRef"
-            raise TypeError(msg)
+        validate_target_entry_point_binding(
+            cast("object", self.entry_id),
+            cast("object", self.point),
+            family="circuit",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,17 +62,11 @@ class CircuitTargetAcquisitionUseBinding:
     product_use: DomainProductUseRef
 
     def __post_init__(self) -> None:
-        if not isinstance(cast("object", self.address), TargetAcquisitionAddress):
-            msg = (
-                "circuit target acquisition-use bindings require a "
-                "TargetAcquisitionAddress"
-            )
-            raise TypeError(msg)
-        if not isinstance(cast("object", self.product_use), DomainProductUseRef):
-            msg = (
-                "circuit target acquisition-use bindings require a DomainProductUseRef"
-            )
-            raise TypeError(msg)
+        validate_target_acquisition_use_binding(
+            cast("object", self.address),
+            cast("object", self.product_use),
+            family="circuit",
+        )
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -99,34 +96,7 @@ class CircuitTargetResultMapping:
         ):
             msg = "circuit target result mappings require a domain result mapping"
             raise TypeError(msg)
-        expected_adapter_inventory = tuple(
-            (entry.id, entry.acquisition_addresses) for entry in batch.entries
-        )
-        mapped_target_inventory = tuple(
-            (entry.entry_address, entry.result_addresses)
-            for entry in domain_mapping.target_entries
-        )
-        if mapped_target_inventory != expected_adapter_inventory:
-            msg = "domain mapping must retain the exact prepared batch inventory"
-            raise ValueError(msg)
-        expected_entry_ids = tuple(entry.id for entry in batch.entries)
-        if {entry.entry_address for entry in domain_mapping.entries} != set(
-            expected_entry_ids
-        ):
-            msg = "domain mapping must exactly cover prepared target entries"
-            raise ValueError(msg)
-        expected_addresses = batch.acquisition_addresses
-        if {result.result_address for result in domain_mapping.results} != set(
-            expected_addresses
-        ):
-            msg = "domain mapping must exactly cover prepared acquisition addresses"
-            raise ValueError(msg)
-        if any(
-            result.entry_address != result.result_address.entry_id
-            for result in domain_mapping.results
-        ):
-            msg = "domain result parent entries must derive from quantum addresses"
-            raise ValueError(msg)
+        validate_target_result_mapping(batch.request, domain_mapping)
         object.__setattr__(self, "batch", batch)
         object.__setattr__(self, "domain_mapping", domain_mapping)
 
@@ -181,20 +151,11 @@ def _validate_compiled_target_correlation[ArtifactT: TargetArtifact](
         msg = "compiled circuit targets require a compiled target artifact"
         raise TypeError(msg)
 
-    request = mapping.batch.request
-    if compiled.request != request:
-        msg = "compiled target request must exactly match the mapped circuit batch"
-        raise ValueError(msg)
-    expected_entry_ids = tuple(entry.id for entry in request.entries)
-    if (
-        compiled.target_id != request.target_id
-        or compiled.compiler_id != request.compiler_id
-        or compiled.capability_fingerprint != request.capability_fingerprint
-        or compiled.source_entry_ids != expected_entry_ids
-        or compiled.repetitions != request.repetitions
-    ):
-        msg = "compiled target provenance does not match its retained request"
-        raise ValueError(msg)
+    validate_compiled_target_request(
+        mapping.batch.request,
+        compiled,
+        family="circuit",
+    )
 
 
 def seal_circuit_target_result_mapping(
@@ -229,27 +190,12 @@ def seal_circuit_target_result_mapping(
         msg = "acquisition bindings require CircuitTargetAcquisitionUseBinding values"
         raise TypeError(msg)
 
-    domain_mapping = preparation.map_measurements(
-        entries=tuple(
-            DomainTargetEntry(
-                entry_address=entry.id,
-                result_addresses=entry.acquisition_addresses,
-            )
-            for entry in batch.entries
-        ),
-        entry_points=tuple(
-            DomainEntryPointBinding(
-                entry_address=binding.entry_id,
-                point=binding.point,
-            )
-            for binding in selected_entry_bindings
-        ),
-        results=tuple(
-            DomainResultUseBinding(
-                entry_address=binding.address.entry_id,
-                result_address=binding.address,
-                product_use=binding.product_use,
-            )
+    domain_mapping = map_target_results(
+        preparation,
+        batch.request,
+        tuple((binding.entry_id, binding.point) for binding in selected_entry_bindings),
+        tuple(
+            (binding.address, binding.product_use)
             for binding in selected_acquisition_bindings
         ),
     )

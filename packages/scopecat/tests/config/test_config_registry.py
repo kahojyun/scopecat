@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
@@ -386,6 +387,160 @@ def test_candidate_invalidation_after_registration_blocks_load_and_activation(
             unit_of_work=local_config_registry_unit_of_work(tmp_path)
         )
         == active_state
+    )
+
+
+@pytest.mark.parametrize("later_decision", ("rejected", "invalidated"))
+def test_rollback_can_leave_an_active_candidate_after_later_review(
+    tmp_path: Path,
+    later_decision: Literal["rejected", "invalidated"],
+) -> None:
+    base, base_state, _activation = register_and_activate_config_profile(
+        config=load_config(),
+        unit_of_work=local_config_registry_unit_of_work(tmp_path),
+        entry_id="rollback-base",
+        registered_by="operator",
+        operator="operator",
+    )
+    run_id, proposal, resolved = _resolved_candidate(tmp_path)
+    candidate = register_and_activate_candidate_config(
+        candidate=resolved,
+        services=local_workspace_services(tmp_path),
+        entry_id="active-candidate",
+        registered_by="operator",
+        operator="operator",
+        expected_generation=base_state.generation,
+    )
+    if later_decision == "rejected":
+        review_parameter_change_proposal(
+            run_id=run_id,
+            selector=proposal.id,
+            services=local_workspace_services(tmp_path),
+            state="rejected",
+            reviewer="reviewer",
+        )
+    else:
+        invalidate_parameter_change_proposal(
+            run_id=run_id,
+            selector=proposal.id,
+            services=local_workspace_services(tmp_path),
+            reason="new evidence",
+            invalidated_by="reviewer",
+        )
+
+    restored, record = rollback_config_registry(
+        unit_of_work=local_config_registry_unit_of_work(tmp_path),
+        operator="operator",
+        expected_generation=candidate.active_state.generation,
+        note="leave disallowed candidate",
+    )
+
+    assert restored.generation == candidate.active_state.generation + 1
+    assert restored.active_entry_id == base.id
+    assert record.action == "rollback"
+    assert record.previous_entry_id == candidate.entry.id
+
+
+def test_rollback_still_requires_complete_evidence_for_candidate_target(
+    tmp_path: Path,
+) -> None:
+    _base, base_state, _activation = register_and_activate_config_profile(
+        config=load_config(),
+        unit_of_work=local_config_registry_unit_of_work(tmp_path),
+        entry_id="target-base",
+        registered_by="operator",
+        operator="operator",
+    )
+    run_id, proposal, resolved = _resolved_candidate(tmp_path)
+    candidate = register_and_activate_candidate_config(
+        candidate=resolved,
+        services=local_workspace_services(tmp_path),
+        entry_id="rollback-target-candidate",
+        registered_by="operator",
+        operator="operator",
+        expected_generation=base_state.generation,
+    )
+    _current, current_state, _current_activation = register_and_activate_config_profile(
+        config=load_config().model_copy(update={"id": "target-current"}),
+        unit_of_work=local_config_registry_unit_of_work(tmp_path),
+        entry_id="target-current",
+        registered_by="operator",
+        operator="operator",
+        expected_generation=candidate.active_state.generation,
+    )
+    invalidate_parameter_change_proposal(
+        run_id=run_id,
+        selector=proposal.id,
+        services=local_workspace_services(tmp_path),
+        reason="new evidence",
+        invalidated_by="reviewer",
+    )
+
+    with pytest.raises(Conflict) as error:
+        rollback_config_registry(
+            unit_of_work=local_config_registry_unit_of_work(tmp_path),
+            operator="operator",
+            expected_generation=current_state.generation,
+        )
+
+    assert error.value.problems[0].code == (
+        "config_registry.candidate_proposal_not_approved"
+    )
+    assert (
+        load_active_config_registry_state(
+            unit_of_work=local_config_registry_unit_of_work(tmp_path)
+        )
+        == current_state
+    )
+
+
+def test_rollback_from_invalidated_active_candidate_still_checks_content_hash(
+    tmp_path: Path,
+) -> None:
+    _base, base_state, _activation = register_and_activate_config_profile(
+        config=load_config(),
+        unit_of_work=local_config_registry_unit_of_work(tmp_path),
+        entry_id="hash-base",
+        registered_by="operator",
+        operator="operator",
+    )
+    run_id, proposal, resolved = _resolved_candidate(tmp_path)
+    candidate = register_and_activate_candidate_config(
+        candidate=resolved,
+        services=local_workspace_services(tmp_path),
+        entry_id="hash-active-candidate",
+        registered_by="operator",
+        operator="operator",
+        expected_generation=base_state.generation,
+    )
+    invalidate_parameter_change_proposal(
+        run_id=run_id,
+        selector=proposal.id,
+        services=local_workspace_services(tmp_path),
+        reason="new evidence",
+        invalidated_by="reviewer",
+    )
+    tampered_config = load_config().model_copy(
+        update={"id": "tampered-active-candidate"}
+    )
+    assert candidate.entry.content_hash != config_content_hash(tampered_config)
+    (tmp_path / candidate.entry.config_ref).write_text(
+        tampered_config.model_dump_json()
+    )
+
+    with pytest.raises(DataIntegrityError) as error:
+        rollback_config_registry(
+            unit_of_work=local_config_registry_unit_of_work(tmp_path),
+            operator="operator",
+            expected_generation=candidate.active_state.generation,
+        )
+
+    assert error.value.problems[0].code == "config_registry.content_hash_mismatch"
+    assert (
+        load_active_config_registry_state(
+            unit_of_work=local_config_registry_unit_of_work(tmp_path)
+        )
+        == candidate.active_state
     )
 
 

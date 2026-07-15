@@ -280,6 +280,12 @@ class FakeListTarget:
     def capability_fingerprint(self) -> str:
         return self._capability_fingerprint
 
+    @property
+    def supported_envelopes(self) -> tuple[str, ...]:
+        """Return the analytic envelope kinds compiled by this target."""
+
+        return ("constant", "drag")
+
     def output_channel(self, signal: FakeOutputSignal) -> FakeAwgChannelId | None:
         for binding in self.output_bindings:
             if binding.signal == signal:
@@ -306,7 +312,7 @@ class FakeListTarget:
             "max_repetitions": self.max_repetitions,
             "max_frames": self.max_frames,
             "max_abs_amplitude": self.max_abs_amplitude.hex(),
-            "supported_envelopes": ["constant"],
+            "supported_envelopes": list(self.supported_envelopes),
             "supported_acquisition_kinds": [kind.value for kind in AcquisitionKind],
             "output_bindings": [
                 {

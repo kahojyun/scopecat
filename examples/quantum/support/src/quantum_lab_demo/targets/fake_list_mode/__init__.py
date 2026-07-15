@@ -37,6 +37,8 @@ from quantum_lab_demo.targets.fake_list_mode.model import (
     FakeOutputSignal,
 )
 from quantum_lab_demo.targets.fake_list_mode.runtime import (
+    DeterministicFakeAcquisitionResponse,
+    FakeAcquisitionResponse,
     FakeAwgPlayback,
     FakeDigitizerFrame,
     FakeDigitizerValue,
@@ -49,7 +51,9 @@ from quantum_lab_demo.targets.fake_list_mode.runtime import (
 __all__ = [
     "CorrelatedFakeListFrame",
     "CorrelatedFakeListRun",
+    "DeterministicFakeAcquisitionResponse",
     "FakeAcquisitionBinding",
+    "FakeAcquisitionResponse",
     "FakeAcquisitionWindow",
     "FakeAwgChannelId",
     "FakeAwgPlayback",

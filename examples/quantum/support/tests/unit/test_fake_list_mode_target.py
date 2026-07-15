@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, replace
+import cmath
+import math
+from dataclasses import FrozenInstanceError, dataclass, replace
 from decimal import Decimal
 from typing import cast
 
@@ -44,9 +46,9 @@ from scopecat_quantum import (
     PulseSequence,
     QubitId,
     ReadoutSignal,
+    ShiftPhase,
     TargetArtifact,
     TargetCompilationError,
-    TargetCompilationIssueDimension,
     TargetCompileEntry,
     TargetCompileEntryId,
     TargetCompileRequest,
@@ -77,6 +79,11 @@ from quantum_lab_demo.targets.fake_list_mode import (
 from quantum_lab_demo.targets.fake_list_mode.model import (
     acquisition_slot_identity_payload,
 )
+from quantum_lab_demo.targets.fake_list_mode.runtime import (
+    FakeAcquisitionResponse,
+    FakeAwgPlayback,
+    FakeDigitizerValue,
+)
 
 Q0 = QubitId("q0")
 Q1 = QubitId("q1")
@@ -87,6 +94,28 @@ ACQUIRE_Q0 = AcquireSignal(Q0)
 ACQUIRE_Q1 = AcquireSignal(Q1)
 READOUT_Q0 = ReadoutSignal(Q0)
 READOUT_Q1 = ReadoutSignal(Q1)
+
+
+@dataclass(frozen=True, slots=True)
+class _IndexedAcquisitionResponse:
+    fingerprint: str
+    offset: int = 0
+
+    def value_for(
+        self,
+        *,
+        playback: FakeAwgPlayback,
+        window: FakeAcquisitionWindow,
+    ) -> FakeDigitizerValue:
+        base = complex(
+            playback.shot_index + self.offset,
+            window.start_sample + window.sample_count,
+        )
+        if window.kind is AcquisitionKind.INTEGRATED_IQ:
+            return base
+        return tuple(
+            base + complex(index, -index) for index in range(window.sample_count)
+        )
 
 
 def _target(
@@ -171,6 +200,33 @@ def _scheduled_program(
                 )
             ),
             acquisition_slots=(slot,),
+        )
+    )
+
+
+def _scheduled_drag_program(
+    name: str,
+    *,
+    duration_ns: float = 4.0,
+    amplitude: float = 0.2,
+    sigma_ns: float = 1.0,
+    beta_ns: float = 0.5,
+    phase_rad: float = 0.0,
+):
+    return schedule(
+        PulseProgram(
+            id=PulseProgramId(name),
+            body=Play(
+                PulseEventId(f"{name}-play"),
+                DRIVE_Q0,
+                DRAG(
+                    duration=Quantity(duration_ns, "ns"),
+                    amplitude=Quantity(amplitude, "arb"),
+                    sigma=Quantity(sigma_ns, "ns"),
+                    beta=Quantity(beta_ns, "ns"),
+                    phase=Quantity(phase_rad, "rad"),
+                ),
+            ),
         )
     )
 
@@ -382,6 +438,111 @@ def test_compiler_builds_immutable_ordered_list_artifact() -> None:
         artifact.entries = ()  # type: ignore[misc]
     with pytest.raises(TypeError):
         artifact.entries[0].waveforms[0].samples[0] = 1j  # type: ignore[index]
+
+
+def test_compiler_accumulates_frame_phase_per_entry_and_adds_envelope_phase() -> None:
+    phase_program = schedule(
+        PulseProgram(
+            id=PulseProgramId("frame-phase"),
+            body=PulseSequence(
+                (
+                    ShiftPhase(
+                        PulseEventId("shift-quarter"),
+                        DRIVE_Q0,
+                        Quantity(math.pi / 4, "rad"),
+                    ),
+                    Play(
+                        PulseEventId("first-play"),
+                        DRIVE_Q0,
+                        Constant(
+                            Quantity(4, "ns"),
+                            Quantity(0.25, "arb"),
+                            Quantity(math.pi / 4, "rad"),
+                        ),
+                    ),
+                    ShiftPhase(
+                        PulseEventId("shift-half"),
+                        DRIVE_Q0,
+                        Quantity(math.pi / 2, "rad"),
+                    ),
+                    Play(
+                        PulseEventId("second-play"),
+                        DRIVE_Q0,
+                        Constant(
+                            Quantity(4, "ns"),
+                            Quantity(0.25, "arb"),
+                            Quantity(math.pi / 4, "rad"),
+                        ),
+                    ),
+                )
+            ),
+        )
+    )
+    reset_program = schedule(
+        PulseProgram(
+            id=PulseProgramId("frame-reset"),
+            body=Play(
+                PulseEventId("plain-play"),
+                DRIVE_Q0,
+                Constant(Quantity(4, "ns"), Quantity(0.25, "arb")),
+            ),
+        )
+    )
+    compiler, request = _request(
+        _target(),
+        (phase_program, reset_program),
+        repetitions=1,
+    )
+
+    artifact = compile_target(compiler, request).artifact
+
+    assert artifact.entries[0].waveforms[0].samples == pytest.approx(
+        (0.25j,) * 4 + (-0.25 + 0j,) * 4
+    )
+    assert artifact.entries[1].waveforms[0].samples == (0.25 + 0j,) * 4
+
+
+def test_compiler_wraps_large_frame_and_envelope_phases_before_combining() -> None:
+    large_phase = 1e308
+    program = schedule(
+        PulseProgram(
+            id=PulseProgramId("large-frame-phase"),
+            body=PulseSequence(
+                (
+                    ShiftPhase(
+                        PulseEventId("first-shift"),
+                        DRIVE_Q0,
+                        Quantity(large_phase, "rad"),
+                    ),
+                    ShiftPhase(
+                        PulseEventId("second-shift"),
+                        DRIVE_Q0,
+                        Quantity(large_phase, "rad"),
+                    ),
+                    Play(
+                        PulseEventId("play"),
+                        DRIVE_Q0,
+                        Constant(
+                            Quantity(4, "ns"),
+                            Quantity(0.25, "arb"),
+                            Quantity(large_phase, "rad"),
+                        ),
+                    ),
+                )
+            ),
+        )
+    )
+    compiler, request = _request(_target(), (program,), repetitions=1)
+
+    artifact = compile_target(compiler, request).artifact
+
+    reduced = math.remainder(large_phase, math.tau)
+    combined = math.remainder(
+        math.remainder(reduced + reduced, math.tau) + reduced,
+        math.tau,
+    )
+    expected = cmath.rect(0.25, combined)
+    assert artifact.entries[0].waveforms[0].samples == pytest.approx((expected,) * 4)
 
 
 def test_fake_target_uses_structural_acquisition_slot_identity() -> None:
@@ -712,6 +873,70 @@ def test_runtime_loops_full_list_per_shot_and_correlates_frames() -> None:
     assert first.fingerprint.startswith("sha256:")
 
 
+def test_runtime_accepts_deterministic_custom_acquisition_response() -> None:
+    compiled = _compile_two_entries(repetitions=3)
+    response = _IndexedAcquisitionResponse(
+        fingerprint="sha256:" + "1" * 64,
+        offset=7,
+    )
+    runtime = FakeListRuntime(
+        digitizer=FakeSegmentedDigitizer(response=response),
+    )
+
+    first = runtime.execute(compiled)
+    second = runtime.execute(compiled)
+    default_run = FakeListRuntime().execute(compiled)
+
+    assert isinstance(response, FakeAcquisitionResponse)
+    assert first == second
+    assert first.response is response
+    assert first.fingerprint != default_run.fingerprint
+    for frame in first.frames:
+        expected = complex(frame.shot_index + response.offset, 4)
+        if frame.kind is AcquisitionKind.INTEGRATED_IQ:
+            assert frame.value == expected
+        else:
+            assert isinstance(frame.value, tuple)
+            assert frame.value == tuple(
+                expected + complex(index, -index) for index in range(4)
+            )
+
+
+def test_custom_acquisition_response_run_rejects_tampering() -> None:
+    response = _IndexedAcquisitionResponse(
+        fingerprint="sha256:" + "2" * 64,
+        offset=3,
+    )
+    run = FakeListRuntime(
+        digitizer=FakeSegmentedDigitizer(response=response),
+    ).execute(_compile_two_entries(repetitions=1))
+
+    changed_response = replace(
+        response,
+        fingerprint="sha256:" + "3" * 64,
+        offset=response.offset + 1,
+    )
+    with pytest.raises(ValueError, match="logical address"):
+        replace(run, response=changed_response)
+
+    changed_response_identity = replace(
+        response,
+        fingerprint="sha256:" + "4" * 64,
+    )
+    with pytest.raises(ValueError, match="fingerprint"):
+        replace(run, response=changed_response_identity)
+
+    changed_frame = replace(
+        run.frames[0],
+        value=cast("complex", run.frames[0].value) + 1,
+    )
+    with pytest.raises(ValueError, match="logical address"):
+        replace(run, frames=(changed_frame, *run.frames[1:]))
+
+    with pytest.raises(ValueError, match="fingerprint"):
+        replace(run, fingerprint="sha256:" + "5" * 64)
+
+
 def test_runtime_preserves_multiple_slot_order_within_each_list_entry() -> None:
     target = _target()
     compiler, request = _request(
@@ -926,34 +1151,73 @@ def test_compiler_aggregates_physical_collision_and_capability_errors() -> None:
     }
 
 
-def test_drag_is_rejected_as_a_capability_without_sampling_semantics() -> None:
-    duration = Quantity(4, "ns")
-    program = schedule(
-        PulseProgram(
-            PulseProgramId("drag-program"),
-            Play(
-                PulseEventId("drag-play"),
-                DRIVE_Q0,
-                DRAG(
-                    duration=duration,
-                    amplitude=Quantity(0.2, "arb"),
-                    sigma=Quantity(1, "ns"),
-                    beta=Quantity(0.5, "ns"),
-                ),
-            ),
-        )
+def test_drag_is_midpoint_sampled_into_a_complex_waveform() -> None:
+    target = _target()
+    compiler, request = _request(
+        target,
+        (_scheduled_drag_program("drag-program"),),
+        repetitions=1,
     )
-    compiler, request = _request(_target(), (program,), repetitions=1)
+
+    artifact = compile_target(compiler, request).artifact
+    samples = artifact.entries[0].waveforms[0].samples
+    offsets_ns = (-1.5, -0.5, 0.5, 1.5)
+    gaussians = tuple(0.2 * math.exp(-(offset**2) / 2.0) for offset in offsets_ns)
+    expected = tuple(
+        complex(gaussian, -0.5 * offset * gaussian)
+        for offset, gaussian in zip(offsets_ns, gaussians, strict=True)
+    )
+
+    assert target.supported_envelopes == ("constant", "drag")
+    assert samples == pytest.approx(expected)
+    assert samples[0].real == pytest.approx(samples[-1].real)
+    assert samples[0].imag == pytest.approx(-samples[-1].imag)
+
+
+def test_drag_uses_complex_sample_magnitude_for_amplitude_limit() -> None:
+    target = _target()
+    compiler, request = _request(
+        target,
+        (
+            _scheduled_drag_program(
+                "drag-limit",
+                amplitude=0.6,
+                beta_ns=4.0,
+            ),
+        ),
+        repetitions=1,
+    )
 
     with pytest.raises(TargetCompilationError) as raised:
         compile_target(compiler, request)
 
-    issue = next(
-        issue
-        for issue in raised.value.issues
-        if issue.code == "fake_list_envelope_unsupported"
+    assert "fake_list_amplitude_limit_exceeded" in _issue_codes(raised.value)
+
+
+def test_drag_artifact_fingerprint_is_deterministic_and_beta_sensitive() -> None:
+    target = _target()
+    compiler, request = _request(
+        target,
+        (_scheduled_drag_program("drag-fingerprint"),),
+        repetitions=1,
     )
-    assert issue.dimension is TargetCompilationIssueDimension.CAPABILITY
+    first = compile_target(compiler, request).artifact
+    second = compile_target(compiler, request).artifact
+    changed_compiler, changed_request = _request(
+        target,
+        (
+            _scheduled_drag_program(
+                "drag-fingerprint",
+                beta_ns=0.75,
+            ),
+        ),
+        repetitions=1,
+    )
+    changed = compile_target(changed_compiler, changed_request).artifact
+
+    assert first == second
+    assert first.artifact_fingerprint == second.artifact_fingerprint
+    assert changed.artifact_fingerprint != first.artifact_fingerprint
 
 
 def test_compiler_rejects_unbound_signal_and_amplitude_limit() -> None:
@@ -1129,6 +1393,7 @@ def test_default_target_is_explicit_lab_owned_hardware_configuration() -> None:
     assert target.sample_rate_hz == 1_000_000_000
     assert len(target.output_bindings) == 10
     assert len(target.acquisition_bindings) == 4
+    assert target.supported_envelopes == ("constant", "drag")
     assert target.capability_fingerprint.startswith("sha256:")
 
 

@@ -56,6 +56,7 @@ class FluxSignal:
 
 type LogicalSignal = DriveSignal | ReadoutSignal | AcquireSignal | FluxSignal
 type PlaySignal = DriveSignal | ReadoutSignal | FluxSignal
+type FrameSignal = DriveSignal | ReadoutSignal
 
 
 def _zero_phase() -> Quantity:
@@ -137,6 +138,20 @@ class Delay:
 
 
 @dataclass(frozen=True, slots=True)
+class ShiftPhase:
+    """Advance one oscillator-backed logical signal's phase frame.
+
+    This is a relative, zero-duration frame operation.  Keeping the phase
+    change explicit lets target compilers preserve virtual-Z and readout-frame
+    semantics without baking mutable frame state into analytic envelopes.
+    """
+
+    id: PulseEventId
+    signal: FrameSignal
+    phase: Quantity
+
+
+@dataclass(frozen=True, slots=True)
 class Barrier:
     """A zero-duration synchronization marker over logical signals."""
 
@@ -167,7 +182,7 @@ class Parallel:
         object.__setattr__(self, "branches", tuple(self.branches))
 
 
-type PulseLeaf = Play | Acquire | Delay | Barrier
+type PulseLeaf = Play | Acquire | Delay | ShiftPhase | Barrier
 type PulseInstruction = PulseLeaf | Sequence | Parallel
 
 
@@ -175,7 +190,7 @@ def iter_pulse_leaves(instruction: PulseInstruction) -> Iterator[PulseLeaf]:
     """Yield pulse leaves in deterministic structural order."""
 
     raw_instruction = cast("object", instruction)
-    if isinstance(raw_instruction, Play | Acquire | Delay | Barrier):
+    if isinstance(raw_instruction, Play | Acquire | Delay | ShiftPhase | Barrier):
         yield raw_instruction
         return
     if isinstance(raw_instruction, Sequence):
@@ -267,6 +282,7 @@ class _PlacedLeaf:
     start: Decimal
     duration: Decimal
     path: tuple[int, ...]
+    sequence_predecessors: frozenset[PulseEventId] = frozenset()
 
 
 _TIME_FACTORS: dict[str, Decimal] = {
@@ -647,6 +663,10 @@ def _is_play_signal(value: object) -> TypeGuard[PlaySignal]:
     )
 
 
+def _is_frame_signal(value: object) -> TypeGuard[FrameSignal]:
+    return isinstance(value, DriveSignal | ReadoutSignal) and _is_logical_signal(value)
+
+
 def _is_acquire_signal(value: object) -> TypeGuard[AcquireSignal]:
     return isinstance(value, AcquireSignal) and _is_logical_signal(value)
 
@@ -814,11 +834,14 @@ def _validate_instruction_structure(
                 and valid
             )
         return valid
-    if not isinstance(instruction, Play | Acquire | Delay | Barrier):
+    if not isinstance(instruction, Play | Acquire | Delay | ShiftPhase | Barrier):
         _issue(
             issues,
             "pulse_instruction_invalid",
-            "pulse nodes must be Play, Acquire, Delay, Barrier, Sequence, or Parallel",
+            (
+                "pulse nodes must be Play, Acquire, Delay, ShiftPhase, Barrier, "
+                "Sequence, or Parallel"
+            ),
             path=path,
         )
         return False
@@ -891,6 +914,26 @@ def _validate_instruction_structure(
             _validate_quantity_structure(
                 _runtime_field(instruction, "duration"),
                 name="delay duration",
+                issues=issues,
+                instruction_id=instruction_id,
+                path=path,
+            )
+            and valid
+        )
+        return valid
+    if isinstance(instruction, ShiftPhase):
+        if not _is_frame_signal(_runtime_field(instruction, "signal")):
+            _issue(
+                issues,
+                "pulse_signal_instruction_invalid",
+                "ShiftPhase requires a drive or readout signal",
+                instruction_id=instruction_id,
+                path=path,
+            )
+        valid = (
+            _validate_quantity_structure(
+                _runtime_field(instruction, "phase"),
+                name="phase shift",
                 issues=issues,
                 instruction_id=instruction_id,
                 path=path,
@@ -1047,6 +1090,7 @@ def _place_instruction(
     if isinstance(instruction, Sequence):
         placed: list[_PlacedLeaf] = []
         cursor = start
+        preceding_ids: set[PulseEventId] = set()
         for index, child in enumerate(instruction.instructions):
             child_events, child_duration = _place_instruction(
                 child,
@@ -1056,7 +1100,18 @@ def _place_instruction(
                 seen_ids=seen_ids,
                 acquisition_uses=acquisition_uses,
             )
+            if preceding_ids:
+                child_events = [
+                    replace(
+                        event,
+                        sequence_predecessors=(
+                            event.sequence_predecessors | preceding_ids
+                        ),
+                    )
+                    for event in child_events
+                ]
             placed.extend(child_events)
+            preceding_ids.update(event.leaf.id for event in child_events)
             cursor += child_duration
         return placed, cursor - start
     if isinstance(instruction, Parallel):
@@ -1180,6 +1235,23 @@ def _place_instruction(
                     instruction,
                     duration=Quantity(value=normalized_duration_value, unit="s"),
                 )
+    elif isinstance(instruction, ShiftPhase):
+        if not _is_frame_signal(instruction.signal):
+            _issue(
+                issues,
+                "pulse_signal_instruction_invalid",
+                "ShiftPhase requires a drive or readout signal",
+                instruction_id=event_id,
+                path=path,
+            )
+        normalized_phase = _normalized_phase(
+            instruction.phase,
+            issues=issues,
+            instruction_id=event_id,
+            path=path,
+        )
+        if normalized_phase is not None:
+            normalized = replace(instruction, phase=normalized_phase)
     else:
         invalid_signals = [
             signal for signal in instruction.signals if not _is_logical_signal(signal)
@@ -1275,7 +1347,10 @@ def _validate_acquisitions(
 
 def _validate_overlaps(placed: list[_PlacedLeaf], issues: list[PulseIssue]) -> None:
     by_signal: dict[LogicalSignal, list[_PlacedLeaf]] = {}
+    frame_shifts: list[_PlacedLeaf] = []
     for event in placed:
+        if isinstance(event.leaf, ShiftPhase):
+            frame_shifts.append(event)
         if event.duration <= 0:
             continue
         for signal in _leaf_signals(event.leaf):
@@ -1309,10 +1384,72 @@ def _validate_overlaps(placed: list[_PlacedLeaf], issues: list[PulseIssue]) -> N
                 active_end = end
                 active_id = event.leaf.id
 
+    for shift in frame_shifts:
+        assert isinstance(shift.leaf, ShiftPhase)
+        for active in by_signal.get(shift.leaf.signal, ()):
+            if (
+                isinstance(active.leaf, Play)
+                and active.start < shift.start < active.start + active.duration
+            ):
+                _issue(
+                    issues,
+                    "pulse_frame_shift_during_play",
+                    (
+                        f"frame shift {shift.leaf.id.value!r} occurs inside active "
+                        f"Play {active.leaf.id.value!r} on "
+                        f"{_signal_key(shift.leaf.signal)!r}"
+                    ),
+                    instruction_id=shift.leaf.id,
+                    path=shift.path,
+                )
+
 
 def _event_sort_key(event: _PlacedLeaf) -> tuple[object, ...]:
     signals = tuple(_signal_key(signal) for signal in _leaf_signals(event.leaf))
-    return (event.start, signals, _structural_identity_sort_key(event.leaf.id))
+    instantaneous_priority = 0 if event.duration == 0 else 1
+    return (
+        event.start,
+        instantaneous_priority,
+        signals,
+        _structural_identity_sort_key(event.leaf.id),
+    )
+
+
+def _ordered_placed_leaves(placed: list[_PlacedLeaf]) -> tuple[_PlacedLeaf, ...]:
+    """Return a canonical linearization that retains Sequence causality.
+
+    Positive durations normally make sequence order visible in timestamps.
+    Zero-duration frame and barrier operations do not advance the cursor, so
+    events at one instant are topologically ordered by their Sequence
+    predecessors.  Unrelated Parallel events retain the existing canonical
+    signal-and-identity ordering.
+    """
+
+    by_start: dict[Decimal, list[_PlacedLeaf]] = {}
+    for event in placed:
+        by_start.setdefault(event.start, []).append(event)
+
+    ordered: list[_PlacedLeaf] = []
+    for start in sorted(by_start):
+        remaining = list(by_start[start])
+        ids_at_start = {event.leaf.id for event in remaining}
+        emitted: set[PulseEventId] = set()
+        while remaining:
+            ready = [
+                event
+                for event in remaining
+                if not (
+                    (event.sequence_predecessors & ids_at_start).difference(emitted)
+                )
+            ]
+            if not ready:
+                msg = "pulse sequence precedence unexpectedly contains a cycle"
+                raise RuntimeError(msg)
+            selected = min(ready, key=_event_sort_key)
+            ordered.append(selected)
+            emitted.add(selected.leaf.id)
+            remaining.remove(selected)
+    return tuple(ordered)
 
 
 def _issue_sort_key(issue: PulseIssue) -> tuple[object, ...]:
@@ -1370,7 +1507,7 @@ def schedule(program: PulseProgram) -> ScheduledPulseProgram:
             duration_seconds=event.duration,
             instruction=event.leaf,
         )
-        for event in sorted(placed, key=_event_sort_key)
+        for event in _ordered_placed_leaves(placed)
     )
     return ScheduledPulseProgram(
         id=validated_program.id,
@@ -1394,6 +1531,7 @@ __all__ = [
     "Delay",
     "DriveSignal",
     "FluxSignal",
+    "FrameSignal",
     "Gaussian",
     "LogicalSignal",
     "Parallel",
@@ -1408,6 +1546,7 @@ __all__ = [
     "ScheduledPulseEvent",
     "ScheduledPulseProgram",
     "Sequence",
+    "ShiftPhase",
     "iter_pulse_leaves",
     "schedule",
     "schedule_pulse_program",

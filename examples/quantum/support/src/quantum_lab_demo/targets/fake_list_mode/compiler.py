@@ -13,6 +13,7 @@ so runtime evidence can be correlated to the exact prepared quantum work.
 from __future__ import annotations
 
 import cmath
+import math
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import cast
@@ -25,8 +26,12 @@ from scopecat_quantum import (
     Barrier,
     Constant,
     Delay,
+    DriveSignal,
+    FrameSignal,
     Gaussian,
     Play,
+    ReadoutSignal,
+    ShiftPhase,
     TargetArtifactId,
     TargetCompilationError,
     TargetCompilationIssue,
@@ -58,8 +63,11 @@ from quantum_lab_demo.targets.fake_list_mode.model import (
 class _PlaySpan:
     channel_id: FakeAwgChannelId
     start_sample: int
-    sample_count: int
-    value: complex
+    samples: tuple[complex, ...]
+
+    @property
+    def sample_count(self) -> int:
+        return len(self.samples)
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,6 +290,7 @@ class FakeListTargetCompiler:
         plays: list[_PlaySpan] = []
         acquisitions: list[FakeAcquisitionWindow] = []
         output_intervals: dict[FakeAwgChannelId, list[tuple[int, int, str]]] = {}
+        frame_phases: dict[FrameSignal, float] = {}
         acquisition_intervals: dict[
             FakeDigitizerChannelId, list[tuple[int, int, str]]
         ] = {}
@@ -321,6 +330,11 @@ class FakeListTargetCompiler:
                     sample_count=duration_sample_count,
                     intervals=output_intervals,
                     plays=plays,
+                    phase_offset=(
+                        frame_phases.get(instruction.signal, 0.0)
+                        if isinstance(instruction.signal, DriveSignal | ReadoutSignal)
+                        else 0.0
+                    ),
                     issues=issues,
                 )
             elif isinstance(instruction, Acquire):
@@ -381,6 +395,16 @@ class FakeListTargetCompiler:
                     signal=instruction.signal,
                     issues=issues,
                 )
+            elif isinstance(instruction, ShiftPhase):
+                self._validate_signal_binding(
+                    entry_id=entry.id,
+                    signal=instruction.signal,
+                    issues=issues,
+                )
+                frame_phases[instruction.signal] = _wrapped_phase(
+                    frame_phases.get(instruction.signal, 0.0)
+                    + _wrapped_phase(float(instruction.phase.value))
+                )
             elif isinstance(instruction, Barrier):
                 for signal in instruction.signals:
                     self._validate_signal_binding(
@@ -388,6 +412,16 @@ class FakeListTargetCompiler:
                         signal=signal,
                         issues=issues,
                     )
+            else:
+                _entry_capability_issue(
+                    issues,
+                    entry.id,
+                    code="fake_list_instruction_unsupported",
+                    message=(
+                        f"event {event.id.value!r} uses unsupported instruction "
+                        f"{type(instruction).__name__!r}"
+                    ),
+                )
 
         if duration_samples is None or duration_samples <= 0:
             return None
@@ -409,6 +443,7 @@ class FakeListTargetCompiler:
         sample_count: int | None,
         intervals: dict[FakeAwgChannelId, list[tuple[int, int, str]]],
         plays: list[_PlaySpan],
+        phase_offset: float,
         issues: list[TargetCompilationIssue],
     ) -> None:
         channel_id = self.target.output_channel(instruction.signal)
@@ -441,19 +476,18 @@ class FakeListTargetCompiler:
             )
 
         envelope = instruction.envelope
-        if isinstance(envelope, Gaussian | DRAG):
+        if isinstance(envelope, Gaussian):
             _entry_capability_issue(
                 issues,
                 entry_id,
                 code="fake_list_envelope_unsupported",
                 message=(
-                    f"event {event_id!r} uses unsupported "
-                    f"{type(envelope).__name__} envelope; fake list mode supports "
-                    "Constant only"
+                    f"event {event_id!r} uses unsupported Gaussian envelope; "
+                    "fake list mode supports Constant and DRAG"
                 ),
             )
             return
-        if not isinstance(envelope, Constant):
+        if not isinstance(envelope, Constant | DRAG):
             _entry_capability_issue(
                 issues,
                 entry_id,
@@ -475,32 +509,33 @@ class FakeListTargetCompiler:
             )
             return
 
-        amplitude = float(envelope.amplitude.value)
-        phase = float(envelope.phase.value)
-        value = cmath.rect(amplitude, phase)
-        if abs(value) > self.target.max_abs_amplitude:
+        if sample_count is None or sample_count <= 0:
+            return
+        samples = _render_envelope_samples(
+            envelope,
+            sample_count=sample_count,
+            sample_rate_hz=self.target.sample_rate_hz,
+            phase_offset=phase_offset,
+        )
+        peak_magnitude = max(abs(sample) for sample in samples)
+        if peak_magnitude > self.target.max_abs_amplitude:
             _entry_issue(
                 issues,
                 entry_id,
                 code="fake_list_amplitude_limit_exceeded",
                 message=(
-                    f"event {event_id!r} has magnitude {abs(value)!r}; target "
-                    f"limit is {self.target.max_abs_amplitude!r}"
+                    f"event {event_id!r} has sample magnitude "
+                    f"{peak_magnitude!r}; target limit is "
+                    f"{self.target.max_abs_amplitude!r}"
                 ),
             )
-        if (
-            channel_id is None
-            or start_sample is None
-            or sample_count is None
-            or sample_count <= 0
-        ):
+        if channel_id is None or start_sample is None:
             return
         plays.append(
             _PlaySpan(
                 channel_id=channel_id,
                 start_sample=start_sample,
-                sample_count=sample_count,
-                value=value,
+                samples=samples,
             )
         )
 
@@ -518,7 +553,7 @@ class FakeListTargetCompiler:
                     entry_id,
                     code="fake_list_acquisition_signal_unbound",
                     message=(
-                        f"delayed acquisition signal {_signal_label(signal)} has no "
+                        f"acquisition signal {_signal_label(signal)} has no "
                         "digitizer binding"
                     ),
                 )
@@ -528,9 +563,7 @@ class FakeListTargetCompiler:
                 issues,
                 entry_id,
                 code="fake_list_output_signal_unbound",
-                message=(
-                    f"delayed output signal {_signal_label(signal)} has no AWG binding"
-                ),
+                message=(f"output signal {_signal_label(signal)} has no AWG binding"),
             )
 
     @staticmethod
@@ -541,9 +574,7 @@ class FakeListTargetCompiler:
         }
         for play in plan.plays:
             end_sample = play.start_sample + play.sample_count
-            buffers[play.channel_id][play.start_sample : end_sample] = [
-                play.value
-            ] * play.sample_count
+            buffers[play.channel_id][play.start_sample : end_sample] = play.samples
         return FakeListEntry(
             list_index=plan.list_index,
             entry_id=plan.source.id,
@@ -564,6 +595,60 @@ def _sample_index(seconds: Decimal, target: FakeListTarget) -> int | None:
     scaled = seconds * Decimal(target.sample_rate_hz)
     integral = scaled.to_integral_value()
     return int(integral) if scaled == integral else None
+
+
+def _render_envelope_samples(
+    envelope: Constant | DRAG,
+    *,
+    sample_count: int,
+    sample_rate_hz: int,
+    phase_offset: float = 0.0,
+) -> tuple[complex, ...]:
+    amplitude = float(envelope.amplitude.value)
+    phase_rotation = cmath.rect(
+        1.0,
+        _wrapped_phase(
+            _wrapped_phase(float(envelope.phase.value)) + _wrapped_phase(phase_offset)
+        ),
+    )
+    if isinstance(envelope, Constant):
+        return (phase_rotation * amplitude,) * sample_count
+
+    duration_seconds = float(envelope.duration.value)
+    sigma_seconds = float(envelope.sigma.value)
+    beta_seconds = float(envelope.beta.value)
+    center_seconds = duration_seconds / 2.0
+    return tuple(
+        phase_rotation
+        * _drag_sample(
+            time_seconds=(sample_index + 0.5) / sample_rate_hz,
+            center_seconds=center_seconds,
+            sigma_seconds=sigma_seconds,
+            amplitude=amplitude,
+            beta_seconds=beta_seconds,
+        )
+        for sample_index in range(sample_count)
+    )
+
+
+def _wrapped_phase(value: float) -> float:
+    return math.remainder(value, math.tau)
+
+
+def _drag_sample(
+    *,
+    time_seconds: float,
+    center_seconds: float,
+    sigma_seconds: float,
+    amplitude: float,
+    beta_seconds: float,
+) -> complex:
+    offset_seconds = time_seconds - center_seconds
+    gaussian = amplitude * math.exp(
+        -(offset_seconds * offset_seconds) / (2.0 * sigma_seconds * sigma_seconds)
+    )
+    derivative = -offset_seconds * gaussian / (sigma_seconds * sigma_seconds)
+    return complex(gaussian, beta_seconds * derivative)
 
 
 def _claim_interval[ChannelIdT: FakeAwgChannelId | FakeDigitizerChannelId](
@@ -668,6 +753,7 @@ def _artifact_payload(
             "max_repetitions": target.max_repetitions,
             "max_frames": target.max_frames,
             "max_abs_amplitude": target.max_abs_amplitude.hex(),
+            "supported_envelopes": list(target.supported_envelopes),
             "supported_acquisition_kinds": [kind.value for kind in AcquisitionKind],
             "output_bindings": [
                 {

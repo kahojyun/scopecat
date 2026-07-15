@@ -58,17 +58,17 @@ _Q0 = quantum.qubit("q0")
 _X_COUNT_INPUT = quantum.scalar_input("x_count", GateParameterKind.INTEGER)
 _X_GATE = quantum.single_qubit_gate("x")
 _READOUT = quantum.measure(_Q0, result="iq_shots")
-_X_COUNT_CIRCUIT = quantum.circuit(
+_X_COUNT_PROGRAM = quantum.program(
     "fake-x-count",
     quantum.sequence(
         quantum.repeat(_X_GATE(_Q0), _X_COUNT_INPUT),
         _READOUT,
     ),
 )
-_X_COUNT_PROGRAM = quantum.circuit_domain_program(_X_COUNT_CIRCUIT)
-_X_COUNT_CALL = quantum.circuit_domain_call(
+_X_COUNT_DOMAIN_PROGRAM = quantum.domain_program(_X_COUNT_PROGRAM)
+_X_COUNT_CALL = quantum.domain_call(
     "execute",
-    _X_COUNT_PROGRAM,
+    _X_COUNT_DOMAIN_PROGRAM,
     inputs={_X_COUNT_INPUT: X_COUNT},
     results={_READOUT.result: "integrated_iq_shots"},
 )
@@ -157,15 +157,15 @@ class FakeXCountDomainExecutionAdapter:
             _decode_x_count(value) for value in call.input_values("x_count")
         )
         body = call.program.body
-        if not isinstance(body, quantum.Circuit):
-            msg = "fake X-count domain program body must be a quantum Circuit"
+        if not isinstance(body, quantum.Program):
+            msg = "fake X-count domain program body must be a quantum Program"
             raise TypeError(msg)
         reference = prepare_fake_x_count_reference(
             preparation,
             products,
             acquisition_slot_id=iq_result.acquisition_slot_id,
-            circuits=tuple(
-                quantum.bind_circuit(body, {"x_count": x_count}).verified
+            programs=tuple(
+                quantum.bind(body, {"x_count": x_count}).verified
                 for x_count in x_counts
             ),
             x_counts=x_counts,
@@ -208,11 +208,11 @@ def _call_or_none(view: DomainBatchView) -> DomainCallView | None:
     selected = tuple(
         call
         for call in view.matching_calls(
-            dialect_id=quantum.QUANTUM_CIRCUIT_DIALECT_ID,
-            dialect_version=quantum.QUANTUM_CIRCUIT_DIALECT_VERSION,
+            dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
+            dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
         )
-        if isinstance(call.program.body, quantum.Circuit)
-        and call.program.body.id == _X_COUNT_CIRCUIT.id
+        if isinstance(call.program.body, quantum.Program)
+        and call.program.body.id == _X_COUNT_PROGRAM.id
     )
     if len(selected) > 1:
         msg = "fake X-count adapter found multiple matching authored calls"
@@ -226,7 +226,7 @@ def _call_or_none(view: DomainBatchView) -> DomainCallView | None:
 def _require_call(view: DomainBatchView) -> DomainCallView:
     call = _call_or_none(view)
     if call is None:
-        msg = "fake X-count adapter requires one authored quantum circuit call"
+        msg = "fake X-count adapter requires one authored quantum program call"
         raise ValueError(msg)
     return call
 
@@ -239,18 +239,18 @@ def _product_binding(view: DomainCallView) -> FakeXCountProductBinding:
     )
 
 
-def _validated_result_contracts(call: DomainCallView) -> quantum.CircuitResult:
+def _validated_result_contracts(call: DomainCallView) -> quantum.MeasurementResult:
     body = call.program.body
-    if not isinstance(body, quantum.Circuit):
-        msg = "fake X-count domain program body must be a quantum Circuit"
+    if not isinstance(body, quantum.Program):
+        msg = "fake X-count domain program body must be a quantum Program"
         raise TypeError(msg)
     iq_result = call.result("iq_shots").contract
     if (
-        not isinstance(iq_result, quantum.CircuitResult)
+        not isinstance(iq_result, quantum.MeasurementResult)
         or iq_result.id != "iq_shots"
         or not any(result is iq_result for result in body.results)
     ):
-        msg = "fake X-count IQ result must bind its authored CircuitResult handle"
+        msg = "fake X-count IQ result must bind its authored MeasurementResult handle"
         raise ValueError(msg)
     if len(call.measurement_transforms) != 1:
         msg = "fake X-count call requires exactly one authored measurement transform"

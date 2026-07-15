@@ -40,6 +40,7 @@ from scopecat.records.parameter import (
 )
 from scopecat.records.run_plan import (
     RunPlanChannelBinding,
+    RunPlanConfigInputBinding,
     RunPlanDeferredValue,
     RunPlanDomainBatch,
     RunPlanDomainCapabilities,
@@ -86,6 +87,7 @@ def test_durable_metadata_boundaries_reject_non_json_values(
 
 def _valid_run_plan_data() -> dict[str, Any]:
     return {
+        "config_content_hash": "sha256:" + "0" * 64,
         "backend_id": "tests.execution.v1",
         "execution_options": {
             "requested": {
@@ -719,6 +721,7 @@ def test_parameter_snapshot_is_recursively_immutable_and_durable() -> None:
 def test_run_plan_dataset_dimensions_must_be_non_negative() -> None:
     with pytest.raises(ValidationError):
         RunPlanRecord(
+            config_content_hash="sha256:" + "0" * 64,
             backend_id="tests.execution.v1",
             execution_options=RunPlanExecutionOptions(
                 requested=RunPlanFusionOptions(
@@ -767,6 +770,7 @@ def _domain_execution_data() -> dict[str, Any]:
         "semantic_operation_id": "measure",
         "capabilities": {"max_points_per_batch": 2},
         "batches": [_domain_batch_data(0, [0, 1])],
+        "config_input_bindings": [],
     }
 
 
@@ -793,6 +797,35 @@ def test_run_plan_domain_execution_is_payload_free_durable_identity() -> None:
     changed_operation["batches"][0]["semantic_operation_id"] = "different-call"
     with pytest.raises(ValidationError, match="semantic operation identity"):
         RunPlanDomainExecution.model_validate(changed_operation)
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        {"kind": "deferred"},
+        {"kind": "payload", "schema_id": "opaque"},
+    ],
+)
+@pytest.mark.parametrize("field", ["key", "resolved_value"])
+def test_run_plan_config_bindings_reject_non_config_value_markers(
+    field: str,
+    marker: dict[str, str],
+) -> None:
+    data: dict[str, object] = {
+        "input_id": "frequency",
+        "point_index": 0,
+        "table_id": "qubits",
+        "key": {"qubit": "q0"},
+        "column_id": "drive_frequency",
+        "resolved_value": Quantity(value=5.0, unit="GHz"),
+    }
+    if field == "key":
+        data[field] = {"qubit": marker}
+    else:
+        data[field] = marker
+
+    with pytest.raises(ValidationError):
+        RunPlanConfigInputBinding.model_validate(data)
 
 
 def test_run_plan_domain_batches_retain_capability_bounded_point_partitions() -> None:

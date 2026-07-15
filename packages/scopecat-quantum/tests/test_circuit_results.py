@@ -469,6 +469,26 @@ def test_circuit_target_mapping_retains_batch_and_exact_sdk_proof() -> None:
         )
 
 
+def test_circuit_mapping_rejects_another_batch_order() -> None:
+    preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
+    mapping = _seal(
+        preparation,
+        batch,
+        entry_bindings,
+        acquisition_bindings,
+    )
+    reversed_batch = prepare_circuit_target_batch(
+        tuple(reversed(batch.entries)),
+        target_id=batch.request.target_id,
+        compiler_id=batch.request.compiler_id,
+        capability_fingerprint=batch.request.capability_fingerprint,
+        repetitions=batch.request.repetitions,
+    )
+
+    with pytest.raises(ValueError, match="exact prepared batch inventory"):
+        CircuitTargetResultMapping(reversed_batch, mapping.domain_mapping)
+
+
 def test_circuit_mapping_canonicalizes_all_direct_product_uses() -> None:
     preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs(
         product_count=3

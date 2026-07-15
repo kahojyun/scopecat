@@ -33,6 +33,7 @@ from scopecat_quantum.pulses import (
     PulseValidationError,
     ReadoutSignal,
     Sequence,
+    ShiftPhase,
     schedule,
 )
 
@@ -99,6 +100,196 @@ def test_schedule_normalizes_quantities_and_flattens_authoring_tree() -> None:
     assert envelope.sigma == Quantity(2.5e-7, "s")
     assert envelope.amplitude == Quantity(0.5, "V")
     assert envelope.phase == Quantity(3.14159265359, "rad")
+
+
+def test_shift_phase_is_a_normalized_zero_duration_frame_event() -> None:
+    shift = ShiftPhase(
+        id=PulseEventId("z-shift"),
+        signal=DRIVE_Q0,
+        phase=Quantity(180, "deg"),
+    )
+    scheduled = schedule(
+        _program(
+            Sequence(
+                (
+                    shift,
+                    _play("a-play", DRIVE_Q0, 10),
+                )
+            )
+        )
+    )
+
+    assert scheduled.duration_seconds == Decimal("1e-8")
+    assert [event.id.value for event in scheduled.events] == ["z-shift", "a-play"]
+    assert [event.start_seconds for event in scheduled.events] == [
+        Decimal(0),
+        Decimal(0),
+    ]
+    assert [event.duration_seconds for event in scheduled.events] == [
+        Decimal(0),
+        Decimal("1e-8"),
+    ]
+    normalized = cast(ShiftPhase, scheduled.events[0].instruction)
+    assert normalized.signal is DRIVE_Q0
+    assert normalized.phase == Quantity(3.14159265359, "rad")
+
+
+def test_zero_duration_sequence_causality_survives_reassociation() -> None:
+    first = ShiftPhase(
+        PulseEventId("z-first"),
+        DRIVE_Q1,
+        Quantity(90, "deg"),
+    )
+    second = ShiftPhase(
+        PulseEventId("a-second"),
+        DRIVE_Q0,
+        Quantity(-0.25, "rad"),
+    )
+    play = _play("a-play", DRIVE_Q0, 5)
+
+    left = schedule(_program(Sequence((Sequence((first, second)), play))))
+    right = schedule(_program(Sequence((first, Sequence((second, play))))))
+
+    assert left == right
+    assert [event.id.value for event in left.events] == [
+        "z-first",
+        "a-second",
+        "a-play",
+    ]
+    assert all(event.start_seconds == 0 for event in left.events)
+
+
+def test_parallel_phase_shifts_are_canonical_and_preserve_signal_identity() -> None:
+    drive_shift = ShiftPhase(
+        PulseEventId("drive"),
+        DRIVE_Q0,
+        Quantity(0.5, "rad"),
+    )
+    readout_signal = ReadoutSignal(Q1)
+    readout_shift = ShiftPhase(
+        PulseEventId("readout"),
+        readout_signal,
+        Quantity(-90, "deg"),
+    )
+
+    first = schedule(_program(Parallel((readout_shift, drive_shift))))
+    second = schedule(_program(Parallel((drive_shift, readout_shift))))
+
+    assert first == second
+    assert first.duration_seconds == 0
+    assert [cast(ShiftPhase, event.instruction).signal for event in first.events] == [
+        DRIVE_Q0,
+        readout_signal,
+    ]
+
+
+def test_same_time_control_chain_precedes_parallel_waveform_sampling() -> None:
+    barrier = Barrier(PulseEventId("z-barrier"), (DRIVE_Q0,))
+    shift = ShiftPhase(
+        PulseEventId("z-shift"),
+        DRIVE_Q0,
+        Quantity(0.5, "rad"),
+    )
+    play = _play("a-play", DRIVE_Q0, 5)
+
+    scheduled = schedule(
+        _program(
+            Parallel(
+                (
+                    Sequence((barrier, shift)),
+                    play,
+                )
+            )
+        )
+    )
+
+    assert [event.id.value for event in scheduled.events] == [
+        "z-barrier",
+        "z-shift",
+        "a-play",
+    ]
+    assert [event.duration_seconds for event in scheduled.events] == [
+        Decimal(0),
+        Decimal(0),
+        Decimal("5e-9"),
+    ]
+
+
+def test_parallel_shift_at_play_start_is_applied_before_the_play() -> None:
+    scheduled = schedule(
+        _program(
+            Parallel(
+                (
+                    _play("a-play", DRIVE_Q0, 20),
+                    ShiftPhase(
+                        PulseEventId("z-shift"),
+                        DRIVE_Q0,
+                        Quantity(0.25, "rad"),
+                    ),
+                )
+            )
+        )
+    )
+
+    assert [event.id.value for event in scheduled.events] == ["z-shift", "a-play"]
+    assert {event.start_seconds for event in scheduled.events} == {Decimal(0)}
+
+
+def test_shift_phase_cannot_occur_inside_an_active_parallel_play() -> None:
+    program = _program(
+        Parallel(
+            (
+                _play("active-play", DRIVE_Q0, 20),
+                Sequence(
+                    (
+                        Delay(
+                            PulseEventId("offset"),
+                            DRIVE_Q1,
+                            Quantity(10, "ns"),
+                        ),
+                        ShiftPhase(
+                            PulseEventId("mid-play-shift"),
+                            DRIVE_Q0,
+                            Quantity(0.25, "rad"),
+                        ),
+                    )
+                ),
+            )
+        )
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert _issue_codes(raised.value) == {"pulse_frame_shift_during_play"}
+
+
+def test_shift_phase_rejects_non_frame_signals_and_invalid_phases() -> None:
+    program = _program(
+        Parallel(
+            (
+                ShiftPhase(
+                    PulseEventId("flux"),
+                    cast(Any, FluxSignal(Q0)),
+                    Quantity(1, "V"),
+                ),
+                ShiftPhase(
+                    PulseEventId("nonfinite"),
+                    DRIVE_Q0,
+                    Quantity(float("inf"), "rad"),
+                ),
+            )
+        )
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(program)
+
+    assert {
+        "pulse_phase_unit_invalid",
+        "pulse_quantity_nonfinite",
+        "pulse_signal_instruction_invalid",
+    } <= _issue_codes(raised.value)
 
 
 @given(

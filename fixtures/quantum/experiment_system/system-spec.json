@@ -253,6 +253,13 @@
               }
             },
             {
+              "id": "drag_beta",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
               "id": "drive_frequency",
               "value_type": {
                 "type": "quantity",
@@ -334,6 +341,20 @@
               }
             },
             {
+              "id": "coupler_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            },
+            {
+              "id": "duration",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
               "id": "sample_rate_hz",
               "value_type": {
                 "type": "float"
@@ -346,7 +367,7 @@
             "gate"
           ]
         },
-        "description": "Two-qubit gate calibration values used by waveform compute."
+        "description": "Two-qubit gate calibration values used by unified gate and pulse programs."
       }
     ],
     "metadata": {}

@@ -17,7 +17,7 @@ from scopecat.config.candidates import materialize_candidate_config
 from scopecat.config.changes import load_parameter_change_proposal
 from scopecat.config.registry import list_config_registry_entries
 from scopecat.config.resolution import register_and_activate_candidate_config
-from scopecat.kernel.errors import CheckFailed, Conflict
+from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.runs.refs import record_content_ref
@@ -176,7 +176,7 @@ def test_candidate_config_rejects_overlapping_proposals(tmp_path: Path) -> None:
     assert "overlap" in error.value.problems[0].message
 
 
-def test_candidate_config_rejects_stale_base_hash_before_registration(
+def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
     tmp_path: Path,
 ) -> None:
     lab = _lab(tmp_path)
@@ -199,7 +199,7 @@ def test_candidate_config_rejects_stale_base_hash_before_registration(
         stale_source,
     )
 
-    with pytest.raises(Conflict) as error:
+    with pytest.raises(DataIntegrityError) as error:
         register_and_activate_candidate_config(
             candidate=candidate,
             services=local_workspace_services(tmp_path),
@@ -207,7 +207,7 @@ def test_candidate_config_rejects_stale_base_hash_before_registration(
             operator="operator",
         )
 
-    assert error.value.problems[0].code == ("parameter_change_proposal_base_mismatch")
+    assert error.value.problems[0].code == "run.config_provenance_mismatch"
     assert (
         list_config_registry_entries(
             unit_of_work=local_config_registry_unit_of_work(tmp_path)
@@ -266,7 +266,8 @@ def test_durable_proposal_copies_revalidate_all_invariants(tmp_path: Path) -> No
 
 
 def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
-    run = _lab(tmp_path).prepare(load_invocation()).run()
+    lab = _lab(tmp_path)
+    run = lab.prepare(load_invocation()).run()
     first = run.analysis("first fit").propose(
         "drive-frequency",
         sc.replace_scalar_parameter(
@@ -277,6 +278,28 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     )
     first.save()
     first.save()
+    first_proposal = first.parameter_proposals[0]
+    decision = lab.review_parameter_proposal(
+        run,
+        first_proposal.id,
+        decision="rejected",
+        note="review history must survive an idempotent analysis-cell retry",
+    )
+    rebuilt = run.analysis("first fit").propose(
+        "drive-frequency",
+        sc.replace_scalar_parameter(
+            "drive_frequency",
+            sc.Quantity(5.4, "GHz"),
+        ),
+        reason="first fit",
+    )
+    rebuilt_proposal = rebuilt.parameter_proposals[0]
+    assert rebuilt_proposal.proposed_at != first_proposal.proposed_at
+    rebuilt.save()
+    materialize_candidate_config(
+        rebuilt.candidate_config(),
+        services=local_workspace_services(tmp_path),
+    )
     second = run.analysis("second fit").propose(
         "drive-frequency",
         sc.replace_scalar_parameter(
@@ -295,7 +318,18 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
         selector="drive-frequency",
         services=local_workspace_services(tmp_path),
     )
-    assert persisted == first.parameter_proposals[0]
+    manifest = local_run_repository(tmp_path).read_manifest(run.id)
+    assert persisted == first_proposal
+    assert persisted.proposed_at == first_proposal.proposed_at
+    assert [
+        record.id
+        for record in manifest.records
+        if record.kind == "parameter_change_proposal"
+    ] == [first_proposal.id]
+    decision_info = lab.overview(run).parameter_change_proposals[0].decision_info
+    assert decision_info.status == "reviewed"
+    assert decision_info.decision == decision.decision
+    assert [event.event_id for event in decision_info.history] == [decision.event_id]
 
 
 def test_candidate_config_record_is_immutable(tmp_path: Path) -> None:

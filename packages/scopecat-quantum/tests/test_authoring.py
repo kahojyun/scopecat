@@ -10,26 +10,19 @@ from scopecat import Quantity
 from scopecat_quantum import authoring
 from scopecat_quantum._ids import AcquisitionSlotId, QubitId
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.circuits import (
-    CircuitVerificationError,
-    Measure,
-    Parallel,
-    Sequence,
-    iter_circuit_operations,
-)
 from scopecat_quantum.gates import GateCall, GateParameterKind
 
 
 def _x_count_declaration() -> tuple[
-    authoring.Circuit,
+    authoring.Program,
     authoring.CircuitInput,
-    authoring.CircuitResult,
+    authoring.MeasurementResult,
 ]:
     q0 = authoring.qubit("q0")
     x_count = authoring.scalar_input("x_count", GateParameterKind.INTEGER)
     x = authoring.single_qubit_gate("x")
     readout = authoring.measure(q0, result="raw_iq")
-    declaration = authoring.circuit(
+    declaration = authoring.program(
         "x-count",
         authoring.sequence(
             authoring.repeat(x(q0), x_count),
@@ -42,14 +35,22 @@ def _x_count_declaration() -> tuple[
 @pytest.mark.parametrize(
     "handle_type",
     [
-        authoring.BoundCircuit,
-        authoring.Circuit,
+        authoring.BoundProgram,
+        authoring.Program,
+        authoring.Acquisition,
         authoring.CircuitFragment,
         authoring.CircuitInput,
-        authoring.CircuitResult,
+        authoring.Coupler,
+        authoring.MeasurementResult,
         authoring.Measurement,
+        authoring.PulseEnvelope,
+        authoring.PulseFragment,
+        authoring.PulseTemplate,
+        authoring.QuantumFragment,
+        authoring.QuantumInput,
         authoring.Qubit,
         authoring.SingleQubitGate,
+        authoring.TwoQubitGate,
     ],
 )
 def test_authoring_handles_are_opaque(handle_type: Callable[[], object]) -> None:
@@ -71,23 +72,24 @@ def test_symbolic_repeat_and_measurement_declare_typed_ports() -> None:
     assert raw_iq.acquisition_slot_id == AcquisitionSlotId("raw_iq")
 
 
-def test_zero_repeat_materializes_as_no_gate_calls() -> None:
-    declaration, _x_count, raw_iq = _x_count_declaration()
+def test_two_qubit_gate_declares_ordered_unique_operands() -> None:
+    q0 = authoring.qubit("q0")
+    q1 = authoring.qubit("q1")
+    cz = authoring.gate("cz", arity=2)
 
-    bound = authoring.bind_circuit(declaration, {"x_count": 0})
-    operations = tuple(iter_circuit_operations(bound.program.body))
+    bound = authoring.bind(authoring.program("cz", cz(q0, q1)))
+    [call] = bound.verified.operations
 
-    assert isinstance(bound.program.body, Sequence)
-    assert operations == (
-        Measure(
-            id=operations[0].id,
-            qubit=QubitId("q0"),
-            acquisition_slot_id=raw_iq.acquisition_slot_id,
-            acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
-        ),
-    )
-    assert bound.verified.operations == operations
-    assert bound.results == (raw_iq,)
+    assert isinstance(cz, authoring.TwoQubitGate)
+    assert isinstance(call, GateCall)
+    assert call.qubits == (QubitId("q0"), QubitId("q1"))
+    with pytest.raises(ValueError, match="operands must be unique"):
+        cz(q0, q0)
+    with pytest.raises(ValueError, match="arity must be 1 or 2"):
+        authoring.gate(  # pyright: ignore[reportCallIssue, reportArgumentType]
+            "ccz",
+            arity=3,  # pyright: ignore[reportArgumentType]
+        )
 
 
 def test_literal_zero_repeat_elides_dead_inputs_and_gate_definitions() -> None:
@@ -97,37 +99,16 @@ def test_literal_zero_repeat_elides_dead_inputs_and_gate_definitions() -> None:
         "drive",
         parameters={"amplitude": GateParameterKind.NUMBER},
     )
-    declaration = authoring.circuit(
+    declaration = authoring.program(
         "dead-drive",
         authoring.repeat(drive(q0, amplitude=amplitude), 0),
     )
 
-    bound = authoring.bind_circuit(declaration)
+    bound = authoring.bind(declaration)
 
     assert declaration.inputs == ()
     assert declaration.gate_definitions == ()
     assert bound.verified.operations == ()
-
-
-def test_symbolic_repeat_materializes_unique_gate_occurrences() -> None:
-    declaration, _x_count, _raw_iq = _x_count_declaration()
-
-    bound = authoring.bind_circuit(declaration, {"x_count": 3})
-    operations = tuple(iter_circuit_operations(bound.program.body))
-
-    assert [type(operation) for operation in operations] == [
-        GateCall,
-        GateCall,
-        GateCall,
-        Measure,
-    ]
-    gate_calls = cast("tuple[GateCall, ...]", operations[:-1])
-    assert [operation.gate_id.value for operation in gate_calls] == [
-        "x",
-        "x",
-        "x",
-    ]
-    assert len({operation.id for operation in operations}) == 4
 
 
 @pytest.mark.parametrize("count", [-1, 1.5, True])
@@ -135,10 +116,10 @@ def test_symbolic_repeat_rejects_invalid_bound_counts(count: object) -> None:
     declaration, _x_count, _raw_iq = _x_count_declaration()
 
     with pytest.raises(
-        authoring.CircuitBindingError,
-        match="non-negative integer",
+        authoring.ProgramBindingError,
+        match=r"bindings\.x_count",
     ):
-        authoring.bind_circuit(
+        authoring.bind(
             declaration,
             cast("dict[str, int]", {"x_count": count}),
         )
@@ -163,43 +144,24 @@ def test_repeat_rejects_non_integer_input_and_measurement_results() -> None:
         authoring.repeat(authoring.measure(q0, result="raw_iq"), 2)
 
 
-def test_symbolic_angle_binding_uses_existing_verification_and_canonicalization() -> (
-    None
-):
+def test_gate_parameter_inputs_are_checked_and_angle_values_are_canonicalized() -> None:
     q0 = authoring.qubit("q0")
+    integer = authoring.scalar_input("count", GateParameterKind.INTEGER)
     theta = authoring.scalar_input("theta", GateParameterKind.ANGLE)
     rx = authoring.single_qubit_gate(
         "rx",
         parameters={"theta": GateParameterKind.ANGLE},
     )
-    declaration = authoring.circuit("rx", rx(q0, theta=theta))
+    with pytest.raises(TypeError, match="requires 'angle'"):
+        rx(q0, theta=integer)
 
-    bound = authoring.bind_circuit(declaration, {"theta": Quantity(180, "deg")})
+    declaration = authoring.program("rx", rx(q0, theta=theta))
+    bound = authoring.bind(declaration, {"theta": Quantity(180, "deg")})
     operation = bound.verified.operations[0]
 
     assert isinstance(operation, GateCall)
     assert operation.arguments[0].id == "theta"
     assert operation.arguments[0].value == Quantity(180, "deg").to("rad")
-
-
-def test_symbolic_gate_parameter_kind_is_checked_at_authoring_and_binding() -> None:
-    q0 = authoring.qubit("q0")
-    integer = authoring.scalar_input("count", GateParameterKind.INTEGER)
-    angle = authoring.scalar_input("theta", GateParameterKind.ANGLE)
-    rx = authoring.single_qubit_gate(
-        "rx",
-        parameters={"theta": GateParameterKind.ANGLE},
-    )
-
-    with pytest.raises(TypeError, match="requires 'angle'"):
-        rx(q0, theta=integer)
-
-    declaration = authoring.circuit("rx", rx(q0, theta=angle))
-    with pytest.raises(CircuitVerificationError) as caught:
-        authoring.bind_circuit(declaration, {"theta": 1.0})
-    assert {issue.code for issue in caught.value.issues} == {
-        "circuit_gate_argument_type_mismatch"
-    }
 
 
 def test_gate_call_requires_exact_named_arguments() -> None:
@@ -215,56 +177,16 @@ def test_gate_call_requires_exact_named_arguments() -> None:
         rx(q0, theta=Quantity(0, "rad"), phase=0)
 
 
-def test_bind_circuit_requires_exact_named_bindings() -> None:
-    declaration, _x_count, _raw_iq = _x_count_declaration()
-
-    with pytest.raises(authoring.CircuitBindingError, match="missing 'x_count'"):
-        authoring.bind_circuit(declaration)
-    with pytest.raises(authoring.CircuitBindingError, match="unknown 'other'"):
-        authoring.bind_circuit(declaration, {"x_count": 1, "other": 2})
-
-
-def test_parallel_disjoint_qubits_materialize_as_existing_parallel_ir() -> None:
-    q0 = authoring.qubit("q0")
-    q1 = authoring.qubit("q1")
-    x = authoring.single_qubit_gate("x")
-    declaration = authoring.circuit("parallel", authoring.parallel(x(q0), x(q1)))
-
-    bound = authoring.bind_circuit(declaration)
-
-    assert isinstance(bound.program.body, Parallel)
-    gate_calls = tuple(
-        operation
-        for operation in bound.verified.operations
-        if isinstance(operation, GateCall)
-    )
-    assert [operation.qubits for operation in gate_calls] == [
-        (QubitId("q0"),),
-        (QubitId("q1"),),
-    ]
-
-
-def test_parallel_conflicts_are_reported_by_existing_circuit_verifier() -> None:
-    q0 = authoring.qubit("q0")
-    x = authoring.single_qubit_gate("x")
-    declaration = authoring.circuit("conflict", authoring.parallel(x(q0), x(q0)))
-
-    with pytest.raises(CircuitVerificationError) as caught:
-        authoring.bind_circuit(declaration)
-
-    assert {issue.code for issue in caught.value.issues} == {"parallel_qubit_conflict"}
-
-
-def test_circuit_rejects_duplicate_result_ports() -> None:
+def test_program_rejects_duplicate_result_ports() -> None:
     q0 = authoring.qubit("q0")
     first = authoring.measure(q0, result="raw_iq")
     second = authoring.measure(q0, result="raw_iq")
 
     with pytest.raises(ValueError, match="duplicate result ids"):
-        authoring.circuit("duplicate-results", authoring.sequence(first, second))
+        authoring.program("duplicate-results", authoring.sequence(first, second))
 
 
-def test_circuit_rejects_conflicting_gate_definitions() -> None:
+def test_program_rejects_conflicting_gate_definitions() -> None:
     q0 = authoring.qubit("q0")
     first = authoring.single_qubit_gate("custom")
     second = authoring.single_qubit_gate(
@@ -273,66 +195,43 @@ def test_circuit_rejects_conflicting_gate_definitions() -> None:
     )
 
     with pytest.raises(ValueError, match="conflicting definitions"):
-        authoring.circuit(
+        authoring.program(
             "conflicting-gates",
             authoring.sequence(first(q0), second(q0, value=1.0)),
         )
 
 
-def test_circuit_projects_to_typed_core_domain_program_and_call() -> None:
+def test_domain_call_requires_exact_handle_bindings() -> None:
     declaration, x_count, raw_iq = _x_count_declaration()
-    point_value = sc.point("x_count", sc.ScalarType(sc.IntType(minimum=0)))
+    program = authoring.domain_program(declaration)
 
-    program = authoring.circuit_domain_program(declaration)
-    call = authoring.circuit_domain_call(
-        "acquire",
-        program,
-        inputs={x_count: point_value},
-        results={raw_iq: "integrated_iq_shots"},
-    )
-
-    assert program.dialect_id == authoring.QUANTUM_CIRCUIT_DIALECT_ID
-    assert program.body is declaration
-    assert program.input_ports[0].value_type == sc.ScalarType(sc.IntType(minimum=0))
-    assert program.result_ports[0].contract is raw_iq
-    assert call.input_bindings == (("x_count", point_value),)
-    assert call.result_bindings[0][0] == "raw_iq"
-    assert call.result_bindings[0][1].local_id == "integrated_iq_shots"
-
-
-def test_circuit_domain_call_requires_exact_handle_bindings() -> None:
-    declaration, x_count, raw_iq = _x_count_declaration()
-    program = authoring.circuit_domain_program(declaration)
-
-    with pytest.raises(ValueError, match="bind every declared CircuitInput"):
-        authoring.circuit_domain_call(
+    with pytest.raises(ValueError, match="bind every declared input"):
+        authoring.domain_call(
             "missing-input",
             program,
             results={raw_iq: "integrated_iq_shots"},
         )
-    with pytest.raises(ValueError, match="bind every declared CircuitResult"):
-        authoring.circuit_domain_call(
+    with pytest.raises(ValueError, match="bind every declared result"):
+        authoring.domain_call(
             "missing-result",
             program,
             inputs={x_count: 1},
         )
     with pytest.raises(TypeError, match="inputs must be a mapping"):
-        authoring.circuit_domain_call(
+        authoring.domain_call(
             "invalid-inputs",
             program,
             inputs=[],  # pyright: ignore[reportArgumentType]
             results={raw_iq: "integrated_iq_shots"},
         )
-    with pytest.raises(TypeError, match="quantum circuit domain program"):
-        authoring.circuit_domain_call(
+    with pytest.raises(TypeError, match="quantum program domain program"):
+        authoring.domain_call(
             "invalid-program",
             object(),  # pyright: ignore[reportArgumentType]
         )
 
 
-def test_circuit_domain_call_rejects_forged_ports_and_normalizes_number_literal() -> (
-    None
-):
+def test_domain_call_rejects_forged_ports_and_normalizes_number_literal() -> None:
     q0 = authoring.qubit("q0")
     amplitude = authoring.scalar_input("amplitude", GateParameterKind.NUMBER)
     drive = authoring.single_qubit_gate(
@@ -340,13 +239,13 @@ def test_circuit_domain_call_rejects_forged_ports_and_normalizes_number_literal(
         parameters={"amplitude": GateParameterKind.NUMBER},
     )
     readout = authoring.measure(q0, result="iq")
-    declaration = authoring.circuit(
+    declaration = authoring.program(
         "number-input",
         authoring.sequence(drive(q0, amplitude=amplitude), readout),
     )
-    program = authoring.circuit_domain_program(declaration)
+    program = authoring.domain_program(declaration)
 
-    call = authoring.circuit_domain_call(
+    call = authoring.domain_call(
         "execute",
         program,
         inputs={amplitude: 1},
@@ -356,14 +255,14 @@ def test_circuit_domain_call_rejects_forged_ports_and_normalizes_number_literal(
 
     forged = sc.domain_program(
         declaration.id,
-        dialect_id=authoring.QUANTUM_CIRCUIT_DIALECT_ID,
-        dialect_version=authoring.QUANTUM_CIRCUIT_DIALECT_VERSION,
+        dialect_id=authoring.QUANTUM_PROGRAM_DIALECT_ID,
+        dialect_version=authoring.QUANTUM_PROGRAM_DIALECT_VERSION,
         body=declaration,
         inputs={"amplitude": sc.ScalarType(sc.IntType())},
         results={"iq": readout.result},
     )
     with pytest.raises(ValueError, match="ports do not match"):
-        authoring.circuit_domain_call(
+        authoring.domain_call(
             "forged",
             forged,
             inputs={amplitude: 1},

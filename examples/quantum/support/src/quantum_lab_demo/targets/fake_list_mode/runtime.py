@@ -12,7 +12,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Protocol, cast, runtime_checkable
 
 from scopecat_quantum import (
     AcquisitionKind,
@@ -75,6 +75,48 @@ class FakeAwgPlayback:
             cast("object", self.waveform_fingerprint),
             field_name="playback waveform_fingerprint",
         )
+
+
+@runtime_checkable
+class FakeAcquisitionResponse(Protocol):
+    """Pluggable deterministic response model for fake acquisitions.
+
+    The fingerprint is part of every run identity and must change whenever
+    response behavior or configuration changes.
+    """
+
+    @property
+    def fingerprint(self) -> str:
+        """Return the stable identity of this response behavior."""
+        ...
+
+    def value_for(
+        self,
+        *,
+        playback: FakeAwgPlayback,
+        window: FakeAcquisitionWindow,
+    ) -> FakeDigitizerValue:
+        """Return one response for an acquisition window and playback."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class DeterministicFakeAcquisitionResponse:
+    """Default address- and waveform-sensitive fake response behavior."""
+
+    @property
+    def fingerprint(self) -> str:
+        return canonical_fingerprint(
+            {"schema": "quantum_lab_demo.fake_acquisition_response.address_hash.v1"}
+        )
+
+    def value_for(
+        self,
+        *,
+        playback: FakeAwgPlayback,
+        window: FakeAcquisitionWindow,
+    ) -> FakeDigitizerValue:
+        return _capture_value(playback=playback, window=window)
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +201,9 @@ class FakeListRun:
     frames: tuple[FakeDigitizerFrame, ...]
     artifact: FakeListArtifact
     fingerprint: str
+    response: FakeAcquisitionResponse = field(
+        default_factory=DeterministicFakeAcquisitionResponse
+    )
 
     def __post_init__(self) -> None:
         playbacks = cast("object", self.playbacks)
@@ -218,17 +263,20 @@ class FakeListRun:
         if not isinstance(cast("object", self.artifact), FakeListArtifact):
             msg = "fake list run artifact must be a FakeListArtifact"
             raise TypeError(msg)
+        response = _validated_response(self.response)
         _validate_artifact(self.artifact)
         resolved = _resolve_playbacks(self.artifact, selected_playbacks)
         _validate_frame_coverage(
             resolved=resolved,
             frames=selected_frames,
+            response=response,
         )
         _require_text(cast("object", self.fingerprint), field_name="run fingerprint")
         expected_fingerprint = _run_fingerprint(
             artifact=self.artifact,
             playbacks=selected_playbacks,
             frames=selected_frames,
+            response=response,
         )
         if self.fingerprint != expected_fingerprint:
             msg = "fake list run fingerprint does not cover its artifact and frames"
@@ -261,6 +309,13 @@ class FakeListAwg:
 class FakeSegmentedDigitizer:
     """Stateless fake digitizer driven by explicit playback correlation."""
 
+    response: FakeAcquisitionResponse = field(
+        default_factory=DeterministicFakeAcquisitionResponse
+    )
+
+    def __post_init__(self) -> None:
+        _validated_response(self.response)
+
     def capture(
         self,
         artifact: FakeListArtifact,
@@ -281,7 +336,7 @@ class FakeSegmentedDigitizer:
                         slot_id=window.slot_id,
                         channel_id=window.channel_id,
                         kind=window.kind,
-                        value=_capture_value(
+                        value=self.response.value_for(
                             playback=playback,
                             window=window,
                         ),
@@ -316,10 +371,12 @@ class FakeListRuntime:
             playbacks=playbacks,
             frames=frames,
             artifact=artifact,
+            response=self.digitizer.response,
             fingerprint=_run_fingerprint(
                 artifact=artifact,
                 playbacks=playbacks,
                 frames=frames,
+                response=self.digitizer.response,
             ),
         )
 
@@ -483,6 +540,7 @@ def _validate_frame_coverage(
     *,
     resolved: tuple[tuple[FakeAwgPlayback, FakeListEntry], ...],
     frames: tuple[FakeDigitizerFrame, ...],
+    response: FakeAcquisitionResponse,
 ) -> None:
     expected = tuple(
         (playback, entry, segment_index, window)
@@ -508,7 +566,7 @@ def _validate_frame_coverage(
         ):
             msg = "fake digitizer frame does not match its artifact acquisition window"
             raise ValueError(msg)
-        expected_value = _capture_value(
+        expected_value = response.value_for(
             playback=playback,
             window=window,
         )
@@ -543,6 +601,14 @@ def _capture_value(
     raise ValueError(msg)
 
 
+def _validated_response(response: object) -> FakeAcquisitionResponse:
+    if not isinstance(response, FakeAcquisitionResponse):
+        msg = "fake digitizer response must implement FakeAcquisitionResponse"
+        raise TypeError(msg)
+    _require_text(response.fingerprint, field_name="acquisition response fingerprint")
+    return response
+
+
 def _deterministic_complex(
     *,
     address: dict[str, object],
@@ -567,12 +633,14 @@ def _run_fingerprint(
     artifact: FakeListArtifact,
     playbacks: tuple[FakeAwgPlayback, ...],
     frames: tuple[FakeDigitizerFrame, ...],
+    response: FakeAcquisitionResponse,
 ) -> str:
     return canonical_fingerprint(
         {
-            "schema": "quantum_lab_demo.fake_list_run.v1",
+            "schema": "quantum_lab_demo.fake_list_run.v2",
             "artifact_id": artifact.id.value,
             "artifact_fingerprint": artifact.artifact_fingerprint,
+            "response_fingerprint": response.fingerprint,
             "playbacks": [
                 {
                     "shot_index": playback.shot_index,
@@ -608,6 +676,8 @@ def _value_payload(value: FakeDigitizerValue) -> object:
 
 
 __all__ = [
+    "DeterministicFakeAcquisitionResponse",
+    "FakeAcquisitionResponse",
     "FakeAwgPlayback",
     "FakeDigitizerFrame",
     "FakeDigitizerValue",

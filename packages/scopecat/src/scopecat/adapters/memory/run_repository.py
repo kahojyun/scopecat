@@ -26,6 +26,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_plan import RunPlanRecord
 from scopecat.records.run_request import RunRequest
+from scopecat.runs.provenance import validate_run_config_provenance
 from scopecat.runs.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
     MANIFEST_REF,
@@ -98,6 +99,11 @@ class MemoryRunRepository:
         plan: RunPlanRecord,
         config: ConfigProfileSnapshot,
     ) -> None:
+        validate_run_config_provenance(
+            manifest=manifest,
+            plan=plan,
+            config=config,
+        )
         if request is not None:
             self.write_model(manifest.run_id, RUN_REQUEST_REF, request)
         self.write_model(manifest.run_id, RUN_PLAN_REF, plan)
@@ -123,12 +129,38 @@ class MemoryRunRepository:
         )
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
-        self.read_manifest(run_id)
-        return self.read_model(
+        manifest = self.read_manifest(run_id)
+        plan = (
+            self.read_model(run_id, RUN_PLAN_REF, RunPlanRecord)
+            if self.exists(run_id, RUN_PLAN_REF)
+            else None
+        )
+        config = self.read_model(
             run_id,
             CONFIG_PROFILE_SNAPSHOT_REF,
             ConfigProfileSnapshot,
         )
+        validate_run_config_provenance(
+            manifest=manifest,
+            plan=plan,
+            config=config,
+        )
+        return config
+
+    def read_run_plan(self, run_id: str) -> RunPlanRecord:
+        manifest = self.read_manifest(run_id)
+        plan = self.read_model(run_id, RUN_PLAN_REF, RunPlanRecord)
+        config = self.read_model(
+            run_id,
+            CONFIG_PROFILE_SNAPSHOT_REF,
+            ConfigProfileSnapshot,
+        )
+        validate_run_config_provenance(
+            manifest=manifest,
+            plan=plan,
+            config=config,
+        )
+        return plan
 
     def read_model[TModel: BaseModel](
         self,

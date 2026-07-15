@@ -98,6 +98,7 @@ from scopecat_quantum import (
     AcquisitionKind,
     AcquisitionSlot,
     AcquisitionSlotId,
+    AuthoredPulseAcquisitionProvenance,
     CalibrationCatalog,
     CalibrationId,
     CircuitId,
@@ -108,17 +109,33 @@ from scopecat_quantum import (
     CircuitTargetEntryPointBinding,
     CircuitTargetResultMapping,
     CompiledCircuitTarget,
+    CompiledQuantumTarget,
     CompiledTargetArtifact,
     Constant,
+    Delay,
+    DriveSignal,
+    GateCall,
+    GateDefinition,
+    GateId,
+    ImplementedGate,
+    ImplementedGatePulseEventProvenance,
     Measure,
     MeasurementCalibration,
     MeasurementCalibrationCatalog,
     MeasurementCalibrationKey,
     Play,
+    PulseBlock,
     PulseEventId,
     PulseParallel,
     PulseProgram,
     PulseProgramId,
+    QuantumProgramId,
+    QuantumProgramIR,
+    QuantumSequence,
+    QuantumTargetAcquisitionOrigin,
+    QuantumTargetAcquisitionUseBinding,
+    QuantumTargetEntryPointBinding,
+    QuantumTargetResultMapping,
     QubitId,
     ReadoutSignal,
     TargetAcquisitionAddress,
@@ -128,12 +145,18 @@ from scopecat_quantum import (
     TargetCompilerId,
     TargetId,
     bind_compiled_circuit_target,
+    bind_compiled_quantum_target,
     compile_target,
+    lower_quantum_program_to_pulses,
     prepare_circuit_target_batch,
     prepare_circuit_target_entry,
+    prepare_quantum_target_batch,
+    prepare_quantum_target_entry,
     seal_circuit_target_result_mapping,
+    seal_quantum_target_result_mapping,
     select_calibrations,
     verify_circuit_program,
+    verify_quantum_program,
 )
 
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -669,6 +692,68 @@ def _verified_mixed_measurement_circuit(*, sample_count: int):
     return circuit, selection
 
 
+def _prepared_mixed_quantum_entry(
+    entry_id: TargetCompileEntryId,
+):
+    gate = GateDefinition(GateId("x90"), qubit_arity=1)
+    implemented_gate = ImplementedGate(
+        call=GateCall(
+            id=CircuitOperationId("x90-reference"),
+            gate_id=gate.id,
+            qubits=(Q0,),
+        ),
+        pulse_template=PulseProgram(
+            id=PulseProgramId("x90-template"),
+            body=Delay(
+                id=PulseEventId("drive"),
+                signal=DriveSignal(Q0),
+                duration=Quantity(4, "ns"),
+            ),
+        ),
+        candidate_id="x90.reference",
+    )
+    slot = AcquisitionSlot(
+        id=AcquisitionSlotId("template-result"),
+        kind=AcquisitionKind.INTEGRATED_IQ,
+        signal=AcquireSignal(Q0),
+    )
+    readout = PulseBlock(
+        id=CircuitOperationId("inline-readout"),
+        pulse_template=PulseProgram(
+            id=PulseProgramId("inline-readout-template"),
+            body=PulseParallel(
+                (
+                    Play(
+                        id=PulseEventId("stimulus"),
+                        signal=ReadoutSignal(Q0),
+                        envelope=Constant(
+                            duration=Quantity(4, "ns"),
+                            amplitude=Quantity(0.25, "arb"),
+                        ),
+                    ),
+                    Acquire(
+                        id=PulseEventId("capture"),
+                        signal=slot.signal,
+                        slot_id=slot.id,
+                        duration=Quantity(4, "ns"),
+                    ),
+                )
+            ),
+            acquisition_slots=(slot,),
+        ),
+    )
+    source = QuantumProgramIR(
+        id=QuantumProgramId("mixed-gate-pulse-program"),
+        body=QuantumSequence((implemented_gate, readout)),
+    )
+    lowered = lower_quantum_program_to_pulses(
+        verify_quantum_program(source, (gate,)),
+        CalibrationCatalog(),
+        output_id=PulseProgramId("mixed-gate-pulse-program-pulses"),
+    )
+    return prepare_quantum_target_entry(entry_id, lowered)
+
+
 def _scenario(
     *,
     repetitions: int = 2,
@@ -840,6 +925,8 @@ def _mixed_bindings(
 def _prepared_mixed_execution(
     scenario: _Scenario,
     runtime: DomainRuntime[SelectedFakeMeasurementRealization, FakeListRun],
+    *,
+    response_intent: object | None = None,
 ) -> PreparedDomainExecution:
     selection = select_fake_measurement_realization(
         scenario.compiled_target,
@@ -853,6 +940,7 @@ def _prepared_mixed_execution(
         invocation=fake_measurement_invocation_spec(
             selection,
             invocation_id="mixed-readout",
+            response_intent=response_intent,
         ),
         runtime=runtime,
         realize=lambda fetched: (
@@ -867,12 +955,18 @@ def _prepared_mixed_execution(
 def _closed_mixed_invocation(
     scenario: _Scenario,
     runtime: DomainRuntime[SelectedFakeMeasurementRealization, FakeListRun],
+    *,
+    response_intent: object | None = None,
 ) -> ClosedDomainInvocation[
     TargetCompileEntryId,
     TargetAcquisitionAddress,
     SelectedFakeMeasurementRealization,
 ]:
-    prepared = _prepared_mixed_execution(scenario, runtime)
+    prepared = _prepared_mixed_execution(
+        scenario,
+        runtime,
+        response_intent=response_intent,
+    )
     return cast(
         ClosedDomainInvocation[
             TargetCompileEntryId,
@@ -946,6 +1040,105 @@ def test_three_point_fake_circuit_run_correlates_target_and_logical_order() -> N
             assert frame is correlated.frame_for_address(address, shot_index)
             assert frame.mapped_result is mapped_result
             assert frame.acquisition_origin is origin
+
+
+def test_mixed_quantum_program_reuses_fake_selection_and_correlation() -> None:
+    linked_points = _linked_points(
+        product_unit="ratio",
+        product_axes=(shot_axis(2),),
+    )
+    preparation = _preparation_for_all_points(linked_points)
+    adapter_point_order = (2, 0, 1)
+    entries = tuple(
+        _prepared_mixed_quantum_entry(
+            TargetCompileEntryId(f"mixed-program-entry-{point_index}")
+        )
+        for point_index in adapter_point_order
+    )
+    target = default_fake_list_target()
+    compiler = FakeListTargetCompiler(
+        TargetCompilerId("fake-list-compiler.v1"),
+        target,
+    )
+    batch = prepare_quantum_target_batch(
+        entries,
+        target_id=target.id,
+        compiler_id=compiler.id,
+        capability_fingerprint=target.capability_fingerprint,
+        repetitions=2,
+    )
+    points = preparation.context.points
+    product_use = preparation.context.call.result(
+        _SINGLE_RESULT_ID
+    ).require_one_product_use()
+    mapping = seal_quantum_target_result_mapping(
+        preparation,
+        batch,
+        tuple(
+            QuantumTargetEntryPointBinding(entry.id, points[point_index])
+            for entry, point_index in zip(
+                batch.entries,
+                adapter_point_order,
+                strict=True,
+            )
+        ),
+        tuple(
+            QuantumTargetAcquisitionUseBinding(
+                entry.acquisition_addresses[0],
+                product_use,
+            )
+            for entry in batch.entries
+        ),
+    )
+    compiled_target = bind_compiled_quantum_target(
+        mapping,
+        compile_target(compiler, batch.request),
+    )
+    selection = select_fake_measurement_realization(
+        compiled_target,
+        target,
+        tuple(
+            integrated_iq_shots(result.result_address)
+            for result in mapping.domain_mapping.results
+        ),
+    )
+    realized = execute_realized_fake_measurements(FakeListRuntime(), selection)
+
+    assert isinstance(compiled_target, CompiledQuantumTarget)
+    assert isinstance(mapping, QuantumTargetResultMapping)
+    assert selection.compiled_target is compiled_target
+    assert tuple(result.point for result in mapping.domain_mapping.results) == points
+    assert tuple(
+        result.result_address.entry_id for result in mapping.domain_mapping.results
+    ) == tuple(
+        TargetCompileEntryId(f"mixed-program-entry-{index}") for index in range(3)
+    )
+    assert len({address.slot_id for address in batch.acquisition_addresses}) == 1
+    assert len(set(batch.acquisition_addresses)) == len(points)
+    assert tuple(value.result_address for value in realized.result_values) == tuple(
+        result.result_address for result in mapping.domain_mapping.results
+    )
+
+    for entry in batch.entries:
+        address = entry.acquisition_addresses[0]
+        origin = batch.acquisition_origin_for(address)
+        assert isinstance(origin, QuantumTargetAcquisitionOrigin)
+        assert origin.source_program_id == QuantumProgramId("mixed-gate-pulse-program")
+        assert isinstance(origin.provenance, AuthoredPulseAcquisitionProvenance)
+        assert origin.provenance.source_id == CircuitOperationId("inline-readout")
+        assert any(
+            isinstance(
+                event_origin.provenance,
+                ImplementedGatePulseEventProvenance,
+            )
+            for event_origin in entry.event_origins
+        )
+
+        mapped_result = mapping.domain_mapping.result_for_address(address)
+        frames = realized.correlated_run.frames_for_address(address)
+        assert tuple(frame.shot_index for frame in frames) == (0, 1)
+        assert all(frame.mapped_result is mapped_result for frame in frames)
+        assert all(frame.acquisition_origin is origin for frame in frames)
 
 
 def test_one_physical_fake_result_fans_out_to_every_product_use() -> None:
@@ -1649,6 +1842,27 @@ def test_fake_measurement_invocation_closes_exact_intent() -> None:
     assert invocation.intent.capability_fingerprint == compiled.capability_fingerprint
     assert invocation.intent.artifact_id == compiled.artifact_id.value
     assert invocation.intent.artifact_fingerprint == compiled.artifact_fingerprint
+
+
+def test_fake_measurement_invocation_identity_covers_response_intent() -> None:
+    scenario = _mixed_scenario(repetitions=2, sample_count=4)
+    first = _closed_mixed_invocation(
+        scenario,
+        FakeListDomainRuntime(),
+        response_intent={"response_fingerprint": "response:a"},
+    )
+    second = _closed_mixed_invocation(
+        scenario,
+        FakeListDomainRuntime(),
+        response_intent={"response_fingerprint": "response:b"},
+    )
+
+    assert first.intent.artifact_fingerprint == second.intent.artifact_fingerprint
+    assert (
+        first.intent.adapter_intent_fingerprint
+        != second.intent.adapter_intent_fingerprint
+    )
+    assert first.intent.intent_fingerprint != second.intent.intent_fingerprint
 
 
 def test_fake_domain_submit_fetch_and_realize_preserve_canonical_outputs() -> None:

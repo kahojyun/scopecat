@@ -135,7 +135,7 @@ def load_run_plan(*, run_id: str, services: WorkspaceServices) -> RunPlanRecord:
         code="run.plan_missing",
         label="accepted plan record",
     )
-    return storage.read_model(run_id, RUN_PLAN_REF, RunPlanRecord)
+    return storage.read_run_plan(run_id)
 
 
 def _require_run_ref(

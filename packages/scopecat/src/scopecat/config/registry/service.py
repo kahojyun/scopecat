@@ -638,6 +638,24 @@ def load_config_registry_entry(
 def _load_config_registry_entry_locked(
     *, entry_id: str, work: WorkspaceUnitOfWork
 ) -> ConfigRegistryEntry:
+    entry = _load_committed_config_registry_entry_locked(
+        entry_id=entry_id,
+        work=work,
+    )
+    config = _read_entry_config(work.registry, entry)
+    _validate_candidate_entry_evidence_locked(
+        work=work,
+        entry=entry,
+        config=config,
+    )
+    return entry
+
+
+def _load_committed_config_registry_entry_locked(
+    *, entry_id: str, work: WorkspaceUnitOfWork
+) -> ConfigRegistryEntry:
+    """Load committed registry identity without re-evaluating source evidence."""
+
     index = _read_index(work.registry)
     indexed_entry = next(
         (entry for entry in index.entries if entry.id == entry_id),
@@ -663,8 +681,8 @@ def _load_config_registry_entry_locked(
             location=_registry_model_location("entry_id"),
             details={"entry_id": entry_id},
         )
-    return _validate_indexed_entry_locked(
-        work=work,
+    return _validate_indexed_entry_identity_locked(
+        repository=work.registry,
         indexed_entry=indexed_entry,
     )
 
@@ -674,9 +692,27 @@ def _validate_indexed_entry_locked(
     work: WorkspaceUnitOfWork,
     indexed_entry: ConfigRegistryEntry,
 ) -> ConfigRegistryEntry:
+    entry = _validate_indexed_entry_identity_locked(
+        repository=work.registry,
+        indexed_entry=indexed_entry,
+    )
+    config = _read_entry_config(work.registry, entry)
+    _validate_candidate_entry_evidence_locked(
+        work=work,
+        entry=entry,
+        config=config,
+    )
+    return entry
+
+
+def _validate_indexed_entry_identity_locked(
+    *,
+    repository: ConfigRegistryRepository,
+    indexed_entry: ConfigRegistryEntry,
+) -> ConfigRegistryEntry:
     entry = _read_config_registry_entry_file_locked(
         entry_id=indexed_entry.id,
-        repository=work.registry,
+        repository=repository,
     )
     if entry != indexed_entry:
         raise _registry_failure(
@@ -684,18 +720,12 @@ def _validate_indexed_entry_locked(
             code="config_registry.index_entry_mismatch",
             category=ProblemCategory.DATA_INTEGRITY,
             message="config registry entry does not match its committed index record",
-            location=_registry_storage_location(work.registry.index_ref),
+            location=_registry_storage_location(repository.index_ref),
             related_locations=(
-                _registry_storage_location(work.registry.entry_ref(entry.id)),
+                _registry_storage_location(repository.entry_ref(entry.id)),
             ),
             details={"entry_id": entry.id},
         )
-    config = _read_entry_config(work.registry, entry)
-    _validate_candidate_entry_evidence_locked(
-        work=work,
-        entry=entry,
-        config=config,
-    )
     return entry
 
 
@@ -874,16 +904,10 @@ def rollback_config_registry(
         )
         if repeated is not None:
             assert current_state is not None
-            current_entry = _load_config_registry_entry_locked(
-                entry_id=current_state.active_entry_id,
+            _load_current_active_entry_for_rollback_locked(
+                state=current_state,
                 work=work,
             )
-            _validate_active_entry_identity(
-                work.registry,
-                current_state,
-                current_entry,
-            )
-            _validate_entry_config(work.registry, current_entry)
             work.registry.commit_active_state(current_state)
             return current_state, repeated
         _require_expected_generation(
@@ -899,12 +923,10 @@ def rollback_config_registry(
                 message="config registry has no active entry",
                 location=_registry_model_location("active"),
             )
-        current_entry = _load_config_registry_entry_locked(
-            entry_id=current_state.active_entry_id,
+        _load_current_active_entry_for_rollback_locked(
+            state=current_state,
             work=work,
         )
-        _validate_active_entry_identity(work.registry, current_state, current_entry)
-        _read_entry_config(work.registry, current_entry)
         rollback_target = _previous_distinct_activation(current_state)
         entry = _load_config_registry_entry_locked(
             entry_id=rollback_target.entry_id,
@@ -942,6 +964,30 @@ def rollback_config_registry(
         )
         work.registry.commit_active_state(state)
         return state, record
+
+
+def _load_current_active_entry_for_rollback_locked(
+    *,
+    state: ConfigRegistryActiveState,
+    work: WorkspaceUnitOfWork,
+) -> ConfigRegistryEntry:
+    """Validate the entry being left without blocking emergency rollback.
+
+    A candidate may be rejected or invalidated after it became active. That
+    later review state must prevent future selection, but it must not trap the
+    active selector on the now-disallowed candidate. The committed index,
+    entry coordinates, active-state identity, and config content hash remain
+    mandatory here. The rollback target still goes through the complete
+    candidate-evidence validation in ``_load_config_registry_entry_locked``.
+    """
+
+    entry = _load_committed_config_registry_entry_locked(
+        entry_id=state.active_entry_id,
+        work=work,
+    )
+    _validate_active_entry_identity(work.registry, state, entry)
+    _read_entry_config(work.registry, entry)
+    return entry
 
 
 def current_config_registry_generation(

@@ -1,8 +1,9 @@
 """Correlate fake target evidence to Scopecat logical quantum outputs.
 
 The ordinary fake-list runtime remains usable as a target-specific component.
-This adapter layer additionally proves that a compiled circuit batch, its raw
-run, and every returned frame belong to the same transient mapping chain.
+This adapter layer additionally proves that a compiled logical circuit or
+mixed gate/pulse batch, its raw run, and every returned frame belong to the
+same transient mapping chain.
 Frames remain raw target evidence after correlation. Explicit per-result
 laboratory bindings may then compose integrated-IQ shot arrays and raw
 shot-by-sample traces in one exact pre-effect selection; target repetitions or
@@ -17,7 +18,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
-from typing import cast
+from typing import TypeGuard, cast
 
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.problems import (
@@ -48,6 +49,11 @@ from scopecat_quantum.circuit_results import (
     CompiledCircuitTarget,
 )
 from scopecat_quantum.circuit_targets import CircuitTargetAcquisitionOrigin
+from scopecat_quantum.program_results import (
+    CompiledQuantumTarget,
+    QuantumTargetResultMapping,
+)
+from scopecat_quantum.program_targets import QuantumTargetAcquisitionOrigin
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from quantum_lab_demo.targets.fake_list_mode.model import (
@@ -63,6 +69,20 @@ from quantum_lab_demo.targets.fake_list_mode.runtime import (
 
 _FAKE_RESPONSE_UNIT = "ratio"
 
+type _FakeListCompiledTarget = (
+    CompiledCircuitTarget[FakeListArtifact] | CompiledQuantumTarget[FakeListArtifact]
+)
+type _FakeListResultMapping = CircuitTargetResultMapping | QuantumTargetResultMapping
+type _FakeListAcquisitionOrigin = (
+    CircuitTargetAcquisitionOrigin | QuantumTargetAcquisitionOrigin
+)
+
+
+def _is_fake_list_compiled_target(
+    value: object,
+) -> TypeGuard[_FakeListCompiledTarget]:
+    return isinstance(value, CompiledCircuitTarget | CompiledQuantumTarget)
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class CorrelatedFakeListFrame:
@@ -72,7 +92,7 @@ class CorrelatedFakeListFrame:
     mapped_result: DomainMappedResult[
         TargetCompileEntryId, TargetAcquisitionAddress
     ] = field(repr=False)
-    acquisition_origin: CircuitTargetAcquisitionOrigin = field(repr=False)
+    acquisition_origin: _FakeListAcquisitionOrigin = field(repr=False)
 
     def __init__(
         self,
@@ -80,13 +100,13 @@ class CorrelatedFakeListFrame:
         mapped_result: DomainMappedResult[
             TargetCompileEntryId, TargetAcquisitionAddress
         ],
-        acquisition_origin: CircuitTargetAcquisitionOrigin,
+        acquisition_origin: _FakeListAcquisitionOrigin,
     ) -> None:
         if mapped_result.result_address != frame.address:
             msg = "fake frame address does not identify its logical result"
             raise ValueError(msg)
         if acquisition_origin.address != frame.address:
-            msg = "fake frame address does not identify its circuit acquisition"
+            msg = "fake frame address does not identify its quantum acquisition"
             raise ValueError(msg)
         if mapped_result.entry_address != frame.entry_id:
             msg = "fake frame entry does not own its logical result"
@@ -120,7 +140,7 @@ class CorrelatedFakeListFrame:
 class CorrelatedFakeListRun:
     """Checked, canonically ordered fake target evidence."""
 
-    compiled_target: CompiledCircuitTarget[FakeListArtifact]
+    compiled_target: _FakeListCompiledTarget
     target_run: FakeListRun
     frames: tuple[CorrelatedFakeListFrame, ...]
     _by_output_shot: Mapping[
@@ -134,7 +154,7 @@ class CorrelatedFakeListRun:
 
     def __init__(
         self,
-        compiled_target: CompiledCircuitTarget[FakeListArtifact],
+        compiled_target: _FakeListCompiledTarget,
         target_run: FakeListRun,
         frames: tuple[CorrelatedFakeListFrame, ...],
     ) -> None:
@@ -149,7 +169,7 @@ class CorrelatedFakeListRun:
             or target_run.artifact_id != compiled.artifact_id
             or target_run.artifact.artifact_fingerprint != compiled.artifact_fingerprint
         ):
-            msg = "fake-list run does not belong to its compiled circuit target"
+            msg = "fake-list run does not belong to its compiled quantum target"
             raise ValueError(msg)
 
         selected_frames = tuple(frames)
@@ -237,7 +257,7 @@ class CorrelatedFakeListRun:
         )
 
     @property
-    def mapping(self) -> CircuitTargetResultMapping:
+    def mapping(self) -> _FakeListResultMapping:
         return self.compiled_target.mapping
 
     @property
@@ -339,7 +359,7 @@ class SelectedFakeMeasurementOutput:
         TargetCompileEntryId,
         TargetAcquisitionAddress,
     ] = field(repr=False)
-    acquisition_origin: CircuitTargetAcquisitionOrigin = field(repr=False)
+    acquisition_origin: _FakeListAcquisitionOrigin = field(repr=False)
     acquisition_window: FakeAcquisitionWindow = field(repr=False)
     kind: FakeMeasurementRealizationKind
 
@@ -349,7 +369,7 @@ class SelectedFakeMeasurementOutput:
             TargetCompileEntryId,
             TargetAcquisitionAddress,
         ],
-        acquisition_origin: CircuitTargetAcquisitionOrigin,
+        acquisition_origin: _FakeListAcquisitionOrigin,
         acquisition_window: FakeAcquisitionWindow,
         kind: FakeMeasurementRealizationKind,
     ) -> None:
@@ -385,7 +405,7 @@ class SelectedFakeMeasurementOutput:
 class SelectedFakeMeasurementRealization:
     """Exact pre-effect closure of heterogeneous fake measurement policies."""
 
-    compiled_target: CompiledCircuitTarget[FakeListArtifact] = field(repr=False)
+    compiled_target: _FakeListCompiledTarget = field(repr=False)
     target: FakeListTarget = field(repr=False)
     outputs: tuple[SelectedFakeMeasurementOutput, ...]
     _by_address: Mapping[
@@ -395,12 +415,15 @@ class SelectedFakeMeasurementRealization:
 
     def __init__(
         self,
-        compiled_target: CompiledCircuitTarget[FakeListArtifact],
+        compiled_target: _FakeListCompiledTarget,
         target: FakeListTarget,
         outputs: tuple[SelectedFakeMeasurementOutput, ...],
     ) -> None:
-        if not isinstance(cast("object", compiled_target), CompiledCircuitTarget):
-            msg = "fake measurement selection requires a CompiledCircuitTarget"
+        if not _is_fake_list_compiled_target(cast("object", compiled_target)):
+            msg = (
+                "fake measurement selection requires a CompiledCircuitTarget "
+                "or CompiledQuantumTarget"
+            )
             raise TypeError(msg)
         if not isinstance(
             cast("object", compiled_target.compiled.artifact), FakeListArtifact
@@ -441,7 +464,7 @@ class SelectedFakeMeasurementRealization:
         object.__setattr__(self, "_by_address", MappingProxyType(by_address))
 
     @property
-    def mapping(self) -> CircuitTargetResultMapping:
+    def mapping(self) -> _FakeListResultMapping:
         return self.compiled_target.mapping
 
     @property
@@ -517,7 +540,7 @@ class RealizedFakeMeasurementRun:
         object.__setattr__(self, "_by_address", MappingProxyType(by_address))
 
     @property
-    def mapping(self) -> CircuitTargetResultMapping:
+    def mapping(self) -> _FakeListResultMapping:
         return self.selection.mapping
 
     def value_for_output(
@@ -562,14 +585,17 @@ def raw_trace_shots(
 
 
 def select_fake_measurement_realization(
-    compiled_target: CompiledCircuitTarget[FakeListArtifact],
+    compiled_target: _FakeListCompiledTarget,
     target: FakeListTarget,
     bindings: Sequence[FakeMeasurementRealizationBinding],
 ) -> SelectedFakeMeasurementRealization:
     """Seal explicit per-result value policies before target effects."""
 
-    if not isinstance(cast("object", compiled_target), CompiledCircuitTarget):
-        msg = "fake measurement selection requires a CompiledCircuitTarget"
+    if not _is_fake_list_compiled_target(cast("object", compiled_target)):
+        msg = (
+            "fake measurement selection requires a CompiledCircuitTarget "
+            "or CompiledQuantumTarget"
+        )
         raise TypeError(msg)
     if not isinstance(
         cast("object", compiled_target.compiled.artifact), FakeListArtifact
@@ -599,13 +625,16 @@ def select_fake_measurement_realization(
 
 
 def correlate_fake_list_run(
-    compiled_target: CompiledCircuitTarget[FakeListArtifact],
+    compiled_target: _FakeListCompiledTarget,
     target_run: FakeListRun,
 ) -> CorrelatedFakeListRun:
     """Revalidate and correlate one raw fake run without interpreting values."""
 
-    if not isinstance(cast("object", compiled_target), CompiledCircuitTarget):
-        msg = "fake-list run correlation requires a CompiledCircuitTarget"
+    if not _is_fake_list_compiled_target(cast("object", compiled_target)):
+        msg = (
+            "fake-list run correlation requires a CompiledCircuitTarget "
+            "or CompiledQuantumTarget"
+        )
         raise TypeError(msg)
     if not isinstance(cast("object", target_run), FakeListRun):
         msg = "fake-list run correlation requires a FakeListRun"
@@ -615,9 +644,10 @@ def correlate_fake_list_run(
         frames=tuple(target_run.frames),
         artifact=target_run.artifact,
         fingerprint=target_run.fingerprint,
+        response=target_run.response,
     )
-    circuit_mapping = compiled_target.mapping
-    mapping = circuit_mapping.domain_mapping
+    target_mapping = compiled_target.mapping
+    mapping = target_mapping.domain_mapping
     compiled = compiled_target.compiled
     artifact = cast("object", compiled.artifact)
     if not isinstance(artifact, FakeListArtifact):
@@ -649,7 +679,7 @@ def correlate_fake_list_run(
         CorrelatedFakeListFrame(
             frame=raw_by_address_shot[(result.result_address, shot_index)],
             mapped_result=result,
-            acquisition_origin=circuit_mapping.batch.acquisition_origin_for(
+            acquisition_origin=target_mapping.batch.acquisition_origin_for(
                 result.result_address
             ),
         )
@@ -665,15 +695,18 @@ def correlate_fake_list_run(
 
 def execute_correlated_fake_list(
     runtime: FakeListRuntime,
-    compiled_target: CompiledCircuitTarget[FakeListArtifact],
+    compiled_target: _FakeListCompiledTarget,
 ) -> CorrelatedFakeListRun:
     """Execute the synchronous fake target and correlate its returned evidence."""
 
     if not isinstance(cast("object", runtime), FakeListRuntime):
         msg = "correlated fake-list execution requires a FakeListRuntime"
         raise TypeError(msg)
-    if not isinstance(cast("object", compiled_target), CompiledCircuitTarget):
-        msg = "correlated fake-list execution requires a CompiledCircuitTarget"
+    if not _is_fake_list_compiled_target(cast("object", compiled_target)):
+        msg = (
+            "correlated fake-list execution requires a CompiledCircuitTarget "
+            "or CompiledQuantumTarget"
+        )
         raise TypeError(msg)
     target_run = runtime.execute(compiled_target.compiled)
     return correlate_fake_list_run(compiled_target, target_run)
@@ -930,7 +963,7 @@ class _ArtifactAcquisition:
 
 
 def _select_fake_measurement_outputs(
-    compiled_target: CompiledCircuitTarget[FakeListArtifact],
+    compiled_target: _FakeListCompiledTarget,
     target: FakeListTarget,
     bindings: tuple[FakeMeasurementRealizationBinding, ...],
 ) -> tuple[SelectedFakeMeasurementOutput, ...]:
@@ -1108,7 +1141,7 @@ def _select_fake_measurement_outputs(
 
 
 def _prepared_acquisitions(
-    compiled_target: CompiledCircuitTarget[FakeListArtifact],
+    compiled_target: _FakeListCompiledTarget,
 ) -> dict[TargetAcquisitionAddress, _PreparedAcquisition]:
     prepared: dict[TargetAcquisitionAddress, _PreparedAcquisition] = {}
     for list_index, entry in enumerate(compiled_target.mapping.batch.request.entries):
@@ -1141,7 +1174,7 @@ def _prepared_acquisitions(
 
 
 def _artifact_acquisitions(
-    compiled_target: CompiledCircuitTarget[FakeListArtifact],
+    compiled_target: _FakeListCompiledTarget,
 ) -> dict[TargetAcquisitionAddress, _ArtifactAcquisition]:
     artifact = cast("FakeListArtifact", compiled_target.compiled.artifact)
     acquisitions: dict[TargetAcquisitionAddress, _ArtifactAcquisition] = {}

@@ -47,10 +47,16 @@ from scopecat.planning.coverage import (
     program_execution_coverage,
 )
 from scopecat.planning.domain_placement import domain_call_execution_slices
-from scopecat.records.config import ConfigProfileSnapshot, RoutingChannelBinding
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    RoutingChannelBinding,
+    config_content_hash,
+)
 from scopecat.records.measurement import CoordinateValue
 from scopecat.records.run_plan import (
     RunPlanChannelBinding,
+    RunPlanConfigInputBinding,
+    RunPlanConfigValue,
     RunPlanDeferredValue,
     RunPlanDomainBatch,
     RunPlanDomainCapabilities,
@@ -266,6 +272,10 @@ class PreparedExecutionPlan:
                     max_points_per_batch=unit.offer.max_points_per_batch,
                 ),
                 batches=[_run_plan_domain_batch(job) for job in unit.jobs],
+                config_input_bindings=_run_plan_config_input_bindings(
+                    self.linked_points,
+                    call_id=unit.offer.call_id,
+                ),
             )
             for unit in domains
         )
@@ -332,6 +342,9 @@ class PreparedExecutionPlan:
         ) or any("point" in record.dims for record in selected.records):
             dataset_dimensions["point"] = len(points)
         return RunPlanRecord(
+            config_content_hash=config_content_hash(
+                self.linked_points.linked_plan.environment.config
+            ),
             backend_id=self.backend_id,
             execution_options=self.run_plan_options(),
             experiment_id=self.linked_points.linked_plan.program.id,
@@ -426,6 +439,27 @@ class ExecutionBackend:
         if not isinstance(cast("object", selected_options), ExecutionOptions):
             msg = "execution backend options must be ExecutionOptions"
             raise TypeError(msg)
+        linked_config_hash = config_content_hash(linked.environment.config)
+        execution_config_hash = config_content_hash(config)
+        if linked_config_hash != execution_config_hash:
+            raise CheckFailed(
+                [
+                    blocking_problem(
+                        "execution_config_snapshot_mismatch",
+                        (
+                            "execution config does not match the snapshot bound "
+                            "to the linked plan"
+                        ),
+                        category=ProblemCategory.INVALID_INPUT,
+                        phase=ProblemPhase.PLANNING,
+                        location=model_location("execution", "config"),
+                        details={
+                            "linked_config_content_hash": linked_config_hash,
+                            "execution_config_content_hash": execution_config_hash,
+                        },
+                    )
+                ]
+            )
         return _prepare_backend_plan(
             backend=self,
             linked=linked,
@@ -438,6 +472,42 @@ def _run_plan_domain_batch(job: PreparedDomainJob) -> RunPlanDomainBatch:
     return project_domain_run_plan_batch_internal(
         job.prepared,
         context=job.context,
+    )
+
+
+def _run_plan_config_input_bindings(
+    linked_points: MaterializedLinkedPoints,
+    *,
+    call_id: str,
+) -> list[RunPlanConfigInputBinding]:
+    call = next(
+        (
+            candidate
+            for candidate in linked_points.domain_calls
+            if candidate.call.id.qualified_name == call_id
+        ),
+        None,
+    )
+    if call is None:
+        raise AssertionError("selected domain unit lost its materialized call")
+    bindings = [
+        RunPlanConfigInputBinding(
+            input_id=binding.input_id,
+            point_index=point.logical_ordinal,
+            table_id=binding.table_id,
+            key={
+                column_id: cast("RunPlanConfigValue", value)
+                for column_id, value in binding.key
+            },
+            column_id=binding.column_id,
+            resolved_value=cast("RunPlanConfigValue", binding.resolved_value),
+        )
+        for point in call.points
+        for binding in point.config_input_bindings
+    ]
+    return sorted(
+        bindings,
+        key=lambda binding: (binding.point_index, binding.input_id),
     )
 
 

@@ -2,7 +2,7 @@
 
 The caller owns Scopecat authoring and supplies a context-bound preparation
 builder plus exact SDK product-use references. This module owns laboratory
-composition: one calibrated circuit per X-count, fake list-target compilation,
+composition: one calibrated program per X-count, fake list-target compilation,
 domain submission, integrated-IQ realization, host discrimination, and durable
 measurement-record commits.
 
@@ -39,9 +39,7 @@ from scopecat_quantum import (
     AcquisitionSlotId,
     CalibrationCatalog,
     CalibrationId,
-    CircuitTargetAcquisitionUseBinding,
-    CircuitTargetEntryPointBinding,
-    CompiledCircuitTarget,
+    CompiledQuantumTarget,
     Constant,
     DriveSignal,
     GateCalibration,
@@ -53,24 +51,26 @@ from scopecat_quantum import (
     MeasurementCalibrationCatalog,
     MeasurementCalibrationKey,
     Play,
-    PreparedCircuitTargetEntry,
+    PreparedQuantumTargetEntry,
     PulseEventId,
     PulseParallel,
     PulseProgram,
     PulseProgramId,
+    QuantumTargetAcquisitionUseBinding,
+    QuantumTargetEntryPointBinding,
     QubitId,
     ReadoutSignal,
     TargetAcquisitionAddress,
     TargetCompileEntryId,
     TargetCompilerId,
-    VerifiedCircuitProgram,
+    VerifiedQuantumProgram,
     binary_iq_probability_host_implementation,
-    bind_compiled_circuit_target,
+    bind_compiled_quantum_target,
     compile_target,
-    prepare_circuit_target_batch,
-    prepare_circuit_target_entry,
-    seal_circuit_target_result_mapping,
-    select_calibrations,
+    lower_quantum_program_to_pulses,
+    prepare_quantum_target_batch,
+    prepare_quantum_target_entry,
+    seal_quantum_target_result_mapping,
 )
 
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -123,9 +123,9 @@ class PreparedFakeXCountReference:
     target: FakeListTarget
     compiler: FakeListTargetCompiler
     calibration_catalog: CalibrationCatalog
-    circuits: tuple[VerifiedCircuitProgram, ...]
-    entries: tuple[PreparedCircuitTargetEntry, ...]
-    compiled_target: CompiledCircuitTarget[FakeListArtifact]
+    programs: tuple[VerifiedQuantumProgram, ...]
+    entries: tuple[PreparedQuantumTargetEntry, ...]
+    compiled_target: CompiledQuantumTarget[FakeListArtifact]
     realization: SelectedFakeMeasurementRealization = field(repr=False)
     invocation: FakeMeasurementInvocationSpec = field(repr=False)
     measurements: DomainMeasurementPlan[
@@ -145,7 +145,7 @@ def prepare_fake_x_count_reference(
     products: FakeXCountProductBinding,
     *,
     acquisition_slot_id: AcquisitionSlotId,
-    circuits: Sequence[VerifiedCircuitProgram],
+    programs: Sequence[VerifiedQuantumProgram],
     x_counts: Sequence[int],
     shots: int = 32,
     qubit: QubitId = DEFAULT_QUBIT,
@@ -154,7 +154,7 @@ def prepare_fake_x_count_reference(
     host_implementation: DomainHostTransformImplementation | None = None,
     invocation_id: str = "fake-x-count",
 ) -> PreparedFakeXCountReference:
-    """Close the reference circuit, target, result, and transform mappings.
+    """Close the reference program, target, result, and transform mappings.
 
     ``x_counts`` is supplied by the lab adapter's already bound point view.
     Its order must exactly match the canonical logical points; this target
@@ -170,11 +170,11 @@ def prepare_fake_x_count_reference(
     if not isinstance(acquisition_slot_id, AcquisitionSlotId):
         msg = "fake X-count preparation requires a typed acquisition slot"
         raise TypeError(msg)
-    selected_circuits = tuple(circuits)
+    selected_programs = tuple(programs)
     if any(
-        not isinstance(circuit, VerifiedCircuitProgram) for circuit in selected_circuits
+        not isinstance(program, VerifiedQuantumProgram) for program in selected_programs
     ):
-        msg = "fake X-count preparation requires verified authored circuits"
+        msg = "fake X-count preparation requires verified authored programs"
         raise TypeError(msg)
     if type(shots) is not int or shots <= 0:
         msg = "fake X-count shots must be a positive integer"
@@ -195,36 +195,38 @@ def prepare_fake_x_count_reference(
 
     points = preparation.context.points
     selected_x_counts = _validated_x_counts(points, x_counts)
-    if len(selected_circuits) != len(selected_x_counts):
-        msg = "fake X-count circuits must exactly cover the logical point batch"
+    if len(selected_programs) != len(selected_x_counts):
+        msg = "fake X-count programs must exactly cover the logical point batch"
         raise ValueError(msg)
-    if not selected_circuits:
-        msg = "fake X-count preparation requires at least one authored circuit"
+    if not selected_programs:
+        msg = "fake X-count preparation requires at least one authored program"
         raise ValueError(msg)
-    gate = selected_circuits[0].gate_definition(GateId("x"))
+    gate = selected_programs[0].logical_circuit.gate_definition(GateId("x"))
     catalog = _calibration_catalog(qubit, gate)
     entries = tuple(
-        prepare_circuit_target_entry(
+        prepare_quantum_target_entry(
             TargetCompileEntryId(f"fake-x-count-entry-{point.ordinal}"),
-            circuit,
-            select_calibrations(circuit, catalog),
-            output_id=PulseProgramId(f"fake-x-count-pulses-{point.ordinal}"),
+            lower_quantum_program_to_pulses(
+                program,
+                catalog,
+                output_id=PulseProgramId(f"fake-x-count-pulses-{point.ordinal}"),
+            ),
         )
-        for point, circuit in zip(points, selected_circuits, strict=True)
+        for point, program in zip(points, selected_programs, strict=True)
     )
     compiler = FakeListTargetCompiler(compiler_id, selected_target)
-    batch = prepare_circuit_target_batch(
+    batch = prepare_quantum_target_batch(
         entries,
         target_id=selected_target.id,
         compiler_id=compiler.id,
         capability_fingerprint=selected_target.capability_fingerprint,
         repetitions=shots,
     )
-    mapping = seal_circuit_target_result_mapping(
+    mapping = seal_quantum_target_result_mapping(
         preparation,
         batch,
         tuple(
-            CircuitTargetEntryPointBinding(entry.id, point)
+            QuantumTargetEntryPointBinding(entry.id, point)
             for entry, point in zip(
                 entries,
                 preparation.context.points,
@@ -232,7 +234,7 @@ def prepare_fake_x_count_reference(
             )
         ),
         tuple(
-            CircuitTargetAcquisitionUseBinding(
+            QuantumTargetAcquisitionUseBinding(
                 _acquisition_address(entry, acquisition_slot_id),
                 product_use,
             )
@@ -240,7 +242,7 @@ def prepare_fake_x_count_reference(
             for product_use in products.iq_shots
         ),
     )
-    compiled_target = bind_compiled_circuit_target(
+    compiled_target = bind_compiled_quantum_target(
         mapping,
         compile_target(compiler, batch.request),
     )
@@ -274,7 +276,7 @@ def prepare_fake_x_count_reference(
         target=selected_target,
         compiler=compiler,
         calibration_catalog=catalog,
-        circuits=selected_circuits,
+        programs=selected_programs,
         entries=entries,
         compiled_target=compiled_target,
         realization=realization,
@@ -284,7 +286,7 @@ def prepare_fake_x_count_reference(
 
 
 def _acquisition_address(
-    entry: PreparedCircuitTargetEntry,
+    entry: PreparedQuantumTargetEntry,
     slot_id: AcquisitionSlotId,
 ) -> TargetAcquisitionAddress:
     selected = tuple(
@@ -293,7 +295,7 @@ def _acquisition_address(
     if len(selected) != 1:
         msg = (
             f"fake X-count entry {entry.id.value!r} requires exactly one "
-            f"acquisition for circuit result {slot_id.value!r}"
+            f"acquisition for program result {slot_id.value!r}"
         )
         raise ValueError(msg)
     return selected[0]

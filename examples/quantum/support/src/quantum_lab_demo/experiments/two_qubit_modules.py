@@ -1,4 +1,10 @@
-"""two-qubit gate modules."""
+"""Structural two-qubit module fixtures for generic compute and routing tests.
+
+Executable two-qubit calibration examples belong in ``reference_experiments``
+and use the unified ``scopecat_quantum.authoring`` gate/pulse DSL. In
+particular, CZ conditional-phase calibration must not use the payload-shaped
+``CZ_CHEVRON_MODULE`` below as its authoring surface.
+"""
 
 from __future__ import annotations
 

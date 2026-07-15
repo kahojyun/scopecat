@@ -46,6 +46,7 @@ from quantum_lab_demo.targets.fake_list_mode.model import (
     acquisition_slot_identity_payload,
 )
 from quantum_lab_demo.targets.fake_list_mode.runtime import (
+    DeterministicFakeAcquisitionResponse,
     FakeListRun,
     FakeListRuntime,
 )
@@ -67,13 +68,26 @@ def fake_measurement_invocation_spec(
     selection: SelectedFakeMeasurementRealization,
     *,
     invocation_id: str,
+    response_intent: object | None = None,
 ) -> FakeMeasurementInvocationSpec:
-    """Declare stable target identity and the selected transient payload."""
+    """Declare target identity, realization, and response-affecting intent.
+
+    A custom device response must supply stable ``response_intent`` whose
+    content covers that response's fingerprint and configuration.
+    """
 
     if not isinstance(cast("object", selection), SelectedFakeMeasurementRealization):
         msg = "fake invocation spec requires a selected measurement realization"
         raise TypeError(msg)
     compiled = selection.compiled_target.compiled
+    selected_response_intent = (
+        {
+            "schema": "quantum_lab_demo.fake_acquisition_response_intent.v1",
+            "response_fingerprint": DeterministicFakeAcquisitionResponse().fingerprint,
+        }
+        if response_intent is None
+        else response_intent
+    )
     return DomainInvocationSpec(
         invocation_id=invocation_id,
         target=DomainTargetArtifactIdentity(
@@ -84,7 +98,7 @@ def fake_measurement_invocation_spec(
             artifact_fingerprint=compiled.artifact_fingerprint,
         ),
         adapter_intent={
-            "schema": "quantum_lab_demo.fake_measurement_invocation.v1",
+            "schema": "quantum_lab_demo.fake_measurement_invocation.v2",
             "realizations": [
                 {
                     "entry_id": output.result_address.entry_id.value,
@@ -95,6 +109,7 @@ def fake_measurement_invocation_spec(
                 }
                 for output in selection.outputs
             ],
+            "response": selected_response_intent,
         },
         payload=selection,
     )

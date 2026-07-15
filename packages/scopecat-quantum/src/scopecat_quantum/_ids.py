@@ -37,6 +37,11 @@ class CircuitId(_NominalId):
 
 
 @dataclass(frozen=True, slots=True)
+class QuantumProgramId(_NominalId):
+    """Identity of one mixed gate-and-pulse quantum program."""
+
+
+@dataclass(frozen=True, slots=True)
 class CircuitOperationId(_NominalId):
     """Identity of one operation occurrence inside a circuit."""
 
@@ -174,6 +179,7 @@ __all__ = [
     "GateId",
     "PulseEventId",
     "PulseProgramId",
+    "QuantumProgramId",
     "QubitId",
     "TargetArtifactId",
     "TargetCompileEntryId",

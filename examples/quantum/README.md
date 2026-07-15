@@ -29,6 +29,9 @@ uv run python examples/quantum/notebooks/09_system_scale_cases.py
 uv run python examples/quantum/notebooks/10_fake_awg_template.py
 uv run python examples/quantum/notebooks/11_fake_awg_scratch.py
 uv run python examples/quantum/notebooks/12_fake_awg_with_bias.py
+uv run python examples/quantum/notebooks/13_drag_beta_calibration.py
+uv run python examples/quantum/notebooks/14_ramsey_phase_dsl.py
+uv run python examples/quantum/notebooks/15_cz_conditional_phase.py
 ```
 
 For VS Code notebook/cell execution, sync the workspace environment first.
@@ -48,12 +51,15 @@ uv sync
 | `notebooks/04_manual_analysis.py` | Build one-off notebook analysis and candidate evidence. |
 | `notebooks/05_promote_analysis_step.py` | Replace repeated manual analysis with an `AnalysisStep`. |
 | `notebooks/06_review_candidate_and_rerun.py` | Run a candidate config, compare runs, and review the comparison. |
-| `notebooks/07_gate_calibration_family.py` | Preview related Rabi and CZ cases as one gate-calibration family, including parameter-table background state, run-time parameter scans, and waveform compute events. |
+| `notebooks/07_gate_calibration_family.py` | Preview related Rabi and CZ topology cases as one gate-calibration family, including parameter-table background state and run-time parameter scans. These structural module fixtures are not the reference gate/pulse authoring UX. |
 | `notebooks/08_readout_family.py` | Preview single, multiplexed, calibrated, and QND readout cases as one readout family. |
 | `notebooks/09_system_scale_cases.py` | Preview surface-code-shaped and backend-batch cases that exercise larger array and backend semantics. |
 | `notebooks/10_fake_awg_template.py` | Run a reusable quantum Template as one fake AWG list plus digitizer acquisition and host IQ discrimination. |
 | `notebooks/11_fake_awg_scratch.py` | Define and run the same target path through the scratch `Experiment` authoring style. |
 | `notebooks/12_fake_awg_with_bias.py` | Cross a scalar DC-voltage source with the programmable X-count axis and let one unified backend batch the fake AWG work between voltage changes. |
+| `notebooks/13_drag_beta_calibration.py` | Author gates and candidate pulses in one program, fit and approve a 2-D DRAG calibration, bind the active parameter through a `ProgramInput` into the production X90 waveform while a fixed Xm90 remains the trusted reference, then prove durable baseline/active/rollback behavior. |
+| `notebooks/14_ramsey_phase_dsl.py` | Inspect one Ramsey scan that composes a calibrated gate, reusable PulseTemplates, `shift_phase`, readout play, and explicit acquire in the same DSL. |
+| `notebooks/15_cz_conditional_phase.py` | Calibrate a physical CZ with a two-qubit gate, an explicitly authorized coupler flux pulse, frame phase, two-qubit readout/acquire, a three-axis conditional-phase Ramsey scan, fit guardrails, and a reviewable parameter proposal. |
 
 ## Adapting The Demo
 

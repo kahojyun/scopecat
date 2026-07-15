@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 # %%
-from typing import Any
-
 import scopecat as sc
 from quantum_lab_demo import notebook_workspace, quantum_lab
 from quantum_lab_demo.experiments import (
@@ -191,57 +189,6 @@ parallel_gate_preview = (
     )
 )
 
-# %%
-waveform_plan = (
-    lab.prepare(CZ_CHEVRON_TEMPLATE)
-    .inputs(control_qubit="q0", partner_qubit="q1", coupler="coupler-q0-q1")
-    .scan(COUPLER_DURATION, [24], unit="ns")
-    .scan(COUPLER_AMPLITUDE, [0.18], unit="arb")
-)
-waveform_preview = waveform_plan.preview(
-    name="gate family waveform compute",
-    tags=("gate", "waveform", "compute"),
-    description="one CZ point rendered into route-aware in-memory waveform payloads",
-)
-
-# %%
-events: list[dict[str, Any]] = []
-waveform_run = waveform_plan.run(
-    name="gate family waveform compute",
-    tags=("gate", "waveform", "compute"),
-    description="record runtime compute summaries without persisting waveform payloads",
-    event_sink=lambda event: events.append(event.model_dump(mode="python")),
-)
-
-# %%
-compute_events = [
-    event
-    for event in events
-    if event["kind"] == "transition"
-    and event["stage"] == "compute"
-    and event["state"] == "completed"
-]
-waveform_summaries = sorted(
-    (
-        event["metrics"]
-        for event in compute_events
-        if event["metrics"].get("schema_id") == "pulse_program"
-    ),
-    key=lambda metrics: str(metrics.get("semantic_operation_id", "")),
-)
-build_preview = next(
-    payload
-    for payload in waveform_preview.payloads
-    if payload.semantic_operation_id.endswith("/build-cz-chevron-program")
-)
-drive_event = next(
-    event
-    for event in compute_events
-    if str(event["metrics"].get("semantic_operation_id", "")).endswith(
-        "/render-cz-chevron-drive-waveforms"
-    )
-)
-
 flux_background_state_count = len(
     {
         (field.resource_id, field.capability_id, field.field_path)
@@ -294,24 +241,5 @@ gate_family_summary = {
     "runtime_scan_coordinates": list(runtime_parameter_scan_preview.coordinate_ids),
     "spectator_cz_points": spectator_cz_preview.point_count,
     "parallel_gate_points": parallel_gate_preview.point_count,
-    "waveform_preview_payloads": [
-        (
-            payload.semantic_operation_id,
-            payload.schema_id,
-            tuple(
-                (target.capability_id, target.field_path)
-                for target in payload.state_fields
-            ),
-        )
-        for payload in waveform_preview.payloads
-    ],
-    "waveform_build_dependencies": build_preview.dependencies,
-    "waveform_drive_runtime_dependencies": drive_event["metrics"].get("dependencies"),
-    "waveform_run_status": waveform_run.manifest.status,
-    "waveform_compute_event_count": len(compute_events),
-    "waveform_shapes": [summary.get("sample_shape") for summary in waveform_summaries],
-    "waveform_channels": [
-        summary.get("channel_count") for summary in waveform_summaries
-    ],
 }
 print(gate_family_summary)

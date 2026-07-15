@@ -1,5 +1,6 @@
 {
-  "schema_version": "scopecat.run_plan_record.v8",
+  "schema_version": "scopecat.run_plan_record.v9",
+  "config_content_hash": "sha256:2143503c14db9d7269b9af5fef49d019d4a4ec77806a4e0c82b16758f29af26f",
   "backend_id": "scopecat.execution.v2",
   "execution_options": {
     "requested": {

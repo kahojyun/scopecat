@@ -21,12 +21,16 @@ from scopecat.compiler.relations.backend import (
     evaluate_relation_in_context,
     evaluate_scalar,
     evaluate_series,
+    select_relation_plan,
     validate_relation_parameter_import,
 )
 from scopecat.compiler.relations.model import RelationExpr, Row, ScalarExpr, SeriesExpr
 from scopecat.compiler.relations.point_domain import PointCardinality
 from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
-from scopecat.compiler.relations.verification import PlanImportNamespace
+from scopecat.compiler.relations.verification import (
+    PlanImportNamespace,
+    verify_relation_plan,
+)
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     SeriesValueExpr,
@@ -178,17 +182,49 @@ class LinkedPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class MaterializedConfigInputBinding:
+    """One direct config lookup resolved for a domain-call input."""
+
+    input_id: str
+    table_id: str
+    key: tuple[tuple[str, object], ...]
+    column_id: str
+    resolved_value: object
+
+    def __post_init__(self) -> None:
+        if not self.input_id or not self.table_id or not self.column_id:
+            msg = "materialized config input binding ids must be non-empty"
+            raise ValueError(msg)
+        key_ids = tuple(column_id for column_id, _value in self.key)
+        if key_ids != tuple(sorted(set(key_ids))):
+            msg = "materialized config input binding keys must be unique and ordered"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
 class MaterializedDomainCallPoint:
     """One logical point's closed inputs for a domain call."""
 
     logical_id: LogicalPointId
     logical_ordinal: int
     inputs: tuple[tuple[str, object], ...]
+    config_input_bindings: tuple[MaterializedConfigInputBinding, ...] = ()
 
     def __post_init__(self) -> None:
         names = tuple(name for name, _value in self.inputs)
         if any(not name for name in names) or len(names) != len(set(names)):
             msg = "materialized domain call input ids must be non-empty and unique"
+            raise ValueError(msg)
+        binding_ids = tuple(binding.input_id for binding in self.config_input_bindings)
+        if len(binding_ids) != len(set(binding_ids)):
+            msg = "materialized config input bindings must have unique input ids"
+            raise ValueError(msg)
+        unknown_binding_ids = sorted(set(binding_ids) - set(names))
+        if unknown_binding_ids:
+            msg = (
+                "materialized config input bindings reference unknown inputs: "
+                + ", ".join(unknown_binding_ids)
+            )
             raise ValueError(msg)
 
     def input(self, name: str) -> object:
@@ -545,6 +581,7 @@ def _materialize_domain_calls(
         failed = False
         for point in points:
             input_values: list[tuple[str, object]] = []
+            config_input_bindings: list[MaterializedConfigInputBinding] = []
             context = EvalContext(params=parameters, point_row=point.row)
             for input_name, input_spec in call.inputs.items():
                 try:
@@ -566,7 +603,17 @@ def _materialize_domain_calls(
                             input_name,
                         ),
                     )
-                    input_values.append((input_name, _unwrap_domain_input(value)))
+                    resolved_value = _unwrap_domain_input(value)
+                    input_values.append((input_name, resolved_value))
+                    config_binding = _materialize_direct_config_input_binding(
+                        input_name,
+                        input_spec,
+                        resolved_value=resolved_value,
+                        context=context,
+                        relation_backend=relation_backend,
+                    )
+                    if config_binding is not None:
+                        config_input_bindings.append(config_binding)
                 except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                     failed = True
                     problems.append(
@@ -590,6 +637,7 @@ def _materialize_domain_calls(
                     logical_id=point.logical_id,
                     logical_ordinal=point.logical_ordinal,
                     inputs=tuple(input_values),
+                    config_input_bindings=tuple(config_input_bindings),
                 )
             )
         if not failed:
@@ -601,6 +649,52 @@ def _materialize_domain_calls(
                 )
             )
     return tuple(materialized)
+
+
+def _materialize_direct_config_input_binding(
+    input_id: str,
+    input_spec: ValueInput,
+    *,
+    resolved_value: object,
+    context: EvalContext,
+    relation_backend: RelationBackend,
+) -> MaterializedConfigInputBinding | None:
+    value = input_spec.value
+    if not isinstance(value, ScalarValueExpr):
+        return None
+    root = value.plan.root
+    if root.kind != "param_lookup":
+        return None
+    if root.table_id is None or root.key is None or root.column is None:
+        raise AssertionError("verified parameter lookup lost its required fields")
+    resolved_key = tuple(
+        (
+            column_id,
+            evaluate_scalar(
+                relation_backend,
+                select_relation_plan(
+                    relation_backend,
+                    verify_relation_plan(
+                        expression,
+                        bindings=value.plan.bindings,
+                    ),
+                ),
+                context,
+            ),
+        )
+        for column_id, expression in sorted(root.key.items())
+    )
+    canonical_row = context.params.lookup_row(root.table_id, dict(resolved_key))
+    key = tuple(
+        (column_id, canonical_row[column_id]) for column_id, _value in resolved_key
+    )
+    return MaterializedConfigInputBinding(
+        input_id=input_id,
+        table_id=root.table_id,
+        key=key,
+        column_id=root.column,
+        resolved_value=resolved_value,
+    )
 
 
 def _evaluate_domain_input(
@@ -1011,6 +1105,7 @@ def _relation_backend_capability_problems(
 
 __all__ = [
     "LinkedPlan",
+    "MaterializedConfigInputBinding",
     "MaterializedDomainCall",
     "MaterializedDomainCallPoint",
     "MaterializedLinkedPointBatch",

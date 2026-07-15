@@ -86,10 +86,13 @@ from scopecat.config.changes import (
     review_parameter_change_proposal,
 )
 from scopecat.config.resolution import (
+    ConfigActivation,
     ConfigProfileInput,
     RegisteredConfigActivation,
     register_and_activate_candidate_config,
+    register_and_activate_config_profile,
     resolve_config_source,
+    rollback_config,
 )
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.kernel.errors import CheckFailed
@@ -821,6 +824,7 @@ class Workspace:
         operator: str | None = None,
         note: str = "",
         activation_note: str | None = None,
+        expected_generation: int | None = None,
     ) -> RegisteredConfigActivation:
         return register_and_activate_candidate_config(
             candidate=candidate,
@@ -830,6 +834,47 @@ class Workspace:
             operator=operator or self.operator,
             note=note,
             activation_note=activation_note,
+            expected_generation=expected_generation,
+        )
+
+    def activate_config(
+        self,
+        config: ConfigProfileSnapshot,
+        *,
+        entry_id: str,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+        activation_note: str | None = None,
+        expected_generation: int | None = None,
+    ) -> RegisteredConfigActivation:
+        """Register and atomically select one direct configuration snapshot."""
+
+        return register_and_activate_config_profile(
+            config=config,
+            services=self._services,
+            entry_id=entry_id,
+            registered_by=registered_by or self.operator,
+            operator=operator or self.operator,
+            note=note,
+            activation_note=activation_note,
+            expected_generation=expected_generation,
+        )
+
+    def rollback(
+        self,
+        *,
+        expected_generation: int,
+        operator: str | None = None,
+        note: str = "",
+    ) -> ConfigActivation:
+        """Atomically restore the previous distinct active registry entry."""
+
+        return rollback_config(
+            services=self._services,
+            operator=operator or self.operator,
+            expected_generation=expected_generation,
+            note=note,
         )
 
 

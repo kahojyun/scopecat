@@ -14,11 +14,12 @@ from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.records.config import ConfigContentHash
 from scopecat.records.entity import EntityRef
 from scopecat.records.measurement import CoordinateValue, MeasurementDatasetSchema
 from scopecat.records.parameter import Quantity
 
-RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v8"
+RUN_PLAN_RECORD_SCHEMA_VERSION = "scopecat.run_plan_record.v9"
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 type RunPlanProducerKind = Literal["instrument", "domain", "host_transform"]
 type RunPlanFusionMode = Literal["automatic", "disabled"]
@@ -55,6 +56,10 @@ type RunPlanValue = Annotated[
     | int
     | float
     | None,
+    Field(union_mode="left_to_right"),
+]
+type RunPlanConfigValue = Annotated[
+    Quantity | EntityRef | str | bool | int | float | None,
     Field(union_mode="left_to_right"),
 ]
 
@@ -326,6 +331,40 @@ class RunPlanDomainBatch(_RunPlanModel):
         return self
 
 
+class RunPlanConfigInputBinding(_RunPlanModel):
+    """Resolved config-table cell used by one domain input at one point."""
+
+    input_id: _NonEmptyId
+    point_index: int = Field(ge=0)
+    table_id: _NonEmptyId
+    key: dict[_NonEmptyId, RunPlanConfigValue]
+    column_id: _NonEmptyId
+    resolved_value: RunPlanConfigValue
+
+    @model_validator(mode="after")
+    def validate_values(self) -> RunPlanConfigInputBinding:
+        normalized_key: dict[str, RunPlanConfigValue] = {}
+        for column_id, value in sorted(self.key.items()):
+            _validate_run_plan_value(
+                value,
+                path=f"run-plan config input key {column_id!r}",
+            )
+            normalized_key[column_id] = cast(
+                "RunPlanConfigValue",
+                _normalize_entity_ref(value),
+            )
+        _validate_run_plan_value(
+            self.resolved_value,
+            path="run-plan config input resolved value",
+        )
+        self.key = normalized_key
+        self.resolved_value = cast(
+            "RunPlanConfigValue",
+            _normalize_entity_ref(self.resolved_value),
+        )
+        return self
+
+
 class RunPlanDomainExecution(_RunPlanModel):
     """One product-owning domain unit containing its physical invocations."""
 
@@ -335,6 +374,7 @@ class RunPlanDomainExecution(_RunPlanModel):
     semantic_operation_id: _NonEmptyId
     capabilities: RunPlanDomainCapabilities
     batches: list[RunPlanDomainBatch]
+    config_input_bindings: list[RunPlanConfigInputBinding] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_batches(self) -> RunPlanDomainExecution:
@@ -355,6 +395,16 @@ class RunPlanDomainExecution(_RunPlanModel):
             msg = (
                 "run-plan domain batches must retain their execution unit's "
                 "semantic operation identity"
+            )
+            raise ValueError(msg)
+        binding_identities = [
+            (binding.point_index, binding.input_id)
+            for binding in self.config_input_bindings
+        ]
+        if binding_identities != sorted(set(binding_identities)):
+            msg = (
+                "run-plan config input bindings must be unique and ordered by "
+                "point and input"
             )
             raise ValueError(msg)
         return self
@@ -380,9 +430,10 @@ type RunPlanExecutionUnit = Annotated[
 class RunPlanRecord(_RunPlanModel):
     """Stable projection of the plan accepted for one execution."""
 
-    schema_version: Literal["scopecat.run_plan_record.v8"] = (
+    schema_version: Literal["scopecat.run_plan_record.v9"] = (
         RUN_PLAN_RECORD_SCHEMA_VERSION
     )
+    config_content_hash: ConfigContentHash
     backend_id: _NonEmptyId
     execution_options: RunPlanExecutionOptions
     experiment_id: str
@@ -501,6 +552,18 @@ class RunPlanRecord(_RunPlanModel):
                 raise ValueError(msg)
 
     def _validate_point_references(self) -> None:
+        for unit in self.execution_units:
+            if not isinstance(unit, RunPlanDomainExecution):
+                continue
+            if any(
+                binding.point_index >= self.point_count
+                for binding in unit.config_input_bindings
+            ):
+                msg = (
+                    "run-plan config input binding point_index is outside the "
+                    "point range"
+                )
+                raise ValueError(msg)
         for change in self.state_changes:
             if change.point_index >= self.point_count:
                 msg = "run plan state change point_index is outside the point range"
@@ -835,6 +898,8 @@ class RunPlanRecord(_RunPlanModel):
 __all__ = [
     "RUN_PLAN_RECORD_SCHEMA_VERSION",
     "RunPlanChannelBinding",
+    "RunPlanConfigInputBinding",
+    "RunPlanConfigValue",
     "RunPlanDeferredValue",
     "RunPlanDomainBatch",
     "RunPlanDomainCapabilities",

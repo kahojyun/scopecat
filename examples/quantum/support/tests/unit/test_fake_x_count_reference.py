@@ -66,7 +66,7 @@ _Q0 = quantum.qubit("q0")
 _X_COUNT = quantum.scalar_input("x_count", GateParameterKind.INTEGER)
 _X = quantum.single_qubit_gate("x")
 _READOUT = quantum.measure(_Q0, result="iq_shots")
-_CIRCUIT = quantum.circuit(
+_PROGRAM = quantum.program(
     "fake-x-count-test",
     quantum.sequence(quantum.repeat(_X(_Q0), _X_COUNT), _READOUT),
 )
@@ -130,7 +130,7 @@ def _linked_points():
                 id=program_id,
                 dialect_id="test.quantum",
                 dialect_version="1",
-                body=_CIRCUIT,
+                body=_PROGRAM,
                 result_ports=(DomainResultPortDef("iq_shots"),),
             ),
         ),
@@ -236,22 +236,21 @@ def test_fake_x_count_reference_pure_preparation_closes_target_and_measurements(
     None
 ):
     preparation, products = _linked_points()
-    circuits = tuple(
-        quantum.bind_circuit(_CIRCUIT, {"x_count": count}).verified
-        for count in (0, 1, 3)
+    programs = tuple(
+        quantum.bind(_PROGRAM, {"x_count": count}).verified for count in (0, 1, 3)
     )
     prepared = prepare_fake_x_count_reference(
         preparation,
         products,
         acquisition_slot_id=_READOUT.result.acquisition_slot_id,
-        circuits=circuits,
+        programs=programs,
         x_counts=(0, 1, 3),
         shots=_SHOTS,
     )
 
     assert prepared.x_counts == (0, 1, 3)
-    assert prepared.circuits == circuits
-    assert prepared.circuits[1].program.id.value == "fake-x-count-test"
+    assert prepared.programs == programs
+    assert prepared.programs[1].program.id.value == "fake-x-count-test"
     assert tuple(
         entry.target_entry.program.duration_seconds for entry in prepared.entries
     ) == (

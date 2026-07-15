@@ -11,6 +11,8 @@ from scopecat.compiler.frontend.environment import (
     validate_config_environment,
 )
 from scopecat.compiler.linking.linked import (
+    MaterializedConfigInputBinding,
+    MaterializedDomainCallPoint,
     MaterializedLinkedPointBatch,
     link_program,
     link_verified_program,
@@ -58,7 +60,11 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.semantic.value_expressions import TableValueExpr
-from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.point_domain import (
+    LogicalPointId,
+    PointDomain,
+    PointDomainId,
+)
 from scopecat.compiler.typed.program import (
     ResourceRouteIntent,
     TypedProgram,
@@ -696,6 +702,24 @@ def test_local_materialization_is_the_existing_bound_plan_projection() -> None:
     assert all(point.routes for point in actual.points)
     assert all(point.desired_state for point in actual.points)
     assert all(point.collect for point in actual.points)
+
+
+def test_materialized_config_binding_must_reference_a_point_input() -> None:
+    binding = MaterializedConfigInputBinding(
+        input_id="missing",
+        table_id="qubits",
+        key=(("qubit", "q0"),),
+        column_id="drive_frequency",
+        resolved_value=5.0,
+    )
+
+    with pytest.raises(ValueError, match="unknown inputs: missing"):
+        MaterializedDomainCallPoint(
+            logical_id=LogicalPointId(PointDomainId("test", "root"), 0),
+            logical_ordinal=0,
+            inputs=(("frequency", 5.0),),
+            config_input_bindings=(binding,),
+        )
 
 
 def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> None:
