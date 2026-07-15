@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._record_intents import ProductSelectionIntent
+from scopecat.authoring._record_intents import RecordSelection
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.frontend.resolution import compile_prepared_invocation
@@ -284,14 +284,14 @@ def test_authoring_compile_rejects_one_use_identity_for_two_products() -> None:
     )
     shared_id = ProductUseId("shared-use")
     selections = (
-        ProductSelectionIntent(
+        RecordSelection(
             product_use=ProductUse(
                 product_id=module.products.signal.product_id,
                 id=shared_id,
             ),
             record_id="signal",
         ),
-        ProductSelectionIntent(
+        RecordSelection(
             product_use=ProductUse(
                 product_id=module.products.phase.product_id,
                 id=shared_id,

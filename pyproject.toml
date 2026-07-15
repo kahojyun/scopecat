@@ -51,6 +51,8 @@ extraPaths = [
 ]
 reportMissingImports = "error"
 reportMissingTypeStubs = "none"
+reportPrivateUsage = "error"
+reportUninitializedInstanceVariable = "error"
 reportImplicitStringConcatenation = "none"
 reportUnannotatedClassAttribute = "none"
 reportUnusedCallResult = "none"
@@ -60,14 +62,26 @@ reportUnreachable = "hint"
 # Execution environments use first-match semantics, so nested and test-specific
 # roots must precede their parent projects.
 [[tool.basedpyright.executionEnvironments]]
+root = "examples/quantum/support/tests"
+reportPrivateUsage = "none"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "examples/quantum/tests"
+reportPrivateUsage = "none"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "packages/scopecat-quantum/tests"
+reportPrivateUsage = "none"
+
+[[tool.basedpyright.executionEnvironments]]
 root = "packages/scopecat/tests"
 reportAny = "none"
 reportExplicitAny = "none"
+reportPrivateUsage = "none"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "packages/scopecat"
 reportImportCycles = "none"
-reportUninitializedInstanceVariable = "none"
 
 [tool.pytest]
 minversion = "9.0"

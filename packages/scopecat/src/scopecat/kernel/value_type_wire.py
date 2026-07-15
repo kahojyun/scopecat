@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal, TypeGuard, cast
 
 from pydantic import BeforeValidator, PlainSerializer, TypeAdapter
 
@@ -140,7 +140,7 @@ def scalar_type_from_wire(value: object) -> Scalar:
     if not isinstance(nullable, bool):
         msg = "scalar value_type nullable must be a bool"
         raise ValueError(msg)
-    if not isinstance(atom_name, str) or atom_name not in _SCALAR_WIRE_FIELDS:
+    if not _is_scalar_wire_atom_name(atom_name):
         msg = f"unsupported scalar type: {atom_name!r}"
         raise ValueError(msg)
     selected_atom_name = atom_name
@@ -173,6 +173,10 @@ def scalar_type_from_wire(value: object) -> Scalar:
         msg = f"invalid {atom_name!r} scalar type: {error}"
         raise ValueError(msg) from error
     return Scalar(atom=atom, nullable=nullable)
+
+
+def _is_scalar_wire_atom_name(value: object) -> TypeGuard[ScalarWireAtomName]:
+    return isinstance(value, str) and value in _SCALAR_WIRE_FIELDS
 
 
 def scalar_type_to_wire(value: Scalar) -> dict[str, object]:

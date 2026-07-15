@@ -347,10 +347,11 @@ class RoutingView:
             capabilities or tuple(resource.capabilities) or (None,)
         )
         for capability in fallback_capabilities:
-            if _resource_capability_has_explicit_bindings(
-                self.edges,
-                resource_id=resource.id,
-                capability=capability,
+            if any(
+                _binding_applies_to_capability(edge, binding, capability)
+                for edge in self.edges
+                if edge.resource_id == resource.id
+                for binding in edge.bindings
             ):
                 continue
             for binding in fallback:
@@ -425,20 +426,6 @@ def _effective_binding_capabilities(
             if not selected_capabilities or capability in selected_capabilities
         )
     return (None,)
-
-
-def _resource_capability_has_explicit_bindings(
-    edges: Sequence[RoutingEdge],
-    *,
-    resource_id: str,
-    capability: str | None,
-) -> bool:
-    return any(
-        _binding_applies_to_capability(edge, binding, capability)
-        for edge in edges
-        if edge.resource_id == resource_id
-        for binding in edge.bindings
-    )
 
 
 def _binding_applies_to_capability(

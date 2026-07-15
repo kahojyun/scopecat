@@ -8,10 +8,9 @@ without importing transient compiler identities.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal, cast, override
+from typing import Literal
 
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.value_types import ValueType
@@ -109,80 +108,26 @@ class DomainProductContractView:
         )
 
 
-class DomainPointRef(ABC):
+@dataclass(frozen=True, slots=True, eq=False)
+class DomainPointRef:
     """SDK identity for one canonical logical point.
 
     References are plain immutable values scoped by their owning context, not
     security tokens or durable identities.
     """
 
-    __slots__ = ()
-
-    @property
-    @abstractmethod
-    def id(self) -> str: ...
-
-    @property
-    @abstractmethod
-    def ordinal(self) -> int: ...
+    id: str
+    ordinal: int
+    native: object = field(repr=False, compare=False)
 
 
-class _DomainPointRef(DomainPointRef):
-    __slots__ = ("_id", "_native", "_ordinal")
-
-    def __init__(self, *, ref_id: str, ordinal: int, native: object) -> None:
-        self._id = ref_id
-        self._ordinal = ordinal
-        self._native = native
-
-    @property
-    @override
-    def id(self) -> str:
-        return self._id
-
-    @property
-    @override
-    def ordinal(self) -> int:
-        return self._ordinal
-
-
-class DomainProductUseRef(ABC):
+@dataclass(frozen=True, slots=True, eq=False)
+class DomainProductUseRef:
     """SDK identity and logical contract for one demanded product occurrence."""
 
-    __slots__ = ()
-
-    @property
-    @abstractmethod
-    def id(self) -> str: ...
-
-    @property
-    @abstractmethod
-    def product(self) -> DomainProductContractView: ...
-
-
-class _DomainProductUseRef(DomainProductUseRef):
-    __slots__ = ("_id", "_native", "_product")
-
-    def __init__(
-        self,
-        *,
-        ref_id: str,
-        product: DomainProductContractView,
-        native: object,
-    ) -> None:
-        self._id = ref_id
-        self._product = product
-        self._native = native
-
-    @property
-    @override
-    def id(self) -> str:
-        return self._id
-
-    @property
-    @override
-    def product(self) -> DomainProductContractView:
-        return self._product
+    id: str
+    product: DomainProductContractView
+    native: object = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,73 +286,6 @@ class DomainBatchView:
             )
             raise ValueError(msg)
         return selected[0]
-
-
-def domain_point_ref_internal(
-    *,
-    ref_id: str,
-    ordinal: int,
-    native: object,
-) -> DomainPointRef:
-    return _DomainPointRef(ref_id=ref_id, ordinal=ordinal, native=native)
-
-
-def domain_product_use_ref_internal(
-    *,
-    ref_id: str,
-    product: DomainProductContractView,
-    native: object,
-) -> DomainProductUseRef:
-    return _DomainProductUseRef(ref_id=ref_id, product=product, native=native)
-
-
-def domain_transform_input_port_internal(
-    *,
-    port_id: str,
-    product_use: DomainProductUseRef,
-    product: DomainProductContractView,
-) -> DomainTransformInputPort:
-    return DomainTransformInputPort(
-        id=port_id,
-        product_use=product_use,
-        product=product,
-    )
-
-
-def domain_transform_output_port_internal(
-    *,
-    port_id: str,
-    product: DomainProductContractView,
-    product_uses: tuple[DomainProductUseRef, ...],
-) -> DomainTransformOutputPort:
-    return DomainTransformOutputPort(
-        id=port_id,
-        product=product,
-        product_uses=product_uses,
-    )
-
-
-def domain_measurement_transform_internal(
-    *,
-    transform_id: str,
-    semantic: MeasurementTransformSemanticContract,
-    inputs: tuple[DomainTransformInputPort, ...],
-    outputs: tuple[DomainTransformOutputPort, ...],
-) -> DomainMeasurementTransform:
-    return DomainMeasurementTransform(
-        id=transform_id,
-        semantic=semantic.model_copy(deep=True),
-        inputs=inputs,
-        outputs=outputs,
-    )
-
-
-def domain_point_native_internal(ref: DomainPointRef) -> object:
-    return cast("object", object.__getattribute__(ref, "_native"))
-
-
-def domain_product_use_native_internal(ref: DomainProductUseRef) -> object:
-    return cast("object", object.__getattribute__(ref, "_native"))
 
 
 __all__ = [

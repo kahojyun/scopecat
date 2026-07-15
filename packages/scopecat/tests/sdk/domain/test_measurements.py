@@ -14,20 +14,22 @@ from scopecat.measurements.host_transforms import HostMeasurementTransformCall
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.parameter import Quantity
-from scopecat.sdk.domain.context import (
-    DomainBatchContext,
-    make_domain_batch_context_internal,
-    point_id_internal,
-    product_use_id_internal,
-    project_domain_plan_internal,
+from scopecat.sdk.domain._bridge import (
+    make_domain_batch_context,
+    point_id,
+    product_use_id,
+    project_domain_plan,
 )
+from scopecat.sdk.domain._measurement_bridge import (
+    lower_domain_host_transform_binding,
+    lower_domain_measurement_transform,
+)
+from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.measurements import (
     DomainHostTransformBinding,
     DomainHostTransformCall,
     DomainHostTransformImplementation,
     DomainMeasurementTransform,
-    lower_domain_host_transform_binding_internal,
-    lower_domain_measurement_transform_internal,
 )
 from tests.testkit.authoring import load_config
 
@@ -83,7 +85,7 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
     linked_points = materialize_linked_points(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
-    projection = project_domain_plan_internal(linked_points)
+    projection = project_domain_plan(linked_points)
     call_view = projection.view(linked_points).require_one_call(
         dialect_id="test.sdk.measurements"
     )
@@ -91,7 +93,7 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
         call_view,
         max_points_per_batch=2,
     )
-    return make_domain_batch_context_internal(
+    return make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1)),
         offer,
@@ -111,16 +113,15 @@ def test_domain_transform_lowering_recovers_exact_native_contracts(
     context = _context(tmp_path, namespace="lower")
     transform = _transform(context)
 
-    native = lower_domain_measurement_transform_internal(context, transform)
+    native = lower_domain_measurement_transform(context, transform)
 
     assert native.id.value == transform.id
     assert native.rate == "point"
-    assert native.inputs[0].product_use_id == product_use_id_internal(
+    assert native.inputs[0].product_use_id == product_use_id(
         transform.inputs[0].product_use
     )
     assert native.outputs[0].product_use_ids == tuple(
-        product_use_id_internal(product_use)
-        for product_use in transform.outputs[0].product_uses
+        product_use_id(product_use) for product_use in transform.outputs[0].product_uses
     )
     assert native.inputs[0].product.id.qualified_name == transform.inputs[0].product.id
     assert native.outputs[0].product.id.qualified_name == (
@@ -154,8 +155,8 @@ def test_lowered_host_kernel_recovers_original_context_point_ref(
             kernel=kernel,
         ),
     )
-    native_transform, native_implementation = (
-        lower_domain_host_transform_binding_internal(context, binding)
+    native_transform, native_implementation = lower_domain_host_transform_binding(
+        context, binding
     )
 
     native_implementation.validate_transform(native_transform)
@@ -164,7 +165,7 @@ def test_lowered_host_kernel_recovers_original_context_point_ref(
         HostMeasurementTransformCall(
             transform_id=native_transform.id,
             semantic=native_transform.semantic,
-            logical_point_id=point_id_internal(point),
+            logical_point_id=point_id(point),
             point_index=point.ordinal,
             input_ports=native_transform.inputs,
             output_ports=native_transform.outputs,
@@ -187,4 +188,4 @@ def test_domain_transform_lowering_rejects_foreign_product_ref(
     foreign = _context(tmp_path, namespace="foreign")
 
     with pytest.raises(ValueError, match="outside its context"):
-        lower_domain_measurement_transform_internal(context, _transform(foreign))
+        lower_domain_measurement_transform(context, _transform(foreign))

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import pytest
 import scopecat as sc
 from scopecat import Quantity
@@ -29,32 +27,6 @@ def _x_count_declaration() -> tuple[
         ),
     )
     return declaration, x_count, readout.result
-
-
-@pytest.mark.parametrize(
-    "handle_type",
-    [
-        authoring.BoundProgram,
-        authoring.Program,
-        authoring.Acquisition,
-        authoring.CircuitFragment,
-        authoring.CircuitInput,
-        authoring.Coupler,
-        authoring.MeasurementResult,
-        authoring.Measurement,
-        authoring.PulseEnvelope,
-        authoring.PulseFragment,
-        authoring.PulseTemplate,
-        authoring.QuantumFragment,
-        authoring.QuantumInput,
-        authoring.Qubit,
-        authoring.SingleQubitGate,
-        authoring.TwoQubitGate,
-    ],
-)
-def test_authoring_handles_are_opaque(handle_type: Callable[[], object]) -> None:
-    with pytest.raises(TypeError, match="opaque handle"):
-        handle_type()
 
 
 def test_symbolic_repeat_and_measurement_declare_typed_ports() -> None:

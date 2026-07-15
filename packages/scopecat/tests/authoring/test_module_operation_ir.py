@@ -8,7 +8,6 @@ from scopecat.authoring._module_ir import (
     ModuleInterfaceIR,
     ModuleIR,
 )
-from scopecat.authoring._value_refs import internal_value_ref_operation_origin
 from scopecat.authoring.values import ComputeDeclarationKey
 from scopecat.compiler.frontend.elaboration import elaborate_module
 
@@ -33,9 +32,7 @@ def test_module_builder_splits_operation_from_python_implementation() -> None:
     assert isinstance(operation.declaration_key, ComputeDeclarationKey)
     assert implementation.declaration_key == operation.declaration_key
     assert implementation.fn is kernel
-    assert internal_value_ref_operation_origin(definition.output) == (
-        operation.declaration_key,
-    )
+    assert definition.output.operation_origin == (operation.declaration_key,)
 
 
 def test_module_ir_rejects_operation_without_python_implementation() -> None:

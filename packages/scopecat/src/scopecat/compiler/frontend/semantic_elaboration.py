@@ -24,11 +24,8 @@ from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_value_ref,
     internal_value_ref_availability,
-    internal_value_ref_declaration_key,
-    internal_value_ref_declaration_scope,
     internal_value_ref_operation_id,
     internal_value_ref_scalar_operation,
-    internal_value_ref_source_kind,
 )
 from scopecat.authoring.domain import DomainCall, DomainProgramDef
 from scopecat.authoring.measurements import MeasurementTransform
@@ -197,8 +194,8 @@ def semantic_value_id(value: ValueRef) -> ValueId:
         return operation_result_id(semantic_operation_id(operation_id))
     if internal_value_ref_scalar_operation(value) is not None:
         return operation_result_id(_scalar_operation_id(value))
-    declaration_key = internal_value_ref_declaration_key(value)
-    scope = internal_value_ref_declaration_scope(value)
+    declaration_key = value.declaration_key
+    scope = value.declaration_scope
     return ValueId(
         SymbolId(
             scope=(*scope, "values"),
@@ -208,8 +205,8 @@ def semantic_value_id(value: ValueRef) -> ValueId:
 
 
 def _scalar_operation_id(value: ValueRef) -> OperationId:
-    declaration_key = internal_value_ref_declaration_key(value)
-    scope = internal_value_ref_declaration_scope(value)
+    declaration_key = value.declaration_key
+    scope = value.declaration_scope
     return OperationId(
         SymbolId(
             scope=(*scope, "scalar_operations"),
@@ -709,9 +706,9 @@ class _SemanticGraphBuilder:
             )
         )
         self._value_sources[value_id] = SourceAnchor(
-            kind=internal_value_ref_source_kind(value),
-            declaration_id=internal_value_ref_declaration_key(value).value.hex,
-            composition_scope=internal_value_ref_declaration_scope(value),
+            kind=value.source_kind,
+            declaration_id=value.declaration_key.value.hex,
+            composition_scope=value.declaration_scope,
         )
         return value_id
 
@@ -726,7 +723,7 @@ class _SemanticGraphBuilder:
         scalar_operation = internal_value_ref_scalar_operation(value)
         if scalar_operation is None:
             raise AssertionError("scalar operation value lost its operation")
-        declaration_id = internal_value_ref_declaration_key(value).value.hex
+        declaration_id = value.declaration_key.value.hex
         left_id = self._add_scalar_operand(
             scalar_operation.left,
             operation_id=operation_id,
@@ -788,7 +785,7 @@ class _SemanticGraphBuilder:
         anchor = SourceAnchor(
             kind="scalar_operation",
             declaration_id=declaration_id,
-            composition_scope=internal_value_ref_declaration_scope(value),
+            composition_scope=value.declaration_scope,
         )
         self._operation_sources[operation_id] = anchor
         self._value_sources[output_id] = anchor

@@ -20,9 +20,9 @@ _FORBIDDEN_NAMES = {
     "context_linked_points_internal",
     "domain_receipt_identity",
     "linked_points_for_preparation_internal",
-    "point_id_internal",
+    "point_id",
     "product_def_for_preparation_internal",
-    "product_use_id_internal",
+    "product_use_id",
 }
 _FORBIDDEN_TYPE_PREFIXES = (
     "BoundDomain",

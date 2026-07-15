@@ -21,9 +21,9 @@ from scopecat.sdk.domain import (
     DomainResultUseBinding,
     DomainTargetEntry,
 )
-from scopecat.sdk.domain.context import (
-    make_domain_batch_context_internal,
-    project_domain_plan_internal,
+from scopecat.sdk.domain._bridge import (
+    make_domain_batch_context,
+    project_domain_plan,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.job import (
@@ -135,7 +135,7 @@ def _preparation_context(
     )
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     linked_points = materialize_linked_points(linked)
-    projection = project_domain_plan_internal(linked_points)
+    projection = project_domain_plan(linked_points)
     call_view = projection.view(linked_points).require_one_call(
         dialect_id="test.preparation"
     )
@@ -144,7 +144,7 @@ def _preparation_context(
         max_points_per_batch=2,
     )
     batch = MaterializedLinkedPointBatch(linked_points, (0, 1))
-    return make_domain_batch_context_internal(
+    return make_domain_batch_context(
         projection,
         batch,
         offer,

@@ -28,17 +28,6 @@ _NEW_ADAPTER_VALUES = {
 
 
 def test_domain_facade_exports_curated_adapter_contracts() -> None:
-    assert domain.DomainExecutionAdapter.__module__ == ("scopecat.sdk.domain.execution")
-    assert domain.DomainRuntime.__module__ == "scopecat.sdk.domain.runtime"
-    assert domain.DomainBatchContext.__module__ == "scopecat.sdk.domain.context"
-    assert domain.DomainExecutionOffer.__module__ == "scopecat.sdk.domain.context"
-    assert domain.DomainPreparationBuilder.__module__ == (
-        "scopecat.sdk.domain.preparation"
-    )
-    assert domain.DomainInvocationSpec.__module__ == "scopecat.sdk.domain.job"
-    assert domain.DomainMeasurementTransform.__module__ == ("scopecat.sdk.domain.view")
-    assert domain.DomainSubmitRequest.__module__ == "scopecat.sdk.domain.runtime"
-
     assert set(domain.__all__) >= _NEW_ADAPTER_VALUES
 
 

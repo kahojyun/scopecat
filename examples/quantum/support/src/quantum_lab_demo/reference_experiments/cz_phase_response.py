@@ -119,9 +119,9 @@ class CzPhaseAcquisitionResponse(FakeAcquisitionResponse):
             "schema": "quantum_lab_demo.cz_phase_response_plan.v1",
             "model_version": self.model_version,
             "shots": shots,
-            "optimum_amplitude_arb": optimum.hex(),
-            "contrast": contrast.hex(),
-            "iq_jitter": jitter.hex(),
+            "optimum_amplitude_arb": float(optimum).hex(),
+            "contrast": float(contrast).hex(),
+            "iq_jitter": float(jitter).hex(),
             "points": [
                 {
                     "control_entry": point.control_address.entry_id.value,
@@ -132,9 +132,9 @@ class CzPhaseAcquisitionResponse(FakeAcquisitionResponse):
                     "target_slot": acquisition_slot_identity_payload(
                         point.target_address.slot_id
                     ),
-                    "amplitude_arb": point.amplitude_arb.hex(),
+                    "amplitude_arb": float(point.amplitude_arb).hex(),
                     "control_state": point.control_state,
-                    "analyzer_phase_rad": point.analyzer_phase_rad.hex(),
+                    "analyzer_phase_rad": float(point.analyzer_phase_rad).hex(),
                 }
                 for point in selected
             ],
@@ -192,8 +192,8 @@ class CzPhaseAcquisitionResponse(FakeAcquisitionResponse):
             "model_version": self.model_version,
             "response_fingerprint": self.fingerprint,
             "shots": self.shots,
-            "optimum_amplitude_arb": _amplitude(self.optimum_amplitude).hex(),
-            "contrast": self.contrast.hex(),
+            "optimum_amplitude_arb": float(_amplitude(self.optimum_amplitude)).hex(),
+            "contrast": float(self.contrast).hex(),
         }
 
     def probability_one(self, address: TargetAcquisitionAddress) -> float:

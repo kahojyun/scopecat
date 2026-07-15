@@ -22,7 +22,8 @@ type ConfigContentHash = Annotated[
 
 
 class _HasId(Protocol):
-    id: str
+    @property
+    def id(self) -> str: ...
 
 
 def _ensure_unique[T: _HasId](items: list[T], label: str) -> list[T]:

@@ -1164,7 +1164,7 @@ def _commit_registration_locked(
         existing_config = _read_entry_config(repository, existing)
         if not (
             _same_registration(existing, requested_entry)
-            and _same_config_profile(existing_config, config)
+            and config_content_equal(existing_config, config)
         ):
             raise _registry_failure(
                 Conflict,
@@ -1257,12 +1257,6 @@ def _same_registration(
             and existing.note == requested.note
         )
     return False
-
-
-def _same_config_profile(
-    left: ConfigProfileSnapshot, right: ConfigProfileSnapshot
-) -> bool:
-    return config_content_equal(left, right)
 
 
 def _read_index(repository: ConfigRegistryRepository) -> ConfigRegistryIndex:

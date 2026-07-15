@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
-from scopecat.api.workspace import Workspace, create_workspace_internal
+from scopecat.api.workspace import Workspace
 from scopecat.application.services import WorkspaceServices
 from scopecat.config.registry.ports import WorkspaceUnitOfWorkFactory
 from scopecat.config.resolution import ConfigProfileInput
@@ -89,14 +89,14 @@ def open_local_workspace(
 ) -> Workspace:
     """Compose the public workspace facade with local filesystem services."""
 
-    return create_workspace_internal(
-        workspace=Path(workspace),
+    return Workspace(
+        _workspace=Path(workspace),
         services=local_workspace_services(workspace),
-        config=config,
-        config_profile=config_profile,
-        execution_backend=execution_backend,
-        reviewer=reviewer,
-        operator=operator,
+        _config=config,
+        _config_profile=config_profile,
+        _execution_backend=execution_backend,
+        _reviewer=reviewer,
+        _operator=operator,
     )
 
 

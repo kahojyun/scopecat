@@ -249,7 +249,7 @@ class FakeListTarget:
             "max_capture_memory_samples": self.max_capture_memory_samples,
             "max_repetitions": self.max_repetitions,
             "max_frames": self.max_frames,
-            "max_abs_amplitude": self.max_abs_amplitude.hex(),
+            "max_abs_amplitude": float(self.max_abs_amplitude).hex(),
             "supported_envelopes": list(self.supported_envelopes),
             "supported_acquisition_kinds": [kind.value for kind in AcquisitionKind],
             "output_bindings": [

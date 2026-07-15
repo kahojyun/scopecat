@@ -8,7 +8,6 @@ from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
     ResourcePort,
 )
-from scopecat.authoring._handles import create_handle
 from scopecat.authoring._intents import (
     ExperimentStateIntent,
     ModuleActionDecl,
@@ -92,8 +91,7 @@ def module_from_parts_internal(
         python_implementations=tuple(python_implementations),
         metadata=freeze_json_mapping(metadata or {}),
     )
-    return create_handle(
-        ExperimentModule,
+    return ExperimentModule(
         _ir=module_ir,
     )
 
@@ -118,8 +116,7 @@ def module(
     *,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ModuleBuilder:
-    return create_handle(
-        ModuleBuilder,
+    return ModuleBuilder(
         id=id,
         invocations=(),
         input_ports=(),

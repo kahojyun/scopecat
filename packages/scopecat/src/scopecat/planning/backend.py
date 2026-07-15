@@ -18,7 +18,7 @@ from scopecat.compiler.linking.product_realizations import (
 )
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.execution.local.executor import PreparedExecution, prepare_execution
-from scopecat.execution.local.program import ApplyStateStage, ComputeStage, PointProgram
+from scopecat.execution.local.program import ApplyStateStage, ComputeStage
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
@@ -73,22 +73,17 @@ from scopecat.records.run_plan import (
     RunPlanStateChange,
     RunPlanValue,
 )
-from scopecat.sdk.domain.context import (
-    DomainBatchContext,
-    DomainExecutionOffer,
-    DomainPlanProjectionInternal,
-    context_linked_points_internal,
-    execution_slice_for_call_internal,
-    make_domain_batch_context_internal,
-    offered_call_internal,
-    project_domain_plan_internal,
+from scopecat.sdk.domain._bridge import (
+    DomainPlanProjection,
+    make_domain_batch_context,
+    offered_call,
+    project_domain_plan,
+    project_domain_run_plan_batch,
 )
+from scopecat.sdk.domain.context import DomainBatchContext, DomainExecutionOffer
 from scopecat.sdk.domain.execution import (
     DomainExecutionAdapter,
     PreparedDomainExecution,
-    prepared_domain_invocation_internal,
-    prepared_domain_resource_claims_internal,
-    project_domain_run_plan_batch_internal,
 )
 from scopecat.sdk.instruments.contracts import InstrumentProvider
 
@@ -154,17 +149,17 @@ class PreparedDomainJob:
 
     @property
     def point_indices(self) -> tuple[int, ...]:
-        return context_linked_points_internal(self.context).point_indices
+        return self.context.linked_points.point_indices
 
     @property
     def resource_claims(self) -> tuple[ExecutionResourceClaim, ...]:
-        claims = prepared_domain_resource_claims_internal(self.prepared)
+        claims = self.prepared.resource_claims
         if claims:
             return claims
         return (
             ExecutionResourceClaim(
                 "target",
-                prepared_domain_invocation_internal(self.prepared).intent.target_id,
+                self.prepared.invocation.intent.target_id,
             ),
         )
 
@@ -466,7 +461,7 @@ class ExecutionBackend:
 
 
 def _run_plan_domain_batch(job: PreparedDomainJob) -> RunPlanDomainBatch:
-    return project_domain_run_plan_batch_internal(
+    return project_domain_run_plan_batch(
         job.prepared,
         context=job.context,
     )
@@ -812,7 +807,7 @@ class _SelectedDomainAdapter:
     offer: DomainExecutionOffer
     coverage: ExecutionCoverage
     direct_product_use_ids: tuple[ProductUseId, ...]
-    projection: DomainPlanProjectionInternal = field(repr=False, compare=False)
+    projection: DomainPlanProjection = field(repr=False, compare=False)
 
 
 def _select_domain_adapters(
@@ -821,7 +816,7 @@ def _select_domain_adapters(
 ) -> tuple[_SelectedDomainAdapter, ...]:
     selected: list[_SelectedDomainAdapter] = []
     seen_ids: set[str] = set()
-    projection = project_domain_plan_internal(linked_points)
+    projection = project_domain_plan(linked_points)
     view = projection.view(linked_points)
     for adapter_index, adapter in enumerate(adapters):
         adapter_id = adapter.adapter_id
@@ -841,12 +836,12 @@ def _select_domain_adapters(
                 "DomainExecutionOffer or None"
             )
             raise TypeError(msg)
-        call = offered_call_internal(view, candidate)
+        call = offered_call(view, candidate)
         candidate = DomainExecutionOffer.for_call(
             call,
             max_points_per_batch=candidate.max_points_per_batch,
         )
-        execution_slice = execution_slice_for_call_internal(projection, call)
+        execution_slice = projection.execution_slice(call)
         selected.append(
             _SelectedDomainAdapter(
                 unit_id=f"domain-program-{adapter_index}-{adapter_id}",
@@ -920,7 +915,12 @@ def _plan_state_segments(
         (None,) * len(points)
         if point_unit is None
         else tuple(
-            _point_state_signature(point)
+            tuple(
+                (operation.instrument_id, operation.targets)
+                for stage in point.stages
+                if isinstance(stage, ApplyStateStage)
+                for operation in stage.operations
+            )
             for point in point_unit.prepared.program.points
         )
     )
@@ -940,15 +940,6 @@ def _plan_state_segments(
         )
         start = stop
     return tuple(selected)
-
-
-def _point_state_signature(point: PointProgram) -> object:
-    return tuple(
-        (operation.instrument_id, operation.targets)
-        for stage in point.stages
-        if isinstance(stage, ApplyStateStage)
-        for operation in stage.operations
-    )
 
 
 def _prepare_domain_units(
@@ -979,7 +970,7 @@ def _prepare_domain_units(
             for offset in range(0, len(segment.point_indices), selected_chunk_size)
         )
         for batch_ordinal, batch in enumerate(batches):
-            context = make_domain_batch_context_internal(
+            context = make_domain_batch_context(
                 selected.projection,
                 batch,
                 selected.offer,

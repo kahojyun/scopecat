@@ -10,13 +10,10 @@ from scopecat.authoring._value_refs import (
     internal_lower_scalar_value_ref,
     internal_scope_value_ref,
     internal_value_ref_availability,
-    internal_value_ref_declaration_key,
-    internal_value_ref_declaration_scope,
     internal_value_ref_operation_id,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
     internal_value_ref_scalar_operation,
-    internal_value_ref_source_kind,
 )
 from scopecat.compiler.semantic.availability import (
     ValueAvailability,
@@ -74,7 +71,7 @@ def test_direct_execute_scalar_operation_remains_symbolic_until_graph_lowering()
     expression = produced + 1.0
 
     operation = internal_value_ref_scalar_operation(expression)
-    assert internal_value_ref_source_kind(expression) == "scalar_operation"
+    assert expression.source_kind == "scalar_operation"
     assert operation is not None
     assert operation.operator == "+"
     assert operation.left is produced
@@ -94,15 +91,15 @@ def test_scalar_operation_has_nominal_identity_and_structural_scope() -> None:
     expression = compute.output + 1.0
     sibling = compute.output + 1.0
 
-    key = internal_value_ref_declaration_key(expression)
+    key = expression.declaration_key
     assert isinstance(key, ValueDeclarationKey)
-    assert key != internal_value_ref_declaration_key(sibling)
-    assert internal_value_ref_declaration_scope(expression) == ()
+    assert key != sibling.declaration_key
+    assert expression.declaration_scope == ()
 
     scoped = internal_scope_value_ref(expression, "outer")
     scoped_operation = internal_value_ref_scalar_operation(scoped)
-    assert internal_value_ref_declaration_key(scoped) == key
-    assert internal_value_ref_declaration_scope(scoped) == ("outer",)
+    assert scoped.declaration_key == key
+    assert scoped.declaration_scope == ("outer",)
     assert scoped_operation is not None
     assert isinstance(scoped_operation.left, ValueRef)
     operation_id = internal_value_ref_operation_id(scoped_operation.left)

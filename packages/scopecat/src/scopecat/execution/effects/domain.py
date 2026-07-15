@@ -22,14 +22,7 @@ from scopecat.measurements.values import (
     assemble_measurement_values,
     domain_output_fragment,
 )
-from scopecat.sdk.domain.execution import (
-    PreparedDomainExecution,
-    prepared_domain_invocation_internal,
-    prepared_domain_realizer_internal,
-    prepared_domain_runtime_internal,
-    prepared_domain_source_fragment_internal,
-    prepared_domain_transforms_internal,
-)
+from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     fetch_domain_invocation,
@@ -65,8 +58,8 @@ def execute_domain_job_values(
 ) -> ClosedMeasurementProductValues:
     """Execute one closed domain job and return producer-neutral values."""
 
-    invocation = prepared_domain_invocation_internal(prepared)
-    runtime = prepared_domain_runtime_internal(prepared)
+    invocation = prepared.invocation
+    runtime = prepared.runtime
     submission_id = plan_domain_submission(
         invocation,
         run_id=run_id,
@@ -90,12 +83,12 @@ def execute_domain_job_values(
             job_id=submission.job_id,
             submission_key=submission_id.submission_key,
         )
-    outputs = prepared_domain_realizer_internal(prepared)(fetched)
+    outputs = prepared.realize(fetched)
     source = domain_output_fragment(
-        prepared_domain_source_fragment_internal(prepared),
+        prepared.source_fragment,
         outputs,
     )
-    transforms = prepared_domain_transforms_internal(prepared)
+    transforms = prepared.transforms
     return (
         assemble_measurement_values(source.selection, (source,))
         if transforms is None

@@ -176,11 +176,11 @@ class ParameterRelationData:
     def fork_for_point_overlays(self) -> ParameterRelationData:
         """Fork bindings before applying point-local table-cell overlays."""
 
-        fork = object.__new__(ParameterRelationData)
-        fork._scalars = self._scalars
-        fork._series = self._series
-        fork._tables = dict(self._tables)
-        return fork
+        return ParameterRelationData(
+            scalars=self._scalars,
+            series=self._series,
+            tables=self._tables,
+        )
 
     def replace_table_cell(
         self,

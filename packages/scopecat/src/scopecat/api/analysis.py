@@ -17,7 +17,6 @@ from scopecat.analysis.service import (
     prepare_analysis_artifact,
     save_analysis,
 )
-from scopecat.api._services import workspace_services
 from scopecat.api.data import Data
 from scopecat.config.candidates import (
     CandidateConfig,
@@ -266,7 +265,7 @@ class Analysis:
 
     def save(self) -> SavedAnalysis:
         return save_analysis(
-            services=workspace_services(self.run.session),
+            services=self.run.session.services,
             run_id=self.run.id,
             title=self.title,
             analysis_key=self.analysis_key,

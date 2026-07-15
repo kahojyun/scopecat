@@ -1,11 +1,10 @@
 """Stable facade for execution-domain adapters and runtimes.
 
 Adapter packages should import their supported protocol surface from this
-module. Compiler-owned linked-plan types do not cross this facade. Adapters
-first offer support for a core-owned batch view, then prepare only the exact
-context selected by the backend. Context-scoped point and product references
-prevent adapters from manufacturing graph identities or choosing a convenient
-result subset.
+module. Compiler projection lives behind a private bridge; the selected batch
+context deliberately retains the typed core state needed by its preparation
+builder. Adapters inspect the SDK views and references rather than importing
+compiler types directly.
 
 Core retains submission identity, effect journaling, uncertainty states, and
 result-contract closure. A domain runtime implements provider effects; it does

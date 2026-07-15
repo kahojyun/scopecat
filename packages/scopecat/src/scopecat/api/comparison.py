@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from scopecat.api._services import workspace_services
 from scopecat.application.services import WorkspaceServices
 from scopecat.run_comparison import RunComparisonResult, RunComparisonReviewState
 from scopecat.run_comparison.service import (
@@ -16,7 +15,7 @@ from scopecat.run_comparison.service import (
 
 class ComparisonSession(Protocol):
     @property
-    def _services(self) -> WorkspaceServices: ...
+    def services(self) -> WorkspaceServices: ...
 
     @property
     def reviewer(self) -> str: ...
@@ -42,7 +41,7 @@ class ComparisonHandle:
         return review_run_comparison(
             run_id=self.baseline_run_id,
             selector=self.id,
-            services=workspace_services(self.session),
+            services=self.session.services,
             state=state,
             reviewer=reviewer or self.session.reviewer,
             note=note,

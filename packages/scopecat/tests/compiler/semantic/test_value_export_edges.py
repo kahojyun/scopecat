@@ -16,7 +16,6 @@ from scopecat.authoring._value_refs import (
     internal_transform_value_ref,
     internal_value_ref_has_module_export,
     internal_value_ref_module_export,
-    internal_value_ref_source_kind,
 )
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.relations.backend import EvalContext
@@ -39,7 +38,7 @@ def test_module_export_edge_remains_symbolic_until_elaboration() -> None:
     )
 
     assert exported.value_type == value_type
-    assert internal_value_ref_source_kind(exported) == "module_export"
+    assert exported.source_kind == "module_export"
     assert internal_value_ref_module_export(exported) == (
         invocation_key,
         "frequency",

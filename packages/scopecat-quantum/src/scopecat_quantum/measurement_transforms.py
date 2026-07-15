@@ -14,7 +14,7 @@ from scopecat.measurements.results import (
     MeasurementValue,
 )
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
-from scopecat.sdk.domain.measurements import (
+from scopecat.sdk.domain import (
     DomainHostTransformCall,
     DomainHostTransformImplementation,
     DomainMeasurementTransform,

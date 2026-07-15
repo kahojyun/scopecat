@@ -8,9 +8,9 @@ project to Circuit IR internally when calibration or target passes require it.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from collections.abc import Sequence as SequenceCollection
-from dataclasses import MISSING, dataclass, fields
+from dataclasses import dataclass
 from typing import Literal, cast, overload
 
 from scopecat import Quantity
@@ -88,86 +88,39 @@ from scopecat_quantum.pulses import Parallel as IrPulseParallel
 from scopecat_quantum.pulses import Sequence as IrPulseSequence
 
 
-def _create_handle[HandleT](
-    handle_type: type[HandleT],
-    /,
-    **values: object,
-) -> HandleT:
-    """Initialize one frozen opaque handle without exposing its constructor."""
-
-    descriptors = {
-        descriptor.name: descriptor
-        for descriptor in fields(handle_type)  # pyright: ignore[reportArgumentType]
-    }
-    unknown = sorted(set(values) - set(descriptors))
-    if unknown:
-        msg = "unknown opaque handle fields: " + ", ".join(unknown)
-        raise TypeError(msg)
-    result = object.__new__(handle_type)
-    for name, descriptor in descriptors.items():
-        if name in values:
-            selected = values[name]
-        elif descriptor.default is not MISSING:
-            selected = cast("object", descriptor.default)
-        elif descriptor.default_factory is not MISSING:
-            factory = cast("Callable[[], object]", descriptor.default_factory)
-            selected = factory()
-        else:
-            msg = f"missing opaque handle field: {name}"
-            raise TypeError(msg)
-        object.__setattr__(result, name, selected)
-    return result
-
-
-def _opaque_handle_error(name: str, factory: str) -> TypeError:
-    return TypeError(f"{name} is an opaque handle; create it with {factory}")
-
-
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class Qubit:
     """A logical qubit handle, independent of physical target wiring."""
 
-    _ir_id: QubitId
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error("Qubit", "scopecat_quantum.authoring.qubit")
+    ir_id: QubitId
 
     @property
     def id(self) -> str:
         """Return the logical qubit port identity."""
 
-        return self._ir_id.value
+        return self.ir_id.value
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class Coupler:
     """A logical coupler handle, independent of physical target wiring."""
 
-    _ir_id: CouplerId
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error("Coupler", "scopecat_quantum.authoring.coupler")
+    ir_id: CouplerId
 
     @property
     def id(self) -> str:
         """Return the logical coupler port identity."""
 
-        return self._ir_id.value
+        return self.ir_id.value
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class QuantumInput:
     """One core-typed scalar input consumed by a mixed quantum program."""
 
     _id: str
     value_type: ScalarType
 
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "QuantumInput",
-            "scopecat_quantum.authoring.input",
-        )
-
     @property
     def id(self) -> str:
         """Return the stable input-port identity."""
@@ -175,19 +128,13 @@ class QuantumInput:
         return self._id
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class CircuitInput:
     """One typed scalar input consumed by a symbolic circuit."""
 
     _id: str
     kind: GateParameterKind
 
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "CircuitInput",
-            "scopecat_quantum.authoring.scalar_input",
-        )
-
     @property
     def id(self) -> str:
         """Return the stable input-port identity."""
@@ -195,19 +142,13 @@ class CircuitInput:
         return self._id
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False, eq=False)
+@dataclass(frozen=True, slots=True, repr=False, eq=False)
 class MeasurementResult:
     """One typed result produced by logical measurement or pulse acquisition."""
 
     _id: str
     _qubit: Qubit
     acquisition_kind: AcquisitionKind
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "MeasurementResult",
-            "scopecat_quantum.authoring.measure(...).result or acquire(...).result",
-        )
 
     @property
     def id(self) -> str:
@@ -234,9 +175,8 @@ class QuantumFragment:
     __slots__ = ()
 
     def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "QuantumFragment",
-            "gate calls, pulse statements, measure, sequence, parallel, or repeat",
+        raise TypeError(
+            "QuantumFragment has no standalone state; construct a concrete fragment"
         )
 
 
@@ -264,29 +204,23 @@ QUANTUM_PROGRAM_DIALECT_ID = "scopecat.quantum.program"
 QUANTUM_PROGRAM_DIALECT_VERSION = "1"
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class SingleQubitGate:
     """A reusable symbolic gate with exactly one logical-qubit operand."""
 
-    _definition: GateDefinition
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "SingleQubitGate",
-            "scopecat_quantum.authoring.single_qubit_gate",
-        )
+    definition: GateDefinition
 
     @property
     def id(self) -> str:
         """Return the gate semantic identity."""
 
-        return self._definition.id.value
+        return self.definition.id.value
 
     @property
     def parameters(self) -> tuple[GateParameterDefinition, ...]:
         """Return the ordered scalar parameter contract."""
 
-        return self._definition.parameters
+        return self.definition.parameters
 
     def __call__(
         self,
@@ -299,29 +233,23 @@ class SingleQubitGate:
         return _author_gate_call(self, (qubit,), arguments)
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class TwoQubitGate:
     """A reusable symbolic gate with exactly two logical-qubit operands."""
 
-    _definition: GateDefinition
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "TwoQubitGate",
-            "scopecat_quantum.authoring.two_qubit_gate",
-        )
+    definition: GateDefinition
 
     @property
     def id(self) -> str:
         """Return the gate semantic identity."""
 
-        return self._definition.id.value
+        return self.definition.id.value
 
     @property
     def parameters(self) -> tuple[GateParameterDefinition, ...]:
         """Return the ordered scalar parameter contract."""
 
-        return self._definition.parameters
+        return self.definition.parameters
 
     def __call__(
         self,
@@ -340,14 +268,14 @@ def _author_gate_call(
     qubits: tuple[Qubit, ...],
     arguments: Mapping[str, CircuitArgument],
 ) -> CircuitFragment:
-    definition = _gate_definition(gate_handle)
+    definition = gate_handle.definition
     if len(qubits) != definition.qubit_arity:
         msg = (
             f"gate {gate_handle.id!r} requires {definition.qubit_arity} qubits, "
             f"got {len(qubits)}"
         )
         raise ValueError(msg)
-    qubit_ids = tuple(_qubit_ir_id(qubit) for qubit in qubits)
+    qubit_ids = tuple(qubit.ir_id for qubit in qubits)
     if len(set(qubit_ids)) != len(qubit_ids):
         msg = f"gate {gate_handle.id!r} operands must be unique"
         raise ValueError(msg)
@@ -382,40 +310,33 @@ def _author_gate_call(
             )
             raise TypeError(msg)
         ordered_arguments.append((parameter.id, value))
-    return _create_handle(
-        _GateFragment,
+    return _GateFragment(
         gate=gate_handle,
         qubits=qubits,
         arguments=tuple(ordered_arguments),
     )
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class Measurement(CircuitFragment):
     """A measurement statement and its first-class acquisition result."""
 
     result: MeasurementResult
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class PulseEnvelope:
     """A symbolic analytic envelope whose quantities bind with the program."""
 
-    _kind: str
-    _duration: QuantumQuantity
-    _amplitude: QuantumQuantity
-    _sigma: QuantumQuantity | None
-    _beta: QuantumQuantity | None
-    _phase: QuantumQuantity
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "PulseEnvelope",
-            "constant, gaussian, or drag",
-        )
+    kind: str
+    duration: QuantumQuantity
+    amplitude: QuantumQuantity
+    sigma: QuantumQuantity | None
+    beta: QuantumQuantity | None
+    phase: QuantumQuantity
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class Acquisition(PulseFragment):
     """A physical acquisition statement and its first-class result port."""
 
@@ -424,26 +345,20 @@ class Acquisition(PulseFragment):
     result: MeasurementResult
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class PulseTemplate:
     """A reusable, result-free pulse fragment with typed formal ports."""
 
-    _ir_id: PulseProgramId
-    _body: QuantumFragment
+    ir_id: PulseProgramId
+    body: QuantumFragment
     elements: tuple[PulseElement, ...]
     inputs: tuple[QuantumInput, ...]
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "PulseTemplate",
-            "scopecat_quantum.authoring.pulse_template",
-        )
 
     @property
     def id(self) -> str:
         """Return the stable pulse-template identity."""
 
-        return self._ir_id.value
+        return self.ir_id.value
 
     def __call__(
         self,
@@ -530,27 +445,21 @@ class _ImplementedGateFragment(QuantumFragment):
     candidate_id: str | None
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class Program:
     """A closed symbolic program containing logical and physical statements."""
 
-    _ir_id: QuantumProgramId
-    _body: QuantumFragment
+    ir_id: QuantumProgramId
+    body: QuantumFragment
     inputs: tuple[ProgramInput, ...]
     results: tuple[MeasurementResult, ...]
     _gate_definitions: tuple[GateDefinition, ...]
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "Program",
-            "scopecat_quantum.authoring.program",
-        )
 
     @property
     def id(self) -> str:
         """Return the stable program identity."""
 
-        return self._ir_id.value
+        return self.ir_id.value
 
     @property
     def gate_definitions(self) -> tuple[GateDefinition, ...]:
@@ -559,18 +468,12 @@ class Program:
         return self._gate_definitions
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class BoundProgram:
     """A declaration bound to concrete values and verified source IR."""
 
     declaration: Program
     verified: VerifiedQuantumProgram
-
-    def __init__(self) -> None:
-        raise _opaque_handle_error(
-            "BoundProgram",
-            "scopecat_quantum.authoring.bind",
-        )
 
     @property
     def program(self) -> QuantumProgramIR:
@@ -595,36 +498,8 @@ class ProgramBindingError(ValueError):
     """Raised when concrete bindings cannot close a symbolic program."""
 
 
-def _qubit_ir_id(value: Qubit) -> QubitId:
-    return cast("QubitId", object.__getattribute__(value, "_ir_id"))
-
-
-def _coupler_ir_id(value: Coupler) -> CouplerId:
-    return cast("CouplerId", object.__getattribute__(value, "_ir_id"))
-
-
 def _element_ir_id(value: PulseElement) -> QubitId | CouplerId:
-    return _qubit_ir_id(value) if isinstance(value, Qubit) else _coupler_ir_id(value)
-
-
-def _gate_definition(value: Gate) -> GateDefinition:
-    return cast("GateDefinition", object.__getattribute__(value, "_definition"))
-
-
-def _program_ir_id(value: Program) -> QuantumProgramId:
-    return cast("QuantumProgramId", object.__getattribute__(value, "_ir_id"))
-
-
-def _program_body(value: Program) -> QuantumFragment:
-    return cast("QuantumFragment", object.__getattribute__(value, "_body"))
-
-
-def _pulse_template_ir_id(value: PulseTemplate) -> PulseProgramId:
-    return cast("PulseProgramId", object.__getattribute__(value, "_ir_id"))
-
-
-def _pulse_template_body(value: PulseTemplate) -> QuantumFragment:
-    return cast("QuantumFragment", object.__getattribute__(value, "_body"))
+    return value.ir_id
 
 
 def _pulse_envelope_parts(
@@ -638,31 +513,25 @@ def _pulse_envelope_parts(
     QuantumQuantity,
 ]:
     return (
-        cast("str", object.__getattribute__(value, "_kind")),
-        cast("QuantumQuantity", object.__getattribute__(value, "_duration")),
-        cast("QuantumQuantity", object.__getattribute__(value, "_amplitude")),
-        cast(
-            "QuantumQuantity | None",
-            object.__getattribute__(value, "_sigma"),
-        ),
-        cast(
-            "QuantumQuantity | None",
-            object.__getattribute__(value, "_beta"),
-        ),
-        cast("QuantumQuantity", object.__getattribute__(value, "_phase")),
+        value.kind,
+        value.duration,
+        value.amplitude,
+        value.sigma,
+        value.beta,
+        value.phase,
     )
 
 
 def qubit(id: str) -> Qubit:  # noqa: A002
     """Declare one logical qubit handle."""
 
-    return _create_handle(Qubit, _ir_id=QubitId(id))
+    return Qubit(ir_id=QubitId(id))
 
 
 def coupler(id: str) -> Coupler:  # noqa: A002
     """Declare one logical coupler handle."""
 
-    return _create_handle(Coupler, _ir_id=CouplerId(id))
+    return Coupler(ir_id=CouplerId(id))
 
 
 def scalar_input(id: str, kind: GateParameterKind) -> CircuitInput:  # noqa: A002
@@ -671,7 +540,7 @@ def scalar_input(id: str, kind: GateParameterKind) -> CircuitInput:  # noqa: A00
     if not id.strip():
         msg = "circuit input id must be a non-empty string"
         raise ValueError(msg)
-    return _create_handle(CircuitInput, _id=id, kind=kind)
+    return CircuitInput(_id=id, kind=kind)
 
 
 def input(id: str, value_type: ScalarType) -> QuantumInput:  # noqa: A001, A002
@@ -683,8 +552,7 @@ def input(id: str, value_type: ScalarType) -> QuantumInput:  # noqa: A001, A002
     if value_type.nullable:
         msg = "quantum program inputs cannot be nullable"
         raise ValueError(msg)
-    return _create_handle(
-        QuantumInput,
+    return QuantumInput(
         _id=id,
         value_type=value_type,
     )
@@ -752,7 +620,7 @@ def gate(
         ),
     )
     handle_type = SingleQubitGate if arity == 1 else TwoQubitGate
-    return _create_handle(handle_type, _definition=definition)
+    return handle_type(definition=definition)
 
 
 def measure(
@@ -767,13 +635,12 @@ def measure(
     if not result.strip():
         msg = "measurement result id must be a non-empty string"
         raise ValueError(msg)
-    result_handle = _create_handle(
-        MeasurementResult,
+    result_handle = MeasurementResult(
         _id=result,
         _qubit=qubit,
         acquisition_kind=acquisition_kind,
     )
-    return _create_handle(Measurement, result=result_handle)
+    return Measurement(result=result_handle)
 
 
 def acquire(
@@ -790,15 +657,13 @@ def acquire(
     if not result.strip():
         msg = "acquisition result id must be a non-empty string"
         raise ValueError(msg)
-    result_handle = _create_handle(
-        MeasurementResult,
+    result_handle = MeasurementResult(
         _id=result,
         _qubit=qubit,
         acquisition_kind=acquisition_kind,
     )
-    return _create_handle(
-        Acquisition,
-        signal=AcquireSignal(_qubit_ir_id(qubit)),
+    return Acquisition(
+        signal=AcquireSignal(qubit.ir_id),
         duration=duration,
         result=result_handle,
     )
@@ -807,7 +672,7 @@ def acquire(
 def drive(qubit: Qubit, /) -> DriveSignal:
     """Select the logical drive signal for one authored qubit."""
 
-    return DriveSignal(_qubit_ir_id(qubit))
+    return DriveSignal(qubit.ir_id)
 
 
 def flux(element: PulseElement, /) -> FluxSignal:
@@ -819,15 +684,14 @@ def flux(element: PulseElement, /) -> FluxSignal:
 def readout(qubit: Qubit, /) -> ReadoutSignal:
     """Select the logical readout-stimulus signal for one authored qubit."""
 
-    return ReadoutSignal(_qubit_ir_id(qubit))
+    return ReadoutSignal(qubit.ir_id)
 
 
 def shift_phase(signal: FrameSignal, phase: QuantumQuantity, /) -> PulseFragment:
     """Advance a drive or readout frame without consuming timeline duration."""
 
     _require_quantity_expression(phase, field="phase shift", kind="phase")
-    return _create_handle(
-        _ShiftPhaseFragment,
+    return _ShiftPhaseFragment(
         signal=signal,
         phase=phase,
     )
@@ -880,10 +744,9 @@ def pulse_template(
         msg = f"pulse template contains undeclared formal elements: {rendered}"
         raise ValueError(msg)
 
-    return _create_handle(
-        PulseTemplate,
-        _ir_id=PulseProgramId(id),
-        _body=body,
+    return PulseTemplate(
+        ir_id=PulseProgramId(id),
+        body=body,
         elements=raw_elements,
         inputs=tuple(inputs_by_id.values()),
     )
@@ -950,8 +813,7 @@ def play(
 ) -> PulseFragment:
     """Play one concrete or symbolic envelope on a logical signal."""
 
-    return _create_handle(
-        _PlayFragment,
+    return _PlayFragment(
         signal=signal,
         envelope=envelope,
     )
@@ -961,7 +823,7 @@ def delay(signal: PlaySignal, duration: QuantumQuantity, /) -> PulseFragment:
     """Reserve time on one logical signal."""
 
     _require_quantity_expression(duration, field="duration", kind="time")
-    return _create_handle(_DelayFragment, signal=signal, duration=duration)
+    return _DelayFragment(signal=signal, duration=duration)
 
 
 def barrier(*signals: PlaySignal) -> PulseFragment:
@@ -970,7 +832,7 @@ def barrier(*signals: PlaySignal) -> PulseFragment:
     if not signals:
         msg = "barrier requires at least one logical signal"
         raise ValueError(msg)
-    return _create_handle(_BarrierFragment, signals=signals)
+    return _BarrierFragment(signals=signals)
 
 
 def implements(
@@ -993,11 +855,11 @@ def implements(
         msg = "implements pulse cannot acquire results"
         raise ValueError(msg)
     selected_resources = tuple(resources)
-    resource_ids = tuple(_coupler_ir_id(resource) for resource in selected_resources)
+    resource_ids = tuple(resource.ir_id for resource in selected_resources)
     if len(set(resource_ids)) != len(resource_ids):
         msg = "implements resources must be unique"
         raise ValueError(msg)
-    operand_ids = {_qubit_ir_id(qubit) for qubit in gate_call.qubits}
+    operand_ids = {qubit.ir_id for qubit in gate_call.qubits}
     allowed_owners = {*operand_ids, *resource_ids}
     pulse_owners = set(_pulse_fragment_owners(pulse))
     foreign_owners = pulse_owners - allowed_owners
@@ -1020,8 +882,7 @@ def implements(
     if candidate is not None and not candidate.strip():
         msg = "implements candidate must be a non-empty string"
         raise ValueError(msg)
-    return _create_handle(
-        _ImplementedGateFragment,
+    return _ImplementedGateFragment(
         gate=gate_call,
         pulse=pulse,
         candidate_id=candidate,
@@ -1043,11 +904,10 @@ def sequence(*operations: QuantumFragment) -> QuantumFragment:
         msg = "sequence requires at least one quantum fragment"
         raise ValueError(msg)
     if all(isinstance(operation, CircuitFragment) for operation in operations):
-        return _create_handle(
-            _SequenceFragment,
+        return _SequenceFragment(
             operations=cast("tuple[CircuitFragment, ...]", operations),
         )
-    return _create_handle(_QuantumSequenceFragment, operations=operations)
+    return _QuantumSequenceFragment(operations=operations)
 
 
 @overload
@@ -1065,11 +925,10 @@ def parallel(*branches: QuantumFragment) -> QuantumFragment:
         msg = "parallel requires at least two quantum branches"
         raise ValueError(msg)
     if all(isinstance(branch, CircuitFragment) for branch in branches):
-        return _create_handle(
-            _ParallelFragment,
+        return _ParallelFragment(
             branches=cast("tuple[CircuitFragment, ...]", branches),
         )
-    return _create_handle(_QuantumParallelFragment, branches=branches)
+    return _QuantumParallelFragment(branches=branches)
 
 
 @overload
@@ -1104,13 +963,11 @@ def repeat(operation: QuantumFragment, count: RepeatCount) -> QuantumFragment:
         msg = "repeat count must be a non-negative integer or integer input"
         raise ValueError(msg)
     if isinstance(operation, CircuitFragment) and isinstance(count, int | CircuitInput):
-        return _create_handle(
-            _RepeatFragment,
+        return _RepeatFragment(
             operation=operation,
             count=count,
         )
-    return _create_handle(
-        _QuantumRepeatFragment,
+    return _QuantumRepeatFragment(
         operation=operation,
         count=count,
     )
@@ -1163,10 +1020,9 @@ def program(id: str, body: QuantumFragment) -> Program:  # noqa: A002
             raise ValueError(msg)
         definitions_by_id.setdefault(definition.id.value, definition)
 
-    return _create_handle(
-        Program,
-        _ir_id=ir_id,
-        _body=body,
+    return Program(
+        ir_id=ir_id,
+        body=body,
         inputs=tuple(inputs_by_id.values()),
         results=results,
         _gate_definitions=tuple(definitions_by_id.values()),
@@ -1194,7 +1050,7 @@ def bind(
 
     repeat_input_ids = {
         input_handle.id
-        for input_handle in _quantum_fragment_repeat_inputs(_program_body(declaration))
+        for input_handle in _quantum_fragment_repeat_inputs(declaration.body)
     }
     concrete_bindings: dict[str, object] = {}
     for input_handle in declaration.inputs:
@@ -1212,16 +1068,15 @@ def bind(
             raise ProgramBindingError(str(error)) from error
 
     concrete = QuantumProgramIR(
-        id=_program_ir_id(declaration),
+        id=declaration.ir_id,
         body=_bind_quantum_fragment(
-            _program_body(declaration),
+            declaration.body,
             concrete_bindings,
             path=("body",),
         ),
     )
     verified = verify_quantum_program(concrete, declaration.gate_definitions)
-    return _create_handle(
-        BoundProgram,
+    return BoundProgram(
         declaration=declaration,
         verified=verified,
     )
@@ -1232,7 +1087,7 @@ def domain_program(declaration: Program) -> DomainProgramDef:
 
     repeat_input_ids = {
         input_handle.id
-        for input_handle in _quantum_fragment_repeat_inputs(_program_body(declaration))
+        for input_handle in _quantum_fragment_repeat_inputs(declaration.body)
     }
     return _core_domain_program(
         declaration.id,
@@ -1329,8 +1184,8 @@ def _bind_fragment(
     if isinstance(fragment, _GateFragment):
         return GateCall(
             id=CircuitOperationId(_operation_id(path, "gate")),
-            gate_id=_gate_definition(fragment.gate).id,
-            qubits=tuple(_qubit_ir_id(qubit) for qubit in fragment.qubits),
+            gate_id=fragment.gate.definition.id,
+            qubits=tuple(qubit.ir_id for qubit in fragment.qubits),
             arguments=tuple(
                 GateArgument(
                     argument_id,
@@ -1343,7 +1198,7 @@ def _bind_fragment(
         result = fragment.result
         return Measure(
             id=CircuitOperationId(_operation_id(path, "measure")),
-            qubit=_qubit_ir_id(result.qubit),
+            qubit=result.qubit.ir_id,
             acquisition_slot_id=result.acquisition_slot_id,
             acquisition_kind=result.acquisition_kind,
         )
@@ -1420,7 +1275,7 @@ def _bind_quantum_fragment(
         if not isinstance(call, GateCall):
             raise AssertionError("implemented gate binding must produce a GateCall")
         pulse_template_id = (
-            _pulse_template_ir_id(fragment.pulse.template)
+            fragment.pulse.template.ir_id
             if isinstance(fragment.pulse, _PulseTemplateCallFragment)
             else PulseProgramId(_operation_id(path, "implementation-template"))
         )
@@ -1463,7 +1318,7 @@ def _bind_quantum_fragment(
         return PulseBlock(
             id=CircuitOperationId(_operation_id(path, "pulse-template-call")),
             pulse_template=PulseProgram(
-                id=_pulse_template_ir_id(fragment.template),
+                id=fragment.template.ir_id,
                 body=_bind_pulse_fragment(fragment.body, bindings, path=()),
             ),
         )
@@ -1716,12 +1571,11 @@ def _instantiate_pulse_template(
         for formal, actual in zip(template.elements, elements, strict=True)
     }
     instantiated = _substitute_pulse_fragment(
-        _pulse_template_body(template),
+        template.body,
         element_bindings=element_bindings,
         input_bindings=input_bindings,
     )
-    return _create_handle(
-        _PulseTemplateCallFragment,
+    return _PulseTemplateCallFragment(
         template=template,
         body=instantiated,
     )
@@ -1762,8 +1616,7 @@ def _substitute_pulse_fragment(
             )
         )
     if isinstance(fragment, _PulseTemplateCallFragment):
-        return _create_handle(
-            _PulseTemplateCallFragment,
+        return _PulseTemplateCallFragment(
             template=fragment.template,
             body=_substitute_pulse_fragment(
                 fragment.body,
@@ -1884,14 +1737,13 @@ def _pulse_envelope(
         _require_quantity_expression(sigma, field="sigma", kind="time")
     if beta is not None:
         _require_quantity_expression(beta, field="beta", kind="time")
-    return _create_handle(
-        PulseEnvelope,
-        _kind=kind,
-        _duration=duration,
-        _amplitude=amplitude,
-        _sigma=sigma,
-        _beta=beta,
-        _phase=selected_phase,
+    return PulseEnvelope(
+        kind=kind,
+        duration=duration,
+        amplitude=amplitude,
+        sigma=sigma,
+        beta=beta,
+        phase=selected_phase,
     )
 
 
@@ -2128,9 +1980,9 @@ def _quantum_fragment_gate_definitions(
     fragment: QuantumFragment,
 ) -> tuple[GateDefinition, ...]:
     if isinstance(fragment, _GateFragment):
-        return (_gate_definition(fragment.gate),)
+        return (fragment.gate.definition,)
     if isinstance(fragment, _ImplementedGateFragment):
-        return (_gate_definition(fragment.gate.gate),)
+        return (fragment.gate.gate.definition,)
     if isinstance(
         fragment,
         Measurement

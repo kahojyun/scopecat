@@ -18,7 +18,7 @@ from scopecat.authoring._point_domain_intents import (
 )
 from scopecat.authoring._record_intents import (
     ModuleProductPort,
-    RecordAxisIntent,
+    RecordAxis,
     RecordIntent,
 )
 from scopecat.authoring._value_refs import (
@@ -796,7 +796,7 @@ def _verify_record_schema(
             )
         )
 
-    axes_by_id: dict[str, tuple[str, RecordAxisIntent]] = {}
+    axes_by_id: dict[str, tuple[str, RecordAxis]] = {}
     for record_id, record in records:
         _verify_record_definition(record_id, record, problems)
         seen_axis_ids: set[str] = set()
@@ -946,8 +946,8 @@ def _verify_record_definition(
 
 
 def _source_axes_can_conflict(
-    left: RecordAxisIntent,
-    right: RecordAxisIntent,
+    left: RecordAxis,
+    right: RecordAxis,
 ) -> bool:
     if (left.kind or left.id) != (right.kind or right.id):
         return True
@@ -958,7 +958,7 @@ def _source_axes_can_conflict(
     return left_size is not None and right_size is not None and left_size != right_size
 
 
-def _literal_axis_size(axis: RecordAxisIntent) -> int | None:
+def _literal_axis_size(axis: RecordAxis) -> int | None:
     value = axis.size
     if isinstance(value, tuple):
         return len(value)

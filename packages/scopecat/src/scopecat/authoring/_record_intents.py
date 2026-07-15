@@ -10,7 +10,6 @@ from scopecat.authoring._frozen_values import (
     empty_frozen_mapping,
     freeze_runtime_input,
 )
-from scopecat.authoring._handles import create_handle
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.values import MetadataValue
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
@@ -34,18 +33,8 @@ type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
 
 
-class RecordAxis:
-    """Opaque public handle describing one measurement record axis."""
-
-    __slots__ = ()
-
-    def __init__(self) -> None:
-        msg = "RecordAxis is an opaque handle; create axes with record axis factories"
-        raise TypeError(msg)
-
-
 @dataclass(frozen=True, slots=True, repr=False)
-class RecordAxisIntent(RecordAxis):
+class RecordAxis:
     id: str
     size: AxisSizeInput
     kind: str | None = None
@@ -62,7 +51,7 @@ class RecordIntent:
     product_key: str | None = None
     unit: str | None = None
     dtype: MeasurementDType = "float64"
-    axes: tuple[RecordAxisIntent, ...] = ()
+    axes: tuple[RecordAxis, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
     producer_metadata: Mapping[str, MetadataValue] = field(
         default_factory=empty_frozen_mapping
@@ -88,7 +77,7 @@ class ModuleProductPort:
     product_key: str | None = None
     unit: str | None = None
     dtype: MeasurementDType = "float64"
-    axes: tuple[RecordAxisIntent, ...] = ()
+    axes: tuple[RecordAxis, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
     producer_metadata: Mapping[str, MetadataValue] = field(
         default_factory=empty_frozen_mapping
@@ -117,86 +106,59 @@ class ModuleProductPort:
         return self.product_id.qualified_name
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class ProductRef:
     """Opaque hygienic reference to one module or module-instance product."""
 
-    _product_id: ProductId
-    _origin: tuple[object, ...] = field(repr=False, compare=False)
-
-    def __init__(self) -> None:
-        msg = (
-            "ProductRef is an opaque handle; obtain products from "
-            "ExperimentModule.products or ModuleInvocation.products"
-        )
-        raise TypeError(msg)
+    product_id: ProductId
+    origin: tuple[object, ...] = field(repr=False, compare=False)
 
     @property
     def id(self) -> str:
         """The injective, scope-qualified identity used during linking."""
 
-        return self._product_id.qualified_name
-
-    @property
-    def product_id(self) -> ProductId:
-        return self._product_id
+        return self.product_id.qualified_name
 
     @property
     def local_id(self) -> str:
-        return self._product_id.local_id
+        return self.product_id.local_id
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class ProductOutputs(Mapping[str, ProductRef]):
     """Read-only attribute and mapping view of exposed module products."""
 
-    _values: Mapping[str, ProductRef]
+    entries: Mapping[str, ProductRef]
 
-    def __init__(self) -> None:
-        msg = (
-            "ProductOutputs is an opaque handle; obtain it from "
-            "ExperimentModule.products or ModuleInvocation.products"
-        )
-        raise TypeError(msg)
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "entries", FrozenMapping(self.entries.items()))
 
     @override
     def __getitem__(self, product_id: str) -> ProductRef:
-        return self._values[product_id]
+        return self.entries[product_id]
 
     @override
     def __iter__(self) -> Iterator[str]:
-        return iter(self._values)
+        return iter(self.entries)
 
     @override
     def __len__(self) -> int:
-        return len(self._values)
+        return len(self.entries)
 
     def __getattr__(self, product_id: str) -> ProductRef:
         try:
-            return self._values[product_id]
+            return self.entries[product_id]
         except KeyError:
             msg = f"module instance has no product {product_id!r}"
             raise AttributeError(msg) from None
 
     @override
     def __dir__(self) -> list[str]:
-        return sorted((*super().__dir__(), *self._values))
-
-
-class RecordSelection:
-    """Opaque public handle selecting a module product for recording."""
-
-    __slots__ = ()
-
-    def __init__(self) -> None:
-        msg = (
-            "RecordSelection is an opaque handle; create selections with record_product"
-        )
-        raise TypeError(msg)
+        return sorted((*super().__dir__(), *self.entries))
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ProductSelectionIntent(RecordSelection):
+class RecordSelection:
     product_use: ProductUse
     product_origin: tuple[object, ...] | None = field(
         default=None,
@@ -225,7 +187,7 @@ def record_axis(
     unit: str | None = None,
 ) -> RecordAxis:
     selected_size = size if isinstance(size, ValueRef) else freeze_runtime_input(size)
-    return RecordAxisIntent(
+    return RecordAxis(
         id=id,
         size=cast("AxisSizeInput", selected_size),
         kind=kind,
@@ -240,7 +202,7 @@ def entity_axis(
     selected_entities = (
         entities if isinstance(entities, ValueRef) else freeze_runtime_input(entities)
     )
-    return RecordAxisIntent(
+    return RecordAxis(
         id=id,
         size=cast("AxisSizeInput", selected_entities),
         kind="entity",
@@ -277,7 +239,7 @@ def observable(
         product_key=product_key,
         unit=unit,
         dtype=dtype,
-        axes=record_axis_intents(axes),
+        axes=tuple(axes),
         metadata=freeze_json_mapping(metadata or {}),
         producer_metadata=freeze_json_mapping(producer_metadata or {}),
     )
@@ -295,11 +257,9 @@ def record_product(
         else parse_product_id(product_id)
     )
     selected_product_origin = (
-        internal_product_ref_origin(product_id)
-        if isinstance(product_id, ProductRef)
-        else None
+        product_id.origin if isinstance(product_id, ProductRef) else None
     )
-    return ProductSelectionIntent(
+    return RecordSelection(
         product_use=product_use(selected_product_id),
         product_origin=selected_product_origin,
         record_id=record_id,
@@ -315,58 +275,14 @@ def record_alias(
 ) -> RecordSelection:
     """Add another durable projection without creating another product use."""
 
-    selected = product_selection_intent(selection)
     if not record_id:
         msg = "record alias id must be non-empty"
         raise ValueError(msg)
-    return ProductSelectionIntent(
-        product_use=selected.product_use,
-        product_origin=selected.product_origin,
+    return RecordSelection(
+        product_use=selection.product_use,
+        product_origin=selection.product_origin,
         record_id=record_id,
         metadata=freeze_json_mapping(metadata or {}),
-    )
-
-
-def internal_product_ref(product: ModuleProductPort) -> ProductRef:
-    """Create the public reference corresponding to one localized port."""
-
-    return internal_product_ref_from_identity(
-        product.product_id,
-        origin=product.origin,
-    )
-
-
-def internal_product_ref_from_identity(
-    product_id: ProductId,
-    *,
-    origin: tuple[object, ...],
-) -> ProductRef:
-    """Create a public reference from an interface product projection."""
-
-    return create_handle(
-        ProductRef,
-        _product_id=product_id,
-        _origin=origin,
-    )
-
-
-def internal_product_ref_origin(product: ProductRef) -> tuple[object, ...]:
-    """Return the nominal origin retained by one opaque product reference."""
-
-    return cast(
-        "tuple[object, ...]",
-        object.__getattribute__(product, "_origin"),
-    )
-
-
-def internal_product_outputs(
-    values: Mapping[str, ProductRef],
-) -> ProductOutputs:
-    """Create an immutable product accessor at the private DSL boundary."""
-
-    return create_handle(
-        ProductOutputs,
-        _values=FrozenMapping(values.items()),
     )
 
 
@@ -384,27 +300,6 @@ def prefix_product_port(
         scope=(*scope, *product.scope),
         origin=(*origin, *product.origin),
     )
-
-
-def record_axis_intents(
-    axes: Sequence[RecordAxis],
-) -> tuple[RecordAxisIntent, ...]:
-    """Validate and unwrap public record-axis handles for internal models."""
-
-    invalid = [axis for axis in axes if not isinstance(axis, RecordAxisIntent)]
-    if invalid:
-        msg = "record axes must be created with record axis factories"
-        raise TypeError(msg)
-    return cast("tuple[RecordAxisIntent, ...]", tuple(axes))
-
-
-def product_selection_intent(selection: RecordSelection) -> ProductSelectionIntent:
-    """Validate and unwrap one public product-selection handle."""
-
-    if not isinstance(selection, ProductSelectionIntent):
-        msg = "record selections must be created with record_product or record_alias"
-        raise TypeError(msg)
-    return selection
 
 
 def localize_record_input_refs(
@@ -446,11 +341,11 @@ def localize_product_input_refs(
 
 
 def _localize_record_axis_input_refs(
-    axis: RecordAxisIntent,
+    axis: RecordAxis,
     inputs: Mapping[str, object],
     *,
     localize_value_ref: LocalizeValueRef,
-) -> RecordAxisIntent:
+) -> RecordAxis:
     if isinstance(axis.size, ValueRef):
         localized = localize_value_ref(axis.size, inputs)
         return replace(axis, size=localized)
@@ -462,9 +357,7 @@ __all__ = [
     "ModuleProductPort",
     "ProductOutputs",
     "ProductRef",
-    "ProductSelectionIntent",
     "RecordAxis",
-    "RecordAxisIntent",
     "RecordIntent",
     "RecordKind",
     "RecordSelection",
@@ -473,10 +366,8 @@ __all__ = [
     "localize_record_input_refs",
     "observable",
     "prefix_product_port",
-    "product_selection_intent",
     "record_alias",
     "record_axis",
-    "record_axis_intents",
     "record_product",
     "shot_axis",
 ]

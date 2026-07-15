@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import cast, override
+from typing import cast
 
 from scopecat.measurements.host_transforms import (
     BoundHostMeasurementTransformPlan,
@@ -29,15 +28,14 @@ from scopecat.measurements.values import (
 )
 from scopecat.planning.coverage import ExecutionResourceClaim
 from scopecat.records.measurement import MeasurementValue
-from scopecat.sdk.domain.context import (
-    DomainBatchContext,
-    context_linked_points_internal,
-    point_id_internal,
-    product_use_id_internal,
-)
+from scopecat.sdk.domain._bridge import point_id, product_use_id
+from scopecat.sdk.domain._measurement_bridge import lower_domain_host_transform_binding
+from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import (
+    ErasedDomainInvocation,
+    ErasedDomainRealizer,
+    ErasedDomainRuntime,
     PreparedDomainExecution,
-    make_prepared_domain_execution_internal,
 )
 from scopecat.sdk.domain.invocation import (
     AdapterEntryResults,
@@ -56,10 +54,7 @@ from scopecat.sdk.domain.job import (
     DomainResourceClaim,
     DomainResultValue,
 )
-from scopecat.sdk.domain.measurements import (
-    DomainHostTransformBinding,
-    lower_domain_host_transform_binding_internal,
-)
+from scopecat.sdk.domain.measurements import DomainHostTransformBinding
 from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime
 from scopecat.sdk.domain.view import DomainPointRef, DomainProductUseRef
 
@@ -113,10 +108,11 @@ class DomainMappedEntry[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     results: tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]
 
 
+@dataclass(frozen=True, slots=True)
 class DomainResultMapping[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
-](ABC):
+]:
     """Exact public inventory from physical results to SDK-owned references.
 
     ``target_entries`` retains target order. ``entries`` retains canonical
@@ -125,51 +121,23 @@ class DomainResultMapping[
     preparation context; callers never need compiler-owned identities.
     """
 
-    __slots__ = ()
-
-    @property
-    @abstractmethod
-    def context(self) -> DomainBatchContext: ...
-
-    @property
-    @abstractmethod
-    def product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
-
-    @property
-    @abstractmethod
-    def target_entries(
-        self,
-    ) -> tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...]: ...
-
-    @property
-    @abstractmethod
-    def entries(
-        self,
-    ) -> tuple[DomainMappedEntry[EntryAddressT, ResultAddressT], ...]: ...
-
-    @property
-    @abstractmethod
-    def results(
-        self,
-    ) -> tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]: ...
-
-    @property
-    @abstractmethod
-    def _result_by_address(
-        self,
-    ) -> Mapping[
+    context: DomainBatchContext
+    product_uses: tuple[DomainProductUseRef, ...]
+    target_entries: tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...]
+    entries: tuple[DomainMappedEntry[EntryAddressT, ResultAddressT], ...]
+    results: tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]
+    result_by_address: Mapping[
         ResultAddressT,
         DomainMappedResult[EntryAddressT, ResultAddressT],
-    ]: ...
-
-    @property
-    @abstractmethod
-    def _result_by_output_identity(
-        self,
-    ) -> Mapping[
+    ] = field(repr=False, compare=False)
+    result_by_output_identity: Mapping[
         tuple[int, int],
         DomainMappedResult[EntryAddressT, ResultAddressT],
-    ]: ...
+    ] = field(repr=False, compare=False)
+    native: ClosedDomainResultMapping[EntryAddressT, ResultAddressT] = field(
+        repr=False,
+        compare=False,
+    )
 
     def result_for_address(
         self,
@@ -178,7 +146,7 @@ class DomainResultMapping[
         """Return the canonical result for one target-owned physical address."""
 
         try:
-            return self._result_by_address[result_address]
+            return self.result_by_address[result_address]
         except KeyError as error:
             msg = f"domain result address {result_address!r} is not in this mapping"
             raise KeyError(msg) from error
@@ -191,7 +159,7 @@ class DomainResultMapping[
         """Return the result supplying one exact context-owned logical output."""
 
         try:
-            return self._result_by_output_identity[(id(point), id(product_use))]
+            return self.result_by_output_identity[(id(point), id(product_use))]
         except KeyError as error:
             msg = (
                 "logical output is not in this result mapping: "
@@ -200,201 +168,27 @@ class DomainResultMapping[
             raise KeyError(msg) from error
 
 
-class _DomainResultMapping[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-](DomainResultMapping[EntryAddressT, ResultAddressT]):
-    __slots__ = (
-        "__context",
-        "__entries",
-        "__product_uses",
-        "__result_by_address",
-        "__result_by_output_identity",
-        "__results",
-        "__target_entries",
-        "_native",
-    )
-
-    def __init__(
-        self,
-        *,
-        context: DomainBatchContext,
-        product_uses: tuple[DomainProductUseRef, ...],
-        target_entries: tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...],
-        entries: tuple[DomainMappedEntry[EntryAddressT, ResultAddressT], ...],
-        results: tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...],
-        result_by_address: Mapping[
-            ResultAddressT,
-            DomainMappedResult[EntryAddressT, ResultAddressT],
-        ],
-        result_by_output_identity: Mapping[
-            tuple[int, int],
-            DomainMappedResult[EntryAddressT, ResultAddressT],
-        ],
-        native: ClosedDomainResultMapping[EntryAddressT, ResultAddressT],
-    ) -> None:
-        self.__context = context
-        self.__product_uses = product_uses
-        self.__target_entries = target_entries
-        self.__entries = entries
-        self.__results = results
-        self.__result_by_address = result_by_address
-        self.__result_by_output_identity = result_by_output_identity
-        self._native = native
-
-    @property
-    @override
-    def context(self) -> DomainBatchContext:
-        return self.__context
-
-    @property
-    @override
-    def product_uses(self) -> tuple[DomainProductUseRef, ...]:
-        return self.__product_uses
-
-    @property
-    @override
-    def target_entries(
-        self,
-    ) -> tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...]:
-        return self.__target_entries
-
-    @property
-    @override
-    def entries(
-        self,
-    ) -> tuple[DomainMappedEntry[EntryAddressT, ResultAddressT], ...]:
-        return self.__entries
-
-    @property
-    @override
-    def results(
-        self,
-    ) -> tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]:
-        return self.__results
-
-    @property
-    @override
-    def _result_by_address(
-        self,
-    ) -> Mapping[
-        ResultAddressT,
-        DomainMappedResult[EntryAddressT, ResultAddressT],
-    ]:
-        return self.__result_by_address
-
-    @property
-    @override
-    def _result_by_output_identity(
-        self,
-    ) -> Mapping[
-        tuple[int, int],
-        DomainMappedResult[EntryAddressT, ResultAddressT],
-    ]:
-        return self.__result_by_output_identity
-
-
+@dataclass(frozen=True, slots=True)
 class DomainMeasurementPlan[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
-](ABC):
+]:
     """Context-bound source and host-transform ownership for one invocation."""
 
-    __slots__ = ()
-
-    @property
-    @abstractmethod
-    def context(self) -> DomainBatchContext: ...
-
-    @property
-    @abstractmethod
-    def mapping(self) -> DomainResultMapping[EntryAddressT, ResultAddressT]: ...
-
-    @property
-    @abstractmethod
-    def source_product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
-
-    @property
-    @abstractmethod
-    def derived_product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
-
-    @property
-    @abstractmethod
-    def product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
-
-    @property
-    @abstractmethod
-    def host_transforms(self) -> tuple[DomainHostTransformBinding, ...]: ...
-
-
-class _DomainMeasurementPlan[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-](DomainMeasurementPlan[EntryAddressT, ResultAddressT]):
-    __slots__ = (
-        "__context",
-        "__derived_product_uses",
-        "__host_transforms",
-        "__mapping",
-        "__product_uses",
-        "__source_product_uses",
-        "_source_fragment",
-        "_transforms",
+    context: DomainBatchContext
+    mapping: DomainResultMapping[EntryAddressT, ResultAddressT]
+    source_product_uses: tuple[DomainProductUseRef, ...]
+    derived_product_uses: tuple[DomainProductUseRef, ...]
+    product_uses: tuple[DomainProductUseRef, ...]
+    host_transforms: tuple[DomainHostTransformBinding, ...]
+    source_fragment: BoundDomainMeasurementValueFragment[
+        EntryAddressT,
+        ResultAddressT,
+    ] = field(repr=False)
+    transforms: BoundHostMeasurementTransformPlan | None = field(
+        default=None,
+        repr=False,
     )
-
-    def __init__(
-        self,
-        *,
-        context: DomainBatchContext,
-        mapping: DomainResultMapping[EntryAddressT, ResultAddressT],
-        source_product_uses: tuple[DomainProductUseRef, ...],
-        derived_product_uses: tuple[DomainProductUseRef, ...],
-        product_uses: tuple[DomainProductUseRef, ...],
-        host_transforms: tuple[DomainHostTransformBinding, ...],
-        source_fragment: BoundDomainMeasurementValueFragment[
-            EntryAddressT,
-            ResultAddressT,
-        ],
-        transforms: BoundHostMeasurementTransformPlan | None,
-    ) -> None:
-        self.__context = context
-        self.__mapping = mapping
-        self.__source_product_uses = source_product_uses
-        self.__derived_product_uses = derived_product_uses
-        self.__product_uses = product_uses
-        self.__host_transforms = host_transforms
-        self._source_fragment = source_fragment
-        self._transforms = transforms
-
-    @property
-    @override
-    def context(self) -> DomainBatchContext:
-        return self.__context
-
-    @property
-    @override
-    def mapping(self) -> DomainResultMapping[EntryAddressT, ResultAddressT]:
-        return self.__mapping
-
-    @property
-    @override
-    def source_product_uses(self) -> tuple[DomainProductUseRef, ...]:
-        return self.__source_product_uses
-
-    @property
-    @override
-    def derived_product_uses(self) -> tuple[DomainProductUseRef, ...]:
-        return self.__derived_product_uses
-
-    @property
-    @override
-    def product_uses(self) -> tuple[DomainProductUseRef, ...]:
-        return self.__product_uses
-
-    @property
-    @override
-    def host_transforms(self) -> tuple[DomainHostTransformBinding, ...]:
-        return self.__host_transforms
 
 
 class DomainPreparationBuilder:
@@ -446,9 +240,9 @@ class DomainPreparationBuilder:
             raise ValueError(msg)
 
         native = seal_domain_result_mapping(
-            context_linked_points_internal(context),
+            context.linked_points,
             tuple(
-                product_use_id_internal(product_use)
+                product_use_id(product_use)
                 for product_use in context.direct_product_uses
             ),
             tuple(
@@ -458,7 +252,7 @@ class DomainPreparationBuilder:
             tuple(
                 EntryPointBinding(
                     binding.entry_address,
-                    point_id_internal(binding.point),
+                    point_id(binding.point),
                 )
                 for binding in selected_entry_points
             ),
@@ -466,12 +260,12 @@ class DomainPreparationBuilder:
                 ResultUseBinding(
                     binding.entry_address,
                     binding.result_address,
-                    product_use_id_internal(binding.product_use),
+                    product_use_id(binding.product_use),
                 )
                 for binding in selected_results
             ),
         )
-        return domain_result_mapping_from_native_internal(
+        return _result_mapping_from_native(
             context,
             context.direct_product_uses,
             selected_entries,
@@ -525,18 +319,18 @@ class DomainPreparationBuilder:
         )
 
         native_pairs = tuple(
-            lower_domain_host_transform_binding_internal(context, binding)
+            lower_domain_host_transform_binding(context, binding)
             for binding in selected_bindings
         )
         native_transforms = tuple(transform for transform, _ in native_pairs)
-        linked_points = context_linked_points_internal(context)
+        linked_points = context.linked_points
         source_fragment_id = "scopecat.domain/source"
         transform_fragment_ids = tuple(
             f"scopecat.domain/transform/{transform.id.value}"
             for transform in native_transforms
         )
         product_use_ids = tuple(
-            product_use_id_internal(product_use) for product_use in context.product_uses
+            product_use_id(product_use) for product_use in context.product_uses
         )
         value_assembly = select_measurement_value_assembly(
             linked_points,
@@ -545,7 +339,7 @@ class DomainPreparationBuilder:
                 ProductValueFragmentDef(
                     source_fragment_id,
                     tuple(
-                        product_use_id_internal(product_use)
+                        product_use_id(product_use)
                         for product_use in context.direct_product_uses
                     ),
                 ),
@@ -553,7 +347,7 @@ class DomainPreparationBuilder:
                     ProductValueFragmentDef(
                         fragment_id,
                         tuple(
-                            product_use_id_internal(product_use)
+                            product_use_id(product_use)
                             for port in binding.transform.outputs
                             for product_use in port.product_uses
                         ),
@@ -569,9 +363,7 @@ class DomainPreparationBuilder:
         source_fragment = bind_domain_output_fragment(
             value_assembly,
             source_fragment_id,
-            select_domain_measurement_outputs(
-                domain_result_mapping_native_internal(mapping)
-            ),
+            select_domain_measurement_outputs(mapping.native),
         )
         transforms: BoundHostMeasurementTransformPlan | None = None
         if native_transforms:
@@ -607,7 +399,7 @@ class DomainPreparationBuilder:
                 ),
             )
 
-        return _DomainMeasurementPlan(
+        return DomainMeasurementPlan(
             context=context,
             mapping=mapping,
             source_product_uses=context.direct_product_uses,
@@ -646,7 +438,7 @@ class DomainPreparationBuilder:
             raise ValueError(msg)
 
         target = invocation.target
-        native_mapping = domain_result_mapping_native_internal(measurements.mapping)
+        native_mapping = measurements.mapping.native
         native_invocation = close_domain_invocation(
             native_mapping,
             invocation_id=invocation.invocation_id,
@@ -658,7 +450,7 @@ class DomainPreparationBuilder:
             adapter_intent=invocation.adapter_intent,
             payload=invocation.payload,
         )
-        source_fragment = domain_measurement_source_fragment_internal(measurements)
+        source_fragment = measurements.source_fragment
         native_outputs = source_fragment.domain_outputs
 
         def close_realized_values(
@@ -673,27 +465,25 @@ class DomainPreparationBuilder:
                 ),
             )
 
-        return make_prepared_domain_execution_internal(
+        return PreparedDomainExecution(
+            adapter_id=self._context.adapter_id,
             context=self._context,
-            invocation=native_invocation,
-            runtime=runtime,
-            realize=close_realized_values,
-            source_fragment=source_fragment,
+            invocation=cast("ErasedDomainInvocation", native_invocation),
+            runtime=cast("ErasedDomainRuntime", runtime),
+            realize=cast("ErasedDomainRealizer", close_realized_values),
+            source_fragment=cast(
+                "BoundDomainMeasurementValueFragment[Hashable, Hashable]",
+                source_fragment,
+            ),
             resource_claims=tuple(
                 ExecutionResourceClaim(claim.kind, claim.id)
                 for claim in selected_claims
             ),
-            transforms=domain_measurement_transforms_internal(measurements),
+            transforms=measurements.transforms,
         )
 
 
-def domain_preparation_builder_for_context_internal(
-    context: DomainBatchContext,
-) -> DomainPreparationBuilder:
-    return DomainPreparationBuilder(context)
-
-
-def domain_result_mapping_from_native_internal[
+def _result_mapping_from_native[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
@@ -702,10 +492,9 @@ def domain_result_mapping_from_native_internal[
     target_entries: tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...],
     native: ClosedDomainResultMapping[EntryAddressT, ResultAddressT],
 ) -> DomainResultMapping[EntryAddressT, ResultAddressT]:
-    point_refs_by_id = {point_id_internal(point): point for point in context.points}
+    point_refs_by_id = {point_id(point): point for point in context.points}
     product_use_refs_by_id = {
-        product_use_id_internal(product_use): product_use
-        for product_use in product_uses
+        product_use_id(product_use): product_use for product_use in product_uses
     }
     mapped_results: list[DomainMappedResult[EntryAddressT, ResultAddressT]] = []
     mapped_results_by_native_identity: dict[
@@ -738,7 +527,7 @@ def domain_result_mapping_from_native_internal[
         mapped_entries.append(mapped_entry)
 
     selected_results = tuple(mapped_results)
-    return _DomainResultMapping(
+    return DomainResultMapping(
         context=context,
         product_uses=product_uses,
         target_entries=target_entries,
@@ -755,42 +544,6 @@ def domain_result_mapping_from_native_internal[
             }
         ),
         native=native,
-    )
-
-
-def domain_result_mapping_native_internal[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-](
-    mapping: DomainResultMapping[EntryAddressT, ResultAddressT],
-) -> ClosedDomainResultMapping[EntryAddressT, ResultAddressT]:
-    return cast(
-        "ClosedDomainResultMapping[EntryAddressT, ResultAddressT]",
-        object.__getattribute__(mapping, "_native"),
-    )
-
-
-def domain_measurement_source_fragment_internal[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-](
-    plan: DomainMeasurementPlan[EntryAddressT, ResultAddressT],
-) -> BoundDomainMeasurementValueFragment[EntryAddressT, ResultAddressT]:
-    return cast(
-        "BoundDomainMeasurementValueFragment[EntryAddressT, ResultAddressT]",
-        object.__getattribute__(plan, "_source_fragment"),
-    )
-
-
-def domain_measurement_transforms_internal[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-](
-    plan: DomainMeasurementPlan[EntryAddressT, ResultAddressT],
-) -> BoundHostMeasurementTransformPlan | None:
-    return cast(
-        "BoundHostMeasurementTransformPlan | None",
-        object.__getattribute__(plan, "_transforms"),
     )
 
 

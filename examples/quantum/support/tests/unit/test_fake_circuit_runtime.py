@@ -63,14 +63,11 @@ from scopecat.measurements.results import (
     MeasurementDType,
 )
 from scopecat.sdk.domain import DomainExecutionOffer, DomainPreparationBuilder
-from scopecat.sdk.domain.context import (
-    make_domain_batch_context_internal,
-    project_domain_plan_internal,
+from scopecat.sdk.domain._bridge import (
+    make_domain_batch_context,
+    project_domain_plan,
 )
-from scopecat.sdk.domain.execution import (
-    PreparedDomainExecution,
-    prepared_domain_invocation_internal,
-)
+from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     MaterializedLinkedPoints,
@@ -339,7 +336,7 @@ def _raw_trace_bindings(
 def _preparation_for_all_points(
     linked_points: MaterializedLinkedPoints,
 ) -> DomainPreparationBuilder:
-    projection = project_domain_plan_internal(linked_points)
+    projection = project_domain_plan(linked_points)
     call = projection.view(linked_points).require_one_call(
         dialect_id=_DOMAIN_DIALECT_ID
     )
@@ -348,7 +345,7 @@ def _preparation_for_all_points(
         call,
         max_points_per_batch=len(point_indices),
     )
-    context = make_domain_batch_context_internal(
+    context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, point_indices),
         offer,
@@ -981,7 +978,7 @@ def _closed_mixed_invocation(
             TargetAcquisitionAddress,
             SelectedFakeMeasurementRealization,
         ],
-        prepared_domain_invocation_internal(prepared),
+        prepared.invocation,
     )
 
 

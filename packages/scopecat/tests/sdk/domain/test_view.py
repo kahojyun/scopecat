@@ -16,7 +16,7 @@ from scopecat.sdk.domain import (
     DomainProductContractView,
     DomainProductUseRef,
 )
-from scopecat.sdk.domain.context import project_domain_plan_internal
+from scopecat.sdk.domain._bridge import project_domain_plan
 from tests.testkit.authoring import load_config
 
 
@@ -59,7 +59,7 @@ def test_domain_batch_view_materializes_typed_inputs_results_and_batches(
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     linked_points = materialize_linked_points(linked)
 
-    projection = project_domain_plan_internal(linked_points)
+    projection = project_domain_plan(linked_points)
     full = projection.view(linked_points)
     selected = full.require_one_call(
         dialect_id="test.domain",

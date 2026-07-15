@@ -13,7 +13,7 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Protocol, cast, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from scopecat_quantum import (
     AcquisitionKind,
@@ -416,7 +416,7 @@ def _waveform_fingerprint(entry: FakeListEntry) -> str:
                 {
                     "channel_id": waveform.channel_id.value,
                     "samples": [
-                        [sample.real.hex(), sample.imag.hex()]
+                        [float(sample.real).hex(), float(sample.imag).hex()]
                         for sample in waveform.samples
                     ],
                 }
@@ -607,9 +607,10 @@ def _run_fingerprint(
 
 def _value_payload(value: FakeDigitizerValue) -> object:
     if isinstance(value, tuple):
-        return [[sample.real.hex(), sample.imag.hex()] for sample in value]
-    selected = cast("complex", value)
-    return [selected.real.hex(), selected.imag.hex()]
+        return [
+            [float(sample.real).hex(), float(sample.imag).hex()] for sample in value
+        ]
+    return [float(value.real).hex(), float(value.imag).hex()]
 
 
 __all__ = [

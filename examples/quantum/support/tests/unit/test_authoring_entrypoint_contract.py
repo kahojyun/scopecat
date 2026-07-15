@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 import scopecat as sc
-from scopecat.authoring._record_intents import ProductSelectionIntent
+from scopecat.authoring._record_intents import RecordSelection
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_table_value_ref,
@@ -121,9 +121,7 @@ def _compile_through_workspace(
     experiment: sc.ExperimentInvocation | sc.Experiment,
 ) -> CompiledInvocation:
     prepared_handle = workspace.prepare(experiment)
-    prepared = cast(
-        "object", object.__getattribute__(prepared_handle, "_prepared_invocation")
-    )
+    prepared = prepared_handle._prepared_invocation
     assert isinstance(prepared, PreparedInvocation)
     return compile_prepared_invocation(prepared)
 
@@ -156,7 +154,7 @@ def _normalized_assembly_field(name: str, value: object) -> object:
     if name == "point_domain":
         return _point_domain_semantics(cast("PointDomainExpr[ValueRef]", value))
     if name == "record_selections":
-        selections = cast("tuple[ProductSelectionIntent, ...]", value)
+        selections = cast("tuple[RecordSelection, ...]", value)
         return tuple(
             (
                 selection.product_id.qualified_name,

@@ -64,12 +64,9 @@ from scopecat.sdk.domain import (
     DomainProductUseRef,
     PreparedDomainExecution,
 )
-from scopecat.sdk.domain.context import (
-    make_domain_batch_context_internal,
-    project_domain_plan_internal,
-)
-from scopecat.sdk.domain.execution import (
-    prepared_domain_source_fragment_internal,
+from scopecat.sdk.domain._bridge import (
+    make_domain_batch_context,
+    project_domain_plan,
 )
 from scopecat_quantum import (
     Acquire,
@@ -352,7 +349,7 @@ def _scenario(
     host_implementation: DomainHostTransformImplementation,
 ) -> _Scenario:
     linked_points = _linked_points()
-    projection = project_domain_plan_internal(linked_points)
+    projection = project_domain_plan(linked_points)
     view = projection.view(linked_points)
     call = view.require_one_call(dialect_id="test.quantum.host-transform")
     iq_use = call.result("iq_shots").require_one_product_use()
@@ -367,7 +364,7 @@ def _scenario(
         call,
         max_points_per_batch=3,
     )
-    context = make_domain_batch_context_internal(
+    context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
         offer,
@@ -483,9 +480,7 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
 
     counted_implementation = replace(reference, kernel=counted_kernel)
     scenario = _scenario(counted_implementation)
-    value_selection = prepared_domain_source_fragment_internal(
-        scenario.prepared
-    ).selection
+    value_selection = scenario.prepared.source_fragment.selection
     projection = bind_measurement_projection(
         select_measurement_projection(scenario.linked_points),
         value_selection,

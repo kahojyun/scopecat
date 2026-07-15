@@ -14,7 +14,7 @@ from typing import Protocol
 from scopecat.authoring._module_handles import ExperimentModule
 from scopecat.authoring._module_ir import ModuleIR
 from scopecat.authoring._problems import authoring_problem as problem
-from scopecat.authoring._record_intents import ProductSelectionIntent
+from scopecat.authoring._record_intents import RecordSelection
 from scopecat.authoring._scan_intents import (
     ParameterScanIntent,
     PointScanIntent,
@@ -64,7 +64,7 @@ def validate_template_definition(
     module: ExperimentModule,
     inputs: Sequence[TemplateInputDescription],
     default_scans: Sequence[Scan],
-    record_selections: Sequence[ProductSelectionIntent],
+    record_selections: Sequence[RecordSelection],
 ) -> None:
     """Validate one closed template definition without consulting config."""
 
@@ -410,7 +410,7 @@ def _scan_length_problems(
 
 def _validate_record_selections(
     module: ExperimentModule,
-    selections: Sequence[ProductSelectionIntent],
+    selections: Sequence[RecordSelection],
 ) -> list[Problem]:
     problems: list[Problem] = []
     products = module.ir.interface.products

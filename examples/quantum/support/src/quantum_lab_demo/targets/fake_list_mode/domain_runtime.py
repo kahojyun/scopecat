@@ -20,19 +20,17 @@ from scopecat.kernel.problems import (
     blocking_problem,
     model_location,
 )
-from scopecat.sdk.domain.job import (
-    DomainInvocationSpec,
-    DomainTargetArtifactIdentity,
-)
-from scopecat.sdk.domain.runtime import (
+from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
     DomainFetchReceipt,
     DomainFetchRequest,
+    DomainInvocationSpec,
     DomainReconcileReceipt,
     DomainReconcileRequest,
     DomainSubmitReceipt,
     DomainSubmitRequest,
+    DomainTargetArtifactIdentity,
 )
 
 from quantum_lab_demo.targets.fake_list_mode.circuit_runtime import (

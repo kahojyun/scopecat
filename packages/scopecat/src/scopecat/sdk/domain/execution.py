@@ -12,19 +12,16 @@ resumption require a separate durable lifecycle and are not implied here.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable
-from typing import Literal, Protocol, cast, override
+from dataclasses import dataclass, field
+from typing import Literal, Protocol
 
 from scopecat.measurements.host_transforms import BoundHostMeasurementTransformPlan
 from scopecat.measurements.values import BoundDomainMeasurementValueFragment
 from scopecat.planning.coverage import ExecutionResourceClaim
-from scopecat.records.run_plan import RunPlanDomainBatch
 from scopecat.sdk.domain.context import (
     DomainBatchContext,
     DomainExecutionOffer,
-    context_adapter_id_internal,
-    context_linked_points_internal,
 )
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
@@ -41,7 +38,8 @@ type ErasedDomainRealizer = Callable[
 ]
 
 
-class PreparedDomainExecution(ABC):
+@dataclass(frozen=True, slots=True)
+class PreparedDomainExecution:
     """A pure proof that one linked program is ready for domain effects.
 
     The type-erased runtime fields form an existential adapter boundary: an
@@ -49,19 +47,24 @@ class PreparedDomainExecution(ABC):
     family, while core never inspects those domain-owned values.
     """
 
-    __slots__ = ()
+    adapter_id: str
+    context: DomainBatchContext
+    invocation: ErasedDomainInvocation = field(repr=False)
+    runtime: ErasedDomainRuntime = field(repr=False, compare=False)
+    realize: ErasedDomainRealizer = field(repr=False, compare=False)
+    source_fragment: BoundDomainMeasurementValueFragment[
+        Hashable,
+        Hashable,
+    ] = field(repr=False)
+    resource_claims: tuple[ExecutionResourceClaim, ...] = ()
+    transforms: BoundHostMeasurementTransformPlan | None = field(
+        default=None,
+        repr=False,
+    )
 
     @property
-    @abstractmethod
-    def adapter_id(self) -> str: ...
-
-    @property
-    @abstractmethod
-    def context(self) -> DomainBatchContext: ...
-
-    @property
-    @abstractmethod
-    def completion_contract(self) -> Literal["synchronous"]: ...
+    def completion_contract(self) -> Literal["synchronous"]:
+        return "synchronous"
 
     @property
     def direct_product_uses(self) -> tuple[DomainProductUseRef, ...]:
@@ -78,55 +81,6 @@ class PreparedDomainExecution(ABC):
     @property
     def semantic_operation_id(self) -> str:
         return self.context.call.id
-
-
-class _PreparedDomainExecution(PreparedDomainExecution):
-    __slots__ = (
-        "_adapter_id",
-        "_context",
-        "_invocation",
-        "_realize",
-        "_resource_claims",
-        "_runtime",
-        "_source_fragment",
-        "_transforms",
-    )
-
-    def __init__(
-        self,
-        *,
-        adapter_id: str,
-        context: DomainBatchContext,
-        invocation: ErasedDomainInvocation,
-        runtime: ErasedDomainRuntime,
-        realize: ErasedDomainRealizer,
-        source_fragment: BoundDomainMeasurementValueFragment[Hashable, Hashable],
-        resource_claims: tuple[ExecutionResourceClaim, ...],
-        transforms: BoundHostMeasurementTransformPlan | None,
-    ) -> None:
-        self._adapter_id = adapter_id
-        self._context = context
-        self._invocation = invocation
-        self._runtime = runtime
-        self._realize = realize
-        self._source_fragment = source_fragment
-        self._resource_claims = resource_claims
-        self._transforms = transforms
-
-    @property
-    @override
-    def adapter_id(self) -> str:
-        return self._adapter_id
-
-    @property
-    @override
-    def context(self) -> DomainBatchContext:
-        return self._context
-
-    @property
-    @override
-    def completion_contract(self) -> Literal["synchronous"]:
-        return "synchronous"
 
 
 class DomainExecutionAdapter(Protocol):
@@ -146,122 +100,6 @@ class DomainExecutionAdapter(Protocol):
     ) -> DomainExecutionOffer | None: ...
 
     def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution: ...
-
-
-def project_domain_run_plan_batch_internal(
-    prepared: PreparedDomainExecution,
-    *,
-    context: DomainBatchContext,
-) -> RunPlanDomainBatch:
-    """Project one accepted batch identity without adapter payloads."""
-
-    if prepared.context is not context:
-        msg = "domain run-plan batches must retain their preparation context"
-        raise ValueError(msg)
-
-    intent = prepared_domain_invocation_internal(prepared).intent
-    return RunPlanDomainBatch(
-        batch_ordinal=context.batch_ordinal,
-        point_indices=list(context_linked_points_internal(context).point_indices),
-        semantic_operation_id=prepared.semantic_operation_id,
-        completion_contract=prepared.completion_contract,
-        invocation_id=intent.invocation_id,
-        intent_fingerprint=intent.intent_fingerprint,
-        target_id=intent.target_id,
-        compiler_id=intent.compiler_id,
-        capability_fingerprint=intent.capability_fingerprint,
-        artifact_id=intent.artifact_id,
-        artifact_fingerprint=intent.artifact_fingerprint,
-    )
-
-
-def make_prepared_domain_execution_internal[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-    PayloadT,
-    ResultT,
-](
-    *,
-    context: DomainBatchContext,
-    invocation: ClosedDomainInvocation[EntryAddressT, ResultAddressT, PayloadT],
-    runtime: DomainRuntime[PayloadT, ResultT],
-    realize: Callable[
-        [CorrelatedDomainFetch[ResultT]],
-        ClosedDomainOutputValues[EntryAddressT, ResultAddressT],
-    ],
-    source_fragment: BoundDomainMeasurementValueFragment[
-        EntryAddressT,
-        ResultAddressT,
-    ],
-    resource_claims: tuple[ExecutionResourceClaim, ...] = (),
-    transforms: BoundHostMeasurementTransformPlan | None = None,
-) -> PreparedDomainExecution:
-    """Close one concrete adapter type family behind the core execution ABI."""
-
-    return _PreparedDomainExecution(
-        adapter_id=context_adapter_id_internal(context),
-        context=context,
-        invocation=cast("ErasedDomainInvocation", invocation),
-        runtime=cast("ErasedDomainRuntime", runtime),
-        realize=cast("ErasedDomainRealizer", realize),
-        source_fragment=cast(
-            "BoundDomainMeasurementValueFragment[Hashable, Hashable]",
-            source_fragment,
-        ),
-        resource_claims=resource_claims,
-        transforms=transforms,
-    )
-
-
-def prepared_domain_invocation_internal(
-    prepared: PreparedDomainExecution,
-) -> ErasedDomainInvocation:
-    return cast(
-        "ErasedDomainInvocation",
-        object.__getattribute__(prepared, "_invocation"),
-    )
-
-
-def prepared_domain_runtime_internal(
-    prepared: PreparedDomainExecution,
-) -> ErasedDomainRuntime:
-    return cast("ErasedDomainRuntime", object.__getattribute__(prepared, "_runtime"))
-
-
-def prepared_domain_realizer_internal(
-    prepared: PreparedDomainExecution,
-) -> ErasedDomainRealizer:
-    return cast(
-        "ErasedDomainRealizer",
-        object.__getattribute__(prepared, "_realize"),
-    )
-
-
-def prepared_domain_source_fragment_internal(
-    prepared: PreparedDomainExecution,
-) -> BoundDomainMeasurementValueFragment[Hashable, Hashable]:
-    return cast(
-        "BoundDomainMeasurementValueFragment[Hashable, Hashable]",
-        object.__getattribute__(prepared, "_source_fragment"),
-    )
-
-
-def prepared_domain_transforms_internal(
-    prepared: PreparedDomainExecution,
-) -> BoundHostMeasurementTransformPlan | None:
-    return cast(
-        "BoundHostMeasurementTransformPlan | None",
-        object.__getattribute__(prepared, "_transforms"),
-    )
-
-
-def prepared_domain_resource_claims_internal(
-    prepared: PreparedDomainExecution,
-) -> tuple[ExecutionResourceClaim, ...]:
-    return cast(
-        "tuple[ExecutionResourceClaim, ...]",
-        object.__getattribute__(prepared, "_resource_claims"),
-    )
 
 
 __all__ = [

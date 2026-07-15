@@ -41,7 +41,6 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_input_id,
     internal_value_ref_module_export,
     internal_value_ref_operation_id,
-    internal_value_ref_operation_origin,
     internal_value_ref_unbound_input_ids,
 )
 from scopecat.authoring.domain import DomainCall, DomainProgramDef
@@ -386,7 +385,7 @@ def _module_closure_problems(module: ModuleIR) -> list[Problem]:
             operation_id = internal_value_ref_operation_id(leaf)
             if operation_id is not None:
                 operation = operations.get(operation_id)
-                if operation is None or internal_value_ref_operation_origin(leaf) != (
+                if operation is None or leaf.operation_origin != (
                     *operation.instance_path,
                     operation.declaration_key,
                 ):

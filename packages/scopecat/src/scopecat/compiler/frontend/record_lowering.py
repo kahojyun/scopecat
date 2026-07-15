@@ -10,9 +10,9 @@ from typing import cast
 from scopecat.authoring._record_intents import (
     AxisSizeInput,
     ModuleProductPort,
-    ProductSelectionIntent,
-    RecordAxisIntent,
+    RecordAxis,
     RecordIntent,
+    RecordSelection,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -120,7 +120,7 @@ _EMPTY_PRODUCT_IDS: frozenset[ProductId] = frozenset()
 def lower_product_selections(
     static_evaluator: StaticRelationEvaluator,
     topology: Topology,
-    selections: Sequence[ProductSelectionIntent],
+    selections: Sequence[RecordSelection],
     product_ports_by_id: Mapping[ProductId, ModuleProductPort],
     inputs: Mapping[str, object],
     *,
@@ -186,7 +186,7 @@ def lower_product_selections(
 def _lower_record_axis_intent(
     static_evaluator: StaticRelationEvaluator,
     topology: Topology,
-    axis: RecordAxisIntent,
+    axis: RecordAxis,
     inputs: Mapping[str, object],
     *,
     record_id: str,

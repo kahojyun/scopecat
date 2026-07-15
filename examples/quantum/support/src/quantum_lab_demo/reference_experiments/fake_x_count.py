@@ -18,17 +18,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from scopecat import Quantity
-from scopecat.sdk.domain.measurements import (
+from scopecat.sdk.domain import (
     DomainHostTransformBinding,
     DomainHostTransformImplementation,
-)
-from scopecat.sdk.domain.preparation import (
     DomainMeasurementPlan,
-    DomainPreparationBuilder,
-)
-from scopecat.sdk.domain.view import (
     DomainMeasurementTransform,
     DomainPointRef,
+    DomainPreparationBuilder,
     DomainProductUseRef,
 )
 from scopecat_quantum import (

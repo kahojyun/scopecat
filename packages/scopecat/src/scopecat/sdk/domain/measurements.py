@@ -12,32 +12,12 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal
 
-from scopecat.compiler.typed.products import ProductDef
-from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.contracts import validated_measurement_value_copy
-from scopecat.measurements.host_transforms import (
-    HostMeasurementTransformCall,
-    HostMeasurementTransformImplementation,
-)
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
-from scopecat.measurements.transform_model import (
-    MeasurementTransformDef,
-    MeasurementTransformInputPort,
-    MeasurementTransformOutputPort,
-    NativeMeasurementTransformId,
-)
 from scopecat.records.measurement import MeasurementValue
-from scopecat.sdk.domain.context import (
-    DomainBatchContext,
-    context_linked_points_internal,
-    point_id_internal,
-    product_use_id_internal,
-)
 from scopecat.sdk.domain.view import (
     DomainMeasurementTransform,
     DomainPointRef,
-    DomainProductContractView,
-    DomainProductUseRef,
     DomainTransformInputPort,
     DomainTransformOutputPort,
 )
@@ -142,160 +122,6 @@ class DomainHostTransformBinding:
         ):
             msg = "domain host transform implementation is semantically incompatible"
             raise ValueError(msg)
-
-
-def lower_domain_measurement_transform_internal(
-    context: DomainBatchContext,
-    transform: DomainMeasurementTransform,
-) -> MeasurementTransformDef:
-    """Lower one context-owned SDK declaration into the existing core graph."""
-
-    return MeasurementTransformDef(
-        id=NativeMeasurementTransformId(transform.id),
-        semantic=transform.semantic.model_copy(deep=True),
-        rate=transform.rate,
-        inputs=tuple(
-            _lower_input_port(context, port)
-            for port in sorted(transform.inputs, key=lambda item: item.id)
-        ),
-        outputs=tuple(
-            _lower_output_port(context, port)
-            for port in sorted(transform.outputs, key=lambda item: item.id)
-        ),
-    )
-
-
-def lower_domain_host_transform_implementation_internal(
-    context: DomainBatchContext,
-    transform: DomainMeasurementTransform,
-    implementation: DomainHostTransformImplementation,
-) -> HostMeasurementTransformImplementation:
-    """Adapt one SDK validator/kernel pair to the existing host executor."""
-
-    DomainHostTransformBinding(transform, implementation)
-    native_transform = lower_domain_measurement_transform_internal(context, transform)
-    point_refs = {point_id_internal(point): point for point in context.points}
-
-    def validate(candidate: MeasurementTransformDef) -> None:
-        if candidate != native_transform:
-            msg = "lowered host implementation received another transform contract"
-            raise ValueError(msg)
-        implementation.validate_transform(transform)
-
-    def kernel(
-        call: HostMeasurementTransformCall,
-    ) -> Mapping[str, MeasurementValue]:
-        if (
-            call.transform_id != native_transform.id
-            or call.semantic != native_transform.semantic
-            or call.input_ports != native_transform.inputs
-            or call.output_ports != native_transform.outputs
-        ):
-            msg = "lowered host implementation received another transform call"
-            raise ValueError(msg)
-        try:
-            point = point_refs[call.logical_point_id]
-        except KeyError as error:
-            msg = "host transform call references a point outside its batch context"
-            raise ValueError(msg) from error
-        if call.point_index != point.ordinal:
-            msg = "host transform call point index does not match its SDK reference"
-            raise ValueError(msg)
-        return implementation.kernel(
-            DomainHostTransformCall(
-                transform=transform,
-                point=point,
-                inputs=call.inputs,
-            )
-        )
-
-    return HostMeasurementTransformImplementation(
-        id=implementation.id,
-        semantic_id=implementation.semantic_id,
-        semantic_version=implementation.semantic_version,
-        rate=implementation.rate,
-        implementation_fingerprint=implementation.implementation_fingerprint,
-        validate_transform=validate,
-        kernel=kernel,
-    )
-
-
-def lower_domain_host_transform_binding_internal(
-    context: DomainBatchContext,
-    binding: DomainHostTransformBinding,
-) -> tuple[MeasurementTransformDef, HostMeasurementTransformImplementation]:
-    """Lower one complete SDK host binding as a consistent native pair."""
-
-    transform = lower_domain_measurement_transform_internal(
-        context,
-        binding.transform,
-    )
-    implementation = lower_domain_host_transform_implementation_internal(
-        context,
-        binding.transform,
-        binding.implementation,
-    )
-    return transform, implementation
-
-
-def _lower_input_port(
-    context: DomainBatchContext,
-    port: DomainTransformInputPort,
-) -> MeasurementTransformInputPort:
-    use_id, product = _native_product_contract(context, port.product_use)
-    return MeasurementTransformInputPort(port.id, use_id, product)
-
-
-def _lower_output_port(
-    context: DomainBatchContext,
-    port: DomainTransformOutputPort,
-) -> MeasurementTransformOutputPort:
-    product = _native_product_def(context, port.product)
-    use_ids = tuple(
-        _native_product_contract(context, product_use)[0]
-        for product_use in port.product_uses
-    )
-    return MeasurementTransformOutputPort(port.id, use_ids, product)
-
-
-def _native_product_contract(
-    context: DomainBatchContext,
-    product_use: DomainProductUseRef,
-) -> tuple[ProductUseId, ProductDef]:
-    if not any(product_use is owned for owned in context.product_uses):
-        msg = "domain transform port references a product use outside its context"
-        raise ValueError(msg)
-    linked_points = context_linked_points_internal(context)
-    use_id = product_use_id_internal(product_use)
-    try:
-        use = next(
-            use for use in linked_points.linked_plan.product_uses if use.id == use_id
-        )
-        product = next(
-            product
-            for product in linked_points.linked_plan.product_defs
-            if product.id == use.product_id
-        )
-    except StopIteration as error:
-        msg = "domain batch context lost its linked product contract"
-        raise AssertionError(msg) from error
-    return use_id, product
-
-
-def _native_product_def(
-    context: DomainBatchContext,
-    contract: DomainProductContractView,
-) -> ProductDef:
-    linked_points = context_linked_points_internal(context)
-    try:
-        return next(
-            product
-            for product in linked_points.linked_plan.product_defs
-            if product.id.qualified_name == contract.id
-        )
-    except StopIteration as error:
-        msg = "domain batch context lost its linked product contract"
-        raise AssertionError(msg) from error
 
 
 __all__ = [

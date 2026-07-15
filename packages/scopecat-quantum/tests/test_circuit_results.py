@@ -38,9 +38,9 @@ from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainResultMapping,
 )
-from scopecat.sdk.domain.context import (
-    make_domain_batch_context_internal,
-    project_domain_plan_internal,
+from scopecat.sdk.domain._bridge import (
+    make_domain_batch_context,
+    project_domain_plan,
 )
 from scopecat.sdk.domain.invocation import materialize_linked_points
 
@@ -215,7 +215,7 @@ def _preparation(
         )
     )
     linked_points = materialize_linked_points(link_program(program, environment))
-    projection = project_domain_plan_internal(linked_points)
+    projection = project_domain_plan(linked_points)
     call = projection.view(linked_points).require_one_call(
         dialect_id="test.quantum.result-mapping"
     )
@@ -223,7 +223,7 @@ def _preparation(
         call,
         max_points_per_batch=2,
     )
-    context = make_domain_batch_context_internal(
+    context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1)),
         offer,

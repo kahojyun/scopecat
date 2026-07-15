@@ -10,7 +10,6 @@ from typing import cast
 from uuid import UUID, uuid4
 
 from scopecat.authoring._frozen_values import freeze_runtime_input
-from scopecat.authoring._handles import create_handle
 from scopecat.authoring._parameter_contracts import (
     ParameterLookupContract,
     ParameterValueContract,
@@ -83,19 +82,15 @@ class ComputeDeclarationKey:
         return cls(uuid4())
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class RouteRef:
     """Explicit typed route edge for a point-local compute input."""
 
     port_id: LogicalResourcePortId
     value_type: Route
 
-    def __init__(self) -> None:
-        msg = "RouteRef is an opaque handle; create routes with scopecat.route"
-        raise TypeError(msg)
 
-
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class Compute:
     """A typed compute declaration and its composable output value."""
 
@@ -103,11 +98,7 @@ class Compute:
     fn: ComputeFunction
     inputs: tuple[tuple[str, ComputeInput], ...]
     output_type: ValueType
-    _declaration_key: ComputeDeclarationKey
-
-    def __init__(self) -> None:
-        msg = "Compute is an opaque handle; create computes with scopecat.compute"
-        raise TypeError(msg)
+    declaration_key: ComputeDeclarationKey
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -134,7 +125,7 @@ class Compute:
         return internal_operation_result_value_ref(
             self.id,
             self.output_type,
-            origin=(self._declaration_key,),
+            origin=(self.declaration_key,),
             point_dependencies=tuple(
                 dependency
                 for _name, value in self.inputs
@@ -264,8 +255,7 @@ def route(
     if any(not capability for capability in capabilities):
         msg = "route capabilities must be a sequence of non-empty strings"
         raise ValueError(msg)
-    return create_handle(
-        RouteRef,
+    return RouteRef(
         port_id=logical_resource_port_id(port_id),
         value_type=Route(capabilities=capabilities),
     )
@@ -288,24 +278,14 @@ def compute(
             f"scalar literals; invalid inputs: {', '.join(invalid)}"
         )
         raise TypeError(msg)
-    return create_handle(
-        Compute,
+    return Compute(
         id=id,
         fn=fn,
         inputs=tuple(
             (name, _capture_compute_input(value)) for name, value in selected_inputs
         ),
         output_type=output_type,
-        _declaration_key=ComputeDeclarationKey.fresh(),
-    )
-
-
-def compute_declaration_key_internal(definition: Compute) -> ComputeDeclarationKey:
-    """Return the typed identity shared by a declaration and its output."""
-
-    return cast(
-        "ComputeDeclarationKey",
-        object.__getattribute__(definition, "_declaration_key"),
+        declaration_key=ComputeDeclarationKey.fresh(),
     )
 
 

@@ -25,11 +25,8 @@ from scopecat.sdk.domain.view import (
     DomainProductAxisView,
     DomainProductContractView,
     DomainProductUseRef,
-    domain_measurement_transform_internal,
-    domain_point_ref_internal,
-    domain_product_use_ref_internal,
-    domain_transform_input_port_internal,
-    domain_transform_output_port_internal,
+    DomainTransformInputPort,
+    DomainTransformOutputPort,
 )
 
 from scopecat_quantum.measurement_transforms import (
@@ -92,16 +89,16 @@ def _product_view(product: ProductDef) -> DomainProductContractView:
 
 
 def _product_use(product: ProductDef, use_id: str) -> DomainProductUseRef:
-    return domain_product_use_ref_internal(
-        ref_id=use_id,
+    return DomainProductUseRef(
+        id=use_id,
         product=_product_view(product),
         native=object(),
     )
 
 
 def _point() -> DomainPointRef:
-    return domain_point_ref_internal(
-        ref_id="binary-iq-test:point:0",
+    return DomainPointRef(
+        id="binary-iq-test:point:0",
         ordinal=0,
         native=object(),
     )
@@ -161,24 +158,24 @@ def _domain_transform(
         probability_1_product or _probability_product("probability-1"),
         f"{wiring}-p1",
     )
-    return domain_measurement_transform_internal(
-        transform_id=authored.id,
+    return DomainMeasurementTransform(
+        id=authored.id,
         semantic=authored.semantic,
         inputs=(
-            domain_transform_input_port_internal(
-                port_id="iq_shots",
+            DomainTransformInputPort(
+                id="iq_shots",
                 product_use=iq_use,
                 product=iq_product_view,
             ),
         ),
         outputs=(
-            domain_transform_output_port_internal(
-                port_id="probability_0",
+            DomainTransformOutputPort(
+                id="probability_0",
                 product=probability_0_product_view,
                 product_uses=(probability_0_use,),
             ),
-            domain_transform_output_port_internal(
-                port_id="probability_1",
+            DomainTransformOutputPort(
+                id="probability_1",
                 product=probability_1_product_view,
                 product_uses=(probability_1_use,),
             ),
@@ -276,8 +273,8 @@ def test_reference_implementation_rejects_invalid_sdk_contract(
 ) -> None:
     valid = _domain_transform()
     if invalid_dimension == "semantic_parameters":
-        invalid = domain_measurement_transform_internal(
-            transform_id=valid.id,
+        invalid = DomainMeasurementTransform(
+            id=valid.id,
             semantic=MeasurementTransformSemanticContract(
                 id=valid.semantic.id,
                 version=valid.semantic.version,
@@ -291,12 +288,12 @@ def test_reference_implementation_rejects_invalid_sdk_contract(
             outputs=valid.outputs,
         )
     elif invalid_dimension == "port_role":
-        invalid = domain_measurement_transform_internal(
-            transform_id=valid.id,
+        invalid = DomainMeasurementTransform(
+            id=valid.id,
             semantic=valid.semantic,
             inputs=(
-                domain_transform_input_port_internal(
-                    port_id="renamed_iq",
+                DomainTransformInputPort(
+                    id="renamed_iq",
                     product_use=valid.inputs[0].product_use,
                     product=valid.inputs[0].product,
                 ),
@@ -304,19 +301,19 @@ def test_reference_implementation_rejects_invalid_sdk_contract(
             outputs=valid.outputs,
         )
     else:
-        invalid = domain_measurement_transform_internal(
-            transform_id=valid.id,
+        invalid = DomainMeasurementTransform(
+            id=valid.id,
             semantic=valid.semantic,
             inputs=(
-                domain_transform_input_port_internal(
-                    port_id="iq_shots",
+                DomainTransformInputPort(
+                    id="iq_shots",
                     product_use=valid.outputs[0].product_uses[0],
                     product=valid.outputs[0].product,
                 ),
             ),
             outputs=(
-                domain_transform_output_port_internal(
-                    port_id="probability_0",
+                DomainTransformOutputPort(
+                    id="probability_0",
                     product=valid.inputs[0].product,
                     product_uses=(valid.inputs[0].product_use,),
                 ),

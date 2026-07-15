@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Protocol
 
 from pydantic import JsonValue
 
-from scopecat.api._services import workspace_services
 from scopecat.api.analysis import Analysis, AnalysisContext, AnalysisStep
 from scopecat.api.data import Data
 from scopecat.application.services import WorkspaceServices
@@ -56,7 +55,7 @@ class RunSession(Protocol):
     def workspace(self) -> Path: ...
 
     @property
-    def _services(self) -> WorkspaceServices: ...
+    def services(self) -> WorkspaceServices: ...
 
     def overview(self, run: RunHandle | RunSelector) -> RunOverview: ...
 
@@ -76,7 +75,7 @@ class RunHandle:
     def config(self) -> ConfigProfileSnapshot:
         return load_run_config(
             run_id=self.id,
-            services=workspace_services(self.session),
+            services=self.session.services,
         )
 
     @property
@@ -85,7 +84,7 @@ class RunHandle:
 
         return load_run_request(
             run_id=self.id,
-            services=workspace_services(self.session),
+            services=self.session.services,
         )
 
     @property
@@ -94,7 +93,7 @@ class RunHandle:
 
         return load_run_plan(
             run_id=self.id,
-            services=workspace_services(self.session),
+            services=self.session.services,
         )
 
     @property
@@ -103,7 +102,7 @@ class RunHandle:
             artifact.id
             for artifact in list_run_artifacts(
                 run_id=self.id,
-                services=workspace_services(self.session),
+                services=self.session.services,
             )
         )
 
@@ -113,7 +112,7 @@ class RunHandle:
             dataset.id
             for dataset in load_run(
                 run_id=self.id,
-                services=workspace_services(self.session),
+                services=self.session.services,
             ).manifest.datasets
         )
 
@@ -124,7 +123,7 @@ class RunHandle:
     ) -> RunMeasurementDatasetResult:
         return read_run_measurement_dataset(
             run_id=self.id,
-            services=workspace_services(self.session),
+            services=self.session.services,
             selector=selector,
         )
 
@@ -170,7 +169,7 @@ class RunHandle:
         metadata: Mapping[str, JsonValue] | None = None,
     ) -> RunArtifactEntry:
         return attach_run_artifact(
-            services=workspace_services(self.session),
+            services=self.session.services,
             run_id=self.id,
             path=path,
             key=key,
@@ -190,7 +189,7 @@ class RunHandle:
     ) -> RunArtifactTextResult:
         return read_run_artifact_text(
             run_id=self.id,
-            services=workspace_services(self.session),
+            services=self.session.services,
             selector=selector,
             expected_kind=expected_kind,
         )
@@ -203,7 +202,7 @@ class RunHandle:
     ) -> RunArtifactJsonResult:
         return read_run_artifact_json(
             run_id=self.id,
-            services=workspace_services(self.session),
+            services=self.session.services,
             selector=selector,
             expected_kind=expected_kind,
         )
@@ -216,7 +215,7 @@ class RunHandle:
     ) -> RunRecordJsonResult:
         return read_run_record_json(
             run_id=self.id,
-            services=workspace_services(self.session),
+            services=self.session.services,
             selector=selector,
             expected_kind=expected_kind,
         )
@@ -231,14 +230,14 @@ class RunHandle:
 
         return inspect_run_execution(
             run_id=self.id,
-            services=workspace_services(self.session),
+            services=self.session.services,
         )
 
     def comparisons(self) -> tuple[RunComparisonView, ...]:
         return tuple(
             list_run_comparisons(
                 run_id=self.id,
-                services=workspace_services(self.session),
+                services=self.session.services,
             )
         )
 

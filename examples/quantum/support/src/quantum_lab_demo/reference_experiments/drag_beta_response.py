@@ -116,15 +116,15 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
             "schema": "quantum_lab_demo.drag_beta_response_plan.v1",
             "model_version": self.model_version,
             "shots": shots,
-            "optimum_beta_ns": optimum_beta_ns.hex(),
-            "baseline": baseline.hex(),
-            "curvature": curvature.hex(),
-            "iq_jitter": jitter.hex(),
+            "optimum_beta_ns": float(optimum_beta_ns).hex(),
+            "baseline": float(baseline).hex(),
+            "curvature": float(curvature).hex(),
+            "iq_jitter": float(jitter).hex(),
             "points": [
                 {
                     "entry_id": point.address.entry_id.value,
                     "slot_id": acquisition_slot_identity_payload(point.address.slot_id),
-                    "beta_ns": point.beta_ns.hex(),
+                    "beta_ns": float(point.beta_ns).hex(),
                     "amplification": point.amplification,
                 }
                 for point in selected
@@ -187,15 +187,15 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
             "model_version": self.model_version,
             "response_fingerprint": self.fingerprint,
             "shots": self.shots,
-            "optimum_beta_ns": _beta_ns(self.optimum_beta).hex(),
-            "baseline": self.baseline.hex(),
-            "curvature": self.curvature.hex(),
-            "iq_jitter": self.iq_jitter.hex(),
+            "optimum_beta_ns": float(_beta_ns(self.optimum_beta)).hex(),
+            "baseline": float(self.baseline).hex(),
+            "curvature": float(self.curvature).hex(),
+            "iq_jitter": float(self.iq_jitter).hex(),
             "points": [
                 {
                     "entry_id": point.address.entry_id.value,
                     "slot_id": acquisition_slot_identity_payload(point.address.slot_id),
-                    "beta_ns": point.beta_ns.hex(),
+                    "beta_ns": float(point.beta_ns).hex(),
                     "amplification": point.amplification,
                 }
                 for point in self.points

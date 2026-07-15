@@ -19,10 +19,10 @@ from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainProductUseRef,
 )
-from scopecat.sdk.domain.context import (
-    DomainPlanProjectionInternal,
-    make_domain_batch_context_internal,
-    project_domain_plan_internal,
+from scopecat.sdk.domain._bridge import (
+    DomainPlanProjection,
+    make_domain_batch_context,
+    project_domain_plan,
 )
 from tests.testkit.authoring import load_config
 
@@ -33,7 +33,7 @@ def _domain_scenario(
     namespace: str,
     call_id: str,
     record_raw: bool = True,
-) -> tuple[MaterializedLinkedPoints, DomainPlanProjectionInternal]:
+) -> tuple[MaterializedLinkedPoints, DomainPlanProjection]:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.point(f"{namespace}_count", count_type)
     program = sc.domain_program(
@@ -81,7 +81,7 @@ def _domain_scenario(
     )
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     linked_points = materialize_linked_points(linked)
-    return linked_points, project_domain_plan_internal(linked_points)
+    return linked_points, project_domain_plan(linked_points)
 
 
 def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
@@ -109,7 +109,7 @@ def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
     view = projection.view(linked_points)
     call_view = view.require_one_call(dialect_id="test.context")
     offer = DomainExecutionOffer.for_call(call_view)
-    context = make_domain_batch_context_internal(
+    context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
         offer,
@@ -141,7 +141,7 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
     )
     batch = MaterializedLinkedPointBatch(linked_points, (1, 2))
 
-    context = make_domain_batch_context_internal(
+    context = make_domain_batch_context(
         projection,
         batch,
         offer,
@@ -205,7 +205,7 @@ def test_domain_plan_projection_rejects_foreign_offer_and_points(
         foreign_call,
     )
     with pytest.raises(ValueError, match="does not identify exactly one call"):
-        make_domain_batch_context_internal(
+        make_domain_batch_context(
             projection,
             batch,
             foreign_offer,
@@ -218,7 +218,7 @@ def test_domain_plan_projection_rejects_foreign_offer_and_points(
 
     foreign_batch = MaterializedLinkedPointBatch(foreign_points, (0, 1))
     with pytest.raises(ValueError, match="points from its materialized plan"):
-        make_domain_batch_context_internal(
+        make_domain_batch_context(
             projection,
             foreign_batch,
             offer,

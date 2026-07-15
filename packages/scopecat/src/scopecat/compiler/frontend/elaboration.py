@@ -13,7 +13,6 @@ from scopecat.authoring._binding_intents import (
     prefix_resource_port,
 )
 from scopecat.authoring._frozen_values import empty_frozen_mapping
-from scopecat.authoring._handles import replace_handle
 from scopecat.authoring._intents import (
     ComputeNodeInputValue,
     ExperimentStateIntent,
@@ -37,8 +36,8 @@ from scopecat.authoring._point_domain_intents import (
 )
 from scopecat.authoring._record_intents import (
     ModuleProductPort,
-    ProductSelectionIntent,
     RecordIntent,
+    RecordSelection,
     localize_product_input_refs,
     localize_record_input_refs,
     prefix_product_port,
@@ -109,7 +108,7 @@ class _ExperimentEnvelope:
     parameter_overlays: tuple[ParameterScanOverlayIntent, ...] = ()
     records: tuple[RecordIntent, ...] = ()
     product_ports: tuple[ModuleProductPort, ...] = ()
-    record_selections: tuple[ProductSelectionIntent, ...] = ()
+    record_selections: tuple[RecordSelection, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
@@ -1363,7 +1362,7 @@ def _scope_operation_input(
         )
     if isinstance(value, RouteRef):
         port_id = resource_ids.get(value.port_id, value.port_id)
-        return replace_handle(value, port_id=port_id)
+        return replace(value, port_id=port_id)
     return value
 
 

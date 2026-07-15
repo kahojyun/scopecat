@@ -720,7 +720,7 @@ def _artifact_payload(
             "max_capture_memory_samples": target.max_capture_memory_samples,
             "max_repetitions": target.max_repetitions,
             "max_frames": target.max_frames,
-            "max_abs_amplitude": target.max_abs_amplitude.hex(),
+            "max_abs_amplitude": float(target.max_abs_amplitude).hex(),
             "supported_envelopes": list(target.supported_envelopes),
             "supported_acquisition_kinds": [kind.value for kind in AcquisitionKind],
             "output_bindings": [
@@ -751,7 +751,7 @@ def _artifact_payload(
                     {
                         "channel_id": waveform.channel_id.value,
                         "samples": [
-                            [sample.real.hex(), sample.imag.hex()]
+                            [float(sample.real).hex(), float(sample.imag).hex()]
                             for sample in waveform.samples
                         ],
                     }

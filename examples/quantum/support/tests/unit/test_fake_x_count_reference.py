@@ -40,11 +40,11 @@ from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.product_identity import product_producer_id, product_use
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Int, Scalar, Table, TableColumn
-from scopecat.sdk.domain.context import (
-    DomainExecutionOffer,
-    make_domain_batch_context_internal,
-    project_domain_plan_internal,
+from scopecat.sdk.domain._bridge import (
+    make_domain_batch_context,
+    project_domain_plan,
 )
+from scopecat.sdk.domain.context import DomainExecutionOffer
 from scopecat.sdk.domain.invocation import materialize_linked_points
 from scopecat_quantum import (
     BinaryIqDiscriminator,
@@ -211,14 +211,14 @@ def _linked_points():
         )
     )
     linked_points = materialize_linked_points(link_program(program, environment))
-    projection = project_domain_plan_internal(linked_points)
+    projection = project_domain_plan(linked_points)
     view = projection.view(linked_points)
     call = view.require_one_call(dialect_id="test.quantum")
     offer = DomainExecutionOffer.for_call(
         call,
         max_points_per_batch=3,
     )
-    context = make_domain_batch_context_internal(
+    context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
         offer,

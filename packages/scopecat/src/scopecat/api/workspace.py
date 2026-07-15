@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import FrozenInstanceError, dataclass, field, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import cast, override
+from typing import cast
 
 import scopecat.authoring as public_authoring
 from scopecat.analysis.online import EarlyStopDecision, decide_online_convergence
-from scopecat.api._services import workspace_services
 from scopecat.api.analysis import (
     Analysis,
     AnalysisContext,
@@ -32,7 +31,6 @@ from scopecat.authoring._frozen_values import (
     freeze_runtime_input,
     freeze_runtime_inputs,
 )
-from scopecat.authoring._handles import create_handle, replace_handle
 from scopecat.authoring._module_handles import (
     BindingInput,
     StateRouteInput,
@@ -40,14 +38,12 @@ from scopecat.authoring._module_handles import (
 )
 from scopecat.authoring._record_intents import (
     ProductRef,
-    ProductSelectionIntent,
     RecordAxis,
     RecordIntent,
-    product_selection_intent,
+    RecordSelection,
     record_product,
 )
 from scopecat.authoring.assembly import (
-    ExperimentModule,
     ModuleBuilder,
     ModuleInvocation,
 )
@@ -61,7 +57,6 @@ from scopecat.authoring.templates import (
     ExperimentInvocation,
     ExperimentTemplate,
     TemplateBuilder,
-    template_builder_with_record_selections_internal,
 )
 from scopecat.authoring.values import (
     Compute,
@@ -143,7 +138,7 @@ class _RunOptions:
         )
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class PreparedExperiment:
     """Workspace-bound invocation whose terminal methods perform side effects.
 
@@ -165,20 +160,13 @@ class PreparedExperiment:
     _execution_options: ExecutionOptions | None = None
     _run_options: _RunOptions = field(default_factory=_RunOptions)
 
-    def __init__(self) -> None:
-        msg = (
-            "PreparedExperiment is an opaque handle; create it with "
-            "Workspace.prepare(...)"
-        )
-        raise TypeError(msg)
-
     def input(self, id: str, value: RuntimeInput) -> PreparedExperiment:  # noqa: A002
         if not id or not runtime_input_is_valid(value):
             msg = "experiment inputs require a non-empty id and closed runtime data"
             raise TypeError(msg)
         inputs = dict(self._run_options.inputs)
         inputs[id] = cast("RuntimeInput", freeze_runtime_input(value))
-        return replace_handle(
+        return replace(
             self,
             _run_options=replace(
                 self._run_options,
@@ -202,7 +190,7 @@ class PreparedExperiment:
             raise TypeError(msg)
         selected = dict(self._run_options.inputs)
         selected.update(inputs)
-        return replace_handle(
+        return replace(
             self,
             _run_options=replace(
                 self._run_options,
@@ -223,7 +211,7 @@ class PreparedExperiment:
         span: Quantity | str | None = None,
         points: int | None = None,
     ) -> PreparedExperiment:
-        return replace_handle(
+        return replace(
             self,
             _prepared_invocation=replace(
                 self._prepared_invocation,
@@ -372,7 +360,7 @@ class PreparedExperiment:
         )
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class Experiment:
     """Notebook-first authoring adapter for scripts and exploratory notebooks."""
 
@@ -383,11 +371,7 @@ class Experiment:
     )
     module: ModuleBuilder = field(default_factory=public_authoring.module)
     scans: tuple[Scan, ...] = ()
-    record_selections: tuple[ProductSelectionIntent, ...] = ()
-
-    def __init__(self) -> None:
-        msg = "Experiment is an opaque handle; create it with Workspace.experiment(...)"
-        raise TypeError(msg)
+    record_selections: tuple[RecordSelection, ...] = ()
 
     @property
     def records(self) -> tuple[RecordIntent, ...]:
@@ -415,7 +399,7 @@ class Experiment:
             "EntityRef | str",
             freeze_runtime_input(entity),
         )
-        return replace_handle(
+        return replace(
             self,
             entity_inputs=cast(
                 "Mapping[str, EntityRef | str]",
@@ -435,7 +419,7 @@ class Experiment:
         self,
         *modules: ModuleInvocation,
     ) -> Experiment:
-        return replace_handle(self, module=self.module.use(*modules))
+        return replace(self, module=self.module.use(*modules))
 
     def resource(
         self,
@@ -444,7 +428,7 @@ class Experiment:
         requires: tuple[str, ...] = (),
         for_entities: Sequence[ValueRef] = (),
     ) -> Experiment:
-        return replace_handle(
+        return replace(
             self,
             module=self.module.resource(
                 id,
@@ -471,7 +455,7 @@ class Experiment:
             span=span,
             points=points,
         )
-        return replace_handle(
+        return replace(
             self,
             scans=(*self.scans, selected),
         )
@@ -484,7 +468,7 @@ class Experiment:
         field: str,
         value: BindingInput,
     ) -> Experiment:
-        return replace_handle(
+        return replace(
             self,
             module=self.module.bind_field(
                 resource,
@@ -498,7 +482,7 @@ class Experiment:
         self,
         *definitions: Compute,
     ) -> Experiment:
-        return replace_handle(
+        return replace(
             self,
             module=self.module.computes(*definitions),
         )
@@ -514,7 +498,7 @@ class Experiment:
         value: StateScalarInput,
         route_entities: Sequence[StateRouteInput] = (),
     ) -> Experiment:
-        return replace_handle(
+        return replace(
             self,
             module=self.module.state_each(
                 relation,
@@ -538,7 +522,7 @@ class Experiment:
         axes: Sequence[RecordAxis] = (),
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> Experiment:
-        return replace_handle(
+        return replace(
             self,
             module=self.module.record(
                 *record_ids,
@@ -559,16 +543,14 @@ class Experiment:
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> Experiment:
         selections = tuple(
-            product_selection_intent(
-                record_product(
-                    product_id,
-                    record_id=record_id,
-                    metadata=metadata,
-                )
+            record_product(
+                product_id,
+                record_id=record_id,
+                metadata=metadata,
             )
             for product_id in product_ids
         )
-        return replace_handle(
+        return replace(
             self,
             record_selections=(*self.record_selections, *selections),
         )
@@ -614,7 +596,7 @@ class Experiment:
         return self.session
 
     def to_invocation(self) -> ExperimentInvocation:
-        if not _workspace_experiment_has_fragments(self):
+        if not (self.module.has_fragments or self.scans or self.record_selections):
             msg = "workspace experiment requires a source, module, scan, or record"
             raise ValueError(msg)
         experiment_id = _safe_experiment_id(self.name)
@@ -625,40 +607,17 @@ class Experiment:
         return template.bind(**self.entity_inputs)
 
 
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
 class Workspace:
     """Primary vNext workspace facade for lab notebook workflows."""
 
-    __slots__ = (
-        "_config",
-        "_config_profile",
-        "_execution_backend",
-        "_operator",
-        "_reviewer",
-        "_services",
-        "_workspace",
-    )
-
     _workspace: Path
-    _services: WorkspaceServices
+    services: WorkspaceServices
     _config: str | ConfigProfileSnapshot
     _config_profile: ConfigProfileInput | None
     _execution_backend: ExecutionBackend | None
     _reviewer: str
     _operator: str
-
-    def __init__(self) -> None:
-        msg = "Workspace is an opaque handle; create it with scopecat.open(...)"
-        raise TypeError(msg)
-
-    @override
-    def __setattr__(self, name: str, _value: object) -> None:
-        msg = f"cannot assign to field {name!r}"
-        raise FrozenInstanceError(msg)
-
-    @override
-    def __delattr__(self, name: str) -> None:
-        msg = f"cannot delete field {name!r}"
-        raise FrozenInstanceError(msg)
 
     def __copy__(self) -> Workspace:
         return self
@@ -699,7 +658,7 @@ class Workspace:
         if isinstance(config, CandidateConfig):
             config = resolve_candidate_config_snapshot(
                 config,
-                services=self._services,
+                services=self.services,
             )
         selected_config = self.config if config is None else config
         selected_config_profile = _effective_config_profile(
@@ -718,14 +677,14 @@ class Workspace:
             else selected_config
         )
         resolved = resolve_config_source(
-            services=self._services,
+            services=self.services,
             config_profile=selected_config_profile,
             config_entry=config_entry,
         )
         return build_system_summary(resolved.config)
 
     def experiment(self, name: str) -> Experiment:
-        return create_handle(Experiment, name=name, session=self)
+        return Experiment(name=name, session=self)
 
     def prepare(
         self,
@@ -746,15 +705,17 @@ class Workspace:
             prepared_invocation = prepare_invocation(invocation)
         elif isinstance(experiment, Experiment):
             invocation = experiment.to_invocation()
-            prepared_invocation = _workspace_prepared_invocation(
-                experiment,
+            prepared_invocation = prepare_invocation(
                 invocation,
+                request_context=replace(
+                    default_request_context(invocation),
+                    template_inputs=_workspace_request_inputs(experiment),
+                ),
             )
         else:
             invocation = experiment
             prepared_invocation = prepare_invocation(invocation)
-        return create_handle(
-            PreparedExperiment,
+        return PreparedExperiment(
             _session=self,
             _prepared_invocation=prepared_invocation,
             _config=config,
@@ -774,7 +735,7 @@ class Workspace:
         result = compare_runs(
             baseline_run_id=baseline_id,
             candidate_run_id=run_handle_id(candidate),
-            services=self._services,
+            services=self.services,
             observable_id=observable,
         )
         return ComparisonHandle(
@@ -786,17 +747,17 @@ class Workspace:
     def overview(self, run: RunHandle | RunSelector) -> RunOverview:
         return build_run_overview(
             run_id=run_handle_id(run),
-            services=self._services,
+            services=self.services,
         )
 
     def runs(self) -> tuple[RunHandle, ...]:
         return tuple(
             RunHandle(session=self, manifest=manifest)
-            for manifest in list_runs(services=self._services)
+            for manifest in list_runs(services=self.services)
         )
 
     def get_run(self, run: RunSelector) -> RunHandle:
-        details = load_run(run_id=run_handle_id(run), services=self._services)
+        details = load_run(run_id=run_handle_id(run), services=self.services)
         return RunHandle(session=self, manifest=details.manifest)
 
     def review_parameter_proposal(
@@ -811,7 +772,7 @@ class Workspace:
         return review_parameter_change_proposal(
             run_id=run_handle_id(run),
             selector=selector,
-            services=self._services,
+            services=self.services,
             state=decision,
             reviewer=reviewer or self.reviewer,
             note=note,
@@ -830,7 +791,7 @@ class Workspace:
     ) -> RegisteredConfigActivation:
         return register_and_activate_candidate_config(
             candidate=candidate,
-            services=self._services,
+            services=self.services,
             entry_id=entry_id,
             registered_by=registered_by or self.operator,
             operator=operator or self.operator,
@@ -854,7 +815,7 @@ class Workspace:
 
         return register_and_activate_config_profile(
             config=config,
-            services=self._services,
+            services=self.services,
             entry_id=entry_id,
             registered_by=registered_by or self.operator,
             operator=operator or self.operator,
@@ -873,34 +834,11 @@ class Workspace:
         """Atomically restore the previous distinct active registry entry."""
 
         return rollback_config(
-            services=self._services,
+            services=self.services,
             operator=operator or self.operator,
             expected_generation=expected_generation,
             note=note,
         )
-
-
-def create_workspace_internal(
-    *,
-    workspace: Path,
-    services: WorkspaceServices,
-    config: str | ConfigProfileSnapshot,
-    config_profile: ConfigProfileInput | None,
-    execution_backend: ExecutionBackend | None,
-    reviewer: str,
-    operator: str,
-) -> Workspace:
-    """Construct a composed workspace without exposing its effect bundle."""
-
-    result = object.__new__(Workspace)
-    object.__setattr__(result, "_workspace", workspace)
-    object.__setattr__(result, "_services", services)
-    object.__setattr__(result, "_config", config)
-    object.__setattr__(result, "_config_profile", config_profile)
-    object.__setattr__(result, "_execution_backend", execution_backend)
-    object.__setattr__(result, "_reviewer", reviewer)
-    object.__setattr__(result, "_operator", operator)
-    return result
 
 
 def _prepared_config_selection(
@@ -962,7 +900,7 @@ def _preview_prepared(
             prepared_invocation,
             options=run_options,
         ),
-        services=workspace_services(session),
+        services=session.services,
         config=selected_config,
         config_profile=selected_config_profile,
         execution_backend=(
@@ -994,7 +932,7 @@ def _check_prepared(
             prepared_invocation,
             options=run_options,
         ),
-        services=workspace_services(session),
+        services=session.services,
         config=selected_config,
         config_profile=selected_config_profile,
         execution_backend=(
@@ -1035,7 +973,7 @@ def _validate_prepared(
             prepared_invocation,
             options=run_options,
         ),
-        services=workspace_services(session),
+        services=session.services,
         config=selected_config,
         config_profile=selected_config_profile,
         execution_backend=(
@@ -1074,7 +1012,7 @@ def _run_prepared(
                 prepared_invocation,
                 options=run_options,
             ),
-            services=workspace_services(session),
+            services=session.services,
             config=selected_config,
             config_profile=selected_config_profile,
             execution_backend=selected_execution_backend,
@@ -1160,9 +1098,9 @@ def _workspace_template(
     *,
     experiment_id: str,
 ) -> ExperimentTemplate:
-    module = _workspace_module(
-        experiment,
-        module_id=f"{experiment_id}.module",
+    module = experiment.module.build(
+        id=f"{experiment_id}.module",
+        metadata={"source": "workspace_experiment"},
     )
     builder = module.template(
         "scopecat.workspace.experiment",
@@ -1175,32 +1113,8 @@ def _workspace_template(
     )
     for scan in experiment.scans:
         builder = builder.scan(scan)
-    builder = template_builder_with_record_selections_internal(
-        builder,
-        experiment.record_selections,
-    )
+    builder = builder.records(*experiment.record_selections)
     return builder.build()
-
-
-def _workspace_module(
-    experiment: Experiment,
-    *,
-    module_id: str,
-) -> ExperimentModule:
-    return experiment.module.build(
-        id=module_id,
-        metadata={
-            "source": "workspace_experiment",
-        },
-    )
-
-
-def _workspace_experiment_has_fragments(experiment: Experiment) -> bool:
-    return bool(
-        experiment.module.has_fragments
-        or experiment.scans
-        or experiment.record_selections
-    )
 
 
 def _workspace_request_inputs(experiment: Experiment) -> dict[str, object]:
@@ -1234,19 +1148,6 @@ def _workspace_request_inputs(experiment: Experiment) -> dict[str, object]:
             for selection in experiment.record_selections
         ],
     }
-
-
-def _workspace_prepared_invocation(
-    experiment: Experiment,
-    invocation: ExperimentInvocation,
-) -> PreparedInvocation:
-    return prepare_invocation(
-        invocation,
-        request_context=replace(
-            default_request_context(invocation),
-            template_inputs=_workspace_request_inputs(experiment),
-        ),
-    )
 
 
 def _safe_experiment_id(name: str) -> str:

@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from scopecat.api._services import workspace_services
 from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.records.run import RunManifest
@@ -120,14 +119,14 @@ class Data:
     def table(self, selector: str) -> RunDataTableResult:
         return read_run_data_table(
             run_id=self.run.id,
-            services=workspace_services(self.run.session),
+            services=self.run.session.services,
             selector=selector,
         )
 
     def array(self, selector: str) -> RunDataArrayResult:
         return read_run_data_array(
             run_id=self.run.id,
-            services=workspace_services(self.run.session),
+            services=self.run.session.services,
             selector=selector,
         )
 
@@ -144,7 +143,7 @@ class Data:
             self.artifact(selector, expected_kind="figure")
         return read_run_artifact_bytes(
             run_id=self.run.id,
-            services=workspace_services(self.run.session),
+            services=self.run.session.services,
             selector=selector,
             expected_kind=expected_kind,
         )
@@ -173,7 +172,7 @@ class Data:
     ) -> RunArtifactBytesResult:
         return read_run_artifact_bytes(
             run_id=self.run.id,
-            services=workspace_services(self.run.session),
+            services=self.run.session.services,
             selector=selector,
             expected_kind=expected_kind,
         )
@@ -181,7 +180,7 @@ class Data:
     def _manifest(self) -> RunManifest:
         return load_run(
             run_id=self.run.id,
-            services=workspace_services(self.run.session),
+            services=self.run.session.services,
         ).manifest
 
     def _dataset_summary(self, dataset: RunDatasetEntry) -> DataDatasetSummary:

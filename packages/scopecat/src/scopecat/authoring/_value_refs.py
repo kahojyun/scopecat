@@ -10,7 +10,7 @@ only lowers them back to relation/compute references at the compiler boundary.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import FrozenInstanceError, dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, cast, override
 from uuid import UUID, uuid4
 
@@ -159,42 +159,46 @@ class PointValueDependency:
     value_type: Scalar
 
 
+@dataclass(frozen=True, slots=True, init=False, eq=False, repr=False)
 class TableRow:
     """Typed row scope supplied by table callbacks.
 
-    Row values deliberately have no public factory.  They only exist while an
-    authoring callback is being evaluated, which keeps column references tied
-    to the table schema that introduced their scope.
+    Row values only exist while an authoring callback is being evaluated, which
+    keeps column references tied to the table schema that introduced their scope.
     """
 
-    __slots__ = (
-        "_columns",
-        "_free_point_dependencies",
-        "_parameter_contracts",
-        "_point_dependencies",
-        "_scope_id",
-    )
+    columns: Mapping[str, TableColumn]
+    scope_id: RowScopeId
+    parameter_contracts: tuple[ParameterContract, ...]
+    point_dependencies: tuple[PointValueDependency, ...]
+    free_point_dependencies: tuple[PointValueDependency, ...]
 
-    _columns: Mapping[str, TableColumn]
-    _scope_id: RowScopeId
-    _parameter_contracts: tuple[ParameterContract, ...]
-    _point_dependencies: tuple[PointValueDependency, ...]
-    _free_point_dependencies: tuple[PointValueDependency, ...]
-
-    def __init__(self) -> None:
-        msg = "TableRow is a callback scope and cannot be constructed directly"
-        raise TypeError(msg)
-
-    @override
-    def __setattr__(self, name: str, value: object) -> None:
-        del value
-        msg = f"cannot assign to field {name!r}"
-        raise FrozenInstanceError(msg)
-
-    @override
-    def __delattr__(self, name: str) -> None:
-        msg = f"cannot delete field {name!r}"
-        raise FrozenInstanceError(msg)
+    def __init__(self, value: ValueRef, *, scope_id: RowScopeId) -> None:
+        table_type = value.value_type
+        if not isinstance(table_type, Table):
+            msg = "row scope requires a table value"
+            raise TypeError(msg)
+        object.__setattr__(
+            self,
+            "columns",
+            {column.id: column for column in table_type.columns},
+        )
+        object.__setattr__(self, "scope_id", scope_id)
+        object.__setattr__(
+            self,
+            "parameter_contracts",
+            internal_value_ref_parameter_contracts(value),
+        )
+        object.__setattr__(
+            self,
+            "point_dependencies",
+            internal_value_ref_point_dependencies(value),
+        )
+        object.__setattr__(
+            self,
+            "free_point_dependencies",
+            internal_value_ref_free_point_dependencies(value),
+        )
 
     def __copy__(self) -> TableRow:
         return self
@@ -207,111 +211,67 @@ class TableRow:
     def __repr__(self) -> str:
         return (
             f"{type(self).__qualname__}("
-            f"_columns={self._columns!r}, _scope_id={self._scope_id!r})"
+            f"columns={self.columns!r}, scope_id={self.scope_id!r})"
         )
 
     def __getitem__(self, column_id: str) -> ValueRef:
-        column = self._columns.get(column_id)
+        column = self.columns.get(column_id)
         if column is None:
             msg = f"table row has no column {column_id!r}"
             raise KeyError(msg)
         return internal_value_ref_from_expression(
-            col(column_id, row_scope_id=self._scope_id),
+            col(column_id, row_scope_id=self.scope_id),
             column.value_type,
-            parameter_contracts=self._parameter_contracts,
-            point_dependencies=self._point_dependencies,
-            free_point_dependencies=self._free_point_dependencies,
+            parameter_contracts=self.parameter_contracts,
+            point_dependencies=self.point_dependencies,
+            free_point_dependencies=self.free_point_dependencies,
         )
-
-    @classmethod
-    def _from_value(
-        cls,
-        value: ValueRef,
-        *,
-        scope_id: RowScopeId,
-    ) -> TableRow:
-        table_type = value.value_type
-        if not isinstance(table_type, Table):
-            msg = "row scope requires a table value"
-            raise TypeError(msg)
-        row = object.__new__(cls)
-        object.__setattr__(
-            row,
-            "_columns",
-            {column.id: column for column in table_type.columns},
-        )
-        object.__setattr__(row, "_scope_id", scope_id)
-        object.__setattr__(
-            row,
-            "_parameter_contracts",
-            internal_value_ref_parameter_contracts(value),
-        )
-        object.__setattr__(
-            row,
-            "_point_dependencies",
-            internal_value_ref_point_dependencies(value),
-        )
-        object.__setattr__(
-            row,
-            "_free_point_dependencies",
-            internal_value_ref_free_point_dependencies(value),
-        )
-        return row
 
 
 _EMPTY_BOUND_POINT_INPUT_IDS: frozenset[str] = frozenset()
 
 
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
 class ValueRef:
     """Opaque first-class typed edge in the public authoring value graph.
 
     Values are created by DSL factories such as :func:`scopecat.input` and
     :func:`scopecat.parameter`.  Their source expression and provenance are
-    deliberately private compiler details.
+    compiler-facing semantic state.
     """
 
-    __slots__ = (
-        "_bound_point_input_ids",
-        "_declaration_key",
-        "_declaration_scope",
-        "_expression",
-        "_free_point_dependencies",
-        "_input_binding_layers",
-        "_operation_origin",
-        "_parameter_contracts",
-        "_point_dependencies",
-        "_source_id",
-        "_source_kind",
-        "_value_type",
+    source_kind: _ValueRefSource
+    source_id: str | SymbolId | _ModuleExportSource | ScalarValueOperation | None
+    value_type: ValueType
+    declaration_key: ValueDeclarationKey = field(
+        default_factory=ValueDeclarationKey.fresh
     )
+    declaration_scope: tuple[str, ...] = ()
+    expression: _ValueExpression | None = None
+    operation_origin: tuple[object, ...] = ()
+    input_binding_layers: tuple[tuple[tuple[str, ValueRef], ...], ...] = ()
+    parameter_contracts: tuple[ParameterContract, ...] = ()
+    point_dependencies: tuple[PointValueDependency, ...] = ()
+    free_point_dependencies: tuple[PointValueDependency, ...] = ()
+    bound_point_input_ids: frozenset[str] = _EMPTY_BOUND_POINT_INPUT_IDS
 
-    _declaration_key: ValueDeclarationKey
-    _declaration_scope: tuple[str, ...]
-    _source_kind: _ValueRefSource
-    _source_id: str | SymbolId | _ModuleExportSource | ScalarValueOperation | None
-    _value_type: ValueType
-    _expression: _ValueExpression | None
-    _operation_origin: tuple[object, ...]
-    _input_binding_layers: tuple[tuple[tuple[str, ValueRef], ...], ...]
-    _parameter_contracts: tuple[ParameterContract, ...]
-    _point_dependencies: tuple[PointValueDependency, ...]
-    _free_point_dependencies: tuple[PointValueDependency, ...]
-    _bound_point_input_ids: frozenset[str]
-
-    def __init__(self) -> None:
-        msg = "ValueRef is an opaque handle; create values with scopecat DSL factories"
-        raise TypeError(msg)
-
-    @override
-    def __setattr__(self, name: str, value: object) -> None:
-        del value
-        msg = f"cannot assign to field {name!r}"
-        raise FrozenInstanceError(msg)
-
-    @override
-    def __delattr__(self, name: str) -> None:
-        msg = f"cannot delete field {name!r}"
-        raise FrozenInstanceError(msg)
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "point_dependencies",
+            _merge_point_dependencies(self.point_dependencies),
+        )
+        object.__setattr__(
+            self,
+            "free_point_dependencies",
+            _merge_point_dependencies(self.free_point_dependencies),
+        )
+        object.__setattr__(
+            self,
+            "bound_point_input_ids",
+            frozenset(self.bound_point_input_ids),
+        )
+        self._validate()
 
     def __copy__(self) -> ValueRef:
         return self
@@ -327,138 +287,77 @@ class ValueRef:
     @override
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ValueRef) and (
-            self._declaration_key,
-            self._declaration_scope,
+            self.declaration_key,
+            self.declaration_scope,
         ) == (
-            other._declaration_key,
-            other._declaration_scope,
+            other.declaration_key,
+            other.declaration_scope,
         )
 
     @override
     def __hash__(self) -> int:
-        return hash((self._declaration_key, self._declaration_scope))
-
-    @classmethod
-    def _create(
-        cls,
-        *,
-        source_kind: _ValueRefSource,
-        source_id: (str | SymbolId | _ModuleExportSource | ScalarValueOperation | None),
-        value_type: ValueType,
-        declaration_key: ValueDeclarationKey | None = None,
-        declaration_scope: tuple[str, ...] = (),
-        expression: _ValueExpression | None = None,
-        operation_origin: tuple[object, ...] = (),
-        input_binding_layers: tuple[tuple[tuple[str, ValueRef], ...], ...] = (),
-        parameter_contracts: tuple[ParameterContract, ...] = (),
-        point_dependencies: tuple[PointValueDependency, ...] = (),
-        free_point_dependencies: tuple[PointValueDependency, ...] | None = None,
-        bound_point_input_ids: frozenset[str] = _EMPTY_BOUND_POINT_INPUT_IDS,
-    ) -> ValueRef:
-        value = object.__new__(cls)
-        object.__setattr__(
-            value,
-            "_declaration_key",
-            declaration_key or ValueDeclarationKey.fresh(),
-        )
-        object.__setattr__(value, "_declaration_scope", declaration_scope)
-        object.__setattr__(value, "_source_kind", source_kind)
-        object.__setattr__(value, "_source_id", source_id)
-        object.__setattr__(value, "_value_type", value_type)
-        object.__setattr__(value, "_expression", expression)
-        object.__setattr__(value, "_operation_origin", operation_origin)
-        object.__setattr__(value, "_input_binding_layers", input_binding_layers)
-        object.__setattr__(value, "_parameter_contracts", parameter_contracts)
-        object.__setattr__(
-            value,
-            "_point_dependencies",
-            _merge_point_dependencies(point_dependencies),
-        )
-        object.__setattr__(
-            value,
-            "_free_point_dependencies",
-            _merge_point_dependencies(
-                point_dependencies
-                if free_point_dependencies is None
-                else free_point_dependencies
-            ),
-        )
-        object.__setattr__(
-            value,
-            "_bound_point_input_ids",
-            frozenset(bound_point_input_ids),
-        )
-        value._validate()
-        return value
+        return hash((self.declaration_key, self.declaration_scope))
 
     def _validate(self) -> None:
-        if any(not item for item in self._declaration_scope):
+        if any(not item for item in self.declaration_scope):
             msg = "value declaration scope components must be non-empty"
             raise ValueError(msg)
-        if self._source_kind in {"input", "compute", "point"}:
-            if not self._source_id:
-                msg = f"{self._source_kind} value reference requires a source id"
+        if self.source_kind in {"input", "compute", "point"}:
+            if not self.source_id:
+                msg = f"{self.source_kind} value reference requires a source id"
                 raise ValueError(msg)
-            if self._expression is not None:
-                msg = (
-                    f"{self._source_kind} value reference cannot contain an expression"
-                )
+            if self.expression is not None:
+                msg = f"{self.source_kind} value reference cannot contain an expression"
                 raise ValueError(msg)
-            if self._input_binding_layers:
-                msg = f"{self._source_kind} value reference cannot bind inputs"
+            if self.input_binding_layers:
+                msg = f"{self.source_kind} value reference cannot bind inputs"
                 raise ValueError(msg)
-            if self._source_kind != "compute" and self._operation_origin:
-                msg = f"{self._source_kind} value reference cannot own a compute"
+            if self.source_kind != "compute" and self.operation_origin:
+                msg = f"{self.source_kind} value reference cannot own a compute"
                 raise ValueError(msg)
             return
-        if self._source_kind == "module_export":
-            if not isinstance(self._source_id, _ModuleExportSource):
+        if self.source_kind == "module_export":
+            if not isinstance(self.source_id, _ModuleExportSource):
                 msg = "module export value reference requires an export source"
                 raise ValueError(msg)
-            if self._expression is not None:
+            if self.expression is not None:
                 msg = "module export value reference cannot contain an expression"
                 raise ValueError(msg)
-            if self._input_binding_layers:
+            if self.input_binding_layers:
                 msg = "module export value reference cannot bind inputs"
                 raise ValueError(msg)
-            if self._operation_origin:
+            if self.operation_origin:
                 msg = "module export value reference cannot own a compute"
                 raise ValueError(msg)
             return
-        if self._source_kind == "scalar_operation":
-            if not isinstance(self._source_id, ScalarValueOperation):
+        if self.source_kind == "scalar_operation":
+            if not isinstance(self.source_id, ScalarValueOperation):
                 msg = "scalar operation value reference requires an operation"
                 raise ValueError(msg)
-            if not isinstance(self._value_type, Scalar):
+            if not isinstance(self.value_type, Scalar):
                 msg = "scalar operation value reference must be scalar-shaped"
                 raise TypeError(msg)
-            if self._expression is not None:
+            if self.expression is not None:
                 msg = "scalar operation value reference cannot contain an expression"
                 raise ValueError(msg)
-            if self._input_binding_layers:
+            if self.input_binding_layers:
                 msg = "scalar operation value reference cannot bind expression inputs"
                 raise ValueError(msg)
-            if self._operation_origin:
+            if self.operation_origin:
                 msg = "scalar operation value reference cannot own a compute"
                 raise ValueError(msg)
-            if self._parameter_contracts or self._point_dependencies:
+            if self.parameter_contracts or self.point_dependencies:
                 msg = "scalar operation provenance must be derived from its operands"
                 raise ValueError(msg)
             return
         if (
-            self._source_id is not None
-            or self._expression is None
-            or self._operation_origin
+            self.source_id is not None
+            or self.expression is None
+            or self.operation_origin
         ):
             msg = "expression value reference requires an expression only"
             raise ValueError(msg)
-        _require_expression_shape(self._expression, self._value_type)
-
-    @property
-    def value_type(self) -> ValueType:
-        """The complete semantic type carried by this value edge."""
-
-        return self._value_type
+        _require_expression_shape(self.expression, self.value_type)
 
     def __add__(self, other: object) -> ValueRef:
         return _binary_value(self, other, "+")
@@ -525,8 +424,8 @@ class ValueRef:
         return internal_value_ref_from_expression(
             expression.column(column_id),
             Series(column.value_type),
-            parameter_contracts=self._parameter_contracts,
-            point_dependencies=self._point_dependencies,
+            parameter_contracts=self.parameter_contracts,
+            point_dependencies=self.point_dependencies,
             free_point_dependencies=internal_value_ref_free_point_dependencies(self),
             bound_point_input_ids=internal_value_ref_bound_point_input_ids(self),
         )
@@ -559,8 +458,8 @@ class ValueRef:
                 max_rows=table_type.max_rows,
                 allow_extra_columns=False,
             ),
-            parameter_contracts=self._parameter_contracts,
-            point_dependencies=self._point_dependencies,
+            parameter_contracts=self.parameter_contracts,
+            point_dependencies=self.point_dependencies,
             free_point_dependencies=internal_value_ref_free_point_dependencies(self),
             bound_point_input_ids=internal_value_ref_bound_point_input_ids(self),
         )
@@ -570,7 +469,7 @@ class ValueRef:
 
         table_type = _require_table_type(self, operation="filter")
         declaration_key = ValueDeclarationKey.fresh()
-        row = TableRow._from_value(  # pyright: ignore[reportPrivateUsage]
+        row = TableRow(
             self,
             scope_id=RowScopeId(SymbolId(local_id=f"row_{declaration_key.value.hex}")),
         )
@@ -589,7 +488,7 @@ class ValueRef:
             raise TypeError(msg)
         expression = internal_lower_table_value_ref(self).filter(
             internal_lower_scalar_value_ref(condition),
-            row_scope_id=row._scope_id,  # pyright: ignore[reportPrivateUsage]
+            row_scope_id=row.scope_id,
         )
         verify_plan_scopes(expression)
         return internal_value_ref_from_expression(
@@ -602,11 +501,11 @@ class ValueRef:
                 allow_extra_columns=table_type.allow_extra_columns,
             ),
             parameter_contracts=merge_parameter_contracts(
-                self._parameter_contracts,
+                self.parameter_contracts,
                 internal_value_ref_parameter_contracts(condition),
             ),
             point_dependencies=_merge_point_dependencies(
-                self._point_dependencies,
+                self.point_dependencies,
                 internal_value_ref_point_dependencies(condition),
             ),
             free_point_dependencies=_merge_point_dependencies(
@@ -683,12 +582,12 @@ class ValueRef:
             ),
             _combined_table_type(left_type, right_type, minimum=0),
             parameter_contracts=merge_parameter_contracts(
-                self._parameter_contracts,
-                other._parameter_contracts,
+                self.parameter_contracts,
+                other.parameter_contracts,
             ),
             point_dependencies=_merge_point_dependencies(
-                self._point_dependencies,
-                other._point_dependencies,
+                self.point_dependencies,
+                other.point_dependencies,
             ),
             free_point_dependencies=_merge_point_dependencies(
                 internal_value_ref_free_point_dependencies(self),
@@ -722,12 +621,12 @@ class ValueRef:
                 minimum=left_type.min_rows * right_type.min_rows,
             ),
             parameter_contracts=merge_parameter_contracts(
-                self._parameter_contracts,
-                other._parameter_contracts,
+                self.parameter_contracts,
+                other.parameter_contracts,
             ),
             point_dependencies=_merge_point_dependencies(
-                self._point_dependencies,
-                other._point_dependencies,
+                self.point_dependencies,
+                other.point_dependencies,
             ),
             free_point_dependencies=_merge_point_dependencies(
                 internal_value_ref_free_point_dependencies(self),
@@ -762,8 +661,8 @@ class ValueRef:
         return internal_value_ref_from_expression(
             internal_lower_table_value_ref(self).sort(*column_ids),
             table_type,
-            parameter_contracts=self._parameter_contracts,
-            point_dependencies=self._point_dependencies,
+            parameter_contracts=self.parameter_contracts,
+            point_dependencies=self.point_dependencies,
             free_point_dependencies=internal_value_ref_free_point_dependencies(self),
             bound_point_input_ids=internal_value_ref_bound_point_input_ids(self),
         )
@@ -790,8 +689,8 @@ class ValueRef:
                 max_rows=maximum,
                 allow_extra_columns=table_type.allow_extra_columns,
             ),
-            parameter_contracts=self._parameter_contracts,
-            point_dependencies=self._point_dependencies,
+            parameter_contracts=self.parameter_contracts,
+            point_dependencies=self.point_dependencies,
             free_point_dependencies=internal_value_ref_free_point_dependencies(self),
             bound_point_input_ids=internal_value_ref_bound_point_input_ids(self),
         )
@@ -807,7 +706,7 @@ class ValueRef:
             msg = "with_columns requires a table value"
             raise TypeError(msg)
         declaration_key = ValueDeclarationKey.fresh()
-        row = TableRow._from_value(  # pyright: ignore[reportPrivateUsage]
+        row = TableRow(
             self,
             scope_id=RowScopeId(SymbolId(local_id=f"row_{declaration_key.value.hex}")),
         )
@@ -853,7 +752,7 @@ class ValueRef:
             else table_type.primary_key
         )
         expression = internal_lower_table_value_ref(self).with_columns(
-            row_scope_id=row._scope_id,  # pyright: ignore[reportPrivateUsage]
+            row_scope_id=row.scope_id,
             **expressions,
         )
         verify_plan_scopes(expression)
@@ -867,7 +766,7 @@ class ValueRef:
                 allow_extra_columns=table_type.allow_extra_columns,
             ),
             parameter_contracts=merge_parameter_contracts(
-                self._parameter_contracts,
+                self.parameter_contracts,
                 *(
                     internal_value_ref_parameter_contracts(value)
                     for value in columns.values()
@@ -875,7 +774,7 @@ class ValueRef:
                 ),
             ),
             point_dependencies=_merge_point_dependencies(
-                self._point_dependencies,
+                self.point_dependencies,
                 *(
                     internal_value_ref_point_dependencies(value)
                     for value in columns.values()
@@ -930,8 +829,8 @@ class ValueRef:
         return internal_value_ref_from_expression(
             internal_lower_table_value_ref(self).entities(*column_ids),
             Series(Scalar(Entity(entity_kind=entity_kind))),
-            parameter_contracts=self._parameter_contracts,
-            point_dependencies=self._point_dependencies,
+            parameter_contracts=self.parameter_contracts,
+            point_dependencies=self.point_dependencies,
             free_point_dependencies=internal_value_ref_free_point_dependencies(self),
             bound_point_input_ids=internal_value_ref_bound_point_input_ids(self),
         )
@@ -1047,7 +946,7 @@ def internal_point_cross_value_refs(left: ValueRef, right: ValueRef) -> ValueRef
 
 
 def internal_input_value_ref(input_id: str, value_type: ValueType) -> ValueRef:
-    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+    return ValueRef(
         source_kind="input",
         source_id=input_id,
         value_type=value_type,
@@ -1066,23 +965,26 @@ def internal_operation_result_value_ref(
         if isinstance(operation_id, SymbolId)
         else SymbolId(local_id=operation_id)
     )
-    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+    return ValueRef(
         source_kind="compute",
         source_id=selected_operation_id,
         value_type=value_type,
         operation_origin=origin,
         point_dependencies=_merge_point_dependencies(point_dependencies),
+        free_point_dependencies=_merge_point_dependencies(point_dependencies),
     )
 
 
 def internal_point_value_ref(point_id: str, value_type: Scalar) -> ValueRef:
     """Create a typed value supplied by the current experiment point."""
 
-    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+    point_dependencies = (PointValueDependency(id=point_id, value_type=value_type),)
+    return ValueRef(
         source_kind="point",
         source_id=point_id,
         value_type=value_type,
-        point_dependencies=(PointValueDependency(id=point_id, value_type=value_type),),
+        point_dependencies=point_dependencies,
+        free_point_dependencies=point_dependencies,
     )
 
 
@@ -1098,7 +1000,7 @@ def internal_module_export_value_ref(
     before any value is lowered to relation or compiler expressions.
     """
 
-    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+    return ValueRef(
         source_kind="module_export",
         source_id=_ModuleExportSource(
             invocation_key=invocation_key,
@@ -1108,39 +1010,14 @@ def internal_module_export_value_ref(
     )
 
 
-def internal_value_ref_source_kind(value: ValueRef) -> _ValueRefSource:
-    return cast(
-        "_ValueRefSource",
-        object.__getattribute__(value, "_source_kind"),
-    )
-
-
-def internal_value_ref_declaration_key(value: ValueRef) -> ValueDeclarationKey:
-    """Return the nominal declaration identity carried by one value root."""
-
-    return cast(
-        "ValueDeclarationKey",
-        object.__getattribute__(value, "_declaration_key"),
-    )
-
-
-def internal_value_ref_declaration_scope(value: ValueRef) -> tuple[str, ...]:
-    """Return the structural module-instance scope of one declaration."""
-
-    return cast(
-        "tuple[str, ...]",
-        object.__getattribute__(value, "_declaration_scope"),
-    )
-
-
 def internal_value_ref_declaration_identity(
     value: ValueRef,
 ) -> _ValueDeclarationIdentity:
     """Return the nominal key paired with its structural declaration scope."""
 
     return (
-        internal_value_ref_declaration_key(value),
-        internal_value_ref_declaration_scope(value),
+        value.declaration_key,
+        value.declaration_scope,
     )
 
 
@@ -1149,40 +1026,29 @@ def internal_value_ref_scalar_operation(
 ) -> ScalarValueOperation | None:
     """Return the semantic scalar operation defined by this value, if any."""
 
-    if internal_value_ref_source_kind(value) != "scalar_operation":
+    if value.source_kind != "scalar_operation":
         return None
     return _required_scalar_operation(value)
 
 
 def internal_value_ref_input_id(value: ValueRef) -> str | None:
-    if internal_value_ref_source_kind(value) != "input":
+    if value.source_kind != "input":
         return None
-    return cast("str | None", object.__getattribute__(value, "_source_id"))
+    return cast("str | None", value.source_id)
 
 
 def internal_value_ref_point_id(value: ValueRef) -> str | None:
     """Return the point coordinate id carried by a point value."""
 
-    if internal_value_ref_source_kind(value) != "point":
+    if value.source_kind != "point":
         return None
-    return cast("str | None", object.__getattribute__(value, "_source_id"))
+    return cast("str | None", value.source_id)
 
 
 def internal_value_ref_operation_id(value: ValueRef) -> SymbolId | None:
-    if internal_value_ref_source_kind(value) != "compute":
+    if value.source_kind != "compute":
         return None
-    return cast("SymbolId", object.__getattribute__(value, "_source_id"))
-
-
-def internal_value_ref_operation_origin(value: ValueRef) -> tuple[object, ...]:
-    """Return the nominal producer identity for a direct compute edge."""
-
-    if internal_value_ref_source_kind(value) != "compute":
-        return ()
-    return cast(
-        "tuple[object, ...]",
-        object.__getattribute__(value, "_operation_origin"),
-    )
+    return cast("SymbolId", value.source_id)
 
 
 def internal_value_ref_module_export(
@@ -1190,7 +1056,7 @@ def internal_value_ref_module_export(
 ) -> tuple[InvocationKey, str] | None:
     """Return the invocation and export identity for a direct export use."""
 
-    if internal_value_ref_source_kind(value) != "module_export":
+    if value.source_kind != "module_export":
         return None
     source = _required_module_export_source(value)
     return source.invocation_key, source.export_id
@@ -1239,7 +1105,7 @@ def _first_module_export(
             if selected is not None:
                 return selected
         return None
-    if internal_value_ref_source_kind(value) != "expression":
+    if value.source_kind != "expression":
         return None
     for layer in _value_ref_input_binding_layers(value):
         for _input_id, bound in layer:
@@ -1276,7 +1142,7 @@ def _transform_value_ref(
     transform_leaf: Callable[[ValueRef], ValueRef],
     active: frozenset[_ValueDeclarationIdentity],
 ) -> ValueRef:
-    source_kind = internal_value_ref_source_kind(value)
+    source_kind = value.source_kind
     if source_kind not in {"expression", "scalar_operation"}:
         transformed = transform_leaf(value)
         if transformed.value_type != value.value_type:
@@ -1347,14 +1213,14 @@ def _transform_value_ref(
     )
     expression = cast(
         "_ValueExpression",
-        object.__getattribute__(value, "_expression"),
+        value.expression,
     )
-    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+    return ValueRef(
         source_kind="expression",
         source_id=None,
         value_type=value.value_type,
-        declaration_key=internal_value_ref_declaration_key(value),
-        declaration_scope=internal_value_ref_declaration_scope(value),
+        declaration_key=value.declaration_key,
+        declaration_scope=value.declaration_scope,
         expression=expression,
         input_binding_layers=transformed_layers,
         parameter_contracts=merge_parameter_contracts(
@@ -1415,25 +1281,25 @@ def internal_scope_value_ref(
 
     if not scope and not origin:
         return value
-    source_kind = internal_value_ref_source_kind(value)
+    source_kind = value.source_kind
     if source_kind == "module_export":
         # An export is an interface use owned by its InvocationKey, not a
         # declaration introduced by the surrounding instance scope.
         return value
     declaration_scope = (
         *scope,
-        *internal_value_ref_declaration_scope(value),
+        *value.declaration_scope,
     )
     if source_kind == "compute":
-        return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+        return ValueRef(
             source_kind="compute",
             source_id=_required_operation_id(value).prefixed(*scope),
             value_type=value.value_type,
-            declaration_key=internal_value_ref_declaration_key(value),
+            declaration_key=value.declaration_key,
             declaration_scope=declaration_scope,
             operation_origin=(
                 *origin,
-                *internal_value_ref_operation_origin(value),
+                *value.operation_origin,
             ),
             parameter_contracts=internal_value_ref_parameter_contracts(value),
             point_dependencies=internal_value_ref_point_dependencies(value),
@@ -1442,7 +1308,7 @@ def internal_scope_value_ref(
         )
     if source_kind == "scalar_operation":
         operation = _required_scalar_operation(value)
-        return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+        return ValueRef(
             source_kind="scalar_operation",
             source_id=ScalarValueOperation(
                 operator=operation.operator,
@@ -1458,7 +1324,7 @@ def internal_scope_value_ref(
                 ),
             ),
             value_type=value.value_type,
-            declaration_key=internal_value_ref_declaration_key(value),
+            declaration_key=value.declaration_key,
             declaration_scope=declaration_scope,
         )
     if source_kind == "expression":
@@ -1467,11 +1333,11 @@ def internal_scope_value_ref(
             *scope,
         )
         layers = _value_ref_input_binding_layers(value)
-        return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+        return ValueRef(
             source_kind="expression",
             source_id=None,
             value_type=value.value_type,
-            declaration_key=internal_value_ref_declaration_key(value),
+            declaration_key=value.declaration_key,
             declaration_scope=declaration_scope,
             expression=expression,
             input_binding_layers=tuple(
@@ -1493,11 +1359,11 @@ def internal_scope_value_ref(
             free_point_dependencies=internal_value_ref_free_point_dependencies(value),
             bound_point_input_ids=internal_value_ref_bound_point_input_ids(value),
         )
-    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+    return ValueRef(
         source_kind=source_kind,
         source_id=_value_ref_source_id(value),
         value_type=value.value_type,
-        declaration_key=internal_value_ref_declaration_key(value),
+        declaration_key=value.declaration_key,
         declaration_scope=declaration_scope,
         parameter_contracts=internal_value_ref_parameter_contracts(value),
         point_dependencies=internal_value_ref_point_dependencies(value),
@@ -1527,10 +1393,7 @@ def internal_value_ref_parameter_contracts(
                 for operand in _scalar_operation_value_operands(operation)
             )
         )
-    return cast(
-        "tuple[ParameterContract, ...]",
-        object.__getattribute__(value, "_parameter_contracts"),
-    )
+    return value.parameter_contracts
 
 
 def internal_value_ref_point_dependencies(
@@ -1546,10 +1409,7 @@ def internal_value_ref_point_dependencies(
                 for operand in _scalar_operation_value_operands(operation)
             )
         )
-    return cast(
-        "tuple[PointValueDependency, ...]",
-        object.__getattribute__(value, "_point_dependencies"),
-    )
+    return value.point_dependencies
 
 
 def internal_value_ref_free_point_dependencies(
@@ -1565,10 +1425,7 @@ def internal_value_ref_free_point_dependencies(
                 for operand in _scalar_operation_value_operands(operation)
             )
         )
-    return cast(
-        "tuple[PointValueDependency, ...]",
-        object.__getattribute__(value, "_free_point_dependencies"),
-    )
+    return value.free_point_dependencies
 
 
 def internal_value_ref_bound_point_input_ids(value: ValueRef) -> frozenset[str]:
@@ -1581,10 +1438,7 @@ def internal_value_ref_bound_point_input_ids(value: ValueRef) -> frozenset[str]:
             for operand in _scalar_operation_value_operands(operation)
             for input_id in internal_value_ref_bound_point_input_ids(operand)
         )
-    return cast(
-        "frozenset[str]",
-        object.__getattribute__(value, "_bound_point_input_ids"),
-    )
+    return value.bound_point_input_ids
 
 
 def internal_value_ref_free_point_input_ids(value: ValueRef) -> frozenset[str]:
@@ -1612,7 +1466,7 @@ def _value_ref_availability(
     if marker in seen:
         return ValueAvailability(ValueStage.PLAN, ValueRate.RUN)
     nested_seen = seen | {marker}
-    source_kind = internal_value_ref_source_kind(value)
+    source_kind = value.source_kind
     if source_kind == "compute":
         return ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
     if source_kind == "point":
@@ -1649,10 +1503,7 @@ def _value_ref_availability(
             else ValueRate.RUN
         ),
     )
-    layers = cast(
-        "tuple[tuple[tuple[str, ValueRef], ...], ...]",
-        object.__getattribute__(value, "_input_binding_layers"),
-    )
+    layers = value.input_binding_layers
     return ValueAvailability.combined(
         availability,
         *(
@@ -1666,7 +1517,7 @@ def _value_ref_availability(
 def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResultRef:
     """Lower a typed edge at the private compiler boundary."""
 
-    source_kind = internal_value_ref_source_kind(value)
+    source_kind = value.source_kind
     if source_kind == "compute":
         operation_id = OperationId(_required_operation_id(value))
         return ComputeResultRef(value_id=operation_result_id(operation_id, "result"))
@@ -1688,12 +1539,9 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
     if source_kind == "expression":
         expression = cast(
             "_ValueExpression",
-            object.__getattribute__(value, "_expression"),
+            value.expression,
         )
-        layers = cast(
-            "tuple[tuple[tuple[str, ValueRef], ...], ...]",
-            object.__getattribute__(value, "_input_binding_layers"),
-        )
+        layers = value.input_binding_layers
         if not layers:
             return expression
         from scopecat.compiler.relations.input_binding import (
@@ -1772,15 +1620,19 @@ def internal_value_ref_from_expression(
 ) -> ValueRef:
     """Construct a typed expression edge inside the authoring implementation."""
 
-    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+    return ValueRef(
         source_kind="expression",
         source_id=None,
         value_type=value_type,
-        declaration_key=declaration_key,
+        declaration_key=declaration_key or ValueDeclarationKey.fresh(),
         expression=expression,
         parameter_contracts=parameter_contracts,
         point_dependencies=point_dependencies,
-        free_point_dependencies=free_point_dependencies,
+        free_point_dependencies=(
+            point_dependencies
+            if free_point_dependencies is None
+            else free_point_dependencies
+        ),
         bound_point_input_ids=bound_point_input_ids,
     )
 
@@ -1818,7 +1670,7 @@ def internal_bind_value_ref_inputs(
 ) -> ValueRef:
     """Attach one typed module-input environment without lowering the edge."""
 
-    source_kind = internal_value_ref_source_kind(value)
+    source_kind = value.source_kind
     if source_kind == "input":
         input_id = _required_string_source_id(value)
         selected = inputs.get(input_id)
@@ -1850,18 +1702,15 @@ def internal_bind_value_ref_inputs(
     bound_values = tuple(selected for _input_id, selected in layer)
     expression = cast(
         "_ValueExpression",
-        object.__getattribute__(value, "_expression"),
+        value.expression,
     )
-    existing_layers = cast(
-        "tuple[tuple[tuple[str, ValueRef], ...], ...]",
-        object.__getattribute__(value, "_input_binding_layers"),
-    )
-    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+    existing_layers = value.input_binding_layers
+    return ValueRef(
         source_kind="expression",
         source_id=None,
         value_type=value.value_type,
-        declaration_key=internal_value_ref_declaration_key(value),
-        declaration_scope=internal_value_ref_declaration_scope(value),
+        declaration_key=value.declaration_key,
+        declaration_scope=value.declaration_scope,
         expression=expression,
         input_binding_layers=(*existing_layers, layer),
         parameter_contracts=merge_parameter_contracts(
@@ -1914,7 +1763,7 @@ def internal_value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
 
 
 def _value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
-    source_kind = internal_value_ref_source_kind(value)
+    source_kind = value.source_kind
     if source_kind == "input":
         return frozenset((_required_string_source_id(value),))
     if source_kind == "scalar_operation":
@@ -1932,13 +1781,10 @@ def _value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
 
     expression = cast(
         "_ValueExpression",
-        object.__getattribute__(value, "_expression"),
+        value.expression,
     )
     input_ids = frozenset(value_input_refs(expression))
-    layers = cast(
-        "tuple[tuple[tuple[str, ValueRef], ...], ...]",
-        object.__getattribute__(value, "_input_binding_layers"),
-    )
+    layers = value.input_binding_layers
     for layer in layers:
         _reachable, input_ids = _reachable_input_bindings(input_ids, dict(layer))
     return input_ids
@@ -2022,7 +1868,7 @@ def _scalar_operation_value(
     right: object,
     value_type: Scalar,
 ) -> ValueRef:
-    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+    return ValueRef(
         source_kind="scalar_operation",
         source_id=ScalarValueOperation(
             operator=operator,
@@ -2096,12 +1942,12 @@ def _rebuild_scalar_operation(
     value: ValueRef,
     operation: ScalarValueOperation,
 ) -> ValueRef:
-    return ValueRef._create(  # pyright: ignore[reportPrivateUsage]
+    return ValueRef(
         source_kind="scalar_operation",
         source_id=operation,
         value_type=value.value_type,
-        declaration_key=internal_value_ref_declaration_key(value),
-        declaration_scope=internal_value_ref_declaration_scope(value),
+        declaration_key=value.declaration_key,
+        declaration_scope=value.declaration_scope,
     )
 
 
@@ -2118,17 +1964,11 @@ def _scalar_operation_value_operands(
 def _value_ref_source_id(
     value_ref: ValueRef,
 ) -> str | SymbolId | _ModuleExportSource | ScalarValueOperation | None:
-    return cast(
-        "str | SymbolId | _ModuleExportSource | ScalarValueOperation | None",
-        object.__getattribute__(value_ref, "_source_id"),
-    )
+    return value_ref.source_id
 
 
 def _required_value_expression(value_ref: ValueRef) -> _ValueExpression:
-    expression = cast(
-        "_ValueExpression | None",
-        object.__getattribute__(value_ref, "_expression"),
-    )
+    expression = value_ref.expression
     if expression is None:
         msg = "value reference expression is required"
         raise ValueError(msg)
@@ -2177,10 +2017,7 @@ def _required_module_export_identity(
 def _value_ref_input_binding_layers(
     value_ref: ValueRef,
 ) -> tuple[tuple[tuple[str, ValueRef], ...], ...]:
-    return cast(
-        "tuple[tuple[tuple[str, ValueRef], ...], ...]",
-        object.__getattribute__(value_ref, "_input_binding_layers"),
-    )
+    return value_ref.input_binding_layers
 
 
 __all__ = [

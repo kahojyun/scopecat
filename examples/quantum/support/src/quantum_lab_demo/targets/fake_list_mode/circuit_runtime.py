@@ -28,12 +28,12 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.measurements.results import ComplexQuantity, MeasurementArray
-from scopecat.sdk.domain.job import DomainResultValue
-from scopecat.sdk.domain.preparation import DomainMappedResult
-from scopecat.sdk.domain.view import (
+from scopecat.sdk.domain import (
+    DomainMappedResult,
     DomainPointRef,
     DomainProductContractView,
     DomainProductUseRef,
+    DomainResultValue,
 )
 from scopecat_quantum import (
     Acquire,

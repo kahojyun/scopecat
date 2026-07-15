@@ -60,7 +60,8 @@ from scopecat.records.entity import EntityRef, normalize_entity_metadata
 
 
 class _Identified(Protocol):
-    id: str
+    @property
+    def id(self) -> str: ...
 
 
 def _ensure_unique_ids[T: _Identified](items: list[T], label: str) -> list[T]:

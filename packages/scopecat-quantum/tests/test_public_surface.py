@@ -12,26 +12,6 @@ def test_public_surface_disambiguates_composition_ir_layers() -> None:
     assert sq.QuantumParallel is sq.programs.Parallel
 
 
-def test_public_facade_covers_module_exports_except_disambiguated_composition() -> None:
-    facade_names = set(sq.__all__)
-
-    assert set(sq.acquisitions.__all__) <= facade_names
-    assert set(sq.authoring.__all__) <= facade_names
-    assert set(sq.calibrations.__all__) <= facade_names
-    assert set(sq.circuits.__all__) - {"Parallel", "Sequence"} <= facade_names
-    assert set(sq.pulses.__all__) - {"Parallel", "Sequence"} <= facade_names
-    assert set(sq.programs.__all__) - {"Parallel", "Sequence"} <= facade_names
-    assert set(sq.program_results.__all__) <= facade_names
-    assert set(sq.program_targets.__all__) <= facade_names
-    assert set(sq.circuit_pulses.__all__) <= facade_names
-    assert set(sq.circuit_results.__all__) <= facade_names
-    assert set(sq.circuit_targets.__all__) <= facade_names
-    assert set(sq.gates.__all__) <= facade_names
-    assert set(sq.measurement_calibrations.__all__) <= facade_names
-    assert set(sq.measurement_transforms.__all__) <= facade_names
-    assert set(sq.targets.__all__) <= facade_names
-
-
 def test_authoring_exposes_one_program_entry_path() -> None:
     names = set(sq.authoring.__all__)
 

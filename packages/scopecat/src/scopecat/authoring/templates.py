@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -12,7 +12,6 @@ from scopecat.authoring._frozen_values import (
     freeze_runtime_input,
     freeze_runtime_inputs,
 )
-from scopecat.authoring._handles import create_handle, replace_handle
 from scopecat.authoring._validation import (
     validate_template_bound_inputs,
     validate_template_definition,
@@ -36,13 +35,12 @@ from scopecat.records.parameter import Quantity
 if TYPE_CHECKING:
     from scopecat.authoring._record_intents import (
         ProductRef,
-        ProductSelectionIntent,
         RecordSelection,
     )
     from scopecat.authoring.assembly import ExperimentModule
 
     type TemplateModule = ExperimentModule
-    type TemplateRecordSelection = ProductSelectionIntent
+    type TemplateRecordSelection = RecordSelection
 else:
     type TemplateModule = object
     type TemplateRecordSelection = object
@@ -81,7 +79,7 @@ class InputDescription:
         return self.default is not _INPUT_DEFAULT_MISSING
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class ExperimentTemplate:
     id: str
     experiment_id: str | None = None
@@ -94,13 +92,6 @@ class ExperimentTemplate:
     label: str | None = None
     description: str | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
-
-    def __init__(self) -> None:
-        msg = (
-            "ExperimentTemplate is an opaque handle; create templates with "
-            "module.template(...)"
-        )
-        raise TypeError(msg)
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -124,25 +115,17 @@ class ExperimentTemplate:
             default_scans=self.default_scans,
             inputs=inputs,
         )
-        return create_handle(
-            ExperimentInvocation,
+        return ExperimentInvocation(
             template=self,
-            inputs=freeze_runtime_inputs(inputs),
+            inputs=cast("Mapping[str, RuntimeInput]", freeze_runtime_inputs(inputs)),
         )
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class ExperimentInvocation:
     template: ExperimentTemplate
     inputs: Mapping[str, RuntimeInput] = field(default_factory=empty_frozen_mapping)
     scans: tuple[Scan, ...] = ()
-
-    def __init__(self) -> None:
-        msg = (
-            "ExperimentInvocation is an opaque handle; create invocations with "
-            "template.bind(...)"
-        )
-        raise TypeError(msg)
 
     def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
         _validate_runtime_inputs(inputs)
@@ -158,7 +141,7 @@ class ExperimentInvocation:
             default_scans=self.template.default_scans,
             inputs=selected,
         )
-        return replace_handle(
+        return replace(
             self,
             inputs=freeze_runtime_inputs(selected),
         )
@@ -181,10 +164,10 @@ class ExperimentInvocation:
             span=span,
             points=points,
         )
-        return replace_handle(self, scans=(*self.scans, selected))
+        return replace(self, scans=(*self.scans, selected))
 
 
-@dataclass(frozen=True, slots=True, init=False, repr=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class TemplateBuilder:
     """Fluent builder for reusable experiment shapes.
 
@@ -198,16 +181,12 @@ class TemplateBuilder:
     _category: str | None = None
     _experiment_id: str | None = None
     _module: TemplateModule | None = None
-    _record_selections: tuple[TemplateRecordSelection, ...] = ()
+    record_selections: tuple[TemplateRecordSelection, ...] = ()
     _inputs: tuple[InputDescription, ...] = ()
     _default_scans: tuple[Scan, ...] = ()
     _label: str | None = None
     _description: str | None = None
     _metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
-
-    def __init__(self) -> None:
-        msg = "TemplateBuilder is an opaque handle; create it with module.template(...)"
-        raise TypeError(msg)
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -221,14 +200,13 @@ class TemplateBuilder:
         return self.build().bind(**inputs)
 
     def build(self) -> ExperimentTemplate:
-        template = create_handle(
-            ExperimentTemplate,
+        template = ExperimentTemplate(
             id=self.id,
             experiment_id=self._experiment_id,
             kind=self.kind,
             category=self._category,
             module=self._module,
-            record_selections=self._record_selections,
+            record_selections=self.record_selections,
             inputs=self._inputs,
             default_scans=self._default_scans,
             label=self._label,
@@ -247,7 +225,7 @@ class TemplateBuilder:
         return template
 
     def experiment_id(self, experiment_id: str) -> TemplateBuilder:
-        return replace_handle(self, _experiment_id=experiment_id)
+        return replace(self, _experiment_id=experiment_id)
 
     def scan(
         self,
@@ -259,7 +237,7 @@ class TemplateBuilder:
         span: Quantity | str | None = None,
         points: int | None = None,
     ) -> TemplateBuilder:
-        return replace_handle(
+        return replace(
             self,
             _default_scans=(
                 *self._default_scans,
@@ -293,10 +271,10 @@ class TemplateBuilder:
                 metadata=freeze_json_mapping(metadata or {}),
             ),
         )
-        return replace_handle(self, _inputs=inputs)
+        return replace(self, _inputs=inputs)
 
     def inputs(self, *inputs: InputDescription) -> TemplateBuilder:
-        return replace_handle(self, _inputs=(*self._inputs, *inputs))
+        return replace(self, _inputs=(*self._inputs, *inputs))
 
     def record_product(
         self,
@@ -307,22 +285,17 @@ class TemplateBuilder:
         if record_id is not None and len(products) != 1:
             msg = "record_id can only be used with one product"
             raise ValueError(msg)
-        from scopecat.authoring._record_intents import (
-            product_selection_intent,
-            record_product,
-        )
+        from scopecat.authoring._record_intents import record_product
 
-        return replace_handle(
+        return replace(
             self,
-            _record_selections=(
-                *self._record_selections,
+            record_selections=(
+                *self.record_selections,
                 *(
-                    product_selection_intent(
-                        record_product(
-                            product,
-                            record_id=record_id,
-                            metadata=metadata,
-                        )
+                    record_product(
+                        product,
+                        record_id=record_id,
+                        metadata=metadata,
                     )
                     for product in products
                 ),
@@ -332,19 +305,22 @@ class TemplateBuilder:
     def records(self, *selections: RecordSelection) -> TemplateBuilder:
         """Append explicit product-use record projections to this template."""
 
-        return template_builder_with_record_selections_internal(self, selections)
+        return replace(
+            self,
+            record_selections=(*self.record_selections, *selections),
+        )
 
     def label(self, label: str | None) -> TemplateBuilder:
-        return replace_handle(self, _label=label)
+        return replace(self, _label=label)
 
     def description(self, description: str | None) -> TemplateBuilder:
-        return replace_handle(self, _description=description)
+        return replace(self, _description=description)
 
     def category(self, category: str | None) -> TemplateBuilder:
-        return replace_handle(self, _category=category)
+        return replace(self, _category=category)
 
     def metadata(self, **metadata: MetadataValue) -> TemplateBuilder:
-        return replace_handle(
+        return replace(
             self,
             _metadata=freeze_json_mapping({**self._metadata, **metadata}),
         )
@@ -360,8 +336,7 @@ def template_builder_from_module(
     description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> TemplateBuilder:
-    return create_handle(
-        TemplateBuilder,
+    return TemplateBuilder(
         id=id,
         kind=kind,
         _module=module,
@@ -369,25 +344,6 @@ def template_builder_from_module(
         _label=label,
         _description=description,
         _metadata=freeze_json_mapping(metadata or {}),
-    )
-
-
-def template_builder_with_record_selections_internal(
-    builder: TemplateBuilder,
-    selections: Sequence[RecordSelection],
-) -> TemplateBuilder:
-    """Retain already-normalized selections across facade adaptation layers."""
-
-    from scopecat.authoring._record_intents import product_selection_intent
-
-    normalized = tuple(product_selection_intent(selection) for selection in selections)
-    existing = cast(
-        "tuple[ProductSelectionIntent, ...]",
-        object.__getattribute__(builder, "_record_selections"),
-    )
-    return replace_handle(
-        builder,
-        _record_selections=(*existing, *normalized),
     )
 
 

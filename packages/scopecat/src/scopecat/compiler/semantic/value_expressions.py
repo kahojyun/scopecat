@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
-from typing import ClassVar, Literal, Self, cast, overload, override
+from dataclasses import dataclass
+from typing import ClassVar, Literal, Self, cast, overload
 
 from scopecat.compiler.relations.model import RelationExpr, ScalarExpr, SeriesExpr
 from scopecat.compiler.relations.verification import (
@@ -17,16 +17,6 @@ from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 class _FrozenProofEnvelope:
     __slots__ = ()
 
-    @override
-    def __setattr__(self, name: str, _value: object) -> None:
-        msg = f"cannot assign to field {name!r}"
-        raise FrozenInstanceError(msg)
-
-    @override
-    def __delattr__(self, name: str) -> None:
-        msg = f"cannot delete field {name!r}"
-        raise FrozenInstanceError(msg)
-
     def __copy__(self) -> Self:
         return self
 
@@ -34,16 +24,18 @@ class _FrozenProofEnvelope:
         return self
 
 
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
 class ScalarValueExpr(_FrozenProofEnvelope):
     """A scalar plan together with its backend-neutral static proof."""
 
-    __slots__ = ("_plan",)
+    _plan: VerifiedRelationPlan[ScalarExpr]
 
     shape: ClassVar[Literal["scalar"]] = "scalar"
 
-    def __init__(self) -> None:
-        msg = "scalar value expressions are created by verify_scalar_value_expr"
-        raise TypeError(msg)
+    def __post_init__(self) -> None:
+        if not isinstance(self._plan.certified_type, Scalar):
+            msg = "scalar value expressions require a scalar plan proof"
+            raise TypeError(msg)
 
     @property
     def plan(self) -> VerifiedRelationPlan[ScalarExpr]:
@@ -54,16 +46,18 @@ class ScalarValueExpr(_FrozenProofEnvelope):
         return cast("Scalar", self._plan.certified_type)
 
 
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
 class SeriesValueExpr(_FrozenProofEnvelope):
     """A series plan together with its backend-neutral static proof."""
 
-    __slots__ = ("_plan",)
+    _plan: VerifiedRelationPlan[SeriesExpr]
 
     shape: ClassVar[Literal["series"]] = "series"
 
-    def __init__(self) -> None:
-        msg = "series value expressions are created by verify_series_value_expr"
-        raise TypeError(msg)
+    def __post_init__(self) -> None:
+        if not isinstance(self._plan.certified_type, Series):
+            msg = "series value expressions require a series plan proof"
+            raise TypeError(msg)
 
     @property
     def plan(self) -> VerifiedRelationPlan[SeriesExpr]:
@@ -74,16 +68,18 @@ class SeriesValueExpr(_FrozenProofEnvelope):
         return cast("Series", self._plan.certified_type)
 
 
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
 class TableValueExpr(_FrozenProofEnvelope):
     """A relation plan together with its backend-neutral static proof."""
 
-    __slots__ = ("_plan",)
+    _plan: VerifiedRelationPlan[RelationExpr]
 
     shape: ClassVar[Literal["table"]] = "table"
 
-    def __init__(self) -> None:
-        msg = "table value expressions are created by verify_table_value_expr"
-        raise TypeError(msg)
+    def __post_init__(self) -> None:
+        if not isinstance(self._plan.certified_type, Table):
+            msg = "table value expressions require a relation plan proof"
+            raise TypeError(msg)
 
     @property
     def plan(self) -> VerifiedRelationPlan[RelationExpr]:
@@ -98,39 +94,6 @@ type ScalarOrSeriesValueExpr = ScalarValueExpr | SeriesValueExpr
 type ValueExpr = ScalarValueExpr | SeriesValueExpr | TableValueExpr
 
 
-def _scalar_value_expr_from_plan(
-    plan: VerifiedRelationPlan[ScalarExpr],
-) -> ScalarValueExpr:
-    if not isinstance(plan.certified_type, Scalar):
-        msg = "scalar value expressions require a scalar plan proof"
-        raise TypeError(msg)
-    value = object.__new__(ScalarValueExpr)
-    object.__setattr__(value, "_plan", plan)
-    return value
-
-
-def _series_value_expr_from_plan(
-    plan: VerifiedRelationPlan[SeriesExpr],
-) -> SeriesValueExpr:
-    if not isinstance(plan.certified_type, Series):
-        msg = "series value expressions require a series plan proof"
-        raise TypeError(msg)
-    value = object.__new__(SeriesValueExpr)
-    object.__setattr__(value, "_plan", plan)
-    return value
-
-
-def _table_value_expr_from_plan(
-    plan: VerifiedRelationPlan[RelationExpr],
-) -> TableValueExpr:
-    if not isinstance(plan.certified_type, Table):
-        msg = "table value expressions require a relation plan proof"
-        raise TypeError(msg)
-    value = object.__new__(TableValueExpr)
-    object.__setattr__(value, "_plan", plan)
-    return value
-
-
 def verify_scalar_value_expr(
     expression: ScalarExpr,
     *,
@@ -139,8 +102,12 @@ def verify_scalar_value_expr(
 ) -> ScalarValueExpr:
     """Verify one transformed scalar expression before it enters compiler IR."""
 
-    return _scalar_value_expr_from_plan(
-        verify_relation_plan(expression, bindings=bindings, expected_type=expected_type)
+    return ScalarValueExpr(
+        _plan=verify_relation_plan(
+            expression,
+            bindings=bindings,
+            expected_type=expected_type,
+        )
     )
 
 
@@ -152,8 +119,12 @@ def verify_series_value_expr(
 ) -> SeriesValueExpr:
     """Verify one transformed series expression before it enters compiler IR."""
 
-    return _series_value_expr_from_plan(
-        verify_relation_plan(expression, bindings=bindings, expected_type=expected_type)
+    return SeriesValueExpr(
+        _plan=verify_relation_plan(
+            expression,
+            bindings=bindings,
+            expected_type=expected_type,
+        )
     )
 
 
@@ -165,8 +136,12 @@ def verify_table_value_expr(
 ) -> TableValueExpr:
     """Verify one transformed relation before it enters compiler IR."""
 
-    return _table_value_expr_from_plan(
-        verify_relation_plan(expression, bindings=bindings, expected_type=expected_type)
+    return TableValueExpr(
+        _plan=verify_relation_plan(
+            expression,
+            bindings=bindings,
+            expected_type=expected_type,
+        )
     )
 
 
