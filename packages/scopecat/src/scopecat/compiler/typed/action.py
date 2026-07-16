@@ -7,10 +7,8 @@ from dataclasses import dataclass
 from typing import cast
 
 from scopecat.compiler.relations.analysis import PlanNode
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     EvalContext,
-    RelationBackend,
-    SelectedRelationPlan,
     evaluate_scalar,
 )
 from scopecat.compiler.relations.model import ScalarExpr
@@ -18,6 +16,7 @@ from scopecat.compiler.relations.uses import (
     RelationUse,
     RelationUseId,
 )
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import ActionId
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
@@ -25,7 +24,7 @@ from scopecat.kernel.resource_identity import LogicalResourcePortId
 
 type ActionValueUse = RelationUse[ScalarValueExpr] | ComputeResultRef
 type EvaluatedActionValue = object
-type SelectedPlanResolver = Callable[[RelationUseId], SelectedRelationPlan[PlanNode]]
+type RelationPlanResolver = Callable[[RelationUseId], VerifiedRelationPlan[PlanNode]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,8 +87,7 @@ def evaluate_action_spec(
     *,
     point_index: int,
     ctx: EvalContext,
-    backend: RelationBackend,
-    selected_plan: SelectedPlanResolver,
+    relation_plan: RelationPlanResolver,
 ) -> ActionRecord:
     return ActionRecord(
         point_index=point_index,
@@ -103,10 +101,9 @@ def evaluate_action_spec(
                     field.value_use
                     if isinstance(field.value_use, ComputeResultRef)
                     else evaluate_scalar(
-                        backend,
                         cast(
-                            "SelectedRelationPlan[ScalarExpr]",
-                            selected_plan(field.value_use.id),
+                            "VerifiedRelationPlan[ScalarExpr]",
+                            relation_plan(field.value_use.id),
                         ),
                         ctx,
                     )

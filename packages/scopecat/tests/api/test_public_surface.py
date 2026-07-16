@@ -11,8 +11,7 @@ import scopecat.kernel.payloads as value_models
 import scopecat.kernel.problems as problems
 import scopecat.measurements.results as results
 from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
-from scopecat.compiler.relations.backend import EvalContext
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
+from scopecat.compiler.relations.evaluation import EvalContext
 from tests.testkit.relation_plans import evaluate_scalar
 
 
@@ -175,7 +174,6 @@ def test_public_invocations_capture_immutable_input_snapshots() -> None:
     items.append(2)
 
     captured_payload = evaluate_scalar(
-        REFERENCE_RELATION_BACKEND,
         internal_lower_scalar_value_ref(module_invocation.inputs["payload"]),
         EvalContext(),
     )

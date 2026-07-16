@@ -1,20 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import override
 
 import pytest
 
-import scopecat.compiler.relations.backend as relation_backend
 from scopecat.compiler.relations.analysis import (
     PlanNode,
-    RelationOperation,
+    PlanOperation,
 )
-from scopecat.compiler.relations.backend import (
-    RelationBackendCapabilityDimension,
-    RelationBackendCapabilityError,
-    RelationBackendCapabilityIssue,
-    RelationPlanRequirements,
+from scopecat.compiler.relations.evaluation import (
+    evaluate_relation,
 )
 from scopecat.compiler.relations.model import (
     GridColumn,
@@ -40,7 +35,6 @@ from scopecat.compiler.relations.model import (
     values,
     zip_relations,
 )
-from scopecat.compiler.relations.reference_backend import ReferenceRelationBackend
 from scopecat.compiler.relations.verification import (
     ExternalRowRequirement,
     ParameterLookupSignature,
@@ -172,75 +166,75 @@ def _zip() -> RelationExpr:
     )
 
 
-OperationCase = tuple[RelationOperation, Callable[[], PlanNode]]
+OperationCase = tuple[PlanOperation, Callable[[], PlanNode]]
 
 
 _OPERATION_CASES: tuple[OperationCase, ...] = (
-    (RelationOperation.SCALAR_LITERAL, lambda: lit(1)),
-    (RelationOperation.SCALAR_CURRENT_COLUMN, lambda: col("current")),
-    (RelationOperation.SCALAR_OUTER_COLUMN, lambda: outer("outer")),
-    (RelationOperation.SCALAR_POINT_COLUMN, lambda: point_col("point")),
-    (RelationOperation.SCALAR_INPUT, lambda: input_ref("scalar")),
-    (RelationOperation.SCALAR_PARAMETER, lambda: param("scalar")),
-    (RelationOperation.SCALAR_PARAMETER_LOOKUP, _lookup),
-    (RelationOperation.SCALAR_BINARY, lambda: input_ref("scalar") + 1),
+    (PlanOperation.SCALAR_LITERAL, lambda: lit(1)),
+    (PlanOperation.SCALAR_CURRENT_COLUMN, lambda: col("current")),
+    (PlanOperation.SCALAR_OUTER_COLUMN, lambda: outer("outer")),
+    (PlanOperation.SCALAR_POINT_COLUMN, lambda: point_col("point")),
+    (PlanOperation.SCALAR_INPUT, lambda: input_ref("scalar")),
+    (PlanOperation.SCALAR_PARAMETER, lambda: param("scalar")),
+    (PlanOperation.SCALAR_PARAMETER_LOOKUP, _lookup),
+    (PlanOperation.SCALAR_BINARY, lambda: input_ref("scalar") + 1),
     (
-        RelationOperation.SCALAR_CASE,
+        PlanOperation.SCALAR_CASE,
         lambda: case((lit(True), 1), fallback=2),
     ),
-    (RelationOperation.SERIES_VALUES, lambda: values([1, 2])),
-    (RelationOperation.SERIES_LINSPACE, lambda: linspace(0.0, 1.0, 3)),
-    (RelationOperation.SERIES_RANGE, lambda: range_values(0, 3, 1)),
-    (RelationOperation.SERIES_INPUT, lambda: input_series("series")),
-    (RelationOperation.SERIES_PARAMETER, lambda: parameter_series("series")),
+    (PlanOperation.SERIES_VALUES, lambda: values([1, 2])),
+    (PlanOperation.SERIES_LINSPACE, lambda: linspace(0.0, 1.0, 3)),
+    (PlanOperation.SERIES_RANGE, lambda: range_values(0, 3, 1)),
+    (PlanOperation.SERIES_INPUT, lambda: input_series("series")),
+    (PlanOperation.SERIES_PARAMETER, lambda: parameter_series("series")),
     (
-        RelationOperation.SERIES_RELATION_COLUMN,
+        PlanOperation.SERIES_RELATION_COLUMN,
         lambda: input_table("rows").column("value"),
     ),
     (
-        RelationOperation.SERIES_RELATION_ENTITIES,
+        PlanOperation.SERIES_RELATION_ENTITIES,
         lambda: input_table("rows").entities("entity"),
     ),
     (
-        RelationOperation.RELATION_LITERAL_ROWS,
+        PlanOperation.RELATION_LITERAL_ROWS,
         lambda: literal_rows([{"literal": 1}]),
     ),
-    (RelationOperation.RELATION_PARAMETER_TABLE, lambda: table("rows")),
-    (RelationOperation.RELATION_INPUT, lambda: input_table("rows")),
-    (RelationOperation.RELATION_GRID, lambda: grid(axis=[1, 2])),
+    (PlanOperation.RELATION_PARAMETER_TABLE, lambda: table("rows")),
+    (PlanOperation.RELATION_INPUT, lambda: input_table("rows")),
+    (PlanOperation.RELATION_GRID, lambda: grid(axis=[1, 2])),
     (
-        RelationOperation.RELATION_SELECT,
+        PlanOperation.RELATION_SELECT,
         lambda: input_table("rows").select("id", "value"),
     ),
-    (RelationOperation.RELATION_FILTER, _filter),
-    (RelationOperation.RELATION_JOIN, _join),
-    (RelationOperation.RELATION_CROSS, _cross),
-    (RelationOperation.RELATION_LATERAL_CROSS, _lateral_cross),
-    (RelationOperation.RELATION_POINT_CROSS, _point_cross),
-    (RelationOperation.RELATION_ZIP, _zip),
-    (RelationOperation.RELATION_WITH_COLUMNS, _with_columns),
+    (PlanOperation.RELATION_FILTER, _filter),
+    (PlanOperation.RELATION_JOIN, _join),
+    (PlanOperation.RELATION_CROSS, _cross),
+    (PlanOperation.RELATION_LATERAL_CROSS, _lateral_cross),
+    (PlanOperation.RELATION_POINT_CROSS, _point_cross),
+    (PlanOperation.RELATION_ZIP, _zip),
+    (PlanOperation.RELATION_WITH_COLUMNS, _with_columns),
     (
-        RelationOperation.RELATION_SORT,
+        PlanOperation.RELATION_SORT,
         lambda: input_table("rows").sort("id"),
     ),
-    (RelationOperation.RELATION_LIMIT, lambda: input_table("rows").limit(2)),
+    (PlanOperation.RELATION_LIMIT, lambda: input_table("rows").limit(2)),
 )
 
 
 @pytest.mark.parametrize(
     ("operation", "make_root"),
     _OPERATION_CASES,
-    ids=lambda value: value.value if isinstance(value, RelationOperation) else None,
+    ids=lambda value: value.value if isinstance(value, PlanOperation) else None,
 )
-def test_verifier_covers_every_backend_neutral_operation(
-    operation: RelationOperation,
+def test_verifier_covers_every_plan_operation(
+    operation: PlanOperation,
     make_root: Callable[[], PlanNode],
 ) -> None:
     root = make_root()
 
     verified = verify_relation_plan(root, bindings=_base_bindings())
 
-    assert verified.required_operations[0] is operation
+    assert verified.facts[-1].operation is operation
     assert (
         type(verified.certified_type)
         is {
@@ -253,7 +247,7 @@ def test_verifier_covers_every_backend_neutral_operation(
 
 def test_operation_matrix_is_exhaustive() -> None:
     assert {operation for operation, _make_root in _OPERATION_CASES} == set(
-        RelationOperation
+        PlanOperation
     )
 
 
@@ -271,9 +265,9 @@ def test_plan_facts_use_stable_structural_paths_in_postorder() -> None:
     assert [
         (fact.path, fact.operation, fact.value_type) for fact in verified.facts
     ] == [
-        (("left",), RelationOperation.SCALAR_INPUT, INT),
-        (("right",), RelationOperation.SCALAR_PARAMETER, FLOAT),
-        ((), RelationOperation.SCALAR_BINARY, Scalar(Float())),
+        (("left",), PlanOperation.SCALAR_INPUT, INT),
+        (("right",), PlanOperation.SCALAR_PARAMETER, FLOAT),
+        ((), PlanOperation.SCALAR_BINARY, Scalar(Float())),
     ]
 
 
@@ -665,13 +659,8 @@ def test_point_cross_extends_only_the_right_point_signature() -> None:
         "copy",
     )
     assert verified.external_row_interface.point is None
-    selected = relation_backend.select_relation_plan(
-        ReferenceRelationBackend(),
+    assert evaluate_relation(
         verified,
-    )
-    assert relation_backend.evaluate_relation(
-        ReferenceRelationBackend(),
-        selected,
         point_row={"undeclared": "not part of this interface"},
     ) == [{"axis": 1, "copy": 1}]
 
@@ -1282,222 +1271,3 @@ def test_verified_plan_defensively_copies_the_source_root() -> None:
     projected.limit_count = 0
     assert isinstance(verified.root, RelationExpr)
     assert verified.root.limit_count == 1
-
-
-def test_backend_selection_consumes_proof_and_checks_capabilities() -> None:
-    verified = verify_relation_plan(literal_rows([{"value": 1}]).sort("value"))
-    backend = ReferenceRelationBackend(
-        backend_id="tests.no-sort",
-        supported_operations=(
-            frozenset(RelationOperation) - {RelationOperation.RELATION_SORT}
-        ),
-    )
-
-    with pytest.raises(RelationBackendCapabilityError) as caught:
-        relation_backend.select_relation_plan(backend, verified)
-
-    assert caught.value.backend_id == "tests.no-sort"
-    assert tuple(issue.dimension for issue in caught.value.issues) == (
-        RelationBackendCapabilityDimension.OPERATION,
-    )
-    assert tuple(issue.code for issue in caught.value.issues) == (
-        RelationOperation.RELATION_SORT.value,
-    )
-
-
-def test_backend_operation_rejection_retains_each_occurrence_path() -> None:
-    verified = verify_relation_plan(
-        input_ref("value") + 1,
-        bindings=RelationTypeBindings(inputs={"value": INT}),
-    )
-    backend = ReferenceRelationBackend(
-        backend_id="tests.no-input-read",
-        supported_operations=(
-            frozenset(RelationOperation) - {RelationOperation.SCALAR_INPUT}
-        ),
-    )
-
-    with pytest.raises(RelationBackendCapabilityError) as caught:
-        relation_backend.select_relation_plan(backend, verified)
-
-    assert [(issue.code, issue.path) for issue in caught.value.issues] == [
-        (RelationOperation.SCALAR_INPUT.value, ("left",)),
-    ]
-
-
-def test_backend_selection_retains_the_certified_contract() -> None:
-    verified = verify_relation_plan(lit(1), expected_type=INT)
-
-    selected = relation_backend.select_relation_plan(
-        ReferenceRelationBackend(),
-        verified,
-    )
-
-    assert selected.certified_type == INT
-    assert selected.required_operations == (RelationOperation.SCALAR_LITERAL,)
-
-
-class _FiniteTableFactsBackend(ReferenceRelationBackend):
-    @override
-    def assess_relation_requirements(
-        self,
-        requirements: RelationPlanRequirements,
-    ) -> tuple[RelationBackendCapabilityIssue, ...]:
-        return tuple(
-            RelationBackendCapabilityIssue(
-                dimension=RelationBackendCapabilityDimension.TYPE_REQUIREMENT,
-                code="unbounded_table",
-                path=fact.path,
-                message="backend requires every intermediate table to be bounded",
-            )
-            for fact in requirements.node_type_facts
-            if isinstance(fact.value_type, Table) and fact.value_type.max_rows is None
-        )
-
-
-class _RestrictedExternalRowsBackend(ReferenceRelationBackend):
-    @override
-    def assess_relation_requirements(
-        self,
-        requirements: RelationPlanRequirements,
-    ) -> tuple[RelationBackendCapabilityIssue, ...]:
-        interface = requirements.external_row_interface
-        rows = (
-            ("point", interface.point),
-            ("current", interface.current),
-            ("outer", interface.outer),
-            *(
-                (argument.row_scope_id.qualified_name, argument.requirement)
-                for argument in interface.arguments
-            ),
-        )
-        issues: list[RelationBackendCapabilityIssue] = []
-        for role, requirement in rows:
-            if requirement is None:
-                continue
-            if requirement.requires_full_row:
-                issues.append(
-                    RelationBackendCapabilityIssue(
-                        dimension=RelationBackendCapabilityDimension.ROW_INTERFACE,
-                        code="full_external_row",
-                        path=("external_rows", role),
-                        message="backend requires statically projected row columns",
-                    )
-                )
-            if requirement.row_type.allow_extra_columns:
-                issues.append(
-                    RelationBackendCapabilityIssue(
-                        dimension=RelationBackendCapabilityDimension.ROW_INTERFACE,
-                        code="open_external_row",
-                        path=("external_rows", role),
-                        message="backend requires closed external row schemas",
-                    )
-                )
-        return tuple(issues)
-
-
-def test_backend_acceptance_can_reject_implicit_full_point_row_access() -> None:
-    verified = verify_relation_plan(
-        literal_rows([{"axis": 1}]).point_cross(literal_rows([{}])),
-        bindings=RelationTypeBindings(
-            point_row=RowType((TableColumn("incoming", INT),))
-        ),
-    )
-
-    with pytest.raises(RelationBackendCapabilityError) as caught:
-        relation_backend.select_relation_plan(
-            _RestrictedExternalRowsBackend(backend_id="tests.projected-rows"),
-            verified,
-        )
-
-    assert [(issue.code, issue.path) for issue in caught.value.issues] == [
-        ("full_external_row", ("external_rows", "point")),
-    ]
-    assert caught.value.issues[0].dimension is (
-        RelationBackendCapabilityDimension.ROW_INTERFACE
-    )
-
-
-def test_backend_acceptance_can_reject_open_external_row_schema() -> None:
-    verified = verify_relation_plan(
-        col("value"),
-        bindings=RelationTypeBindings(
-            current_row=RowType(
-                (TableColumn("value", INT),),
-                allow_extra_columns=True,
-            )
-        ),
-    )
-
-    with pytest.raises(RelationBackendCapabilityError) as caught:
-        relation_backend.select_relation_plan(
-            _RestrictedExternalRowsBackend(backend_id="tests.closed-rows"),
-            verified,
-        )
-
-    assert [(issue.code, issue.path) for issue in caught.value.issues] == [
-        ("open_external_row", ("external_rows", "current")),
-    ]
-    assert caught.value.issues[0].dimension is (
-        RelationBackendCapabilityDimension.ROW_INTERFACE
-    )
-
-
-def test_backend_acceptance_checks_every_intermediate_type_fact() -> None:
-    unbounded = Table(columns=(TableColumn("value", INT),))
-    verified = verify_relation_plan(
-        input_table("rows").limit(2),
-        bindings=RelationTypeBindings(inputs={"rows": unbounded}),
-    )
-
-    with pytest.raises(RelationBackendCapabilityError) as caught:
-        relation_backend.select_relation_plan(
-            _FiniteTableFactsBackend(backend_id="tests.finite-only"),
-            verified,
-        )
-
-    assert [(issue.code, issue.path) for issue in caught.value.issues] == [
-        ("unbounded_table", ("source",)),
-    ]
-
-
-def test_backend_acceptance_requires_runtime_obligation_discharge() -> None:
-    verified = verify_relation_plan(
-        input_ref("left") / input_ref("right"),
-        bindings=RelationTypeBindings(inputs={"left": FLOAT, "right": FLOAT}),
-    )
-    backend = ReferenceRelationBackend(
-        backend_id="tests.no-obligations",
-        discharged_obligations=frozenset(),
-    )
-
-    with pytest.raises(RelationBackendCapabilityError) as caught:
-        relation_backend.select_relation_plan(backend, verified)
-
-    assert [issue.code for issue in caught.value.issues] == [
-        "division_right_nonzero",
-        "scalar_result_finite",
-    ]
-    assert all(
-        issue.dimension is RelationBackendCapabilityDimension.RUNTIME_OBLIGATION
-        for issue in caught.value.issues
-    )
-
-
-def test_selected_plan_retains_complete_backend_requirements() -> None:
-    verified = verify_relation_plan(
-        input_ref("value") / 2,
-        bindings=RelationTypeBindings(inputs={"value": FLOAT}),
-    )
-    selected = relation_backend.select_relation_plan(
-        ReferenceRelationBackend(),
-        verified,
-    )
-
-    assert selected.requirements.certified_type == verified.certified_type
-    assert selected.requirements.node_type_facts == verified.facts
-    assert selected.requirements.typed_imports == verified.imports
-    assert (
-        selected.requirements.external_row_interface == verified.external_row_interface
-    )
-    assert selected.requirements.runtime_obligations == verified.runtime_obligations

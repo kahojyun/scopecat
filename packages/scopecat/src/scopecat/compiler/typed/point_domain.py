@@ -6,20 +6,15 @@ from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import InitVar, dataclass, field, replace
 from itertools import product
-from types import MappingProxyType
 from typing import cast
 
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
-    RelationBackend,
-    SelectedRelationPlan,
     evaluate_relation_in_context,
-    select_relation_plan,
 )
 from scopecat.compiler.relations.model import (
     CellValue,
-    RelationExpr,
     Row,
 )
 from scopecat.compiler.relations.point_domain import (
@@ -220,109 +215,6 @@ class VerifiedPointDomain:
 
 
 @dataclass(frozen=True, slots=True)
-class SelectedPointDomainRelation:
-    """One verified domain leaf paired with a backend-selected plan."""
-
-    relation: VerifiedPointDomainRelation
-    selected_plan: SelectedRelationPlan[RelationExpr]
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class SelectedPointDomain:
-    """A verified point tree whose every relation leaf targets one backend."""
-
-    _verified: VerifiedPointDomain
-    _selection_by_id: Mapping[
-        RelationUseId,
-        SelectedPointDomainRelation,
-    ]
-
-    def __init__(
-        self,
-        verified: VerifiedPointDomain,
-        backend_id: str,
-        backend_capability_fingerprint: str,
-        selections: Sequence[SelectedPointDomainRelation],
-    ) -> None:
-        if not backend_id or not backend_capability_fingerprint:
-            msg = "selected point-domain backend capability identity must be non-empty"
-            raise ValueError(msg)
-        selected = tuple(selections)
-        by_id = {selection.relation.id: selection for selection in selected}
-        if len(by_id) != len(selected):
-            msg = "selected point-domain relation identities must be unique"
-            raise ValueError(msg)
-        expected = {relation.id for relation in verified.relation_leaves}
-        if set(by_id) != expected:
-            msg = "selected point-domain relations must exactly cover verified leaves"
-            raise ValueError(msg)
-        verified_by_id = {
-            relation.id: relation for relation in verified.relation_leaves
-        }
-        for relation_id, selection in by_id.items():
-            relation = verified_by_id[relation_id]
-            if selection.relation is not relation:
-                msg = "selected point-domain relation must use its verified owner"
-                raise ValueError(msg)
-            if selection.selected_plan.backend_id != backend_id:
-                msg = "selected point-domain relations must use one backend"
-                raise ValueError(msg)
-            if (
-                selection.selected_plan.backend_capability_fingerprint
-                != backend_capability_fingerprint
-            ):
-                msg = "selected point-domain relations must use one backend capability"
-                raise ValueError(msg)
-            if selection.selected_plan.verified_plan is not relation.value.plan:
-                msg = "selected relation plan does not own its point-domain proof"
-                raise ValueError(msg)
-        object.__setattr__(self, "_verified", verified)
-        object.__setattr__(self, "backend_id", backend_id)
-        object.__setattr__(
-            self,
-            "backend_capability_fingerprint",
-            backend_capability_fingerprint,
-        )
-        object.__setattr__(
-            self,
-            "_selection_by_id",
-            MappingProxyType(by_id),
-        )
-
-    @property
-    def verified(self) -> VerifiedPointDomain:
-        return self._verified
-
-    @property
-    def id(self) -> PointDomainId:
-        return self._verified.id
-
-    backend_id: str
-    backend_capability_fingerprint: str
-
-    @property
-    def cardinality(self) -> PointCardinality:
-        return self._verified.cardinality
-
-    @property
-    def relation_selections(self) -> tuple[SelectedPointDomainRelation, ...]:
-        return tuple(
-            self._selection_by_id[relation.id]
-            for relation in self._verified.relation_leaves
-        )
-
-    def selected_plan(
-        self,
-        relation_id: RelationUseId,
-    ) -> SelectedRelationPlan[RelationExpr]:
-        try:
-            return self._selection_by_id[relation_id].selected_plan
-        except KeyError as error:
-            msg = f"no selected plan for point-domain relation {relation_id}"
-            raise KeyError(msg) from error
-
-
-@dataclass(frozen=True, slots=True)
 class LogicalPointId:
     """Stable identity derived only from a domain namespace and canonical ordinal."""
 
@@ -470,78 +362,16 @@ def _verified_point_domain_components(
     )
 
 
-def select_point_domain(
-    backend: RelationBackend,
-    verified: VerifiedPointDomain,
-) -> SelectedPointDomain:
-    """Select a verified symbolic domain without materializing any rows."""
-
-    selections = {
-        relation.id: select_relation_plan(backend, relation.value.plan)
-        for relation in verified.relation_leaves
-    }
-    return bind_selected_point_domain(
-        verified,
-        backend_id=backend.backend_id,
-        backend_capability_fingerprint=backend.capability_fingerprint,
-        selections=selections,
-    )
-
-
-def bind_selected_point_domain(
-    verified: VerifiedPointDomain,
-    *,
-    backend_id: str,
-    backend_capability_fingerprint: str,
-    selections: Mapping[
-        RelationUseId,
-        SelectedRelationPlan[RelationExpr],
-    ],
-) -> SelectedPointDomain:
-    """Bind exact whole-program selections without reassessing any leaf."""
-
-    verified_by_id = {relation.id: relation for relation in verified.relation_leaves}
-    bound = tuple(
-        SelectedPointDomainRelation(
-            relation=verified_by_id[relation_id],
-            selected_plan=selected_plan,
-        )
-        for relation_id, selected_plan in selections.items()
-        if relation_id in verified_by_id
-    )
-    if set(selections) != set(verified_by_id):
-        msg = "selected point-domain relations must exactly cover verified leaves"
-        raise ValueError(msg)
-    return SelectedPointDomain(
-        verified,
-        backend_id,
-        backend_capability_fingerprint,
-        bound,
-    )
-
-
 def materialize_point_domain(
-    backend: RelationBackend,
-    selected: SelectedPointDomain,
+    verified: VerifiedPointDomain,
     params: ParameterRelationData,
     *,
     row_normalizer: PointRowNormalizer | None = None,
 ) -> MaterializedPointDomain:
     """Coerce every row before assigning canonical ordinal identities."""
 
-    if (
-        backend.backend_id != selected.backend_id
-        or backend.capability_fingerprint != selected.backend_capability_fingerprint
-    ):
-        msg = (
-            "point domain backend capability identity does not match and cannot be "
-            f"materialized by backend {backend.backend_id!r}"
-        )
-        raise ValueError(msg)
     rows = _materialize_node(
-        backend,
-        selected,
-        selected.verified.root,
+        verified.root,
         params=params,
         ambient_row={},
         path=(),
@@ -553,7 +383,7 @@ def materialize_point_domain(
         typed_rows = cast(
             "tuple[dict[str, object], ...]",
             coerce_literal(
-                selected.verified.value_type,
+                verified.value_type,
                 normalized_rows,
                 path=("points",),
             ),
@@ -562,16 +392,16 @@ def materialize_point_domain(
         raise PointDomainValueError(error) from error
     points = tuple(
         MaterializedPoint(
-            LogicalPointId(selected.id, ordinal),
+            LogicalPointId(verified.id, ordinal),
             cast("Mapping[str, CellValue]", row),
             _best_effort_row_key(row),
         )
         for ordinal, row in enumerate(typed_rows)
     )
     return MaterializedPointDomain(
-        selected.id,
+        verified.id,
         points,
-        selected.cardinality,
+        verified.cardinality,
     )
 
 
@@ -764,7 +594,6 @@ def _verify_relation_leaf_role(
         reverified.certified_type != plan.certified_type
         or reverified.facts != plan.facts
         or reverified.imports != plan.imports
-        or reverified.required_operations != plan.required_operations
         or reverified.runtime_obligations != plan.runtime_obligations
         or reverified.external_row_interface != plan.external_row_interface
     ):
@@ -787,8 +616,6 @@ def _extend_row_type(parent: RowType | None, child: Table) -> RowType:
 
 
 def _materialize_node(
-    backend: RelationBackend,
-    selected: SelectedPointDomain,
     node: PointDomainExpr[TableValueExpr],
     *,
     params: ParameterRelationData,
@@ -800,8 +627,7 @@ def _materialize_node(
     if isinstance(node, PointRelationRows):
         try:
             return evaluate_relation_in_context(
-                backend,
-                selected.selected_plan(node.relation_use_id),
+                node.rows.plan,
                 EvalContext(params=params, point_row=ambient_row),
             )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
@@ -809,8 +635,6 @@ def _materialize_node(
     if isinstance(node, PointProduct):
         factor_rows = tuple(
             _materialize_node(
-                backend,
-                selected,
                 factor,
                 params=params,
                 ambient_row=ambient_row,
@@ -822,8 +646,6 @@ def _materialize_node(
     if isinstance(node, PointZip):
         source_rows = tuple(
             _materialize_node(
-                backend,
-                selected,
                 source,
                 params=params,
                 ambient_row=ambient_row,
@@ -843,8 +665,6 @@ def _materialize_node(
             for group in zip(*source_rows, strict=True)
         ]
     left_rows = _materialize_node(
-        backend,
-        selected,
         node.left,
         params=params,
         ambient_row=ambient_row,
@@ -857,8 +677,6 @@ def _materialize_node(
             path=(*path, "right"),
         )
         right_rows = _materialize_node(
-            backend,
-            selected,
             node.right,
             params=params,
             ambient_row=right_ambient,
@@ -956,13 +774,9 @@ __all__ = [
     "PointDomainVerificationError",
     "PointDomainVerificationIssue",
     "PointRowNormalizer",
-    "SelectedPointDomain",
-    "SelectedPointDomainRelation",
     "VerifiedPointDomain",
     "VerifiedPointDomainRelation",
-    "bind_selected_point_domain",
     "is_point_coordinate_type",
     "materialize_point_domain",
-    "select_point_domain",
     "verify_point_domain",
 ]

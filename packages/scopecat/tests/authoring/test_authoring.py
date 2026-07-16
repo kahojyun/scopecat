@@ -53,14 +53,13 @@ from scopecat.compiler.frontend.scan_lowering import (
     lower_scan_points,
     project_scan_record,
 )
-from scopecat.compiler.relations.backend import EvalContext
+from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
     as_scalar_expr,
     input_ref,
     param,
 )
 from scopecat.compiler.relations.point_domain import point_rows
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
@@ -1413,9 +1412,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
 
     assert isinstance(assembly.bindings[0].value, ValueRef)
     expression = internal_lower_scalar_value_ref(assembly.bindings[0].value)
-    assert (
-        evaluate_scalar(REFERENCE_RELATION_BACKEND, expression, EvalContext()) == 1.75
-    )
+    assert evaluate_scalar(expression, EvalContext()) == 1.75
     assert internal_value_ref_parameter_contracts(assembly.bindings[0].value) == ()
     assert internal_value_ref_point_dependencies(assembly.bindings[0].value) == ()
     assert assembly.parameter_contracts == ()
@@ -1483,7 +1480,6 @@ def test_scalar_input_binding_preserves_parent_same_named_input() -> None:
     )
 
     assert evaluate_scalar(
-        REFERENCE_RELATION_BACKEND,
         internal_lower_scalar_value_ref(bound),
         EvalContext(inputs={"value": 2.0}),
         bindings=RelationTypeBindings(inputs={"value": value_type}),
@@ -1502,7 +1498,6 @@ def test_expression_input_binding_does_not_capture_sibling_child_inputs() -> Non
     )
 
     assert evaluate_scalar(
-        REFERENCE_RELATION_BACKEND,
         internal_lower_scalar_value_ref(bound),
         EvalContext(inputs={"b": 2.0}),
         bindings=RelationTypeBindings(inputs={"b": value_type}),

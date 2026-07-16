@@ -22,8 +22,7 @@ from scopecat.compiler.linking.implementations import select_local_implementatio
 from scopecat.compiler.linking.product_realizations import (
     select_local_product_realizations,
 )
-from scopecat.compiler.relations.backend import ParameterRelationData
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
+from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.semantic.availability import (
     ValueAvailability,
     ValueRate,
@@ -264,7 +263,6 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         route_intents=(),
         state_changes=(),
         expected_dataset_schema=None,
-        relation_backend_id=REFERENCE_RELATION_BACKEND.backend_id,
         compute_definitions=(
             BoundComputeDefinition(
                 operation_id=producer_id,

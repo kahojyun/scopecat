@@ -12,7 +12,7 @@ from scopecat.compiler.linking.implementations import (
 from scopecat.compiler.linking.product_realizations import (
     SelectedLocalProductRealizations,
 )
-from scopecat.compiler.relations.backend import ParameterRelationData
+from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import Row
 from scopecat.compiler.semantic.availability import (
     ValueAvailability,
@@ -365,7 +365,6 @@ class BoundPlan:
     route_intents: tuple[ResourceRouteIntent, ...]
     state_changes: tuple[PlannedStateChange, ...]
     expected_dataset_schema: MeasurementDatasetSchema | None
-    relation_backend_id: str
     compute_definitions: tuple[BoundComputeDefinition, ...]
     local_implementations: SelectedLocalImplementations | None = field(repr=False)
     local_product_realizations: SelectedLocalProductRealizations | None = field(
@@ -374,9 +373,6 @@ class BoundPlan:
     problems: tuple[Problem, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.relation_backend_id:
-            msg = "bound plan relation backend id must be non-empty"
-            raise ValueError(msg)
         definition_operation_ids = tuple(
             definition.operation_id for definition in self.compute_definitions
         )

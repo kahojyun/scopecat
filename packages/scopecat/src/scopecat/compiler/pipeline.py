@@ -13,8 +13,6 @@ from scopecat.compiler.frontend.resolution import (
 from scopecat.compiler.linking.bound import BoundPlan
 from scopecat.compiler.linking.linked import LinkedPlan, link_verified_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
-from scopecat.compiler.relations.backend import RelationBackend
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.product_identity import ProductUseId
@@ -89,14 +87,12 @@ def link_experiment(
 def compile_local_experiment(
     linked: LinkedExperiment,
     *,
-    relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
     product_use_ids: AbstractSet[ProductUseId] | None = None,
 ) -> CompiledExperiment:
     """Select the existing local backend for one already-linked program."""
 
     plan = materialize_local_plan(
         linked.plan,
-        relation_backend=relation_backend,
         product_use_ids=product_use_ids,
     )
     plan = replace(
@@ -116,7 +112,6 @@ def compile_experiment(
     *,
     environment: ValidatedConfigEnvironment,
     config_source: RunConfigSource | None = None,
-    relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
 ) -> CompiledExperiment:
     """Run config linking and current local-plan lowering for an invocation."""
 
@@ -127,7 +122,6 @@ def compile_experiment(
     )
     return compile_local_experiment(
         linked,
-        relation_backend=relation_backend,
     )
 
 

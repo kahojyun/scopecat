@@ -8,11 +8,9 @@ from typing import cast
 
 from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
 from scopecat.compiler.relations.analysis import PlanNode
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
-    RelationBackend,
-    SelectedRelationPlan,
     evaluate_scalar,
 )
 from scopecat.compiler.relations.model import (
@@ -24,13 +22,14 @@ from scopecat.compiler.relations.uses import (
     RelationUse,
     RelationUseId,
 )
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.kernel.problems import ModelLocation, ProblemCategory, model_location
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
 from scopecat.records.entity import EntityRef, same_entity_identity
 
-type SelectedPlanResolver = Callable[[RelationUseId], SelectedRelationPlan[PlanNode]]
+type RelationPlanResolver = Callable[[RelationUseId], VerifiedRelationPlan[PlanNode]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,8 +58,7 @@ def apply_point_parameter_overlay(
     *,
     ctx: EvalContext,
     params: ParameterRelationData,
-    backend: RelationBackend,
-    selected_plan: SelectedPlanResolver,
+    relation_plan: RelationPlanResolver,
 ) -> None:
     """Apply one catalog-typed cell replacement to a point-local environment."""
 
@@ -80,10 +78,9 @@ def apply_point_parameter_overlay(
     key = {
         column_id: _coerce_overlay_value(
             evaluate_scalar(
-                backend,
                 cast(
-                    "SelectedRelationPlan[ScalarExpr]",
-                    selected_plan(use.id),
+                    "VerifiedRelationPlan[ScalarExpr]",
+                    relation_plan(use.id),
                 ),
                 ctx,
             ),
@@ -163,10 +160,9 @@ def apply_point_parameter_overlay(
         column_id=overlay.column_id,
         value=_coerce_overlay_value(
             evaluate_scalar(
-                backend,
                 cast(
-                    "SelectedRelationPlan[ScalarExpr]",
-                    selected_plan(overlay.value_use.id),
+                    "VerifiedRelationPlan[ScalarExpr]",
+                    relation_plan(overlay.value_use.id),
                 ),
                 ctx,
             ),

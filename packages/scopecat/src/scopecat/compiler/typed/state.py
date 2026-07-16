@@ -5,10 +5,8 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from scopecat.compiler.relations.analysis import PlanNode
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     EvalContext,
-    RelationBackend,
-    SelectedRelationPlan,
     evaluate_relation_in_context,
     evaluate_scalar,
     evaluate_series,
@@ -24,6 +22,7 @@ from scopecat.compiler.relations.uses import (
     RelationUse,
     RelationUseId,
 )
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.value_expressions import (
     ScalarOrSeriesValueExpr,
@@ -41,7 +40,7 @@ from scopecat.records.entity import EntityRef
 
 type StateSpecKind = Literal["set", "for_each"]
 type RouteEntityValue = str | EntityRef
-type SelectedPlanResolver = Callable[[RelationUseId], SelectedRelationPlan[PlanNode]]
+type RelationPlanResolver = Callable[[RelationUseId], VerifiedRelationPlan[PlanNode]]
 
 
 type StateValueUse = RelationUse[ScalarValueExpr] | ComputeResultRef
@@ -160,11 +159,10 @@ def evaluate_state_spec(
     *,
     point_index: int,
     ctx: EvalContext,
-    backend: RelationBackend,
-    selected_plan: SelectedPlanResolver,
+    relation_plan: RelationPlanResolver,
     location: ModelLocation,
 ) -> list[StateRecord]:
-    """Materialize one data-only state plan with the selected backend."""
+    """Materialize one data-only state plan."""
 
     if spec.kind == "set":
         resource_target = _required(spec.resource_target)
@@ -175,8 +173,7 @@ def evaluate_state_spec(
                 _evaluate_physical_resource(
                     resource_target.use,
                     ctx,
-                    backend=backend,
-                    selected_plan=selected_plan,
+                    relation_plan=relation_plan,
                 )
             )
         )
@@ -191,10 +188,9 @@ def evaluate_state_spec(
                     value_use
                     if isinstance(value_use, ComputeResultRef)
                     else evaluate_scalar(
-                        backend,
                         cast(
-                            "SelectedRelationPlan[ScalarExpr]",
-                            selected_plan(value_use.id),
+                            "VerifiedRelationPlan[ScalarExpr]",
+                            relation_plan(value_use.id),
                         ),
                         ctx,
                     )
@@ -203,8 +199,7 @@ def evaluate_state_spec(
                     _evaluate_route_entities(
                         spec.route_entity_uses,
                         ctx,
-                        backend=backend,
-                        selected_plan=selected_plan,
+                        relation_plan=relation_plan,
                     )
                 ),
             )
@@ -221,10 +216,9 @@ def evaluate_state_spec(
         )
         relation_use = _required(spec.relation_use)
         for row in evaluate_relation_in_context(
-            backend,
             cast(
-                "SelectedRelationPlan[RelationExpr]",
-                selected_plan(relation_use.id),
+                "VerifiedRelationPlan[RelationExpr]",
+                relation_plan(relation_use.id),
             ),
             relation_ctx,
         ):
@@ -249,8 +243,7 @@ def evaluate_state_spec(
                         child,
                         point_index=point_index,
                         ctx=child_ctx,
-                        backend=backend,
-                        selected_plan=selected_plan,
+                        relation_plan=relation_plan,
                         location=model_location(
                             location.root,
                             *location.path,
@@ -268,14 +261,12 @@ def _evaluate_physical_resource(
     use: RelationUse[ScalarValueExpr],
     ctx: EvalContext,
     *,
-    backend: RelationBackend,
-    selected_plan: SelectedPlanResolver,
+    relation_plan: RelationPlanResolver,
 ) -> str:
     value = evaluate_scalar(
-        backend,
         cast(
-            "SelectedRelationPlan[ScalarExpr]",
-            selected_plan(use.id),
+            "VerifiedRelationPlan[ScalarExpr]",
+            relation_plan(use.id),
         ),
         ctx,
     )
@@ -298,8 +289,7 @@ def _evaluate_route_entities(
     uses: Sequence[RelationUse[ScalarOrSeriesValueExpr]],
     ctx: EvalContext,
     *,
-    backend: RelationBackend,
-    selected_plan: SelectedPlanResolver,
+    relation_plan: RelationPlanResolver,
 ) -> list[RouteEntityValue]:
     evaluated: list[CellValue] = []
     for use in uses:
@@ -307,20 +297,18 @@ def _evaluate_route_entities(
         if isinstance(expression, ScalarValueExpr):
             evaluated.append(
                 evaluate_scalar(
-                    backend,
                     cast(
-                        "SelectedRelationPlan[ScalarExpr]",
-                        selected_plan(use.id),
+                        "VerifiedRelationPlan[ScalarExpr]",
+                        relation_plan(use.id),
                     ),
                     ctx,
                 )
             )
         else:
             series_values = evaluate_series(
-                backend,
                 cast(
-                    "SelectedRelationPlan[SeriesExpr]",
-                    selected_plan(use.id),
+                    "VerifiedRelationPlan[SeriesExpr]",
+                    relation_plan(use.id),
                 ),
                 ctx,
             )

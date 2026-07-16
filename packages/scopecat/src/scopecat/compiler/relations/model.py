@@ -3,7 +3,7 @@
 Nodes contain declared semantics and construction helpers only. Traversal and
 reference analysis live in :mod:`scopecat.compiler.relations.analysis`;
 materialization belongs to an explicitly selected
-:mod:`scopecat.compiler.relations.backend`.
+:mod:`scopecat.compiler.relations.evaluation`.
 """
 
 from __future__ import annotations

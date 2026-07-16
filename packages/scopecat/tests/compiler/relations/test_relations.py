@@ -1,6 +1,6 @@
 import pytest
 
-from scopecat.compiler.relations.backend import ParameterRelationData
+from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
     ScalarExpr,
     col,
@@ -16,7 +16,6 @@ from scopecat.compiler.relations.model import (
     table,
     values,
 )
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -68,13 +67,11 @@ def test_series_materialization_enforces_finiteness_and_progress() -> None:
 
     with pytest.raises(ValueError, match="non-finite"):
         evaluate_series(
-            REFERENCE_RELATION_BACKEND,
             linspace(-1e308, 1e308, 3),
             ctx,
         )
     with pytest.raises(ValueError, match="too small to advance"):
         evaluate_series(
-            REFERENCE_RELATION_BACKEND,
             range_values(1e308, 1.1e308, 1e-300),
             ctx,
         )
@@ -97,7 +94,7 @@ def test_relation_grid_filter_select_and_round_trip() -> None:
     )
 
     restored = assert_model_round_trip(relation)
-    rows = evaluate_relation(REFERENCE_RELATION_BACKEND, restored)
+    rows = evaluate_relation(restored)
 
     assert rows == [
         {
@@ -156,7 +153,6 @@ def test_parameter_data_drives_variable_key_lookup_and_joins() -> None:
     )
 
     assert evaluate_relation(
-        REFERENCE_RELATION_BACKEND,
         relation,
         params,
         bindings=RelationTypeBindings(
@@ -247,7 +243,6 @@ def test_series_and_table_inputs_are_durable_typed_expressions() -> None:
     series = assert_model_round_trip(input_series("offsets"))
 
     assert evaluate_relation(
-        REFERENCE_RELATION_BACKEND,
         relation,
         inputs={"gate_rows": rows},
         bindings=RelationTypeBindings(
@@ -260,7 +255,6 @@ def test_series_and_table_inputs_are_durable_typed_expressions() -> None:
         ),
     ) == [rows[1]]
     assert evaluate_series(
-        REFERENCE_RELATION_BACKEND,
         series,
         ParameterRelationData().to_context(
             inputs={
@@ -292,8 +286,8 @@ def test_relation_column_and_entities_series_have_explicit_ordering_rules() -> N
     entities = assert_model_round_trip(relation.entities("control", "partner"))
     ctx = ParameterRelationData().to_context()
 
-    assert evaluate_series(REFERENCE_RELATION_BACKEND, column, ctx) == [q0, q1]
-    assert evaluate_series(REFERENCE_RELATION_BACKEND, entities, ctx) == [
+    assert evaluate_series(column, ctx) == [q0, q1]
+    assert evaluate_series(entities, ctx) == [
         q0,
         q1,
         q2,
@@ -318,7 +312,6 @@ def test_record_with_entities_field_round_trips_without_collection_coercion() ->
     }
 
     table_rows = evaluate_relation(
-        REFERENCE_RELATION_BACKEND,
         input_table("rows"),
         inputs={
             "rows": [
@@ -367,7 +360,6 @@ def test_entity_series_round_trips_as_series_shape() -> None:
     restored = assert_model_round_trip(series)
 
     assert evaluate_series(
-        REFERENCE_RELATION_BACKEND,
         restored,
         ParameterRelationData().to_context(),
     ) == [
@@ -412,7 +404,6 @@ def test_lateral_cross_evaluates_right_relation_with_left_row_context() -> None:
     )
 
     assert evaluate_relation(
-        REFERENCE_RELATION_BACKEND,
         relation,
         params,
         bindings=RelationTypeBindings(
@@ -456,7 +447,7 @@ def test_relation_join_sort_and_limit_are_durable_operations() -> None:
 
     restored = assert_model_round_trip(relation)
 
-    assert evaluate_relation(REFERENCE_RELATION_BACKEND, restored) == [
+    assert evaluate_relation(restored) == [
         {
             "device_id": "r0",
             "frequency": Quantity(value=5.9, unit="GHz"),
@@ -486,7 +477,6 @@ def test_outer_scope_supports_repeated_state_style_bindings() -> None:
     )
 
     assert evaluate_relation(
-        REFERENCE_RELATION_BACKEND,
         repeated,
         params,
         outer_row={"lo_frequency": Quantity(value=5.0, unit="GHz")},

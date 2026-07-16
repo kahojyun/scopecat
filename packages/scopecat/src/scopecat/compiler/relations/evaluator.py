@@ -1,4 +1,4 @@
-"""Deterministic Python reference implementation of relation semantics."""
+"""Deterministic implementation of relation evaluation semantics."""
 
 from __future__ import annotations
 
@@ -8,13 +8,7 @@ from functools import cmp_to_key
 from itertools import product
 from typing import cast
 
-from scopecat.compiler.relations.analysis import RelationOperation
-from scopecat.compiler.relations.backend import (
-    EvalContext,
-    PreparedRelationEvaluation,
-    RelationBackendCapabilityIssue,
-    RelationPlanRequirements,
-)
+from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
     CellValue,
     GridColumn,
@@ -34,110 +28,11 @@ from scopecat.compiler.relations.scalar_eval import (
     is_cell_value,
     read_path,
 )
-from scopecat.compiler.relations.verification import RelationRuntimeObligationKind
-from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
 
-class ReferenceRelationBackend:
-    """Deterministic Python implementation defining observable semantics."""
-
-    _DEFAULT_SUPPORTED_OPERATIONS = frozenset(RelationOperation)
-    _DEFAULT_DISCHARGED_OBLIGATIONS = frozenset(
-        {
-            RelationRuntimeObligationKind.DIVISION_RIGHT_NONZERO,
-            RelationRuntimeObligationKind.NO_EXTRA_COLUMN_COLLISION,
-            RelationRuntimeObligationKind.PARAMETER_LOOKUP_EXACTLY_ONE,
-            RelationRuntimeObligationKind.RANGE_PROGRESS,
-            RelationRuntimeObligationKind.RANGE_STEP_NONZERO,
-            RelationRuntimeObligationKind.SCALAR_RESULT_FINITE,
-            RelationRuntimeObligationKind.SERIES_VALUES_FINITE,
-            RelationRuntimeObligationKind.ZIP_EQUAL_LENGTH,
-        }
-    )
-
-    backend_id: str
-    supported_operations: frozenset[RelationOperation]
-    discharged_obligations: frozenset[RelationRuntimeObligationKind]
-
-    def __init__(
-        self,
-        *,
-        backend_id: str = "reference.python",
-        supported_operations: frozenset[
-            RelationOperation
-        ] = _DEFAULT_SUPPORTED_OPERATIONS,
-        discharged_obligations: frozenset[
-            RelationRuntimeObligationKind
-        ] = _DEFAULT_DISCHARGED_OBLIGATIONS,
-    ) -> None:
-        self.backend_id = backend_id
-        self.supported_operations = supported_operations
-        self.discharged_obligations = discharged_obligations
-
-    @property
-    def capability_fingerprint(self) -> str:
-        return stable_content_hash(
-            {
-                "schema": "scopecat.relation_backend_capability.v1",
-                "backend_type": f"{type(self).__module__}.{type(self).__qualname__}",
-                "backend_id": self.backend_id,
-                "supported_operations": tuple(
-                    sorted(operation.value for operation in self.supported_operations)
-                ),
-                "discharged_obligations": tuple(
-                    sorted(
-                        obligation.value for obligation in self.discharged_obligations
-                    )
-                ),
-            }
-        )
-
-    def assess_relation_requirements(
-        self,
-        requirements: RelationPlanRequirements,
-    ) -> Sequence[RelationBackendCapabilityIssue]:
-        """Accept every verified value type supported by Python containers."""
-
-        _ = requirements
-        return ()
-
-    def materialize_scalar(
-        self,
-        evaluation: PreparedRelationEvaluation[ScalarExpr],
-    ) -> CellValue:
-        _require_prepared_evaluation(evaluation)
-        expression, ctx = evaluation.unwrap_for_backend(self)
-        return _evaluate_scalar(expression, ctx)
-
-    def materialize_series(
-        self,
-        evaluation: PreparedRelationEvaluation[SeriesExpr],
-    ) -> list[CellValue]:
-        _require_prepared_evaluation(evaluation)
-        expression, ctx = evaluation.unwrap_for_backend(self)
-        return _evaluate_series(expression, ctx)
-
-    def materialize_relation(
-        self,
-        evaluation: PreparedRelationEvaluation[RelationExpr],
-    ) -> list[Row]:
-        _require_prepared_evaluation(evaluation)
-        expression, ctx = evaluation.unwrap_for_backend(self)
-        return _evaluate_relation(expression, ctx)
-
-
-REFERENCE_RELATION_BACKEND = ReferenceRelationBackend()
-
-
-def _require_prepared_evaluation(evaluation: object) -> None:
-    if not isinstance(evaluation, PreparedRelationEvaluation):
-        msg = "reference backend requires a PreparedRelationEvaluation"
-        raise TypeError(msg)
-
-
-def _evaluate_scalar(expression: ScalarExpr, ctx: EvalContext) -> CellValue:
+def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> CellValue:
     if expression.kind == "literal":
         return expression.value
     if expression.kind == "column":
@@ -165,7 +60,7 @@ def _evaluate_scalar(expression: ScalarExpr, ctx: EvalContext) -> CellValue:
         return ctx.params.scalar(_required(expression.name))
     if expression.kind == "param_lookup":
         resolved_key = {
-            name: _evaluate_scalar(value, ctx)
+            name: evaluate_scalar_expression(value, ctx)
             for name, value in _required(expression.key).items()
         }
         row = ctx.params.lookup_row(_required(expression.table_id), resolved_key)
@@ -173,25 +68,27 @@ def _evaluate_scalar(expression: ScalarExpr, ctx: EvalContext) -> CellValue:
     if expression.kind == "binary":
         return eval_binary(
             _required(expression.op),
-            _evaluate_scalar(_required(expression.left), ctx),
-            _evaluate_scalar(_required(expression.right), ctx),
+            evaluate_scalar_expression(_required(expression.left), ctx),
+            evaluate_scalar_expression(_required(expression.right), ctx),
         )
     if expression.kind == "case":
         for branch in _required(expression.cases):
-            if _evaluate_scalar(branch.condition, ctx) is True:
-                return _evaluate_scalar(branch.value, ctx)
-        return _evaluate_scalar(_required(expression.fallback), ctx)
+            if evaluate_scalar_expression(branch.condition, ctx) is True:
+                return evaluate_scalar_expression(branch.value, ctx)
+        return evaluate_scalar_expression(_required(expression.fallback), ctx)
     msg = f"unsupported scalar expression kind: {expression.kind}"
     raise ValueError(msg)
 
 
-def _evaluate_series(expression: SeriesExpr, ctx: EvalContext) -> list[CellValue]:
+def evaluate_series_expression(
+    expression: SeriesExpr, ctx: EvalContext
+) -> list[CellValue]:
     if expression.kind == "values":
         return list(_required(expression.items))
     if expression.kind == "linspace":
         count = _required(expression.count)
-        start_value = _evaluate_scalar(_required(expression.start), ctx)
-        stop_value = _evaluate_scalar(_required(expression.stop), ctx)
+        start_value = evaluate_scalar_expression(_required(expression.start), ctx)
+        stop_value = evaluate_scalar_expression(_required(expression.stop), ctx)
         unit = expression.unit or _quantity_unit(start_value)
         start = _series_float(start_value, unit=unit)
         stop = _series_float(stop_value, unit=unit)
@@ -203,9 +100,9 @@ def _evaluate_series(expression: SeriesExpr, ctx: EvalContext) -> list[CellValue
             unit=unit,
         )
     if expression.kind == "range":
-        start_value = _evaluate_scalar(_required(expression.start), ctx)
-        stop_value = _evaluate_scalar(_required(expression.stop), ctx)
-        step_value = _evaluate_scalar(_required(expression.step), ctx)
+        start_value = evaluate_scalar_expression(_required(expression.start), ctx)
+        stop_value = evaluate_scalar_expression(_required(expression.stop), ctx)
+        step_value = evaluate_scalar_expression(_required(expression.step), ctx)
         unit = expression.unit or _quantity_unit(start_value)
         start = _series_float(start_value, unit=unit)
         stop = _series_float(stop_value, unit=unit)
@@ -243,11 +140,11 @@ def _evaluate_series(expression: SeriesExpr, ctx: EvalContext) -> list[CellValue
     if expression.kind == "relation_column":
         return [
             read_path(row, _required(expression.column))
-            for row in _evaluate_relation(_required(expression.source), ctx)
+            for row in evaluate_relation_expression(_required(expression.source), ctx)
         ]
     if expression.kind == "relation_entities":
         entities: list[CellValue] = []
-        for row in _evaluate_relation(_required(expression.source), ctx):
+        for row in evaluate_relation_expression(_required(expression.source), ctx):
             for column in _required(expression.columns):
                 value = read_path(row, column)
                 if not any(cell_matches(existing, value) for existing in entities):
@@ -259,13 +156,13 @@ def _evaluate_series(expression: SeriesExpr, ctx: EvalContext) -> list[CellValue
 
 def _evaluate_grid_column(column: GridColumn, ctx: EvalContext) -> list[CellValue]:
     if column.kind == "scalar":
-        return [_evaluate_scalar(_required(column.scalar), ctx)]
+        return [evaluate_scalar_expression(_required(column.scalar), ctx)]
     if column.kind == "series":
-        return _evaluate_series(_required(column.series), ctx)
+        return evaluate_series_expression(_required(column.series), ctx)
     if column.kind == "relation":
         return cast(
             "list[CellValue]",
-            _evaluate_relation(_required(column.relation), ctx),
+            evaluate_relation_expression(_required(column.relation), ctx),
         )
     if column.kind == "values":
         return list(_required(column.values))
@@ -273,7 +170,9 @@ def _evaluate_grid_column(column: GridColumn, ctx: EvalContext) -> list[CellValu
     raise ValueError(msg)
 
 
-def _evaluate_relation(expression: RelationExpr, ctx: EvalContext) -> list[Row]:
+def evaluate_relation_expression(
+    expression: RelationExpr, ctx: EvalContext
+) -> list[Row]:
     if expression.kind == "literal_rows":
         return [dict(row) for row in _required(expression.rows)]
     if expression.kind == "table":
@@ -293,22 +192,29 @@ def _evaluate_relation(expression: RelationExpr, ctx: EvalContext) -> list[Row]:
                 column: read_path(source_row, column)
                 for column in _required(expression.select_columns)
             }
-            for source_row in _evaluate_relation(_required(expression.source), ctx)
+            for source_row in evaluate_relation_expression(
+                _required(expression.source), ctx
+            )
         ]
     if expression.kind == "filter":
         selected: list[Row] = []
-        for source_row in _evaluate_relation(_required(expression.source), ctx):
+        for source_row in evaluate_relation_expression(
+            _required(expression.source), ctx
+        ):
             child_ctx = _child_context(
                 ctx,
                 row=source_row,
                 row_scope_id=expression.row_scope_id,
             )
-            if _evaluate_scalar(_required(expression.condition), child_ctx) is True:
+            if (
+                evaluate_scalar_expression(_required(expression.condition), child_ctx)
+                is True
+            ):
                 selected.append(source_row)
         return selected
     if expression.kind == "join":
-        left_rows = _evaluate_relation(_required(expression.left), ctx)
-        right_rows = _evaluate_relation(_required(expression.right), ctx)
+        left_rows = evaluate_relation_expression(_required(expression.left), ctx)
+        right_rows = evaluate_relation_expression(_required(expression.right), ctx)
         on = _required(expression.on)
         allowed_shared = {
             left_column
@@ -333,8 +239,8 @@ def _evaluate_relation(expression: RelationExpr, ctx: EvalContext) -> list[Row]:
             if _join_keys_match(left_row, right_row, on)
         ]
     if expression.kind == "cross":
-        left_rows = _evaluate_relation(_required(expression.left), ctx)
-        right_rows = _evaluate_relation(_required(expression.right), ctx)
+        left_rows = evaluate_relation_expression(_required(expression.left), ctx)
+        right_rows = evaluate_relation_expression(_required(expression.right), ctx)
         _require_disjoint_row_columns(left_rows, right_rows, operation="cross")
         return [
             _merge_rows(left_row, right_row, operation="cross")
@@ -343,8 +249,8 @@ def _evaluate_relation(expression: RelationExpr, ctx: EvalContext) -> list[Row]:
         ]
     if expression.kind == "lateral_cross":
         crossed: list[Row] = []
-        for left_row in _evaluate_relation(_required(expression.left), ctx):
-            right_rows = _evaluate_relation(
+        for left_row in evaluate_relation_expression(_required(expression.left), ctx):
+            right_rows = evaluate_relation_expression(
                 _required(expression.right),
                 EvalContext(
                     params=ctx.params,
@@ -367,13 +273,13 @@ def _evaluate_relation(expression: RelationExpr, ctx: EvalContext) -> list[Row]:
         return crossed
     if expression.kind == "point_cross":
         crossed = []
-        for left_row in _evaluate_relation(_required(expression.left), ctx):
+        for left_row in evaluate_relation_expression(_required(expression.left), ctx):
             point_row = (
                 _merge_rows(ctx.point_row, left_row, operation="point_cross")
                 if ctx.point_row
                 else left_row
             )
-            right_rows = _evaluate_relation(
+            right_rows = evaluate_relation_expression(
                 _required(expression.right),
                 EvalContext(
                     params=ctx.params,
@@ -396,7 +302,8 @@ def _evaluate_relation(expression: RelationExpr, ctx: EvalContext) -> list[Row]:
         return crossed
     if expression.kind == "zip":
         rows_by_source = [
-            _evaluate_relation(source, ctx) for source in _required(expression.sources)
+            evaluate_relation_expression(source, ctx)
+            for source in _required(expression.sources)
         ]
         lengths = {len(rows) for rows in rows_by_source}
         if len(lengths) != 1:
@@ -418,7 +325,9 @@ def _evaluate_relation(expression: RelationExpr, ctx: EvalContext) -> list[Row]:
         return zipped
     if expression.kind == "with_columns":
         derived: list[Row] = []
-        for source_row in _evaluate_relation(_required(expression.source), ctx):
+        for source_row in evaluate_relation_expression(
+            _required(expression.source), ctx
+        ):
             next_row = dict(source_row)
             child_ctx = _child_context(
                 ctx,
@@ -426,11 +335,11 @@ def _evaluate_relation(expression: RelationExpr, ctx: EvalContext) -> list[Row]:
                 row_scope_id=expression.row_scope_id,
             )
             for name, scalar in _required(expression.new_columns).items():
-                next_row[name] = _evaluate_scalar(scalar, child_ctx)
+                next_row[name] = evaluate_scalar_expression(scalar, child_ctx)
             derived.append(next_row)
         return derived
     if expression.kind == "sort":
-        rows = _evaluate_relation(_required(expression.source), ctx)
+        rows = evaluate_relation_expression(_required(expression.source), ctx)
         columns = tuple(_required(expression.sort_columns))
         return sorted(
             rows,
@@ -439,7 +348,7 @@ def _evaluate_relation(expression: RelationExpr, ctx: EvalContext) -> list[Row]:
             ),
         )
     if expression.kind == "limit":
-        return _evaluate_relation(_required(expression.source), ctx)[
+        return evaluate_relation_expression(_required(expression.source), ctx)[
             : _required(expression.limit_count)
         ]
     msg = f"unsupported relation kind: {expression.kind}"
@@ -624,6 +533,7 @@ def _required[T](value: T | None) -> T:
 
 
 __all__ = [
-    "REFERENCE_RELATION_BACKEND",
-    "ReferenceRelationBackend",
+    "evaluate_relation_expression",
+    "evaluate_scalar_expression",
+    "evaluate_series_expression",
 ]

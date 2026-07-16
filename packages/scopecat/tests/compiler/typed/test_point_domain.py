@@ -1,20 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import cast, override
+from typing import cast
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from scopecat.compiler.relations.analysis import RelationOperation
-from scopecat.compiler.relations.backend import (
-    ParameterRelationData,
-    PreparedRelationEvaluation,
-)
+from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
-    RelationExpr,
-    Row,
     grid,
     input_table,
     literal_rows,
@@ -28,10 +22,6 @@ from scopecat.compiler.relations.point_domain import (
     point_product,
     point_rows,
     point_zip,
-)
-from scopecat.compiler.relations.reference_backend import (
-    REFERENCE_RELATION_BACKEND,
-    ReferenceRelationBackend,
 )
 from scopecat.compiler.relations.uses import RelationUseId
 from scopecat.compiler.relations.verification import (
@@ -52,9 +42,7 @@ from scopecat.compiler.typed.point_domain import (
     PointDomainId,
     PointDomainValueError,
     PointDomainVerificationError,
-    bind_selected_point_domain,
     materialize_point_domain,
-    select_point_domain,
     verify_point_domain,
 )
 from scopecat.kernel.payloads import PayloadValue
@@ -85,10 +73,8 @@ def _domain(
 
 def _materialize(domain: PointDomain, *, program_id: str = "experiment"):
     verified = verify_point_domain(domain, program_id=program_id)
-    selected = select_point_domain(REFERENCE_RELATION_BACKEND, verified)
     return materialize_point_domain(
-        REFERENCE_RELATION_BACKEND,
-        selected,
+        verified,
         ParameterRelationData(),
     )
 
@@ -154,8 +140,7 @@ def test_zero_cardinality_is_preserved_without_synthetic_points() -> None:
     domain = _domain([], table_type=table_type)
     verified = verify_point_domain(domain, program_id="program")
     materialized = materialize_point_domain(
-        REFERENCE_RELATION_BACKEND,
-        select_point_domain(REFERENCE_RELATION_BACKEND, verified),
+        verified,
         ParameterRelationData(),
     )
 
@@ -168,8 +153,7 @@ def test_zero_cardinality_is_preserved_without_synthetic_points() -> None:
 def test_symbolic_and_actual_cardinality_are_retained_separately() -> None:
     verified = verify_point_domain(_domain([1, 2]), program_id="program")
     materialized = materialize_point_domain(
-        REFERENCE_RELATION_BACKEND,
-        select_point_domain(REFERENCE_RELATION_BACKEND, verified),
+        verified,
         ParameterRelationData(),
     )
 
@@ -191,27 +175,23 @@ def _integer_rows(column_id: str, values: list[int]) -> TableValueExpr:
     )
 
 
-def test_unit_has_no_relation_selection_or_backend_materialization() -> None:
-    backend = _SelectionOnlyBackend()
+def test_unit_materializes_without_relation_leaves() -> None:
     verified = verify_point_domain(
         PointDomain(root=POINT_UNIT),
         program_id="program",
     )
 
-    selected = select_point_domain(backend, verified)
     materialized = materialize_point_domain(
-        backend,
-        selected,
+        verified,
         ParameterRelationData(),
     )
 
     assert verified.relation_leaves == ()
-    assert selected.relation_selections == ()
     assert materialized.cardinality == PointCardinality.exact(1)
     assert materialized.points[0].row == {}
 
 
-def test_product_materialization_is_left_major_and_selects_each_leaf_once() -> None:
+def test_product_materialization_is_left_major() -> None:
     domain = PointDomain(
         root=point_product(
             point_rows(_integer_rows("left", [1, 2])),
@@ -219,11 +199,8 @@ def test_product_materialization_is_left_major_and_selects_each_leaf_once() -> N
         )
     )
     verified = verify_point_domain(domain, program_id="program")
-    selected = select_point_domain(REFERENCE_RELATION_BACKEND, verified)
-
     materialized = materialize_point_domain(
-        REFERENCE_RELATION_BACKEND,
-        selected,
+        verified,
         ParameterRelationData(),
     )
 
@@ -231,14 +208,6 @@ def test_product_materialization_is_left_major_and_selects_each_leaf_once() -> N
         ("factors", 0),
         ("factors", 1),
     ]
-    assert len(selected.relation_selections) == 2
-    assert all(
-        RelationOperation.RELATION_POINT_CROSS
-        not in selection.selected_plan.required_operations
-        and RelationOperation.RELATION_ZIP
-        not in selection.selected_plan.required_operations
-        for selection in selected.relation_selections
-    )
     assert [point.row for point in materialized.points] == [
         {"left": 1, "right": 3},
         {"left": 1, "right": 4},
@@ -488,135 +457,6 @@ def test_runtime_extra_column_collision_is_reported_at_composition() -> None:
     assert caught.value.path == ()
 
 
-class _SelectionOnlyBackend(ReferenceRelationBackend):
-    def __init__(self) -> None:
-        super().__init__(backend_id="test.selection-only")
-
-    @override
-    def materialize_relation(
-        self,
-        evaluation: PreparedRelationEvaluation[RelationExpr],
-    ) -> list[Row]:
-        _ = evaluation
-        raise AssertionError("selection must not materialize the relation")
-
-
-def test_selection_does_not_materialize_rows() -> None:
-    verified = verify_point_domain(_domain([1]), program_id="program")
-
-    selected = select_point_domain(_SelectionOnlyBackend(), verified)
-
-    assert selected.id == PointDomainId("program", "root")
-    assert selected.backend_id == "test.selection-only"
-
-
-def test_existing_relation_selection_can_be_bound_without_reselection() -> None:
-    verified = verify_point_domain(_domain([1]), program_id="program")
-    relation_selection = (
-        select_point_domain(
-            REFERENCE_RELATION_BACKEND,
-            verified,
-        )
-        .relation_selections[0]
-        .selected_plan
-    )
-
-    selected = bind_selected_point_domain(
-        verified,
-        backend_id=REFERENCE_RELATION_BACKEND.backend_id,
-        backend_capability_fingerprint=(
-            REFERENCE_RELATION_BACKEND.capability_fingerprint
-        ),
-        selections={verified.relation_leaves[0].id: relation_selection},
-    )
-
-    assert selected.relation_selections[0].selected_plan is relation_selection
-
-
-def test_selected_domain_requires_exact_single_backend_leaf_coverage() -> None:
-    verified = verify_point_domain(_domain([1]), program_id="program")
-    selected = select_point_domain(REFERENCE_RELATION_BACKEND, verified)
-    relation_id = verified.relation_leaves[0].id
-    selected_plan = selected.relation_selections[0].selected_plan
-
-    with pytest.raises(ValueError, match="exactly cover"):
-        bind_selected_point_domain(
-            verified,
-            backend_id=REFERENCE_RELATION_BACKEND.backend_id,
-            backend_capability_fingerprint=(
-                REFERENCE_RELATION_BACKEND.capability_fingerprint
-            ),
-            selections={},
-        )
-    with pytest.raises(ValueError, match="exactly cover"):
-        bind_selected_point_domain(
-            verified,
-            backend_id=REFERENCE_RELATION_BACKEND.backend_id,
-            backend_capability_fingerprint=(
-                REFERENCE_RELATION_BACKEND.capability_fingerprint
-            ),
-            selections={
-                relation_id: selected_plan,
-                RelationUseId.fresh(): selected_plan,
-            },
-        )
-
-    other_backend = ReferenceRelationBackend(backend_id="other-backend")
-    other_plan = (
-        select_point_domain(other_backend, verified)
-        .relation_selections[0]
-        .selected_plan
-    )
-    with pytest.raises(ValueError, match="one backend"):
-        bind_selected_point_domain(
-            verified,
-            backend_id=REFERENCE_RELATION_BACKEND.backend_id,
-            backend_capability_fingerprint=(
-                REFERENCE_RELATION_BACKEND.capability_fingerprint
-            ),
-            selections={relation_id: other_plan},
-        )
-
-
-def test_point_domain_stages_reject_wrong_ownership_and_backend() -> None:
-    domain = _domain([1])
-    verified = verify_point_domain(domain, program_id="program")
-    selected = select_point_domain(REFERENCE_RELATION_BACKEND, verified)
-    other_verified = verify_point_domain(_domain([2]), program_id="program")
-
-    with pytest.raises(ValueError, match="does not own"):
-        bind_selected_point_domain(
-            other_verified,
-            backend_id=REFERENCE_RELATION_BACKEND.backend_id,
-            backend_capability_fingerprint=(
-                REFERENCE_RELATION_BACKEND.capability_fingerprint
-            ),
-            selections={
-                other_verified.relation_leaves[0].id: (
-                    selected.relation_selections[0].selected_plan
-                )
-            },
-        )
-    with pytest.raises(ValueError, match="cannot be materialized"):
-        materialize_point_domain(
-            ReferenceRelationBackend(backend_id="other-backend"),
-            selected,
-            ParameterRelationData(),
-        )
-    with pytest.raises(ValueError, match="cannot be materialized"):
-        materialize_point_domain(
-            ReferenceRelationBackend(
-                backend_id=REFERENCE_RELATION_BACKEND.backend_id,
-                supported_operations=(
-                    REFERENCE_RELATION_BACKEND.supported_operations
-                    - {RelationOperation.RELATION_SORT}
-                ),
-            ),
-            selected,
-            ParameterRelationData(),
-        )
-
-
 def test_duplicate_relation_use_identity_fails_before_leaf_verification() -> None:
     relation_use_id = RelationUseId.fresh()
     domain = PointDomain(
@@ -643,11 +483,8 @@ def test_duplicate_relation_use_identity_fails_before_leaf_verification() -> Non
 
 def test_materialization_coerces_normalized_rows_before_assigning_ids() -> None:
     verified = verify_point_domain(_domain([1]), program_id="program")
-    selected = select_point_domain(REFERENCE_RELATION_BACKEND, verified)
-
     materialized = materialize_point_domain(
-        REFERENCE_RELATION_BACKEND,
-        selected,
+        verified,
         ParameterRelationData(),
         row_normalizer=lambda _row: {"x": 2},
     )
@@ -658,39 +495,11 @@ def test_materialization_coerces_normalized_rows_before_assigning_ids() -> None:
 
 def test_invalid_normalized_row_has_a_domain_value_error() -> None:
     verified = verify_point_domain(_domain([1]), program_id="program")
-    selected = select_point_domain(REFERENCE_RELATION_BACKEND, verified)
-
     with pytest.raises(PointDomainValueError):
         materialize_point_domain(
-            REFERENCE_RELATION_BACKEND,
-            selected,
+            verified,
             ParameterRelationData(),
             row_normalizer=lambda _row: {"x": "not-an-integer"},
-        )
-
-
-class _FailingBackend(ReferenceRelationBackend):
-    def __init__(self) -> None:
-        super().__init__(backend_id="test.failing")
-
-    @override
-    def materialize_relation(
-        self,
-        evaluation: PreparedRelationEvaluation[RelationExpr],
-    ) -> list[Row]:
-        _ = evaluation
-        raise ValueError("backend failure")
-
-
-def test_backend_evaluation_failure_has_a_domain_error() -> None:
-    backend = _FailingBackend()
-    verified = verify_point_domain(_domain([1]), program_id="program")
-
-    with pytest.raises(PointDomainEvaluationError, match="backend failure"):
-        materialize_point_domain(
-            backend,
-            select_point_domain(backend, verified),
-            ParameterRelationData(),
         )
 
 
@@ -752,36 +561,6 @@ def test_point_rows_are_defensive_snapshots_including_payload_containers() -> No
 
     captured = cast("PayloadValue", point.row["payload"])
     assert captured.payload == {"nested": [1]}
-
-
-class _MutableRowsBackend(ReferenceRelationBackend):
-    returned_rows: list[Row]
-
-    def __init__(self) -> None:
-        super().__init__(backend_id="test.mutable-rows")
-        self.returned_rows = [{"x": 1}]
-
-    @override
-    def materialize_relation(
-        self,
-        evaluation: PreparedRelationEvaluation[RelationExpr],
-    ) -> list[Row]:
-        _ = evaluation
-        return self.returned_rows
-
-
-def test_backend_row_mutation_cannot_change_materialized_domain() -> None:
-    backend = _MutableRowsBackend()
-    verified = verify_point_domain(_domain([1]), program_id="program")
-    materialized = materialize_point_domain(
-        backend,
-        select_point_domain(backend, verified),
-        ParameterRelationData(),
-    )
-
-    backend.returned_rows[0]["x"] = 9
-
-    assert materialized.points[0].row == {"x": 1}
 
 
 def test_verified_domain_is_a_defensive_snapshot() -> None:
@@ -878,19 +657,15 @@ def test_entity_metadata_does_not_change_row_key_or_logical_identity() -> None:
         entity_columns=("entity",),
     )
     verified = verify_point_domain(domain, program_id="program")
-    selected = select_point_domain(REFERENCE_RELATION_BACKEND, verified)
-
     first = materialize_point_domain(
-        REFERENCE_RELATION_BACKEND,
-        selected,
+        verified,
         ParameterRelationData(),
         row_normalizer=lambda _row: {
             "entity": EntityRef(id="q0", kind="qubit", metadata={"slot": 1})
         },
     ).points[0]
     second = materialize_point_domain(
-        REFERENCE_RELATION_BACKEND,
-        selected,
+        verified,
         ParameterRelationData(),
         row_normalizer=lambda _row: {
             "entity": EntityRef(id="q0", kind="qubit", metadata={"slot": 2})

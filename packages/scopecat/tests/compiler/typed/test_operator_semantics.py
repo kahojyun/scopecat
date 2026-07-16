@@ -7,7 +7,7 @@ from scopecat.authoring._value_refs import (
     internal_lower_scalar_value_ref,
     internal_lower_table_value_ref,
 )
-from scopecat.compiler.relations.backend import ParameterRelationData
+from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
     lit,
     literal_rows,
@@ -16,11 +16,8 @@ from scopecat.compiler.relations.operators import (
     compare_ordered_values,
     runtime_values_equal,
 )
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from tests.testkit.relation_plans import evaluate_relation, evaluate_scalar
-
-_BACKEND = REFERENCE_RELATION_BACKEND
 
 
 def _input_bindings(**inputs: sc.ValueType) -> RelationTypeBindings:
@@ -40,7 +37,6 @@ def test_typed_arithmetic_and_runtime_use_the_same_operator_contract() -> None:
     assert numeric.value_type == sc.ScalarType(sc.FloatType())
     assert (
         evaluate_scalar(
-            _BACKEND,
             internal_lower_scalar_value_ref(numeric),
             ParameterRelationData().to_context(inputs={"count": 2}),
             bindings=_input_bindings(count=count.value_type),
@@ -55,7 +51,6 @@ def test_typed_arithmetic_rejects_non_finite_runtime_results() -> None:
 
     with pytest.raises(ValueError, match="non-finite result"):
         evaluate_scalar(
-            _BACKEND,
             overflow,
             ParameterRelationData().to_context(inputs={"value": 1e308}),
             bindings=_input_bindings(value=value.value_type),
@@ -77,7 +72,6 @@ def test_entity_equality_uses_kind_and_id_but_not_metadata() -> None:
 
     assert (
         evaluate_scalar(
-            _BACKEND,
             comparison,
             ParameterRelationData().to_context(
                 inputs={
@@ -102,7 +96,6 @@ def test_entity_equality_uses_kind_and_id_but_not_metadata() -> None:
     )
     assert (
         evaluate_scalar(
-            _BACKEND,
             comparison,
             ParameterRelationData().to_context(
                 inputs={
@@ -119,7 +112,6 @@ def test_entity_equality_uses_kind_and_id_but_not_metadata() -> None:
     )
     assert (
         evaluate_scalar(
-            _BACKEND,
             concrete_kind_comparison,
             ParameterRelationData().to_context(
                 inputs={
@@ -157,7 +149,6 @@ def test_record_equality_recurses_through_typed_scalar_semantics() -> None:
 
     assert (
         evaluate_scalar(
-            _BACKEND,
             comparison,
             ParameterRelationData().to_context(
                 inputs={
@@ -244,7 +235,6 @@ def test_nullable_values_are_only_safe_for_equality() -> None:
     assert is_null.value_type == sc.ScalarType(sc.BoolType())
     assert (
         evaluate_scalar(
-            _BACKEND,
             internal_lower_scalar_value_ref(is_null),
             ParameterRelationData().to_context(inputs={"count": None}),
             bindings=_input_bindings(count=optional_count.value_type),
@@ -262,8 +252,8 @@ def test_typed_boolean_composition_uses_the_shared_operator_contract() -> None:
     context = ParameterRelationData().to_context(inputs={"left": True, "right": False})
 
     bindings = _input_bindings(left=left.value_type, right=right.value_type)
-    assert evaluate_scalar(_BACKEND, conjunction, context, bindings=bindings) is False
-    assert evaluate_scalar(_BACKEND, disjunction, context, bindings=bindings) is True
+    assert evaluate_scalar(conjunction, context, bindings=bindings) is False
+    assert evaluate_scalar(disjunction, context, bindings=bindings) is True
     with pytest.raises(TypeError, match="not defined"):
         left.and_(1)
 
@@ -283,7 +273,6 @@ def test_typed_sort_uses_numeric_string_and_quantity_ordering() -> None:
         ),
     )
     sorted_rows = evaluate_relation(
-        _BACKEND,
         internal_lower_table_value_ref(rows.sort("number", "label", "frequency")),
         inputs={
             "rows": [
@@ -382,7 +371,6 @@ def test_ordering_requires_finite_numeric_contracts_and_values() -> None:
         rows.sort("value")
     with pytest.raises(ValueError, match="Float bounds must be finite"):
         evaluate_scalar(
-            _BACKEND,
             lit(float("nan")).lt(1.0),
             ParameterRelationData().to_context(),
         )
@@ -419,7 +407,6 @@ def test_typed_join_requires_explicit_compatible_non_null_keys() -> None:
         "right_value",
     )
     assert evaluate_relation(
-        _BACKEND,
         internal_lower_table_value_ref(joined),
         inputs={
             "left": [{"id": "q0", "left_value": 1}],
@@ -464,7 +451,6 @@ def test_join_preserves_the_left_typed_representation_of_shared_keys() -> None:
     numeric_join = integer_left.join(float_right, on={"id": "id"})
 
     assert evaluate_relation(
-        _BACKEND,
         internal_lower_table_value_ref(numeric_join),
         inputs={"integer_left": [{"id": 1}], "float_right": [{"id": 1.0}]},
         bindings=_input_bindings(
@@ -498,7 +484,6 @@ def test_join_preserves_the_left_typed_representation_of_shared_keys() -> None:
     quantity_join = ghz_left.join(mhz_right, on={"frequency": "frequency"})
 
     assert evaluate_relation(
-        _BACKEND,
         internal_lower_table_value_ref(quantity_join),
         inputs={
             "ghz_left": [{"frequency": sc.Quantity(1.0, "GHz")}],
@@ -538,13 +523,11 @@ def test_quantity_join_is_symmetric_even_below_display_unit_rounding() -> None:
     tiny_hz = sc.Quantity(1e-4, "Hz")
 
     assert evaluate_relation(
-        _BACKEND,
         internal_lower_table_value_ref(ghz.join(hz, on={"frequency": "frequency"})),
         inputs={"ghz": [{"frequency": tiny_ghz}], "hz": [{"frequency": tiny_hz}]},
         bindings=_input_bindings(ghz=ghz.value_type, hz=hz.value_type),
     ) == [{"frequency": tiny_ghz}]
     assert evaluate_relation(
-        _BACKEND,
         internal_lower_table_value_ref(hz.join(ghz, on={"frequency": "frequency"})),
         inputs={"ghz": [{"frequency": tiny_ghz}], "hz": [{"frequency": tiny_hz}]},
         bindings=_input_bindings(ghz=ghz.value_type, hz=hz.value_type),
@@ -583,7 +566,6 @@ def test_table_transforms_only_retain_provable_primary_keys() -> None:
         {"group": 1, "item": 2, "value": 20},
     ]
     assert evaluate_relation(
-        _BACKEND,
         internal_lower_table_value_ref(partial),
         inputs={"rows": source_rows},
         bindings=_input_bindings(rows=rows.value_type),
@@ -592,7 +574,6 @@ def test_table_transforms_only_retain_provable_primary_keys() -> None:
         {"group": 1, "value": 20},
     ]
     assert evaluate_relation(
-        _BACKEND,
         internal_lower_table_value_ref(overwritten),
         inputs={"rows": source_rows},
         bindings=_input_bindings(rows=rows.value_type),
@@ -617,7 +598,6 @@ def test_dotted_table_columns_are_exact_keys_for_row_access_and_sort() -> None:
     ).sort("device.rank")
 
     assert evaluate_relation(
-        _BACKEND,
         internal_lower_table_value_ref(transformed),
         inputs={
             "rows": [
@@ -649,7 +629,6 @@ def test_join_and_cross_reject_non_key_column_collisions() -> None:
 
     with pytest.raises(ValueError, match="join contains duplicate columns: value"):
         evaluate_relation(
-            _BACKEND,
             literal_rows([{"id": "q0", "value": 1}]).join(
                 literal_rows([{"id": "q0", "value": 1}]),
                 on={"id": "id"},
@@ -657,6 +636,5 @@ def test_join_and_cross_reject_non_key_column_collisions() -> None:
         )
     with pytest.raises(ValueError, match="cross contains duplicate columns: id"):
         evaluate_relation(
-            _BACKEND,
             literal_rows([{"id": "q0"}]).cross(literal_rows([{"id": "q1"}])),
         )

@@ -48,8 +48,6 @@ from scopecat.compiler.frontend.value_binding import (
     bind_relation_input_refs,
     bind_series_input_refs,
 )
-from scopecat.compiler.relations.backend import RelationBackend
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.relations.verification import (
     ParameterLookupSignature,
     RelationPlanVerificationError,
@@ -70,8 +68,6 @@ from scopecat.records.parameter import ParameterCatalog
 def bind_verified_assembly(
     verified: VerifiedAssembly,
     environment: ValidatedConfigEnvironment,
-    *,
-    static_relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
 ) -> VerifiedTypedProgram:
     """Bind a config-free assembly proof to one validated config environment."""
 
@@ -82,7 +78,6 @@ def bind_verified_assembly(
         return _bind_verified_assembly(
             verified,
             environment,
-            static_relation_backend=static_relation_backend,
         )
     except RelationPlanVerificationError as error:
         raise_frontend_problem(
@@ -100,8 +95,6 @@ def bind_verified_assembly(
 def _bind_verified_assembly(
     verified: VerifiedAssembly,
     environment: ValidatedConfigEnvironment,
-    *,
-    static_relation_backend: RelationBackend,
 ) -> VerifiedTypedProgram:
     assembly = verified.source
     verified_graph = verified.graph
@@ -138,7 +131,6 @@ def _bind_verified_assembly(
     )
     static_evaluator = StaticRelationEvaluator(
         environment.parameters,
-        static_relation_backend,
     )
     inline_products = lower_records(
         static_evaluator,

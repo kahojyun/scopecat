@@ -11,7 +11,7 @@ from scopecat.compiler.linking.bound import (
 )
 from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
-from scopecat.compiler.relations.backend import ParameterRelationData
+from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.state import StateValue

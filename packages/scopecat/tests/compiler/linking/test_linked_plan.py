@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from typing import cast, override
+from typing import cast
 
 import pytest
 
@@ -19,19 +19,12 @@ from scopecat.compiler.linking.linked import (
     materialize_linked_points,
 )
 from scopecat.compiler.linking.materialization import materialize_local_plan
-from scopecat.compiler.relations.analysis import RelationOperation
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     ParameterRelationData,
-    PreparedRelationEvaluation,
-    RelationBackendCapabilityIssue,
-    RelationPlanRequirements,
 )
 from scopecat.compiler.relations.model import (
-    CellValue,
     RelationExpr,
-    Row,
     ScalarExpr,
-    SeriesExpr,
     grid,
     input_ref,
     literal_rows,
@@ -52,10 +45,8 @@ from scopecat.compiler.relations.point_domain import (
     point_rows,
     point_zip,
 )
-from scopecat.compiler.relations.reference_backend import ReferenceRelationBackend
 from scopecat.compiler.relations.verification import (
     ParameterLookupSignature,
-    RelationRuntimeObligationKind,
     RelationTypeBindings,
     RowType,
 )
@@ -97,121 +88,6 @@ from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
 from tests.testkit.workflow_fixtures import load_experiment
 
 _FLOAT = Scalar(Float())
-_NO_UNSUPPORTED_OPERATIONS: frozenset[RelationOperation] = frozenset()
-
-
-class _BackendProbe:
-    def __init__(
-        self,
-        *,
-        unsupported: frozenset[RelationOperation] = _NO_UNSUPPORTED_OPERATIONS,
-    ) -> None:
-        self.backend_id = "tests.linked-plan"
-        self.supported_operations = frozenset(RelationOperation) - unsupported
-        self.discharged_obligations = frozenset(RelationRuntimeObligationKind)
-        self.assessment_count = 0
-        self.materialization_count = 0
-
-    @property
-    def capability_fingerprint(self) -> str:
-        return "tests.linked-plan.capabilities.v1"
-
-    def assess_relation_requirements(
-        self,
-        requirements: RelationPlanRequirements,
-    ) -> Sequence[RelationBackendCapabilityIssue]:
-        _ = requirements
-        self.assessment_count += 1
-        return ()
-
-    def materialize_scalar(
-        self,
-        evaluation: PreparedRelationEvaluation[ScalarExpr],
-    ) -> CellValue:
-        _ = evaluation
-        self.materialization_count += 1
-        raise AssertionError("linking must not materialize scalar plans")
-
-    def materialize_series(
-        self,
-        evaluation: PreparedRelationEvaluation[SeriesExpr],
-    ) -> list[CellValue]:
-        _ = evaluation
-        self.materialization_count += 1
-        raise AssertionError("linking must not materialize series plans")
-
-    def materialize_relation(
-        self,
-        evaluation: PreparedRelationEvaluation[RelationExpr],
-    ) -> list[Row]:
-        _ = evaluation
-        self.materialization_count += 1
-        raise AssertionError("linking must not materialize relation plans")
-
-
-class _MaterializationProbe(ReferenceRelationBackend):
-    assessment_count: int
-    scalar_materialization_count: int
-    series_materialization_count: int
-    relation_materialization_count: int
-    events: list[str]
-
-    def __init__(self, *, backend_id: str = "tests.linked-points") -> None:
-        super().__init__(backend_id=backend_id)
-        self.assessment_count = 0
-        self.scalar_materialization_count = 0
-        self.series_materialization_count = 0
-        self.relation_materialization_count = 0
-        self.events = []
-
-    @override
-    def assess_relation_requirements(
-        self,
-        requirements: RelationPlanRequirements,
-    ) -> Sequence[RelationBackendCapabilityIssue]:
-        self.events.append("assess")
-        self.assessment_count += 1
-        return super().assess_relation_requirements(requirements)
-
-    @override
-    def materialize_scalar(
-        self,
-        evaluation: PreparedRelationEvaluation[ScalarExpr],
-    ) -> CellValue:
-        self.events.append("materialize_scalar")
-        self.scalar_materialization_count += 1
-        return super().materialize_scalar(evaluation)
-
-    @override
-    def materialize_series(
-        self,
-        evaluation: PreparedRelationEvaluation[SeriesExpr],
-    ) -> list[CellValue]:
-        self.events.append("materialize_series")
-        self.series_materialization_count += 1
-        return super().materialize_series(evaluation)
-
-    @override
-    def materialize_relation(
-        self,
-        evaluation: PreparedRelationEvaluation[RelationExpr],
-    ) -> list[Row]:
-        self.events.append("materialize_relation")
-        self.relation_materialization_count += 1
-        return super().materialize_relation(evaluation)
-
-
-class _FailingMaterializationBackend(ReferenceRelationBackend):
-    def __init__(self) -> None:
-        super().__init__(backend_id="tests.failing-linked-points")
-
-    @override
-    def materialize_relation(
-        self,
-        evaluation: PreparedRelationEvaluation[RelationExpr],
-    ) -> list[Row]:
-        _ = evaluation
-        raise ValueError("backend point failure")
 
 
 def _table(column: str, rows: int) -> Table:
@@ -734,29 +610,17 @@ def test_materialized_config_binding_must_reference_a_point_input() -> None:
 
 def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> None:
     linked = link_program(_symbolic_program(), _environment())
-    backend = _MaterializationProbe()
-
-    materialized = materialize_linked_points(
-        linked,
-        relation_backend=backend,
-    )
+    materialized = materialize_linked_points(linked)
 
     assert materialized.linked_plan is linked
-    assert materialized.selected_program.verified_program is linked.verified_program
+    assert materialized.verified_program is linked.verified_program
     assert materialized.point_domain.id == linked.point_domain.id
-    assert materialized.relation_backend_id == backend.backend_id
-    assert materialized.selected_program.backend_id == backend.backend_id
     assert [point.logical_ordinal for point in materialized.point_domain.points] == [
         0,
         1,
         2,
         3,
     ]
-    consumer_count = len(linked.verified_program.relation_consumers)
-    assert backend.events[:consumer_count] == ["assess"] * consumer_count
-    assert backend.relation_materialization_count > 0
-    assert backend.scalar_materialization_count == 0
-    assert backend.series_materialization_count == 0
 
 
 def test_linked_point_batch_retains_parent_identity_and_original_ordinals() -> None:
@@ -767,8 +631,7 @@ def test_linked_point_batch_retains_parent_identity_and_original_ordinals() -> N
 
     assert batch.parent is materialized
     assert batch.linked_plan is materialized.linked_plan
-    assert batch.selected_program is materialized.selected_program
-    assert batch.relation_backend_id == materialized.relation_backend_id
+    assert batch.verified_program is materialized.verified_program
     assert batch.point_indices == (1, 2)
     assert batch.point_domain.id == materialized.point_domain.id
     assert batch.point_domain.source is materialized.point_domain
@@ -813,89 +676,6 @@ def test_linked_point_batch_rejects_noncanonical_selections(
             materialized,
             cast("Sequence[int]", indices),
         )
-
-
-def test_linked_points_preflight_nonpoint_relations_without_evaluating_them() -> None:
-    program = TypedProgram(
-        id="whole-program-linked-point-selection",
-        kind="compiler_test",
-        point_domain=PointDomain(root=POINT_UNIT),
-        state=(
-            set_state_field(
-                scalar_value_expr("source-0", expected_type=Scalar(String())),
-                capability_id="set_frequency",
-                field_path="value",
-                value=scalar_value_expr(1.0, expected_type=_FLOAT),
-            ),
-        ),
-    )
-    linked = link_program(program, _environment())
-    backend = _MaterializationProbe(backend_id="tests.whole-program-points")
-
-    materialized = materialize_linked_points(
-        linked,
-        relation_backend=backend,
-    )
-
-    assert linked.point_domain.relation_leaves == ()
-    assert linked.verified_program.relation_consumers
-    assert backend.assessment_count == len(linked.verified_program.relation_consumers)
-    assert backend.scalar_materialization_count == 0
-    assert backend.series_materialization_count == 0
-    assert backend.relation_materialization_count == 0
-    assert len(materialized.point_domain.points) == 1
-
-
-def test_linked_points_report_backend_rejections_before_materialization() -> None:
-    linked = link_program(_symbolic_program(), _environment())
-    backend = _BackendProbe(
-        unsupported=frozenset({RelationOperation.RELATION_LITERAL_ROWS})
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        materialize_linked_points(linked, relation_backend=backend)
-
-    assert backend.assessment_count == len(linked.verified_program.relation_consumers)
-    assert backend.materialization_count == 0
-    assert caught.value.problems
-    assert all(
-        problem.code == "relation_backend_capability_unsupported"
-        for problem in caught.value.problems
-    )
-    assert all(
-        problem.phase is ProblemPhase.PLANNING for problem in caught.value.problems
-    )
-    assert all(
-        problem.category is ProblemCategory.UNAVAILABLE
-        for problem in caught.value.problems
-    )
-    assert {problem.details["backend_id"] for problem in caught.value.problems} == {
-        backend.backend_id
-    }
-
-
-def test_linked_points_map_backend_point_failures_to_planning_problems() -> None:
-    linked = link_program(
-        TypedProgram(
-            id="failed-linked-point-evaluation",
-            kind="compiler_test",
-            point_domain=PointDomain(root=_rows("x", (1.0,))),
-        ),
-        _environment(),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        materialize_linked_points(
-            linked,
-            relation_backend=_FailingMaterializationBackend(),
-        )
-
-    assert len(caught.value.problems) == 1
-    problem = caught.value.problems[0]
-    assert problem.code == "experiment_points_evaluation_failed"
-    assert problem.phase is ProblemPhase.PLANNING
-    assert problem.location == model_location("point_domain", "rows")
-    assert "backend point failure" in problem.message
 
 
 def test_linked_points_normalize_entities_before_point_identity_is_sealed() -> None:
@@ -1039,59 +819,3 @@ def test_linked_points_aggregate_entity_and_normalized_value_problems() -> None:
         "unknown_authoring_entity",
         "module_point_value_type_mismatch",
     ]
-
-
-def test_local_materialization_selects_the_complete_backend_before_evaluation() -> None:
-    program = _symbolic_program()
-    environment = _environment()
-    backend = _BackendProbe()
-    linked = link_program(program, environment)
-    backend.supported_operations = backend.supported_operations - {
-        RelationOperation.RELATION_LITERAL_ROWS
-    }
-
-    plan = materialize_local_plan(linked, relation_backend=backend)
-
-    assert not plan.valid
-    assert plan.points == ()
-    assert backend.assessment_count == 4
-    assert backend.materialization_count == 0
-    assert {problem.details["capability_code"] for problem in plan.problems} == {
-        RelationOperation.RELATION_LITERAL_ROWS.value
-    }
-
-
-def test_one_linked_plan_can_be_materialized_by_different_backends() -> None:
-    linked = link_program(_symbolic_program(), _environment())
-    first_backend = ReferenceRelationBackend(backend_id="tests.first")
-    second_backend = ReferenceRelationBackend(backend_id="tests.second")
-
-    first = materialize_local_plan(linked, relation_backend=first_backend)
-    second = materialize_local_plan(linked, relation_backend=second_backend)
-
-    assert first.valid, first.problems
-    assert second.valid, second.problems
-    assert first.relation_backend_id == "tests.first"
-    assert second.relation_backend_id == "tests.second"
-    assert first.points == second.points
-    assert first.records == second.records
-
-
-def test_backend_selection_failure_does_not_poison_linked_plan() -> None:
-    linked = link_program(_symbolic_program(), _environment())
-    rejected_backend = _BackendProbe(
-        unsupported=frozenset({RelationOperation.RELATION_LITERAL_ROWS})
-    )
-
-    rejected = materialize_local_plan(linked, relation_backend=rejected_backend)
-    accepted = materialize_local_plan(
-        linked,
-        relation_backend=ReferenceRelationBackend(backend_id="tests.accepted"),
-    )
-
-    assert not rejected.valid
-    assert rejected.points == ()
-    assert rejected_backend.materialization_count == 0
-    assert accepted.valid, accepted.problems
-    assert accepted.relation_backend_id == "tests.accepted"
-    assert accepted.point_count == 4

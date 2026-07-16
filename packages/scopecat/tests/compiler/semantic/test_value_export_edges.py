@@ -18,8 +18,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_module_export,
 )
 from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.relations.backend import EvalContext
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
+from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.kernel.value_types import Float, Scalar, String
 from tests.testkit.relation_plans import evaluate_scalar
 
@@ -82,7 +81,7 @@ def test_transform_resolves_exports_nested_in_expression_binding_layers() -> Non
     assert not internal_value_ref_has_module_export(resolved)
     internal_require_resolved_value_ref(resolved)
     lowered = internal_lower_scalar_value_ref(resolved)
-    assert evaluate_scalar(REFERENCE_RELATION_BACKEND, lowered, EvalContext()) == 8.0
+    assert evaluate_scalar(lowered, EvalContext()) == 8.0
 
 
 def test_transform_requires_exact_value_type_preservation() -> None:

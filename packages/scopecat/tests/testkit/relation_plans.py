@@ -1,22 +1,20 @@
-"""Strict test helpers for the verify -> select -> evaluate pipeline."""
+"""Strict test helpers for the verify -> evaluate pipeline."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
-    RelationBackend,
-    select_relation_plan,
 )
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     evaluate_relation as evaluate_selected_relation,
 )
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     evaluate_scalar as evaluate_selected_scalar,
 )
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     evaluate_series as evaluate_selected_series,
 )
 from scopecat.compiler.relations.model import (
@@ -186,7 +184,6 @@ def value_expr(
 
 
 def evaluate_scalar(
-    backend: RelationBackend,
     expression: ScalarExpr,
     ctx: EvalContext,
     *,
@@ -199,14 +196,12 @@ def evaluate_scalar(
         expected_type=expected_type,
     )
     return evaluate_selected_scalar(
-        backend,
-        select_relation_plan(backend, verified),
+        verified,
         ctx,
     )
 
 
 def evaluate_series(
-    backend: RelationBackend,
     expression: SeriesExpr,
     ctx: EvalContext,
     *,
@@ -219,14 +214,12 @@ def evaluate_series(
         expected_type=expected_type,
     )
     return evaluate_selected_series(
-        backend,
-        select_relation_plan(backend, verified),
+        verified,
         ctx,
     )
 
 
 def evaluate_relation(
-    backend: RelationBackend,
     expression: RelationExpr,
     params: ParameterRelationData | None = None,
     *,
@@ -244,8 +237,7 @@ def evaluate_relation(
         expected_type=expected_type,
     )
     return evaluate_selected_relation(
-        backend,
-        select_relation_plan(backend, verified),
+        verified,
         params,
         row=row,
         outer_row=outer_row,
@@ -256,31 +248,26 @@ def evaluate_relation(
 
 
 def materialize_scalar_value(
-    backend: RelationBackend,
     value: ScalarValueExpr,
     ctx: EvalContext,
 ) -> CellValue:
     return evaluate_selected_scalar(
-        backend,
-        select_relation_plan(backend, value.plan),
+        value.plan,
         ctx,
     )
 
 
 def materialize_series_value(
-    backend: RelationBackend,
     value: SeriesValueExpr,
     ctx: EvalContext,
 ) -> list[CellValue]:
     return evaluate_selected_series(
-        backend,
-        select_relation_plan(backend, value.plan),
+        value.plan,
         ctx,
     )
 
 
 def materialize_table_value(
-    backend: RelationBackend,
     value: TableValueExpr,
     params: ParameterRelationData | None = None,
     *,
@@ -291,8 +278,7 @@ def materialize_table_value(
     inputs: Mapping[str, object] | None = None,
 ) -> list[Row]:
     return evaluate_selected_relation(
-        backend,
-        select_relation_plan(backend, value.plan),
+        value.plan,
         params,
         row=row,
         outer_row=outer_row,

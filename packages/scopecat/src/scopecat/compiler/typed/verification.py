@@ -6,19 +6,10 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from dataclasses import field as dc_field
 from types import MappingProxyType
-from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.analysis import PlanNode
-from scopecat.compiler.relations.backend import (
-    RelationBackend,
-    RelationBackendCapabilityError,
-    RelationBackendCapabilityIssue,
-    SelectedRelationPlan,
-    select_relation_plan,
-)
 from scopecat.compiler.relations.model import (
-    RelationExpr,
     RowScopeId,
     ScalarExpr,
 )
@@ -46,9 +37,7 @@ from scopecat.compiler.typed.measurement_transforms import (
 )
 from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
-    SelectedPointDomain,
     VerifiedPointDomain,
-    bind_selected_point_domain,
     verify_point_domain,
 )
 from scopecat.compiler.typed.products import (
@@ -716,6 +705,9 @@ class VerifiedTypedProgram:
     program: TypedProgram
     point_domain: VerifiedPointDomain = dc_field(init=False)
     relation_consumers: tuple[ProgramRelationConsumer, ...] = dc_field(init=False)
+    _relation_plan_by_use: Mapping[RelationUseId, VerifiedRelationPlan[PlanNode]] = (
+        dc_field(init=False, repr=False)
+    )
 
     def __post_init__(self) -> None:
         verified = _verify_typed_program(self.program)
@@ -726,128 +718,28 @@ class VerifiedTypedProgram:
             "relation_consumers",
             verified.relation_consumers,
         )
-
-
-@dataclass(frozen=True, slots=True)
-class ProgramRelationBackendFailure:
-    """One backend capability issue attributed to its program consumer."""
-
-    consumer: ProgramRelationConsumer
-    issue: RelationBackendCapabilityIssue
-
-
-class ProgramRelationBackendCapabilityError(ValueError):
-    """A backend rejected one or more plans in a verified typed program."""
-
-    def __init__(
-        self,
-        backend_id: str,
-        failures: Sequence[ProgramRelationBackendFailure],
-    ) -> None:
-        self.backend_id = backend_id
-        self.failures = tuple(failures)
-        rendered = "; ".join(
-            f"{failure.consumer.kind.value}@{failure.consumer.location}: "
-            f"{failure.issue.dimension.value}:{failure.issue.code}"
-            for failure in self.failures
-        )
-        super().__init__(
-            f"relation backend {backend_id!r} rejected typed program: {rendered}"
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class SelectedProgramRelation:
-    """One program consumer paired with its backend-selected relation proof."""
-
-    consumer: ProgramRelationConsumer
-    selected_plan: SelectedRelationPlan[PlanNode]
-
-
-@dataclass(frozen=True, slots=True)
-class SelectedTypedProgram:
-    """A verified program whose every executable relation targets one backend."""
-
-    verified_program: VerifiedTypedProgram
-    backend_id: str
-    backend_capability_fingerprint: str
-    relation_selections: tuple[SelectedProgramRelation, ...]
-    point_domain: SelectedPointDomain
-    _selection_by_use: Mapping[
-        RelationUseId,
-        SelectedProgramRelation,
-    ] = dc_field(init=False, repr=False, compare=False, hash=False)
-
-    def __post_init__(self) -> None:
-        if not self.backend_id or not self.backend_capability_fingerprint:
-            msg = "selected typed program requires backend capability identity"
-            raise ValueError(msg)
-        if self.point_domain.verified is not self.verified_program.point_domain:
-            msg = "selected point domain must belong to the verified typed program"
-            raise ValueError(msg)
-        if (
-            self.point_domain.backend_id != self.backend_id
-            or self.point_domain.backend_capability_fingerprint
-            != self.backend_capability_fingerprint
-        ):
-            msg = "selected point domain and typed program must use one backend"
-            raise ValueError(msg)
-        selected = tuple(self.relation_selections)
-        by_use = {selection.consumer.id: selection for selection in selected}
-        if len(by_use) != len(selected):
-            msg = "typed-program relation-use identities must be unique"
-            raise ValueError(msg)
-        expected = self.verified_program.relation_consumers
-        expected_by_id = {consumer.id: consumer for consumer in expected}
-        if set(by_use) != set(expected_by_id):
-            msg = "selected relations must exactly cover verified program consumers"
-            raise ValueError(msg)
-        for relation_use_id, selection in by_use.items():
-            consumer = expected_by_id[relation_use_id]
-            if selection.consumer is not consumer:
-                msg = "selected relation must use its verified program consumer"
-                raise ValueError(msg)
-            if (
-                selection.selected_plan.backend_id != self.backend_id
-                or selection.selected_plan.backend_capability_fingerprint
-                != self.backend_capability_fingerprint
-            ):
-                msg = "selected program relations must use one backend capability"
-                raise ValueError(msg)
-            if selection.selected_plan.verified_plan is not consumer.value.plan:
-                msg = "selected relation plan does not own its consumer proof"
-                raise ValueError(msg)
-        for point_selection in self.point_domain.relation_selections:
-            program_selection = by_use.get(point_selection.relation.id)
-            if (
-                program_selection is None
-                or program_selection.selected_plan is not point_selection.selected_plan
-            ):
-                msg = "selected point-domain leaf must reuse whole-program selection"
-                raise ValueError(msg)
-        canonical = tuple(by_use[consumer.id] for consumer in expected)
-        object.__setattr__(self, "relation_selections", canonical)
+        relation_plan_by_use = {
+            consumer.id: consumer.value.plan for consumer in verified.relation_consumers
+        }
+        if len(relation_plan_by_use) != len(verified.relation_consumers):
+            raise AssertionError("verified relation-use ids must be unique")
         object.__setattr__(
             self,
-            "_selection_by_use",
-            MappingProxyType(by_use),
+            "_relation_plan_by_use",
+            MappingProxyType(relation_plan_by_use),
         )
 
-    @property
-    def program(self) -> TypedProgram:
-        return self.verified_program.program
-
-    def selected_plan(
+    def relation_plan(
         self,
         relation_use_id: RelationUseId,
-    ) -> SelectedRelationPlan[PlanNode]:
-        """Return the preflighted plan owned by an exact program consumer."""
+    ) -> VerifiedRelationPlan[PlanNode]:
+        """Return the verified plan owned by an exact program consumer."""
 
         try:
-            return self._selection_by_use[relation_use_id].selected_plan
-        except KeyError as error:
-            msg = f"no selected relation plan for relation use {relation_use_id}"
-            raise KeyError(msg) from error
+            return self._relation_plan_by_use[relation_use_id]
+        except KeyError:
+            msg = f"no verified relation plan for relation use {relation_use_id}"
+            raise KeyError(msg) from None
 
 
 def seal_typed_program(
@@ -868,67 +760,6 @@ def seal_typed_program(
                 for problem in error.problems
             )
         ) from error
-
-
-def select_typed_program(
-    backend: RelationBackend,
-    verified_program: VerifiedTypedProgram,
-) -> SelectedTypedProgram:
-    """Preflight every relation consumer before any program materialization."""
-
-    selections, point_domain = _selected_typed_program_components(
-        backend,
-        verified_program,
-    )
-    return SelectedTypedProgram(
-        verified_program,
-        backend.backend_id,
-        backend.capability_fingerprint,
-        selections,
-        point_domain,
-    )
-
-
-def _selected_typed_program_components(
-    backend: RelationBackend,
-    verified_program: VerifiedTypedProgram,
-) -> tuple[tuple[SelectedProgramRelation, ...], SelectedPointDomain]:
-    """Select every backend-bound component stored by a selected program."""
-
-    selections: list[SelectedProgramRelation] = []
-    failures: list[ProgramRelationBackendFailure] = []
-    for consumer in verified_program.relation_consumers:
-        try:
-            selected = select_relation_plan(backend, consumer.value.plan)
-        except RelationBackendCapabilityError as error:
-            failures.extend(
-                ProgramRelationBackendFailure(consumer=consumer, issue=issue)
-                for issue in error.issues
-            )
-            continue
-        selections.append(
-            SelectedProgramRelation(
-                consumer=consumer,
-                selected_plan=selected,
-            )
-        )
-    if failures:
-        raise ProgramRelationBackendCapabilityError(backend.backend_id, failures)
-    point_domain_selections = {
-        selection.consumer.id: cast(
-            "SelectedRelationPlan[RelationExpr]",
-            selection.selected_plan,
-        )
-        for selection in selections
-        if selection.consumer.kind is ProgramRelationConsumerKind.POINT_DOMAIN_ROWS
-    }
-    selected_point_domain = bind_selected_point_domain(
-        verified_program.point_domain,
-        backend_id=backend.backend_id,
-        backend_capability_fingerprint=backend.capability_fingerprint,
-        selections=point_domain_selections,
-    )
-    return tuple(selections), selected_point_domain
 
 
 def typed_program_proof_role_problems(
@@ -1164,7 +995,6 @@ def _verify_plan_role[NodeT: PlanNode](
         reverified.facts != plan.facts
         or reverified.imports != plan.imports
         or reverified.external_row_interface != plan.external_row_interface
-        or reverified.required_operations != plan.required_operations
         or reverified.runtime_obligations != plan.runtime_obligations
     ):
         problems.append(
@@ -1183,7 +1013,7 @@ def _verify_plan_role[NodeT: PlanNode](
 def _relation_use_identity_problems(
     consumers: Sequence[ProgramRelationConsumer],
 ) -> tuple[Problem, ...]:
-    """Reject occurrence aliasing before relation selection can collapse it."""
+    """Reject occurrence aliasing before plans are indexed by relation-use id."""
 
     first_by_id: dict[RelationUseId, ProgramRelationConsumer] = {}
     problems: list[Problem] = []
@@ -1364,15 +1194,10 @@ def _problem(code: str, message: str, location: ModelLocation) -> Problem:
 
 
 __all__ = [
-    "ProgramRelationBackendCapabilityError",
-    "ProgramRelationBackendFailure",
     "ProgramRelationConsumer",
     "ProgramRelationConsumerKind",
-    "SelectedProgramRelation",
-    "SelectedTypedProgram",
     "VerifiedTypedProgram",
     "seal_typed_program",
-    "select_typed_program",
     "typed_program_proof_role_problems",
     "verify_typed_program",
 ]

@@ -11,7 +11,6 @@ from pydantic import ValidationError
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.resolution import compile_prepared_invocation
 from scopecat.compiler.pipeline import compile_experiment
-from scopecat.compiler.relations.reference_backend import ReferenceRelationBackend
 from scopecat.records.run_request import RunRequest
 from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
 
@@ -50,23 +49,6 @@ def test_run_request_v4_projector_matches_golden_and_round_trips(
     assert request.schema_version == "scopecat.run_request.v4"
     assert request.model_dump(mode="json") == golden
     assert restored == request
-
-
-def test_compilation_workflow_threads_the_selected_relation_backend(
-    tmp_path: Path,
-) -> None:
-    compiled_invocation = compile_prepared_invocation(load_prepared_invocation())
-    environment = validate_config_environment(load_config())
-    backend = ReferenceRelationBackend(backend_id="tests.workflow-reference")
-
-    compiled = compile_experiment(
-        compiled_invocation,
-        environment=environment,
-        relation_backend=backend,
-    )
-
-    assert compiled.valid
-    assert compiled.plan.relation_backend_id == "tests.workflow-reference"
 
 
 @pytest.mark.parametrize(

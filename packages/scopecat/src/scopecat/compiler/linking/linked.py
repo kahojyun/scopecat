@@ -13,22 +13,19 @@ from scopecat.compiler.entity_resolution import (
     resolve_entity,
 )
 from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
-    RelationBackend,
-    SelectedRelationPlan,
     evaluate_relation_in_context,
     evaluate_scalar,
     evaluate_series,
-    select_relation_plan,
     validate_relation_parameter_import,
 )
 from scopecat.compiler.relations.model import RelationExpr, Row, ScalarExpr, SeriesExpr
 from scopecat.compiler.relations.point_domain import PointCardinality
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
+    VerifiedRelationPlan,
     verify_relation_plan,
 )
 from scopecat.compiler.semantic.value_expressions import (
@@ -64,12 +61,9 @@ from scopecat.compiler.typed.state import (
     StateSpec,
 )
 from scopecat.compiler.typed.verification import (
-    ProgramRelationBackendCapabilityError,
     ProgramRelationConsumer,
-    SelectedTypedProgram,
     VerifiedTypedProgram,
     seal_typed_program,
-    select_typed_program,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -95,8 +89,7 @@ class LinkedPlan:
 
     The plan binds a backend-neutral, sealed compiler program to one accepted
     configuration environment. Both are trusted transient compiler artifacts;
-    the plan owns no relation-backend selection, materialized points, or target
-    artifact.
+    the plan owns no materialized points or target artifact.
     """
 
     _verified_program: VerifiedTypedProgram
@@ -267,50 +260,37 @@ class MaterializedDomainCall:
 
 @dataclass(frozen=True, slots=True, init=False)
 class MaterializedLinkedPoints:
-    """One linked plan with a complete backend selection and canonical points.
+    """One linked plan with canonical points and materialized domain calls.
 
-    This proof is deliberately narrower than a local bound plan: it retains the
-    exact linked program, the whole-program relation-backend selection, and the
-    materialized logical point domain, while owning no local compute or product
-    realization.
+    This artifact is deliberately narrower than a local bound plan: it retains
+    the exact linked program and materialized logical point domain while owning
+    no local compute or product realization.
     """
 
     _linked_plan: LinkedPlan
-    _selected_program: SelectedTypedProgram
     _point_domain: MaterializedPointDomain
     _domain_calls: tuple[MaterializedDomainCall, ...]
-    relation_backend_id: str
 
     def __init__(
         self,
         linked_plan: LinkedPlan,
-        selected_program: SelectedTypedProgram,
         point_domain: MaterializedPointDomain,
-        relation_backend_id: str,
         domain_calls: Sequence[MaterializedDomainCall] = (),
     ) -> None:
-        if selected_program.verified_program is not linked_plan.verified_program:
-            msg = "selected program must belong to the linked plan"
-            raise ValueError(msg)
-        if selected_program.backend_id != relation_backend_id:
-            msg = "selected program and materialized linked points must use one backend"
-            raise ValueError(msg)
         if point_domain.id != linked_plan.point_domain.id:
             msg = "materialized point domain must belong to the linked plan"
             raise ValueError(msg)
         object.__setattr__(self, "_linked_plan", linked_plan)
-        object.__setattr__(self, "_selected_program", selected_program)
         object.__setattr__(self, "_point_domain", point_domain)
         object.__setattr__(self, "_domain_calls", tuple(domain_calls))
-        object.__setattr__(self, "relation_backend_id", relation_backend_id)
 
     @property
     def linked_plan(self) -> LinkedPlan:
         return self._linked_plan
 
     @property
-    def selected_program(self) -> SelectedTypedProgram:
-        return self._selected_program
+    def verified_program(self) -> VerifiedTypedProgram:
+        return self._linked_plan.verified_program
 
     @property
     def point_domain(self) -> MaterializedPointDomain:
@@ -379,8 +359,7 @@ class MaterializedLinkedPointBatch:
 
     The complete parent proof is retained exactly. Selection changes only the
     point-domain view presented to a target adapter; logical point identities,
-    ordinals, the selected relation backend, and the linked program are shared
-    with the parent.
+    ordinals, and the linked program are shared with the parent.
     """
 
     _parent: MaterializedLinkedPoints
@@ -426,12 +405,8 @@ class MaterializedLinkedPointBatch:
         return self._parent.linked_plan
 
     @property
-    def selected_program(self) -> SelectedTypedProgram:
-        return self._parent.selected_program
-
-    @property
-    def relation_backend_id(self) -> str:
-        return self._parent.relation_backend_id
+    def verified_program(self) -> VerifiedTypedProgram:
+        return self._parent.verified_program
 
     @property
     def point_domain(self) -> MaterializedPointDomainView:
@@ -452,63 +427,19 @@ type MaterializedLinkedPointSet = (
 
 def materialize_linked_points(
     linked: LinkedPlan,
-    *,
-    relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
 ) -> MaterializedLinkedPoints:
-    """Select every relation, then materialize only the logical point domain.
+    """Materialize the logical point domain and plan-stage domain inputs.
 
-    Whole-program backend preflight completes before the first relation is
-    evaluated. Expected capability, point-evaluation, value, and entity errors
-    cross this planning boundary as structured :class:`CheckFailed` problems.
+    Expected point-evaluation, value, and entity errors cross this planning
+    boundary as structured :class:`CheckFailed` problems.
     """
 
-    selected_program = select_linked_program(linked, relation_backend)
-    return materialize_selected_linked_points(
-        linked,
-        selected_program,
-        relation_backend,
-    )
-
-
-def select_linked_program(
-    linked: LinkedPlan,
-    relation_backend: RelationBackend,
-) -> SelectedTypedProgram:
-    """Preflight every linked relation without evaluating any of them."""
-
-    try:
-        return select_typed_program(
-            relation_backend,
-            linked.verified_program,
-        )
-    except ProgramRelationBackendCapabilityError as error:
-        raise CheckFailed(_relation_backend_capability_problems(error)) from error
-
-
-def materialize_selected_linked_points(
-    linked: LinkedPlan,
-    selected_program: SelectedTypedProgram,
-    relation_backend: RelationBackend,
-) -> MaterializedLinkedPoints:
-    """Materialize points from an exact whole-program backend selection."""
-
-    if selected_program.verified_program is not linked.verified_program:
-        msg = "selected program must belong to the linked plan"
-        raise ValueError(msg)
-    if (
-        selected_program.backend_id != relation_backend.backend_id
-        or selected_program.backend_capability_fingerprint
-        != relation_backend.capability_fingerprint
-    ):
-        msg = "selected program and point materializer must use one backend"
-        raise ValueError(msg)
     program = linked.program
     environment = linked.environment
     problems: list[Problem] = []
     try:
         point_domain = materialize_point_domain(
-            relation_backend,
-            selected_program.point_domain,
+            linked.point_domain,
             environment.parameters,
             row_normalizer=lambda row: _normalize_point_domain_row(
                 row,
@@ -541,18 +472,15 @@ def materialize_selected_linked_points(
         program.domain_programs,
         program.domain_calls,
         points=point_domain.points,
-        selected_program=selected_program,
+        verified_program=linked.verified_program,
         parameters=environment.parameters,
-        relation_backend=relation_backend,
         problems=problems,
     )
     if has_blocking_problems(problems):
         raise CheckFailed(problems)
     return MaterializedLinkedPoints(
         linked,
-        selected_program,
         point_domain,
-        relation_backend.backend_id,
         domain_calls,
     )
 
@@ -562,9 +490,8 @@ def _materialize_domain_calls(
     calls: Sequence[TypedDomainCall],
     *,
     points: Sequence[MaterializedPoint],
-    selected_program: SelectedTypedProgram,
+    verified_program: VerifiedTypedProgram,
     parameters: ParameterRelationData,
-    relation_backend: RelationBackend,
     problems: list[Problem],
 ) -> tuple[MaterializedDomainCall, ...]:
     """Evaluate verified plan-stage call inputs using the selected backend."""
@@ -585,9 +512,8 @@ def _materialize_domain_calls(
                 try:
                     evaluated = _evaluate_domain_input(
                         input_spec,
-                        selected_program=selected_program,
+                        verified_program=verified_program,
                         context=context,
-                        relation_backend=relation_backend,
                     )
                     value = coerce_literal(
                         input_spec.value_type,
@@ -608,7 +534,6 @@ def _materialize_domain_calls(
                         input_spec,
                         resolved_value=resolved_value,
                         context=context,
-                        relation_backend=relation_backend,
                     )
                     if config_binding is not None:
                         config_input_bindings.append(config_binding)
@@ -655,7 +580,6 @@ def _materialize_direct_config_input_binding(
     *,
     resolved_value: object,
     context: EvalContext,
-    relation_backend: RelationBackend,
 ) -> MaterializedConfigInputBinding | None:
     value = input_spec.value
     if not isinstance(value, ScalarValueExpr):
@@ -669,13 +593,9 @@ def _materialize_direct_config_input_binding(
         (
             column_id,
             evaluate_scalar(
-                relation_backend,
-                select_relation_plan(
-                    relation_backend,
-                    verify_relation_plan(
-                        expression,
-                        bindings=value.plan.bindings,
-                    ),
+                verify_relation_plan(
+                    expression,
+                    bindings=value.plan.bindings,
                 ),
                 context,
             ),
@@ -698,27 +618,23 @@ def _materialize_direct_config_input_binding(
 def _evaluate_domain_input(
     input_spec: ValueInput,
     *,
-    selected_program: SelectedTypedProgram,
+    verified_program: VerifiedTypedProgram,
     context: EvalContext,
-    relation_backend: RelationBackend,
 ) -> object:
     value = input_spec.value
-    selected_plan = selected_program.selected_plan(input_spec.relation_use_id)
+    verified_plan = verified_program.relation_plan(input_spec.relation_use_id)
     if isinstance(value, ScalarValueExpr):
         return evaluate_scalar(
-            relation_backend,
-            cast("SelectedRelationPlan[ScalarExpr]", selected_plan),
+            cast("VerifiedRelationPlan[ScalarExpr]", verified_plan),
             context,
         )
     if isinstance(value, SeriesValueExpr):
         return evaluate_series(
-            relation_backend,
-            cast("SelectedRelationPlan[SeriesExpr]", selected_plan),
+            cast("VerifiedRelationPlan[SeriesExpr]", verified_plan),
             context,
         )
     return evaluate_relation_in_context(
-        relation_backend,
-        cast("SelectedRelationPlan[RelationExpr]", selected_plan),
+        cast("VerifiedRelationPlan[RelationExpr]", verified_plan),
         context,
     )
 
@@ -1068,39 +984,6 @@ def _resolve_entity(
     return None
 
 
-def _relation_backend_capability_problems(
-    error: ProgramRelationBackendCapabilityError,
-) -> tuple[Problem, ...]:
-    return tuple(
-        compiler_problem(
-            "relation_backend_capability_unsupported",
-            (
-                f"relation backend {error.backend_id!r} cannot execute "
-                f"{failure.consumer.kind.value}: {failure.issue.message}"
-            ),
-            model_location(
-                failure.consumer.location.root,
-                *failure.consumer.location.path,
-                *failure.issue.path,
-            ),
-            phase=ProblemPhase.PLANNING,
-            category=ProblemCategory.UNAVAILABLE,
-            details={
-                "backend_id": error.backend_id,
-                "consumer_kind": failure.consumer.kind.value,
-                "consumer_location": {
-                    "root": failure.consumer.location.root,
-                    "path": list(failure.consumer.location.path),
-                },
-                "capability_dimension": failure.issue.dimension.value,
-                "capability_code": failure.issue.code,
-                "plan_path": list(failure.issue.path),
-            },
-        )
-        for failure in error.failures
-    )
-
-
 __all__ = [
     "LinkedPlan",
     "MaterializedConfigInputBinding",
@@ -1113,6 +996,4 @@ __all__ = [
     "link_program",
     "link_verified_program",
     "materialize_linked_points",
-    "materialize_selected_linked_points",
-    "select_linked_program",
 ]

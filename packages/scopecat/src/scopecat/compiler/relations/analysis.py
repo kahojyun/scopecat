@@ -1,7 +1,7 @@
-"""Backend-neutral traversal and reference analysis for relation plans.
+"""Traversal and reference analysis for relation plans.
 
 Relation plan nodes are semantic data.  This module is the single owner of
-their child structure and capability identities so compiler analyses do not
+their child structure and operation identities so compiler analyses do not
 grow independent, silently incomplete tree walkers.
 """
 
@@ -22,8 +22,8 @@ from scopecat.compiler.relations.model import (
 type PlanNode = ScalarExpr | SeriesExpr | RelationExpr
 
 
-class RelationOperation(StrEnum):
-    """Stable capability identity for one backend-neutral plan operation."""
+class PlanOperation(StrEnum):
+    """Stable identity for one relation-plan operation."""
 
     SCALAR_LITERAL = "scalar.literal"
     SCALAR_CURRENT_COLUMN = "scalar.column"
@@ -121,46 +121,46 @@ class PlanReferences:
         )
 
 
-_SCALAR_OPERATIONS: dict[str, RelationOperation] = {
-    "literal": RelationOperation.SCALAR_LITERAL,
-    "column": RelationOperation.SCALAR_CURRENT_COLUMN,
-    "outer_column": RelationOperation.SCALAR_OUTER_COLUMN,
-    "point_column": RelationOperation.SCALAR_POINT_COLUMN,
-    "input": RelationOperation.SCALAR_INPUT,
-    "param_scalar": RelationOperation.SCALAR_PARAMETER,
-    "param_lookup": RelationOperation.SCALAR_PARAMETER_LOOKUP,
-    "binary": RelationOperation.SCALAR_BINARY,
-    "case": RelationOperation.SCALAR_CASE,
+_SCALAR_OPERATIONS: dict[str, PlanOperation] = {
+    "literal": PlanOperation.SCALAR_LITERAL,
+    "column": PlanOperation.SCALAR_CURRENT_COLUMN,
+    "outer_column": PlanOperation.SCALAR_OUTER_COLUMN,
+    "point_column": PlanOperation.SCALAR_POINT_COLUMN,
+    "input": PlanOperation.SCALAR_INPUT,
+    "param_scalar": PlanOperation.SCALAR_PARAMETER,
+    "param_lookup": PlanOperation.SCALAR_PARAMETER_LOOKUP,
+    "binary": PlanOperation.SCALAR_BINARY,
+    "case": PlanOperation.SCALAR_CASE,
 }
-_SERIES_OPERATIONS: dict[str, RelationOperation] = {
-    "values": RelationOperation.SERIES_VALUES,
-    "linspace": RelationOperation.SERIES_LINSPACE,
-    "range": RelationOperation.SERIES_RANGE,
-    "input": RelationOperation.SERIES_INPUT,
-    "param_series": RelationOperation.SERIES_PARAMETER,
-    "relation_column": RelationOperation.SERIES_RELATION_COLUMN,
-    "relation_entities": RelationOperation.SERIES_RELATION_ENTITIES,
+_SERIES_OPERATIONS: dict[str, PlanOperation] = {
+    "values": PlanOperation.SERIES_VALUES,
+    "linspace": PlanOperation.SERIES_LINSPACE,
+    "range": PlanOperation.SERIES_RANGE,
+    "input": PlanOperation.SERIES_INPUT,
+    "param_series": PlanOperation.SERIES_PARAMETER,
+    "relation_column": PlanOperation.SERIES_RELATION_COLUMN,
+    "relation_entities": PlanOperation.SERIES_RELATION_ENTITIES,
 }
-_RELATION_OPERATIONS: dict[str, RelationOperation] = {
-    "literal_rows": RelationOperation.RELATION_LITERAL_ROWS,
-    "table": RelationOperation.RELATION_PARAMETER_TABLE,
-    "input": RelationOperation.RELATION_INPUT,
-    "grid": RelationOperation.RELATION_GRID,
-    "select": RelationOperation.RELATION_SELECT,
-    "filter": RelationOperation.RELATION_FILTER,
-    "join": RelationOperation.RELATION_JOIN,
-    "cross": RelationOperation.RELATION_CROSS,
-    "lateral_cross": RelationOperation.RELATION_LATERAL_CROSS,
-    "point_cross": RelationOperation.RELATION_POINT_CROSS,
-    "zip": RelationOperation.RELATION_ZIP,
-    "with_columns": RelationOperation.RELATION_WITH_COLUMNS,
-    "sort": RelationOperation.RELATION_SORT,
-    "limit": RelationOperation.RELATION_LIMIT,
+_RELATION_OPERATIONS: dict[str, PlanOperation] = {
+    "literal_rows": PlanOperation.RELATION_LITERAL_ROWS,
+    "table": PlanOperation.RELATION_PARAMETER_TABLE,
+    "input": PlanOperation.RELATION_INPUT,
+    "grid": PlanOperation.RELATION_GRID,
+    "select": PlanOperation.RELATION_SELECT,
+    "filter": PlanOperation.RELATION_FILTER,
+    "join": PlanOperation.RELATION_JOIN,
+    "cross": PlanOperation.RELATION_CROSS,
+    "lateral_cross": PlanOperation.RELATION_LATERAL_CROSS,
+    "point_cross": PlanOperation.RELATION_POINT_CROSS,
+    "zip": PlanOperation.RELATION_ZIP,
+    "with_columns": PlanOperation.RELATION_WITH_COLUMNS,
+    "sort": PlanOperation.RELATION_SORT,
+    "limit": PlanOperation.RELATION_LIMIT,
 }
 
 
-def relation_operation(node: PlanNode) -> RelationOperation:
-    """Return the backend capability required by one plan node."""
+def relation_operation(node: PlanNode) -> PlanOperation:
+    """Return the stable operation identity for one plan node."""
 
     if isinstance(node, ScalarExpr):
         operations = _SCALAR_OPERATIONS
@@ -184,22 +184,22 @@ def iter_plan_children(node: PlanNode) -> Iterator[PlanNode]:
     operation = relation_operation(node)
     if isinstance(node, ScalarExpr):
         if operation in {
-            RelationOperation.SCALAR_LITERAL,
-            RelationOperation.SCALAR_CURRENT_COLUMN,
-            RelationOperation.SCALAR_OUTER_COLUMN,
-            RelationOperation.SCALAR_POINT_COLUMN,
-            RelationOperation.SCALAR_INPUT,
-            RelationOperation.SCALAR_PARAMETER,
+            PlanOperation.SCALAR_LITERAL,
+            PlanOperation.SCALAR_CURRENT_COLUMN,
+            PlanOperation.SCALAR_OUTER_COLUMN,
+            PlanOperation.SCALAR_POINT_COLUMN,
+            PlanOperation.SCALAR_INPUT,
+            PlanOperation.SCALAR_PARAMETER,
         }:
             return
-        if operation is RelationOperation.SCALAR_PARAMETER_LOOKUP:
+        if operation is PlanOperation.SCALAR_PARAMETER_LOOKUP:
             yield from (node.key or {}).values()
             return
-        if operation is RelationOperation.SCALAR_BINARY:
+        if operation is PlanOperation.SCALAR_BINARY:
             yield _required_node(node.left, "scalar binary left")
             yield _required_node(node.right, "scalar binary right")
             return
-        if operation is RelationOperation.SCALAR_CASE:
+        if operation is PlanOperation.SCALAR_CASE:
             for branch in node.cases or ():
                 yield branch.condition
                 yield branch.value
@@ -209,63 +209,63 @@ def iter_plan_children(node: PlanNode) -> Iterator[PlanNode]:
 
     if isinstance(node, SeriesExpr):
         if operation in {
-            RelationOperation.SERIES_VALUES,
-            RelationOperation.SERIES_INPUT,
-            RelationOperation.SERIES_PARAMETER,
+            PlanOperation.SERIES_VALUES,
+            PlanOperation.SERIES_INPUT,
+            PlanOperation.SERIES_PARAMETER,
         }:
             return
         if operation in {
-            RelationOperation.SERIES_LINSPACE,
-            RelationOperation.SERIES_RANGE,
+            PlanOperation.SERIES_LINSPACE,
+            PlanOperation.SERIES_RANGE,
         }:
             for bound in (node.start, node.stop, node.step):
                 if bound is not None:
                     yield bound
             return
         if operation in {
-            RelationOperation.SERIES_RELATION_COLUMN,
-            RelationOperation.SERIES_RELATION_ENTITIES,
+            PlanOperation.SERIES_RELATION_COLUMN,
+            PlanOperation.SERIES_RELATION_ENTITIES,
         }:
             yield _required_node(node.source, "relation-backed series source")
             return
         raise AssertionError(f"unhandled series relation operation: {operation}")
 
     if operation in {
-        RelationOperation.RELATION_LITERAL_ROWS,
-        RelationOperation.RELATION_PARAMETER_TABLE,
-        RelationOperation.RELATION_INPUT,
+        PlanOperation.RELATION_LITERAL_ROWS,
+        PlanOperation.RELATION_PARAMETER_TABLE,
+        PlanOperation.RELATION_INPUT,
     }:
         return
-    if operation is RelationOperation.RELATION_GRID:
+    if operation is PlanOperation.RELATION_GRID:
         for column in (node.columns or {}).values():
             for child in (column.scalar, column.series, column.relation):
                 if child is not None:
                     yield child
         return
     if operation in {
-        RelationOperation.RELATION_SELECT,
-        RelationOperation.RELATION_SORT,
-        RelationOperation.RELATION_LIMIT,
+        PlanOperation.RELATION_SELECT,
+        PlanOperation.RELATION_SORT,
+        PlanOperation.RELATION_LIMIT,
     }:
         yield _required_node(node.source, f"{operation} source")
         return
-    if operation is RelationOperation.RELATION_FILTER:
+    if operation is PlanOperation.RELATION_FILTER:
         yield _required_node(node.source, "relation filter source")
         yield _required_node(node.condition, "relation filter condition")
         return
     if operation in {
-        RelationOperation.RELATION_JOIN,
-        RelationOperation.RELATION_CROSS,
-        RelationOperation.RELATION_LATERAL_CROSS,
-        RelationOperation.RELATION_POINT_CROSS,
+        PlanOperation.RELATION_JOIN,
+        PlanOperation.RELATION_CROSS,
+        PlanOperation.RELATION_LATERAL_CROSS,
+        PlanOperation.RELATION_POINT_CROSS,
     }:
         yield _required_node(node.left, f"{operation} left")
         yield _required_node(node.right, f"{operation} right")
         return
-    if operation is RelationOperation.RELATION_ZIP:
+    if operation is PlanOperation.RELATION_ZIP:
         yield from node.sources or ()
         return
-    if operation is RelationOperation.RELATION_WITH_COLUMNS:
+    if operation is PlanOperation.RELATION_WITH_COLUMNS:
         yield _required_node(node.source, "relation with_columns source")
         yield from (node.new_columns or {}).values()
         return
@@ -280,12 +280,6 @@ def walk_plan(root: PlanNode) -> Iterator[PlanNode]:
         node = pending.pop()
         yield node
         pending.extend(reversed(tuple(iter_plan_children(node))))
-
-
-def relation_operations(root: PlanNode) -> tuple[RelationOperation, ...]:
-    """Return required backend capabilities in stable first-use order."""
-
-    return tuple(dict.fromkeys(relation_operation(node) for node in walk_plan(root)))
 
 
 def plan_references(root: PlanNode) -> PlanReferences:
@@ -446,7 +440,7 @@ def _collect_free_row_references(
         return
 
     operation = relation_operation(node)
-    if operation is RelationOperation.RELATION_FILTER:
+    if operation is PlanOperation.RELATION_FILTER:
         _collect_free_row_references(
             _required_node(node.source, "relation filter source"),
             active=active,
@@ -465,7 +459,7 @@ def _collect_free_row_references(
             references=references,
         )
         return
-    if operation is RelationOperation.RELATION_WITH_COLUMNS:
+    if operation is PlanOperation.RELATION_WITH_COLUMNS:
         _collect_free_row_references(
             _required_node(node.source, "relation with_columns source"),
             active=active,
@@ -485,7 +479,7 @@ def _collect_free_row_references(
                 references=references,
             )
         return
-    if operation is RelationOperation.RELATION_LATERAL_CROSS:
+    if operation is PlanOperation.RELATION_LATERAL_CROSS:
         _collect_free_row_references(
             _required_node(node.left, "relation lateral_cross left"),
             active=active,
@@ -557,7 +551,7 @@ def _verify_node_scopes(
         return
 
     operation = relation_operation(node)
-    if operation is RelationOperation.RELATION_FILTER:
+    if operation is PlanOperation.RELATION_FILTER:
         _verify_node_scopes(
             _required_node(node.source, "relation filter source"),
             active=active,
@@ -574,7 +568,7 @@ def _verify_node_scopes(
             outer_row_available=outer_row_available,
         )
         return
-    if operation is RelationOperation.RELATION_WITH_COLUMNS:
+    if operation is PlanOperation.RELATION_WITH_COLUMNS:
         _verify_node_scopes(
             _required_node(node.source, "relation with_columns source"),
             active=active,
@@ -592,7 +586,7 @@ def _verify_node_scopes(
                 outer_row_available=outer_row_available,
             )
         return
-    if operation is RelationOperation.RELATION_LATERAL_CROSS:
+    if operation is PlanOperation.RELATION_LATERAL_CROSS:
         _verify_node_scopes(
             _required_node(node.left, "relation lateral_cross left"),
             active=active,
@@ -767,10 +761,10 @@ def _required_id(value: str | None, operation: str) -> str:
 
 __all__ = [
     "PlanNode",
+    "PlanOperation",
     "PlanReference",
     "PlanReferenceKind",
     "PlanReferences",
-    "RelationOperation",
     "RelationPlanBinderError",
     "RelationPlanScopeError",
     "free_row_references",
@@ -779,7 +773,6 @@ __all__ = [
     "plan_references",
     "prefix_plan_row_scopes",
     "relation_operation",
-    "relation_operations",
     "verify_plan_scopes",
     "walk_plan",
 ]

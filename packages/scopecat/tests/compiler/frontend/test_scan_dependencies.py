@@ -34,8 +34,8 @@ from scopecat.compiler.frontend.scan_dependencies import (
     verify_scan_dependencies,
 )
 from scopecat.compiler.frontend.scan_lowering import lower_scan_points
-from scopecat.compiler.relations.analysis import RelationOperation
-from scopecat.compiler.relations.backend import ParameterRelationData
+from scopecat.compiler.relations.analysis import PlanOperation
+from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import param
 from scopecat.compiler.relations.point_domain import (
     PointDependentProduct,
@@ -46,11 +46,9 @@ from scopecat.compiler.relations.point_domain import (
     PointZip,
     point_rows,
 )
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.typed.point_domain import (
     materialize_point_domain,
-    select_point_domain,
     verify_point_domain,
 )
 from scopecat.kernel.errors import CheckFailed
@@ -380,19 +378,17 @@ def test_scan_dependency_chain_remains_directional_in_domain_ir() -> None:
         type_bindings=RelationTypeBindings(),
     )
     verified = verify_point_domain(compiled, program_id="test")
-    selected = select_point_domain(REFERENCE_RELATION_BACKEND, verified)
     materialized = materialize_point_domain(
-        REFERENCE_RELATION_BACKEND,
-        selected,
+        verified,
         ParameterRelationData(),
     )
 
     assert len(verified.relation_leaves) == 3
     assert all(
-        RelationOperation.RELATION_POINT_CROSS
-        not in relation.value.plan.required_operations
-        and RelationOperation.RELATION_ZIP
-        not in relation.value.plan.required_operations
+        PlanOperation.RELATION_POINT_CROSS
+        not in {fact.operation for fact in relation.value.plan.facts}
+        and PlanOperation.RELATION_ZIP
+        not in {fact.operation for fact in relation.value.plan.facts}
         for relation in verified.relation_leaves
     )
     assert len(materialized.points) == 8

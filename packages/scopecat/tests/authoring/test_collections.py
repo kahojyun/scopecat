@@ -13,11 +13,9 @@ from scopecat.compiler.frontend.resolution import ResolvedExperiment
 from scopecat.compiler.linking.linked import link_verified_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.analysis import PlanNode
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
-    SelectedRelationPlan,
-    select_relation_plan,
 )
 from scopecat.compiler.relations.model import (
     ScalarExpr,
@@ -25,11 +23,11 @@ from scopecat.compiler.relations.model import (
     literal_rows,
     outer,
 )
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.relations.uses import RelationUseId
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
+    VerifiedRelationPlan,
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
@@ -49,7 +47,6 @@ from scopecat.compiler.typed.program import (
     ValueInput,
 )
 from scopecat.compiler.typed.state import evaluate_state_spec
-from scopecat.compiler.typed.verification import select_typed_program
 from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import ActionStage
 from scopecat.kernel.errors import CheckFailed
@@ -68,8 +65,6 @@ from tests.testkit.relation_plans import (
     materialize_table_value,
     state_field,
 )
-
-_BACKEND = REFERENCE_RELATION_BACKEND
 
 
 def test_action_lowers_as_a_distinct_point_effect() -> None:
@@ -191,15 +186,11 @@ def _literal_table(
 def _state_values(
     resolved: ResolvedExperiment,
 ) -> list[tuple[int, str, object]]:
-    selected_program = select_typed_program(
-        _BACKEND,
-        resolved.verified_program,
-    )
+    verified_program = resolved.verified_program
     points = [
         point.row
         for point in materialize_point_domain(
-            _BACKEND,
-            selected_program.point_domain,
+            verified_program.point_domain,
             resolved.parameters,
         ).points
     ]
@@ -214,8 +205,7 @@ def _state_values(
                 row=point,
                 point_row=point,
             ),
-            backend=_BACKEND,
-            selected_plan=selected_program.selected_plan,
+            relation_plan=verified_program.relation_plan,
             location=model_location("state", 0),
         )
     ]
@@ -288,7 +278,6 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
     assert rows.origin_input_ids == ("gate_rows",)
     assert isinstance(rows.value, TableValueExpr)
     assert materialize_table_value(
-        _BACKEND,
         rows.value,
     ) == [
         {
@@ -306,7 +295,6 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
     assert offset_values.origin_input_ids == ("offset_values",)
     assert isinstance(offset_values.value, SeriesValueExpr)
     assert materialize_series_value(
-        _BACKEND,
         offset_values.value,
         EvalContext(),
     ) == [
@@ -317,7 +305,6 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
     route_entities = experiment.route_intents[0].entity_uses[0].value
     assert isinstance(route_entities, SeriesValueExpr)
     assert materialize_series_value(
-        _BACKEND,
         route_entities,
         EvalContext(),
     ) == [EntityRef(id="q0")]
@@ -424,7 +411,6 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
     assert isinstance(rows.value, TableValueExpr)
     assert (
         materialize_table_value(
-            _BACKEND,
             rows.value,
         )
         == []
@@ -434,7 +420,6 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
     assert isinstance(items, ValueInput)
     assert isinstance(items.value, SeriesValueExpr)
     assert materialize_series_value(
-        _BACKEND,
         items.value,
         EvalContext(),
     ) == [{"label": "first"}]
@@ -499,15 +484,11 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
         config_profile=load_config(),
     )
     node = resolved.experiment.compute_nodes[0]
-    selected_program = select_typed_program(
-        _BACKEND,
-        resolved.verified_program,
-    )
+    verified_program = resolved.verified_program
     points = [
         point.row
         for point in materialize_point_domain(
-            _BACKEND,
-            selected_program.point_domain,
+            verified_program.point_domain,
             resolved.parameters,
         ).points
     ]
@@ -517,7 +498,6 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
     assert isinstance(scalar.value, ScalarValueExpr)
     assert (
         materialize_scalar_value(
-            _BACKEND,
             scalar.value,
             EvalContext(row=points[1], point_row=points[1]),
         )
@@ -527,7 +507,6 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
     assert isinstance(series, ValueInput)
     assert isinstance(series.value, SeriesValueExpr)
     assert materialize_series_value(
-        _BACKEND,
         series.value,
         EvalContext(),
     ) == [1.0, 2.0]
@@ -535,7 +514,6 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
     assert isinstance(table, ValueInput)
     assert isinstance(table.value, TableValueExpr)
     assert materialize_table_value(
-        _BACKEND,
         table.value,
     ) == [{"resource_id": "source-a", "base": 1.0}]
 
@@ -1174,16 +1152,12 @@ def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
     assert isinstance(route_entities[0].value, ScalarValueExpr)
     assert isinstance(route_entities[1].value, SeriesValueExpr)
 
-    selected_program = select_typed_program(
-        _BACKEND,
-        resolved.verified_program,
-    )
+    verified_program = resolved.verified_program
     records = evaluate_state_spec(
         state,
         point_index=0,
         ctx=EvalContext(params=ParameterRelationData(), row={}),
-        backend=_BACKEND,
-        selected_plan=selected_program.selected_plan,
+        relation_plan=verified_program.relation_plan,
         location=model_location("state", 0),
     )
     assert records[0].route_entities == (EntityRef(id="q0"),)
@@ -1214,18 +1188,12 @@ def test_nested_state_preserves_an_empty_parent_row_as_outer_scope() -> None:
     assert state.relation_use is not None
     assert state.state is not None
     assert state.state[0].relation_use is not None
-    selected_plans: dict[
+    verified_plans: dict[
         RelationUseId,
-        SelectedRelationPlan[PlanNode],
+        VerifiedRelationPlan[PlanNode],
     ] = {
-        state.relation_use.id: cast(
-            "SelectedRelationPlan[PlanNode]",
-            select_relation_plan(_BACKEND, state.relation_use.value.plan),
-        ),
-        state.state[0].relation_use.id: cast(
-            "SelectedRelationPlan[PlanNode]",
-            select_relation_plan(_BACKEND, state.state[0].relation_use.value.plan),
-        ),
+        state.relation_use.id: state.relation_use.value.plan,
+        state.state[0].relation_use.id: state.state[0].relation_use.value.plan,
     }
 
     with pytest.raises(
@@ -1236,8 +1204,7 @@ def test_nested_state_preserves_an_empty_parent_row_as_outer_scope() -> None:
             state,
             point_index=0,
             ctx=EvalContext(outer_row={"ambient": 1.0}),
-            backend=_BACKEND,
-            selected_plan=selected_plans.__getitem__,
+            relation_plan=verified_plans.__getitem__,
             location=model_location("state", 0),
         )
 

@@ -36,8 +36,7 @@ from scopecat.compiler.linking.implementations import (
 )
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
-    materialize_selected_linked_points,
-    select_linked_program,
+    materialize_linked_points,
 )
 from scopecat.compiler.linking.product_realizations import (
     SelectedLocalProductRealizations,
@@ -47,11 +46,9 @@ from scopecat.compiler.linking.route_constraints import (
     validate_point_resource_constraints,
 )
 from scopecat.compiler.relations.analysis import PlanNode
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
-    RelationBackend,
-    SelectedRelationPlan,
     evaluate_relation_in_context,
     evaluate_scalar,
     evaluate_series,
@@ -61,7 +58,7 @@ from scopecat.compiler.relations.model import (
     ScalarExpr,
     SeriesExpr,
 )
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     OperationId,
@@ -105,7 +102,7 @@ from scopecat.compiler.typed.records import (
 )
 from scopecat.compiler.typed.state import StateRecord, evaluate_state_spec
 from scopecat.compiler.typed.verification import (
-    SelectedTypedProgram,
+    VerifiedTypedProgram,
 )
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
@@ -148,7 +145,6 @@ type _ChannelSignature = tuple[_ChannelBindingIdentity, ...]
 def materialize_local_plan(
     linked: LinkedPlan,
     *,
-    relation_backend: RelationBackend = REFERENCE_RELATION_BACKEND,
     product_use_ids: AbstractSet[ProductUseId] | None = None,
     task_coverage: ExecutionCoverage | None = None,
 ) -> BoundPlan:
@@ -244,43 +240,31 @@ def materialize_local_plan(
         )
     )
     problems.extend(product_realization_problems)
-    try:
-        selected_program = select_linked_program(linked, relation_backend)
-    except CheckFailed as error:
-        problems.extend(error.problems)
-        selected_program = None
     if (
         implementation_problems
         or implementations is None
         or product_realization_problems
         or product_realizations is None
-        or selected_program is None
         or not environment.valid
         or environment.routing is None
     ):
         return _empty_plan(
             program,
             problems,
-            relation_backend=relation_backend,
             local_implementations=implementations,
             local_product_realizations=product_realizations,
         )
     try:
-        linked_points = materialize_selected_linked_points(
-            linked,
-            selected_program,
-            relation_backend,
-        )
+        linked_points = materialize_linked_points(linked)
     except CheckFailed as error:
         problems.extend(error.problems)
         return _empty_plan(
             program,
             problems,
-            relation_backend=relation_backend,
             local_implementations=implementations,
             local_product_realizations=product_realizations,
         )
-    selected_program = linked_points.selected_program
+    verified_program = linked_points.verified_program
     materialized_domain = linked_points.point_domain
     planner_points = materialized_domain.points
     coordinate_schema_valid = True
@@ -319,8 +303,7 @@ def materialize_local_plan(
             program=program,
             point=point,
             problems=problems,
-            selected_program=selected_program,
-            relation_backend=relation_backend,
+            verified_program=verified_program,
         )
         if params is None:
             continue
@@ -333,8 +316,7 @@ def materialize_local_plan(
                         state,
                         point_index=point.logical_ordinal,
                         ctx=ctx,
-                        backend=relation_backend,
-                        selected_plan=selected_program.selected_plan,
+                        relation_plan=verified_program.relation_plan,
                         location=model_location("state", state_index),
                     )
                 )
@@ -354,8 +336,7 @@ def materialize_local_plan(
                         action,
                         point_index=point.logical_ordinal,
                         ctx=ctx,
-                        backend=relation_backend,
-                        selected_plan=selected_program.selected_plan,
+                        relation_plan=verified_program.relation_plan,
                     )
                 )
             except (ArithmeticError, KeyError, TypeError, ValueError) as error:
@@ -371,7 +352,6 @@ def materialize_local_plan(
         return _empty_plan(
             program,
             problems,
-            relation_backend=relation_backend,
             local_implementations=implementations,
             local_product_realizations=product_realizations,
         )
@@ -381,8 +361,7 @@ def materialize_local_plan(
         planner_points,
         point_parameters,
         problems,
-        selected_program=selected_program,
-        relation_backend=relation_backend,
+        verified_program=verified_program,
     )
     state_by_point: dict[int, list[StateRecord]] = {}
     for record in state_records:
@@ -441,8 +420,7 @@ def materialize_local_plan(
             implementations=implementations,
             demanded_payload_results=demanded_payload_results,
             problems=problems,
-            selected_program=selected_program,
-            relation_backend=relation_backend,
+            verified_program=verified_program,
         )
         desired = _bind_desired_state(
             point_state_records,
@@ -544,7 +522,6 @@ def materialize_local_plan(
         expected_dataset_schema=schema,
         local_implementations=implementations,
         local_product_realizations=product_realizations,
-        relation_backend_id=relation_backend.backend_id,
         compute_definitions=tuple(
             _bound_compute_definition(node) for node in program.compute_nodes
         ),
@@ -556,7 +533,6 @@ def _empty_plan(
     program: TypedProgram,
     problems: Sequence[Problem],
     *,
-    relation_backend: RelationBackend,
     local_implementations: SelectedLocalImplementations | None = None,
     local_product_realizations: SelectedLocalProductRealizations | None = None,
 ) -> BoundPlan:
@@ -594,7 +570,6 @@ def _empty_plan(
         expected_dataset_schema=None,
         local_implementations=local_implementations,
         local_product_realizations=local_product_realizations,
-        relation_backend_id=relation_backend.backend_id,
         compute_definitions=tuple(
             _bound_compute_definition(node) for node in program.compute_nodes
         ),
@@ -608,8 +583,7 @@ def _point_parameters(
     program: TypedProgram,
     point: MaterializedPoint,
     problems: list[Problem],
-    selected_program: SelectedTypedProgram,
-    relation_backend: RelationBackend,
+    verified_program: VerifiedTypedProgram,
 ) -> ParameterRelationData | None:
     if not program.parameter_overlays:
         return base
@@ -622,8 +596,7 @@ def _point_parameters(
                 overlay,
                 ctx=ctx,
                 params=params,
-                backend=relation_backend,
-                selected_plan=selected_program.selected_plan,
+                relation_plan=verified_program.relation_plan,
             )
         except CompilerProblemError as error:
             failed = True
@@ -638,8 +611,7 @@ def _bind_routes(
     point_parameters: Mapping[int, ParameterRelationData],
     problems: list[Problem],
     *,
-    selected_program: SelectedTypedProgram,
-    relation_backend: RelationBackend,
+    verified_program: VerifiedTypedProgram,
 ) -> dict[int, tuple[BoundRoute, ...]]:
     routing = environment.routing
     if routing is None:
@@ -659,9 +631,8 @@ def _bind_routes(
                     entity_values.append(
                         _evaluate_value_expr(
                             use.value,
-                            selected_program.selected_plan(use.id),
+                            verified_program.relation_plan(use.id),
                             ctx,
-                            relation_backend=relation_backend,
                         )
                     )
                 except (ArithmeticError, KeyError, TypeError, ValueError) as error:
@@ -724,8 +695,7 @@ def _bind_compute_calls(
     implementations: SelectedLocalImplementations,
     demanded_payload_results: set[ValueId],
     problems: list[Problem],
-    selected_program: SelectedTypedProgram,
-    relation_backend: RelationBackend,
+    verified_program: VerifiedTypedProgram,
 ) -> tuple[tuple[BoundComputeCall, ...], dict[ValueId, str]]:
     calls: list[BoundComputeCall] = []
     output_owners = {node.result.id: node.id for node in nodes}
@@ -747,11 +717,10 @@ def _bind_compute_calls(
                             input_spec.value_type,
                             _evaluate_value_expr(
                                 input_spec.value,
-                                selected_program.selected_plan(
+                                verified_program.relation_plan(
                                     input_spec.relation_use_id
                                 ),
                                 ctx,
-                                relation_backend=relation_backend,
                             ),
                             path=("compute", *node.id.scope, node.id.local_id, name),
                         )
@@ -1539,27 +1508,22 @@ def _bound_axis(axis: RecordAxisPlan | ProductAxisDef) -> BoundAxis:
 
 def _evaluate_value_expr(
     value: ValueExpr | object,
-    selected_plan: SelectedRelationPlan[PlanNode],
+    relation_plan: VerifiedRelationPlan[PlanNode],
     ctx: EvalContext,
-    *,
-    relation_backend: RelationBackend,
 ) -> object:
     if isinstance(value, ScalarValueExpr):
         return evaluate_scalar(
-            relation_backend,
-            cast("SelectedRelationPlan[ScalarExpr]", selected_plan),
+            cast("VerifiedRelationPlan[ScalarExpr]", relation_plan),
             ctx,
         )
     if isinstance(value, SeriesValueExpr):
         return evaluate_series(
-            relation_backend,
-            cast("SelectedRelationPlan[SeriesExpr]", selected_plan),
+            cast("VerifiedRelationPlan[SeriesExpr]", relation_plan),
             ctx,
         )
     if isinstance(value, TableValueExpr):
         return evaluate_relation_in_context(
-            relation_backend,
-            cast("SelectedRelationPlan[RelationExpr]", selected_plan),
+            cast("VerifiedRelationPlan[RelationExpr]", relation_plan),
             ctx,
         )
     msg = f"unsupported typed value expression: {value!r}"

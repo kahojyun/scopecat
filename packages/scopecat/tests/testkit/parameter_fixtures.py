@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scopecat.compiler.relations.backend import ParameterRelationData
+from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.verification import ParameterLookupSignature
 from scopecat.kernel.value_types import Bool, Scalar, String, Table, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType

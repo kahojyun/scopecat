@@ -57,7 +57,7 @@ from scopecat.compiler.frontend.scan_lowering import (
     lower_scan_point_domain,
     project_scan_record,
 )
-from scopecat.compiler.relations.backend import ParameterRelationData
+from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
     PointUnit,

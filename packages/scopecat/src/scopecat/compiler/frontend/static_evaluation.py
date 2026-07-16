@@ -5,13 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from scopecat.compiler.relations.backend import (
+from scopecat.compiler.relations.evaluation import (
     ParameterRelationData,
-    RelationBackend,
     evaluate_relation,
     evaluate_scalar,
     evaluate_series,
-    select_relation_plan,
 )
 from scopecat.compiler.relations.model import (
     CellValue,
@@ -39,15 +37,9 @@ def _static_bindings(bindings: RelationTypeBindings) -> RelationTypeBindings:
 
 @dataclass(frozen=True, slots=True)
 class StaticRelationEvaluator:
-    """Evaluate verified config-time relations on an explicit host backend.
-
-    The backend is intentionally supplied by the compiler entry point.  This
-    keeps config-time folding independent from the backend selected later for
-    target execution.
-    """
+    """Evaluate verified config-time relations."""
 
     parameters: ParameterRelationData
-    backend: RelationBackend
 
     def scalar(
         self,
@@ -63,8 +55,7 @@ class StaticRelationEvaluator:
             expected_type=expected_type,
         )
         return evaluate_scalar(
-            self.backend,
-            select_relation_plan(self.backend, verified),
+            verified,
             self.parameters.to_context(inputs=inputs),
         )
 
@@ -82,8 +73,7 @@ class StaticRelationEvaluator:
             expected_type=expected_type,
         )
         return evaluate_series(
-            self.backend,
-            select_relation_plan(self.backend, verified),
+            verified,
             self.parameters.to_context(inputs=inputs),
         )
 
@@ -101,8 +91,7 @@ class StaticRelationEvaluator:
             expected_type=expected_type,
         )
         return evaluate_relation(
-            self.backend,
-            select_relation_plan(self.backend, verified),
+            verified,
             self.parameters,
             inputs=inputs,
         )

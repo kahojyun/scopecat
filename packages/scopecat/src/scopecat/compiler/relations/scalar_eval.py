@@ -1,4 +1,4 @@
-"""Local scalar helpers used by the reference relation backend."""
+"""Local scalar helpers used by relation evaluation."""
 
 from __future__ import annotations
 

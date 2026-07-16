@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import replace
-from typing import override
 
 import pytest
 from hypothesis import given
@@ -16,13 +15,9 @@ from scopecat.compiler.linking.implementations import (
 )
 from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
-from scopecat.compiler.relations.backend import PreparedRelationEvaluation
 from scopecat.compiler.relations.model import (
-    RelationExpr,
-    Row,
     literal_rows,
 )
-from scopecat.compiler.relations.reference_backend import ReferenceRelationBackend
 from scopecat.compiler.semantic.availability import (
     ValueAvailability,
     ValueRate,
@@ -62,22 +57,6 @@ from tests.testkit.relation_plans import point_domain
 
 _FLOAT = Scalar(Float())
 _EXECUTE_POINT = ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
-
-
-class _TrackingBackend(ReferenceRelationBackend):
-    materialization_count: int
-
-    def __init__(self) -> None:
-        super().__init__(backend_id="tests.compute-availability")
-        self.materialization_count = 0
-
-    @override
-    def materialize_relation(
-        self,
-        evaluation: PreparedRelationEvaluation[RelationExpr],
-    ) -> list[Row]:
-        self.materialization_count += 1
-        return super().materialize_relation(evaluation)
 
 
 def _operation_id(local_id: str = "compute") -> OperationId:
@@ -625,11 +604,8 @@ def test_unsupported_local_result_availability_fails_before_point_evaluation() -
         catalog=_catalog(("python-v1", operation_id, lambda: 1.0)),
         output_availability=availability,
     )
-    backend = _TrackingBackend()
-
     plan = materialize_local_plan(
         link_program(program, validate_config_environment(load_config())),
-        relation_backend=backend,
     )
 
     assert not plan.valid
@@ -639,7 +615,6 @@ def test_unsupported_local_result_availability_fails_before_point_evaluation() -
     assert [problem.code for problem in plan.problems] == [
         "semantic_operation_local_output_availability_unsupported"
     ]
-    assert backend.materialization_count == 0
 
 
 def test_compute_result_identity_does_not_change_value_cache_semantics() -> None:

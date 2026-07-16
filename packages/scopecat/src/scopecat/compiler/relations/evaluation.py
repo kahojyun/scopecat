@@ -1,24 +1,13 @@
-"""Explicit backend boundary for backend-neutral relation plans.
-
-Plan nodes live in :mod:`scopecat.compiler.relations.model` and contain no
-execution policy.
-This module owns runtime bindings, capability selection, and normalized
-dispatch through an explicitly selected backend.
-"""
+"""Runtime bindings and checked evaluation for verified relation plans."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import InitVar, dataclass, field
-from enum import StrEnum
-from typing import Protocol, cast, runtime_checkable
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from scopecat.compiler.relations.analysis import (
-    PlanNode,
-    RelationOperation,
-)
+from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.model import (
     CellValue,
     RelationExpr,
@@ -33,14 +22,9 @@ from scopecat.compiler.relations.scalar_eval import (
     read_path,
 )
 from scopecat.compiler.relations.verification import (
-    ExternalRowInterface,
     ExternalRowRequirement,
     PlanImportNamespace,
-    PlanPath,
-    PlanTypeFact,
-    RelationRuntimeObligationKind,
     RowType,
-    RuntimeObligation,
     TypedPlanImport,
     VerifiedRelationPlan,
 )
@@ -248,7 +232,7 @@ class ParameterRelationData:
 
 
 class EvalContext(BaseModel):
-    """Closed bindings for one backend evaluation.
+    """Closed bindings for one relation evaluation.
 
     ``row`` is the current relation-row scope, ``outer_row`` is an explicit
     lexical/lateral parent, and ``point_row`` is the experiment point.  They
@@ -265,287 +249,50 @@ class EvalContext(BaseModel):
     inputs: dict[str, object] = Field(default_factory=dict)
 
 
-class RelationBackendCapabilityDimension(StrEnum):
-    """Orthogonal dimensions on which backend selection can reject a plan."""
-
-    OPERATION = "operation"
-    ROW_INTERFACE = "row_interface"
-    RUNTIME_OBLIGATION = "runtime_obligation"
-    TYPE_REQUIREMENT = "type_requirement"
-
-
-@dataclass(frozen=True, slots=True)
-class RelationBackendCapabilityIssue:
-    """One structured reason a verified plan cannot target a backend."""
-
-    dimension: RelationBackendCapabilityDimension
-    code: str
-    path: PlanPath
-    message: str
-
-
-@dataclass(frozen=True, slots=True)
-class RelationPlanRequirements:
-    """The backend-facing static projection of one relation proof."""
-
-    certified_type: ValueType
-    node_type_facts: tuple[PlanTypeFact, ...]
-    typed_imports: tuple[TypedPlanImport, ...]
-    external_row_interface: ExternalRowInterface
-    required_operations: tuple[RelationOperation, ...]
-    runtime_obligations: tuple[RuntimeObligation, ...]
-
-    @classmethod
-    def from_verified(
-        cls,
-        verified_plan: VerifiedRelationPlan[PlanNode],
-    ) -> RelationPlanRequirements:
-        return cls(
-            certified_type=verified_plan.certified_type,
-            node_type_facts=verified_plan.facts,
-            typed_imports=verified_plan.imports,
-            external_row_interface=verified_plan.external_row_interface,
-            required_operations=verified_plan.required_operations,
-            runtime_obligations=verified_plan.runtime_obligations,
-        )
-
-
-class RelationBackendCapabilityError(ValueError):
-    """A selected backend cannot implement a verified plan's requirements."""
-
-    def __init__(
-        self,
-        backend_id: str,
-        issues: Sequence[RelationBackendCapabilityIssue],
-    ) -> None:
-        self.backend_id = backend_id
-        self.issues = tuple(issues)
-        rendered = "; ".join(
-            f"{issue.dimension.value}:{issue.code} ({issue.message})"
-            for issue in self.issues
-        )
-        super().__init__(f"relation backend {backend_id!r} rejected plan: {rendered}")
-
-
-@runtime_checkable
-class RelationBackend(Protocol):
-    """Implementation selected by compiler policy for one verified plan."""
-
-    @property
-    def backend_id(self) -> str: ...
-
-    @property
-    def capability_fingerprint(self) -> str: ...
-
-    @property
-    def supported_operations(self) -> frozenset[RelationOperation]: ...
-
-    @property
-    def discharged_obligations(
-        self,
-    ) -> frozenset[RelationRuntimeObligationKind]: ...
-
-    def assess_relation_requirements(
-        self,
-        requirements: RelationPlanRequirements,
-    ) -> Sequence[RelationBackendCapabilityIssue]: ...
-
-    def materialize_scalar(
-        self,
-        evaluation: PreparedRelationEvaluation[ScalarExpr],
-    ) -> CellValue: ...
-
-    def materialize_series(
-        self,
-        evaluation: PreparedRelationEvaluation[SeriesExpr],
-    ) -> list[CellValue]: ...
-
-    def materialize_relation(
-        self,
-        evaluation: PreparedRelationEvaluation[RelationExpr],
-    ) -> list[Row]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class SelectedRelationPlan[NodeT: PlanNode]:
-    """A verified plan whose operations are supported by one backend.
-
-    The selected backend is represented by its stable public identity; the
-    enclosed proof retains the defensive-copy guarantees of
-    :class:`VerifiedRelationPlan`.
-    """
-
-    backend_id: str
-    backend_capability_fingerprint: str
-    verified_plan: VerifiedRelationPlan[NodeT] = field(repr=False)
-
-    def __post_init__(self) -> None:
-        if not self.backend_id or not self.backend_capability_fingerprint:
-            msg = "selected relation plan requires stable backend capability identity"
-            raise ValueError(msg)
-
-    @property
-    def root(self) -> NodeT:
-        """Return a defensive copy of the selected plan root."""
-
-        return self.verified_plan.root
-
-    @property
-    def certified_type(self) -> ValueType:
-        return self.verified_plan.certified_type
-
-    @property
-    def required_operations(self) -> tuple[RelationOperation, ...]:
-        return self.verified_plan.required_operations
-
-    @property
-    def requirements(self) -> RelationPlanRequirements:
-        return RelationPlanRequirements.from_verified(self.verified_plan)
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedRelationEvaluation[NodeT: PlanNode]:
-    """A selected plan paired with a context validated against its proof."""
-
-    backend: InitVar[RelationBackend]
-    selected_plan: SelectedRelationPlan[NodeT]
-    context: EvalContext
-
-    def __post_init__(self, backend: RelationBackend) -> None:
-        _validate_evaluation_context(backend, self.selected_plan, self.context)
-        object.__setattr__(
-            self,
-            "context",
-            _normalize_evaluation_context(
-                self.selected_plan.verified_plan,
-                self.context,
-            ),
-        )
-
-    @property
-    def certified_type(self) -> ValueType:
-        return self.selected_plan.certified_type
-
-    def unwrap_for_backend(
-        self,
-        backend: RelationBackend,
-    ) -> tuple[NodeT, EvalContext]:
-        """Return the checked plan root and normalized evaluation context."""
-
-        return (
-            _unwrap_selected_plan(backend, self.selected_plan),
-            self.context,
-        )
-
-
-def select_relation_plan[NodeT: PlanNode](
-    backend: RelationBackend,
-    verified_plan: VerifiedRelationPlan[NodeT],
-) -> SelectedRelationPlan[NodeT]:
-    """Bind a static relation proof to a backend capability set."""
-
-    issues = assess_relation_plan(backend, verified_plan)
-    if issues:
-        raise RelationBackendCapabilityError(backend.backend_id, issues)
-    return SelectedRelationPlan[NodeT](
-        backend.backend_id,
-        backend.capability_fingerprint,
-        verified_plan,
-    )
-
-
-def _unwrap_selected_plan[NodeT: PlanNode](
-    backend: RelationBackend,
-    selected_plan: SelectedRelationPlan[NodeT],
-) -> NodeT:
-    """Recover a defensive root for a backend-bound evaluator dispatch."""
-
-    if (
-        selected_plan.backend_id != backend.backend_id
-        or selected_plan.backend_capability_fingerprint
-        != backend.capability_fingerprint
-    ):
-        msg = (
-            "relation plan backend capability identity does not match the "
-            f"evaluator {backend.backend_id!r}"
-        )
-        raise ValueError(msg)
-    return selected_plan.root
-
-
-def assess_relation_plan[NodeT: PlanNode](
-    backend: RelationBackend,
-    verified_plan: VerifiedRelationPlan[NodeT],
-) -> tuple[RelationBackendCapabilityIssue, ...]:
-    """Return every stable reason a backend rejects a verified plan."""
-
-    requirements = RelationPlanRequirements.from_verified(verified_plan)
-    operation_issues = tuple(
-        RelationBackendCapabilityIssue(
-            dimension=RelationBackendCapabilityDimension.OPERATION,
-            code=fact.operation.value,
-            path=fact.path,
-            message=f"operation {fact.operation.value!r} is unsupported",
-        )
-        for fact in requirements.node_type_facts
-        if fact.operation not in backend.supported_operations
-    )
-    obligation_issues = tuple(
-        RelationBackendCapabilityIssue(
-            dimension=RelationBackendCapabilityDimension.RUNTIME_OBLIGATION,
-            code=obligation.code.value,
-            path=obligation.path,
-            message=f"runtime obligation {obligation.code.value!r} is not discharged",
-        )
-        for obligation in requirements.runtime_obligations
-        if obligation.code not in backend.discharged_obligations
-    )
-    type_issues = tuple(backend.assess_relation_requirements(requirements))
-    return (*operation_issues, *obligation_issues, *type_issues)
-
-
 def evaluate_scalar(
-    backend: RelationBackend,
-    selected_plan: SelectedRelationPlan[ScalarExpr],
+    verified_plan: VerifiedRelationPlan[ScalarExpr],
     ctx: EvalContext,
 ) -> CellValue:
-    evaluation = _prepare_evaluation(backend, selected_plan, ctx)
-    result = backend.materialize_scalar(evaluation)
+    from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
+
+    normalized = _prepare_context(verified_plan, ctx)
+    result = evaluate_scalar_expression(verified_plan.root, normalized)
     return cast(
         "CellValue",
-        _normalize_materialized_result(evaluation.certified_type, result),
+        _normalize_materialized_result(verified_plan.certified_type, result),
     )
 
 
 def evaluate_series(
-    backend: RelationBackend,
-    selected_plan: SelectedRelationPlan[SeriesExpr],
+    verified_plan: VerifiedRelationPlan[SeriesExpr],
     ctx: EvalContext,
 ) -> list[CellValue]:
-    evaluation = _prepare_evaluation(backend, selected_plan, ctx)
-    result = backend.materialize_series(evaluation)
+    from scopecat.compiler.relations.evaluator import evaluate_series_expression
+
+    normalized = _prepare_context(verified_plan, ctx)
+    result = evaluate_series_expression(verified_plan.root, normalized)
     return cast(
         "list[CellValue]",
-        _normalize_materialized_result(evaluation.certified_type, result),
+        _normalize_materialized_result(verified_plan.certified_type, result),
     )
 
 
 def evaluate_relation_in_context(
-    backend: RelationBackend,
-    selected_plan: SelectedRelationPlan[RelationExpr],
+    verified_plan: VerifiedRelationPlan[RelationExpr],
     ctx: EvalContext,
 ) -> list[Row]:
-    evaluation = _prepare_evaluation(backend, selected_plan, ctx)
-    result = backend.materialize_relation(evaluation)
+    from scopecat.compiler.relations.evaluator import evaluate_relation_expression
+
+    normalized = _prepare_context(verified_plan, ctx)
+    result = evaluate_relation_expression(verified_plan.root, normalized)
     return cast(
         "list[Row]",
-        _normalize_materialized_result(evaluation.certified_type, result),
+        _normalize_materialized_result(verified_plan.certified_type, result),
     )
 
 
 def evaluate_relation(
-    backend: RelationBackend,
-    selected_plan: SelectedRelationPlan[RelationExpr],
+    verified_plan: VerifiedRelationPlan[RelationExpr],
     params: ParameterRelationData | None = None,
     *,
     row: Row | None = None,
@@ -555,8 +302,7 @@ def evaluate_relation(
     inputs: Mapping[str, object] | None = None,
 ) -> list[Row]:
     return evaluate_relation_in_context(
-        backend,
-        selected_plan,
+        verified_plan,
         EvalContext(
             params=params or ParameterRelationData(),
             row=row,
@@ -587,27 +333,21 @@ def validate_relation_parameter_import[NodeT: PlanNode](
 
 
 def _validate_evaluation_context[NodeT: PlanNode](
-    backend: RelationBackend,
-    selected_plan: SelectedRelationPlan[NodeT],
+    verified_plan: VerifiedRelationPlan[NodeT],
     ctx: EvalContext,
 ) -> None:
-    """Validate the dynamic lexical environment before backend dispatch."""
+    """Validate the dynamic lexical environment before evaluation."""
 
-    _unwrap_selected_plan(backend, selected_plan)
-    _validate_used_imports(selected_plan.verified_plan, ctx)
-    _validate_used_row_roles(selected_plan.verified_plan, ctx)
+    _validate_used_imports(verified_plan, ctx)
+    _validate_used_row_roles(verified_plan, ctx)
 
 
-def _prepare_evaluation[NodeT: PlanNode](
-    backend: RelationBackend,
-    selected_plan: SelectedRelationPlan[NodeT],
+def _prepare_context[NodeT: PlanNode](
+    verified_plan: VerifiedRelationPlan[NodeT],
     ctx: EvalContext,
-) -> PreparedRelationEvaluation[NodeT]:
-    return PreparedRelationEvaluation(
-        backend,
-        selected_plan,
-        ctx,
-    )
+) -> EvalContext:
+    _validate_evaluation_context(verified_plan, ctx)
+    return _normalize_evaluation_context(verified_plan, ctx)
 
 
 def _validate_used_imports[NodeT: PlanNode](
@@ -1041,7 +781,7 @@ def _normalize_materialized_result(
     value_type: ValueType,
     value: object,
 ) -> CellValue | list[CellValue] | list[Row]:
-    """Normalize a backend result and enforce its runtime carrier contract."""
+    """Normalize a result and enforce its runtime carrier contract."""
 
     return _normalize_typed_value(value_type, value, path=("result",))
 
@@ -1124,18 +864,9 @@ def _restore_runtime_collection_carriers(
 __all__ = [
     "EvalContext",
     "ParameterRelationData",
-    "PreparedRelationEvaluation",
-    "RelationBackend",
-    "RelationBackendCapabilityDimension",
-    "RelationBackendCapabilityError",
-    "RelationBackendCapabilityIssue",
-    "RelationPlanRequirements",
-    "SelectedRelationPlan",
-    "assess_relation_plan",
     "evaluate_relation",
     "evaluate_relation_in_context",
     "evaluate_scalar",
     "evaluate_series",
-    "select_relation_plan",
     "validate_relation_parameter_import",
 ]

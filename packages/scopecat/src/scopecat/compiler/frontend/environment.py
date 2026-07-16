@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.compiler.relations.backend import ParameterRelationData
+from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.kernel.problems import Problem, has_blocking_problems
 from scopecat.planning.routing import RoutingView

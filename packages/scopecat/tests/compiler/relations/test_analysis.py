@@ -1,9 +1,9 @@
 import pytest
 
 from scopecat.compiler.relations.analysis import (
+    PlanOperation,
     PlanReference,
     PlanReferenceKind,
-    RelationOperation,
     RelationPlanBinderError,
     free_row_references,
     iter_plan_children,
@@ -157,7 +157,7 @@ def test_plan_walk_and_references_cover_every_nested_shape() -> None:
 
     assert tuple(iter_plan_children(plan)) == (left, right)
     assert relation_operation(next(walk_plan(plan))) is (
-        RelationOperation.RELATION_LATERAL_CROSS
+        PlanOperation.RELATION_LATERAL_CROSS
     )
     assert plan_references(plan).references == frozenset(
         {

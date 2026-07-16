@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import override
 
 import pytest
 from hypothesis import given
@@ -11,11 +10,7 @@ from scopecat.compiler.frontend.assembly_lowering import lower_semantic_compute_
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
-from scopecat.compiler.relations.analysis import RelationOperation
-from scopecat.compiler.relations.backend import PreparedRelationEvaluation
 from scopecat.compiler.relations.model import (
-    RelationExpr,
-    Row,
     lit,
     literal_rows,
 )
@@ -24,7 +19,6 @@ from scopecat.compiler.relations.operators import (
     ScalarOperator,
 )
 from scopecat.compiler.relations.point_domain import point_rows
-from scopecat.compiler.relations.reference_backend import ReferenceRelationBackend
 from scopecat.compiler.relations.scalar_eval import eval_binary
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.availability import (
@@ -81,22 +75,6 @@ from tests.testkit.relation_plans import table_value_expr, value_expr
 _FLOAT = Scalar(Float())
 _PLAN_RUN = ValueAvailability(ValueStage.PLAN, ValueRate.RUN)
 _EXECUTE_POINT = ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
-
-
-class _TrackingBackend(ReferenceRelationBackend):
-    materialization_count: int
-
-    def __init__(self) -> None:
-        super().__init__(backend_id="tests.operation-contract")
-        self.materialization_count = 0
-
-    @override
-    def materialize_relation(
-        self,
-        evaluation: PreparedRelationEvaluation[RelationExpr],
-    ) -> list[Row]:
-        self.materialization_count += 1
-        return super().materialize_relation(evaluation)
 
 
 @given(
@@ -196,26 +174,17 @@ def test_contract_survives_every_local_compiler_boundary() -> None:
     }
 
 
-def test_local_target_selection_aggregates_failures_before_materialization() -> None:
+def test_local_target_selection_reports_missing_implementation() -> None:
     _graph, program = _compute_program("+", include_scalar_implementation=False)
     environment = validate_config_environment(load_config())
-    backend = _TrackingBackend()
-    object.__setattr__(
-        backend,
-        "supported_operations",
-        backend.supported_operations - {RelationOperation.SCALAR_LITERAL},
-    )
-
     linked = link_program(program, environment)
-    plan = materialize_local_plan(linked, relation_backend=backend)
+    plan = materialize_local_plan(linked)
 
     assert not plan.valid
     assert plan.points == ()
     assert {problem.code for problem in plan.problems} == {
         "semantic_operation_implementation_missing",
-        "relation_backend_capability_unsupported",
     }
-    assert backend.materialization_count == 0
 
 
 def test_compute_cache_identity_includes_semantic_contract() -> None:

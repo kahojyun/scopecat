@@ -1,9 +1,8 @@
-"""Static type and schema verification for backend-neutral relation plans.
+"""Static type and schema verification for relation plans.
 
 The relation AST deliberately remains an easy-to-author data model.  This
-module turns that model into a proof-carrying plan before compiler or backend
-code may rely on its shape.  Verification is backend-neutral: backend
-selection is a separate capability check over the certified operations.
+module turns that model into a proof-carrying plan before compiler or runtime
+code may rely on its shape.
 """
 
 from __future__ import annotations
@@ -17,15 +16,14 @@ from typing import cast
 
 from scopecat.compiler.relations.analysis import (
     PlanNode,
+    PlanOperation,
     PlanReferenceKind,
     PlanReferences,
-    RelationOperation,
     RelationPlanBinderError,
     RelationPlanScopeError,
     free_row_references,
     plan_references,
     relation_operation,
-    relation_operations,
     verify_plan_scopes,
 )
 from scopecat.compiler.relations.model import (
@@ -254,7 +252,7 @@ class PlanTypeFact:
     """The inferred type of one operation occurrence at a stable AST path."""
 
     path: PlanPath
-    operation: RelationOperation
+    operation: PlanOperation
     value_type: ValueType
 
 
@@ -293,7 +291,6 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         "_free_row_references",
         "_imports",
         "_references",
-        "_required_operations",
         "_root",
         "_runtime_obligations",
     )
@@ -305,7 +302,6 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         facts: tuple[PlanTypeFact, ...],
         imports: tuple[TypedPlanImport, ...],
         references: PlanReferences,
-        required_operations: tuple[RelationOperation, ...],
         runtime_obligations: tuple[RuntimeObligation, ...],
         bindings: RelationTypeBindings,
         external_row_interface: ExternalRowInterface | None = None,
@@ -320,7 +316,6 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         self._external_row_interface = external_row_interface
         self._free_row_references = free_row_references(root)
         self._references = references
-        self._required_operations = required_operations
         self._runtime_obligations = runtime_obligations
 
     def __copy__(self) -> VerifiedRelationPlan[NodeT]:
@@ -367,10 +362,6 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
     @property
     def references(self) -> PlanReferences:
         return self._references
-
-    @property
-    def required_operations(self) -> tuple[RelationOperation, ...]:
-        return self._required_operations
 
     @property
     def runtime_obligations(self) -> tuple[RuntimeObligation, ...]:
@@ -422,7 +413,6 @@ def verify_relation_plan[NodeT: PlanNode](
         tuple(verifier.facts),
         tuple(verifier.imports.values()),
         plan_references(root),
-        relation_operations(root),
         tuple(verifier.obligations),
         selected,
         _external_row_interface(verifier, free_references, selected),

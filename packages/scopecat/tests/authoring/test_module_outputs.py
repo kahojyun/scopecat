@@ -10,9 +10,8 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_scalar_operation,
 )
 from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.relations.backend import EvalContext
+from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import ScalarExpr
-from scopecat.compiler.relations.reference_backend import REFERENCE_RELATION_BACKEND
 from scopecat.compiler.semantic.availability import (
     ValueAvailability,
     ValueRate,
@@ -290,7 +289,6 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
     assert isinstance(passthrough.source.expression, ScalarExpr)
     assert (
         evaluate_scalar(
-            REFERENCE_RELATION_BACKEND,
             passthrough.source.expression,
             EvalContext(),
             bindings=passthrough.source.verified_plan.bindings,
@@ -313,7 +311,6 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
     assert isinstance(operands["left"].expression, ScalarExpr)
     assert (
         evaluate_scalar(
-            REFERENCE_RELATION_BACKEND,
             operands["left"].expression,
             EvalContext(),
             bindings=operands["left"].verified_plan.bindings,
@@ -421,7 +418,6 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
     assert isinstance(operands["left"].expression, ScalarExpr)
     assert (
         evaluate_scalar(
-            REFERENCE_RELATION_BACKEND,
             operands["left"].expression,
             EvalContext(),
             bindings=operands["left"].verified_plan.bindings,
