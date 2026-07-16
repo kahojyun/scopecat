@@ -40,9 +40,7 @@ backend_batch_preview = (
 system_scale_summary = {
     "surface_code_records": [record.id for record in surface_code_preview.records],
     "surface_code_coordinates": list(surface_code_preview.coordinate_ids),
-    "backend_batch_payloads": [
-        payload.semantic_operation_id for payload in backend_batch_preview.payloads
-    ],
+    "backend_batch_points": backend_batch_preview.point_count,
     "backend_batch_records": [record.id for record in backend_batch_preview.records],
 }
 print(system_scale_summary)

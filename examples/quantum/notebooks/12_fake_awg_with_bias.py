@@ -48,7 +48,7 @@ bias_x_count_points = [
 bias_readbacks = [
     record.observables["bias_voltage_readback"] for record in measurements
 ]
-mixed_execution_summary = {
+mixed_execution_results = {
     "status": completed_run.manifest.status,
     "logical_points": preview.point_count,
     "record_ids": [record.id for record in preview.records],
@@ -57,4 +57,4 @@ mixed_execution_summary = {
     "bias_x_count_points": bias_x_count_points,
     "bias_readbacks": bias_readbacks,
 }
-print(mixed_execution_summary)
+print(mixed_execution_results)

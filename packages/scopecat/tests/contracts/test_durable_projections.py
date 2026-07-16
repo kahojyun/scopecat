@@ -6,14 +6,12 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.resolution import compile_prepared_invocation
 from scopecat.compiler.pipeline import compile_experiment
 from scopecat.compiler.relations.reference_backend import ReferenceRelationBackend
-from scopecat.planning.preview import build_experiment_preview
-from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.records.run_request import RunRequest
 from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
 
@@ -52,35 +50,6 @@ def test_run_request_v4_projector_matches_golden_and_round_trips(
     assert request.schema_version == "scopecat.run_request.v4"
     assert request.model_dump(mode="json") == golden
     assert restored == request
-
-
-def test_preview_projection_is_repeatable_and_plain(
-    tmp_path: Path,
-) -> None:
-    invocation = compile_prepared_invocation(load_prepared_invocation())
-    environment = validate_config_environment(load_config())
-
-    compiled_first = compile_experiment(
-        invocation,
-        environment=environment,
-    )
-    compiled_second = compile_experiment(
-        invocation,
-        environment=environment,
-    )
-    assert compiled_first.valid, compiled_first.problems
-    assert compiled_second.valid, compiled_second.problems
-
-    preview_adapter = TypeAdapter(ExperimentPreview)
-    preview_first = preview_adapter.dump_python(
-        build_experiment_preview(compiled_first.plan),
-        mode="json",
-    )
-    preview_second = preview_adapter.dump_python(
-        build_experiment_preview(compiled_second.plan),
-        mode="json",
-    )
-    assert preview_first == preview_second
 
 
 def test_compilation_workflow_threads_the_selected_relation_backend(

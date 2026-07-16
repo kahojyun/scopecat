@@ -5,7 +5,6 @@ from __future__ import annotations
 from scopecat.kernel.errors import DataIntegrityError
 from scopecat.kernel.problems import ProblemCategory
 from scopecat.measurements.datasets import (
-    MEASUREMENT_DATASET_KIND,
     assemble_measurement_dataset,
     measurement_records_error,
 )
@@ -15,22 +14,15 @@ from scopecat.measurements.results import (
     MeasurementRecord,
 )
 from scopecat.records.artifact import RunDatasetEntry
-from scopecat.runs.access import dataset_storage_ref, require_dataset
-from scopecat.runs.refs import dataset_content_ref
+from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import RunRepository
-
-MEASUREMENT_DATASET_ID = "raw-measurements"
-MEASUREMENT_DATA_REF = dataset_content_ref(
-    dataset_id=MEASUREMENT_DATASET_ID,
-    kind=MEASUREMENT_DATASET_KIND,
-)
 
 
 def read_measurement_records(
     *,
     storage: RunRepository,
     run_id: str,
-    ref: str = MEASUREMENT_DATA_REF,
+    ref: str,
     missing_code: str,
     empty_code: str,
     invalid_code: str,
@@ -60,32 +52,6 @@ def read_measurement_records(
     return records
 
 
-def read_measurement_records_artifact(
-    *,
-    storage: RunRepository,
-    run_id: str,
-    selector: str = MEASUREMENT_DATASET_ID,
-    missing_code: str,
-    empty_code: str,
-    invalid_code: str,
-    noun: str,
-) -> list[MeasurementRecord]:
-    dataset = require_dataset(
-        manifest=storage.read_manifest(run_id),
-        selector=selector,
-        expected_kind=MEASUREMENT_DATASET_KIND,
-    )
-    return read_measurement_records(
-        storage=storage,
-        run_id=run_id,
-        ref=dataset_storage_ref(dataset),
-        missing_code=missing_code,
-        empty_code=empty_code,
-        invalid_code=invalid_code,
-        noun=noun,
-    )
-
-
 def read_measurement_dataset(
     *,
     storage: RunRepository,
@@ -109,25 +75,5 @@ def read_measurement_dataset(
         ref=ref,
         schema_data=dataset.data_schema,
         metadata=dataset.metadata,
-        contract=contract,
-    )
-
-
-def read_measurement_dataset_artifact(
-    *,
-    storage: RunRepository,
-    run_id: str,
-    selector: str = MEASUREMENT_DATASET_ID,
-    contract: MeasurementDatasetReadContract,
-) -> MeasurementDataset:
-    dataset = require_dataset(
-        manifest=storage.read_manifest(run_id),
-        selector=selector,
-        expected_kind=MEASUREMENT_DATASET_KIND,
-    )
-    return read_measurement_dataset(
-        storage=storage,
-        run_id=run_id,
-        dataset=dataset,
         contract=contract,
     )

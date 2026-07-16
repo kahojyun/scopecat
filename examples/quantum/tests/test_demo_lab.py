@@ -10,7 +10,7 @@ import pytest
 from quantum_lab_demo import (
     NOTEBOOK_WORKSPACE_ROOT_ENV,
 )
-from scopecat import ComparisonHandle, Quantity, RunHandle
+from scopecat import Quantity, RunHandle
 
 EXAMPLE_ROOT = Path(__file__).parents[1]
 NOTEBOOKS_DIR = EXAMPLE_ROOT / "notebooks"
@@ -22,7 +22,7 @@ def test_notebook_style_examples_execute_user_workflows(
 ) -> None:
     monkeypatch.setenv(NOTEBOOK_WORKSPACE_ROOT_ENV, str(tmp_path))
 
-    review_rerun = _run_notebook("06_review_candidate_and_rerun.py")
+    candidate_rerun = _run_notebook("06_rerun_candidate_config.py")
     gate_family = _run_notebook("07_gate_calibration_family.py")
     readout_family = _run_notebook("08_readout_family.py")
     system_scale = _run_notebook("09_system_scale_cases.py")
@@ -32,36 +32,21 @@ def test_notebook_style_examples_execute_user_workflows(
     drag_beta = _run_notebook("13_drag_beta_calibration.py")
     cz_phase = _run_notebook("15_cz_conditional_phase.py")
 
-    baseline = cast("RunHandle", review_rerun["baseline"])
-    follow_up = cast("RunHandle", review_rerun["follow_up"])
-    comparison = cast("ComparisonHandle", review_rerun["comparison"])
+    baseline = cast("RunHandle", candidate_rerun["baseline"])
+    follow_up = cast("RunHandle", candidate_rerun["follow_up"])
     completed_run = cast("RunHandle", drag_beta["completed_run"])
     cz_run = cast("RunHandle", cz_phase["run"])
 
     assert baseline.manifest.status == "completed"
     assert follow_up.manifest.status == "completed"
-    assert comparison.result.baseline_run_id == baseline.id
-    assert comparison.result.candidate_run_id == follow_up.id
+    assert baseline.id != follow_up.id
     assert gate_family["gate_family_summary"] == {
         "rabi_points": 7,
         "rabi_qubit_scan_points": 10,
         "rabi_qubit_scan_coordinates": ["qubit", "drive_length"],
         "simultaneous_rabi_points": 5,
-        "flux_background_state_count": 1,
-        "system_background_state_channels": [
-            (
-                "coupler-stack",
-                "set_flux_bias",
-                "offset",
-                [("coupler-q0-q1", "coupler.bias0")],
-            ),
-            (
-                "coupler-stack",
-                "set_flux_bias",
-                "offset",
-                [("coupler-q2-q3", "coupler.bias1")],
-            ),
-        ],
+        "flux_background_records": ["probability_1", "raw_iq"],
+        "system_background_records": ["probability_1", "raw_iq"],
         "cz_rb_points": 3,
         "cz_chevron_points": 4,
         "runtime_scan_points": 2,
@@ -91,7 +76,7 @@ def test_notebook_style_examples_execute_user_workflows(
     assert system_scale["system_scale_summary"] == {
         "surface_code_records": ["stabilizer_iq"],
         "surface_code_coordinates": [],
-        "backend_batch_payloads": ["batch/build-backend-batch-job"],
+        "backend_batch_points": 1,
         "backend_batch_records": ["backend_probabilities"],
     }
     expected_fake_summary = {
@@ -103,7 +88,7 @@ def test_notebook_style_examples_execute_user_workflows(
     }
     assert fake_template["template_summary"] == expected_fake_summary
     assert fake_scratch["scratch_summary"] == expected_fake_summary
-    mixed_summary = cast("dict[str, object]", fake_with_bias["mixed_execution_summary"])
+    mixed_summary = cast("dict[str, object]", fake_with_bias["mixed_execution_results"])
     assert mixed_summary["status"] == "completed"
     assert mixed_summary["logical_points"] == 8
     assert mixed_summary["record_ids"] == [

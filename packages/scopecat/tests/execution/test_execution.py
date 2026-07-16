@@ -63,7 +63,6 @@ from scopecat.composition.local import (
     local_workspace_services,
 )
 from scopecat.execution.evidence import (
-    execution_summary_ref,
     instrument_state_evidence_ref,
     run_outcome_ref,
 )
@@ -115,8 +114,8 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentStateCommandField,
     product_axis,
 )
+from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.execution import execute_bound_run, execute_program_run
-from tests.testkit.experiment_preview import config_with_physical_resources
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.records import (
     assert_model_round_trip,
@@ -210,7 +209,7 @@ def test_run_persists_measurements_and_run_files(
     tmp_path: Path,
 ) -> None:
     config = load_config()
-    manifest, summary = execute_bound_run(
+    manifest = execute_bound_run(
         config=config,
         experiment=load_experiment(),
         instruments=[TestSignalInstrument()],
@@ -220,25 +219,12 @@ def test_run_persists_measurements_and_run_files(
     run_dir = tmp_path / "runs" / manifest.run_id
     assert manifest.status == "completed"
     assert {record.id for record in manifest.records} == {
-        "execution-summary",
         "instrument-state-evidence",
         "run-outcome",
     }
     assert {dataset.id for dataset in manifest.datasets} == {"raw-measurements"}
     raw_dataset = manifest.datasets[0]
     assert raw_dataset.kind == "measurement_dataset"
-    assert summary.experiment_id == load_experiment().id
-    assert summary.instrument_ids == ["source-0"]
-    assert summary.point_count == 3
-    assert summary.completed_point_count == 3
-    assert summary.measurement_count == 3
-    assert summary.state.changed_field_count == 3
-    assert summary.state.skipped_field_count == 0
-    assert summary.state.state_command_count == 3
-    assert summary.compute.evaluated_node_count == 0
-    assert summary.compute.reused_node_count == 0
-    assert summary.compute.payload_count == 0
-
     persisted_manifest = read_model(run_dir / "manifest.json", RunManifest)
     persisted_config = read_model(
         run_dir / "config-profile.snapshot.json",
@@ -324,13 +310,12 @@ def test_terminal_persistence_error_reports_committed_and_pending_evidence(
     assert error.retry == "after_reconciliation"
     assert error.certainty == "known"
     assert "inspect_run_execution" in error.reconciliation
-    assert error.committed_refs == (run_outcome_ref(), execution_summary_ref())
+    assert error.committed_refs == (run_outcome_ref(),)
     assert error.pending_ref == pending_ref
     storage = local_run_repository(tmp_path)
     manifest = storage.read_manifest(error.run_id)
     assert manifest.lifecycle == "running"
     assert storage.exists(error.run_id, run_outcome_ref())
-    assert storage.exists(error.run_id, execution_summary_ref())
     assert not storage.exists(error.run_id, pending_ref)
 
 
@@ -355,7 +340,7 @@ class _NonFiniteSignalInstrument(TestSignalInstrument):
 def test_run_round_trips_non_finite_terminal_measurements(
     tmp_path: Path,
 ) -> None:
-    manifest, summary = execute_bound_run(
+    manifest = execute_bound_run(
         config=load_config(),
         experiment=load_experiment(),
         instruments=[_NonFiniteSignalInstrument()],
@@ -363,7 +348,6 @@ def test_run_round_trips_non_finite_terminal_measurements(
     )
 
     assert manifest.status == "completed"
-    assert summary.measurement_count == 3
     raw_path = (
         tmp_path / "runs" / manifest.run_id / dataset_storage_ref(manifest.datasets[0])
     )
@@ -778,7 +762,7 @@ def test_provider_lifecycle_is_inside_resource_lease(
         events=events,
     )
     config = load_config()
-    manifest, _summary = execute_program_run(
+    manifest = execute_program_run(
         config=config,
         experiment=load_experiment(),
         instrument_provider=provider,
@@ -1174,7 +1158,7 @@ def test_provider_description_interruption_precedes_run_acceptance(
 def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
     events: list[RuntimeEvent] = []
 
-    manifest, summary = execute_bound_run(
+    manifest = execute_bound_run(
         config=load_config(),
         experiment=load_experiment(),
         instruments=[TestSignalInstrument()],
@@ -1183,7 +1167,6 @@ def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
     )
 
     assert manifest.status == "completed"
-    assert summary.completed_point_count == 3
     lifecycle_events = [
         event.kind for event in events if event.kind in {"run_started", "run_finished"}
     ]
@@ -1252,7 +1235,7 @@ def test_runtime_event_sink_failure_does_not_change_durable_execution(
     def reject_event(_event: RuntimeEvent) -> None:
         raise RuntimeError("observer unavailable")
 
-    manifest, summary = execute_bound_run(
+    manifest = execute_bound_run(
         config=load_config(),
         experiment=load_experiment(),
         instruments=[TestSignalInstrument()],
@@ -1261,7 +1244,6 @@ def test_runtime_event_sink_failure_does_not_change_durable_execution(
     )
 
     assert manifest.status == "completed"
-    assert summary.completed_point_count == 3
     durable_transitions = FilesystemExecutionJournal(
         tmp_path,
         run_id=manifest.run_id,
@@ -1274,9 +1256,10 @@ def test_runtime_event_sink_failure_does_not_change_durable_execution(
         transition.stage == "record_measurement" and transition.state == "completed"
         for transition in durable_transitions
     )
+    assert manifest.outcome is not None
     assert all(
         problem.code != "execution_journal_commit_failed"
-        for problem in summary.problems
+        for problem in manifest.outcome.problems
     )
 
 
@@ -1381,7 +1364,7 @@ def test_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
     payload_observations: list[RuntimePayloadObservation] = []
 
     config = config_with_physical_resources({"source-0": ("play_program",)})
-    manifest, summary = execute_bound_run(
+    manifest = execute_bound_run(
         config=config,
         experiment=spec,
         instruments=[SignalInstrumentDriver()],
@@ -1468,10 +1451,6 @@ def test_run_reuses_unchanged_compute_payloads(tmp_path: Path) -> None:
     assert [
         event.metrics["compute_reused_node_count"] for event in state_reconciled
     ] == [1]
-    assert summary.compute.evaluated_node_count == 2
-    assert summary.compute.reused_node_count == 1
-    assert summary.compute.payload_count == 3
-    assert summary.state.payload_count == 2
     finished = events[-1]
     assert isinstance(finished, RunFinishedEvent)
     assert finished.compute_evaluated_node_count == 2
@@ -1500,7 +1479,7 @@ def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
     )
     events: list[RuntimeEvent] = []
 
-    manifest, summary = execute_bound_run(
+    manifest = execute_bound_run(
         config=load_config(),
         experiment=experiment,
         instruments=[instrument],
@@ -1510,9 +1489,6 @@ def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
 
     assert manifest.status == "completed"
     assert len(instrument.applied_commands) == 1
-    assert summary.state.changed_field_count == 1
-    assert summary.state.skipped_field_count == 2
-    assert summary.state.state_command_count == 1
     transitions = [
         event for event in events if isinstance(event, RuntimeTransitionEvent)
     ]

@@ -9,7 +9,6 @@ import pytest
 import scopecat as sc
 from scopecat.adapters.filesystem.execution import FilesystemExecutionJournal
 from scopecat.kernel.errors import RunIndeterminate
-from scopecat.records.execution import ExecutionSummary
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain.runtime import (
     DomainFetchCandidate,
@@ -125,15 +124,10 @@ def test_later_batch_failure_has_one_domain_problem_and_no_partial_dataset(
 
     codes = [problem.code for problem in captured.value.outcome.problems]
     [persisted] = lab.runs()
-    summary = ExecutionSummary.model_validate(
-        persisted.record_json("execution-summary").content
-    )
 
     assert codes.count("domain_synchronous_completion_contract_violated") == 1
     assert "execution_middle_effect_failed" not in codes
     assert adapter.runtime.physical_execution_count == 2
-    assert summary.completed_point_count == 0
-    assert summary.measurement_count == 0
     assert persisted.manifest.datasets == ()
 
 

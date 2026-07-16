@@ -9,15 +9,15 @@ from typing import Literal, Self, override
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from scopecat.records.config import ConfigContentHash
-from scopecat.records.parameter import ParameterSnapshot, StoredParameterValue
+from scopecat.records.parameter import StoredParameterValue
 from scopecat.records.run import utc_now
 
 
 class ParameterValueDelta(BaseModel):
-    """Review projection for one changed value in a candidate snapshot.
+    """Durable before/after state for one proposed parameter change.
 
-    Deltas describe the observed before/after state. They are deliberately not
-    replayable update commands; the candidate snapshot is the durable authority.
+    The source config identifies the authoritative base; ``before`` verifies that
+    base while ``after`` is the proposed value used to resolve a candidate.
     """
 
     model_config = ConfigDict(
@@ -60,7 +60,7 @@ class ParameterValueDelta(BaseModel):
 
 
 class ParameterChangeProposal(BaseModel):
-    """Immutable candidate parameter snapshot proposed by analysis."""
+    """Immutable parameter changes proposed against one source config."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -68,8 +68,8 @@ class ParameterChangeProposal(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.parameter_change_proposal.v1"] = (
-        "scopecat.parameter_change_proposal.v1"
+    schema_version: Literal["scopecat.parameter_change_proposal.v2"] = (
+        "scopecat.parameter_change_proposal.v2"
     )
     id: str
     source_run_id: str
@@ -77,7 +77,6 @@ class ParameterChangeProposal(BaseModel):
     base_config_content_hash: ConfigContentHash
     reason: str
     confidence: float | None = Field(default=None, ge=0, le=1)
-    candidate_snapshot: ParameterSnapshot
     deltas: tuple[ParameterValueDelta, ...] = Field(min_length=1)
     proposed_at: datetime = Field(default_factory=utc_now)
 
@@ -95,20 +94,13 @@ class ParameterChangeProposal(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_candidate_snapshot(self) -> ParameterChangeProposal:
+    def validate_deltas(self) -> ParameterChangeProposal:
         seen: set[str] = set()
         for delta in self.deltas:
             if delta.parameter_id in seen:
                 msg = f"duplicate parameter delta: {delta.parameter_id}"
                 raise ValueError(msg)
             seen.add(delta.parameter_id)
-            candidate_value = self.candidate_snapshot.get(delta.parameter_id)
-            if candidate_value != delta.after:
-                msg = (
-                    "parameter delta after value does not match candidate snapshot: "
-                    f"{delta.parameter_id}"
-                )
-                raise ValueError(msg)
         return self
 
     @override

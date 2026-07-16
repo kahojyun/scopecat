@@ -16,7 +16,6 @@ from scopecat.config.changes import (
     review_parameter_change_proposal,
 )
 from scopecat.kernel.errors import DataIntegrityError
-from scopecat.run_overview import build_run_overview
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.config_registry import signal_run_with_parameter_change
 
@@ -102,12 +101,8 @@ def test_parameter_change_decisions_append_invalidation_after_approval(
     ]
     assert len(decision_records) == 2
     assert decision_records[0].id != decision_records[1].id
-    overview = build_run_overview(
-        run_id=run_id, services=local_workspace_services(tmp_path)
-    )
-    decision_info = overview.parameter_change_proposals[0].decision_info
-    assert decision_info.decision == "invalidated"
-    assert [event.decision for event in decision_info.history] == [
+    assert decisions[-1].decision == "invalidated"
+    assert [event.decision for event in decisions] == [
         "approved",
         "invalidated",
     ]

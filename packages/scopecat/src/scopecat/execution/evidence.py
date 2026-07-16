@@ -8,33 +8,18 @@ from scopecat.execution.persistence import (
     build_run_manifest,
     ref_for_dataset,
 )
-from scopecat.kernel.problems import Problem
 from scopecat.measurements.results import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.artifact import RunDatasetEntry, RunRecordEntry
 from scopecat.records.config import ConfigContentHash
-from scopecat.records.execution import (
-    ComputeExecutionSummary,
-    ExecutionSummary,
-    InstrumentStateEvidence,
-    StateExecutionSummary,
-)
+from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
 from scopecat.runs.refs import record_content_ref
 
 RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
-EXECUTION_SUMMARY_ID = "execution-summary"
-EXECUTION_SUMMARY_KIND = "execution_summary"
 INSTRUMENT_STATE_EVIDENCE_ID = "instrument-state-evidence"
 INSTRUMENT_STATE_EVIDENCE_KIND = "instrument_state_evidence"
 RUN_OUTCOME_ID = "run-outcome"
 RUN_OUTCOME_KIND = "run_outcome"
-
-
-def execution_summary_ref() -> str:
-    return record_content_ref(
-        record_id=EXECUTION_SUMMARY_ID,
-        kind=EXECUTION_SUMMARY_KIND,
-    )
 
 
 def instrument_state_evidence_ref() -> str:
@@ -120,38 +105,6 @@ def _expected_record_count(schema: MeasurementDatasetSchema) -> int | None:
     return None
 
 
-def build_execution_summary(
-    *,
-    result: ExecutionEngineResult,
-    outcome: RunOutcome,
-    instrument_ids: list[str],
-    point_count: int,
-    problems: list[Problem],
-) -> ExecutionSummary:
-    return ExecutionSummary(
-        run_id=result.run_id,
-        experiment_id=result.experiment_id,
-        outcome=outcome,
-        instrument_ids=instrument_ids,
-        point_count=point_count,
-        completed_point_count=result.completed_point_count,
-        measurement_count=len(result.measurements),
-        problem_count=len(problems),
-        problems=tuple(problems),
-        state=StateExecutionSummary(
-            changed_field_count=result.changed_field_count,
-            skipped_field_count=result.skipped_field_count,
-            state_command_count=result.state_command_count,
-            payload_count=result.state_payload_count,
-        ),
-        compute=ComputeExecutionSummary(
-            evaluated_node_count=result.compute_evaluated_node_count,
-            reused_node_count=result.compute_reused_node_count,
-            payload_count=result.compute_payload_count,
-        ),
-    )
-
-
 def build_instrument_state_evidence(
     result: ExecutionEngineResult,
 ) -> InstrumentStateEvidence:
@@ -168,12 +121,7 @@ def _records(*, include_instrument_state: bool) -> list[RunRecordEntry]:
             id=RUN_OUTCOME_ID,
             kind=RUN_OUTCOME_KIND,
             media_type="application/json",
-        ),
-        RunRecordEntry(
-            id=EXECUTION_SUMMARY_ID,
-            kind=EXECUTION_SUMMARY_KIND,
-            media_type="application/json",
-        ),
+        )
     ]
     if include_instrument_state:
         records.append(
@@ -187,17 +135,13 @@ def _records(*, include_instrument_state: bool) -> list[RunRecordEntry]:
 
 
 __all__ = [
-    "EXECUTION_SUMMARY_ID",
-    "EXECUTION_SUMMARY_KIND",
     "INSTRUMENT_STATE_EVIDENCE_ID",
     "INSTRUMENT_STATE_EVIDENCE_KIND",
     "RAW_MEASUREMENTS_DATASET_ID",
     "RUN_OUTCOME_ID",
     "RUN_OUTCOME_KIND",
     "build_execution_manifest",
-    "build_execution_summary",
     "build_instrument_state_evidence",
-    "execution_summary_ref",
     "instrument_state_evidence_ref",
     "raw_measurement_schema",
     "raw_measurements_ref",

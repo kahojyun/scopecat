@@ -75,7 +75,7 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommand,
     InstrumentStateSnapshot,
 )
-from tests.testkit.experiment_preview import config_with_physical_resources
+from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 
 

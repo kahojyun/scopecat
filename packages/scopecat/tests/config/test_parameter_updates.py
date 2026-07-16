@@ -4,7 +4,7 @@ import pytest
 
 from scopecat.config.parameter_updates import (
     materialize_parameter_updates,
-    merge_candidate_parameter_snapshots,
+    merge_parameter_change_deltas,
 )
 from scopecat.config.parameters import (
     delete_parameter_rows,
@@ -153,7 +153,7 @@ def test_row_updates_materialize_one_whole_value_delta_without_mutating_base() -
     assert source == _snapshot()
 
 
-def test_candidate_snapshot_is_authoritative_and_delta_is_only_a_projection() -> None:
+def test_deltas_are_authoritative_candidate_input() -> None:
     source = _snapshot()
     candidate, deltas = materialize_parameter_updates(
         catalog=_catalog(),
@@ -166,21 +166,26 @@ def test_candidate_snapshot_is_authoritative_and_delta_is_only_a_projection() ->
             ),
         ),
     )
-    tampered = candidate.model_copy(
-        update={
-            "values": tuple(
-                SeriesParameterValue(id="thresholds", items=(9,))
-                if value.id == "thresholds"
-                else value
-                for value in candidate.values
-            )
-        }
+    merged = merge_parameter_change_deltas(
+        base=source,
+        proposals=(deltas,),
+        candidate_id="merged",
     )
+    assert merged == candidate.model_copy(update={"id": "merged"})
 
-    with pytest.raises(ValueError, match="deltas do not describe"):
-        merge_candidate_parameter_snapshots(
+    [delta] = deltas
+    invalid = delta.model_copy(
+        update={
+            "before": ScalarParameterValue(
+                id=delta.parameter_id,
+                value=Quantity(value=4.9, unit="GHz"),
+            )
+        },
+    )
+    with pytest.raises(ValueError, match="before value does not match"):
+        merge_parameter_change_deltas(
             base=source,
-            candidates=((tampered, deltas),),
+            proposals=((invalid,),),
             candidate_id="merged",
         )
 

@@ -221,38 +221,29 @@ def materialize_parameter_updates(
     return candidate, deltas
 
 
-def merge_candidate_parameter_snapshots(
+def merge_parameter_change_deltas(
     *,
     base: ParameterSnapshot,
-    candidates: Sequence[tuple[ParameterSnapshot, Sequence[ParameterValueDelta]]],
+    proposals: Sequence[Sequence[ParameterValueDelta]],
     candidate_id: str,
 ) -> ParameterSnapshot:
-    """Merge independently derived candidates and verify their review deltas.
-
-    Candidate snapshots are authoritative. Deltas are checked projections of
-    the actual base-to-candidate difference and are never replayed as commands.
-    """
+    """Resolve non-overlapping proposed deltas against one base snapshot."""
 
     base_values = {value.id: value for value in base.values}
     selected = dict(base_values)
     order = [value.id for value in base.values]
     touched: set[str] = set()
-    for candidate, deltas in candidates:
-        if candidate.metadata != base.metadata:
-            msg = "candidate proposal cannot change parameter snapshot metadata"
-            raise ValueError(msg)
-        candidate_values = {value.id: value for value in candidate.values}
-        if candidate_values.keys() != base_values.keys():
-            msg = "candidate proposal must preserve the parameter value namespace"
-            raise ValueError(msg)
-        changed = {
-            parameter_id
-            for parameter_id in order
-            if candidate_values[parameter_id] != base_values[parameter_id]
-        }
+    for deltas in proposals:
         delta_by_id = {delta.parameter_id: delta for delta in deltas}
-        if delta_by_id.keys() != changed:
-            msg = "candidate proposal deltas do not describe its snapshot changes"
+        if len(delta_by_id) != len(deltas):
+            msg = "candidate proposal contains duplicate parameter deltas"
+            raise ValueError(msg)
+        changed = set(delta_by_id)
+        unknown = changed - set(base_values)
+        if unknown:
+            msg = "candidate proposal references unknown parameters: " + ", ".join(
+                sorted(unknown)
+            )
             raise ValueError(msg)
         overlap = touched & changed
         if overlap:
@@ -268,13 +259,7 @@ def merge_candidate_parameter_snapshots(
                     f"snapshot: {parameter_id}"
                 )
                 raise ValueError(msg)
-            if delta.after != candidate_values[parameter_id]:
-                msg = (
-                    "candidate proposal delta after value does not match candidate "
-                    f"snapshot: {parameter_id}"
-                )
-                raise ValueError(msg)
-            selected[parameter_id] = candidate_values[parameter_id]
+            selected[parameter_id] = delta.after
         touched.update(changed)
     return ParameterSnapshot(
         id=candidate_id,
@@ -448,7 +433,7 @@ __all__ = [
     "delete_parameter_rows",
     "insert_parameter_rows",
     "materialize_parameter_updates",
-    "merge_candidate_parameter_snapshots",
+    "merge_parameter_change_deltas",
     "replace_scalar_parameter",
     "replace_series_parameter",
     "replace_table_parameter",

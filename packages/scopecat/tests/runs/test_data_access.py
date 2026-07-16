@@ -9,7 +9,6 @@ from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
 from scopecat.composition.local import local_run_repository, local_workspace_services
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
 from scopecat.records.config import config_content_hash
-from scopecat.records.execution import ExecutionSummary
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import (
     dataset_storage_ref,
@@ -27,7 +26,6 @@ from scopecat.runs.service import (
     read_run_data_array,
     read_run_data_table,
     read_run_measurement_dataset,
-    read_run_record_json,
     start_run,
 )
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
@@ -81,12 +79,6 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         services=local_workspace_services(tmp_path),
         kind="measurement_dataset",
     )
-    snapshot = read_run_record_json(
-        run_id=candidate.run_id,
-        selector="execution-summary",
-        services=local_workspace_services(tmp_path),
-    )
-    summary = ExecutionSummary.model_validate(snapshot.content)
     raw_dataset = read_run_measurement_dataset(
         run_id=candidate.run_id,
         services=local_workspace_services(tmp_path),
@@ -112,7 +104,8 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         "metrics",
         "readout-matrix",
     }
-    assert any(record.id == "execution-summary" for record in details.records)
+    assert details.outcome is not None
+    assert details.outcome.result == "succeeded"
     assert run_config.workspace_id == "example-workspace"
     assert run_request is not None
     assert run_request.id == "test.workflow_scan.request"
@@ -123,8 +116,6 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         "readout-matrix",
     }
     assert [dataset.id for dataset in measurement_datasets] == ["raw-measurements"]
-    assert summary.outcome.result == "succeeded"
-    assert summary.measurement_count == 3
     assert raw_dataset.dataset_entry.id == "raw-measurements"
     assert raw_dataset.dataset.dataset_schema.dataset_id == "raw-measurements"
     assert len(raw_dataset.dataset.records) == 3

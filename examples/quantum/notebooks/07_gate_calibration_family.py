@@ -189,52 +189,18 @@ parallel_gate_preview = (
     )
 )
 
-flux_background_state_count = len(
-    {
-        (field.resource_id, field.capability_id, field.field_path)
-        for field in flux_background_preview.state_fields
-        if field.capability_id == "set_flux_bias" and field.field_path == "offset"
-    }
-)
-system_background_state_channel_entries = sorted(
-    {
-        (
-            field.resource_id,
-            field.capability_id,
-            field.field_path,
-            tuple(
-                (binding.entity_id, binding.channel_id)
-                for binding in field.channel_bindings
-            ),
-        )
-        for field in system_background_preview.state_fields
-        if field.resource_id == "coupler-stack"
-        and field.capability_id == "set_flux_bias"
-    }
-)
-system_background_state_channels = [
-    (
-        resource_id,
-        capability_id,
-        field_path,
-        list(channel_bindings),
-    )
-    for (
-        resource_id,
-        capability_id,
-        field_path,
-        channel_bindings,
-    ) in system_background_state_channel_entries
-]
-
 # %%
 gate_family_summary = {
     "rabi_points": rabi_preview.point_count,
     "rabi_qubit_scan_points": rabi_qubit_scan_preview.point_count,
     "rabi_qubit_scan_coordinates": list(rabi_qubit_scan_preview.coordinate_ids),
     "simultaneous_rabi_points": simultaneous_rabi_preview.point_count,
-    "flux_background_state_count": flux_background_state_count,
-    "system_background_state_channels": system_background_state_channels,
+    "flux_background_records": [
+        record.id for record in flux_background_preview.records
+    ],
+    "system_background_records": [
+        record.id for record in system_background_preview.records
+    ],
     "cz_rb_points": cz_rb_preview.point_count,
     "cz_chevron_points": cz_chevron_preview.point_count,
     "runtime_scan_points": runtime_parameter_scan_preview.point_count,

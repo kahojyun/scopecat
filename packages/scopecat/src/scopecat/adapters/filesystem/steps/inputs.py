@@ -102,28 +102,6 @@ class StepInputResolver:
         )
         self._append_input_record_ref(ref)
 
-    def artifact_ref(
-        self,
-        *,
-        artifact_id: str,
-        ref: str,
-        path_escape_code: str,
-        path_escape_message: str,
-        location: ModelLocation,
-    ) -> StepInputArtifact:
-        validate_run_entry_selector(
-            ref,
-            code=path_escape_code,
-            message_prefix=path_escape_message,
-            location=location,
-        )
-        self._append_input_artifact_id(artifact_id)
-        return StepInputArtifact(
-            artifact_id=artifact_id,
-            ref=ref,
-            path=self._storage.ref_path(self._run_id, ref),
-        )
-
     def dataset_ref(
         self,
         *,

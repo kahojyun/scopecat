@@ -9,6 +9,11 @@ from scopecat.authoring import (
     ExperimentInvocation,
     ValueValidationError,
 )
+from scopecat.compiler.linking.bound import (
+    BoundPlan,
+    BoundResourceState,
+    BoundStateField,
+)
 from scopecat.execution.observation import RuntimePayloadObservation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.authoring import resolve_experiment
@@ -70,7 +75,7 @@ from quantum_lab_demo.experiments.templates import (
 )
 from quantum_lab_demo.lab import quantum_lab
 
-from .demo_lab_experiment_testkit import load_experiment_config
+from .demo_lab_experiment_testkit import bound_plan, load_experiment_config
 
 
 def test_template_constants_cover_experiment_system() -> None:
@@ -254,12 +259,13 @@ def test_experiment_system_resolve_to_and_preview_invocation(
     assert resolved.template_id == template_id
     assert resolved.experiment.kind == kind
 
-    preview = _preview(tmp_path, invocation, config)
-    assert preview.primary_observables, label
+    preview = _bound_plan(tmp_path, invocation, config)
+    assert preview.expected_dataset_schema is not None
+    assert preview.expected_dataset_schema.primary_observables, label
 
 
 def test_rabi_infers_default_scan_from_config(tmp_path: Path) -> None:
-    preview = _preview(tmp_path, RABI_TEMPLATE.bind(qubit="q0"))
+    preview = _bound_plan(tmp_path, RABI_TEMPLATE.bind(qubit="q0"))
 
     assert preview.point_count == 5
     assert preview.points[0].coordinates["drive_length"] == Quantity(
@@ -297,33 +303,33 @@ def test_rabi_runtime_qubit_scan_drives_default_length_center(
         value=88.0,
         unit="ns",
     )
-    assert [route.resource_id for route in preview.routes[0].resolved[:2]] == [
-        "drive-stack",
-        "drive-stack",
-    ]
 
 
 def test_rabi_generates_point_local_pulse_programs(tmp_path: Path) -> None:
     config = load_experiment_config()
     invocation = RABI_TEMPLATE.bind(qubit="q0")
-    preview = _preview(tmp_path, invocation, config)
+    preview = _bound_plan(tmp_path, invocation, config)
     payloads = _run_observed_payloads(tmp_path, invocation)
 
-    assert [
-        (item.semantic_operation_id, item.schema_id) for item in preview.payloads
-    ] == [
+    assert {
+        (call.operation_id.qualified_name, call.payload_schema_id)
+        for point in preview.points
+        for call in point.compute
+        if call.payload_schema_id is not None
+    } == {
         (
             "rabi/render-rabi-waveforms",
             "pulse_program",
         )
-    ]
+    }
     assert len(payloads) == 5
     assert (
         len(
             [
                 field
-                for field in preview.state_fields
-                if isinstance(field.value, PayloadRef) and field.field_path == "program"
+                for _, _, field in _state_fields(preview)
+                if isinstance(field.value.root, PayloadRef)
+                and field.field_path == "program"
             ]
         )
         == 5
@@ -355,7 +361,7 @@ def test_simultaneous_rabi_generates_entity_series_waveform_payloads(
 
 def test_flux_background_rabi_adds_background_state(tmp_path: Path) -> None:
     config = load_experiment_config()
-    preview = _preview(
+    preview = _bound_plan(
         tmp_path,
         FLUX_BACKGROUND_RABI_TEMPLATE.bind(
             qubit="q0",
@@ -371,12 +377,12 @@ def test_flux_background_rabi_adds_background_state(tmp_path: Path) -> None:
         Quantity(value=0.05, unit="arb"),
     ) in [
         (
-            field.resource_id,
-            field.capability_id,
+            state.resource_id.value,
+            state.capability_id,
             field.field_path,
-            field.value,
+            field.value.root,
         )
-        for field in preview.state_fields
+        for _, state, field in _state_fields(preview)
     ]
 
 
@@ -384,22 +390,22 @@ def test_system_background_rabi_materializes_coupler_parking_table(
     tmp_path: Path,
 ) -> None:
     config = load_experiment_config()
-    preview = _preview(
+    preview = _bound_plan(
         tmp_path, SYSTEM_BACKGROUND_RABI_TEMPLATE.bind(qubit="q0"), config
     )
 
     fields = [
         field
-        for field in preview.state_fields
-        if field.point_index == 0
-        and field.resource_id == "coupler-stack"
-        and field.capability_id == "set_flux_bias"
+        for point_index, state, field in _state_fields(preview)
+        if point_index == 0
+        and state.resource_id.value == "coupler-stack"
+        and state.capability_id == "set_flux_bias"
         if field.field_path == "offset"
     ]
 
     assert [
         (
-            field.value,
+            field.value.root,
             [
                 (binding.entity_id, binding.channel_id)
                 for binding in field.channel_bindings
@@ -421,7 +427,7 @@ def test_system_background_rabi_materializes_coupler_parking_table(
 def test_multiplexed_readout_is_single_point_entity_axis_record(
     tmp_path: Path,
 ) -> None:
-    preview = _preview(
+    preview = _bound_plan(
         tmp_path,
         MULTIPLEXED_READOUT_TEMPLATE.bind(qubits=("q0", "q1")),
     )
@@ -438,7 +444,7 @@ def test_multiplexed_readout_is_single_point_entity_axis_record(
 def test_multiplexed_readout_calibration_scans_shared_readout_pulse(
     tmp_path: Path,
 ) -> None:
-    preview = _preview(
+    preview = _bound_plan(
         tmp_path,
         MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE.bind(qubits=("q0", "q1")),
     )
@@ -465,7 +471,7 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
             unit="arb",
         )
     )
-    preview = _preview(tmp_path, invocation, config)
+    preview = _bound_plan(tmp_path, invocation, config)
 
     payloads = _run_observed_payloads(tmp_path, invocation)
     waveform_payloads = [
@@ -490,8 +496,8 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
         len(
             [
                 field
-                for field in preview.state_fields
-                if isinstance(field.value, PayloadRef)
+                for _, _, field in _state_fields(preview)
+                if isinstance(field.value.root, PayloadRef)
             ]
         )
         == 12
@@ -504,11 +510,11 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
     assert drive_payload.channel_order == ("q0", "q1")
     assert cz_program.parameters == ("qubits", "two_qubit_gates")
     build_payload = next(
-        payload
-        for payload in preview.payloads
-        if payload.semantic_operation_id == ("cz_chevron/build-cz-chevron-program")
+        call
+        for call in preview.points[0].compute
+        if call.operation_id.qualified_name == ("cz_chevron/build-cz-chevron-program")
     )
-    assert build_payload.dependencies == {
+    assert dict(build_payload.dependencies) == {
         "input_refs": ("control_qubit", "coupler", "partner_qubit"),
         "parameters": ("qubits", "two_qubit_gates"),
         "point_columns": ("coupler_amplitude", "coupler_duration"),
@@ -556,7 +562,8 @@ def test_workspace_preview_accepts_template_with_run_inputs_and_scans(
     report = prepared.check()
     preview = prepared.preview()
 
-    assert report.template_id == CZ_CHEVRON_TEMPLATE_ID
+    assert report.ok
+    assert report.preview is not None
     assert preview.point_count == 2
     assert preview.coordinate_ids == (
         "coupler_duration",
@@ -612,7 +619,7 @@ def test_run_time_parameter_scan_extends_template_without_duplicate_template(
 
 def test_spectator_cz_adds_background_state(tmp_path: Path) -> None:
     config = load_experiment_config()
-    preview = _preview(
+    preview = _bound_plan(
         tmp_path,
         SPECTATOR_CZ_TEMPLATE.bind(
             control_qubit="q0",
@@ -633,12 +640,12 @@ def test_spectator_cz_adds_background_state(tmp_path: Path) -> None:
         Quantity(value=0.025, unit="arb"),
     ) in [
         (
-            field.resource_id,
-            field.capability_id,
+            state.resource_id.value,
+            state.capability_id,
             field.field_path,
-            field.value,
+            field.value.root,
         )
-        for field in preview.state_fields
+        for _, state, field in _state_fields(preview)
     ]
 
 
@@ -797,7 +804,7 @@ def test_parallel_gate_table_drives_program_and_resource_route_order(
 def test_toy_surface_code_round_uses_round_and_entity_axes(tmp_path: Path) -> None:
     config = load_experiment_config()
     invocation = TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(rounds=2)
-    preview = _preview(tmp_path, invocation, config)
+    preview = _bound_plan(tmp_path, invocation, config)
 
     payloads = _run_observed_payloads(tmp_path, invocation)
     surface_program = next(
@@ -819,7 +826,7 @@ def test_toy_surface_code_round_uses_round_and_entity_axes(tmp_path: Path) -> No
 def test_qnd_repeated_measurement_keeps_dense_round_shot_array(
     tmp_path: Path,
 ) -> None:
-    preview = _preview(
+    preview = _bound_plan(
         tmp_path,
         QND_REPEATED_MEASUREMENT_TEMPLATE.bind(
             qubit="q0",
@@ -843,7 +850,7 @@ def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
         logical_points=4,
         seed=5,
     )
-    preview = _preview(tmp_path, invocation, config)
+    preview = _bound_plan(tmp_path, invocation, config)
 
     payloads = _run_observed_payloads(tmp_path, invocation)
     batch_job = next(
@@ -892,16 +899,21 @@ def _run_observed_payloads(
     return [observation.payload for observation in observations]
 
 
-def _preview(
+def _bound_plan(
     tmp_path: Path,
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot | None = None,
-):
-    return (
-        quantum_lab(
-            workspace=tmp_path,
-            config_profile=config or load_experiment_config(),
-        )
-        .prepare(invocation)
-        .preview()
+) -> BoundPlan:
+    del tmp_path
+    return bound_plan(invocation, config=config)
+
+
+def _state_fields(
+    plan: BoundPlan,
+) -> tuple[tuple[int, BoundResourceState, BoundStateField], ...]:
+    return tuple(
+        (point.point_index, state, field)
+        for point in plan.points
+        for state in point.desired_state
+        for field in state.fields
     )

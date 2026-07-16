@@ -13,6 +13,8 @@ from scopecat.compiler.frontend.graph_validation import (
     VerifiedAssemblyGraph,
     verify_assembly_graph,
 )
+from scopecat.compiler.frontend.invocation import prepare_invocation
+from scopecat.compiler.frontend.resolution import compile_prepared_invocation
 from scopecat.compiler.semantic.model import (
     OperationOutputSource,
     RouteValueSource,
@@ -25,11 +27,6 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Route
-from scopecat.planning.checks import (
-    ExperimentCheckReport,
-    check_invocation,
-    check_template_builder,
-)
 
 _INSTANCE_IDS = (
     "alpha",
@@ -288,7 +285,6 @@ def test_child_module_metadata_does_not_implicitly_merge_into_entrypoint() -> No
 def test_generated_alpha_renaming_preserves_normalized_semantics(
     instance_ids: list[str],
 ) -> None:
-    reports: list[ExperimentCheckReport] = []
     for instance_id in instance_ids:
         instance = _composable_module().instantiate(instance_id)
         root = (
@@ -296,19 +292,16 @@ def test_generated_alpha_renaming_preserves_normalized_semantics(
             .use(instance)
             .build()
         )
-        report = check_invocation(
-            root.template(
-                "test.composition-invariant.generated-alpha",
-                kind="contract",
+        compile_prepared_invocation(
+            prepare_invocation(
+                root.template(
+                    "test.composition-invariant.generated-alpha",
+                    kind="contract",
+                )
+                .build()
+                .bind()
             )
-            .build()
-            .bind()
         )
-        assert report.complete, report.explain()
-        reports.append(report)
-
-    assert reports[0].status == reports[1].status
-    assert reports[0].problems == reports[1].problems == ()
 
 
 @settings(max_examples=40)
@@ -325,12 +318,11 @@ def test_generated_alpha_renaming_preserves_normalized_semantics(
         max_size=4,
     ),
 )
-def test_generated_state_region_alpha_renaming_preserves_public_checks(
+def test_generated_state_region_alpha_renaming_preserves_compilation(
     instance_ids: list[str],
     offsets: list[float],
 ) -> None:
     child, row_type = _stateful_module()
-    reports: list[ExperimentCheckReport] = []
     for instance_id in instance_ids:
         rows = sc.input("rows", row_type)
         instance = child.instantiate(instance_id, rows=rows)
@@ -340,24 +332,21 @@ def test_generated_state_region_alpha_renaming_preserves_public_checks(
             .use(instance)
             .build()
         )
-        report = check_invocation(
-            root.template(
-                "test.composition-invariant.state-region",
-                kind="contract",
-            )
-            .build()
-            .bind(
-                rows=tuple(
-                    {"resource": f"source-{index}", "offset": offset}
-                    for index, offset in enumerate(offsets)
+        compile_prepared_invocation(
+            prepare_invocation(
+                root.template(
+                    "test.composition-invariant.state-region",
+                    kind="contract",
+                )
+                .build()
+                .bind(
+                    rows=tuple(
+                        {"resource": f"source-{index}", "offset": offset}
+                        for index, offset in enumerate(offsets)
+                    )
                 )
             )
         )
-        assert report.complete, report.explain()
-        reports.append(report)
-
-    assert reports[0].status == reports[1].status
-    assert reports[0].problems == reports[1].problems == ()
 
 
 def test_structural_scopes_keep_separator_lookalikes_injective() -> None:
@@ -407,16 +396,15 @@ def test_generated_structural_scopes_are_injective(
     )
 
     nested_product = next(iter(nested.products.values()))
-    report = check_template_builder(
+    (
         root.template(
             "test.composition-invariant.generated-injective",
             kind="contract",
         )
         .record_product(direct.products.signal, record_id="direct_signal")
         .record_product(nested_product, record_id="nested_signal")
+        .build()
     )
-
-    assert report.complete, report.explain()
 
 
 def test_repeated_config_free_verification_is_deterministic() -> None:
@@ -482,16 +470,16 @@ def test_generated_nested_exports_preserve_producer_provenance(
         .build()
     )
 
-    report = check_invocation(
-        root.template(
-            "test.composition-invariant.generated-export",
-            kind="contract",
+    compile_prepared_invocation(
+        prepare_invocation(
+            root.template(
+                "test.composition-invariant.generated-export",
+                kind="contract",
+            )
+            .build()
+            .bind()
         )
-        .build()
-        .bind()
     )
-
-    assert report.complete, report.explain()
 
 
 @settings(max_examples=40)

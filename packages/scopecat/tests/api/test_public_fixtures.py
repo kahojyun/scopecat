@@ -11,7 +11,7 @@ from scopecat.records.run_request import (
     RunRequest,
     RunRequestParameterValue,
 )
-from tests.testkit.experiment_preview import preview_contract
+from tests.testkit.bound_plan import bound_plan_contract
 from tests.testkit.paths import CORE_FIXTURE_DIR as SIMPLE_SCAN_FIXTURE
 from tests.testkit.workflow_fixtures import load_experiment, load_prepared_invocation
 
@@ -30,7 +30,7 @@ def test_simple_scan_dsl_produces_durable_request_and_user_plan() -> None:
     )
     assert "param_scalar" not in request.model_dump_json()
 
-    preview = preview_contract(
+    preview = bound_plan_contract(
         program,
         resolve_config_parameters(config).data,
         config=config,

@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 import pytest
 
 import scopecat as sc
+import scopecat.config.resolution as config_resolution
 import scopecat.runs.service as run_workflows
-from scopecat import (
-    CheckPhase,
-    CheckPhaseReport,
-    CheckStatus,
-    ExperimentCheckReport,
-)
+from scopecat import ExperimentCheckResult
 from scopecat.authoring import InputDescription
 from scopecat.compiler.frontend.invocation import PreparedInvocation
 from scopecat.compiler.frontend.resolution import (
@@ -26,11 +22,6 @@ from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemImpact,
     ProblemPhase,
-)
-from scopecat.planning.checks import (
-    check_invocation,
-    check_template,
-    check_template_builder,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import SIMPLE_MODULE, simple_template
@@ -50,72 +41,39 @@ def _workspace(
     )
 
 
-def test_template_check_is_explicitly_definition_only() -> None:
-    template = simple_template()
-
-    report = check_template(template)
-
-    assert report.ok
-    assert report.complete
-    assert report.status is CheckStatus.PASSED
-    assert [phase.phase for phase in report.phases] == [CheckPhase.DEFINITION]
-    assert report.summary is None
-    assert report.explain() == ("experiment check: passed\n- definition: passed")
-
-
-def test_template_builder_check_returns_definition_problems() -> None:
+def test_template_builder_returns_definition_problems() -> None:
     builder = SIMPLE_MODULE.template("test.check.duplicate", kind="check").inputs(
         InputDescription("subject"),
         InputDescription("subject"),
     )
 
-    report = check_template_builder(builder)
+    with pytest.raises(CheckFailed) as error:
+        builder.build()
+
+    assert error.value.problems[0].phase is ProblemPhase.DEFINITION
+    assert error.value.problems[0].code == "experiment_template_input_duplicate"
+
+
+def test_prepared_check_returns_authoring_problems(tmp_path: Path) -> None:
+    report = _workspace(tmp_path).prepare(simple_template()).check()
 
     assert not report.ok
-    phase = report.for_phase(CheckPhase.DEFINITION)
-    assert phase.status is CheckStatus.FAILED
-    assert phase.problems[0].code == "experiment_template_input_duplicate"
+    assert report.problems[0].code == "experiment_template_missing_input"
+    assert report.problems[0].phase is ProblemPhase.AUTHORING
 
 
-def test_invocation_check_compiles_the_complete_config_free_graph() -> None:
-    invalid = simple_template().bind()
-    valid = simple_template().bind(subject="q0")
-
-    invalid_report = check_invocation(invalid)
-    valid_report = check_invocation(valid)
-
-    assert invalid_report.status is CheckStatus.FAILED
-    assert invalid_report.problems[0].code == "experiment_template_missing_input"
-    assert [phase.phase for phase in invalid_report.phases] == [CheckPhase.AUTHORING]
-    assert valid_report.status is CheckStatus.PASSED
-    assert valid_report.inputs["subject"] == sc.EntityRef(id="q0")
-    assert check_invocation(invalid).explain() == invalid_report.explain()
-    assert invalid_report.explain() == (
-        "experiment check: failed\n"
-        "- authoring: failed\n"
-        "  - blocking experiment_template_missing_input [template.inputs]: "
-        "experiment template missing required input: subject"
-    )
-
-
-def test_prepared_check_reports_each_phase_and_summary(tmp_path: Path) -> None:
+def test_prepared_check_returns_preview_when_successful(tmp_path: Path) -> None:
     lab = _workspace(tmp_path)
 
     report = lab.prepare(load_invocation()).check()
 
-    assert report.status is CheckStatus.PASSED
-    assert report.complete
-    assert [phase.phase for phase in report.phases] == [
-        CheckPhase.AUTHORING,
-        CheckPhase.CONFIGURATION,
-        CheckPhase.PLANNING,
-    ]
-    assert report.summary is not None
-    assert report.summary.point_count == 3
-    assert lab.prepare(load_invocation()).explain() == report.explain()
+    assert report.ok
+    assert report.problems == ()
+    assert report.preview is not None
+    assert report.preview.point_count == 3
 
 
-def test_prepared_check_skips_planning_after_configuration_failure(
+def test_prepared_check_returns_configuration_problems_without_preview(
     tmp_path: Path,
 ) -> None:
     config = load_config()
@@ -130,10 +88,11 @@ def test_prepared_check_skips_planning_after_configuration_failure(
 
     report = lab.prepare(load_invocation()).check()
 
-    assert report.for_phase(CheckPhase.AUTHORING).status is CheckStatus.PASSED
-    assert report.for_phase(CheckPhase.CONFIGURATION).status is CheckStatus.FAILED
-    assert report.for_phase(CheckPhase.PLANNING).status is CheckStatus.SKIPPED
-    assert report.summary is None
+    assert not report.ok
+    assert {problem.phase for problem in report.problems} == {
+        ProblemPhase.CONFIGURATION
+    }
+    assert report.preview is None
 
 
 def test_prepared_check_compiles_authoring_once(
@@ -160,23 +119,14 @@ def test_prepared_check_compiles_authoring_once(
     assert authoring_compiles == 1
 
 
-def test_check_report_inputs_are_read_only(tmp_path: Path) -> None:
-    report = _workspace(tmp_path).prepare(load_invocation()).check()
-
-    with pytest.raises(TypeError):
-        cast("dict[str, object]", report.inputs)["subject"] = "mutated"
-
-
 def test_check_problem_results_are_frozen(tmp_path: Path) -> None:
     prepared = _workspace(tmp_path).prepare(load_invocation())
     report = prepared.check()
 
     assert isinstance(report.problems, tuple)
-    with pytest.raises(TypeError):
-        cast("dict[str, object]", report.inputs)["subject"] = "mutated"
 
 
-def test_public_check_records_enforce_phase_invariants() -> None:
+def test_check_report_rejects_preview_with_blocking_problems(tmp_path: Path) -> None:
     blocking = Problem(
         code="test_error",
         impact=ProblemImpact.BLOCKING,
@@ -185,34 +135,18 @@ def test_public_check_records_enforce_phase_invariants() -> None:
         message="test error",
     )
 
-    with pytest.raises(ValueError, match="at least one phase"):
-        ExperimentCheckReport(phases=())
-    with pytest.raises(ValueError, match="passed check phase"):
-        CheckPhaseReport(
-            phase=CheckPhase.AUTHORING,
-            status=CheckStatus.PASSED,
+    successful = _workspace(tmp_path).prepare(load_invocation()).check()
+    assert successful.preview is not None
+    with pytest.raises(ValueError, match="successful experiment check"):
+        ExperimentCheckResult(
             problems=(blocking,),
+            preview=successful.preview,
         )
-    with pytest.raises(ValueError, match="requires a blocking problem"):
-        CheckPhaseReport(
-            phase=CheckPhase.AUTHORING,
-            status=CheckStatus.FAILED,
-        )
-    with pytest.raises(ValueError, match="same phase"):
-        CheckPhaseReport(
-            phase=CheckPhase.DEFINITION,
-            status=CheckStatus.FAILED,
-            problems=(blocking,),
-        )
-    with pytest.raises(ValueError, match="duplicated, incomplete, or out of order"):
-        ExperimentCheckReport(
-            phases=(
-                CheckPhaseReport(
-                    phase=CheckPhase.CONFIGURATION,
-                    status=CheckStatus.PASSED,
-                ),
-            )
-        )
+
+
+def test_check_result_rejects_success_without_preview() -> None:
+    with pytest.raises(ValueError, match="successful experiment check"):
+        ExperimentCheckResult(problems=(), preview=None)
 
 
 def test_check_does_not_hide_internal_programming_errors(
@@ -235,10 +169,10 @@ def test_check_does_not_hide_internal_programming_errors(
 
 @pytest.mark.parametrize(
     "terminal",
-    ["check", "preview", "explain", "run"],
+    ["check", "preview", "run"],
 )
 def test_session_candidate_config_is_not_read_before_authoring(
-    terminal: Literal["check", "preview", "explain", "run"],
+    terminal: Literal["check", "preview", "run"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -250,18 +184,11 @@ def test_session_candidate_config_is_not_read_before_authoring(
         raise AssertionError("candidate config must not be read for invalid authoring")
 
     monkeypatch.setattr(
-        run_workflows,
+        config_resolution,
         "resolve_candidate_config_snapshot",
         unexpected_candidate_read,
     )
-    monkeypatch.setattr(
-        run_workflows,
-        "materialize_candidate_config",
-        unexpected_candidate_read,
-    )
     candidate = CandidateConfig(
-        analysis_title="ordering",
-        analysis_key="ordering",
         parameter_proposals=(),
     )
     lab = _workspace(tmp_path)
@@ -271,8 +198,6 @@ def test_session_candidate_config_is_not_read_before_authoring(
         assert prepared.check().problems[0].code == (
             "experiment_template_missing_input"
         )
-    elif terminal == "explain":
-        assert "experiment_template_missing_input" in prepared.explain()
     else:
         method = prepared.preview if terminal == "preview" else prepared.run
         with pytest.raises(CheckFailed) as error:

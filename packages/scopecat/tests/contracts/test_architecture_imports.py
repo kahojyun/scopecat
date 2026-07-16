@@ -26,8 +26,6 @@ APPLICATION_ROOTS = tuple(
         "execution",
         "measurements",
         "planning",
-        "run_comparison",
-        "run_overview",
         "runs",
     )
 )
@@ -163,7 +161,6 @@ def test_inward_layers_do_not_depend_on_application_or_storage() -> None:
         "scopecat.runs",
         "scopecat.api.workspace",
         "scopecat.api.analysis",
-        "scopecat.api.comparison",
         "scopecat.api.data",
         "scopecat.api.run",
     )
@@ -235,7 +232,6 @@ def test_filesystem_adapter_does_not_depend_on_workflows_or_facades() -> None:
             "scopecat.planning.backend",
             "scopecat.api.workspace",
             "scopecat.api.analysis",
-            "scopecat.api.comparison",
             "scopecat.api.data",
             "scopecat.api.run",
         ),

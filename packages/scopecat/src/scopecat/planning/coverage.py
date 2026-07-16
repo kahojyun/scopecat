@@ -86,12 +86,6 @@ class ExecutionCoverage:
             ProductUseId(task.id) for task in self.tasks if task.kind == "product"
         )
 
-    def without(self, claimed: ExecutionCoverage) -> ExecutionCoverage:
-        claimed_set = set(claimed.tasks)
-        return ExecutionCoverage(
-            tuple(task for task in self.tasks if task not in claimed_set)
-        )
-
 
 def program_execution_coverage(program: TypedProgram) -> ExecutionCoverage:
     """Return the complete executable task inventory of one linked program."""

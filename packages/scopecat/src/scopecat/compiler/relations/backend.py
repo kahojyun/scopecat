@@ -405,11 +405,6 @@ class SelectedRelationPlan[NodeT: PlanNode]:
     def requirements(self) -> RelationPlanRequirements:
         return RelationPlanRequirements.from_verified(self._verified_plan)
 
-    def _unwrap_for_backend(self, backend: RelationBackend) -> NodeT:
-        """Internal dispatch hook for proof-requiring evaluators."""
-
-        return _unwrap_selected_plan(backend, self)
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class PreparedRelationEvaluation[NodeT: PlanNode]:

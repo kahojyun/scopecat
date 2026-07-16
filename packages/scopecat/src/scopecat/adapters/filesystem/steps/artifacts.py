@@ -445,31 +445,6 @@ class StepArtifactStore:
         self._write_bytes_path(handle.path, content)
         return handle
 
-    def _write_jsonl_dataset(
-        self,
-        *,
-        id: str,  # noqa: A002
-        kind: str,
-        records: Iterable[BaseModel],
-        media_type: str | None,
-        role: str | None,
-        schema: dict[str, object],
-        metadata: Mapping[str, JsonValue] | None,
-        produced_by: str | None,
-    ) -> StepArtifactHandle:
-        handle = self._register(
-            id=id,
-            kind=kind,
-            media_type=media_type,
-            metadata=metadata,
-            dataset_role=role,
-            dataset_schema=schema,
-            produced_by=produced_by,
-        )
-        self._ensure_parent(handle.path)
-        self._write_jsonl_path(handle.path, records)
-        return handle
-
     def _write_text_dataset(
         self,
         *,

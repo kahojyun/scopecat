@@ -45,7 +45,7 @@ def input_contract() -> ArtifactInputContract:
 
 def make_signal_run(tmp_path: Path) -> str:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
-    manifest, _snapshot = execute_signal_run(
+    manifest = execute_signal_run(
         config=config,
         experiment=load_invocation(),
         workspace=tmp_path,

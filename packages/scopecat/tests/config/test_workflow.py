@@ -12,6 +12,7 @@ from scopecat.config.resolution import (
     register_and_activate_config_profile,
     register_config_profile,
     resolve_config_source,
+    resolve_experiment_config,
     rollback_config,
     validate_config_profile,
 )
@@ -47,6 +48,25 @@ def test_resolve_config_source_loads_file_or_active_registry(
     assert active_source.config_source.entry_id == entry.id
     assert loaded_active.config_source is not None
     assert loaded_active.config_source.entry_id == entry.id
+
+
+def test_resolve_experiment_config_normalizes_snapshot_and_profile(
+    tmp_path: Path,
+) -> None:
+    services = local_workspace_services(tmp_path)
+    snapshot = load_config()
+
+    direct = resolve_experiment_config(services=services, config=snapshot)
+    profile = resolve_experiment_config(
+        services=services,
+        config="active",
+        config_profile=EXAMPLE_DIR / "config-profile.json",
+    )
+
+    assert direct.config == snapshot
+    assert direct.config_source is None
+    assert profile.config == snapshot
+    assert profile.config_source is None
 
 
 def test_config_workflow_validates_file_and_config_object() -> None:

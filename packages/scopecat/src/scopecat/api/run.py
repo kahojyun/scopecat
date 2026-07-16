@@ -16,8 +16,6 @@ from scopecat.records.artifact import RunArtifactEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
-from scopecat.run_comparison import RunComparisonView
-from scopecat.run_comparison.service import list_run_comparisons
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -38,7 +36,6 @@ from scopecat.runs.service import (
 )
 
 if TYPE_CHECKING:
-    from scopecat.run_overview import RunOverview
     from scopecat.runs.execution import RunExecutionInspection
 
 
@@ -54,8 +51,6 @@ class RunSession(Protocol):
 
     @property
     def services(self) -> WorkspaceServices: ...
-
-    def overview(self, run: RunHandle | RunSelector) -> RunOverview: ...
 
 
 @dataclass(frozen=True)
@@ -211,9 +206,6 @@ class RunHandle:
             expected_kind=expected_kind,
         )
 
-    def overview(self) -> RunOverview:
-        return self.session.overview(self)
-
     def inspect_execution(self) -> RunExecutionInspection:
         """Read durable execution evidence without mutating or recovering the run."""
 
@@ -222,14 +214,6 @@ class RunHandle:
         return inspect_run_execution(
             run_id=self.id,
             services=self.session.services,
-        )
-
-    def comparisons(self) -> tuple[RunComparisonView, ...]:
-        return tuple(
-            list_run_comparisons(
-                run_id=self.id,
-                services=self.session.services,
-            )
         )
 
 

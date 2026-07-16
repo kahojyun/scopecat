@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.run import utc_now
 
-CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION = "scopecat.config.registry_entry.v5"
+CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION = "scopecat.config.registry_entry.v6"
 CONFIG_REGISTRY_INDEX_SCHEMA_VERSION = "scopecat.config.registry_index.v2"
 CONFIG_REGISTRY_ACTIVE_STATE_SCHEMA_VERSION = "scopecat.config.registry_active_state.v2"
 CONFIG_REGISTRY_ACTIVATION_RECORD_SCHEMA_VERSION = (
@@ -69,8 +69,6 @@ class CandidateConfigRegistrySource(_FrozenValidatedModel):
     proposal_evidence: tuple[CandidateProposalRegistryEvidence, ...] = Field(
         min_length=1
     )
-    candidate_record_id: str
-    candidate_record_content_hash: EvidenceContentHash
     base_config_content_hash: ConfigContentHash
 
     @model_validator(mode="after")
@@ -79,7 +77,7 @@ class CandidateConfigRegistrySource(_FrozenValidatedModel):
         if len(set(proposal_ids)) != len(proposal_ids):
             msg = "candidate registry source proposal evidence must be unique"
             raise ValueError(msg)
-        if not self.run_id or not self.candidate_record_id:
+        if not self.run_id:
             msg = "candidate registry source identity fields must be non-empty"
             raise ValueError(msg)
         return self
@@ -96,7 +94,7 @@ ConfigRegistryEntrySource = Annotated[
 
 
 class ConfigRegistryEntry(_FrozenValidatedModel):
-    schema_version: Literal["scopecat.config.registry_entry.v5"] = (
+    schema_version: Literal["scopecat.config.registry_entry.v6"] = (
         CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION
     )
     id: str

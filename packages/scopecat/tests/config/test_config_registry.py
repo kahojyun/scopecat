@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Barrier
 from typing import Literal
@@ -17,8 +18,7 @@ from scopecat.composition.local import (
 )
 from scopecat.config.candidates import (
     CandidateConfig,
-    ResolvedCandidateConfig,
-    materialize_candidate_config,
+    resolve_candidate_config_snapshot,
 )
 from scopecat.config.changes import (
     ParameterChangeDecisionRecord,
@@ -56,13 +56,19 @@ from scopecat.kernel.errors import (
     StorageError,
 )
 from scopecat.kernel.problems import ProblemCategory
-from scopecat.records.config import config_content_hash
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.config_registry import (
     load_config,
     signal_run_with_parameter_change,
 )
+
+
+@dataclass(frozen=True)
+class _ResolvedCandidate:
+    candidate: CandidateConfig
+    config: ConfigProfileSnapshot
 
 
 def _fail_once_after_replace(
@@ -165,8 +171,6 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
         services=local_workspace_services(tmp_path),
     )
     candidate = CandidateConfig(
-        analysis_title="best signal fixture",
-        analysis_key="best-signal",
         parameter_proposals=(proposal,),
     )
     decision = review_parameter_change_proposal(
@@ -194,17 +198,11 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
     assert isinstance(entry.source, CandidateConfigRegistrySource)
     assert entry.source.run_id == run_id
     assert entry.source.proposal_ids == ["best-signal"]
-    assert entry.source.candidate_record_id
     evidence = entry.source.proposal_evidence[0]
     assert evidence.proposal_id == proposal.id
     assert evidence.approval_event_id == decision.event_id
     assert evidence.proposal_record_content_hash.startswith("sha256:")
     assert evidence.approval_record_content_hash.startswith("sha256:")
-    assert entry.source.candidate_record_content_hash.startswith("sha256:")
-    with pytest.raises(ValidationError):
-        entry.source.model_copy(
-            update={"candidate_record_content_hash": "not-a-content-hash"}
-        )
     assert active_state.active_entry_id == entry.id
 
     stored_proposal = load_parameter_change_proposal(
@@ -237,8 +235,6 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
         services=local_workspace_services(tmp_path),
     )
     candidate = CandidateConfig(
-        analysis_title="best signal fixture",
-        analysis_key="best-signal",
         parameter_proposals=(proposal,),
     )
     review_parameter_change_proposal(
@@ -286,13 +282,11 @@ def test_candidate_registration_requires_latest_approval(
         selector="best-signal",
         services=local_workspace_services(tmp_path),
     )
-    candidate = materialize_candidate_config(
-        CandidateConfig(
-            analysis_title="review gate",
-            analysis_key="review-gate",
-            parameter_proposals=(proposal,),
-        ),
-        services=local_workspace_services(tmp_path),
+    candidate = CandidateConfig(
+        parameter_proposals=(proposal,),
+    )
+    config = resolve_candidate_config_snapshot(
+        candidate, services=local_workspace_services(tmp_path)
     )
     if decision == "rejected":
         review_parameter_change_proposal(
@@ -320,14 +314,13 @@ def test_candidate_registration_requires_latest_approval(
 
     with pytest.raises(Conflict) as error:
         register_candidate_config(
-            config=candidate.config,
+            config=config,
             unit_of_work=local_config_registry_unit_of_work(tmp_path),
             entry_id=f"not-approved-{decision or 'missing'}",
             registered_by="operator",
             run_id=run_id,
-            proposal_ids=candidate.candidate.proposal_ids,
-            candidate_record_id=candidate.candidate_config_record_id,
-            base_config_content_hash=candidate.candidate.base_config_content_hash,
+            proposal_ids=candidate.proposal_ids,
+            base_config_content_hash=candidate.base_config_content_hash,
         )
 
     assert error.value.problems[0].code == (
@@ -353,7 +346,6 @@ def test_candidate_invalidation_after_registration_blocks_load_and_activation(
         registered_by="operator",
         run_id=run_id,
         proposal_ids=resolved.candidate.proposal_ids,
-        candidate_record_id=resolved.candidate_config_record_id,
         base_config_content_hash=resolved.candidate.base_config_content_hash,
     )
     invalidate_parameter_change_proposal(
@@ -404,7 +396,7 @@ def test_rollback_can_leave_an_active_candidate_after_later_review(
     )
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
     candidate = register_and_activate_candidate_config(
-        candidate=resolved,
+        candidate=resolved.candidate,
         services=local_workspace_services(tmp_path),
         entry_id="active-candidate",
         registered_by="operator",
@@ -453,7 +445,7 @@ def test_rollback_still_requires_complete_evidence_for_candidate_target(
     )
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
     candidate = register_and_activate_candidate_config(
-        candidate=resolved,
+        candidate=resolved.candidate,
         services=local_workspace_services(tmp_path),
         entry_id="rollback-target-candidate",
         registered_by="operator",
@@ -506,7 +498,7 @@ def test_rollback_from_invalidated_active_candidate_still_checks_content_hash(
     )
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
     candidate = register_and_activate_candidate_config(
-        candidate=resolved,
+        candidate=resolved.candidate,
         services=local_workspace_services(tmp_path),
         entry_id="hash-active-candidate",
         registered_by="operator",
@@ -1132,11 +1124,17 @@ def test_registry_maps_io_failure_without_exposing_raw_message(
     assert "private filesystem details" not in str(captured.value)
 
 
-def test_candidate_registration_is_bound_to_its_durable_record(
+def test_candidate_registration_rejects_changes_not_derived_from_proposals(
     tmp_path: Path,
 ) -> None:
     run_id, _proposal, resolved = _resolved_candidate(tmp_path)
-    forged = resolved.config.model_copy(update={"id": "not-from-candidate-record"})
+    forged = resolved.config.model_copy(
+        update={
+            "environment": resolved.config.environment.model_copy(
+                update={"id": "not-derived-from-proposals"}
+            )
+        }
+    )
 
     with pytest.raises(Conflict) as error:
         register_candidate_config(
@@ -1146,52 +1144,17 @@ def test_candidate_registration_is_bound_to_its_durable_record(
             registered_by="operator",
             run_id=run_id,
             proposal_ids=resolved.candidate.proposal_ids,
-            candidate_record_id=resolved.candidate_config_record_id,
-            base_config_content_hash=resolved.candidate.base_config_content_hash,
-        )
-
-    assert error.value.problems[0].code == ("config_registry.candidate_record_mismatch")
-    assert (
-        list_config_registry_entries(
-            unit_of_work=local_config_registry_unit_of_work(tmp_path)
-        )
-        == []
-    )
-
-
-def test_candidate_record_must_be_derived_from_its_proposals(tmp_path: Path) -> None:
-    run_id, _proposal, resolved = _resolved_candidate(tmp_path)
-    storage = local_run_repository(tmp_path)
-    forged = resolved.config.model_copy(
-        update={
-            "environment": resolved.config.environment.model_copy(
-                update={"id": "not-derived-from-proposals"}
-            )
-        }
-    )
-    storage.write_model(
-        run_id,
-        record_content_ref(
-            record_id=resolved.candidate_config_record.id,
-            kind=resolved.candidate_config_record.kind,
-        ),
-        forged,
-    )
-
-    with pytest.raises(DataIntegrityError) as error:
-        register_candidate_config(
-            config=forged,
-            unit_of_work=local_config_registry_unit_of_work(tmp_path),
-            entry_id="forged-derivation",
-            registered_by="operator",
-            run_id=run_id,
-            proposal_ids=resolved.candidate.proposal_ids,
-            candidate_record_id=resolved.candidate_config_record_id,
             base_config_content_hash=resolved.candidate.base_config_content_hash,
         )
 
     assert error.value.problems[0].code == (
         "config_registry.candidate_derivation_mismatch"
+    )
+    assert (
+        list_config_registry_entries(
+            unit_of_work=local_config_registry_unit_of_work(tmp_path)
+        )
+        == []
     )
 
 
@@ -1208,12 +1171,11 @@ def test_candidate_registration_validates_durable_proposal_source(
 ) -> None:
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
     storage = local_run_repository(tmp_path)
-    proposal_record = resolved.proposal_records[0]
     storage.write_model(
         run_id,
         record_content_ref(
-            record_id=proposal_record.id,
-            kind=proposal_record.kind,
+            record_id=proposal.id,
+            kind="parameter_change_proposal",
         ),
         proposal.model_copy(update=proposal_update),
     )
@@ -1226,7 +1188,6 @@ def test_candidate_registration_validates_durable_proposal_source(
             registered_by="operator",
             run_id=run_id,
             proposal_ids=resolved.candidate.proposal_ids,
-            candidate_record_id=resolved.candidate_config_record_id,
             base_config_content_hash=resolved.candidate.base_config_content_hash,
         )
 
@@ -1239,7 +1200,6 @@ def test_candidate_registration_validates_durable_proposal_source(
     ("target", "expected_code"),
     (
         ("proposal", "config_registry.candidate_evidence_mismatch"),
-        ("candidate", "config_registry.candidate_record_mismatch"),
         ("approval", "config_registry.candidate_evidence_mismatch"),
     ),
 )
@@ -1256,7 +1216,6 @@ def test_candidate_load_revalidates_content_addressed_evidence(
         registered_by="operator",
         run_id=run_id,
         proposal_ids=resolved.candidate.proposal_ids,
-        candidate_record_id=resolved.candidate_config_record_id,
         base_config_content_hash=resolved.candidate.base_config_content_hash,
     )
     assert isinstance(entry.source, CandidateConfigRegistrySource)
@@ -1269,15 +1228,6 @@ def test_candidate_load_revalidates_content_addressed_evidence(
                 kind="parameter_change_proposal",
             ),
             proposal.model_copy(update={"reason": "tampered"}),
-        )
-    elif target == "candidate":
-        storage.write_model(
-            run_id,
-            record_content_ref(
-                record_id=resolved.candidate_config_record.id,
-                kind=resolved.candidate_config_record.kind,
-            ),
-            resolved.config.model_copy(update={"id": "tampered"}),
         )
     else:
         evidence = entry.source.proposal_evidence[0]
@@ -1317,7 +1267,6 @@ def test_candidate_registration_does_not_ignore_operator_metadata(
         note="first review",
         run_id=run_id,
         proposal_ids=resolved.candidate.proposal_ids,
-        candidate_record_id=resolved.candidate_config_record_id,
         base_config_content_hash=resolved.candidate.base_config_content_hash,
     )
 
@@ -1330,14 +1279,13 @@ def test_candidate_registration_does_not_ignore_operator_metadata(
             note="different review",
             run_id=run_id,
             proposal_ids=resolved.candidate.proposal_ids,
-            candidate_record_id=resolved.candidate_config_record_id,
             base_config_content_hash=resolved.candidate.base_config_content_hash,
         )
 
     assert error.value.problems[0].code == "config_registry.duplicate_entry"
 
 
-def test_candidate_workflow_captures_generation_before_materialization(
+def test_candidate_workflow_captures_generation_before_resolution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1348,8 +1296,6 @@ def test_candidate_workflow_captures_generation_before_materialization(
         services=local_workspace_services(tmp_path),
     )
     candidate = CandidateConfig(
-        analysis_title="best signal fixture",
-        analysis_key="best-signal",
         parameter_proposals=(proposal,),
     )
     register_and_activate_config_profile(
@@ -1359,14 +1305,14 @@ def test_candidate_workflow_captures_generation_before_materialization(
         registered_by="operator",
         operator="operator",
     )
-    original_materialize = materialize_candidate_config
+    original_resolve = resolve_candidate_config_snapshot
 
     def resolve_with_intervening_activation(
         selected: CandidateConfig,
         *,
         services: WorkspaceServices,
-    ) -> ResolvedCandidateConfig:
-        resolved = original_materialize(selected, services=services)
+    ) -> ConfigProfileSnapshot:
+        resolved = original_resolve(selected, services=services)
         register_and_activate_config_profile(
             config=load_config(),
             unit_of_work=services.config_registry,
@@ -1378,7 +1324,7 @@ def test_candidate_workflow_captures_generation_before_materialization(
 
     monkeypatch.setattr(
         config_workflow,
-        "materialize_candidate_config",
+        "resolve_candidate_config_snapshot",
         resolve_with_intervening_activation,
     )
 
@@ -1418,7 +1364,6 @@ def test_activation_validates_the_current_active_snapshot_before_stale_check(
         registered_by="operator",
         run_id=run_id,
         proposal_ids=resolved.candidate.proposal_ids,
-        candidate_record_id=resolved.candidate_config_record_id,
         base_config_content_hash=resolved.candidate.base_config_content_hash,
     )
     tampered = load_config().model_copy(update={"id": "tampered"})
@@ -1515,7 +1460,7 @@ def test_rollback_requires_the_historical_target_content_hash(tmp_path: Path) ->
 
 def _resolved_candidate(
     workspace: Path,
-) -> tuple[str, ParameterChangeProposal, ResolvedCandidateConfig]:
+) -> tuple[str, ParameterChangeProposal, _ResolvedCandidate]:
     run_id = signal_run_with_parameter_change(workspace)
     proposal = load_parameter_change_proposal(
         run_id=run_id,
@@ -1523,8 +1468,6 @@ def _resolved_candidate(
         services=local_workspace_services(workspace),
     )
     candidate = CandidateConfig(
-        analysis_title="best signal fixture",
-        analysis_key="best-signal",
         parameter_proposals=(proposal,),
     )
     review_parameter_change_proposal(
@@ -1537,8 +1480,11 @@ def _resolved_candidate(
     return (
         run_id,
         proposal,
-        materialize_candidate_config(
-            candidate,
-            services=local_workspace_services(workspace),
+        _ResolvedCandidate(
+            candidate=candidate,
+            config=resolve_candidate_config_snapshot(
+                candidate,
+                services=local_workspace_services(workspace),
+            ),
         ),
     )

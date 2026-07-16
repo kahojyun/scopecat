@@ -36,10 +36,6 @@ class PointCardinality:
     def exact(cls, count: int) -> PointCardinality:
         return cls(count, count)
 
-    @property
-    def is_exact(self) -> bool:
-        return self.maximum == self.minimum
-
 
 @dataclass(frozen=True, slots=True)
 class PointUnit:

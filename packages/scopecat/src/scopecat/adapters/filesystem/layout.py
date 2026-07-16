@@ -15,7 +15,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     StorageLocation,
 )
-from scopecat.runs.refs import ARTIFACTS_DIR, RUNS_DIR
+from scopecat.runs.refs import RUNS_DIR
 
 SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -44,24 +44,9 @@ class FilesystemRunLayout:
         )
         return self.runs_root
 
-    def workspace_ref_path(self, ref: str) -> Path:
-        """Resolve a workspace ref without permitting symlink escape."""
-
-        relative = _validate_run_relative_ref(ref)
-        candidate = self.workspace / relative.as_posix()
-        _resolve_in_workspace(
-            workspace=self.workspace,
-            candidate=candidate,
-            ref=ref,
-        )
-        return candidate
-
     def run_dir(self, run_id: str) -> Path:
         _validate_run_id(run_id)
         return self.runs_root / run_id
-
-    def artifacts_dir(self, run_id: str) -> Path:
-        return self.run_dir(run_id) / ARTIFACTS_DIR
 
     def ref_path(self, run_id: str, ref: str) -> Path:
         relative = _validate_run_relative_ref(ref)

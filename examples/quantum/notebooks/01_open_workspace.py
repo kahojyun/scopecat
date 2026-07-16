@@ -10,13 +10,13 @@ workspace = notebook_workspace("01-open-workspace")
 lab = quantum_lab(workspace=workspace)
 
 # %%
-system = lab.system()
+system = lab.resolve_config().system
 summary = {
     "workspace": lab.workspace,
     "run_count": len(lab.runs()),
     "primary_entity": system.primary_entity_id,
-    "entities": [entity.id for entity in system.entities],
-    "lines": [line.id for line in system.lines],
-    "resources": [resource.id for resource in system.resources],
+    "entities": [entity.id for entity in system.topology.entities],
+    "lines": [line.id for line in system.topology.lines],
+    "resources": [resource.id for resource in system.routing.resources],
 }
 print(summary)

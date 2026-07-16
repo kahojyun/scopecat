@@ -163,7 +163,6 @@ def parameter_change_proposal_from_updates(
         base_config_content_hash=config_content_hash(source_config),
         reason=selected_reason,
         confidence=confidence,
-        candidate_snapshot=candidate,
         deltas=deltas,
     )
 

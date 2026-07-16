@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
 from scopecat.kernel.errors import CheckFailed, Conflict, NotFound
-from scopecat.records.execution import ExecutionSummary
 from scopecat.records.parameter import Quantity
 from scopecat.records.run_request import (
     AroundScanRecord,
@@ -92,7 +91,6 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
     )
     figure = data.figure("analysis-plot")
     schema = data.schema()
-    summary = data.summary("raw-measurements")
 
     assert isinstance(lab, sc.Workspace)
     assert isinstance(run, sc.Run)
@@ -103,33 +101,29 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
     assert figure.content == b"\x89PNG\r\n"
     assert isinstance(schema, sc.MeasurementDatasetSchema)
     assert schema.primary_observables == ["signal"]
-    assert isinstance(summary, sc.DataDatasetSummary)
-    assert summary.record_count == 3
-    assert summary.coordinate_ids == ("drive_frequency",)
-    assert summary.observable_ids == ("signal",)
     assert data.artifacts == run.artifacts
     assert data.datasets == run.datasets
 
 
-def test_workspace_system_summary_describes_active_config(tmp_path: Path) -> None:
+def test_workspace_resolves_authoritative_active_config(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
 
-    summary = lab.system()
-    q0 = next(entity for entity in summary.entities if entity.id == "q0")
+    config = lab.resolve_config()
+    q0 = next(entity for entity in config.topology.entities if entity.id == "q0")
     source = next(
-        resource for resource in summary.resources if resource.id == "source-0"
+        resource for resource in config.routing.resources if resource.id == "source-0"
     )
 
-    assert isinstance(summary, sc.SystemSummary)
-    assert summary.primary_entity_id == "q0"
-    assert summary.entity_count == 3
-    assert summary.channel_count == 2
-    assert q0.resources == ("source-0",)
-    assert source.capabilities == ("set_frequency",)
-    assert source.channels == ("drive-q0",)
+    assert config.id == "example-workspace-profile"
+    assert config.primary_entity_id == "q0"
+    assert len(config.topology.entities) == 3
+    assert len(config.topology.channels) == 2
+    assert q0.kind == "logical_device"
+    assert source.capabilities == ["set_frequency"]
+    assert source.channels == ["drive-q0"]
 
 
 def test_workspace_activates_direct_configs_and_rolls_back_with_cas(
@@ -228,9 +222,9 @@ def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
         "notebook",
         "raw-measurements",
     ]
-    assert run.overview().analysis_records[0].input_ids == [
-        "artifact:notebook",
-        "dataset:raw-measurements",
+    assert [(input_ref.kind, input_ref.target) for input_ref in saved.inputs] == [
+        ("artifact", "notebook"),
+        ("dataset", "raw-measurements"),
     ]
 
 
@@ -310,7 +304,7 @@ def test_prepared_experiment_check_returns_authoring_problems(
     validation = lab.prepare(simple_template()).check()
 
     assert validation.ok is False
-    assert validation.summary is None
+    assert validation.preview is None
     assert [problem.code for problem in validation.problems] == [
         "experiment_template_missing_input"
     ]
@@ -332,10 +326,7 @@ def test_prepared_experiment_check_returns_config_selection_problems(
     )
 
     assert validation.ok is False
-    assert validation.summary is None
-    assert validation.template_id == "test.simple_scan"
-    assert validation.inputs == {"subject": sc.EntityRef(id="q0")}
-    assert validation.config_source is None
+    assert validation.preview is None
     assert [problem.code for problem in validation.problems] == [
         "config.source_conflict"
     ]
@@ -361,7 +352,7 @@ def test_prepared_experiment_check_returns_record_schema_problems(
     validation = lab.prepare(template).check()
 
     assert validation.ok is False
-    assert validation.summary is None
+    assert validation.preview is None
     assert [problem.code for problem in validation.problems] == [
         "product_unit_unsupported"
     ]
@@ -371,8 +362,6 @@ def test_prepared_experiment_check_returns_candidate_config_problems(
     tmp_path: Path,
 ) -> None:
     candidate = sc.CandidateConfig(
-        analysis_title="invalid candidate",
-        analysis_key="invalid-candidate",
         parameter_proposals=(),
     )
     prepared = (
@@ -384,10 +373,7 @@ def test_prepared_experiment_check_returns_candidate_config_problems(
     validation = prepared.check()
 
     assert validation.ok is False
-    assert validation.summary is None
-    assert validation.template_id == "test.simple_scan"
-    assert validation.inputs == {"subject": sc.EntityRef(id="q0")}
-    assert validation.config_source is None
+    assert validation.preview is None
     assert [problem.code for problem in validation.problems] == [
         "candidate_config_empty"
     ]
@@ -423,12 +409,6 @@ def test_workspace_experiment_lowers_to_runnable_spec(
     run = experiment.run()
 
     assert run.manifest.status == "completed"
-    assert (
-        ExecutionSummary.model_validate(
-            run.record_json("execution-summary").content
-        ).experiment_id
-        == "manual-signal-scan"
-    )
     run_dir = tmp_path / "runs" / run.id
     persisted_request = read_model(run_dir / "run-request.json", RunRequest)
     assert persisted_request.template_id == "scopecat.workspace.experiment"
@@ -479,12 +459,6 @@ def test_workspace_run_options_materialize_internal_run_request(
     persisted_request = read_model(run_dir / "run-request.json", RunRequest)
 
     assert run.manifest.status == "completed"
-    assert (
-        ExecutionSummary.model_validate(
-            run.record_json("execution-summary").content
-        ).point_count
-        == 3
-    )
     assert persisted_request.template_id == "test.simple_scan"
     assert persisted_request.template_inputs["subject"] == "q0"
     drive_scan = scan_axis_index(persisted_request.scans)["drive_frequency"]
@@ -786,12 +760,9 @@ def test_workspace_experiment_defines_complete_experiment(
     run = experiment.run()
 
     assert run.manifest.status == "completed"
-    assert preview.state_changes[0].resource_id == "source-0"
-    assert preview.state_changes[0].field == "set_frequency.frequency"
-    assert preview.state_changes[0].after == Quantity(
-        value=4.9,
-        unit="GHz",
-    )
+    assert preview.point_count == 3
+    assert preview.coordinate_ids == ("drive_frequency",)
+    assert [record.id for record in preview.records] == ["signal"]
 
 
 def test_workspace_module_can_be_composed(
@@ -833,9 +804,8 @@ def test_workspace_module_can_be_composed(
     )
 
     assert run.manifest.status == "completed"
-    assert ExecutionSummary.model_validate(
-        run.record_json("execution-summary").content
-    ).experiment_id == ("composed-signal-scan")
+    assert run.request is not None
+    assert run.request.template_inputs["name"] == "composed signal scan"
 
 
 def test_workspace_preserves_nominal_product_refs(tmp_path: Path) -> None:
@@ -908,14 +878,12 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
         "file:///tmp/manual-notes.ipynb",
     ]
     assert candidate.source_run_id == run.id
-    assert candidate.analysis_title == "manual readout review"
-    assert candidate.analysis_key == "manual-readout-review"
     assert candidate.parameter_proposals[0].deltas[0].parameter_id == "drive_frequency"
     assert saved.record.kind == "analysis"
     assert saved.record.id == "analysis-manual-readout-review"
-    assert [record.id for record in run.overview().analysis_records] == [
-        "analysis-manual-readout-review"
-    ]
+    assert [
+        record.id for record in run.manifest.records if record.kind == "analysis"
+    ] == ["analysis-manual-readout-review"]
 
 
 def test_workspace_candidate_activation_honors_expected_generation(
@@ -998,8 +966,6 @@ def test_run_analysis_persists_output_artifacts(
         )
         .save()
     )
-    overview = run.overview()
-
     assert [artifact.kind for artifact in saved.output_artifacts] == [
         "analysis_html",
         "analysis_notes",
@@ -1026,7 +992,7 @@ def test_run_analysis_persists_output_artifacts(
         "fit markdown",
         "plot bytes",
     ]
-    assert overview.analysis_records[0].output_ids == [
+    assert [artifact.id for artifact in saved.output_artifacts] == [
         "manual-html-artifact",
         "analysis-manual-report-review-fit-markdown",
         "analysis-manual-report-review-plot-bytes",
@@ -1149,7 +1115,7 @@ def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
     assert [artifact.id for artifact in saved.output_artifacts] == ["one", "two"]
 
 
-def test_analysis_artifacts_dedupe_sources_and_feed_overview(
+def test_analysis_artifacts_preserve_distinct_sources(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -1177,15 +1143,10 @@ def test_analysis_artifacts_dedupe_sources_and_feed_overview(
         )
         .save()
     )
-    overview = run.overview()
-
     assert [input_ref.target for input_ref in saved.inputs] == [
         "raw-measurements",
         "file:///tmp/manual-source-review.ipynb",
         "raw-measurements",
-    ]
-    assert [analysis.input_ids for analysis in overview.analysis_records] == [
-        ["dataset:raw-measurements", "uri:file:///tmp/manual-source-review.ipynb"]
     ]
 
 
@@ -1219,9 +1180,6 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     saved = analysis.save()
     candidate = analysis.candidate_config()
     follow_up = lab.prepare(experiment, config=candidate).run()
-    comparison = lab.compare(baseline, follow_up, observable="signal")
-    overview = baseline.overview()
-
     reopened = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
@@ -1230,19 +1188,17 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     gui_runs = reopened.runs()
     gui_run = reopened.get_run(baseline.id)
     gui_data = gui_run.data()
-    gui_overview = gui_run.overview()
+    persisted_analysis = gui_run.record_json(saved.record.id, expected_kind="analysis")
 
     assert [run.id for run in gui_runs] == [baseline.id, follow_up.id]
     assert gui_run.id == baseline.id
     assert gui_data.measurements().dataset_entry.id == "raw-measurements"
-    assert [record.id for record in gui_overview.analysis_records] == [saved.record.id]
-    assert gui_overview.analysis_records[0].input_ids == ["dataset:raw-measurements"]
+    assert persisted_analysis.record.id == saved.record.id
+    assert persisted_analysis.content["title"] == "gui review"
     assert [artifact.id for artifact in gui_data.list(kind="fit_notes")] == [
         saved.output_artifacts[0].id
     ]
     assert gui_data.text(saved.output_artifacts[0].id).content == "manual fit notes\n"
-    assert [view.id for view in gui_run.comparisons()] == [comparison.id]
-    assert overview.run_id == baseline.id
 
 
 type _AnalysisAction = Callable[[sc.Analysis], object]

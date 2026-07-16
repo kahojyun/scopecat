@@ -16,11 +16,9 @@ from scopecat.composition.local import local_workspace_services
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.backend import ExecutionBackend
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from scopecat.runs.service import (
     check_experiment,
-    preview_experiment,
     run_experiment,
     start_run,
 )
@@ -33,13 +31,13 @@ from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
 
 
-def test_preview_and_start_run_use_separate_paths(
+def test_check_and_start_run_use_separate_paths(
     tmp_path: Path,
 ) -> None:
     config = load_config()
     experiment = load_prepared_invocation()
 
-    preview = preview_experiment(
+    result = check_experiment(
         config=config,
         execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
         experiment=experiment,
@@ -52,13 +50,14 @@ def test_preview_and_start_run_use_separate_paths(
         services=local_workspace_services(tmp_path / "provider"),
     )
 
-    assert preview.points[0].point_index == 0
-    assert preview.point_count == 3
+    assert result.preview is not None
+    assert result.preview.points[0].point_index == 0
+    assert result.preview.point_count == 3
     assert provider_run.status == "completed"
     assert {dataset.id for dataset in provider_run.datasets} == {"raw-measurements"}
 
 
-def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> None:
+def test_check_and_start_run_accept_template_invocation(tmp_path: Path) -> None:
     config = load_config()
     experiment_template = (
         SIMPLE_MODULE.template("test.workflow_request_scan", kind="simple_scan")
@@ -76,12 +75,6 @@ def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> Non
     )
     invocation = prepare_invocation(experiment_template.bind(subject="q0"))
 
-    preview = preview_experiment(
-        config=config,
-        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
-        experiment=invocation,
-        services=local_workspace_services(tmp_path / "preview"),
-    )
     report = check_experiment(
         invocation,
         config=config,
@@ -95,15 +88,15 @@ def test_preview_and_start_run_accept_template_invocation(tmp_path: Path) -> Non
         services=local_workspace_services(tmp_path / "provider"),
     )
 
-    assert report.template_id == "test.workflow_request_scan"
-    assert report.inputs == {"subject": EntityRef(id="q0")}
-    assert preview.experiment_id == "authored-simple-scan"
+    assert report.ok
+    assert report.preview is not None
+    assert report.preview.experiment_id == "authored-simple-scan"
     assert provider_run.status == "completed"
 
 
-@pytest.mark.parametrize("workflow", ["run", "check", "preview"])
-def test_public_workflow_compiles_authoring_before_config_source_io(
-    workflow: Literal["run", "check", "preview"],
+@pytest.mark.parametrize("workflow", ["run", "check"])
+def test_workflow_compiles_authoring_before_config_source_io(
+    workflow: Literal["run", "check"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -114,19 +107,19 @@ def test_public_workflow_compiles_authoring_before_config_source_io(
         config_reads += 1
         raise AssertionError("config source must not be read for invalid authoring")
 
-    resolver = (
-        "_resolve_config_for_run" if workflow == "run" else "_resolve_config_read_only"
+    monkeypatch.setattr(
+        run_workflows,
+        "resolve_experiment_config",
+        unexpected_config_read,
     )
-    monkeypatch.setattr(run_workflows, resolver, unexpected_config_read)
     invalid = prepare_invocation(simple_template().bind())
 
     if workflow == "check":
         result = check_experiment(invalid, services=local_workspace_services(tmp_path))
         problem = result.problems[0]
     else:
-        terminal = run_experiment if workflow == "run" else preview_experiment
         with pytest.raises(CheckFailed) as error:
-            terminal(
+            run_experiment(
                 invalid,
                 execution_backend=ExecutionBackend(
                     provider=TestSignalInstrumentProvider()
@@ -167,9 +160,9 @@ def test_start_run_compiles_authoring_before_config_validation(
     assert config_validations == 0
 
 
-@pytest.mark.parametrize("workflow", ["start", "run", "check", "preview"])
-def test_public_workflow_compiles_authoring_once(
-    workflow: Literal["start", "run", "check", "preview"],
+@pytest.mark.parametrize("workflow", ["start", "run", "check"])
+def test_workflow_compiles_authoring_once(
+    workflow: Literal["start", "run", "check"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -214,14 +207,6 @@ def test_public_workflow_compiles_authoring_once(
             "run": lambda: run_experiment(
                 experiment,
                 config=invalid_config,
-                services=local_workspace_services(tmp_path),
-            ),
-            "preview": lambda: preview_experiment(
-                experiment,
-                config=invalid_config,
-                execution_backend=ExecutionBackend(
-                    provider=TestSignalInstrumentProvider()
-                ),
                 services=local_workspace_services(tmp_path),
             ),
         }[workflow]

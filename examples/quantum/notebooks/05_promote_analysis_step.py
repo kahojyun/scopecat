@@ -27,7 +27,6 @@ saved_analysis = analysis.save()
 
 # %%
 candidate = analysis.candidate_config()
-overview = completed_run.overview()
 
 # %%
 delta = candidate.parameter_proposals[0].deltas[0]

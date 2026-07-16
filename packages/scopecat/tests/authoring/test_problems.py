@@ -174,9 +174,8 @@ def test_check_experiment_resolves_template_invocation_with_config_profile(
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
 
-    assert result.template_id == "test.simple_scan"
-    assert result.summary is not None
-    assert result.summary.experiment_id == "authored-simple-scan"
+    assert result.preview is not None
+    assert result.preview.experiment_id == "authored-simple-scan"
 
 
 def test_check_experiment_resolves_template_invocation_with_config_snapshot(
@@ -189,9 +188,8 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
         config_profile=load_config(),
     )
 
-    assert result.template_id == "test.simple_scan"
-    assert result.summary is not None
-    assert result.summary.experiment_id == "authored-simple-scan"
+    assert result.preview is not None
+    assert result.preview.experiment_id == "authored-simple-scan"
 
 
 def _module_consuming_input() -> tuple[sc.ExperimentModule, sc.ValueRef]:

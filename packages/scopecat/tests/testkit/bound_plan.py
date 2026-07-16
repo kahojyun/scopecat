@@ -4,13 +4,17 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
 from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.linking.bound import (
+    BoundPlan,
+    BoundResourceState,
+    BoundStateField,
+)
 from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.backend import ParameterRelationData
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.kernel.problems import Problem
-from scopecat.planning.preview import build_experiment_preview
-from scopecat.planning.preview_models import ExperimentPreview
+from scopecat.kernel.state import StateValue
 from scopecat.records.config import ConfigProfileSnapshot, RoutingResource
 from tests.testkit.authoring import load_config
 
@@ -69,30 +73,80 @@ def config_with_physical_resources(
     return config.model_copy(update={"system": system})
 
 
-def preview_contract(
+def bound_plan_contract(
     experiment: TypedProgram,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> ExperimentPreview:
-    preview, problems = preview_result(
+) -> BoundPlan:
+    plan, problems = bound_plan_result(
         experiment,
         parameters,
         config=config,
     )
     assert problems == ()
-    return preview
+    return plan
 
 
-def preview_result(
+def bound_plan_result(
     experiment: TypedProgram,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> tuple[ExperimentPreview, tuple[Problem, ...]]:
+) -> tuple[BoundPlan, tuple[Problem, ...]]:
     environment = replace(
         validate_config_environment(config or load_config()),
         parameters=parameters,
     )
     plan = materialize_local_plan(link_program(experiment, environment))
-    return build_experiment_preview(plan), plan.problems
+    return plan, plan.problems
+
+
+def bound_state_fields(
+    plan: BoundPlan,
+) -> tuple[tuple[int, BoundResourceState, BoundStateField], ...]:
+    """Flatten bound state for focused assertions without another projection."""
+
+    return tuple(
+        (point.point_index, state, field)
+        for point in plan.points
+        for state in point.desired_state
+        for field in state.fields
+    )
+
+
+def bound_coordinate_ids(plan: BoundPlan) -> tuple[str, ...]:
+    schema = plan.expected_dataset_schema
+    if schema is not None:
+        return tuple(schema.primary_coordinates)
+    return plan.point_coordinate_ids
+
+
+def bound_primary_observables(plan: BoundPlan) -> tuple[str, ...]:
+    schema = plan.expected_dataset_schema
+    if schema is not None:
+        return tuple(schema.primary_observables)
+    return tuple(record.id for record in plan.records if record.kind == "observable")
+
+
+def bound_dataset_dimensions(plan: BoundPlan) -> dict[str, int]:
+    schema = plan.expected_dataset_schema
+    dimensions = (
+        {
+            dimension.id: dimension.size
+            for dimension in schema.dimensions
+            if dimension.size is not None
+        }
+        if schema is not None
+        else {}
+    )
+    if (
+        schema is not None
+        and any(dimension.id == "point" for dimension in schema.dimensions)
+    ) or any("point" in record.dims for record in plan.records):
+        dimensions["point"] = len(plan.points)
+    return dimensions
+
+
+def state_literal(value: object) -> object:
+    return value.root if isinstance(value, StateValue) else value

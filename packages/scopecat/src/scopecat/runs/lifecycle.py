@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from scopecat.execution.evidence import (
-    execution_summary_ref,
     instrument_state_evidence_ref,
     raw_measurements_ref,
     run_outcome_ref,
@@ -17,7 +16,7 @@ from scopecat.execution.problems import (
 from scopecat.kernel.errors import ProblemFailure, RunPersistenceError
 from scopecat.kernel.problems import ProblemCategory, ProblemPhase
 from scopecat.measurements.results import MeasurementRecord
-from scopecat.records.execution import ExecutionSummary, InstrumentStateEvidence
+from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.runs.access import upsert_artifacts, upsert_datasets, upsert_records
 from scopecat.runs.refs import MANIFEST_REF
@@ -29,7 +28,6 @@ def commit_terminal_evidence(
     storage: RunRepository,
     run_id: str,
     outcome: RunOutcome,
-    summary: ExecutionSummary,
     instrument_state: InstrumentStateEvidence | None,
     measurements: Sequence[MeasurementRecord],
     manifest: RunManifest,
@@ -46,10 +44,6 @@ def commit_terminal_evidence(
     pending_ref = run_outcome_ref()
     try:
         storage.write_model(run_id, pending_ref, outcome)
-        committed_refs.append(pending_ref)
-        phase = "execution_summary"
-        pending_ref = execution_summary_ref()
-        storage.write_model(run_id, pending_ref, summary)
         committed_refs.append(pending_ref)
         if instrument_state is not None:
             phase = "instrument_state_evidence"

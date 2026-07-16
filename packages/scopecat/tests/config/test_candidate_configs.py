@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Barrier
 
 import pytest
 from pydantic import ValidationError
@@ -13,15 +11,17 @@ from scopecat.composition.local import (
     local_run_repository,
     local_workspace_services,
 )
-from scopecat.config.candidates import materialize_candidate_config
-from scopecat.config.changes import load_parameter_change_proposal
+from scopecat.config.candidates import resolve_candidate_config_snapshot
+from scopecat.config.changes import (
+    list_parameter_change_decisions,
+    load_parameter_change_proposal,
+)
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry import list_config_registry_entries
 from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.runs.refs import record_content_ref
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_invocation
@@ -40,6 +40,7 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
         ),
         confidence=0.9,
     )
+    analysis.save()
     candidate = analysis.candidate_config()
 
     follow_up = lab.prepare(load_invocation(), config=candidate).run()
@@ -56,11 +57,10 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
     assert isinstance(updated, ScalarParameterValue)
     assert updated.value == Quantity(value=5.5, unit="GHz")
     proposal = analysis.parameter_proposals[0]
-    assert proposal.candidate_snapshot.get("drive_frequency") == updated
     assert proposal.deltas[0].after == updated
 
 
-def test_candidate_checks_are_read_only_until_run_materializes_evidence(
+def test_candidate_checks_and_run_leave_source_run_unchanged(
     tmp_path: Path,
 ) -> None:
     lab = _lab(tmp_path)
@@ -85,35 +85,17 @@ def test_candidate_checks_are_read_only_until_run_materializes_evidence(
         assert storage.read_manifest(source_run.id) == manifest_before
         assert _run_ref_contents(tmp_path, source_run.id) == refs_before
 
-    assert lab.system(config=candidate)
+    assert lab.resolve_config(config=candidate).id == "candidate-drive-frequency"
     assert_source_run_unchanged()
     assert prepared.check().ok
     assert_source_run_unchanged()
     assert_source_run_unchanged()
     assert prepared.preview().point_count == 3
     assert_source_run_unchanged()
-    assert prepared.explain().startswith("experiment check: passed")
-    assert_source_run_unchanged()
-
     follow_up = prepared.run()
 
-    manifest_after = storage.read_manifest(source_run.id)
-    materialized_records = [
-        record
-        for record in manifest_after.records
-        if record.kind in {"parameter_change_proposal", "candidate_config"}
-    ]
-    refs_after = _run_ref_contents(tmp_path, source_run.id)
-    assert follow_up.config.id.startswith("candidate-read-only-candidate-")
-    assert manifest_after != manifest_before
-    assert {record.kind for record in materialized_records} == {
-        "parameter_change_proposal",
-        "candidate_config",
-    }
-    for record in materialized_records:
-        ref = record_content_ref(record_id=record.id, kind=record.kind)
-        assert ref not in refs_before
-        assert ref in refs_after
+    assert follow_up.config.id == "candidate-drive-frequency"
+    assert_source_run_unchanged()
 
 
 @pytest.mark.parametrize(
@@ -163,7 +145,7 @@ def test_candidate_config_rejects_overlapping_proposals(tmp_path: Path) -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        materialize_candidate_config(
+        resolve_candidate_config_snapshot(
             analysis.candidate_config(("fit-a", "fit-b")),
             services=local_workspace_services(tmp_path),
         )
@@ -237,7 +219,7 @@ def test_parameter_change_proposal_round_trips_and_is_persisted(
 
     assert restored == proposal
     assert persisted == proposal
-    assert persisted.candidate_snapshot == proposal.candidate_snapshot
+    assert persisted.schema_version == "scopecat.parameter_change_proposal.v2"
     assert persisted.deltas == proposal.deltas
 
 
@@ -292,10 +274,6 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     rebuilt_proposal = rebuilt.parameter_proposals[0]
     assert rebuilt_proposal.proposed_at != first_proposal.proposed_at
     rebuilt.save()
-    materialize_candidate_config(
-        rebuilt.candidate_config(),
-        services=local_workspace_services(tmp_path),
-    )
     second = run.analysis("second fit").propose(
         "drive-frequency",
         sc.replace_scalar_parameter(
@@ -322,83 +300,13 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
         for record in manifest.records
         if record.kind == "parameter_change_proposal"
     ] == [first_proposal.id]
-    decision_info = lab.overview(run).parameter_change_proposals[0].decision_info
-    assert decision_info.status == "reviewed"
-    assert decision_info.decision == decision.decision
-    assert [event.event_id for event in decision_info.history] == [decision.event_id]
-
-
-def test_candidate_config_record_is_immutable(tmp_path: Path) -> None:
-    run = _lab(tmp_path).prepare(load_invocation()).run()
-    candidate = (
-        run.analysis("immutable candidate")
-        .propose(
-            "drive-frequency",
-            sc.replace_scalar_parameter(
-                "drive_frequency",
-                sc.Quantity(5.4, "GHz"),
-            ),
-        )
-        .candidate_config()
+    decisions = list_parameter_change_decisions(
+        run_id=run.id,
+        selector=first_proposal.id,
+        storage=local_run_repository(tmp_path),
     )
-    resolved = materialize_candidate_config(
-        candidate, services=local_workspace_services(tmp_path)
-    )
-    storage = local_run_repository(tmp_path)
-    storage.write_model(
-        run.id,
-        record_content_ref(
-            record_id=resolved.candidate_config_record.id,
-            kind=resolved.candidate_config_record.kind,
-        ),
-        resolved.config.model_copy(update={"id": "tampered"}),
-    )
-
-    with pytest.raises(Conflict) as error:
-        materialize_candidate_config(
-            candidate, services=local_workspace_services(tmp_path)
-        )
-
-    assert error.value.problems[0].code == "candidate_config_record_conflict"
-
-
-def test_concurrent_candidate_materialization_is_idempotent(tmp_path: Path) -> None:
-    run = _lab(tmp_path).prepare(load_invocation()).run()
-    candidate = (
-        run.analysis("concurrent candidate")
-        .propose(
-            "drive-frequency",
-            sc.replace_scalar_parameter(
-                "drive_frequency",
-                sc.Quantity(5.4, "GHz"),
-            ),
-        )
-        .candidate_config()
-    )
-    barrier = Barrier(2)
-
-    def resolve(_: int) -> str:
-        barrier.wait()
-        return materialize_candidate_config(
-            candidate, services=local_workspace_services(tmp_path)
-        ).config.id
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        resolved_ids = list(executor.map(resolve, (0, 1)))
-
-    manifest = local_run_repository(tmp_path).read_manifest(run.id)
-    proposal_records = [
-        record
-        for record in manifest.records
-        if record.kind == "parameter_change_proposal"
-    ]
-    candidate_records = [
-        record for record in manifest.records if record.kind == "candidate_config"
-    ]
-    assert resolved_ids[0] == resolved_ids[1]
-    assert len(proposal_records) == 1
-    assert len(candidate_records) == 1
-    assert not list((tmp_path / "runs" / run.id).rglob("*.tmp"))
+    assert [event.decision for event in decisions] == [decision.decision]
+    assert [event.event_id for event in decisions] == [decision.event_id]
 
 
 def _lab(tmp_path: Path) -> sc.Workspace:

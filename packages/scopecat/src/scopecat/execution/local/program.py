@@ -490,10 +490,6 @@ class ExecutionProgram:
         return len(self.points)
 
     @property
-    def expected_measurement_indices(self) -> set[int]:
-        return {point.point_index for point in self.points}
-
-    @property
     def expected_output_ids(self) -> frozenset[str]:
         return frozenset(projection.record_id for projection in self.record_projections)
 

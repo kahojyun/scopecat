@@ -1,4 +1,4 @@
-"""Notebook-style example: run a candidate config and review the comparison."""
+"""Notebook-style example: run an experiment with a candidate config."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from quantum_lab_demo.experiments import (
 )
 
 # %%
-workspace = notebook_workspace("06-review-and-rerun")
+workspace = notebook_workspace("06-rerun-candidate-config")
 lab = quantum_lab(workspace=workspace)
 
 # %%
@@ -37,18 +37,12 @@ follow_up = (
 )
 
 # %%
-comparison = lab.compare(baseline, follow_up, observable="raw_iq")
-comparison_review = comparison.review(state="accepted")
-
-# %%
 proposal = analysis.parameter_proposals[0]
 summary = {
     "baseline": baseline.id,
     "parameter_change": proposal.id,
     "saved_analysis": saved_analysis.record.id,
-    "candidate": candidate.analysis_key,
+    "candidate_proposals": candidate.proposal_ids,
     "follow_up": follow_up.id,
-    "comparison": comparison.id,
-    "comparison_review": comparison_review.review.decision,
 }
 print(summary)

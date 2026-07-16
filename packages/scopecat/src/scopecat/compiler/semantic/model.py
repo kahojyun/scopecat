@@ -461,10 +461,6 @@ class StateEachRegion:
         )
         return tuple(entries)
 
-    @property
-    def body_uses(self) -> tuple[ValueUse, ...]:
-        return tuple(use for _path, use in self.body_entries)
-
 
 @dataclass(frozen=True, slots=True)
 class SemanticOperation:

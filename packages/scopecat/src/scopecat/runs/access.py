@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import PurePosixPath
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
 from scopecat.kernel.json_types import JsonValue
@@ -168,14 +168,6 @@ def get_record_by_id(manifest: RunManifest, record_id: str) -> RunRecordEntry | 
         if record.id == record_id:
             return record
     return None
-
-
-def storage_ref(ref: RunManifestEntry) -> str:
-    if isinstance(ref, RunArtifactEntry):
-        return artifact_storage_ref(ref)
-    if isinstance(ref, RunDatasetEntry):
-        return dataset_storage_ref(ref)
-    return record_storage_ref(ref)
 
 
 def artifact_storage_ref(artifact: RunArtifactEntry) -> str:
@@ -580,80 +572,6 @@ def read_record_json(
                         path=("records", selector),
                     ),
                     details={"selector": selector},
-                )
-            ]
-        ) from error
-
-
-def read_model_artifact[TModel: BaseModel](
-    *,
-    storage: RunRepository,
-    run_id: str,
-    selector: str,
-    model_type: type[TModel],
-    expected_kind: str | None = None,
-) -> TModel:
-    try:
-        return model_type.model_validate(
-            read_artifact_json(
-                storage=storage,
-                run_id=run_id,
-                selector=selector,
-                expected_kind=expected_kind,
-            )
-        )
-    except ValidationError as error:
-        raise DataIntegrityError(
-            [
-                _access_problem(
-                    code="run.artifact_invalid_model",
-                    category=ProblemCategory.DATA_INTEGRITY,
-                    message="run artifact does not match its expected schema",
-                    location=ModelLocation(
-                        root="run_manifest",
-                        path=("artifacts", selector),
-                    ),
-                    details={
-                        "selector": selector,
-                        "model": model_type.__name__,
-                    },
-                )
-            ]
-        ) from error
-
-
-def read_model_record[TModel: BaseModel](
-    *,
-    storage: RunRepository,
-    run_id: str,
-    selector: str,
-    model_type: type[TModel],
-    expected_kind: str | None = None,
-) -> TModel:
-    try:
-        return model_type.model_validate(
-            read_record_json(
-                storage=storage,
-                run_id=run_id,
-                selector=selector,
-                expected_kind=expected_kind,
-            )
-        )
-    except ValidationError as error:
-        raise DataIntegrityError(
-            [
-                _access_problem(
-                    code="run.record_invalid_model",
-                    category=ProblemCategory.DATA_INTEGRITY,
-                    message="run record does not match its expected schema",
-                    location=ModelLocation(
-                        root="run_manifest",
-                        path=("records", selector),
-                    ),
-                    details={
-                        "selector": selector,
-                        "model": model_type.__name__,
-                    },
                 )
             ]
         ) from error

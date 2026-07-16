@@ -171,12 +171,13 @@ def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
     rebuilt = analyze_drag_beta_run(run)
     assert rebuilt.analysis.parameter_proposals[0].proposed_at != proposal.proposed_at
     rebuilt.analysis.save()
-    overview = lab.overview(run)
 
     assert saved.record.id == "analysis-drag-beta-calibration"
-    [durable] = overview.parameter_change_proposals
-    assert durable.id == DRAG_BETA_PROPOSAL_ID
-    assert durable.decision_info.status == "not_reviewed"
+    assert [
+        record.id
+        for record in run.manifest.records
+        if record.kind == "parameter_change_proposal"
+    ] == [DRAG_BETA_PROPOSAL_ID]
 
 
 def test_drag_beta_low_quality_fit_saves_evidence_without_a_proposal(
@@ -200,7 +201,6 @@ def test_drag_beta_low_quality_fit_saves_evidence_without_a_proposal(
 
     result = analyze_drag_beta_run(run)
     saved = result.analysis.save()
-    overview = lab.overview(run)
 
     assert not result.assessment.eligible
     assert result.assessment.recommendation == "hold"
@@ -216,7 +216,9 @@ def test_drag_beta_low_quality_fit_saves_evidence_without_a_proposal(
         "figure",
     ]
     assert saved.record.id == "analysis-drag-beta-calibration"
-    assert overview.parameter_change_proposals == []
+    assert not any(
+        record.kind == "parameter_change_proposal" for record in run.manifest.records
+    )
 
 
 def test_drag_beta_assessment_rejects_amplification_offset_without_beta_signal() -> (
@@ -288,7 +290,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     assert rejection.value.problems[0].code == (
         "config_registry.candidate_proposal_not_approved"
     )
-    assert lab.system(config="active").config_id == source_run.config.id
+    assert lab.resolve_config(config="active").id == source_run.config.id
 
     approved = lab.review_parameter_proposal(
         source_run,
@@ -326,7 +328,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     assert proposal_evidence.approval_event_id == approved.event_id
     assert proposal_evidence.proposal_record_content_hash.startswith("sha256:")
     assert proposal_evidence.approval_record_content_hash.startswith("sha256:")
-    assert activated.entry.source.candidate_record_content_hash.startswith("sha256:")
+    assert activated.entry.source.proposal_evidence
     assert activated.entry.source.base_config_content_hash.startswith("sha256:")
     assert active_betas == pytest.approx(
         [fitted_beta + offset for offset in (-0.5, -0.25, 0.0, 0.25, 0.5)]

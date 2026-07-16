@@ -65,9 +65,6 @@ def test_candidate_config_activation_materializes_table_row_updates(
 
     assert len(proposal.deltas) == 1
     assert proposal.deltas[0].parameter_id == "drive_channels"
-    assert proposal.candidate_snapshot.get("drive_channels") == (
-        proposal.deltas[0].after
-    )
     analysis.save()
     lab.review_parameter_proposal(run, proposal.id)
 

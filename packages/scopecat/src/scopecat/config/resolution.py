@@ -7,8 +7,8 @@ from pathlib import Path
 
 from scopecat.application.services import WorkspaceServices
 from scopecat.config.candidates import (
-    CandidateConfigInput,
-    materialize_candidate_config,
+    CandidateConfig,
+    resolve_candidate_config_snapshot,
 )
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry import (
@@ -103,6 +103,41 @@ def resolve_config_source(
     return ResolvedConfig(config=load_config_profile(config_profile))
 
 
+def resolve_experiment_config(
+    *,
+    services: WorkspaceServices,
+    config: str | ConfigProfileSnapshot | CandidateConfig,
+    config_profile: ConfigProfileInput | None = None,
+) -> ResolvedConfig:
+    """Resolve one experiment config selection from its authoritative source."""
+
+    if isinstance(config, CandidateConfig | ConfigProfileSnapshot):
+        if config_profile is not None:
+            raise CheckFailed(
+                [
+                    blocking_problem(
+                        "config.source_conflict",
+                        "provide either config or config_profile, not both",
+                        category=ProblemCategory.INVALID_INPUT,
+                        phase=ProblemPhase.CONFIGURATION,
+                        location=model_location("run_options", "config"),
+                    )
+                ]
+            )
+        if isinstance(config, CandidateConfig):
+            return ResolvedConfig(
+                config=resolve_candidate_config_snapshot(config, services=services)
+            )
+        return ResolvedConfig(config=config)
+
+    config_entry = None if config_profile is not None and config == "active" else config
+    return resolve_config_source(
+        services=services,
+        config_profile=config_profile,
+        config_entry=config_entry,
+    )
+
+
 def load_active_config(*, services: WorkspaceServices) -> ResolvedConfig:
     config, source = registry_service.resolve_config_registry_config_source(
         selector="active",
@@ -174,7 +209,7 @@ def register_and_activate_config_profile(
 
 def register_and_activate_candidate_config(
     *,
-    candidate: CandidateConfigInput,
+    candidate: CandidateConfig,
     services: WorkspaceServices,
     entry_id: str | None = None,
     registered_by: str,
@@ -190,21 +225,17 @@ def register_and_activate_candidate_config(
         if expected_generation is None
         else expected_generation
     )
-    candidate_config = materialize_candidate_config(candidate, services=services)
-    selected_entry_id = entry_id or (
-        f"{candidate_config.candidate_config_record_id}-"
-        f"{candidate_config.candidate.source_run_id}"
-    )
+    candidate_config = resolve_candidate_config_snapshot(candidate, services=services)
+    selected_entry_id = entry_id or f"{candidate_config.id}-{candidate.source_run_id}"
     entry, active_state, activation = (
         registry_service.register_and_activate_candidate_config(
-            config=candidate_config.config,
+            config=candidate_config,
             unit_of_work=services.config_registry,
             entry_id=selected_entry_id,
             registered_by=registered_by,
-            run_id=candidate_config.candidate.source_run_id,
-            proposal_ids=candidate_config.candidate.proposal_ids,
-            candidate_record_id=candidate_config.candidate_config_record_id,
-            base_config_content_hash=candidate_config.candidate.base_config_content_hash,
+            run_id=candidate.source_run_id,
+            proposal_ids=candidate.proposal_ids,
+            base_config_content_hash=candidate.base_config_content_hash,
             operator=operator,
             expected_generation=selected_generation,
             note=note,

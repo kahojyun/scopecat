@@ -19,7 +19,6 @@ from scopecat.execution.events import (
 from scopecat.execution.evidence import (
     RAW_MEASUREMENTS_DATASET_ID,
     build_execution_manifest,
-    build_execution_summary,
     build_instrument_state_evidence,
     raw_measurement_schema,
 )
@@ -83,7 +82,6 @@ from scopecat.planning.backend import (
     PreparedExecutionSegment,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
-from scopecat.records.execution import ExecutionSummary
 from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.lifecycle import commit_terminal_evidence
@@ -102,7 +100,7 @@ def execute_execution_plan(
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
-) -> tuple[RunManifest, ExecutionSummary]:
+) -> RunManifest:
     """Execute one trusted exact-cover plan without backend-specific workflow forks."""
 
     return _execute_unified_run(
@@ -125,7 +123,7 @@ def _execute_unified_run(
     config_source: RunConfigSource | None,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
-) -> tuple[RunManifest, ExecutionSummary]:
+) -> RunManifest:
     point = prepared.point_unit
     local_binding = _bind_local_fragment(prepared)
     local_prepared = (
@@ -441,15 +439,6 @@ def _execute_unified_run(
         ),
         problems=tuple(problems),
     )
-    summary = _execution_summary(
-        experiment_id=experiment_id,
-        point_count=point_count,
-        outcome=outcome,
-        local_result=local_result,
-        measurements=committed_measurements,
-        instrument_ids=instrument_ids,
-        problems=problems,
-    )
     instrument_state = (
         None if local_result is None else build_instrument_state_evidence(local_result)
     )
@@ -466,7 +455,6 @@ def _execute_unified_run(
         storage=storage,
         run_id=run_id,
         outcome=outcome,
-        summary=summary,
         instrument_state=instrument_state,
         measurements=committed_measurements,
         manifest=manifest,
@@ -476,7 +464,11 @@ def _execute_unified_run(
         run_id=run_id,
         experiment_id=experiment_id,
         outcome=outcome,
-        completed_point_count=summary.completed_point_count,
+        completed_point_count=(
+            point_count
+            if outcome.result == "succeeded"
+            else len({record.point_index for record in committed_measurements})
+        ),
         point_count=point_count,
         measurement_count=len(committed_measurements),
         problem_count=len(problems),
@@ -497,7 +489,7 @@ def _execute_unified_run(
         if outcome.certainty == "indeterminate":
             raise RunIndeterminate(run_id=run_id, outcome=outcome)
         raise RunFailed(run_id=run_id, outcome=outcome)
-    return manifest, summary
+    return manifest
 
 
 def _bind_local_fragment(
@@ -705,51 +697,6 @@ def _reload_measurements(
             )
         )
         return [], True
-
-
-def _execution_summary(
-    *,
-    experiment_id: str,
-    point_count: int,
-    outcome: RunOutcome,
-    local_result: ExecutionEngineResult | None,
-    measurements: list[MeasurementRecord],
-    instrument_ids: list[str],
-    problems: list[Problem],
-) -> ExecutionSummary:
-    if local_result is not None:
-        completed_indices = {record.point_index for record in measurements}
-        return build_execution_summary(
-            result=replace(
-                local_result,
-                measurements=tuple(measurements),
-                points=tuple(
-                    point
-                    for point in local_result.points
-                    if point.point_index in completed_indices
-                ),
-            ),
-            outcome=outcome,
-            instrument_ids=instrument_ids,
-            point_count=point_count,
-            problems=problems,
-        )
-    completed_point_count = (
-        point_count
-        if outcome.result == "succeeded"
-        else len({record.point_index for record in measurements})
-    )
-    return ExecutionSummary(
-        run_id=outcome.run_id,
-        experiment_id=experiment_id,
-        outcome=outcome,
-        point_count=point_count,
-        completed_point_count=completed_point_count,
-        measurement_count=len(measurements),
-        instrument_ids=instrument_ids,
-        problem_count=len(problems),
-        problems=tuple(problems),
-    )
 
 
 __all__ = ["execute_execution_plan"]

@@ -15,7 +15,6 @@ from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObser
 from scopecat.execution.ports.resources import ResourceLeaseManager
 from scopecat.planning.backend import ExecutionBackend
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.execution import ExecutionSummary
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import (
@@ -62,7 +61,7 @@ def execute_bound_run(
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
     resource_leases: ResourceLeaseManager | None = None,
-) -> tuple[RunManifest, ExecutionSummary]:
+) -> RunManifest:
     """Bind a typed test program, then exercise the production executor boundary."""
 
     provider = _ExplicitDriverProvider(tuple(instruments))
@@ -88,7 +87,7 @@ def execute_program_run(
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
     resource_leases: ResourceLeaseManager | None = None,
-) -> tuple[RunManifest, ExecutionSummary]:
+) -> RunManifest:
     """Execute a typed test program through the unified production boundary."""
 
     environment = validate_config_environment(config)
@@ -100,7 +99,7 @@ def execute_program_run(
     services = local_execution_services(workspace)
     if resource_leases is not None:
         services = replace(services, resources=resource_leases)
-    manifest, summary = execute_execution_plan(
+    manifest = execute_execution_plan(
         config=config,
         prepared=prepared,
         request=request,
@@ -109,7 +108,7 @@ def execute_program_run(
         event_sink=event_sink,
         payload_observer=payload_observer,
     )
-    return manifest, summary
+    return manifest
 
 
 __all__ = ["execute_bound_run", "execute_program_run"]

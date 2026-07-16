@@ -7,7 +7,7 @@ import pytest
 from scopecat.composition.local import local_workspace_services
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.backend import ExecutionBackend
-from scopecat.records.execution import ExecutionSummary
+from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.runs.service import read_run_record_json, start_run
 from scopecat.sdk.instruments import (
     InstrumentProviderContext,
@@ -58,14 +58,14 @@ def test_start_run_uses_provider_selected_config_instrument(
     )
     snapshot = read_run_record_json(
         run_id=manifest.run_id,
-        selector="execution-summary",
+        selector="instrument-state-evidence",
         services=local_workspace_services(tmp_path),
-        expected_kind="execution_summary",
+        expected_kind="instrument_state_evidence",
     )
-    summary = ExecutionSummary.model_validate(snapshot.content)
+    evidence = InstrumentStateEvidence.model_validate(snapshot.content)
 
     assert manifest.status == "completed"
-    assert summary.instrument_ids == ["source-a"]
+    assert [state.instrument_id for state in evidence.initial_state] == ["source-a"]
 
 
 def test_start_run_reuses_point_provider_preflight(tmp_path: Path) -> None:

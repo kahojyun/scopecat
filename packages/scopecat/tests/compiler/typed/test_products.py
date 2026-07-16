@@ -27,7 +27,7 @@ from scopecat.kernel.product_identity import (
     product_use,
 )
 from tests.testkit.authoring import load_config
-from tests.testkit.experiment_preview import config_with_physical_resources
+from tests.testkit.bound_plan import config_with_physical_resources
 
 
 def _product(name: str = "signal") -> ProductDef:

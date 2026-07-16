@@ -30,24 +30,6 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class DataDatasetSummary:
-    id: str
-    kind: str
-    role: str | None
-    record_count: int | None
-    coordinate_ids: tuple[str, ...]
-    observable_ids: tuple[str, ...]
-    dimensions: dict[str, int]
-    metadata: dict[str, object]
-
-
-@dataclass(frozen=True)
-class DataSummary:
-    datasets: tuple[DataDatasetSummary, ...]
-    artifacts: tuple[RunArtifactEntry, ...]
-
-
-@dataclass(frozen=True)
 class Data:
     """Notebook-facing data access for one run."""
 
@@ -104,17 +86,6 @@ class Data:
 
     def metadata(self, selector: str = "raw-measurements") -> dict[str, object]:
         return dict(self.measurements(selector).dataset.metadata)
-
-    def summary(self, selector: str | None = None) -> DataSummary | DataDatasetSummary:
-        if selector is not None:
-            return self._dataset_summary(self.dataset(selector))
-        manifest = self._manifest()
-        return DataSummary(
-            datasets=tuple(
-                self._dataset_summary(dataset) for dataset in manifest.datasets
-            ),
-            artifacts=tuple(manifest.artifacts),
-        )
 
     def table(self, selector: str) -> RunDataTableResult:
         return read_run_data_table(
@@ -183,37 +154,5 @@ class Data:
             services=self.run.session.services,
         )
 
-    def _dataset_summary(self, dataset: RunDatasetEntry) -> DataDatasetSummary:
-        if dataset.kind != "measurement_dataset":
-            return DataDatasetSummary(
-                id=dataset.id,
-                kind=dataset.kind,
-                role=dataset.role,
-                record_count=None,
-                coordinate_ids=(),
-                observable_ids=(),
-                dimensions={},
-                metadata=dict(dataset.metadata),
-            )
-        measurements = self.measurements(dataset.id)
-        schema = measurements.dataset.dataset_schema
-        return DataDatasetSummary(
-            id=dataset.id,
-            kind=dataset.kind,
-            role=dataset.role,
-            record_count=len(measurements.dataset.records),
-            coordinate_ids=tuple(schema.primary_coordinates),
-            observable_ids=tuple(schema.primary_observables),
-            dimensions={
-                dimension.id: dimension.size
-                for dimension in schema.dimensions
-                if dimension.size is not None
-            },
-            metadata={
-                **dict(dataset.metadata),
-                **dict(measurements.dataset.metadata),
-            },
-        )
 
-
-__all__ = ["Data", "DataDatasetSummary", "DataSummary"]
+__all__ = ["Data"]

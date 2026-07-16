@@ -21,13 +21,14 @@ from scopecat.compiler.typed.program import (
     overlay_parameter_cell,
     typed_program,
 )
+from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
-from tests.testkit.experiment_preview import (
+from tests.testkit.bound_plan import (
+    bound_plan_contract,
     config_with_physical_resources,
-    preview_contract,
 )
 from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
@@ -43,6 +44,10 @@ from tests.testkit.relation_plans import (
 from tests.testkit.relation_plans import (
     point_domain as verified_point_domain,
 )
+
+
+def _state_literal(value: object) -> object:
+    return value.root if isinstance(value, StateValue) else value
 
 
 def _point_domain(expr: RelationExpr) -> PointDomain:
@@ -78,7 +83,7 @@ def _state_bindings(
     )
 
 
-def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
+def test_bound_plan_state_changes_record_adjacent_desired_state_diffs() -> None:
     unchanged_points = _point_domain(grid(index=[0, 1]))
     unchanged = typed_program(
         id="unchanged-state-patches",
@@ -111,25 +116,25 @@ def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
     )
 
     config = config_with_physical_resources({"drive-a": ("drive",)})
-    unchanged_preview = preview_contract(unchanged, _parameters(), config=config)
-    swept_preview = preview_contract(swept, _parameters(), config=config)
+    unchanged_preview = bound_plan_contract(unchanged, _parameters(), config=config)
+    swept_preview = bound_plan_contract(swept, _parameters(), config=config)
     unchanged_patches = [
         (
             change.point_index,
-            change.resource_id,
+            change.resource_id.value,
             change.field,
-            change.before,
-            change.after,
+            _state_literal(change.before),
+            _state_literal(change.after),
         )
         for change in unchanged_preview.state_changes
     ]
     swept_patches = [
         (
             change.point_index,
-            change.resource_id,
+            change.resource_id.value,
             change.field,
-            change.before,
-            change.after,
+            _state_literal(change.before),
+            _state_literal(change.after),
         )
         for change in swept_preview.state_changes
     ]
@@ -162,7 +167,7 @@ def test_preview_state_changes_record_adjacent_desired_state_diffs() -> None:
     assert unchanged_patches != swept_patches
 
 
-def test_preview_repeated_state_uses_outer_point_row() -> None:
+def test_bound_plan_repeated_state_uses_outer_point_row() -> None:
     points = _point_domain(grid(lo_frequency=linspace(4.9, 5.0, 2, unit="GHz")))
     point_bindings = _point_bindings(points)
     spec = typed_program(
@@ -184,7 +189,7 @@ def test_preview_repeated_state_uses_outer_point_row() -> None:
         ],
     )
 
-    preview = preview_contract(
+    preview = bound_plan_contract(
         spec,
         _parameters(),
         config=config_with_physical_resources({"xy0": ("drive",), "xy1": ("drive",)}),
@@ -195,7 +200,12 @@ def test_preview_repeated_state_uses_outer_point_row() -> None:
         Quantity(value=5.0, unit="GHz"),
     ]
     assert [
-        (change.point_index, change.resource_id, change.field, change.after)
+        (
+            change.point_index,
+            change.resource_id.value,
+            change.field,
+            _state_literal(change.after),
+        )
         for change in preview.state_changes
     ] == [
         (0, "xy0", "drive.carrier_frequency", Quantity(value=5.0, unit="GHz")),
@@ -205,7 +215,7 @@ def test_preview_repeated_state_uses_outer_point_row() -> None:
     ]
 
 
-def test_preview_selected_target_table_plans_simultaneous_resources() -> None:
+def test_bound_plan_selected_target_table_plans_simultaneous_resources() -> None:
     points = _point_domain(
         table("readout_devices")
         .join(
@@ -260,7 +270,7 @@ def test_preview_selected_target_table_plans_simultaneous_resources() -> None:
         ],
     )
 
-    preview = preview_contract(
+    preview = bound_plan_contract(
         spec,
         _parameters(),
         config=config_with_physical_resources(
@@ -275,7 +285,12 @@ def test_preview_selected_target_table_plans_simultaneous_resources() -> None:
 
     assert [point.coordinates["device_id"] for point in preview.points] == ["r0", "r1"]
     assert [
-        (change.point_index, change.resource_id, change.field, change.after)
+        (
+            change.point_index,
+            change.resource_id.value,
+            change.field,
+            _state_literal(change.after),
+        )
         for change in preview.state_changes
     ] == [
         (0, "readout-a", "readout.frequency", Quantity(value=6.0, unit="GHz")),

@@ -31,13 +31,9 @@ from scopecat.measurements.results import (
     MeasurementValue,
 )
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.execution import ExecutionSummary
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.run import RunConfigSource, RunManifest
-from scopecat.runs.access import (
-    dataset_storage_ref,
-    record_storage_ref,
-)
+from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.service import start_run
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
@@ -286,24 +282,14 @@ def execute_signal_run(
     experiment: ExperimentInvocation,
     workspace: str | Path,
     config_source: RunConfigSource | None = None,
-) -> tuple[RunManifest, ExecutionSummary]:
-    services = local_workspace_services(workspace)
-    manifest = start_run(
+) -> RunManifest:
+    return start_run(
         config=config,
         experiment=prepare_invocation(experiment),
-        services=services,
+        services=local_workspace_services(workspace),
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
         config_source=config_source,
     )
-    summary_record = next(
-        record for record in manifest.records if record.kind == "execution_summary"
-    )
-    summary = services.runs.read_model(
-        manifest.run_id,
-        record_storage_ref(summary_record),
-        ExecutionSummary,
-    )
-    return manifest, summary
 
 
 def _analysis_run(*, run_id: str, workspace: str | Path) -> sc.Run:

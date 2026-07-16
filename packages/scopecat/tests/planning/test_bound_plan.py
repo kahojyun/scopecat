@@ -51,14 +51,19 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
     physical_resource_id,
 )
+from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar, String
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.parameter import Quantity
-from tests.testkit.experiment_preview import (
+from tests.testkit.bound_plan import (
+    bound_coordinate_ids,
+    bound_dataset_dimensions,
+    bound_plan_contract,
+    bound_plan_result,
+    bound_primary_observables,
     config_with_physical_resources,
-    preview_contract,
-    preview_result,
+    state_literal,
 )
 from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
@@ -82,7 +87,7 @@ def _point_domain(expr: RelationExpr) -> PointDomain:
     )
 
 
-def test_preview_contract_summarizes_points_state_and_records() -> None:
+def test_bound_plan_contract_summarizes_points_state_and_records() -> None:
     points = _point_domain(
         grid(
             readout=table("readout_devices").filter(col("enabled").eq(True)),
@@ -137,7 +142,7 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
         record_uses=[record_use],
     )
 
-    preview = preview_contract(
+    preview = bound_plan_contract(
         spec,
         _parameters(),
         config=config_with_physical_resources(
@@ -146,12 +151,12 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
     )
 
     assert preview.point_count == 2
-    assert preview.coordinate_ids == ("readout_frequency",)
+    assert bound_coordinate_ids(preview) == ("readout_frequency",)
     assert [point.coordinates["readout_frequency"] for point in preview.points] == [
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
     ]
-    assert [change.after for change in preview.state_changes] == [
+    assert [state_literal(change.after) for change in preview.state_changes] == [
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
     ]
@@ -175,11 +180,11 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
             (2,),
         )
     ]
-    assert preview.dataset_dimensions == {"point": 2}
-    assert preview.primary_observables == ("signal",)
-    assert preview.schema is not None
-    assert preview.schema.primary_coordinates == ["readout_frequency"]
-    assert preview.schema.primary_observables == ["signal"]
+    assert bound_dataset_dimensions(preview) == {"point": 2}
+    assert bound_primary_observables(preview) == ("signal",)
+    assert preview.expected_dataset_schema is not None
+    assert preview.expected_dataset_schema.primary_coordinates == ["readout_frequency"]
+    assert preview.expected_dataset_schema.primary_observables == ["signal"]
     assert [
         (
             variable.id,
@@ -189,7 +194,7 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
             variable.shape,
             variable.metadata,
         )
-        for variable in preview.schema.variables
+        for variable in preview.expected_dataset_schema.variables
         if variable.role == "coordinate"
     ] == [
         (
@@ -203,7 +208,7 @@ def test_preview_contract_summarizes_points_state_and_records() -> None:
     ]
 
 
-def test_preview_contract_summarizes_record_axes() -> None:
+def test_bound_plan_contract_summarizes_record_axes() -> None:
     product = observable_product(
         "i0",
         unit="ratio",
@@ -221,15 +226,15 @@ def test_preview_contract_summarizes_record_axes() -> None:
         record_uses=[record_use],
     )
 
-    preview = preview_contract(spec, _parameters())
+    preview = bound_plan_contract(spec, _parameters())
 
     assert preview.records[0].dims == ("point", "shot")
     assert preview.records[0].shape == (1, 3)
-    assert preview.dataset_dimensions == {"point": 1, "shot": 3}
-    assert preview.primary_observables == ("i0",)
+    assert bound_dataset_dimensions(preview) == {"point": 1, "shot": 3}
+    assert bound_primary_observables(preview) == ("i0",)
 
 
-def test_preview_contract_summarizes_compute_payload_boundary() -> None:
+def test_bound_plan_contract_summarizes_compute_payload_boundary() -> None:
     def build_waveform() -> dict[str, object]:
         return {"kind": "waveform"}
 
@@ -281,35 +286,36 @@ def test_preview_contract_summarizes_compute_payload_boundary() -> None:
         ),
     )
 
-    preview = preview_contract(
+    preview = bound_plan_contract(
         spec,
         _parameters(),
         config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
     )
 
-    assert preview.runtime.compute_operation_count == 1
-    assert preview.runtime.compute_step_count == 1
-    assert preview.runtime.payload_count == 1
-    assert len(preview.compute_steps) == 1
-    step = preview.compute_steps[0]
+    [step] = preview.points[0].compute
     assert (
-        step.point_index,
-        step.semantic_operation_id,
-        step.schema_id,
-        step.dependencies,
+        preview.points[0].point_index,
+        step.operation_id.qualified_name,
+        step.payload_schema_id,
+        dict(step.dependencies),
     ) == (0, "build-waveform", "waveform_bundle", {})
     assert step.payload_id is not None
     assert step.payload_id.startswith(f"{result_id.qualified_name}.payload.")
-    assert preview.payloads[0].semantic_operation_id == "build-waveform"
-    assert preview.payloads[0].schema_id == "waveform_bundle"
     assert [
-        (target.resource_port_id, target.capability_id, target.field_path)
-        for target in preview.payloads[0].state_fields
+        (
+            field.resource_port_id.qualified_name
+            if field.resource_port_id is not None
+            else None,
+            state.capability_id,
+            field.field_path,
+        )
+        for state in preview.points[0].desired_state
+        for field in state.fields
+        if isinstance(field.value.root, PayloadRef)
     ] == [("drive", "play_waveforms", "program")]
-    assert preview.payloads[0].dependencies == {}
 
 
-def test_preview_groups_shared_typed_compute_result() -> None:
+def test_bound_plan_groups_shared_typed_compute_result() -> None:
     operation_id = OperationId(SymbolId(local_id="build-waveform"))
     result_id = operation_result_id(operation_id)
 
@@ -360,30 +366,29 @@ def test_preview_groups_shared_typed_compute_result() -> None:
         ),
     )
 
-    preview, problems = preview_result(
+    preview, problems = bound_plan_result(
         spec,
         _parameters(),
         config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
     )
 
     assert problems == ()
-    assert preview.compute_steps[0].payload_id is not None
-    assert preview.compute_steps[0].payload_id.startswith(
-        f"{result_id.qualified_name}.payload."
-    )
-    assert preview.compute_steps[0].schema_id == "waveform_bundle"
-    assert len(preview.payloads) == 1
-    assert preview.payloads[0].schema_id == "waveform_bundle"
+    [step] = preview.points[0].compute
+    assert step.payload_id is not None
+    assert step.payload_id.startswith(f"{result_id.qualified_name}.payload.")
+    assert step.payload_schema_id == "waveform_bundle"
     assert [
-        (target.capability_id, target.field_path)
-        for target in preview.payloads[0].state_fields
+        (state.capability_id, field.field_path)
+        for state in preview.points[0].desired_state
+        for field in state.fields
+        if isinstance(field.value.root, PayloadRef)
     ] == [
-        ("play_waveforms", "preview"),
         ("play_waveforms", "program"),
+        ("play_waveforms", "preview"),
     ]
 
 
-def test_preview_contract_rejects_unknown_compute_payload_nodes() -> None:
+def test_bound_plan_contract_rejects_unknown_compute_payload_nodes() -> None:
     spec = typed_program(
         id="preview-unknown-payload-node",
         kind="problem",
@@ -399,7 +404,7 @@ def test_preview_contract_rejects_unknown_compute_payload_nodes() -> None:
     )
 
     with pytest.raises(CheckFailed) as failure:
-        preview_result(
+        bound_plan_result(
             spec,
             _parameters(),
             config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
@@ -410,7 +415,7 @@ def test_preview_contract_rejects_unknown_compute_payload_nodes() -> None:
     ]
 
 
-def test_preview_contract_records_are_durable() -> None:
+def test_bound_plan_exposes_lowered_record_bindings() -> None:
     product = observable_product(
         "iq_trace",
         unit="V",
@@ -448,15 +453,13 @@ def test_preview_contract_records_are_durable() -> None:
     )
 
     config = config_with_physical_resources({"readout-a": ()})
-    preview = preview_contract(spec, _parameters(), config=config)
-    changed_preview = preview_contract(changed, _parameters(), config=config)
+    preview = bound_plan_contract(spec, _parameters(), config=config)
+    changed_preview = bound_plan_contract(changed, _parameters(), config=config)
 
     assert [
         (
             record.id,
             record.kind,
-            record.resource_port_id,
-            record.physical_resource_id,
             record.unit,
             record.dtype,
             record.dims,
@@ -467,12 +470,14 @@ def test_preview_contract_records_are_durable() -> None:
         (
             "iq_trace",
             "observable",
-            None,
-            "readout-a",
             "V",
             "float64",
             ("point", "time"),
             (1, 16),
         )
     ]
+    assert preview.local_product_realizations is not None
+    [realization] = preview.local_product_realizations.entries
+    assert realization.producer.resource_target == physical_resource_id("readout-a")
+    assert realization.implicit_resource_id is None
     assert changed_preview.records != preview.records

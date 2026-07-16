@@ -258,8 +258,6 @@ class Analysis:
             selection=selection,
         )
         return CandidateConfig(
-            analysis_title=self.title,
-            analysis_key=self.analysis_key,
             parameter_proposals=proposals,
         )
 

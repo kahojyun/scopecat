@@ -22,7 +22,7 @@ uv run python examples/quantum/notebooks/02_define_experiment.py
 uv run python examples/quantum/notebooks/03_run_and_read_data.py
 uv run python examples/quantum/notebooks/04_manual_analysis.py
 uv run python examples/quantum/notebooks/05_promote_analysis_step.py
-uv run python examples/quantum/notebooks/06_review_candidate_and_rerun.py
+uv run python examples/quantum/notebooks/06_rerun_candidate_config.py
 uv run python examples/quantum/notebooks/07_gate_calibration_family.py
 uv run python examples/quantum/notebooks/08_readout_family.py
 uv run python examples/quantum/notebooks/09_system_scale_cases.py
@@ -50,7 +50,7 @@ uv sync
 | `notebooks/03_run_and_read_data.py` | Run once, keep the run in scope, and inspect `Run.data()`. |
 | `notebooks/04_manual_analysis.py` | Build one-off notebook analysis and candidate evidence. |
 | `notebooks/05_promote_analysis_step.py` | Replace repeated manual analysis with an `AnalysisStep`. |
-| `notebooks/06_review_candidate_and_rerun.py` | Run a candidate config, compare runs, and review the comparison. |
+| `notebooks/06_rerun_candidate_config.py` | Run a follow-up experiment with a candidate config. |
 | `notebooks/07_gate_calibration_family.py` | Preview related Rabi and CZ topology cases as one gate-calibration family, including parameter-table background state and run-time parameter scans. These structural module fixtures are not the reference gate/pulse authoring UX. |
 | `notebooks/08_readout_family.py` | Preview single, multiplexed, calibrated, and QND readout cases as one readout family. |
 | `notebooks/09_system_scale_cases.py` | Preview surface-code-shaped and backend-batch cases that exercise larger array and backend semantics. |
@@ -78,7 +78,7 @@ and move repeated lab details into a local support package:
 | Adapt gate/pulse compilation to a target | `support/src/quantum_lab_demo/reference_experiments/` and `targets/fake_list_mode/` | one `ExecutionBackend` whose provider and domain adapters declare their capabilities |
 | Change one-off analysis | `notebooks/04_manual_analysis.py` | `Run.data()` and `Run.analysis(...)` |
 | Promote repeated analysis | `support/src/quantum_lab_demo/experiments/readout_analysis_steps.py` | `Run.analyze(...)` |
-| Try a candidate config | `notebooks/06_review_candidate_and_rerun.py` | `Analysis.candidate_config()` and `Workspace.prepare(..., config=candidate).input(...).run()` |
+| Try a candidate config | `notebooks/06_rerun_candidate_config.py` | `Analysis.candidate_config()` and `Workspace.prepare(..., config=candidate).input(...).run()` |
 
 The support package may contain domain calculations, virtual fixtures, and
 adapter wiring. User-facing notebooks should stay on Scopecat public objects

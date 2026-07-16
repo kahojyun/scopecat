@@ -70,7 +70,7 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
-from tests.testkit.experiment_preview import config_with_physical_resources
+from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     table_value_expr,

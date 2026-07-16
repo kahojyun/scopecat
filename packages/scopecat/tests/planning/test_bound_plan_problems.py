@@ -28,7 +28,12 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, ValueType
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
-from tests.testkit.experiment_preview import preview_result
+from tests.testkit.bound_plan import (
+    bound_dataset_dimensions,
+    bound_plan_result,
+    bound_primary_observables,
+    state_literal,
+)
 from tests.testkit.parameter_fixtures import PARAMETER_TYPES, parameters
 from tests.testkit.relation_plans import (
     point_domain as verified_point_domain,
@@ -58,7 +63,7 @@ def _point_bindings(points: PointDomain) -> RelationTypeBindings:
     )
 
 
-def test_preview_rejects_record_output_shape_problems() -> None:
+def test_bound_plan_rejects_record_output_shape_problems() -> None:
     shaped_product = observable_product(
         "signal-shaped",
         unit="ratio",
@@ -85,7 +90,7 @@ def test_preview_rejects_record_output_shape_problems() -> None:
     )
 
     with pytest.raises(CheckFailed) as failure:
-        preview_result(spec, parameters())
+        bound_plan_result(spec, parameters())
 
     assert [problem.code for problem in failure.value.problems] == [
         "product_axis_duplicate",
@@ -93,7 +98,7 @@ def test_preview_rejects_record_output_shape_problems() -> None:
     ]
 
 
-def test_preview_rejects_record_schema_problems_without_model_errors() -> None:
+def test_bound_plan_rejects_record_schema_problems_without_model_errors() -> None:
     products = (
         observable_product("bad-unit", unit="not-a-unit"),
         observable_product(
@@ -118,7 +123,7 @@ def test_preview_rejects_record_schema_problems_without_model_errors() -> None:
     )
 
     with pytest.raises(CheckFailed) as failure:
-        preview_result(spec, parameters())
+        bound_plan_result(spec, parameters())
 
     assert [problem.code for problem in failure.value.problems] == [
         "product_unit_unsupported",
@@ -127,7 +132,7 @@ def test_preview_rejects_record_schema_problems_without_model_errors() -> None:
     ]
 
 
-def test_preview_rejects_coordinate_and_record_id_collision() -> None:
+def test_bound_plan_rejects_coordinate_and_record_id_collision() -> None:
     product = observable_product("signal", unit="ratio")
     producer = instrument_product_producer(product)
     product_use, record_use = record_product(product)
@@ -142,14 +147,14 @@ def test_preview_rejects_coordinate_and_record_id_collision() -> None:
     )
 
     with pytest.raises(CheckFailed) as failure:
-        preview_result(spec, parameters())
+        bound_plan_result(spec, parameters())
 
     assert [problem.code for problem in failure.value.problems] == [
         "experiment_record_coordinate_collision"
     ]
 
 
-def test_preview_rejects_duplicate_collection_provider_keys() -> None:
+def test_bound_plan_rejects_duplicate_collection_provider_keys() -> None:
     products = (
         observable_product("raw_i", unit="ratio"),
         observable_product("demod_i", unit="ratio"),
@@ -168,16 +173,16 @@ def test_preview_rejects_duplicate_collection_provider_keys() -> None:
         record_uses=[item[1] for item in uses_and_records],
     )
 
-    preview, problems = preview_result(spec, parameters())
+    preview, problems = bound_plan_result(spec, parameters())
 
     assert [problem.code for problem in problems] == [
         "collection_provider_key_duplicate"
     ]
-    assert preview.dataset_dimensions == {"point": 1}
-    assert preview.primary_observables == ("raw_i", "demod_i")
+    assert bound_dataset_dimensions(preview) == {"point": 1}
+    assert bound_primary_observables(preview) == ("raw_i", "demod_i")
 
 
-def test_preview_reports_demanded_product_without_a_local_producer() -> None:
+def test_bound_plan_reports_demanded_product_without_a_local_producer() -> None:
     product = observable_product("signal", unit="ratio")
     product_use, record_use = record_product(product)
     spec = typed_program(
@@ -189,10 +194,10 @@ def test_preview_reports_demanded_product_without_a_local_producer() -> None:
         record_uses=[record_use],
     )
 
-    preview, problems = preview_result(spec, parameters())
+    preview, problems = bound_plan_result(spec, parameters())
 
     assert [problem.code for problem in problems] == ["product_local_producer_missing"]
-    assert preview.schema is None
+    assert preview.expected_dataset_schema is None
 
 
 @pytest.mark.parametrize(
@@ -228,7 +233,7 @@ def test_preview_reports_demanded_product_without_a_local_producer() -> None:
         ),
     ],
 )
-def test_preview_rejects_conflicting_shared_record_axes(
+def test_bound_plan_rejects_conflicting_shared_record_axes(
     second_axis: ProductAxisDef,
 ) -> None:
     first_axis = product_axis(
@@ -255,7 +260,7 @@ def test_preview_rejects_conflicting_shared_record_axes(
     )
 
     with pytest.raises(CheckFailed) as failure:
-        preview_result(spec, parameters())
+        bound_plan_result(spec, parameters())
 
     problems = failure.value.problems
     assert [problem.code for problem in problems] == ["experiment_record_axis_conflict"]
@@ -265,7 +270,7 @@ def test_preview_rejects_conflicting_shared_record_axes(
     )
 
 
-def test_preview_rejects_missing_point_parameters_before_evaluation() -> None:
+def test_bound_plan_rejects_missing_point_parameters_before_evaluation() -> None:
     spec = typed_program(
         id="missing-points",
         kind="problem",
@@ -282,14 +287,14 @@ def test_preview_rejects_missing_point_parameters_before_evaluation() -> None:
     )
 
     with pytest.raises(CheckFailed) as failure:
-        preview_result(spec, parameters())
+        bound_plan_result(spec, parameters())
 
     assert [problem.code for problem in failure.value.problems] == [
         "linked_parameter_missing"
     ]
 
 
-def test_preview_reports_parameter_overlay_problems() -> None:
+def test_bound_plan_reports_parameter_overlay_problems() -> None:
     points = _point_domain(grid(device_id=["r0"]))
     bindings = _point_bindings(points)
     spec = typed_program(
@@ -326,7 +331,7 @@ def test_preview_reports_parameter_overlay_problems() -> None:
         ],
     )
 
-    preview, problems = preview_result(spec, parameters())
+    preview, problems = bound_plan_result(spec, parameters())
 
     assert [problem.code for problem in problems] == [
         "experiment_parameter_overlay_row_not_found"
@@ -334,7 +339,7 @@ def test_preview_reports_parameter_overlay_problems() -> None:
     assert preview.state_changes == ()
 
 
-def test_preview_reports_unknown_parameter_table_problems() -> None:
+def test_bound_plan_reports_unknown_parameter_table_problems() -> None:
     points = _point_domain(grid(device_id=["r0"]))
     bindings = _point_bindings(points)
     spec = typed_program(
@@ -354,7 +359,7 @@ def test_preview_reports_unknown_parameter_table_problems() -> None:
         ],
     )
 
-    preview, problems = preview_result(spec, parameters())
+    preview, problems = bound_plan_result(spec, parameters())
 
     assert [problem.code for problem in problems] == [
         "experiment_parameter_overlay_table_missing"
@@ -362,7 +367,7 @@ def test_preview_reports_unknown_parameter_table_problems() -> None:
     assert preview.state_changes == ()
 
 
-def test_preview_reports_state_evaluation_and_conflict_problems() -> None:
+def test_bound_plan_reports_state_evaluation_and_conflict_problems() -> None:
     with pytest.raises(
         TypeError,
         match="physical state resource expressions must have string scalar type",
@@ -394,11 +399,13 @@ def test_preview_reports_state_evaluation_and_conflict_problems() -> None:
         ],
     )
 
-    conflict_preview, conflict_problems = preview_result(conflict, parameters())
+    conflict_preview, conflict_problems = bound_plan_result(conflict, parameters())
 
     assert [problem.code for problem in conflict_problems] == [
         "experiment_conflicting_desired_state"
     ]
-    assert [change.after for change in conflict_preview.state_changes] == [
+    assert [
+        state_literal(change.after) for change in conflict_preview.state_changes
+    ] == [
         Quantity(value=5.9, unit="GHz"),
     ]

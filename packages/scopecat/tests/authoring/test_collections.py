@@ -60,7 +60,7 @@ from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
-from tests.testkit.experiment_preview import preview_contract
+from tests.testkit.bound_plan import bound_plan_contract
 from tests.testkit.relation_plans import (
     each_state,
     materialize_scalar_value,
@@ -329,12 +329,12 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
         "entities": [{"id": "q0", "kind": "logical_device", "metadata": {}}],
     }
 
-    preview = preview_contract(
+    preview = bound_plan_contract(
         experiment,
         resolved.parameters,
         config=config,
     )
-    assert preview.routes[0].resolved[0].entity_ids == ("q0",)
+    assert preview.points[0].routes[0].entity_ids == ("q0",)
 
 
 def test_resource_entity_series_rejects_non_entity_members_during_authoring() -> None:

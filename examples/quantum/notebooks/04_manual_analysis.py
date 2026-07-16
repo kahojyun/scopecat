@@ -67,7 +67,7 @@ summary = {
     "follow_up": follow_up.id,
     "measurements": len(raw.dataset.records),
     "saved_analysis": saved_analysis.record.id,
-    "candidate": candidate.analysis_key,
+    "candidate_proposals": candidate.proposal_ids,
     "parameter_change": f"{delta.parameter_id} = {delta.after}",
 }
 print(summary)

@@ -8,12 +8,10 @@ from pydantic import BaseModel, ValidationError
 from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
 from scopecat.execution.evidence import (
     build_execution_manifest,
-    execution_summary_ref,
     instrument_state_evidence_ref,
     run_outcome_ref,
 )
 from scopecat.records.artifact import RunArtifactEntry, RunRecordEntry
-from scopecat.records.execution import ExecutionSummary
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.runs.lifecycle import commit_terminal_evidence
 from scopecat.runs.manifest import write_manifest_artifacts, write_manifest_records
@@ -44,19 +42,6 @@ def _successful_outcome(run_id: str) -> RunOutcome:
     )
 
 
-def _empty_summary(run_id: str, outcome: RunOutcome) -> ExecutionSummary:
-    return ExecutionSummary(
-        run_id=run_id,
-        experiment_id="experiment",
-        outcome=outcome,
-        point_count=0,
-        completed_point_count=0,
-        measurement_count=0,
-        instrument_ids=[],
-        problem_count=0,
-    )
-
-
 def test_terminal_evidence_can_omit_instrument_state(tmp_path: Path) -> None:
     run_id = "run-domain"
     outcome = _successful_outcome(run_id)
@@ -83,18 +68,13 @@ def test_terminal_evidence_can_omit_instrument_state(tmp_path: Path) -> None:
         storage=storage,
         run_id=run_id,
         outcome=outcome,
-        summary=_empty_summary(run_id, outcome),
         instrument_state=None,
         measurements=(),
         manifest=manifest,
     )
 
-    assert {record.id for record in manifest.records} == {
-        "execution-summary",
-        "run-outcome",
-    }
+    assert {record.id for record in manifest.records} == {"run-outcome"}
     assert storage.exists(run_id, run_outcome_ref())
-    assert storage.exists(run_id, execution_summary_ref())
     assert not storage.exists(run_id, instrument_state_evidence_ref())
     assert committed == manifest
     assert storage.read_manifest(run_id) == committed
@@ -143,7 +123,7 @@ def test_terminal_manifest_preserves_a_concurrent_attachment(
         model: BaseModel,
     ) -> None:
         original_write_model(selected_run_id, ref, model)
-        if selected_run_id == run_id and ref == execution_summary_ref():
+        if selected_run_id == run_id and ref == run_outcome_ref():
             terminal_content_ready.set()
             if not attachment_committed.wait(timeout=5):
                 raise TimeoutError("concurrent attachment did not commit")
@@ -174,7 +154,6 @@ def test_terminal_manifest_preserves_a_concurrent_attachment(
             storage=storage,
             run_id=run_id,
             outcome=outcome,
-            summary=_empty_summary(run_id, outcome),
             instrument_state=None,
             measurements=(),
             manifest=terminal,

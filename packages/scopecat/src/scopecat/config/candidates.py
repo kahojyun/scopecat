@@ -1,4 +1,4 @@
-"""Candidate configuration resolution from durable parameter proposals."""
+"""Candidate configuration resolution from parameter proposals."""
 
 from __future__ import annotations
 
@@ -6,37 +6,27 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from scopecat.application.services import WorkspaceServices
-from scopecat.config.changes import (
-    is_safe_parameter_change_id,
-    write_parameter_change_proposal_contents_locked,
-)
+from scopecat.config.changes import is_safe_parameter_change_id
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
-from scopecat.config.parameter_updates import merge_candidate_parameter_snapshots
-from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
+from scopecat.config.parameter_updates import merge_parameter_change_deltas
+from scopecat.kernel.errors import CheckFailed, Conflict
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
     ProblemLocation,
     ProblemPhase,
-    StorageLocation,
     blocking_problem,
     model_location,
 )
-from scopecat.records.artifact import RunRecordEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.runs.manifest import write_manifest_records_locked
-from scopecat.runs.refs import record_content_ref
 
-type CandidateConfigInput = CandidateConfig | ResolvedCandidateConfig
 type CandidateSelection = str | Sequence[str] | None
 
 
 @dataclass(frozen=True)
 class CandidateConfig:
-    analysis_title: str
-    analysis_key: str
     parameter_proposals: tuple[ParameterChangeProposal, ...]
 
     @property
@@ -62,53 +52,19 @@ class CandidateConfig:
         return tuple(proposal.id for proposal in self.parameter_proposals)
 
 
-@dataclass(frozen=True)
-class ResolvedCandidateConfig:
-    candidate: CandidateConfig
-    config: ConfigProfileSnapshot
-    proposal_records: tuple[RunRecordEntry, ...]
-    candidate_config_record: RunRecordEntry
-
-    @property
-    def candidate_config_record_id(self) -> str:
-        return self.candidate_config_record.id
-
-
 def resolve_candidate_config_snapshot(
-    candidate: CandidateConfigInput,
+    candidate: CandidateConfig,
     *,
     services: WorkspaceServices,
 ) -> ConfigProfileSnapshot:
     """Resolve a candidate into a config snapshot without writing run state."""
 
-    if isinstance(candidate, ResolvedCandidateConfig):
-        return candidate.config
     _validate_candidate(candidate)
     source_config = services.runs.read_config_profile_snapshot(candidate.source_run_id)
     return _build_candidate_config_snapshot(
         config=source_config,
         candidate=candidate,
         candidate_id=_candidate_config_id(candidate),
-    )
-
-
-def materialize_candidate_config(
-    candidate: CandidateConfigInput,
-    *,
-    services: WorkspaceServices,
-) -> ResolvedCandidateConfig:
-    """Resolve a candidate and durably record its proposals and merged config."""
-
-    if isinstance(candidate, ResolvedCandidateConfig):
-        return candidate
-    candidate_config = resolve_candidate_config_snapshot(
-        candidate,
-        services=services,
-    )
-    return _materialize_candidate_config(
-        candidate,
-        config=candidate_config,
-        services=services,
     )
 
 
@@ -152,11 +108,10 @@ def _build_candidate_config_snapshot(
             ]
         )
     try:
-        parameter_snapshot = merge_candidate_parameter_snapshots(
+        parameter_snapshot = merge_parameter_change_deltas(
             base=config.parameter_snapshot,
-            candidates=tuple(
-                (proposal.candidate_snapshot, proposal.deltas)
-                for proposal in candidate.parameter_proposals
+            proposals=tuple(
+                proposal.deltas for proposal in candidate.parameter_proposals
             ),
             candidate_id=f"{candidate_id}.parameters",
         )
@@ -183,87 +138,6 @@ def _build_candidate_config_snapshot(
             "id": candidate_id,
             "parameter_snapshot": parameter_snapshot,
         }
-    )
-
-
-def _materialize_candidate_config(
-    candidate: CandidateConfig,
-    *,
-    config: ConfigProfileSnapshot,
-    services: WorkspaceServices,
-) -> ResolvedCandidateConfig:
-    storage = services.runs
-    candidate_id = _candidate_config_id(candidate)
-    candidate_record_id = f"{candidate_id}-candidate-config"
-    candidate_record = RunRecordEntry(
-        id=candidate_record_id,
-        kind="candidate_config",
-        media_type="application/json",
-    )
-    candidate_ref = record_content_ref(
-        record_id=candidate_record.id,
-        kind=candidate_record.kind,
-    )
-    with storage.run_lock(candidate.source_run_id):
-        proposal_records = write_parameter_change_proposal_contents_locked(
-            storage=storage,
-            run_id=candidate.source_run_id,
-            proposals=candidate.parameter_proposals,
-        )
-        if not storage.write_model_if_absent(
-            candidate.source_run_id,
-            candidate_ref,
-            config,
-        ):
-            try:
-                existing = storage.read_model(
-                    candidate.source_run_id,
-                    candidate_ref,
-                    ConfigProfileSnapshot,
-                )
-            except DataIntegrityError as error:
-                raise DataIntegrityError(
-                    [
-                        _candidate_problem(
-                            "invalid_candidate_config_record",
-                            "candidate config record exists but is invalid",
-                            category=ProblemCategory.DATA_INTEGRITY,
-                            phase=ProblemPhase.PERSISTENCE,
-                            location=StorageLocation(
-                                run_id=candidate.source_run_id,
-                                ref=candidate_ref,
-                            ),
-                            details={"record_id": candidate_record.id},
-                        )
-                    ]
-                ) from error
-            if existing != config:
-                raise Conflict(
-                    [
-                        _candidate_problem(
-                            "candidate_config_record_conflict",
-                            "candidate config record is immutable and already "
-                            "contains different content",
-                            category=ProblemCategory.CONFLICT,
-                            phase=ProblemPhase.PERSISTENCE,
-                            location=StorageLocation(
-                                run_id=candidate.source_run_id,
-                                ref=candidate_ref,
-                            ),
-                            details={"record_id": candidate_record.id},
-                        )
-                    ]
-                )
-        write_manifest_records_locked(
-            storage=storage,
-            run_id=candidate.source_run_id,
-            records=[*proposal_records, candidate_record],
-        )
-    return ResolvedCandidateConfig(
-        candidate=candidate,
-        config=config,
-        proposal_records=proposal_records,
-        candidate_config_record=candidate_record,
     )
 
 
@@ -342,7 +216,7 @@ def _candidate_config_id(candidate: CandidateConfig) -> str:
     selected = "-".join(
         artifact_slug(proposal.id) for proposal in candidate.parameter_proposals
     )
-    return f"candidate-{artifact_slug(candidate.analysis_key)}-{selected}"
+    return f"candidate-{selected}"
 
 
 def _candidate_problem(
@@ -366,9 +240,6 @@ def _candidate_problem(
 
 __all__ = [
     "CandidateConfig",
-    "CandidateConfigInput",
     "CandidateSelection",
-    "ResolvedCandidateConfig",
-    "materialize_candidate_config",
     "resolve_candidate_config_snapshot",
 ]

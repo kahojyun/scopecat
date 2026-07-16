@@ -25,7 +25,11 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
-from tests.testkit.experiment_preview import preview_result
+from tests.testkit.bound_plan import (
+    bound_plan_result,
+    bound_state_fields,
+    state_literal,
+)
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.relation_plans import (
     point_domain as verified_point_domain,
@@ -36,8 +40,8 @@ from tests.testkit.relation_plans import (
 from tests.testkit.workflow_fixtures import load_experiment
 
 
-def _preview_spec(spec: TypedProgram, config: ConfigProfileSnapshot):
-    return preview_result(
+def _bound_plan_spec(spec: TypedProgram, config: ConfigProfileSnapshot):
+    return bound_plan_result(
         spec, validate_config_environment(config).parameters, config=config
     )
 
@@ -50,27 +54,30 @@ def _point_domain(
     return verified_point_domain(expr, bindings=bindings)
 
 
-def test_preview_experiment_builds_expected_plan() -> None:
+def test_bound_plan_experiment_builds_expected_plan() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     spec = load_experiment()
 
-    preview, problems = _preview_spec(spec, config)
+    preview, problems = _bound_plan_spec(spec, config)
 
     assert preview.experiment_id == spec.id
     assert preview.experiment_kind == spec.kind
     assert preview.point_count == 3
-    assert preview.state_changes[0].resource_id == "source-0"
+    assert preview.state_changes[0].resource_id.value == "source-0"
     assert preview.state_changes[0].field == "set_frequency.frequency"
-    assert preview.state_changes[0].after == Quantity(value=4.9, unit="GHz")
-    assert preview.state_fields[0].resource_id == "source-0"
-    assert preview.state_fields[0].capability_id == "set_frequency"
-    assert preview.state_fields[0].field_path == "frequency"
-    assert preview.state_fields[0].value == Quantity(value=4.9, unit="GHz")
+    assert state_literal(preview.state_changes[0].after) == Quantity(
+        value=4.9, unit="GHz"
+    )
+    _, state, field = bound_state_fields(preview)[0]
+    assert state.resource_id.value == "source-0"
+    assert state.capability_id == "set_frequency"
+    assert field.field_path == "frequency"
+    assert field.value.root == Quantity(value=4.9, unit="GHz")
     assert preview.records[0].shape == (3,)
     assert problems == ()
 
 
-def test_preview_experiment_includes_float_step_stop_point() -> None:
+def test_bound_plan_experiment_includes_float_step_stop_point() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     points = _point_domain(
         grid(
@@ -112,7 +119,7 @@ def test_preview_experiment_includes_float_step_stop_point() -> None:
         record_uses=[record_use],
     )
 
-    preview, problems = _preview_spec(spec, config)
+    preview, problems = _bound_plan_spec(spec, config)
 
     values = [record.coordinates["drive_frequency"] for record in preview.points]
 
@@ -136,13 +143,13 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
         point_domain=_point_domain(grid(drive_frequency=[value, value])),
     )
 
-    preview, problems = _preview_spec(spec, config)
+    preview, problems = _bound_plan_spec(spec, config)
 
     assert problems == ()
-    assert len({point.point_uid for point in preview.points}) == 2
+    assert len({point.logical_id.value for point in preview.points}) == 2
 
 
-def test_preview_rejects_link_problems_without_duplicates() -> None:
+def test_bound_plan_rejects_link_problems_without_duplicates() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     spec = typed_program(
         id="bad-preview-points",
@@ -161,7 +168,7 @@ def test_preview_rejects_link_problems_without_duplicates() -> None:
     )
 
     with pytest.raises(CheckFailed) as failure:
-        _preview_spec(spec, config)
+        _bound_plan_spec(spec, config)
 
     assert [
         problem.code

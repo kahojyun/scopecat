@@ -18,13 +18,11 @@ from scopecat.api.analysis import (
     AnalysisStep,
     SavedAnalysis,
 )
-from scopecat.api.comparison import ComparisonHandle
 from scopecat.api.data import Data
 from scopecat.api.run import (
     RunHandle,
     run_handle_id,
 )
-from scopecat.api.system_overview import SystemSummary, build_system_summary
 from scopecat.application.services import WorkspaceServices
 from scopecat.authoring._frozen_values import (
     empty_frozen_mapping,
@@ -72,7 +70,6 @@ from scopecat.compiler.frontend.invocation import (
 )
 from scopecat.config.candidates import (
     CandidateConfig,
-    CandidateConfigInput,
     resolve_candidate_config_snapshot,
 )
 from scopecat.config.changes import (
@@ -90,22 +87,20 @@ from scopecat.config.resolution import (
     rollback_config,
 )
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
+from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.measurements.results import MeasurementDType
 from scopecat.planning.backend import ExecutionBackend, ExecutionOptions
-from scopecat.planning.checks import ExperimentCheckReport
+from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
-from scopecat.run_comparison.service import compare_runs
-from scopecat.run_overview import RunOverview, build_run_overview
 from scopecat.runs.selectors import RunSelector
 from scopecat.runs.service import (
     check_experiment,
     list_runs,
     load_run,
-    preview_experiment,
     run_experiment,
 )
 
@@ -256,7 +251,7 @@ class PreparedExperiment:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
-    ) -> ExperimentCheckReport:
+    ) -> ExperimentCheckResult:
         """Check authoring, configuration, and planning without execution."""
 
         run_options = _validated_run_options(
@@ -276,25 +271,6 @@ class PreparedExperiment:
             execution_backend=self._execution_backend,
             execution_options=self._execution_options,
         )
-
-    def explain(
-        self,
-        *,
-        name: str | None = None,
-        tags: tuple[str, ...] = (),
-        description: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-        operator: str | None = None,
-    ) -> str:
-        """Render a deterministic explanation of :meth:`check`."""
-
-        return self.check(
-            name=name,
-            tags=tags,
-            description=description,
-            metadata=metadata,
-            operator=operator,
-        ).explain()
 
     def run(
         self,
@@ -529,7 +505,7 @@ class Experiment:
     def preview(self) -> ExperimentPreview:
         return self._require_session().prepare(self).preview()
 
-    def check(self) -> ExperimentCheckReport:
+    def check(self) -> ExperimentCheckResult:
         return self._require_session().prepare(self).check()
 
     def run(
@@ -617,12 +593,14 @@ class Workspace:
     def operator(self) -> str:
         return self._operator
 
-    def system(
+    def resolve_config(
         self,
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
-    ) -> SystemSummary:
+    ) -> ConfigProfileSnapshot:
+        """Resolve a configuration selection to its authoritative snapshot."""
+
         if isinstance(config, CandidateConfig):
             config = resolve_candidate_config_snapshot(
                 config,
@@ -638,7 +616,7 @@ class Workspace:
             if selected_config_profile is not None:
                 msg = "provide either config or config_profile, not both"
                 raise ValueError(msg)
-            return build_system_summary(selected_config)
+            return selected_config
         config_entry = (
             None
             if selected_config_profile is not None and selected_config == "active"
@@ -649,7 +627,7 @@ class Workspace:
             config_profile=selected_config_profile,
             config_entry=config_entry,
         )
-        return build_system_summary(resolved.config)
+        return resolved.config
 
     def experiment(self, name: str) -> Experiment:
         return Experiment(name=name, session=self)
@@ -692,32 +670,6 @@ class Workspace:
             _execution_options=execution_options,
         )
 
-    def compare(
-        self,
-        baseline: RunHandle | RunSelector,
-        candidate: RunHandle | RunSelector,
-        *,
-        observable: str | None = None,
-    ) -> ComparisonHandle:
-        baseline_id = run_handle_id(baseline)
-        result = compare_runs(
-            baseline_run_id=baseline_id,
-            candidate_run_id=run_handle_id(candidate),
-            services=self.services,
-            observable_id=observable,
-        )
-        return ComparisonHandle(
-            session=self,
-            baseline_run_id=baseline_id,
-            result=result,
-        )
-
-    def overview(self, run: RunHandle | RunSelector) -> RunOverview:
-        return build_run_overview(
-            run_id=run_handle_id(run),
-            services=self.services,
-        )
-
     def runs(self) -> tuple[RunHandle, ...]:
         return tuple(
             RunHandle(session=self, id=manifest.run_id)
@@ -748,7 +700,7 @@ class Workspace:
 
     def activate(
         self,
-        candidate: CandidateConfigInput,
+        candidate: CandidateConfig,
         *,
         entry_id: str | None = None,
         registered_by: str | None = None,
@@ -858,26 +810,18 @@ def _preview_prepared(
     execution_backend: ExecutionBackend | None,
     execution_options: ExecutionOptions | None,
 ) -> ExperimentPreview:
-    selected_config, selected_config_profile = _prepared_config_selection(
+    result = _check_prepared(
         session,
+        prepared_invocation,
         config=config,
         config_profile=config_profile,
-    )
-    return preview_experiment(
-        _prepared_invocation_with_run_options(
-            prepared_invocation,
-            options=run_options,
-        ),
-        services=session.services,
-        config=selected_config,
-        config_profile=selected_config_profile,
-        execution_backend=(
-            session.execution_backend
-            if execution_backend is None
-            else execution_backend
-        ),
+        run_options=run_options,
+        execution_backend=execution_backend,
         execution_options=execution_options,
     )
+    if result.preview is None:
+        raise CheckFailed(result.problems)
+    return result.preview
 
 
 def _check_prepared(
@@ -889,7 +833,7 @@ def _check_prepared(
     run_options: _RunOptions,
     execution_backend: ExecutionBackend | None,
     execution_options: ExecutionOptions | None,
-) -> ExperimentCheckReport:
+) -> ExperimentCheckResult:
     selected_config, selected_config_profile = _prepared_config_selection(
         session,
         config=config,
@@ -1089,7 +1033,6 @@ __all__ = [
     "AnalysisOutput",
     "AnalysisStep",
     "CandidateConfig",
-    "ComparisonHandle",
     "Data",
     "EarlyStopDecision",
     "Experiment",

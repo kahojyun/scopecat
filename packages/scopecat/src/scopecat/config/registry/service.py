@@ -23,7 +23,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 
 from scopecat.config.changes import ParameterChangeDecisionRecord
-from scopecat.config.parameter_updates import merge_candidate_parameter_snapshots
+from scopecat.config.parameter_updates import merge_parameter_change_deltas
 from scopecat.config.registry.ports import (
     ConfigRegistryRepository,
     WorkspaceUnitOfWork,
@@ -191,14 +191,12 @@ def register_candidate_config(
     registered_by: str,
     run_id: str,
     proposal_ids: Sequence[str],
-    candidate_record_id: str,
     base_config_content_hash: ConfigContentHash,
     note: str = "",
 ) -> ConfigRegistryEntry:
     _validate_entry_id(entry_id)
     _validate_required_text(registered_by, field="registered_by")
     _validate_required_text(run_id, field="run_id")
-    _validate_required_text(candidate_record_id, field="candidate_record_id")
     for proposal_id in proposal_ids:
         _validate_required_text(proposal_id, field="proposal_ids")
     with unit_of_work() as work:
@@ -209,7 +207,6 @@ def register_candidate_config(
             registered_by=registered_by,
             run_id=run_id,
             proposal_ids=proposal_ids,
-            candidate_record_id=candidate_record_id,
             base_config_content_hash=base_config_content_hash,
             note=note,
         )
@@ -223,7 +220,6 @@ def register_and_activate_candidate_config(
     registered_by: str,
     run_id: str,
     proposal_ids: Sequence[str],
-    candidate_record_id: str,
     base_config_content_hash: ConfigContentHash,
     operator: str,
     expected_generation: int,
@@ -238,7 +234,6 @@ def register_and_activate_candidate_config(
     _validate_required_text(registered_by, field="registered_by")
     _validate_required_text(operator, field="operator")
     _validate_required_text(run_id, field="run_id")
-    _validate_required_text(candidate_record_id, field="candidate_record_id")
     for proposal_id in proposal_ids:
         _validate_required_text(proposal_id, field="proposal_ids")
     selected_activation_note = note if activation_note is None else activation_note
@@ -268,7 +263,6 @@ def register_and_activate_candidate_config(
             registered_by=registered_by,
             run_id=run_id,
             proposal_ids=proposal_ids,
-            candidate_record_id=candidate_record_id,
             base_config_content_hash=base_config_content_hash,
             note=note,
         )
@@ -290,7 +284,6 @@ def _register_candidate_config_locked(
     registered_by: str,
     run_id: str,
     proposal_ids: Sequence[str],
-    candidate_record_id: str,
     base_config_content_hash: ConfigContentHash,
     note: str,
 ) -> ConfigRegistryEntry:
@@ -308,7 +301,6 @@ def _register_candidate_config_locked(
             storage=work.runs,
             run_id=run_id,
             proposal_ids=proposal_ids,
-            candidate_record_id=candidate_record_id,
             base_config_content_hash=base_config_content_hash,
             requested_config=config,
         )
@@ -333,7 +325,6 @@ def _validate_candidate_source_records(
     work: WorkspaceUnitOfWork,
     run_id: str,
     proposal_ids: Sequence[str],
-    candidate_record_id: str,
     base_config_content_hash: ConfigContentHash,
     requested_config: ConfigProfileSnapshot,
 ) -> _ValidatedCandidateSource:
@@ -342,7 +333,6 @@ def _validate_candidate_source_records(
             storage=work.runs,
             run_id=run_id,
             proposal_ids=proposal_ids,
-            candidate_record_id=candidate_record_id,
             base_config_content_hash=base_config_content_hash,
             requested_config=requested_config,
         )
@@ -353,7 +343,6 @@ def _validate_candidate_source_records_locked(
     storage: RunRepository,
     run_id: str,
     proposal_ids: Sequence[str],
-    candidate_record_id: str,
     base_config_content_hash: ConfigContentHash,
     requested_config: ConfigProfileSnapshot,
 ) -> _ValidatedCandidateSource:
@@ -427,39 +416,11 @@ def _validate_candidate_source_records_locked(
         proposal_ids=proposal_ids,
         proposal_hashes=proposal_hashes,
     )
-    candidate_record = _require_run_record(
-        source_manifest=source_manifest,
-        record_id=candidate_record_id,
-        kind="candidate_config",
-    )
-    candidate_ref = record_content_ref(
-        record_id=candidate_record.id,
-        kind=candidate_record.kind,
-    )
-    durable_config = storage.read_model(
-        run_id,
-        candidate_ref,
-        ConfigProfileSnapshot,
-    )
-    if config_content_hash(durable_config) != config_content_hash(requested_config):
-        raise _registry_failure(
-            Conflict,
-            code="config_registry.candidate_record_mismatch",
-            category=ProblemCategory.CONFLICT,
-            message="candidate config does not match its durable source record",
-            location=_registry_model_location("candidate_record_id"),
-            related_locations=(
-                _registry_storage_location(candidate_ref, run_id=run_id),
-            ),
-            details={"candidate_record_id": candidate_record_id},
-        )
     try:
-        expected_parameters = merge_candidate_parameter_snapshots(
+        expected_parameters = merge_parameter_change_deltas(
             base=source_config.parameter_snapshot,
-            candidates=tuple(
-                (proposal.candidate_snapshot, proposal.deltas) for proposal in proposals
-            ),
-            candidate_id=durable_config.parameter_snapshot.id,
+            proposals=tuple(proposal.deltas for proposal in proposals),
+            candidate_id=requested_config.parameter_snapshot.id,
         )
     except ValueError as error:
         raise _registry_failure(
@@ -473,7 +434,7 @@ def _validate_candidate_source_records_locked(
         expected_config = ConfigProfileSnapshot.model_validate(
             source_config.model_dump(mode="python")
             | {
-                "id": durable_config.id,
+                "id": requested_config.id,
                 "parameter_snapshot": expected_parameters,
             }
         )
@@ -485,22 +446,20 @@ def _validate_candidate_source_records_locked(
             message="candidate config cannot be derived from its durable proposals",
             location=_registry_model_location("proposal_ids"),
         ) from error
-    if config_content_hash(expected_config) != config_content_hash(durable_config):
+    if config_content_hash(expected_config) != config_content_hash(requested_config):
         raise _registry_failure(
-            DataIntegrityError,
+            Conflict,
             code="config_registry.candidate_derivation_mismatch",
-            category=ProblemCategory.DATA_INTEGRITY,
+            category=ProblemCategory.CONFLICT,
             message="candidate config is not derived from its durable proposals",
-            location=_registry_model_location("candidate_record_id"),
+            location=_registry_model_location("proposal_ids"),
         )
     source = CandidateConfigRegistrySource(
         run_id=run_id,
         proposal_evidence=approval_evidence,
-        candidate_record_id=candidate_record_id,
-        candidate_record_content_hash=_record_content_hash(durable_config),
         base_config_content_hash=base_config_content_hash,
     )
-    return _ValidatedCandidateSource(config=durable_config, source=source)
+    return _ValidatedCandidateSource(config=requested_config, source=source)
 
 
 def _candidate_approval_evidence(
@@ -593,7 +552,6 @@ def _validate_candidate_entry_evidence_locked(
         work=work,
         run_id=entry.source.run_id,
         proposal_ids=entry.source.proposal_ids,
-        candidate_record_id=entry.source.candidate_record_id,
         base_config_content_hash=entry.source.base_config_content_hash,
         requested_config=config,
     )

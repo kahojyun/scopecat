@@ -7,15 +7,10 @@ from typing import override
 
 import pytest
 
-from scopecat.composition.local import (
-    local_run_repository,
-    local_workspace_services,
-)
+from scopecat.composition.local import local_run_repository
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
-from scopecat.records.execution import ExecutionSummary
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.parameter import Quantity
-from scopecat.runs.service import read_run_record_json
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     CollectReceipt,
@@ -167,16 +162,10 @@ def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
     manifests = local_run_repository(tmp_path).list_runs()
     assert len(manifests) == 1
     assert manifests[0].status == "unknown"
-    snapshot = read_run_record_json(
-        run_id=manifests[0].run_id,
-        selector="execution-summary",
-        services=local_workspace_services(tmp_path),
-        expected_kind="execution_summary",
-    )
-    summary = ExecutionSummary.model_validate(snapshot.content)
-    assert summary.outcome.result == "failed"
-    assert summary.outcome.certainty == "indeterminate"
-    assert {problem.code for problem in summary.problems} >= {
+    assert manifests[0].outcome is not None
+    assert manifests[0].outcome.result == "failed"
+    assert manifests[0].outcome.certainty == "indeterminate"
+    assert {problem.code for problem in manifests[0].outcome.problems} >= {
         "instrument_collect_unknown"
     }
 
@@ -210,15 +199,11 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
     assert manifest.status == "interrupted"
     assert manifest.datasets == ()
     assert instrument.aborted
-    snapshot = read_run_record_json(
-        run_id=manifest.run_id,
-        selector="execution-summary",
-        services=local_workspace_services(tmp_path),
-        expected_kind="execution_summary",
-    )
-    summary = ExecutionSummary.model_validate(snapshot.content)
-    assert summary.outcome.result == "cancelled"
-    assert "execution_interrupted" in {problem.code for problem in summary.problems}
+    assert manifest.outcome is not None
+    assert manifest.outcome.result == "cancelled"
+    assert "execution_interrupted" in {
+        problem.code for problem in manifest.outcome.problems
+    }
     journal_entries = [
         json.loads(path.read_text())
         for path in sorted(

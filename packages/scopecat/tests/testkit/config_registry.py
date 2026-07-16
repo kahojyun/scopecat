@@ -25,7 +25,7 @@ def load_config() -> ConfigProfileSnapshot:
 
 
 def signal_run_with_parameter_change(tmp_path: Path) -> str:
-    manifest, _snapshot = execute_signal_run(
+    manifest = execute_signal_run(
         config=load_config(),
         experiment=load_invocation(),
         workspace=tmp_path,
@@ -71,8 +71,6 @@ def activate_best_signal(
         services=services,
     )
     candidate = CandidateConfig(
-        analysis_title="best signal fixture",
-        analysis_key="best-signal",
         parameter_proposals=(proposal,),
     )
     review_parameter_change_proposal(

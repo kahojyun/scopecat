@@ -13,15 +13,10 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.compiler.linking.linked import LinkedPlan
 from scopecat.compiler.pipeline import link_experiment
-from scopecat.config.candidates import (
-    CandidateConfig,
-    materialize_candidate_config,
-    resolve_candidate_config_snapshot,
-)
+from scopecat.config.candidates import CandidateConfig
 from scopecat.config.resolution import (
     ConfigProfileInput,
-    ResolvedConfig,
-    resolve_config_source,
+    resolve_experiment_config,
 )
 from scopecat.execution.local.plan_executor import execute_execution_plan
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
@@ -41,14 +36,8 @@ from scopecat.planning.backend import (
     ExecutionOptions,
     PreparedExecutionPlan,
 )
-from scopecat.planning.checks import (
-    CheckPhase,
-    CheckPhaseReport,
-    CheckStatus,
-    ExperimentCheckReport,
-)
+from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.preview import build_execution_plan_preview
-from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest
@@ -383,7 +372,7 @@ def _start_compiled_run(
         linked=linked.plan,
         options=execution_options,
     )
-    manifest, _ = execute_execution_plan(
+    manifest = execute_execution_plan(
         config=config,
         prepared=prepared,
         request=linked.request,
@@ -407,7 +396,7 @@ def run_experiment(
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
     compiled_invocation = compile_prepared_invocation(experiment)
-    config_result = _resolve_config_for_run(
+    config_result = resolve_experiment_config(
         services=services,
         config=config,
         config_profile=config_profile,
@@ -432,24 +421,19 @@ def check_experiment(
     config_profile: ConfigProfileInput | None = None,
     execution_backend: ExecutionBackend | None = None,
     execution_options: ExecutionOptions | None = None,
-) -> ExperimentCheckReport:
-    """Check an invocation once through each compiler phase.
+) -> ExperimentCheckResult:
+    """Check whether an invocation can produce a user preview.
 
     Authoring is deliberately compiled before resolving the selected config.
-    A failure therefore cannot trigger registry, candidate-config, or file I/O.
+    A failure therefore cannot trigger config resolution or file I/O.
     """
 
     try:
         compiled_invocation = compile_prepared_invocation(experiment)
     except CheckFailed as error:
-        return _authoring_failure_report(error.problems)
-    authoring_phase = CheckPhaseReport(
-        phase=CheckPhase.AUTHORING,
-        status=CheckStatus.PASSED,
-    )
+        return ExperimentCheckResult(problems=error.problems, preview=None)
     return _check_compiled_experiment(
         compiled_invocation,
-        authoring_phase=authoring_phase,
         services=services,
         config=config,
         config_profile=config_profile,
@@ -461,54 +445,27 @@ def check_experiment(
 def _check_compiled_experiment(
     experiment: CompiledInvocation,
     *,
-    authoring_phase: CheckPhaseReport,
     services: WorkspaceServices,
     config: str | ConfigProfileSnapshot | CandidateConfig,
     config_profile: ConfigProfileInput | None,
     execution_backend: ExecutionBackend | None,
     execution_options: ExecutionOptions | None,
-) -> ExperimentCheckReport:
+) -> ExperimentCheckResult:
     try:
-        config_result = _resolve_config_read_only(
+        config_result = resolve_experiment_config(
             services=services,
             config=config,
             config_profile=config_profile,
         )
     except ProblemFailure as error:
-        if not _problems_match_phase(error.problems, CheckPhase.CONFIGURATION):
+        if not _problems_match_phase(error.problems, ProblemPhase.CONFIGURATION):
             raise
-        return ExperimentCheckReport(
-            phases=(
-                authoring_phase,
-                CheckPhaseReport(
-                    phase=CheckPhase.CONFIGURATION,
-                    status=CheckStatus.FAILED,
-                    problems=error.problems,
-                ),
-                _skipped_phase(CheckPhase.PLANNING),
-            ),
-            template_id=experiment.request.template_id,
-            inputs=dict(experiment.assembly.source.inputs),
-        )
+        return ExperimentCheckResult(problems=error.problems, preview=None)
     environment = validate_config_environment(config_result.config)
-    configuration_status = (
-        CheckStatus.PASSED if environment.valid else CheckStatus.FAILED
-    )
-    configuration_phase = CheckPhaseReport(
-        phase=CheckPhase.CONFIGURATION,
-        status=configuration_status,
-        problems=environment.problems,
-    )
     if not environment.valid:
-        return ExperimentCheckReport(
-            phases=(
-                authoring_phase,
-                configuration_phase,
-                _skipped_phase(CheckPhase.PLANNING),
-            ),
-            template_id=experiment.request.template_id,
-            inputs=dict(experiment.assembly.source.inputs),
-            config_source=config_result.config_source,
+        return ExperimentCheckResult(
+            problems=environment.problems,
+            preview=None,
         )
 
     try:
@@ -517,84 +474,24 @@ def _check_compiled_experiment(
             environment=environment,
             config_source=config_result.config_source,
         )
-        planning_problems = _new_problems(
-            linked.problems,
-            excluding=environment.problems,
+        prepared = _prepare_execution_backend(
+            execution_backend,
+            config=config_result.config,
+            linked=linked.plan,
+            options=execution_options,
         )
-        if has_blocking_problems(planning_problems):
-            summary = None
-        else:
-            prepared = _prepare_execution_backend(
-                execution_backend,
-                config=config_result.config,
-                linked=linked.plan,
-                options=execution_options,
-            )
-            summary = build_execution_plan_preview(prepared)
-        planning_status = (
-            CheckStatus.FAILED
-            if has_blocking_problems(planning_problems)
-            else CheckStatus.PASSED
-        )
+        preview = build_execution_plan_preview(prepared)
+        planning_problems: tuple[Problem, ...] = ()
     except ProblemFailure as error:
-        if not _problems_match_phase(error.problems, CheckPhase.PLANNING):
+        if not _problems_match_phase(error.problems, ProblemPhase.PLANNING):
             raise
         planning_problems = error.problems
-        planning_status = CheckStatus.FAILED
-        summary = None
-        linked = None
+        preview = None
 
-    return ExperimentCheckReport(
-        phases=(
-            authoring_phase,
-            configuration_phase,
-            CheckPhaseReport(
-                phase=CheckPhase.PLANNING,
-                status=planning_status,
-                problems=planning_problems,
-            ),
-        ),
-        summary=summary,
-        template_id=(
-            linked.template_id if linked is not None else experiment.request.template_id
-        ),
-        inputs=dict(experiment.assembly.source.inputs),
-        config_source=(
-            linked.config_source if linked is not None else config_result.config_source
-        ),
+    return ExperimentCheckResult(
+        problems=(*environment.problems, *planning_problems),
+        preview=preview,
     )
-
-
-def _authoring_failure_report(
-    problems: tuple[Problem, ...],
-) -> ExperimentCheckReport:
-    return ExperimentCheckReport(
-        phases=(
-            CheckPhaseReport(
-                phase=CheckPhase.AUTHORING,
-                status=CheckStatus.FAILED,
-                problems=problems,
-            ),
-            _skipped_phase(CheckPhase.CONFIGURATION),
-            _skipped_phase(CheckPhase.PLANNING),
-        )
-    )
-
-
-def _skipped_phase(phase: CheckPhase) -> CheckPhaseReport:
-    return CheckPhaseReport(
-        phase=phase,
-        status=CheckStatus.SKIPPED,
-    )
-
-
-def _new_problems(
-    problems: tuple[Problem, ...],
-    *,
-    excluding: tuple[Problem, ...],
-) -> tuple[Problem, ...]:
-    excluded = {id(problem) for problem in excluding}
-    return tuple(problem for problem in problems if id(problem) not in excluded)
 
 
 def _prepare_execution_backend(
@@ -676,107 +573,9 @@ def _safe_execution_backend_id(backend: ExecutionBackend) -> str | None:
 
 def _problems_match_phase(
     problems: tuple[Problem, ...],
-    phase: CheckPhase,
+    phase: ProblemPhase,
 ) -> bool:
-    return all(problem.phase.value == phase.value for problem in problems)
-
-
-def preview_experiment(
-    experiment: PreparedInvocation,
-    *,
-    services: WorkspaceServices,
-    config: str | ConfigProfileSnapshot | CandidateConfig = "active",
-    config_profile: ConfigProfileInput | None = None,
-    execution_backend: ExecutionBackend | None = None,
-    execution_options: ExecutionOptions | None = None,
-) -> ExperimentPreview:
-    report = check_experiment(
-        experiment,
-        services=services,
-        config=config,
-        config_profile=config_profile,
-        execution_backend=execution_backend,
-        execution_options=execution_options,
-    )
-    if not report.complete or report.summary is None:
-        raise CheckFailed(report.problems)
-    return report.summary
-
-
-def _resolve_config_for_run(
-    *,
-    services: WorkspaceServices,
-    config: str | ConfigProfileSnapshot | CandidateConfig,
-    config_profile: ConfigProfileInput | None,
-) -> ResolvedConfig:
-    if isinstance(config, CandidateConfig):
-        _reject_conflicting_config_profile(config_profile)
-        resolved_candidate = materialize_candidate_config(
-            config,
-            services=services,
-        )
-        return ResolvedConfig(config=resolved_candidate.config)
-    return _resolve_non_candidate_config(
-        services=services,
-        config=config,
-        config_profile=config_profile,
-    )
-
-
-def _resolve_config_read_only(
-    *,
-    services: WorkspaceServices,
-    config: str | ConfigProfileSnapshot | CandidateConfig,
-    config_profile: ConfigProfileInput | None,
-) -> ResolvedConfig:
-    if isinstance(config, CandidateConfig):
-        _reject_conflicting_config_profile(config_profile)
-        return ResolvedConfig(
-            config=resolve_candidate_config_snapshot(
-                config,
-                services=services,
-            )
-        )
-    return _resolve_non_candidate_config(
-        services=services,
-        config=config,
-        config_profile=config_profile,
-    )
-
-
-def _resolve_non_candidate_config(
-    *,
-    services: WorkspaceServices,
-    config: str | ConfigProfileSnapshot,
-    config_profile: ConfigProfileInput | None,
-) -> ResolvedConfig:
-    if isinstance(config, ConfigProfileSnapshot):
-        _reject_conflicting_config_profile(config_profile)
-        return ResolvedConfig(config=config)
-    config_entry = None if config_profile is not None and config == "active" else config
-    return resolve_config_source(
-        services=services,
-        config_profile=config_profile,
-        config_entry=config_entry,
-    )
-
-
-def _reject_conflicting_config_profile(
-    config_profile: ConfigProfileInput | None,
-) -> None:
-    if config_profile is None:
-        return
-    raise CheckFailed(
-        [
-            blocking_problem(
-                "config.source_conflict",
-                "provide either config or config_profile, not both",
-                category=ProblemCategory.INVALID_INPUT,
-                phase=ProblemPhase.CONFIGURATION,
-                location=model_location("run_options", "config"),
-            )
-        ]
-    )
+    return all(problem.phase is phase for problem in problems)
 
 
 def _artifact_supports_text(artifact: RunArtifactEntry) -> bool:

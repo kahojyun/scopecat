@@ -1285,38 +1285,6 @@ def reconcile_domain_invocation[PayloadT, ResultT](
     return resolution
 
 
-def execute_domain_invocation[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-    PayloadT,
-    ResultT,
-](
-    runtime: DomainRuntime[PayloadT, ResultT],
-    invocation: ClosedDomainInvocation[
-        EntryAddressT,
-        ResultAddressT,
-        PayloadT,
-    ],
-    submission_id: DomainSubmissionId,
-    *,
-    journal: ExecutionJournal,
-) -> DomainFetchOutcome[ResultT]:
-    """Submit and perform the first repeatable fetch for a synchronous caller."""
-
-    submission = submit_domain_invocation(
-        runtime,
-        invocation,
-        submission_id,
-        journal=journal,
-    )
-    return fetch_domain_invocation(
-        runtime,
-        invocation.intent,
-        submission,
-        journal=journal,
-    )
-
-
 def _new_submission_id(
     intent: DomainInvocationIntent,
     *,

@@ -15,9 +15,7 @@ from scopecat.config.registry import (
     rollback_config_registry,
 )
 from scopecat.config.resolution import register_and_activate_candidate_config
-from scopecat.run_comparison import execute_run_comparison, review_run_comparison
-from scopecat.run_overview import build_run_overview
-from scopecat.runs.service import preview_experiment, start_run
+from scopecat.runs.service import start_run
 from tests.testkit.paths import CORE_FIXTURE_DIR as SIGNAL_FIXTURE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.signal_testkit import (
@@ -74,12 +72,11 @@ def _candidate_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfig:
 
 def exercise_preview(workspace: Path) -> None:
     config = load_config_profile(SIGNAL_FIXTURE_DIR / "config-profile.json")
-    preview_experiment(
+    sc.open(
+        workspace,
         config=config,
         execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
-        experiment=prepare_invocation(load_invocation()),
-        services=local_workspace_services(workspace),
-    )
+    ).prepare(load_invocation()).preview()
 
 
 def exercise_signal_provider_run(workspace: Path) -> None:
@@ -106,7 +103,7 @@ def exercise_config_registry(workspace: Path) -> None:
     services = local_workspace_services(workspace)
     unit_of_work = services.config_registry
     config, experiment = _load_signal_fixture()
-    manifest, _snapshot = execute_signal_run(
+    manifest = execute_signal_run(
         config=config,
         experiment=experiment,
         workspace=workspace,
@@ -123,7 +120,7 @@ def exercise_config_registry(workspace: Path) -> None:
         selector="active",
         unit_of_work=unit_of_work,
     )
-    candidate_seed, _snapshot = execute_signal_run(
+    candidate_seed = execute_signal_run(
         config=active_config,
         experiment=experiment,
         workspace=workspace,
@@ -164,27 +161,12 @@ def exercise_config_registry(workspace: Path) -> None:
         selector="active",
         unit_of_work=unit_of_work,
     )
-    candidate_manifest, _candidate_run = execute_signal_run(
+    execute_signal_run(
         config=config_source_config,
         experiment=experiment,
         workspace=workspace,
         config_source=config_source,
     )
-    execute_run_comparison(
-        baseline_run_id=manifest.run_id,
-        candidate_run_id=candidate_manifest.run_id,
-        services=services,
-    )
-    review_run_comparison(
-        run_id=manifest.run_id,
-        selector=f"run-comparison-{candidate_manifest.run_id}-signal",
-        services=services,
-        state="accepted",
-        reviewer="operator",
-        note="accepted",
-    )
-    build_run_overview(run_id=manifest.run_id, services=services)
-    build_run_overview(run_id=candidate_manifest.run_id, services=services)
 
 
 def exercise_instrument_provider_workflow(workspace: Path) -> None:

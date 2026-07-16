@@ -39,7 +39,6 @@ from quantum_lab_demo.experiments.readout_modules import (
 )
 from quantum_lab_demo.experiments.two_qubit_modules import CZ_CHEVRON_MODULE
 from quantum_lab_demo.fixtures import EXPERIMENT_FIXTURE_DIR
-from quantum_lab_demo.lab import quantum_lab
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.wiring import (
     compile_quantum_wiring_system,
@@ -47,6 +46,7 @@ from quantum_lab_demo.virtual_lab.wiring import (
     quantum_wiring_config_profile,
 )
 
+from .demo_lab_experiment_testkit import bound_plan
 from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 
 
@@ -173,55 +173,6 @@ def test_default_quantum_wiring_config_describes_lines_groups_and_channel_routes
     ]
 
 
-def test_workspace_system_summary_describes_default_quantum_wiring(
-    tmp_path: Path,
-) -> None:
-    lab = sc.open(tmp_path, config_profile=quantum_wiring_config_profile())
-
-    summary = lab.system()
-    q0 = next(entity for entity in summary.entities if entity.id == "q0")
-    readout_line = next(line for line in summary.lines if line.id == "ro.mux0")
-    readout_channel = next(
-        channel for channel in summary.channels if channel.id == "readout.mux0"
-    )
-    drive_lo = next(group for group in summary.groups if group.id == "lo.xy0")
-    readout_lo = next(group for group in summary.groups if group.id == "lo.ro0")
-    drive_resource = next(
-        resource for resource in summary.resources if resource.id == "drive-stack"
-    )
-
-    assert summary.entity_count == 6
-    assert q0.lines == ("q0.xy", "ro.mux0")
-    assert q0.channels == ("drive.awg0.ch1", "readout.mux0")
-    assert q0.resources == ("drive-stack", "readout-stack")
-    assert readout_line.endpoints == (
-        "q0",
-        "q1",
-        "q2",
-        "q3",
-        "readout-stack",
-    )
-    assert readout_line.groups == ("lo.ro0",)
-    assert readout_channel.resources == ("readout-stack",)
-    assert readout_channel.max_route_ports_per_point == 1
-    assert drive_lo.channels == ("drive.awg0.ch1", "drive.awg0.ch2")
-    assert drive_lo.max_resources_per_point == 1
-    assert drive_lo.resources == ("drive-stack",)
-    assert drive_lo.entities == ("q0", "q1")
-    assert drive_lo.capabilities == ("play_gate_sequence", "play_pulse_program")
-    assert drive_lo.binding_count == 4
-    assert readout_lo.channels == ("readout.mux0",)
-    assert readout_lo.resources == ("readout-stack",)
-    assert readout_lo.entities == ("q0", "q1", "q2", "q3")
-    assert readout_lo.capabilities == (
-        "acquire_iq",
-        "readout_pulse",
-        "submit_backend_batch",
-    )
-    assert readout_lo.binding_count == 12
-    assert drive_resource.binding_count == 8
-
-
 def test_modules_leave_resource_selection_to_routing() -> None:
     modules = [
         (RABI_MODULE, {"qubit": "q0"}),
@@ -250,37 +201,34 @@ def test_modules_leave_resource_selection_to_routing() -> None:
         assert assembly.resource_ports
 
 
-def test_default_quantum_wiring_preview_includes_resolved_channel_routes(
+def test_default_quantum_wiring_debug_view_includes_resolved_channel_routes(
     tmp_path: Path,
 ) -> None:
-    preview = (
-        quantum_lab(
-            workspace=tmp_path,
-            config_profile=quantum_wiring_config_profile(),
-        )
-        .prepare(SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=("q0", "q1")))
-        .preview()
+    del tmp_path
+    plan = bound_plan(
+        SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=("q0", "q1")),
+        config=quantum_wiring_config_profile(),
     )
 
     drive = next(
-        route for route in preview.routes if route.port_id == "simultaneous/drive"
+        route
+        for route in plan.points[0].routes
+        if route.port_id.qualified_name == "simultaneous/drive"
     )
     readout = next(
         route
-        for route in preview.routes
-        if route.port_id == "multiplexed_readout/readout"
+        for route in plan.points[0].routes
+        if route.port_id.qualified_name == "multiplexed_readout/readout"
     )
 
     assert [
-        (binding.line_id, binding.channel_id)
-        for binding in drive.resolved[0].channel_bindings
+        (binding.line_id, binding.channel_id) for binding in drive.channel_bindings
     ] == [
         ("q0.xy", "drive.awg0.ch1"),
         ("q1.xy", "drive.awg0.ch2"),
     ]
     assert [
-        (binding.line_id, binding.channel_id)
-        for binding in readout.resolved[0].channel_bindings
+        (binding.line_id, binding.channel_id) for binding in readout.channel_bindings
     ] == [
         ("ro.mux0", "readout.mux0"),
         ("ro.mux0", "readout.mux0"),
@@ -320,7 +268,7 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     prepared = sc.ExecutionBackend(provider=provider).prepare(linked, config=config)
 
-    manifest, _snapshot = execute_execution_plan(
+    manifest = execute_execution_plan(
         config=config,
         prepared=prepared,
         request=resolved.request,

@@ -76,7 +76,7 @@ from scopecat.sdk.instruments import (
     float_field,
 )
 from tests.testkit.authoring import load_config, parameters
-from tests.testkit.experiment_preview import config_with_physical_resources
+from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.relation_plans import scalar_value_expr
 
 

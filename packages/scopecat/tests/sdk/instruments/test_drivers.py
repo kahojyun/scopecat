@@ -544,7 +544,7 @@ def test_provider_description_rejects_duplicate_instrument_ids() -> None:
 def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
     instrument = SignalInstrumentDriver()
 
-    manifest, snapshot = execute_bound_run(
+    manifest = execute_bound_run(
         config=load_config(),
         experiment=load_experiment(),
         instruments=[instrument],
@@ -552,8 +552,7 @@ def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
     )
 
     assert manifest.status == "completed"
-    assert snapshot.instrument_ids == ["source-0"]
-    assert snapshot.measurement_count == 3
+    assert len(instrument.collect_commands) == 3
     assert instrument.collect_commands[0].point_index == 0
     assert instrument.collect_commands[0].point_count == 3
     assert [request.id for request in instrument.collect_commands[0].requests] == [

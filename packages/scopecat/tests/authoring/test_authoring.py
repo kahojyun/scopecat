@@ -97,10 +97,14 @@ from tests.testkit.authoring import (
 from tests.testkit.authoring import (
     parameters as _parameters,
 )
-from tests.testkit.experiment_preview import (
+from tests.testkit.bound_plan import (
+    bound_coordinate_ids,
+    bound_plan_contract,
+    bound_plan_result,
+    bound_primary_observables,
+    bound_state_fields,
     config_with_physical_resources,
-    preview_contract,
-    preview_result,
+    state_literal,
 )
 from tests.testkit.relation_plans import evaluate_scalar
 
@@ -245,18 +249,20 @@ def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
     assert experiment.id == "authored-simple-scan"
     assert experiment.kind == "simple_scan"
     assert experiment.metadata == {"assembled_by": "template"}
-    preview = preview_contract(experiment, resolved.parameters, config=load_config())
+    preview = bound_plan_contract(experiment, resolved.parameters, config=load_config())
 
-    assert preview.coordinate_ids == ("drive_frequency",)
+    assert bound_coordinate_ids(preview) == ("drive_frequency",)
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"
     )
     assert [record.id for record in experiment.record_uses] == ["signal"]
-    assert preview.primary_observables == ("signal",)
-    assert preview.state_changes[0].resource_id == "source-0"
+    assert bound_primary_observables(preview) == ("signal",)
+    assert preview.state_changes[0].resource_id.value == "source-0"
     assert preview.state_changes[0].field == "set_frequency.frequency"
-    assert preview.state_changes[0].after == Quantity(value=4.9, unit="GHz")
-    assert preview.state_fields[0].resource_id == "source-0"
+    assert state_literal(preview.state_changes[0].after) == Quantity(
+        value=4.9, unit="GHz"
+    )
+    assert bound_state_fields(preview)[0][1].resource_id.value == "source-0"
 
 
 def test_template_selects_module_products_as_records() -> None:
@@ -435,14 +441,16 @@ def test_template_can_scan_entity_input_without_subject_special_case() -> None:
         template.bind(),
         config_profile=load_config(),
     )
-    preview = preview_contract(resolved.experiment, resolved.parameters)
+    preview = bound_plan_contract(resolved.experiment, resolved.parameters)
 
     assert preview.points[0].coordinates["qubit"] == EntityRef(
         id="q0", kind="logical_device"
     )
-    assert preview.schema is not None
+    assert preview.expected_dataset_schema is not None
     coordinate = next(
-        variable for variable in preview.schema.variables if variable.id == "qubit"
+        variable
+        for variable in preview.expected_dataset_schema.variables
+        if variable.id == "qubit"
     )
     assert coordinate.dtype == "string"
     assert coordinate.metadata == {"entity_kind": "logical_device"}
@@ -561,18 +569,18 @@ def test_entity_scan_routes_resources_per_point() -> None:
         template.bind(),
         config_profile=config,
     )
-    preview = preview_contract(
+    preview = bound_plan_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
     )
 
     assert [point.point_index for point in preview.points] == [0, 1]
-    assert [route.resource_id for route in preview.routes[0].resolved] == [
+    assert [point.routes[0].resource_id.value for point in preview.points] == [
         "source-0",
         "source-1",
     ]
-    assert [field.resource_id for field in preview.state_fields] == [
+    assert [state.resource_id.value for _, state, _ in bound_state_fields(preview)] == [
         "source-0",
         "source-1",
     ]
@@ -721,7 +729,7 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
         ),
         config_profile=config,
     )
-    preview = preview_contract(
+    preview = bound_plan_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
@@ -731,13 +739,13 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
         EntityRef(id="q0", kind="logical_device"),
         EntityRef(id="q1", kind="logical_device"),
     ]
-    assert [route.resource_id for route in preview.routes[0].resolved] == [
+    assert [point.routes[0].resource_id.value for point in preview.points] == [
         "source-0",
         "source-1",
     ]
     assert [
-        (field.point_index, field.resource_id, field.value)
-        for field in preview.state_fields
+        (point_index, state.resource_id.value, field.value.root)
+        for point_index, state, field in bound_state_fields(preview)
     ] == [
         (0, "source-0", Quantity(value=5.0, unit="GHz")),
         (1, "source-1", Quantity(value=5.1, unit="GHz")),
@@ -851,7 +859,7 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
         ),
         config_profile=config,
     )
-    preview = preview_contract(
+    preview = bound_plan_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
@@ -1054,19 +1062,21 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
         template.bind(qubits=("q0", "q1")),
         config_profile=config,
     )
-    preview = preview_contract(
+    preview = bound_plan_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
     )
 
     assert preview.point_count == 1
-    binding = preview.routes[0].resolved[0]
-    assert binding.resource_id == "readout-array"
+    binding = preview.points[0].routes[0]
+    assert binding.resource_id.value == "readout-array"
     assert binding.entity_ids == ("q0", "q1")
     assert binding.product_axis_order == ("q0", "q1")
-    assert preview.records[0].resource_port_id == "readout"
-    assert preview.records[0].physical_resource_id is None
+    assert preview.local_product_realizations is not None
+    [realization] = preview.local_product_realizations.entries
+    assert realization.producer.resource_target == logical_resource_port_id("readout")
+    assert realization.implicit_resource_id is None
     assert preview.records[0].dims == ("point", "qubit")
     assert preview.records[0].shape == (1, 2)
 
@@ -1161,8 +1171,8 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
 
     assert resolved.experiment.id == "authored-simple-scan"
     assert resolved.config.id == load_config().id
-    preview = preview_contract(resolved.experiment, resolved.parameters)
-    assert preview.state_changes[0].resource_id == "source-0"
+    preview = bound_plan_contract(resolved.experiment, resolved.parameters)
+    assert preview.state_changes[0].resource_id.value == "source-0"
 
 
 def test_link_assembly_validates_parameter_contracts_owned_by_point_source() -> None:
@@ -1687,7 +1697,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         ),
         config_profile=load_config(),
     )
-    preview, _ = preview_result(
+    preview, _ = bound_plan_result(
         resolved.experiment,
         resolved.parameters,
     )
@@ -1857,7 +1867,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         config_profile=config,
     )
 
-    preview = preview_contract(
+    preview = bound_plan_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
@@ -1865,8 +1875,8 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     resource_target = resolved.experiment.state[0].resource_target
     assert isinstance(resource_target, LogicalStateResourceTarget)
     assert resource_target.port_id.qualified_name == "drive"
-    assert preview.routes[0].resolved[0].resource_id == "source-1"
-    assert preview.state_fields[0].resource_id == "source-1"
+    assert preview.points[0].routes[0].resource_id.value == "source-1"
+    assert bound_state_fields(preview)[0][1].resource_id.value == "source-1"
 
 
 def test_module_can_materialize_background_state_from_parameter_table() -> None:
@@ -1958,14 +1968,14 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
         ).bind(),
         config_profile=config,
     )
-    preview = preview_contract(
+    preview = bound_plan_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
     )
 
     assert [
-        (change.resource_id, change.field, change.after)
+        (change.resource_id.value, change.field, state_literal(change.after))
         for change in preview.state_changes
     ] == [
         ("flux-q0", "set_offset.offset", Quantity(value=0.1, unit="arb")),
@@ -2007,7 +2017,7 @@ def test_module_assembler_reports_ambiguous_resource_port() -> None:
         simple_template().bind(subject="q0"),
         config_profile=config,
     )
-    _preview, problems = preview_result(
+    _preview, problems = bound_plan_result(
         resolved.experiment,
         resolved.parameters,
         config=config,
@@ -2037,7 +2047,7 @@ def test_resolve_experiment_uses_active_config_and_input_defaults(
     assert resolved.config.id == load_config().id
     assert resolved.request.config_source == "active"
     experiment = resolved.experiment
-    preview = preview_contract(experiment, _parameters())
+    preview = bound_plan_contract(experiment, _parameters())
 
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"

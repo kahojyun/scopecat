@@ -61,7 +61,6 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.planning.backend import ExecutionBackend
-from scopecat.planning.preview import build_execution_plan_preview
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     ParameterDefinition,
@@ -778,12 +777,14 @@ def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None
         domain_adapters=(adapter,),
     ).prepare(linked, config=load_config())
 
-    preview = build_execution_plan_preview(plan)
-
-    assert [record.id for record in preview.records] == ["record-0"]
-    assert preview.state_changes
-    assert preview.state_fields
-    assert preview.runtime.state_field_count == len(preview.state_fields)
+    assert [record.id for record in plan.projection.projection.records] == ["record-0"]
+    assert plan.point_unit is not None
+    assert plan.point_unit.bound_plan.state_changes
+    assert any(
+        state.fields
+        for point in plan.point_unit.bound_plan.points
+        for state in point.desired_state
+    )
     _assert_no_domain_effects(adapter)
 
 

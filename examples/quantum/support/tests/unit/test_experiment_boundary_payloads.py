@@ -15,7 +15,7 @@ from quantum_lab_demo.experiments.payloads import (
 from quantum_lab_demo.experiments.points import CLIFFORD_COUNT
 from quantum_lab_demo.lab import quantum_lab
 
-from .demo_lab_experiment_testkit import load_experiment_config
+from .demo_lab_experiment_testkit import bound_plan
 
 
 def test_sequence_compilation_stays_memory_payload_boundary(
@@ -25,24 +25,19 @@ def test_sequence_compilation_stays_memory_payload_boundary(
         CLIFFORD_COUNT,
         [4, 8],
     )
-    preview = (
-        quantum_lab(
-            workspace=tmp_path,
-            config_profile=load_experiment_config(),
-        )
-        .prepare(invocation)
-        .preview()
-    )
+    plan = bound_plan(invocation)
     payloads = _run_observed_payloads(tmp_path, invocation)
 
-    assert [point.coordinates["clifford_count"] for point in preview.points] == [
+    assert [point.coordinates["clifford_count"] for point in plan.points] == [
         4,
         8,
     ]
     assert [
-        (field.resource_id, field.capability_id, field.field_path)
-        for field in preview.state_fields
-        if isinstance(field.value, PayloadRef)
+        (state.resource_id.value, state.capability_id, field.field_path)
+        for point in plan.points
+        for state in point.desired_state
+        for field in state.fields
+        if isinstance(field.value.root, PayloadRef)
     ] == [
         ("drive-stack", "play_gate_sequence", "sequence"),
         ("drive-stack", "play_pulse_program", "program"),

@@ -96,20 +96,14 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     saved = analysis.save()
     candidate_config = analysis.candidate_config()
     candidate = lab.prepare(experiment, config=candidate_config).run()
-    comparison = lab.compare(baseline, candidate)
-    comparison_review = comparison.review(state="accepted")
-    overview = baseline.overview()
 
     assert baseline.id.startswith("run_")
     assert raw.dataset_entry.id == "raw-measurements"
     assert [input_ref.target for input_ref in saved.inputs] == ["raw-measurements"]
-    assert any(
+    assert not any(
         record.kind == "candidate_config" for record in baseline.manifest.records
     )
     assert candidate.manifest.status == "completed"
-    assert comparison.result.outcome == "unchanged"
-    assert comparison_review.review.decision == "accepted"
-    assert overview.run_id == baseline.id
 
 
 def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> None:
@@ -163,9 +157,6 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
     )
     candidate_config = analysis.candidate_config()
     candidate = lab.prepare(experiment, config=candidate_config).run()
-    comparison = lab.compare(baseline, candidate)
-    review = comparison.review(state="accepted")
-    overview = baseline.overview()
 
     assert baseline.manifest.status == "completed"
     assert len(raw.dataset.records) == 3
@@ -175,6 +166,3 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
         == "drive_frequency"
     )
     assert candidate.manifest.status == "completed"
-    assert comparison.result.outcome == "unchanged"
-    assert review.review.decision == "accepted"
-    assert overview.run_id == baseline.id
