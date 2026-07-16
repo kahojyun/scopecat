@@ -2,11 +2,10 @@
 
 Hardware-independent quantum building blocks for Scopecat.
 
-This package owns logical gates, circuits, pulses, calibration selection, and
-the checked boundary to a target compiler. It does not own experiment
-templates, laboratory calibration values, physical wiring, concrete hardware
-artifacts, device runtimes, or response models; those belong to the laboratory
-package that consumes it.
+This package provides logical gates, circuits, pulses, calibration selection,
+and the checked boundary to a target compiler. Laboratory-specific templates,
+calibration values, wiring, hardware artifacts, runtimes, and response models
+stay in the package that integrates Scopecat with the laboratory.
 
 The `scopecat_quantum.authoring` facade creates opaque handles for one unified
 gate-and-pulse DSL. `sequence`, `parallel`, and `repeat` accept both logical
@@ -100,21 +99,12 @@ candidate = authoring.implements(
 declaration = authoring.program("cz-point", candidate)
 ```
 
-The same `PulseTemplate` can therefore back both a scanned candidate and an
-accepted production gate. A laboratory module can bind its `ProgramInput`
-directly from `scopecat.parameter_lookup(...)` in `domain_call`, so the
-active configuration remains an explicit typed DSL dependency rather than
-hidden adapter state.
+The same `PulseTemplate` can back both a scanned candidate and an accepted
+production gate. Program inputs may bind directly to Scopecat values such as
+`scopecat.parameter_lookup(...)`, keeping active configuration visible in the
+authored experiment instead of hidden in adapter state.
 
-Mixed verification projects the source twice: a complete logical circuit for
-semantic checks and an unresolved circuit for exact calibration selection.
-Lowering then converges calibrated gates, explicit implementations, and inline
-pulses into the existing `PulseProgram`. Target compilers still receive only a
-validated `ScheduledPulseProgram`; mixed authoring does not widen the hardware
-boundary.
-
-Laboratory adapters connect every authored declaration to Scopecat through
-`domain_program` / `domain_call`, then implement the public
-`scopecat.sdk.domain` contracts. Pure logical programs still project to the
-internal verified Circuit IR for calibration selection; that distinction no
-longer creates another user-facing entry point.
+Attach the resulting program to an experiment with `domain_program` and the
+single `domain_execution`. Laboratory adapters use `scopecat.sdk.domain` to
+select compatible work and prepare it for a target. These integration details
+remain behind the same user-facing authoring model.

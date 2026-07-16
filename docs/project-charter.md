@@ -1,61 +1,38 @@
 # Scopecat Project Charter
 
-Scopecat is a local-first Python platform for experiment measurement workflows.
-It is for research labs that already rely on notebooks, scripts, local
-configuration, and instrument-specific code, but want their work to become more
-structured, auditable, and reproducible over time.
+Scopecat is a local-first Python platform for research labs that want
+experiment workflows to become easier to run, understand, and reproduce
+without replacing their existing notebooks, scripts, and instrument code.
 
-## Long-Term Goals
+## Product Goals
 
 Scopecat should make it practical to:
 
-- run local experiments from Python without making a notebook the sole owner
-  of workflow state;
-- describe intent and validate accepted inputs before hardware side effects;
-- preserve enough operator intent, configuration, data, analysis, and effect
-  evidence to understand what happened after a run;
-- keep configuration changes explicit and reviewable instead of hiding them in
-  mutable sessions or device state;
-- support manual analysis first and let repeated work grow into reusable
-  workflows without changing the evidence model;
-- let laboratories integrate domain semantics and hardware targets without
-  putting their private vocabulary, wiring, or provider policy into core;
-- remain useful in a local Python environment while leaving room for proven
-  execution and storage needs to grow behind explicit boundaries.
+- describe and validate experiment intent before hardware effects;
+- preserve enough configuration, data, analysis, and execution evidence to
+  understand and reproduce a run;
+- keep consequential configuration changes explicit and reviewable;
+- let manual Python workflows grow into reusable experiments incrementally;
+- integrate laboratory-specific domain semantics and hardware without coupling
+  them to the core platform.
 
-## Enduring Principles
+## Principles
 
-- Keep core domain-neutral and Python-first.
-- Prefer explicit typed values and immutable records over hidden mutable
-  session objects.
-- Keep notebooks useful but thin: they may compose work and add
-  interpretation, while durable workflow state lives elsewhere.
-- Validate configuration and provider contracts before effects; represent
-  uncertain effects honestly and require reconciliation before unsafe retry.
-- Keep raw data, derived data, analysis evidence, and candidate configuration
-  changes independently inspectable.
-- Require explicit activation for accepted configuration changes.
-- Persist operator intent and execution evidence, not compiler or runtime
-  graphs. A user-visible plan is an inspectable projection, not a replay
-  program.
-- Prefer logical identities, typed metadata, provenance, and structured
-  problems over local paths or delimiter-packed names as workflow identity.
-- Add abstractions only when repeated workflows demonstrate that they remove
-  real complexity.
-- When a cleaner model wins, update code, tests, fixtures, and documentation
-  together instead of preserving unused internal compatibility layers.
+- Stay local-first, Python-first, and useful from existing lab workflows.
+- Favor explicit, inspectable state over behavior hidden in mutable sessions.
+- Preserve provenance between intent, configuration, measurements, analysis,
+  and effects where it helps users understand a run.
+- Treat uncertain hardware effects honestly; never silently retry when doing so
+  may repeat an effect.
+- Keep the core domain-neutral and add abstractions only when demonstrated
+  workflows need them.
+- Prefer simpler models and direct breaking changes while the project remains
+  internal and compatibility is not a product requirement.
 
 ## Non-Goals
 
-- Replacing every legacy driver, notebook, runner, plotting helper, or analysis
-  script.
-- Preserving legacy side effects, global state, registry mutation, or external
-  storage behavior as compatibility contracts.
-- Forcing every domain program, pulse sequence, or backend into one universal
-  core intermediate representation.
-- Encoding a laboratory's qubits, devices, file naming, registries, or runner
-  vocabulary in the core package.
-- Requiring a central server, cluster scheduler, or database-backed deployment
-  for first use.
-- Becoming a full electronic lab notebook, LIMS, data warehouse, plotting
-  application, or general automation platform.
+- Replacing existing notebooks, drivers, plotting tools, or analysis scripts.
+- Generalizing every domain and backend into one universal representation.
+- Requiring centralized infrastructure for first use.
+- Becoming a full ELN, LIMS, data warehouse, plotting application, or general
+  automation platform.

@@ -51,41 +51,33 @@ uv sync
 | `notebooks/04_manual_analysis.py` | Build one-off notebook analysis and candidate evidence. |
 | `notebooks/05_promote_analysis_step.py` | Replace repeated manual analysis with an `AnalysisStep`. |
 | `notebooks/06_rerun_candidate_config.py` | Run a follow-up experiment with a candidate config. |
-| `notebooks/07_gate_calibration_family.py` | Preview related Rabi and CZ topology cases as one gate-calibration family, including parameter-table background state and run-time parameter scans. These structural module fixtures are not the reference gate/pulse authoring UX. |
-| `notebooks/08_readout_family.py` | Preview single, multiplexed, calibrated, and QND readout cases as one readout family. |
-| `notebooks/09_system_scale_cases.py` | Preview surface-code-shaped and backend-batch cases that exercise larger array and backend semantics. |
-| `notebooks/10_fake_awg_template.py` | Run a reusable quantum Template as one fake AWG list plus digitizer acquisition and host IQ discrimination. |
-| `notebooks/11_fake_awg_scratch.py` | Define and run the same target path through the scratch `Experiment` authoring style. |
-| `notebooks/12_fake_awg_with_bias.py` | Cross a scalar DC-voltage source with the programmable X-count axis and let one unified backend batch the fake AWG work between voltage changes. |
-| `notebooks/13_drag_beta_calibration.py` | Author gates and candidate pulses in one program, fit and approve a 2-D DRAG calibration, bind the active parameter through a `ProgramInput` into the production X90 waveform while a fixed Xm90 remains the trusted reference, then prove durable baseline/active/rollback behavior. |
-| `notebooks/14_ramsey_phase_dsl.py` | Inspect one Ramsey scan that composes a calibrated gate, reusable PulseTemplates, `shift_phase`, readout play, and explicit acquire in the same DSL. |
-| `notebooks/15_cz_conditional_phase.py` | Calibrate a physical CZ with a two-qubit gate, an explicitly authorized coupler flux pulse, frame phase, two-qubit readout/acquire, a three-axis conditional-phase Ramsey scan, fit guardrails, and a reviewable parameter proposal. |
+| `notebooks/07_gate_calibration_family.py` | Preview related Rabi and CZ calibration experiments. |
+| `notebooks/08_readout_family.py` | Compare single, multiplexed, calibrated, and QND readout experiments. |
+| `notebooks/09_system_scale_cases.py` | Preview larger point domains and backend batches. |
+| `notebooks/10_fake_awg_template.py` | Run a reusable template against the fake AWG and digitizer target. |
+| `notebooks/11_fake_awg_scratch.py` | Run the same target through scratch experiment authoring. |
+| `notebooks/12_fake_awg_with_bias.py` | Combine a scalar bias source with a programmable quantum scan. |
+| `notebooks/13_drag_beta_calibration.py` | Fit, review, activate, and roll back a DRAG calibration. |
+| `notebooks/14_ramsey_phase_dsl.py` | Compose a Ramsey sequence from gates, pulses, frames, and acquisition. |
+| `notebooks/15_cz_conditional_phase.py` | Calibrate a physical CZ and produce a reviewable parameter proposal. |
 
 ## Adapting The Demo
 
-When copying this example into a lab repository, keep the notebook path small
-and move repeated lab details into a local support package:
+When copying this example into a lab repository, use the pieces that match the
+workflow you are building:
 
-| User change | Edit here | Keep notebooks using |
-|---|---|---|
-| Change reusable scan defaults, exposed inputs, or selected products | `support/src/quantum_lab_demo/experiments/templates.py` | template constants plus `Workspace.prepare(...).input(...).scan(...).preview()/run()` |
-| Reuse resource, state, compute, record, or product declarations | focused `support/src/quantum_lab_demo/experiments/*_modules.py` files | explicitly named `module.instantiate(...)` values passed to templates or `Workspace.experiment(...).use(...)` |
-| Try a one-off scan or product selection | notebook cells with `Workspace.experiment(...)` or `Workspace.prepare(...).scan(...)` | fluent terminal methods: `preview()`, `validate()`, `run()` |
-| Change waveform or sequence generation | `support/src/quantum_lab_demo/experiments/compute.py` plus payload types in `support/src/quantum_lab_demo/experiments/payloads.py` | template constants; runtime payload summaries |
-| Edit qubit, coupler, channel, line, or shared-LO wiring | `support/src/quantum_lab_demo/virtual_lab/wiring.py` | `quantum_wiring()` compiled into config |
-| Change workspace roots, fixture paths, or profile selection | `support/src/quantum_lab_demo/lab.py` and `support/src/quantum_lab_demo/fixtures.py` | `sc.open(...)` |
-| Replace virtual hardware with a lab adapter | `support/src/quantum_lab_demo/virtual_lab/provider.py` | `Workspace.prepare(...).input(...).run()` |
-| Adapt gate/pulse compilation to a target | `support/src/quantum_lab_demo/reference_experiments/` and `targets/fake_list_mode/` | one `ExecutionBackend` whose provider and domain adapters declare their capabilities |
-| Change one-off analysis | `notebooks/04_manual_analysis.py` | `Run.data()` and `Run.analysis(...)` |
-| Promote repeated analysis | `support/src/quantum_lab_demo/experiments/readout_analysis_steps.py` | `Run.analyze(...)` |
-| Try a candidate config | `notebooks/06_rerun_candidate_config.py` | `Analysis.candidate_config()` and `Workspace.prepare(..., config=candidate).input(...).run()` |
+| Goal | Start here |
+|---|---|
+| Define reusable experiment shapes | `support/src/quantum_lab_demo/experiments/` |
+| Try one-off scans and product selection | notebook cells using `Workspace.experiment(...)` or `Workspace.prepare(...)` |
+| Change laboratory configuration or virtual wiring | `support/src/quantum_lab_demo/virtual_lab/` |
+| Adapt quantum programs to a target | `support/src/quantum_lab_demo/reference_experiments/` and `support/src/quantum_lab_demo/targets/` |
+| Develop analysis and configuration proposals | notebooks 04–06 and the reusable analysis code under `support/` |
 
-The support package may contain domain calculations, virtual fixtures, and
-adapter wiring. User-facing notebooks should stay on Scopecat public objects
-and top-level notebook variables: `Workspace`, `Experiment`, `Run`, `Data`,
-`Analysis`, and `CandidateConfig`. Keep notebooks importing template constants
-from `quantum_lab_demo.experiments`; move reference cases into focused module
-and template definitions when scratch exploration becomes reusable.
+The support package is one copyable way to organize repeated lab code, not a
+required project structure. The notebooks demonstrate the public workflow
+objects: `Workspace`, `Experiment`, `Run`, `Data`, `Analysis`, and
+`CandidateConfig`.
 
 ## Checks
 
@@ -96,6 +88,4 @@ uv run --offline ruff format --check examples/quantum
 uv run --offline basedpyright
 ```
 
-The notebook tests execute the `# %%` files directly and assert on the
-variables left in the notebook namespace. Keep examples as visible, top-level
-notebook cells.
+The checks execute the notebook files end to end as ordinary Python programs.

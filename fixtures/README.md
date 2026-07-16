@@ -1,18 +1,13 @@
 # Fixtures
 
-Repository fixtures are durable operator/configuration inputs used by tests and
-runnable examples. Compiler programs and runtime graphs are built transiently
-from the user DSL and are intentionally not stored here.
+Repository fixtures are stable sample inputs used by tests and runnable
+examples.
 
-## Owners
+## Contents
 
-- `core/simple_scan`: public configuration inputs for the domain-neutral scan
-  workflow used by preview, storage, config-registry, analysis, reporting,
-  validation, authoring, and contract tests.
-- `quantum/experiment_system`: demo quantum experiment-system fixture and
-  runnable example input.
+- `core/simple_scan`: configuration inputs for the domain-neutral scan examples
+  and tests.
+- `quantum/experiment_system`: configuration for the demo quantum laboratory.
 
-Core fixtures should stay domain-neutral. Quantum fixtures belong to the demo
-support package and examples; reusable demo logic should live in
-`examples/quantum/support`, while examples should wire fixtures into notebook
-and script workflows.
+Fixtures contain input data rather than reusable behavior. Example-specific
+logic lives with the example code that consumes it.

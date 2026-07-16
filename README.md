@@ -16,8 +16,8 @@ rationale live beside the code that owns them.
   workspace APIs.
 - `packages/scopecat-quantum`: hardware-independent quantum building blocks.
 - `examples/quantum`: notebook-first examples and a local demonstration lab.
-- `fixtures`: durable sample inputs shared by tests and examples.
-- `docs`: long-term project direction only.
+- `fixtures`: sample inputs shared by tests and examples.
+- `docs`: long-term product direction.
 
 ## Start Here
 
