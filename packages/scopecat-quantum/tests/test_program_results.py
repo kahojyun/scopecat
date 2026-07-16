@@ -56,10 +56,10 @@ from scopecat_quantum._ids import (
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.calibrations import CalibrationCatalog
 from scopecat_quantum.program_results import (
+    CompiledQuantumTarget,
     QuantumTargetAcquisitionUseBinding,
     QuantumTargetEntryPointBinding,
     QuantumTargetResultMapping,
-    bind_compiled_quantum_target,
     seal_quantum_target_result_mapping,
 )
 from scopecat_quantum.program_targets import (
@@ -420,7 +420,7 @@ def test_compiled_target_binding_retains_exact_request_and_source_order() -> Non
     )
     compiled = _compile(batch.request)
 
-    bound = bind_compiled_quantum_target(mapping, compiled)
+    bound = CompiledQuantumTarget(mapping, compiled)
 
     assert bound.mapping is mapping
     assert bound.compiled is compiled
@@ -443,7 +443,7 @@ def test_compiled_target_binding_rejects_another_request() -> None:
         acquisition_bindings,
     )
     with pytest.raises(ValueError, match="exactly match the mapped quantum batch"):
-        bind_compiled_quantum_target(
+        CompiledQuantumTarget(
             mapping,
             _compile(replace(batch.request, repetitions=12)),
         )

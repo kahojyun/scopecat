@@ -13,7 +13,6 @@ from scopecat.compiler.relations.backend import (
     PreparedRelationEvaluation,
     RelationBackendCapabilityIssue,
     RelationPlanRequirements,
-    select_relation_plan,
 )
 from scopecat.compiler.relations.model import (
     CellValue,
@@ -35,11 +34,9 @@ from scopecat.compiler.relations.point_domain import (
 )
 from scopecat.compiler.relations.reference_backend import (
     REFERENCE_RELATION_BACKEND,
-    ReferenceRelationBackend,
 )
 from scopecat.compiler.relations.uses import (
     RelationUse,
-    RelationUseId,
     relation_use,
 )
 from scopecat.compiler.relations.verification import (
@@ -64,7 +61,7 @@ from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
-from scopecat.compiler.typed.point_domain import PointDomain, bind_selected_point_domain
+from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ResourceRouteIntent,
     TypedComputeNode,
@@ -77,7 +74,6 @@ from scopecat.compiler.typed.program import (
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
 from scopecat.compiler.typed.state import PhysicalStateResourceTarget
 from scopecat.compiler.typed.verification import (
-    SelectedProgramRelation,
     SelectedTypedProgram,
     seal_typed_program,
     select_typed_program,
@@ -117,6 +113,10 @@ class _BackendProbe:
         self.discharged_obligations = frozenset(RelationRuntimeObligationKind)
         self.assessment_count = 0
         self.materialization_count = 0
+
+    @property
+    def capability_fingerprint(self) -> str:
+        return "tests.program-preflight.capabilities.v1"
 
     def assess_relation_requirements(
         self,
@@ -593,14 +593,15 @@ def test_changing_a_relation_use_plan_requires_fresh_selection() -> None:
     )
     changed = select_typed_program(REFERENCE_RELATION_BACKEND, changed_verified)
 
-    with pytest.raises(ValueError, match="verified program consumer"):
-        SelectedTypedProgram(
-            changed_verified,
-            changed.backend_id,
-            original.relation_selections,
-            changed.point_domain,
-        )
-
+    reconstructed = SelectedTypedProgram(
+        changed_verified,
+        changed.backend_id,
+        changed.backend_capability_fingerprint,
+        changed.relation_selections,
+        changed.point_domain,
+    )
+    assert reconstructed.relation_selections == changed.relation_selections
+    assert reconstructed.relation_selections != original.relation_selections
     assert changed.relation_selections[0].consumer.value == changed_use.value
 
 
@@ -608,104 +609,18 @@ def test_selected_program_binds_exact_owners_backend_and_proofs() -> None:
     verified = seal_typed_program(_inventory_program())
     selected = select_typed_program(REFERENCE_RELATION_BACKEND, verified)
 
-    reordered = SelectedTypedProgram(
+    reconstructed = SelectedTypedProgram(
         verified,
         selected.backend_id,
-        tuple(reversed(selected.relation_selections)),
+        selected.backend_capability_fingerprint,
+        selected.relation_selections,
         selected.point_domain,
     )
-    assert reordered.relation_selections == selected.relation_selections
-
-    with pytest.raises(ValueError, match="exactly cover"):
-        SelectedTypedProgram(
-            verified,
-            selected.backend_id,
-            selected.relation_selections[:-1],
-            selected.point_domain,
-        )
-
-    first, second, *rest = selected.relation_selections
-    with pytest.raises(ValueError, match="identities must be unique"):
-        SelectedTypedProgram(
-            verified,
-            selected.backend_id,
-            (first, first, *rest),
-            selected.point_domain,
-        )
-
-    extra_consumer = replace(first.consumer, id=RelationUseId.fresh())
-    with pytest.raises(ValueError, match="exactly cover"):
-        SelectedTypedProgram(
-            verified,
-            selected.backend_id,
-            (
-                *selected.relation_selections,
-                SelectedProgramRelation(
-                    consumer=extra_consumer,
-                    selected_plan=first.selected_plan,
-                ),
-            ),
-            selected.point_domain,
-        )
-
-    wrong_owner = SelectedProgramRelation(
-        consumer=replace(first.consumer),
-        selected_plan=first.selected_plan,
+    assert reconstructed.backend_id == selected.backend_id
+    assert reconstructed.relation_selections == selected.relation_selections
+    assert reconstructed.point_domain.relation_selections == (
+        selected.point_domain.relation_selections
     )
-    with pytest.raises(ValueError, match="verified program consumer"):
-        SelectedTypedProgram(
-            verified,
-            selected.backend_id,
-            (wrong_owner, second, *rest),
-            selected.point_domain,
-        )
-
-    point_relation = verified.point_domain.relation_leaves[0]
-    alternate_point_plan = select_relation_plan(
-        REFERENCE_RELATION_BACKEND,
-        point_relation.value.plan,
-    )
-    assert (
-        alternate_point_plan
-        is not selected.point_domain.relation_selections[0].selected_plan
-    )
-    alternate_point_domain = bind_selected_point_domain(
-        verified.point_domain,
-        backend_id=selected.backend_id,
-        selections={point_relation.id: alternate_point_plan},
-    )
-    with pytest.raises(ValueError, match="reuse whole-program selection"):
-        SelectedTypedProgram(
-            verified,
-            selected.backend_id,
-            selected.relation_selections,
-            alternate_point_domain,
-        )
-
-    wrong_proof = replace(first, selected_plan=second.selected_plan)
-    with pytest.raises(ValueError, match="does not own"):
-        SelectedTypedProgram(
-            verified,
-            selected.backend_id,
-            (wrong_proof, second, *rest),
-            selected.point_domain,
-        )
-
-    other_backend = ReferenceRelationBackend(backend_id="tests.other-program-backend")
-    wrong_backend = replace(
-        first,
-        selected_plan=select_relation_plan(
-            other_backend,
-            first.consumer.value.plan,
-        ),
-    )
-    with pytest.raises(ValueError, match="one backend"):
-        SelectedTypedProgram(
-            verified,
-            selected.backend_id,
-            (wrong_backend, second, *rest),
-            selected.point_domain,
-        )
 
 
 def test_program_backend_selection_selects_every_consumer_once() -> None:

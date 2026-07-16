@@ -27,10 +27,10 @@ from scopecat.sdk.domain.invocation import (
     DomainOutputValue,
     EntryPointBinding,
     ResultUseBinding,
+    SelectedDomainMeasurementOutputs,
     materialize_linked_points,
     seal_domain_output_values,
     seal_domain_result_mapping,
-    select_domain_measurement_outputs,
 )
 from tests.testkit.measurement_assembly import (
     measurement_assembly_scenario,
@@ -438,7 +438,7 @@ def test_domain_output_fragment_strips_adapter_addresses_from_host_values() -> N
             for use in scenario.uses
         ),
     )
-    domain_selection = select_domain_measurement_outputs(mapping)
+    domain_selection = SelectedDomainMeasurementOutputs(mapping)
     mismatched_assembly = select_measurement_assembly(
         scenario,
         (

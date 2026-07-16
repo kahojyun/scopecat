@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
+from dataclasses import field as dc_field
 from types import MappingProxyType
 from typing import cast
 
@@ -708,35 +709,23 @@ class _TypedProgramVerification:
     relation_consumers: tuple[ProgramRelationConsumer, ...]
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class VerifiedTypedProgram:
     """A normalized TypedProgram whose complete executable surface was checked."""
 
-    _program: TypedProgram
-    _point_domain: VerifiedPointDomain
-    relation_consumers: tuple[ProgramRelationConsumer, ...]
+    program: TypedProgram
+    point_domain: VerifiedPointDomain = dc_field(init=False)
+    relation_consumers: tuple[ProgramRelationConsumer, ...] = dc_field(init=False)
 
-    def __init__(
-        self,
-        program: TypedProgram,
-        relation_consumers: Sequence[ProgramRelationConsumer],
-        point_domain: VerifiedPointDomain | None = None,
-    ) -> None:
-        if point_domain is None:
-            raise AssertionError("verified typed program point domain is missing")
-        object.__setattr__(self, "_program", program)
-        object.__setattr__(self, "_point_domain", point_domain)
-        object.__setattr__(self, "relation_consumers", tuple(relation_consumers))
-
-    @property
-    def program(self) -> TypedProgram:
-        """Return the trusted frozen program owned by this proof."""
-
-        return self._program
-
-    @property
-    def point_domain(self) -> VerifiedPointDomain:
-        return self._point_domain
+    def __post_init__(self) -> None:
+        verified = _verify_typed_program(self.program)
+        object.__setattr__(self, "program", verified.program)
+        object.__setattr__(self, "point_domain", verified.point_domain)
+        object.__setattr__(
+            self,
+            "relation_consumers",
+            verified.relation_consumers,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -775,47 +764,41 @@ class SelectedProgramRelation:
     selected_plan: SelectedRelationPlan[PlanNode]
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class SelectedTypedProgram:
     """A verified program whose every executable relation targets one backend."""
 
-    _verified_program: VerifiedTypedProgram
-    _point_domain: SelectedPointDomain
+    verified_program: VerifiedTypedProgram
     backend_id: str
+    backend_capability_fingerprint: str
     relation_selections: tuple[SelectedProgramRelation, ...]
+    point_domain: SelectedPointDomain
     _selection_by_use: Mapping[
         RelationUseId,
         SelectedProgramRelation,
-    ]
+    ] = dc_field(init=False, repr=False, compare=False, hash=False)
 
-    def __init__(
-        self,
-        verified_program: VerifiedTypedProgram,
-        backend_id: str,
-        relation_selections: Sequence[SelectedProgramRelation],
-        point_domain: SelectedPointDomain | None = None,
-    ) -> None:
-        if point_domain is None:
-            raise AssertionError("selected typed program point domain is missing")
-        if not backend_id:
-            msg = "selected typed-program backend id must be non-empty"
+    def __post_init__(self) -> None:
+        if not self.backend_id or not self.backend_capability_fingerprint:
+            msg = "selected typed program requires backend capability identity"
             raise ValueError(msg)
-        if point_domain.verified is not verified_program.point_domain:
+        if self.point_domain.verified is not self.verified_program.point_domain:
             msg = "selected point domain must belong to the verified typed program"
             raise ValueError(msg)
-        if point_domain.backend_id != backend_id:
+        if (
+            self.point_domain.backend_id != self.backend_id
+            or self.point_domain.backend_capability_fingerprint
+            != self.backend_capability_fingerprint
+        ):
             msg = "selected point domain and typed program must use one backend"
             raise ValueError(msg)
-        selected = tuple(relation_selections)
+        selected = tuple(self.relation_selections)
         by_use = {selection.consumer.id: selection for selection in selected}
         if len(by_use) != len(selected):
             msg = "typed-program relation-use identities must be unique"
             raise ValueError(msg)
-        expected = verified_program.relation_consumers
+        expected = self.verified_program.relation_consumers
         expected_by_id = {consumer.id: consumer for consumer in expected}
-        if len(expected_by_id) != len(expected):
-            msg = "verified typed-program relation identities must be unique"
-            raise ValueError(msg)
         if set(by_use) != set(expected_by_id):
             msg = "selected relations must exactly cover verified program consumers"
             raise ValueError(msg)
@@ -824,13 +807,17 @@ class SelectedTypedProgram:
             if selection.consumer is not consumer:
                 msg = "selected relation must use its verified program consumer"
                 raise ValueError(msg)
-            if selection.selected_plan.backend_id != backend_id:
-                msg = "selected program relations must use one backend"
+            if (
+                selection.selected_plan.backend_id != self.backend_id
+                or selection.selected_plan.backend_capability_fingerprint
+                != self.backend_capability_fingerprint
+            ):
+                msg = "selected program relations must use one backend capability"
                 raise ValueError(msg)
             if selection.selected_plan.verified_plan is not consumer.value.plan:
                 msg = "selected relation plan does not own its consumer proof"
                 raise ValueError(msg)
-        for point_selection in point_domain.relation_selections:
+        for point_selection in self.point_domain.relation_selections:
             program_selection = by_use.get(point_selection.relation.id)
             if (
                 program_selection is None
@@ -839,9 +826,6 @@ class SelectedTypedProgram:
                 msg = "selected point-domain leaf must reuse whole-program selection"
                 raise ValueError(msg)
         canonical = tuple(by_use[consumer.id] for consumer in expected)
-        object.__setattr__(self, "_verified_program", verified_program)
-        object.__setattr__(self, "_point_domain", point_domain)
-        object.__setattr__(self, "backend_id", backend_id)
         object.__setattr__(self, "relation_selections", canonical)
         object.__setattr__(
             self,
@@ -850,16 +834,8 @@ class SelectedTypedProgram:
         )
 
     @property
-    def verified_program(self) -> VerifiedTypedProgram:
-        return self._verified_program
-
-    @property
     def program(self) -> TypedProgram:
-        return self._verified_program.program
-
-    @property
-    def point_domain(self) -> SelectedPointDomain:
-        return self._point_domain
+        return self.verified_program.program
 
     def selected_plan(
         self,
@@ -882,7 +858,7 @@ def seal_typed_program(
     """Verify, normalize, and seal one trusted transient program."""
 
     try:
-        verified = _verify_typed_program(program)
+        return VerifiedTypedProgram(program)
     except CheckFailed as error:
         if phase is ProblemPhase.AUTHORING:
             raise
@@ -892,11 +868,6 @@ def seal_typed_program(
                 for problem in error.problems
             )
         ) from error
-    return VerifiedTypedProgram(
-        verified.program,
-        verified.relation_consumers,
-        verified.point_domain,
-    )
 
 
 def select_typed_program(
@@ -904,6 +875,25 @@ def select_typed_program(
     verified_program: VerifiedTypedProgram,
 ) -> SelectedTypedProgram:
     """Preflight every relation consumer before any program materialization."""
+
+    selections, point_domain = _selected_typed_program_components(
+        backend,
+        verified_program,
+    )
+    return SelectedTypedProgram(
+        verified_program,
+        backend.backend_id,
+        backend.capability_fingerprint,
+        selections,
+        point_domain,
+    )
+
+
+def _selected_typed_program_components(
+    backend: RelationBackend,
+    verified_program: VerifiedTypedProgram,
+) -> tuple[tuple[SelectedProgramRelation, ...], SelectedPointDomain]:
+    """Select every backend-bound component stored by a selected program."""
 
     selections: list[SelectedProgramRelation] = []
     failures: list[ProgramRelationBackendFailure] = []
@@ -935,14 +925,10 @@ def select_typed_program(
     selected_point_domain = bind_selected_point_domain(
         verified_program.point_domain,
         backend_id=backend.backend_id,
+        backend_capability_fingerprint=backend.capability_fingerprint,
         selections=point_domain_selections,
     )
-    return SelectedTypedProgram(
-        verified_program,
-        backend.backend_id,
-        selections,
-        selected_point_domain,
-    )
+    return tuple(selections), selected_point_domain
 
 
 def typed_program_proof_role_problems(

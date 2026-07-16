@@ -63,8 +63,10 @@ from scopecat_quantum.pulses import (
     DriveSignal,
     Play,
     PulseProgram,
+    PulseValidationError,
     ReadoutSignal,
     ScheduledPulseProgram,
+    schedule,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.targets import (
@@ -295,11 +297,20 @@ def test_prepared_entry_rejects_incomplete_or_reordered_origin_coverage() -> Non
 
 def test_prepared_entry_rejects_a_scheduled_subset_of_lowered_provenance() -> None:
     prepared = _prepared()
-    event_subset = ScheduledPulseProgram(
-        id=prepared.scheduled.id,
-        duration_seconds=prepared.scheduled.duration_seconds,
-        events=prepared.scheduled.events[:-1],
-        acquisition_slots=prepared.scheduled.acquisition_slots,
+    first_instruction = prepared.scheduled.events[0].instruction
+    event_subset = schedule(
+        PulseProgram(
+            id=prepared.scheduled.id,
+            body=first_instruction,
+            acquisition_slots=(
+                tuple(
+                    slot
+                    for slot in prepared.scheduled.acquisition_slots
+                    if isinstance(first_instruction, Acquire)
+                    and slot.id == first_instruction.slot_id
+                )
+            ),
+        )
     )
     with pytest.raises(ValueError, match="events must exactly cover"):
         PreparedQuantumTargetEntry(
@@ -310,19 +321,19 @@ def test_prepared_entry_rejects_a_scheduled_subset_of_lowered_provenance() -> No
             prepared.acquisition_origins,
         )
 
-    acquisition_subset = ScheduledPulseProgram(
-        id=prepared.scheduled.id,
-        duration_seconds=prepared.scheduled.duration_seconds,
-        events=prepared.scheduled.events,
-        acquisition_slots=prepared.scheduled.acquisition_slots[:-1],
-    )
-    with pytest.raises(ValueError, match="acquisitions must exactly cover"):
-        PreparedQuantumTargetEntry(
-            prepared.lowered,
-            acquisition_subset,
-            TargetCompileEntry(prepared.id, acquisition_subset),
-            prepared.event_origins,
-            prepared.acquisition_origins[:-1],
+    with pytest.raises(
+        PulseValidationError,
+        match="instruction references undeclared slot",
+    ):
+        ScheduledPulseProgram(
+            PulseProgram(
+                id=prepared.scheduled.id,
+                body=next(
+                    event.instruction
+                    for event in prepared.scheduled.events
+                    if isinstance(event.instruction, Acquire)
+                ),
+            )
         )
 
 

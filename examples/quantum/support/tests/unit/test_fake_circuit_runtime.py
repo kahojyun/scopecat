@@ -141,8 +141,6 @@ from scopecat_quantum import (
     TargetCompileRequest,
     TargetCompilerId,
     TargetId,
-    bind_compiled_circuit_target,
-    bind_compiled_quantum_target,
     compile_target,
     lower_quantum_program_to_pulses,
     prepare_circuit_target_batch,
@@ -824,7 +822,7 @@ def _scenario(
         preparation=preparation,
         mapping=mapping,
         compiler=compiler,
-        compiled_target=bind_compiled_circuit_target(mapping, compiled),
+        compiled_target=CompiledCircuitTarget(mapping, compiled),
     )
 
 
@@ -910,7 +908,7 @@ def _mixed_scenario(
         preparation=preparation,
         mapping=mapping,
         compiler=compiler,
-        compiled_target=bind_compiled_circuit_target(mapping, compiled),
+        compiled_target=CompiledCircuitTarget(mapping, compiled),
     )
 
 
@@ -1095,7 +1093,7 @@ def test_mixed_quantum_program_reuses_fake_selection_and_correlation() -> None:
             for entry in batch.entries
         ),
     )
-    compiled_target = bind_compiled_quantum_target(
+    compiled_target = CompiledQuantumTarget(
         mapping,
         compile_target(compiler, batch.request),
     )
@@ -1693,7 +1691,7 @@ def test_measurement_selection_rejects_faulty_artifact_acquisition_before_effect
         _FaultyAcquisitionCompiler(scenario.compiler, mutation),
         scenario.mapping.batch.request,
     )
-    faulty_target = bind_compiled_circuit_target(
+    faulty_target = CompiledCircuitTarget(
         scenario.mapping,
         faulty_compiled,
     )

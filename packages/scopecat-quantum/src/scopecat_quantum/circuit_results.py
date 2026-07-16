@@ -52,7 +52,7 @@ class CircuitTargetAcquisitionUseBinding:
     product_use: DomainProductUseRef
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class CircuitTargetResultMapping:
     """Sealed exact mapping from one prepared quantum batch to selected outputs."""
 
@@ -62,20 +62,11 @@ class CircuitTargetResultMapping:
         TargetAcquisitionAddress,
     ]
 
-    def __init__(
-        self,
-        batch: PreparedCircuitTargetBatch,
-        domain_mapping: DomainResultMapping[
-            TargetCompileEntryId,
-            TargetAcquisitionAddress,
-        ],
-    ) -> None:
-        validate_target_result_mapping(batch.request, domain_mapping)
-        object.__setattr__(self, "batch", batch)
-        object.__setattr__(self, "domain_mapping", domain_mapping)
+    def __post_init__(self) -> None:
+        validate_target_result_mapping(self.batch.request, self.domain_mapping)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class CompiledCircuitTarget[ArtifactT: TargetArtifact]:
     """One compiled artifact correlated to an exact circuit result mapping.
 
@@ -86,26 +77,8 @@ class CompiledCircuitTarget[ArtifactT: TargetArtifact]:
     mapping: CircuitTargetResultMapping
     compiled: CompiledTargetArtifact[ArtifactT]
 
-    def __init__(
-        self,
-        mapping: CircuitTargetResultMapping,
-        compiled: CompiledTargetArtifact[ArtifactT],
-    ) -> None:
-        _validate_compiled_target_correlation(mapping, compiled)
-        object.__setattr__(self, "mapping", mapping)
-        object.__setattr__(self, "compiled", compiled)
-
-
-def bind_compiled_circuit_target[ArtifactT: TargetArtifact](
-    mapping: CircuitTargetResultMapping,
-    compiled: CompiledTargetArtifact[ArtifactT],
-) -> CompiledCircuitTarget[ArtifactT]:
-    """Bind one checked target artifact to its exact prepared circuit batch."""
-
-    return CompiledCircuitTarget(
-        mapping,
-        compiled,
-    )
+    def __post_init__(self) -> None:
+        _validate_compiled_target_correlation(self.mapping, self.compiled)
 
 
 def _validate_compiled_target_correlation[ArtifactT: TargetArtifact](
@@ -150,6 +123,5 @@ __all__ = [
     "CircuitTargetEntryPointBinding",
     "CircuitTargetResultMapping",
     "CompiledCircuitTarget",
-    "bind_compiled_circuit_target",
     "seal_circuit_target_result_mapping",
 ]

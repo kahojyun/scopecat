@@ -66,7 +66,7 @@ from scopecat_quantum.circuit_results import (
     CircuitTargetAcquisitionUseBinding,
     CircuitTargetEntryPointBinding,
     CircuitTargetResultMapping,
-    bind_compiled_circuit_target,
+    CompiledCircuitTarget,
     seal_circuit_target_result_mapping,
 )
 from scopecat_quantum.circuit_targets import (
@@ -552,7 +552,7 @@ def test_compiled_circuit_target_binds_exact_mapping_request_and_artifact() -> N
     )
     compiled = _compile(batch.request)
 
-    bound = bind_compiled_circuit_target(mapping, compiled)
+    bound = CompiledCircuitTarget(mapping, compiled)
 
     assert bound.mapping is mapping
     assert bound.compiled is compiled
@@ -574,7 +574,7 @@ def test_compiled_circuit_target_rejects_another_batch_request() -> None:
     compiled = _compile(replace(batch.request, repetitions=4))
 
     with pytest.raises(ValueError, match="exactly match the mapped circuit batch"):
-        bind_compiled_circuit_target(mapping, compiled)
+        CompiledCircuitTarget(mapping, compiled)
 
 
 @pytest.mark.parametrize(

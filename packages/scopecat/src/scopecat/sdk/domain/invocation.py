@@ -488,7 +488,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
             raise KeyError(msg) from error
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class SelectedDomainMeasurementOutputs[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
@@ -499,14 +499,10 @@ class SelectedDomainMeasurementOutputs[
         repr=False
     )
 
-    def __init__(
-        self,
-        mapping: ClosedDomainResultMapping[EntryAddressT, ResultAddressT],
-    ) -> None:
-        problems = _domain_measurement_output_selection_problems(mapping)
+    def __post_init__(self) -> None:
+        problems = _domain_measurement_output_selection_problems(self.mapping)
         if problems:
             raise CheckFailed(problems)
-        object.__setattr__(self, "mapping", mapping)
 
 
 class DomainInvocationIntent(BaseModel):
@@ -567,7 +563,7 @@ class DomainInvocationIntent(BaseModel):
         return self
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class ClosedDomainInvocation[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
@@ -587,21 +583,13 @@ class ClosedDomainInvocation[
     ] = field(repr=False)
     payload: PayloadT = field(repr=False)
 
-    def __init__(
-        self,
-        intent: DomainInvocationIntent,
-        result_mapping: ClosedDomainResultMapping[
-            EntryAddressT,
-            ResultAddressT,
-        ],
-        payload: PayloadT,
-    ) -> None:
-        if intent.result_contract_fingerprint != result_mapping.contract_fingerprint:
+    def __post_init__(self) -> None:
+        if (
+            self.intent.result_contract_fingerprint
+            != self.result_mapping.contract_fingerprint
+        ):
             msg = "domain invocation intent does not cover its output contract"
             raise ValueError(msg)
-        object.__setattr__(self, "intent", intent)
-        object.__setattr__(self, "result_mapping", result_mapping)
-        object.__setattr__(self, "payload", payload)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -878,17 +866,6 @@ def seal_domain_result_mapping[
         tuple(closed_entries),
         tuple(closed_results),
     )
-
-
-def select_domain_measurement_outputs[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-](
-    mapping: ClosedDomainResultMapping[EntryAddressT, ResultAddressT],
-) -> SelectedDomainMeasurementOutputs[EntryAddressT, ResultAddressT]:
-    """Select representable observable carriers before any adapter effect."""
-
-    return SelectedDomainMeasurementOutputs(mapping)
 
 
 def _domain_measurement_output_selection_problems[
@@ -1357,5 +1334,4 @@ __all__ = [
     "materialize_linked_points",
     "seal_domain_output_values",
     "seal_domain_result_mapping",
-    "select_domain_measurement_outputs",
 ]

@@ -82,6 +82,7 @@ from scopecat_quantum import (
     CircuitProgram,
     CircuitTargetAcquisitionUseBinding,
     CircuitTargetEntryPointBinding,
+    CompiledCircuitTarget,
     Constant,
     IqCentroid,
     Measure,
@@ -100,7 +101,6 @@ from scopecat_quantum import (
     TargetCompilerId,
     binary_iq_probability_host_implementation,
     binary_iq_probability_transform,
-    bind_compiled_circuit_target,
     compile_target,
     prepare_circuit_target_batch,
     prepare_circuit_target_entry,
@@ -425,7 +425,7 @@ def _scenario(
             for entry in target_batch.entries
         ),
     )
-    compiled_target = bind_compiled_circuit_target(
+    compiled_target = CompiledCircuitTarget(
         mapping,
         compile_target(compiler, target_batch.request),
     )

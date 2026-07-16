@@ -45,6 +45,8 @@ from scopecat.measurements.transform_model import (
     MeasurementTransformInputPort,
     MeasurementTransformOutputPort,
     NativeMeasurementTransformId,
+)
+from scopecat.measurements.transform_verification import (
     VerifiedMeasurementTransformGraph,
 )
 from scopecat.measurements.values import (
@@ -53,7 +55,6 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     SelectedMeasurementValueAssembly,
     assemble_measurement_values,
-    require_measurement_value_assembly,
     seal_measurement_value_fragment,
 )
 from scopecat.records.measurement import (
@@ -154,23 +155,37 @@ class HostMeasurementTransformCall:
         )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class SelectedHostMeasurementTransforms:
     """Exact host implementation selection for a verified graph."""
 
     graph: VerifiedMeasurementTransformGraph = field(repr=False)
     implementations: tuple[HostMeasurementTransformImplementation, ...]
-    contract_fingerprint: str
+    contract_fingerprint: str = field(init=False)
 
-    def __init__(
-        self,
-        graph: VerifiedMeasurementTransformGraph,
-        implementations: tuple[HostMeasurementTransformImplementation, ...],
-        contract_fingerprint: str,
-    ) -> None:
-        object.__setattr__(self, "graph", graph)
+    def __post_init__(self) -> None:
+        implementations = tuple(self.implementations)
+        if len(implementations) != len(self.graph.transforms):
+            msg = "every measurement transform must have one host implementation"
+            raise ValueError(msg)
+        for transform, implementation in zip(
+            self.graph.transforms,
+            implementations,
+            strict=True,
+        ):
+            if (
+                implementation.semantic_id != transform.semantic.id
+                or implementation.semantic_version != transform.semantic.version
+                or implementation.rate != transform.rate
+            ):
+                msg = "host implementation does not match its measurement transform"
+                raise ValueError(msg)
         object.__setattr__(self, "implementations", implementations)
-        object.__setattr__(self, "contract_fingerprint", contract_fingerprint)
+        object.__setattr__(
+            self,
+            "contract_fingerprint",
+            _host_selection_fingerprint(self.graph, implementations),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +199,7 @@ class HostMeasurementTransformFragmentBinding:
             raise ValueError(msg)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class BoundHostMeasurementTransformPlan:
     """Structural transform/fragment binding selected before runtime effects.
 
@@ -197,24 +212,50 @@ class BoundHostMeasurementTransformPlan:
     value_assembly: SelectedMeasurementValueAssembly = field(repr=False)
     fragment_bindings: tuple[HostMeasurementTransformFragmentBinding, ...]
     source_fragment_ids: tuple[str, ...]
-    contract_fingerprint: str
+    contract_fingerprint: str = field(init=False)
 
-    def __init__(
-        self,
-        selection: SelectedHostMeasurementTransforms,
-        value_assembly: SelectedMeasurementValueAssembly,
-        fragment_bindings: tuple[HostMeasurementTransformFragmentBinding, ...],
-        source_fragment_ids: tuple[str, ...],
-        contract_fingerprint: str,
-    ) -> None:
-        object.__setattr__(self, "selection", selection)
-        object.__setattr__(self, "value_assembly", value_assembly)
-        object.__setattr__(self, "fragment_bindings", fragment_bindings)
-        object.__setattr__(self, "source_fragment_ids", source_fragment_ids)
-        object.__setattr__(self, "contract_fingerprint", contract_fingerprint)
+    def __post_init__(self) -> None:
+        bindings = tuple(self.fragment_bindings)
+        source_ids = tuple(self.source_fragment_ids)
+        if (
+            self.selection.graph.linked_contract_fingerprint
+            != self.value_assembly.linked_contract_fingerprint
+        ):
+            msg = "host transform plan and value assembly belong to different plans"
+            raise ValueError(msg)
+        if len(bindings) != len(self.selection.graph.transforms):
+            msg = "every selected host transform must have one fragment binding"
+            raise ValueError(msg)
+        if tuple(binding.transform_id for binding in bindings) != tuple(
+            transform.id for transform in self.selection.graph.transforms
+        ):
+            msg = "host transform fragment bindings must follow graph order"
+            raise ValueError(msg)
+        fragment_ids = tuple(binding.fragment_id for binding in bindings)
+        all_fragment_ids = (*fragment_ids, *source_ids)
+        if len(all_fragment_ids) != len({*all_fragment_ids}):
+            msg = "host transform and source fragment ids must be unique"
+            raise ValueError(msg)
+        if {*all_fragment_ids} != {
+            fragment.id for fragment in self.value_assembly.fragments
+        }:
+            msg = "host transform plan must cover the selected value fragments"
+            raise ValueError(msg)
+        object.__setattr__(self, "fragment_bindings", bindings)
+        object.__setattr__(self, "source_fragment_ids", source_ids)
+        object.__setattr__(
+            self,
+            "contract_fingerprint",
+            _bound_plan_fingerprint(
+                self.selection,
+                self.value_assembly,
+                bindings,
+                source_ids,
+            ),
+        )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class ExecutedHostMeasurementTransforms:
     """Closed source/derived fragments and final canonical assembled values."""
 
@@ -223,17 +264,12 @@ class ExecutedHostMeasurementTransforms:
     transform_fragments: tuple[ClosedMeasurementValueFragment, ...]
     values: ClosedMeasurementProductValues
 
-    def __init__(
-        self,
-        plan: BoundHostMeasurementTransformPlan,
-        source_fragments: tuple[ClosedMeasurementValueFragment, ...],
-        transform_fragments: tuple[ClosedMeasurementValueFragment, ...],
-        values: ClosedMeasurementProductValues,
-    ) -> None:
-        object.__setattr__(self, "plan", plan)
-        object.__setattr__(self, "source_fragments", source_fragments)
-        object.__setattr__(self, "transform_fragments", transform_fragments)
-        object.__setattr__(self, "values", values)
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_fragments", tuple(self.source_fragments))
+        object.__setattr__(self, "transform_fragments", tuple(self.transform_fragments))
+        if self.values.selection is not self.plan.value_assembly:
+            msg = "executed host values must belong to the bound value assembly"
+            raise ValueError(msg)
 
 
 def select_host_measurement_transforms(
@@ -377,11 +413,9 @@ def select_host_measurement_transforms(
     if problems:
         raise CheckFailed(problems)
     selected_tuple = tuple(selected)
-    fingerprint = _host_selection_fingerprint(selected_graph, selected_tuple)
     return SelectedHostMeasurementTransforms(
         selected_graph,
         selected_tuple,
-        fingerprint,
     )
 
 
@@ -393,7 +427,7 @@ def bind_host_measurement_transforms(
     """Bind transform outputs and source leaves to one value assembly."""
 
     selected = selection
-    assembly = require_measurement_value_assembly(value_assembly)
+    assembly = value_assembly
     supplied = tuple(fragment_bindings)
 
     graph = selected.graph
@@ -535,18 +569,11 @@ def bind_host_measurement_transforms(
         for fragment in assembly.fragments
         if fragment.id not in transform_fragment_ids
     )
-    fingerprint = _bound_plan_fingerprint(
-        selected,
-        assembly,
-        canonical_bindings,
-        source_fragment_ids,
-    )
     return BoundHostMeasurementTransformPlan(
         selected,
         assembly,
         canonical_bindings,
         source_fragment_ids,
-        fingerprint,
     )
 
 

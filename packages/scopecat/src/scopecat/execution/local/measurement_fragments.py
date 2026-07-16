@@ -33,7 +33,6 @@ from scopecat.measurements.values import (
     ClosedMeasurementValueFragment,
     MeasurementValueCandidate,
     SelectedMeasurementValueAssembly,
-    require_measurement_value_assembly,
     seal_measurement_value_fragment,
 )
 from scopecat.records.execution_journal import (
@@ -94,7 +93,7 @@ def bind_local_collection_fragment(
     program's effects or prove state/compute context for the execution engine.
     """
 
-    selected = require_measurement_value_assembly(selection)
+    selected = selection
 
     problems: list[Problem] = []
     linked_experiment_id = selected.linked_points.linked_plan.program.id

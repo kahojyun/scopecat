@@ -42,7 +42,7 @@ from scopecat_quantum.targets import (
 )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class CircuitTargetEventOrigin:
     """Circuit origin of one entry-qualified target event address."""
 
@@ -50,21 +50,13 @@ class CircuitTargetEventOrigin:
     address: TargetEventAddress
     provenance: CircuitPulseEventProvenance
 
-    def __init__(
-        self,
-        source_circuit_id: CircuitId,
-        address: TargetEventAddress,
-        provenance: CircuitPulseEventProvenance,
-    ) -> None:
-        if address.event_id != provenance.event_id:
+    def __post_init__(self) -> None:
+        if self.address.event_id != self.provenance.event_id:
             msg = "target event address must identify its circuit pulse provenance"
             raise ValueError(msg)
-        object.__setattr__(self, "source_circuit_id", source_circuit_id)
-        object.__setattr__(self, "address", address)
-        object.__setattr__(self, "provenance", provenance)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class CircuitTargetAcquisitionOrigin:
     """Circuit origin of one entry-qualified target acquisition address."""
 
@@ -72,20 +64,12 @@ class CircuitTargetAcquisitionOrigin:
     address: TargetAcquisitionAddress
     provenance: CircuitPulseAcquisitionProvenance
 
-    def __init__(
-        self,
-        source_circuit_id: CircuitId,
-        address: TargetAcquisitionAddress,
-        provenance: CircuitPulseAcquisitionProvenance,
-    ) -> None:
-        if address.slot_id != provenance.acquisition_slot_id:
+    def __post_init__(self) -> None:
+        if self.address.slot_id != self.provenance.acquisition_slot_id:
             msg = (
                 "target acquisition address must identify its circuit pulse provenance"
             )
             raise ValueError(msg)
-        object.__setattr__(self, "source_circuit_id", source_circuit_id)
-        object.__setattr__(self, "address", address)
-        object.__setattr__(self, "provenance", provenance)
 
 
 @dataclass(frozen=True, slots=True, init=False)

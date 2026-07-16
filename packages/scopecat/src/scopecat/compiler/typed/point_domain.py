@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import InitVar, dataclass, field, replace
 from itertools import product
 from types import MappingProxyType
 from typing import cast
@@ -167,25 +167,25 @@ class VerifiedPointDomainRelation:
     value: TableValueExpr
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class VerifiedPointDomain:
     """A defensively snapshotted point domain with all root invariants checked."""
 
-    _id: PointDomainId
-    _domain: PointDomain
-    _analysis: PointDomainAnalysis
-    relation_leaves: tuple[VerifiedPointDomainRelation, ...]
-    cardinality: PointCardinality
+    program_id: InitVar[str]
+    source: InitVar[PointDomain]
+    _id: PointDomainId = field(init=False)
+    _domain: PointDomain = field(init=False)
+    _analysis: PointDomainAnalysis = field(init=False)
+    relation_leaves: tuple[VerifiedPointDomainRelation, ...] = field(init=False)
+    cardinality: PointCardinality = field(init=False)
 
-    def __init__(
-        self,
-        domain_id: PointDomainId,
-        domain: PointDomain,
-        analysis: PointDomainAnalysis,
-        relation_leaves: Sequence[VerifiedPointDomainRelation],
-    ) -> None:
+    def __post_init__(self, program_id: str, source: PointDomain) -> None:
+        domain_id, analysis, relation_leaves = _verified_point_domain_components(
+            source,
+            program_id=program_id,
+        )
         object.__setattr__(self, "_id", domain_id)
-        object.__setattr__(self, "_domain", _copy_domain(domain))
+        object.__setattr__(self, "_domain", _copy_domain(source))
         object.__setattr__(self, "_analysis", analysis)
         object.__setattr__(self, "relation_leaves", tuple(relation_leaves))
         object.__setattr__(self, "cardinality", analysis.root.cardinality)
@@ -241,10 +241,11 @@ class SelectedPointDomain:
         self,
         verified: VerifiedPointDomain,
         backend_id: str,
+        backend_capability_fingerprint: str,
         selections: Sequence[SelectedPointDomainRelation],
     ) -> None:
-        if not backend_id:
-            msg = "selected point-domain backend id must be non-empty"
+        if not backend_id or not backend_capability_fingerprint:
+            msg = "selected point-domain backend capability identity must be non-empty"
             raise ValueError(msg)
         selected = tuple(selections)
         by_id = {selection.relation.id: selection for selection in selected}
@@ -266,11 +267,22 @@ class SelectedPointDomain:
             if selection.selected_plan.backend_id != backend_id:
                 msg = "selected point-domain relations must use one backend"
                 raise ValueError(msg)
+            if (
+                selection.selected_plan.backend_capability_fingerprint
+                != backend_capability_fingerprint
+            ):
+                msg = "selected point-domain relations must use one backend capability"
+                raise ValueError(msg)
             if selection.selected_plan.verified_plan is not relation.value.plan:
                 msg = "selected relation plan does not own its point-domain proof"
                 raise ValueError(msg)
         object.__setattr__(self, "_verified", verified)
         object.__setattr__(self, "backend_id", backend_id)
+        object.__setattr__(
+            self,
+            "backend_capability_fingerprint",
+            backend_capability_fingerprint,
+        )
         object.__setattr__(
             self,
             "_selection_by_id",
@@ -286,6 +298,7 @@ class SelectedPointDomain:
         return self._verified.id
 
     backend_id: str
+    backend_capability_fingerprint: str
 
     @property
     def cardinality(self) -> PointCardinality:
@@ -409,6 +422,20 @@ def verify_point_domain(
 ) -> VerifiedPointDomain:
     """Check the complete algebra, exact leaf roles, and coordinate contract."""
 
+    return VerifiedPointDomain(program_id, domain)
+
+
+def _verified_point_domain_components(
+    domain: PointDomain,
+    *,
+    program_id: str,
+) -> tuple[
+    PointDomainId,
+    PointDomainAnalysis,
+    tuple[VerifiedPointDomainRelation, ...],
+]:
+    """Validate and derive the fields stored by a verified point domain."""
+
     domain_id = PointDomainId(program_id=program_id, domain_id=domain.id)
     identity_issues = _relation_use_identity_issues(domain.root)
     if identity_issues:
@@ -436,9 +463,8 @@ def verify_point_domain(
         )
         for path, leaf in iter_point_relation_rows(domain.root)
     )
-    return VerifiedPointDomain(
+    return (
         domain_id,
-        domain,
         analysis,
         relations,
     )
@@ -457,6 +483,7 @@ def select_point_domain(
     return bind_selected_point_domain(
         verified,
         backend_id=backend.backend_id,
+        backend_capability_fingerprint=backend.capability_fingerprint,
         selections=selections,
     )
 
@@ -465,6 +492,7 @@ def bind_selected_point_domain(
     verified: VerifiedPointDomain,
     *,
     backend_id: str,
+    backend_capability_fingerprint: str,
     selections: Mapping[
         RelationUseId,
         SelectedRelationPlan[RelationExpr],
@@ -487,6 +515,7 @@ def bind_selected_point_domain(
     return SelectedPointDomain(
         verified,
         backend_id,
+        backend_capability_fingerprint,
         bound,
     )
 
@@ -500,9 +529,12 @@ def materialize_point_domain(
 ) -> MaterializedPointDomain:
     """Coerce every row before assigning canonical ordinal identities."""
 
-    if backend.backend_id != selected.backend_id:
+    if (
+        backend.backend_id != selected.backend_id
+        or backend.capability_fingerprint != selected.backend_capability_fingerprint
+    ):
         msg = (
-            f"point domain selected for backend {selected.backend_id!r} cannot be "
+            "point domain backend capability identity does not match and cannot be "
             f"materialized by backend {backend.backend_id!r}"
         )
         raise ValueError(msg)

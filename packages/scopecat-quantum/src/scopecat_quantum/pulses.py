@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator
-from dataclasses import dataclass, field, replace
+from dataclasses import InitVar, dataclass, field, replace
 from decimal import Decimal
 
 from scopecat import Quantity
@@ -208,31 +208,60 @@ class ScheduledPulseEvent:
     duration_seconds: Decimal
     instruction: PulseLeaf
 
+    def __post_init__(self) -> None:
+        if self.id != self.instruction.id:
+            msg = "scheduled pulse event id must match its instruction"
+            raise ValueError(msg)
+        if self.start_seconds < 0:
+            msg = "scheduled pulse event start must be non-negative"
+            raise ValueError(msg)
+        if self.duration_seconds < 0:
+            msg = "scheduled pulse event duration must be non-negative"
+            raise ValueError(msg)
 
-@dataclass(frozen=True, slots=True, init=False)
+
+@dataclass(frozen=True, slots=True)
 class ScheduledPulseProgram:
-    """Canonical, validated pulse IR accepted by target compilers.
+    """Canonical pulse IR derived from one relative authoring program."""
 
-    :func:`schedule` establishes the pulse invariants before constructing this
-    trusted, immutable internal-stage value.
-    """
+    source: InitVar[PulseProgram]
+    id: PulseProgramId = field(init=False)
+    duration_seconds: Decimal = field(init=False)
+    events: tuple[ScheduledPulseEvent, ...] = field(init=False)
+    acquisition_slots: tuple[AcquisitionSlot, ...] = field(init=False)
 
-    id: PulseProgramId
-    duration_seconds: Decimal
-    events: tuple[ScheduledPulseEvent, ...]
-    acquisition_slots: tuple[AcquisitionSlot, ...] = ()
-
-    def __init__(
-        self,
-        id: PulseProgramId,  # noqa: A002
-        duration_seconds: Decimal,
-        events: tuple[ScheduledPulseEvent, ...],
-        acquisition_slots: tuple[AcquisitionSlot, ...] = (),
-    ) -> None:
-        object.__setattr__(self, "id", id)
-        object.__setattr__(self, "duration_seconds", duration_seconds)
+    def __post_init__(self, source: PulseProgram) -> None:
+        issues: list[PulseIssue] = []
+        acquisition_uses: dict[AcquisitionSlotId, list[Acquire]] = {}
+        placed, duration = _place_instruction(
+            source.body,
+            start=Decimal(0),
+            path=(),
+            issues=issues,
+            seen_ids=set(),
+            acquisition_uses=acquisition_uses,
+        )
+        slots = _validate_acquisitions(
+            source.acquisition_slots,
+            acquisition_uses,
+            issues,
+        )
+        _validate_overlaps(placed, issues)
+        if issues:
+            raise PulseValidationError(_stable_issues(issues))
+        events = tuple(
+            ScheduledPulseEvent(
+                id=event.leaf.id,
+                start_seconds=event.start,
+                duration_seconds=event.duration,
+                instruction=event.leaf,
+            )
+            for event in _ordered_placed_leaves(placed)
+        )
+        object.__setattr__(self, "id", source.id)
+        object.__setattr__(self, "duration_seconds", duration)
         object.__setattr__(self, "events", events)
-        object.__setattr__(self, "acquisition_slots", acquisition_slots)
+        object.__setattr__(self, "acquisition_slots", slots)
 
 
 @dataclass(frozen=True, slots=True)
@@ -895,43 +924,7 @@ def schedule(program: PulseProgram) -> ScheduledPulseProgram:
     timeline quantization.
     """
 
-    issues: list[PulseIssue] = []
-    acquisition_uses: dict[AcquisitionSlotId, list[Acquire]] = {}
-    placed, duration = _place_instruction(
-        program.body,
-        start=Decimal(0),
-        path=(),
-        issues=issues,
-        seen_ids=set(),
-        acquisition_uses=acquisition_uses,
-    )
-    slots = _validate_acquisitions(
-        program.acquisition_slots,
-        acquisition_uses,
-        issues,
-    )
-    _validate_overlaps(placed, issues)
-    if issues:
-        raise PulseValidationError(_stable_issues(issues))
-
-    events = tuple(
-        ScheduledPulseEvent(
-            id=event.leaf.id,
-            start_seconds=event.start,
-            duration_seconds=event.duration,
-            instruction=event.leaf,
-        )
-        for event in _ordered_placed_leaves(placed)
-    )
-    return ScheduledPulseProgram(
-        id=program.id,
-        duration_seconds=duration,
-        events=events,
-        acquisition_slots=slots,
-    )
-
-
-schedule_pulse_program = schedule
+    return ScheduledPulseProgram(program)
 
 
 __all__ = [
@@ -963,5 +956,4 @@ __all__ = [
     "ShiftPhase",
     "iter_pulse_leaves",
     "schedule",
-    "schedule_pulse_program",
 ]

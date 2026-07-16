@@ -112,6 +112,10 @@ class _BackendProbe:
         self.assessment_count = 0
         self.materialization_count = 0
 
+    @property
+    def capability_fingerprint(self) -> str:
+        return "tests.linked-plan.capabilities.v1"
+
     def assess_relation_requirements(
         self,
         requirements: RelationPlanRequirements,

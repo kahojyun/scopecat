@@ -230,18 +230,6 @@ class GateCalibrationSelection:
         raise KeyError(msg)
 
 
-def _create_gate_calibration_selection(
-    circuit_id: CircuitId,
-    gate_call_ids: tuple[CircuitOperationId, ...],
-    bindings: tuple[GateCalibrationBinding, ...],
-) -> GateCalibrationSelection:
-    return GateCalibrationSelection(
-        circuit_id,
-        gate_call_ids,
-        bindings,
-    )
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class MeasurementCalibrationSelection:
     """Sealed proof that every logical measurement has one exact calibration."""
@@ -295,18 +283,6 @@ class MeasurementCalibrationSelection:
                 return binding
         msg = f"measurement {measurement_id.value!r} is not covered by this selection"
         raise KeyError(msg)
-
-
-def _create_measurement_calibration_selection(
-    circuit_id: CircuitId,
-    measurement_ids: tuple[CircuitOperationId, ...],
-    bindings: tuple[MeasurementCalibrationBinding, ...],
-) -> MeasurementCalibrationSelection:
-    return MeasurementCalibrationSelection(
-        circuit_id,
-        measurement_ids,
-        bindings,
-    )
 
 
 def _empty_gate_catalog() -> GateCalibrationCatalog:
@@ -563,12 +539,12 @@ def select_calibrations(
         for operation in program.operations
         if isinstance(operation, Measure)
     )
-    gates = _create_gate_calibration_selection(
+    gates = GateCalibrationSelection(
         circuit_id,
         gate_call_ids,
         tuple(gate_bindings),
     )
-    measurements = _create_measurement_calibration_selection(
+    measurements = MeasurementCalibrationSelection(
         circuit_id,
         measurement_ids,
         tuple(measurement_bindings),

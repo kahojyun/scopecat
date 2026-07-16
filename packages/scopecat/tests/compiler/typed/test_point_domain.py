@@ -524,6 +524,9 @@ def test_existing_relation_selection_can_be_bound_without_reselection() -> None:
     selected = bind_selected_point_domain(
         verified,
         backend_id=REFERENCE_RELATION_BACKEND.backend_id,
+        backend_capability_fingerprint=(
+            REFERENCE_RELATION_BACKEND.capability_fingerprint
+        ),
         selections={verified.relation_leaves[0].id: relation_selection},
     )
 
@@ -540,12 +543,18 @@ def test_selected_domain_requires_exact_single_backend_leaf_coverage() -> None:
         bind_selected_point_domain(
             verified,
             backend_id=REFERENCE_RELATION_BACKEND.backend_id,
+            backend_capability_fingerprint=(
+                REFERENCE_RELATION_BACKEND.capability_fingerprint
+            ),
             selections={},
         )
     with pytest.raises(ValueError, match="exactly cover"):
         bind_selected_point_domain(
             verified,
             backend_id=REFERENCE_RELATION_BACKEND.backend_id,
+            backend_capability_fingerprint=(
+                REFERENCE_RELATION_BACKEND.capability_fingerprint
+            ),
             selections={
                 relation_id: selected_plan,
                 RelationUseId.fresh(): selected_plan,
@@ -562,6 +571,9 @@ def test_selected_domain_requires_exact_single_backend_leaf_coverage() -> None:
         bind_selected_point_domain(
             verified,
             backend_id=REFERENCE_RELATION_BACKEND.backend_id,
+            backend_capability_fingerprint=(
+                REFERENCE_RELATION_BACKEND.capability_fingerprint
+            ),
             selections={relation_id: other_plan},
         )
 
@@ -576,6 +588,9 @@ def test_point_domain_stages_reject_wrong_ownership_and_backend() -> None:
         bind_selected_point_domain(
             other_verified,
             backend_id=REFERENCE_RELATION_BACKEND.backend_id,
+            backend_capability_fingerprint=(
+                REFERENCE_RELATION_BACKEND.capability_fingerprint
+            ),
             selections={
                 other_verified.relation_leaves[0].id: (
                     selected.relation_selections[0].selected_plan
@@ -585,6 +600,18 @@ def test_point_domain_stages_reject_wrong_ownership_and_backend() -> None:
     with pytest.raises(ValueError, match="cannot be materialized"):
         materialize_point_domain(
             ReferenceRelationBackend(backend_id="other-backend"),
+            selected,
+            ParameterRelationData(),
+        )
+    with pytest.raises(ValueError, match="cannot be materialized"):
+        materialize_point_domain(
+            ReferenceRelationBackend(
+                backend_id=REFERENCE_RELATION_BACKEND.backend_id,
+                supported_operations=(
+                    REFERENCE_RELATION_BACKEND.supported_operations
+                    - {RelationOperation.RELATION_SORT}
+                ),
+            ),
             selected,
             ParameterRelationData(),
         )

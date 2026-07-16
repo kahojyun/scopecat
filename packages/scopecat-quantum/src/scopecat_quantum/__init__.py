@@ -142,7 +142,6 @@ from scopecat_quantum.circuit_results import (
     CircuitTargetEntryPointBinding,
     CircuitTargetResultMapping,
     CompiledCircuitTarget,
-    bind_compiled_circuit_target,
     seal_circuit_target_result_mapping,
 )
 from scopecat_quantum.circuit_targets import (
@@ -186,7 +185,6 @@ from scopecat_quantum.program_results import (
     QuantumTargetAcquisitionUseBinding,
     QuantumTargetEntryPointBinding,
     QuantumTargetResultMapping,
-    bind_compiled_quantum_target,
     seal_quantum_target_result_mapping,
 )
 from scopecat_quantum.program_targets import (
@@ -245,7 +243,6 @@ from scopecat_quantum.pulses import (
     ShiftPhase,
     iter_pulse_leaves,
     schedule,
-    schedule_pulse_program,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.pulses import Sequence as PulseSequence
@@ -427,8 +424,6 @@ __all__ = [
     "binary_iq_probability_host_implementation",
     "binary_iq_probability_transform",
     "bind",
-    "bind_compiled_circuit_target",
-    "bind_compiled_quantum_target",
     "calibrations",
     "circuit_pulses",
     "circuit_results",
@@ -473,7 +468,6 @@ __all__ = [
     "repeat",
     "scalar_input",
     "schedule",
-    "schedule_pulse_program",
     "seal_circuit_target_result_mapping",
     "seal_quantum_target_result_mapping",
     "select_calibrations",

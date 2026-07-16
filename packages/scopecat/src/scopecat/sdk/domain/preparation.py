@@ -44,10 +44,10 @@ from scopecat.sdk.domain.invocation import (
     DomainOutputValue,
     EntryPointBinding,
     ResultUseBinding,
+    SelectedDomainMeasurementOutputs,
     close_domain_invocation,
     seal_domain_output_values,
     seal_domain_result_mapping,
-    select_domain_measurement_outputs,
 )
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
@@ -363,7 +363,7 @@ class DomainPreparationBuilder:
         source_fragment = bind_domain_output_fragment(
             value_assembly,
             source_fragment_id,
-            select_domain_measurement_outputs(mapping.native),
+            SelectedDomainMeasurementOutputs(mapping.native),
         )
         transforms: BoundHostMeasurementTransformPlan | None = None
         if native_transforms:

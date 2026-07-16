@@ -13,7 +13,7 @@ import math
 from collections import Counter, defaultdict
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from scopecat import Quantity
 
@@ -92,7 +92,7 @@ class CircuitVerificationError(ValueError):
         super().__init__(summary)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class VerifiedCircuitProgram:
     """Circuit and catalog facts safe for later domain lowering.
 
@@ -103,16 +103,14 @@ class VerifiedCircuitProgram:
 
     program: CircuitProgram
     gate_definitions: tuple[GateDefinition, ...]
-    operations: tuple[CircuitOperation, ...]
+    operations: tuple[CircuitOperation, ...] = field(init=False)
 
-    def __init__(
-        self,
-        program: CircuitProgram,
-        gate_definitions: tuple[GateDefinition, ...],
-        operations: tuple[CircuitOperation, ...],
-    ) -> None:
-        object.__setattr__(self, "program", program)
-        object.__setattr__(self, "gate_definitions", gate_definitions)
+    def __post_init__(self) -> None:
+        definitions, operations = _verified_circuit_components(
+            self.program,
+            self.gate_definitions,
+        )
+        object.__setattr__(self, "gate_definitions", definitions)
         object.__setattr__(self, "operations", operations)
 
     def gate_definition(self, gate_id: GateId) -> GateDefinition:
@@ -146,6 +144,15 @@ def verify_circuit_program(
     identity, argument, arity, and parallel-resource checks contribute to one
     aggregate error instead of stopping at the first malformed leaf.
     """
+
+    return VerifiedCircuitProgram(program, tuple(gate_definitions))
+
+
+def _verified_circuit_components(
+    program: CircuitProgram,
+    gate_definitions: SequenceCollection[GateDefinition],
+) -> tuple[tuple[GateDefinition, ...], tuple[CircuitOperation, ...]]:
+    """Validate and canonicalize the fields stored by a verified circuit."""
 
     issues: list[CircuitIssue] = []
     catalog = _verify_gate_catalog(gate_definitions, issues)
@@ -195,12 +202,9 @@ def verify_circuit_program(
 
     if issues:
         raise CircuitVerificationError(sorted(issues, key=_issue_sort_key))
-    return VerifiedCircuitProgram(
-        program=program,
-        gate_definitions=tuple(
-            sorted(gate_definitions, key=lambda definition: definition.id.value)
-        ),
-        operations=tuple(canonical_operations),
+    return (
+        tuple(sorted(gate_definitions, key=lambda definition: definition.id.value)),
+        tuple(canonical_operations),
     )
 
 

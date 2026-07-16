@@ -53,7 +53,7 @@ class QuantumTargetAcquisitionUseBinding:
     product_use: DomainProductUseRef
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class QuantumTargetResultMapping:
     """Sealed exact mapping from one prepared mixed-program batch to outputs."""
 
@@ -63,43 +63,19 @@ class QuantumTargetResultMapping:
         TargetAcquisitionAddress,
     ]
 
-    def __init__(
-        self,
-        batch: PreparedQuantumTargetBatch,
-        domain_mapping: DomainResultMapping[
-            TargetCompileEntryId,
-            TargetAcquisitionAddress,
-        ],
-    ) -> None:
-        validate_target_result_mapping(batch.request, domain_mapping)
-        object.__setattr__(self, "batch", batch)
-        object.__setattr__(self, "domain_mapping", domain_mapping)
+    def __post_init__(self) -> None:
+        validate_target_result_mapping(self.batch.request, self.domain_mapping)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class CompiledQuantumTarget[ArtifactT: TargetArtifact]:
     """Compiled artifact correlated to one exact mixed-program result mapping."""
 
     mapping: QuantumTargetResultMapping
     compiled: CompiledTargetArtifact[ArtifactT]
 
-    def __init__(
-        self,
-        mapping: QuantumTargetResultMapping,
-        compiled: CompiledTargetArtifact[ArtifactT],
-    ) -> None:
-        _validate_compiled_target_correlation(mapping, compiled)
-        object.__setattr__(self, "mapping", mapping)
-        object.__setattr__(self, "compiled", compiled)
-
-
-def bind_compiled_quantum_target[ArtifactT: TargetArtifact](
-    mapping: QuantumTargetResultMapping,
-    compiled: CompiledTargetArtifact[ArtifactT],
-) -> CompiledQuantumTarget[ArtifactT]:
-    """Bind one checked target artifact to its exact mixed-program batch."""
-
-    return CompiledQuantumTarget(mapping, compiled)
+    def __post_init__(self) -> None:
+        _validate_compiled_target_correlation(self.mapping, self.compiled)
 
 
 def seal_quantum_target_result_mapping(
@@ -140,6 +116,5 @@ __all__ = [
     "QuantumTargetAcquisitionUseBinding",
     "QuantumTargetEntryPointBinding",
     "QuantumTargetResultMapping",
-    "bind_compiled_quantum_target",
     "seal_quantum_target_result_mapping",
 ]

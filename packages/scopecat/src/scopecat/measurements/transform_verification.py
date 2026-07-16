@@ -5,6 +5,7 @@ from __future__ import annotations
 import heapq
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.linking.linked import MaterializedLinkedPointSet
@@ -15,9 +16,33 @@ from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.transform_model import (
     MeasurementTransformDef,
     NativeMeasurementTransformId,
-    VerifiedMeasurementTransformGraph,
 )
 from scopecat.measurements.values import measurement_value_contract_fingerprint
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedMeasurementTransformGraph:
+    """Closed typed DAG with canonical topological node order."""
+
+    linked_points: MaterializedLinkedPointSet = field(repr=False)
+    transforms: tuple[MeasurementTransformDef, ...]
+    linked_contract_fingerprint: str = field(init=False)
+    contract_fingerprint: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        transforms, linked_fingerprint, contract_fingerprint = (
+            _validate_measurement_transform_components(
+                self.linked_points,
+                self.transforms,
+            )
+        )
+        object.__setattr__(self, "transforms", transforms)
+        object.__setattr__(
+            self,
+            "linked_contract_fingerprint",
+            linked_fingerprint,
+        )
+        object.__setattr__(self, "contract_fingerprint", contract_fingerprint)
 
 
 def verify_measurement_transform_graph(
@@ -25,6 +50,15 @@ def verify_measurement_transform_graph(
     transforms: Sequence[MeasurementTransformDef],
 ) -> VerifiedMeasurementTransformGraph:
     """Close a typed transform DAG without choosing a runtime implementation."""
+
+    return VerifiedMeasurementTransformGraph(linked_points, tuple(transforms))
+
+
+def _validate_measurement_transform_components(
+    linked_points: MaterializedLinkedPointSet,
+    transforms: Sequence[MeasurementTransformDef],
+) -> tuple[tuple[MeasurementTransformDef, ...], str, str]:
+    """Validate and canonicalize the components stored by a verified graph."""
 
     supplied = tuple(transforms)
 
@@ -275,12 +309,7 @@ def verify_measurement_transform_graph(
         linked_fingerprint,
         selected,
     )
-    return VerifiedMeasurementTransformGraph(
-        linked_points,
-        selected,
-        linked_fingerprint,
-        contract_fingerprint,
-    )
+    return selected, linked_fingerprint, contract_fingerprint
 
 
 def _canonical_topological_order(
@@ -359,4 +388,7 @@ def _check_problem(
     )
 
 
-__all__ = ["verify_measurement_transform_graph"]
+__all__ = [
+    "VerifiedMeasurementTransformGraph",
+    "verify_measurement_transform_graph",
+]

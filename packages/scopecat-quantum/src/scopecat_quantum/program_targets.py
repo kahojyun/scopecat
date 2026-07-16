@@ -37,7 +37,7 @@ from scopecat_quantum.targets import (
 )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class QuantumTargetEventOrigin:
     """Mixed-source origin of one entry-qualified target event."""
 
@@ -45,21 +45,13 @@ class QuantumTargetEventOrigin:
     address: TargetEventAddress
     provenance: QuantumPulseEventProvenance
 
-    def __init__(
-        self,
-        source_program_id: QuantumProgramId,
-        address: TargetEventAddress,
-        provenance: QuantumPulseEventProvenance,
-    ) -> None:
-        if address.event_id != provenance.event_id:
+    def __post_init__(self) -> None:
+        if self.address.event_id != self.provenance.event_id:
             msg = "target event address must identify its mixed pulse provenance"
             raise ValueError(msg)
-        object.__setattr__(self, "source_program_id", source_program_id)
-        object.__setattr__(self, "address", address)
-        object.__setattr__(self, "provenance", provenance)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class QuantumTargetAcquisitionOrigin:
     """Mixed-source origin of one entry-qualified acquisition result."""
 
@@ -67,18 +59,10 @@ class QuantumTargetAcquisitionOrigin:
     address: TargetAcquisitionAddress
     provenance: QuantumPulseAcquisitionProvenance
 
-    def __init__(
-        self,
-        source_program_id: QuantumProgramId,
-        address: TargetAcquisitionAddress,
-        provenance: QuantumPulseAcquisitionProvenance,
-    ) -> None:
-        if address.slot_id != provenance.acquisition_slot_id:
+    def __post_init__(self) -> None:
+        if self.address.slot_id != self.provenance.acquisition_slot_id:
             msg = "target acquisition address must identify its mixed pulse provenance"
             raise ValueError(msg)
-        object.__setattr__(self, "source_program_id", source_program_id)
-        object.__setattr__(self, "address", address)
-        object.__setattr__(self, "provenance", provenance)
 
 
 @dataclass(frozen=True, slots=True, init=False)

@@ -64,14 +64,14 @@ class ExecutionResourceClaim:
             raise ValueError(msg)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class ExecutionCoverage:
     """Canonical unique set of semantic tasks owned by one execution unit."""
 
     tasks: tuple[ExecutionTask, ...]
 
-    def __init__(self, tasks: tuple[ExecutionTask, ...] = ()) -> None:
-        selected = tuple(tasks)
+    def __post_init__(self) -> None:
+        selected = tuple(self.tasks)
         if len(selected) != len(set(selected)):
             msg = "execution coverage cannot claim one task more than once"
             raise ValueError(msg)

@@ -55,21 +55,20 @@ class SelectedLocalProductRealization:
             raise ValueError(msg)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class SelectedLocalProductRealizations:
     """Complete, unique local realization coverage for selected product uses."""
 
     entries: tuple[SelectedLocalProductRealization, ...]
     _by_use: Mapping[ProductUseId, SelectedLocalProductRealization] = field(
+        init=False,
         repr=False,
         compare=False,
         hash=False,
     )
 
-    def __init__(
-        self,
-        entries: tuple[SelectedLocalProductRealization, ...],
-    ) -> None:
+    def __post_init__(self) -> None:
+        entries = tuple(self.entries)
         by_use = {entry.product_use_id: entry for entry in entries}
         if len(by_use) != len(entries):
             msg = "selected local product realizations require unique product uses"

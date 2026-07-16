@@ -9,7 +9,7 @@ dispatch through an explicitly selected backend.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass, field
 from enum import StrEnum
 from typing import Protocol, cast, runtime_checkable
 
@@ -335,6 +335,9 @@ class RelationBackend(Protocol):
     def backend_id(self) -> str: ...
 
     @property
+    def capability_fingerprint(self) -> str: ...
+
+    @property
     def supported_operations(self) -> frozenset[RelationOperation]: ...
 
     @property
@@ -363,7 +366,7 @@ class RelationBackend(Protocol):
     ) -> list[Row]: ...
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class SelectedRelationPlan[NodeT: PlanNode]:
     """A verified plan whose operations are supported by one backend.
 
@@ -373,61 +376,55 @@ class SelectedRelationPlan[NodeT: PlanNode]:
     """
 
     backend_id: str
-    _verified_plan: VerifiedRelationPlan[NodeT]
+    backend_capability_fingerprint: str
+    verified_plan: VerifiedRelationPlan[NodeT] = field(repr=False)
 
-    def __init__(
-        self,
-        backend_id: str,
-        verified_plan: VerifiedRelationPlan[NodeT],
-    ) -> None:
-        object.__setattr__(self, "backend_id", backend_id)
-        object.__setattr__(self, "_verified_plan", verified_plan)
-
-    @property
-    def verified_plan(self) -> VerifiedRelationPlan[NodeT]:
-        return self._verified_plan
+    def __post_init__(self) -> None:
+        if not self.backend_id or not self.backend_capability_fingerprint:
+            msg = "selected relation plan requires stable backend capability identity"
+            raise ValueError(msg)
 
     @property
     def root(self) -> NodeT:
         """Return a defensive copy of the selected plan root."""
 
-        return self._verified_plan.root
+        return self.verified_plan.root
 
     @property
     def certified_type(self) -> ValueType:
-        return self._verified_plan.certified_type
+        return self.verified_plan.certified_type
 
     @property
     def required_operations(self) -> tuple[RelationOperation, ...]:
-        return self._verified_plan.required_operations
+        return self.verified_plan.required_operations
 
     @property
     def requirements(self) -> RelationPlanRequirements:
-        return RelationPlanRequirements.from_verified(self._verified_plan)
+        return RelationPlanRequirements.from_verified(self.verified_plan)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class PreparedRelationEvaluation[NodeT: PlanNode]:
     """A selected plan paired with a context validated against its proof."""
 
-    _selected_plan: SelectedRelationPlan[NodeT]
+    backend: InitVar[RelationBackend]
+    selected_plan: SelectedRelationPlan[NodeT]
     context: EvalContext
 
-    def __init__(
-        self,
-        selected_plan: SelectedRelationPlan[NodeT],
-        context: EvalContext,
-    ) -> None:
-        object.__setattr__(self, "_selected_plan", selected_plan)
-        object.__setattr__(self, "context", context)
+    def __post_init__(self, backend: RelationBackend) -> None:
+        _validate_evaluation_context(backend, self.selected_plan, self.context)
+        object.__setattr__(
+            self,
+            "context",
+            _normalize_evaluation_context(
+                self.selected_plan.verified_plan,
+                self.context,
+            ),
+        )
 
     @property
     def certified_type(self) -> ValueType:
-        return self._selected_plan.certified_type
-
-    @property
-    def selected_plan(self) -> SelectedRelationPlan[NodeT]:
-        return self._selected_plan
+        return self.selected_plan.certified_type
 
     def unwrap_for_backend(
         self,
@@ -436,7 +433,7 @@ class PreparedRelationEvaluation[NodeT: PlanNode]:
         """Return the checked plan root and normalized evaluation context."""
 
         return (
-            _unwrap_selected_plan(backend, self._selected_plan),
+            _unwrap_selected_plan(backend, self.selected_plan),
             self.context,
         )
 
@@ -452,6 +449,7 @@ def select_relation_plan[NodeT: PlanNode](
         raise RelationBackendCapabilityError(backend.backend_id, issues)
     return SelectedRelationPlan[NodeT](
         backend.backend_id,
+        backend.capability_fingerprint,
         verified_plan,
     )
 
@@ -462,10 +460,14 @@ def _unwrap_selected_plan[NodeT: PlanNode](
 ) -> NodeT:
     """Recover a defensive root for a backend-bound evaluator dispatch."""
 
-    if selected_plan.backend_id != backend.backend_id:
+    if (
+        selected_plan.backend_id != backend.backend_id
+        or selected_plan.backend_capability_fingerprint
+        != backend.capability_fingerprint
+    ):
         msg = (
-            f"relation plan selected for backend {selected_plan.backend_id!r} "
-            f"cannot be evaluated by backend {backend.backend_id!r}"
+            "relation plan backend capability identity does not match the "
+            f"evaluator {backend.backend_id!r}"
         )
         raise ValueError(msg)
     return selected_plan.root
@@ -601,14 +603,10 @@ def _prepare_evaluation[NodeT: PlanNode](
     selected_plan: SelectedRelationPlan[NodeT],
     ctx: EvalContext,
 ) -> PreparedRelationEvaluation[NodeT]:
-    _validate_evaluation_context(backend, selected_plan, ctx)
-    normalized_context = _normalize_evaluation_context(
-        selected_plan.verified_plan,
-        ctx,
-    )
     return PreparedRelationEvaluation(
+        backend,
         selected_plan,
-        normalized_context,
+        ctx,
     )
 
 

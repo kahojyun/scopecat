@@ -35,6 +35,7 @@ from scopecat.compiler.relations.scalar_eval import (
     read_path,
 )
 from scopecat.compiler.relations.verification import RelationRuntimeObligationKind
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
@@ -74,6 +75,24 @@ class ReferenceRelationBackend:
         self.backend_id = backend_id
         self.supported_operations = supported_operations
         self.discharged_obligations = discharged_obligations
+
+    @property
+    def capability_fingerprint(self) -> str:
+        return stable_content_hash(
+            {
+                "schema": "scopecat.relation_backend_capability.v1",
+                "backend_type": f"{type(self).__module__}.{type(self).__qualname__}",
+                "backend_id": self.backend_id,
+                "supported_operations": tuple(
+                    sorted(operation.value for operation in self.supported_operations)
+                ),
+                "discharged_obligations": tuple(
+                    sorted(
+                        obligation.value for obligation in self.discharged_obligations
+                    )
+                ),
+            }
+        )
 
     def assess_relation_requirements(
         self,

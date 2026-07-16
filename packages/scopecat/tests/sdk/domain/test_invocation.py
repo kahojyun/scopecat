@@ -42,7 +42,6 @@ from scopecat.sdk.domain.invocation import (
     materialize_linked_points,
     seal_domain_output_values,
     seal_domain_result_mapping,
-    select_domain_measurement_outputs,
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import table_value_expr
@@ -371,7 +370,7 @@ def test_zero_point_mapping_retains_and_checks_selected_product_contracts() -> N
     assert mapping.entries == ()
     assert mapping.results == ()
     with pytest.raises(CheckFailed) as captured:
-        select_domain_measurement_outputs(mapping)
+        SelectedDomainMeasurementOutputs(mapping)
     assert {problem.code for problem in captured.value.problems} == {
         "domain_output_product_kind_unsupported"
     }
@@ -527,7 +526,7 @@ def test_output_values_close_reordered_candidates_to_exact_logical_results() -> 
         )
         for index, result in reversed(tuple(enumerate(mapping.results)))
     )
-    selection = select_domain_measurement_outputs(mapping)
+    selection = SelectedDomainMeasurementOutputs(mapping)
 
     closed = seal_domain_output_values(selection, candidates)
 
@@ -568,7 +567,7 @@ def test_output_candidate_order_does_not_change_logical_value_order(
         )
         for index, result in enumerate(mapping.results)
     )
-    selection = select_domain_measurement_outputs(mapping)
+    selection = SelectedDomainMeasurementOutputs(mapping)
 
     closed = seal_domain_output_values(
         selection,
@@ -604,7 +603,7 @@ def test_closed_output_values_snapshot_mutable_measurement_arrays() -> None:
             ComplexQuantity(real=3.0, imag=4.0, unit="ratio"),
         ],
     )
-    selection = select_domain_measurement_outputs(mapping)
+    selection = SelectedDomainMeasurementOutputs(mapping)
 
     closed = seal_domain_output_values(
         selection,
@@ -644,7 +643,7 @@ def test_output_value_sealing_rejects_inexact_result_coverage(
         mapping.results[0].result_address,
         Quantity(value=1.0, unit="ratio"),
     )
-    selection = select_domain_measurement_outputs(mapping)
+    selection = SelectedDomainMeasurementOutputs(mapping)
     if mutation == "missing":
         candidates = ()
     elif mutation == "duplicate":
@@ -734,7 +733,7 @@ def test_output_value_sealing_rejects_product_contract_mismatches(
         _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points, adapter_point_order=(0,)),
     )
-    selection = select_domain_measurement_outputs(mapping)
+    selection = SelectedDomainMeasurementOutputs(mapping)
 
     with pytest.raises(ProviderContractError) as captured:
         seal_domain_output_values(
@@ -758,7 +757,7 @@ def test_output_value_sealing_revalidates_mutated_measurement_models() -> None:
     )
     value = ComplexQuantity(real=1.0, imag=2.0, unit="ratio")
     object.__setattr__(value, "real", "not-a-number")
-    selection = select_domain_measurement_outputs(mapping)
+    selection = SelectedDomainMeasurementOutputs(mapping)
 
     with pytest.raises(ProviderContractError) as captured:
         seal_domain_output_values(
@@ -817,7 +816,7 @@ def test_output_value_selection_rejects_unsupported_measurement_carriers(
     )
 
     with pytest.raises(CheckFailed) as captured:
-        select_domain_measurement_outputs(mapping)
+        SelectedDomainMeasurementOutputs(mapping)
 
     assert expected_code in {problem.code for problem in captured.value.problems}
     assert all(problem.phase.value == "planning" for problem in captured.value.problems)
@@ -836,7 +835,7 @@ def test_output_value_sealing_accepts_axis_bearing_bool_arrays() -> None:
         _all_product_use_ids(linked_points),
         *_valid_mapping_inputs(linked_points, adapter_point_order=(0,)),
     )
-    selection = select_domain_measurement_outputs(mapping)
+    selection = SelectedDomainMeasurementOutputs(mapping)
 
     closed = seal_domain_output_values(
         selection,
@@ -880,7 +879,7 @@ def test_mapping_supports_control_only_entries_without_fabricated_results() -> N
     assert mapping.selected_product_use_ids == ()
     assert all(entry.results == () for entry in mapping.entries)
     assert mapping.results == ()
-    selection = select_domain_measurement_outputs(mapping)
+    selection = SelectedDomainMeasurementOutputs(mapping)
     assert seal_domain_output_values(selection, ()).outputs == ()
 
 
@@ -927,7 +926,7 @@ def test_one_physical_result_fans_out_to_distinct_uses_of_one_product() -> None:
         assert mapping.result_for_output(point.logical_id, uses[0].id) is result
         assert mapping.result_for_output(point.logical_id, uses[1].id) is result
 
-    selection = select_domain_measurement_outputs(mapping)
+    selection = SelectedDomainMeasurementOutputs(mapping)
     closed = seal_domain_output_values(
         selection,
         tuple(

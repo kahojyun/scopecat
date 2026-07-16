@@ -66,6 +66,7 @@ from scopecat.compiler.semantic.operation_contract import (
     ScalarBinarySemantics,
     operation_contract_issues,
 )
+from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
@@ -260,8 +261,6 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         problems,
     )
     if problems:
-        from scopecat.kernel.errors import CheckFailed
-
         raise CheckFailed(problems)
     ordered_defs = tuple(
         sorted(graph.value_defs, key=lambda item: item.id.qualified_name)
@@ -674,8 +673,6 @@ def verify_implementation_catalog(
                 )
             )
     if problems:
-        from scopecat.kernel.errors import CheckFailed
-
         raise CheckFailed(problems)
     return ImplementationCatalog(
         local_python=tuple(
@@ -723,8 +720,6 @@ def verify_source_map(graph: SemanticGraphIR, source_map: SourceMap) -> SourceMa
         problems,
     )
     if problems:
-        from scopecat.kernel.errors import CheckFailed
-
         raise CheckFailed(problems)
     return SourceMap(
         operation_sources=tuple(

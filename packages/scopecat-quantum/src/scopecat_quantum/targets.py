@@ -13,7 +13,7 @@ opaque artifact content because core cannot interpret that content itself.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
@@ -227,7 +227,7 @@ class TargetCompiler[ArtifactT: TargetArtifact](Protocol):
     def compile(self, request: TargetCompileRequest) -> ArtifactT: ...
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
     """Checked snapshot of return-time artifact provenance.
 
@@ -236,38 +236,21 @@ class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
     inspect or prove the meaning of a target-owned opaque payload.
     """
 
-    _request: TargetCompileRequest
-    _artifact: ArtifactT
-    _artifact_id: TargetArtifactId
-    _artifact_fingerprint: str
+    request: TargetCompileRequest
+    artifact: ArtifactT
+    _artifact_id: TargetArtifactId = field(init=False)
+    _artifact_fingerprint: str = field(init=False)
 
-    def __init__(
-        self,
-        request: TargetCompileRequest,
-        artifact: ArtifactT,
-        *,
-        _verified_artifact_id: TargetArtifactId | None = None,
-        _verified_artifact_fingerprint: str | None = None,
-    ) -> None:
-        if _verified_artifact_id is None or _verified_artifact_fingerprint is None:
-            msg = "compiled target artifact result is missing checked provenance"
-            raise AssertionError(msg)
-        object.__setattr__(self, "_request", request)
-        object.__setattr__(self, "_artifact", artifact)
-        object.__setattr__(self, "_artifact_id", _verified_artifact_id)
+    def __post_init__(self) -> None:
+        issues = _target_artifact_issues(self.request, self.artifact)
+        if issues:
+            raise TargetCompilationError(issues)
+        object.__setattr__(self, "_artifact_id", self.artifact.id)
         object.__setattr__(
             self,
             "_artifact_fingerprint",
-            _verified_artifact_fingerprint,
+            self.artifact.artifact_fingerprint,
         )
-
-    @property
-    def request(self) -> TargetCompileRequest:
-        return self._request
-
-    @property
-    def artifact(self) -> ArtifactT:
-        return self._artifact
 
     @property
     def artifact_id(self) -> TargetArtifactId:
@@ -279,23 +262,80 @@ class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
 
     @property
     def target_id(self) -> TargetId:
-        return self._request.target_id
+        return self.request.target_id
 
     @property
     def compiler_id(self) -> TargetCompilerId:
-        return self._request.compiler_id
+        return self.request.compiler_id
 
     @property
     def capability_fingerprint(self) -> str:
-        return self._request.capability_fingerprint
+        return self.request.capability_fingerprint
 
     @property
     def source_entry_ids(self) -> tuple[TargetCompileEntryId, ...]:
-        return tuple(entry.id for entry in self._request.entries)
+        return tuple(entry.id for entry in self.request.entries)
 
     @property
     def repetitions(self) -> int:
-        return self._request.repetitions
+        return self.request.repetitions
+
+
+def _target_artifact_issues(
+    request: TargetCompileRequest,
+    artifact: TargetArtifact,
+) -> tuple[TargetCompilationIssue, ...]:
+    expected_entry_ids = tuple(entry.id for entry in request.entries)
+    issues: list[TargetCompilationIssue] = []
+    if artifact.target_id != request.target_id:
+        issues.append(
+            TargetCompilationIssue(
+                dimension=TargetCompilationIssueDimension.COMPILER,
+                code="target_artifact_target_mismatch",
+                message="target artifact identifies another target",
+            )
+        )
+    if artifact.compiler_id != request.compiler_id:
+        issues.append(
+            TargetCompilationIssue(
+                dimension=TargetCompilationIssueDimension.COMPILER,
+                code="target_artifact_compiler_mismatch",
+                message="target artifact identifies another compiler",
+            )
+        )
+    if artifact.capability_fingerprint != request.capability_fingerprint:
+        issues.append(
+            TargetCompilationIssue(
+                dimension=TargetCompilationIssueDimension.CAPABILITY,
+                code="target_artifact_capability_mismatch",
+                message="target artifact has another capability fingerprint",
+            )
+        )
+    if artifact.source_entry_ids != expected_entry_ids:
+        issues.append(
+            TargetCompilationIssue(
+                dimension=TargetCompilationIssueDimension.COMPILER,
+                code="target_artifact_entry_coverage_mismatch",
+                message="target artifact does not preserve ordered entry coverage",
+            )
+        )
+    if artifact.repetitions != request.repetitions:
+        issues.append(
+            TargetCompilationIssue(
+                dimension=TargetCompilationIssueDimension.COMPILER,
+                code="target_artifact_repetitions_mismatch",
+                message="target artifact does not preserve finite repetitions",
+            )
+        )
+    if not artifact.artifact_fingerprint.strip():
+        issues.append(
+            TargetCompilationIssue(
+                dimension=TargetCompilationIssueDimension.COMPILER,
+                code="target_artifact_fingerprint_missing",
+                message="target artifact requires a non-empty artifact fingerprint",
+            )
+        )
+    return tuple(issues)
 
 
 def compile_target[ArtifactT: TargetArtifact](
@@ -340,65 +380,7 @@ def compile_target[ArtifactT: TargetArtifact](
         raise TargetCompilationError(tuple(preflight_issues))
 
     artifact = compiler.compile(request)
-    expected_entry_ids = tuple(entry.id for entry in request.entries)
-    artifact_issues: list[TargetCompilationIssue] = []
-    if artifact.target_id != request.target_id:
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_target_mismatch",
-                message="target artifact identifies another target",
-            )
-        )
-    if artifact.compiler_id != request.compiler_id:
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_compiler_mismatch",
-                message="target artifact identifies another compiler",
-            )
-        )
-    if artifact.capability_fingerprint != request.capability_fingerprint:
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.CAPABILITY,
-                code="target_artifact_capability_mismatch",
-                message="target artifact has another capability fingerprint",
-            )
-        )
-    if artifact.source_entry_ids != expected_entry_ids:
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_entry_coverage_mismatch",
-                message="target artifact does not preserve ordered entry coverage",
-            )
-        )
-    if artifact.repetitions != request.repetitions:
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_repetitions_mismatch",
-                message="target artifact does not preserve finite repetitions",
-            )
-        )
-    if not artifact.artifact_fingerprint.strip():
-        artifact_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_fingerprint_missing",
-                message="target artifact requires a non-empty artifact fingerprint",
-            )
-        )
-    if artifact_issues:
-        raise TargetCompilationError(tuple(artifact_issues))
-
-    return CompiledTargetArtifact(
-        request,
-        artifact,
-        _verified_artifact_id=artifact.id,
-        _verified_artifact_fingerprint=artifact.artifact_fingerprint,
-    )
+    return CompiledTargetArtifact(request, artifact)
 
 
 __all__ = [

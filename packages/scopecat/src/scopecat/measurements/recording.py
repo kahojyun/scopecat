@@ -228,9 +228,7 @@ def _chunks_for_projected(
 ) -> tuple[MeasurementRecordChunk, ...]:
     # Keep the dependency one-way at import time: errors can describe receipt
     # evidence without importing this runtime module.
-    from scopecat.measurements.projection import require_projected_measurement_records
-
-    selected = require_projected_measurement_records(projected)
+    selected = projected
     records = selected.records
     if not records:
         return ()

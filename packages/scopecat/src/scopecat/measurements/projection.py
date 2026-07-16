@@ -27,13 +27,12 @@ from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     SelectedMeasurementValueAssembly,
     measurement_value_contract_fingerprint,
-    require_assembled_measurement_values,
-    require_measurement_value_assembly,
 )
 from scopecat.records.measurement import (
     CoordinateValue,
     MeasurementDatasetSchema,
     MeasurementRecord,
+    validate_measurement_records_against_schema,
 )
 
 
@@ -56,9 +55,34 @@ class SelectedMeasurementProjection:
         required_product_use_ids: tuple[ProductUseId, ...],
         coordinate_ids: tuple[str, ...],
         schema: MeasurementDatasetSchema | None,
-        linked_contract_fingerprint: str,
-        contract_fingerprint: str,
     ) -> None:
+        points = linked_points.point_domain.points
+        expected_coordinate_ids = tuple(point_coordinate_ids(points))
+        if tuple(coordinate_ids) != expected_coordinate_ids:
+            msg = "measurement projection coordinates do not match its point domain"
+            raise ValueError(msg)
+        record_problems = validate_record_plan(
+            records,
+            coordinate_ids=expected_coordinate_ids,
+        )
+        if record_problems:
+            raise CheckFailed(record_problems)
+        expected_use_ids = tuple(
+            use.id
+            for use in linked_points.linked_plan.product_uses
+            if use.id in {record.product_use_id for record in records}
+        )
+        if tuple(required_product_use_ids) != expected_use_ids:
+            msg = "measurement projection uses do not match its record plan"
+            raise ValueError(msg)
+        expected_schema = expected_dataset_schema(
+            experiment_id=linked_points.linked_plan.program.id,
+            points=points,
+            records=records,
+        )
+        if schema != expected_schema:
+            msg = "measurement projection schema does not match its record plan"
+            raise ValueError(msg)
         object.__setattr__(self, "_linked_points", linked_points)
         object.__setattr__(
             self,
@@ -76,12 +100,19 @@ class SelectedMeasurementProjection:
             "_schema",
             None if schema is None else schema.model_copy(deep=True),
         )
+        linked_fingerprint = measurement_value_contract_fingerprint(linked_points)
+        object.__setattr__(self, "linked_contract_fingerprint", linked_fingerprint)
         object.__setattr__(
             self,
-            "linked_contract_fingerprint",
-            linked_contract_fingerprint,
+            "contract_fingerprint",
+            _projection_contract_fingerprint(
+                linked_fingerprint,
+                records,
+                required_product_use_ids,
+                coordinate_ids,
+                schema,
+            ),
         )
-        object.__setattr__(self, "contract_fingerprint", contract_fingerprint)
 
     @property
     def linked_points(self) -> MaterializedLinkedPointSet:
@@ -96,23 +127,41 @@ class SelectedMeasurementProjection:
         return None if self._schema is None else self._schema.model_copy(deep=True)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class BoundMeasurementProjection:
     """Pre-effect proof that an assembly covers every projected record use."""
 
     projection: SelectedMeasurementProjection = field(repr=False)
     product_values: SelectedMeasurementValueAssembly = field(repr=False)
-    contract_fingerprint: str
+    contract_fingerprint: str = field(init=False)
 
-    def __init__(
-        self,
-        projection: SelectedMeasurementProjection,
-        product_values: SelectedMeasurementValueAssembly,
-        contract_fingerprint: str,
-    ) -> None:
-        object.__setattr__(self, "projection", projection)
-        object.__setattr__(self, "product_values", product_values)
-        object.__setattr__(self, "contract_fingerprint", contract_fingerprint)
+    def __post_init__(self) -> None:
+        if (
+            self.projection.linked_contract_fingerprint
+            != self.product_values.linked_contract_fingerprint
+        ):
+            msg = "measurement projection and values belong to different plans"
+            raise ValueError(msg)
+        if not set(self.projection.required_product_use_ids).issubset(
+            self.product_values.product_use_ids
+        ):
+            msg = "measurement values do not cover every projected product use"
+            raise ValueError(msg)
+        object.__setattr__(
+            self,
+            "contract_fingerprint",
+            stable_content_hash(
+                {
+                    "schema": "scopecat.bound_measurement_projection.v1",
+                    "projection_contract_fingerprint": (
+                        self.projection.contract_fingerprint
+                    ),
+                    "value_contract_fingerprint": (
+                        self.product_values.contract_fingerprint
+                    ),
+                }
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -131,6 +180,43 @@ class ProjectedMeasurementRecords:
         records: tuple[MeasurementRecord, ...],
         schema: MeasurementDatasetSchema | None,
     ) -> None:
+        if not run_id:
+            msg = "measurement projection run_id must be non-empty"
+            raise ValueError(msg)
+        projection = selection.projection
+        if schema != projection.schema:
+            msg = "projected measurement schema does not match its selection"
+            raise ValueError(msg)
+        points = projection.linked_points.point_domain.points
+        expected_count = len(points) if projection.records else 0
+        if len(records) != expected_count:
+            msg = "projected measurement records must exactly cover logical points"
+            raise ValueError(msg)
+        expected_observables = {record.id for record in projection.records}
+        selected_points = points if projection.records else ()
+        for point, record in zip(selected_points, records, strict=True):
+            if (
+                record.run_id != run_id
+                or record.logical_point_id != point.logical_id.value
+                or record.point_index != point.logical_ordinal
+            ):
+                msg = "projected measurement record identity does not match its point"
+                raise ValueError(msg)
+            if set(record.coordinates) != set(projection.coordinate_ids):
+                msg = "projected measurement record coordinates are incomplete"
+                raise ValueError(msg)
+            if set(record.observables) != expected_observables:
+                msg = "projected measurement record observables are incomplete"
+                raise ValueError(msg)
+        if schema is not None:
+            schema_problems = validate_measurement_records_against_schema(
+                records,
+                schema,
+                schema.dataset_id,
+                schema.dataset_role,
+            )
+            if schema_problems:
+                raise CheckFailed(schema_problems)
         object.__setattr__(self, "selection", selection)
         object.__setattr__(self, "run_id", run_id)
         selected_records = _snapshot_measurement_records(records)
@@ -257,22 +343,12 @@ def select_measurement_projection(
     required_use_ids = tuple(
         use.id for use in product_uses if use.id in selected_use_set
     )
-    linked_fingerprint = measurement_value_contract_fingerprint(linked_points)
-    projection_fingerprint = _projection_contract_fingerprint(
-        linked_fingerprint,
-        record_plans,
-        required_use_ids,
-        coordinate_ids,
-        schema,
-    )
     return SelectedMeasurementProjection(
         linked_points,
         record_plans,
         required_use_ids,
         coordinate_ids,
         schema,
-        linked_fingerprint,
-        projection_fingerprint,
     )
 
 
@@ -283,7 +359,7 @@ def bind_measurement_projection(
     """Prove before effects that selected values cover all record inputs."""
 
     selected_projection = projection
-    selected_values = require_measurement_value_assembly(product_values)
+    selected_values = product_values
     problems: list[Problem] = []
     if (
         selected_projection.linked_contract_fingerprint
@@ -310,19 +386,9 @@ def bind_measurement_projection(
             )
     if problems:
         raise CheckFailed(problems)
-    contract_fingerprint = stable_content_hash(
-        {
-            "schema": "scopecat.bound_measurement_projection.v1",
-            "projection_contract_fingerprint": (
-                selected_projection.contract_fingerprint
-            ),
-            "value_contract_fingerprint": selected_values.contract_fingerprint,
-        }
-    )
     return BoundMeasurementProjection(
         selected_projection,
         selected_values,
-        contract_fingerprint,
     )
 
 
@@ -338,7 +404,7 @@ def project_measurement_records(
     if not run_id:
         msg = "measurement projection run_id must be non-empty"
         raise ValueError(msg)
-    values = require_assembled_measurement_values(product_values)
+    values = product_values
     if (
         values.selection.contract_fingerprint
         != bound.product_values.contract_fingerprint
@@ -372,14 +438,6 @@ def project_measurement_records(
         records,
         projection.schema,
     )
-
-
-def require_projected_measurement_records(
-    projected: ProjectedMeasurementRecords,
-) -> ProjectedMeasurementRecords:
-    """Require the projected stage produced by record projection."""
-
-    return projected
 
 
 def _projection_contract_fingerprint(
@@ -455,6 +513,5 @@ __all__ = [
     "SelectedMeasurementProjection",
     "bind_measurement_projection",
     "project_measurement_records",
-    "require_projected_measurement_records",
     "select_measurement_projection",
 ]

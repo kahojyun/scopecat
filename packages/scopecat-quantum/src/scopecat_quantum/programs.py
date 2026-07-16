@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -147,26 +147,23 @@ class QuantumProgramVerificationError(ValueError):
         )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class VerifiedQuantumProgram:
     """Mixed source plus verified logical and unresolved-circuit projections."""
 
     program: QuantumProgramIR
     gate_definitions: tuple[GateDefinition, ...]
-    logical_circuit: VerifiedCircuitProgram
-    unresolved_circuit: VerifiedCircuitProgram
+    logical_circuit: VerifiedCircuitProgram = field(init=False)
+    unresolved_circuit: VerifiedCircuitProgram = field(init=False)
 
-    def __init__(
-        self,
-        program: QuantumProgramIR,
-        gate_definitions: tuple[GateDefinition, ...],
-        logical_circuit: VerifiedCircuitProgram,
-        unresolved_circuit: VerifiedCircuitProgram,
-    ) -> None:
-        object.__setattr__(self, "program", program)
-        object.__setattr__(self, "gate_definitions", gate_definitions)
-        object.__setattr__(self, "logical_circuit", logical_circuit)
-        object.__setattr__(self, "unresolved_circuit", unresolved_circuit)
+    def __post_init__(self) -> None:
+        definitions, logical, unresolved = _verified_quantum_program_components(
+            self.program,
+            self.gate_definitions,
+        )
+        object.__setattr__(self, "gate_definitions", definitions)
+        object.__setattr__(self, "logical_circuit", logical)
+        object.__setattr__(self, "unresolved_circuit", unresolved)
 
     @property
     def operations(self) -> tuple[QuantumOperation, ...]:
@@ -189,6 +186,19 @@ def verify_quantum_program(
     gate_definitions: SequenceCollection[GateDefinition],
 ) -> VerifiedQuantumProgram:
     """Verify the mixed source and both logical circuit projections."""
+
+    return VerifiedQuantumProgram(program, tuple(gate_definitions))
+
+
+def _verified_quantum_program_components(
+    program: QuantumProgramIR,
+    gate_definitions: SequenceCollection[GateDefinition],
+) -> tuple[
+    tuple[GateDefinition, ...],
+    VerifiedCircuitProgram,
+    VerifiedCircuitProgram,
+]:
+    """Validate and canonicalize the fields stored by a verified program."""
 
     issues: list[QuantumProgramIssue] = []
     operation_entries = tuple(_iter_operations_with_paths(program.body, ("body",)))
@@ -287,8 +297,7 @@ def verify_quantum_program(
         ),
         definitions,
     )
-    return VerifiedQuantumProgram(
-        program,
+    return (
         logical_circuit.gate_definitions,
         logical_circuit,
         unresolved_circuit,

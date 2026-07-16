@@ -57,7 +57,7 @@ class ComputeInterface:
         return tuple(name for name, _value_type in self.inputs)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class SelectedLocalImplementation:
     """One exact callable selected for one typed semantic operation."""
 
@@ -66,20 +66,6 @@ class SelectedLocalImplementation:
     operation_contract: OperationContract
     interface: ComputeInterface
     kernel: Callable[..., object] = field(repr=False, compare=False)
-
-    def __init__(
-        self,
-        operation_id: OperationId,
-        implementation_id: ImplementationId,
-        operation_contract: OperationContract,
-        interface: ComputeInterface,
-        kernel: Callable[..., object],
-    ) -> None:
-        object.__setattr__(self, "operation_id", operation_id)
-        object.__setattr__(self, "implementation_id", implementation_id)
-        object.__setattr__(self, "operation_contract", operation_contract)
-        object.__setattr__(self, "interface", interface)
-        object.__setattr__(self, "kernel", kernel)
 
     def __copy__(self) -> SelectedLocalImplementation:
         return self
@@ -91,21 +77,20 @@ class SelectedLocalImplementation:
         return self
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class SelectedLocalImplementations:
     """Complete, unique local implementation coverage for a typed program."""
 
     entries: tuple[SelectedLocalImplementation, ...]
     _by_operation: Mapping[OperationId, SelectedLocalImplementation] = field(
+        init=False,
         repr=False,
         compare=False,
         hash=False,
     )
 
-    def __init__(
-        self,
-        entries: tuple[SelectedLocalImplementation, ...],
-    ) -> None:
+    def __post_init__(self) -> None:
+        entries = tuple(self.entries)
         by_operation = {entry.operation_id: entry for entry in entries}
         if len(by_operation) != len(entries):
             msg = "selected local implementations must have unique operation owners"

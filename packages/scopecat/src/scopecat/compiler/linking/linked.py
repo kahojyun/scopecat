@@ -495,7 +495,11 @@ def materialize_selected_linked_points(
     if selected_program.verified_program is not linked.verified_program:
         msg = "selected program must belong to the linked plan"
         raise ValueError(msg)
-    if selected_program.backend_id != relation_backend.backend_id:
+    if (
+        selected_program.backend_id != relation_backend.backend_id
+        or selected_program.backend_capability_fingerprint
+        != relation_backend.capability_fingerprint
+    ):
         msg = "selected program and point materializer must use one backend"
         raise ValueError(msg)
     program = linked.program

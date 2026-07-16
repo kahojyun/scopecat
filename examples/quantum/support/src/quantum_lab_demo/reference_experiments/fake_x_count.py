@@ -61,7 +61,6 @@ from scopecat_quantum import (
     TargetCompilerId,
     VerifiedQuantumProgram,
     binary_iq_probability_host_implementation,
-    bind_compiled_quantum_target,
     compile_target,
     lower_quantum_program_to_pulses,
     prepare_quantum_target_batch,
@@ -209,7 +208,7 @@ def prepare_fake_x_count_reference(
             for product_use in products.iq_shots
         ),
     )
-    compiled_target = bind_compiled_quantum_target(
+    compiled_target = CompiledQuantumTarget(
         mapping,
         compile_target(compiler, batch.request),
     )

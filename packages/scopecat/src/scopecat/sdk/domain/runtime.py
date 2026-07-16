@@ -336,7 +336,7 @@ class DomainReconcileReceipt(BaseModel):
         return self
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class KnownDomainSubmission:
     """Core-accepted job identity produced by submit or reconciliation."""
 
@@ -344,31 +344,23 @@ class KnownDomainSubmission:
     receipt: DomainSubmitReceipt | DomainReconcileReceipt = field(repr=False)
     origin: Literal["submit", "reconcile"]
 
-    def __init__(
-        self,
-        submission_id: DomainSubmissionId,
-        receipt: DomainSubmitReceipt | DomainReconcileReceipt,
-        origin: Literal["submit", "reconcile"],
-    ) -> None:
-        if origin == "submit":
-            if not isinstance(receipt, DomainSubmitReceipt) or receipt.status != (
-                "submitted"
+    def __post_init__(self) -> None:
+        if self.origin == "submit":
+            if (
+                not isinstance(self.receipt, DomainSubmitReceipt)
+                or self.receipt.status != "submitted"
             ):
                 msg = "known submit state requires a submitted receipt"
                 raise ValueError(msg)
-        elif not isinstance(receipt, DomainReconcileReceipt) or receipt.status not in {
-            "submitted",
-            "completed",
-        }:
+        elif not isinstance(
+            self.receipt, DomainReconcileReceipt
+        ) or self.receipt.status not in {"submitted", "completed"}:
             msg = "known reconcile state requires a known receipt"
             raise ValueError(msg)
-        _require_state_identity(submission_id, receipt.identity)
-        if receipt.job_id is None:
+        _require_state_identity(self.submission_id, self.receipt.identity)
+        if self.receipt.job_id is None:
             msg = "known domain submissions require a job_id"
             raise ValueError(msg)
-        object.__setattr__(self, "submission_id", submission_id)
-        object.__setattr__(self, "receipt", receipt)
-        object.__setattr__(self, "origin", origin)
 
     @property
     def identity(self) -> DomainReceiptIdentity:
@@ -389,7 +381,7 @@ class KnownDomainSubmission:
         )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class AbsentDomainSubmission:
     """Core-accepted proof authorizing a later submission attempt."""
 
@@ -397,28 +389,20 @@ class AbsentDomainSubmission:
     receipt: DomainSubmitReceipt | DomainReconcileReceipt = field(repr=False)
     origin: Literal["submit", "reconcile"]
 
-    def __init__(
-        self,
-        submission_id: DomainSubmissionId,
-        receipt: DomainSubmitReceipt | DomainReconcileReceipt,
-        origin: Literal["submit", "reconcile"],
-    ) -> None:
+    def __post_init__(self) -> None:
         valid = (
-            origin == "submit"
-            and isinstance(receipt, DomainSubmitReceipt)
-            and receipt.status == "not_submitted"
+            self.origin == "submit"
+            and isinstance(self.receipt, DomainSubmitReceipt)
+            and self.receipt.status == "not_submitted"
         ) or (
-            origin == "reconcile"
-            and isinstance(receipt, DomainReconcileReceipt)
-            and receipt.status == "absent"
+            self.origin == "reconcile"
+            and isinstance(self.receipt, DomainReconcileReceipt)
+            and self.receipt.status == "absent"
         )
         if not valid:
             msg = "absent domain state requires definitive negative evidence"
             raise ValueError(msg)
-        _require_state_identity(submission_id, receipt.identity)
-        object.__setattr__(self, "submission_id", submission_id)
-        object.__setattr__(self, "receipt", receipt)
-        object.__setattr__(self, "origin", origin)
+        _require_state_identity(self.submission_id, self.receipt.identity)
 
     @property
     def identity(self) -> DomainReceiptIdentity:
@@ -524,28 +508,22 @@ def _correlated_domain_fetch[ResultT](
     )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class PendingDomainFetch:
     """Core-correlated normal non-terminal read of one known job."""
 
     submission: KnownDomainSubmission = field(repr=False)
     receipt: DomainFetchReceipt
 
-    def __init__(
-        self,
-        submission: KnownDomainSubmission,
-        receipt: DomainFetchReceipt,
-    ) -> None:
-        if receipt.status != "pending":
+    def __post_init__(self) -> None:
+        if self.receipt.status != "pending":
             msg = "pending domain fetches require a pending receipt"
             raise ValueError(msg)
-        if receipt.identity != submission.identity or receipt.job_id != (
-            submission.job_id
+        if self.receipt.identity != self.submission.identity or self.receipt.job_id != (
+            self.submission.job_id
         ):
             msg = "pending domain fetch does not belong to its submission"
             raise ValueError(msg)
-        object.__setattr__(self, "submission", submission)
-        object.__setattr__(self, "receipt", receipt)
 
 
 type DomainFetchOutcome[ResultT] = CorrelatedDomainFetch[ResultT] | PendingDomainFetch

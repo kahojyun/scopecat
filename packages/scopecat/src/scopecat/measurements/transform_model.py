@@ -6,7 +6,6 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import override
 
-from scopecat.compiler.linking.linked import MaterializedLinkedPointSet
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.semantics import (
@@ -81,36 +80,9 @@ class MeasurementTransformDef:
         object.__setattr__(self, "semantic", self.semantic.model_copy(deep=True))
 
 
-@dataclass(frozen=True, slots=True, init=False)
-class VerifiedMeasurementTransformGraph:
-    """Closed typed DAG with canonical topological node order."""
-
-    linked_points: MaterializedLinkedPointSet = field(repr=False)
-    transforms: tuple[MeasurementTransformDef, ...]
-    linked_contract_fingerprint: str
-    contract_fingerprint: str
-
-    def __init__(
-        self,
-        linked_points: MaterializedLinkedPointSet,
-        transforms: tuple[MeasurementTransformDef, ...],
-        linked_contract_fingerprint: str,
-        contract_fingerprint: str,
-    ) -> None:
-        object.__setattr__(self, "linked_points", linked_points)
-        object.__setattr__(self, "transforms", transforms)
-        object.__setattr__(
-            self,
-            "linked_contract_fingerprint",
-            linked_contract_fingerprint,
-        )
-        object.__setattr__(self, "contract_fingerprint", contract_fingerprint)
-
-
 __all__ = [
     "MeasurementTransformDef",
     "MeasurementTransformInputPort",
     "MeasurementTransformOutputPort",
     "NativeMeasurementTransformId",
-    "VerifiedMeasurementTransformGraph",
 ]
