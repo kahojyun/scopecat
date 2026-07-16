@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from scopecat.compiler.semantic.model import DomainCallId, MeasurementTransformId
+from scopecat.compiler.semantic.model import MeasurementTransformId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import ProductId, ProductProducerId
 from scopecat.kernel.resource_identity import ResourceTarget
@@ -66,11 +66,10 @@ class InstrumentProductProducer:
 
 @dataclass(frozen=True, slots=True)
 class DomainProductProducer:
-    """One domain-call result that realizes a logical product."""
+    """One domain-execution result that realizes a logical product."""
 
     id: ProductProducerId
     product_id: ProductId
-    call_id: DomainCallId
     result_id: str
 
     def __post_init__(self) -> None:

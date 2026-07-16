@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Literal, override
+from typing import Literal
 
 import pytest
 
@@ -24,7 +24,6 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.semantic.model import (
-    DomainCallId,
     DomainInputPortDef,
     DomainProgramId,
     DomainResultPortDef,
@@ -36,7 +35,7 @@ from scopecat.compiler.typed.products import (
     MeasurementTransformProductProducer,
 )
 from scopecat.compiler.typed.program import (
-    TypedDomainCall,
+    TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
     TypedMeasurementTransform,
@@ -139,8 +138,6 @@ class _EffectProbeRuntime:
 @dataclass
 class _DomainAdapter:
     adapter_id: str
-    product_indices: tuple[int, ...] = (0,)
-    call_indices: tuple[int, ...] | None = None
     resource_claims: tuple[DomainResourceClaim, ...] = ()
     max_points_per_batch: int = 100
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
@@ -152,12 +149,9 @@ class _DomainAdapter:
         view: DomainBatchView,
     ) -> DomainExecutionOffer:
         self.select_calls += 1
-        selected_call_indices = (
-            self.product_indices if self.call_indices is None else self.call_indices
-        )
-        [selected_call_index] = selected_call_indices
-        return DomainExecutionOffer.for_call(
-            view.calls[selected_call_index],
+        if view.execution is None:
+            raise ValueError("expected a domain execution")
+        return DomainExecutionOffer(
             max_points_per_batch=self.max_points_per_batch,
         )
 
@@ -221,16 +215,6 @@ class _DomainAdapter:
             realize=_reject_realization,
             resource_claims=self.resource_claims,
         )
-
-
-class _ForgedOfferAdapter(_DomainAdapter):
-    @override
-    def select(self, view: DomainBatchView) -> DomainExecutionOffer:
-        self.select_calls += 1
-        offer = object.__new__(DomainExecutionOffer)
-        object.__setattr__(offer, "call_id", view.calls[0].id)
-        object.__setattr__(offer, "max_points_per_batch", 0)
-        return offer
 
 
 @dataclass
@@ -312,55 +296,52 @@ def _linked_program(
     selected_domain_product_count = (
         product_count if domain_product_count is None else domain_product_count
     )
-    domain_programs: list[TypedDomainProgram] = []
-    domain_calls: list[TypedDomainCall] = []
+    domain_execution: TypedDomainExecution | None = None
     domain_product_producers: list[DomainProductProducer] = []
-    for index, (product, (use, _record)) in enumerate(
-        zip(products[:selected_domain_product_count], selections, strict=False)
-    ):
-        program_id = DomainProgramId(SymbolId(local_id=f"program-{index}"))
-        call_id = DomainCallId(SymbolId(local_id=f"execute-{index}"))
-        producer_id = product_producer_id(f"domain-result-{index}")
-        domain_programs.append(
-            TypedDomainProgram(
-                id=program_id,
-                dialect_id="tests.domain",
-                dialect_version="1",
-                body=("test-program", index),
-                input_ports=(
-                    (DomainInputPortDef("drive_frequency", domain_input.value_type),)
-                    if domain_input is not None
-                    else ()
-                ),
-                result_ports=(DomainResultPortDef("result"),),
-            )
+    if selected_domain_product_count:
+        program_id = DomainProgramId(SymbolId(local_id="program"))
+        selected = tuple(
+            zip(products[:selected_domain_product_count], selections, strict=True)
         )
-        domain_calls.append(
-            TypedDomainCall(
-                id=call_id,
-                program_id=program_id,
-                inputs=(
-                    {"drive_frequency": domain_input}
-                    if domain_input is not None
-                    else {}
-                ),
-                results=(
-                    TypedDomainResultBinding(
-                        id="result",
-                        product_id=product.id,
-                        producer_id=producer_id,
-                        product_use_ids=(use.id,),
-                    ),
-                ),
+        result_bindings: list[TypedDomainResultBinding] = []
+        for index, (product, (use, _record)) in enumerate(selected):
+            result_id = f"result-{index}"
+            producer_id = product_producer_id(f"domain-result-{index}")
+            result_bindings.append(
+                TypedDomainResultBinding(
+                    id=result_id,
+                    product_id=product.id,
+                    producer_id=producer_id,
+                    product_use_ids=(use.id,),
+                )
             )
+            domain_product_producers.append(
+                DomainProductProducer(
+                    id=producer_id,
+                    product_id=product.id,
+                    result_id=result_id,
+                )
+            )
+        domain_program = TypedDomainProgram(
+            id=program_id,
+            dialect_id="tests.domain",
+            dialect_version="1",
+            body=("test-program",),
+            input_ports=(
+                (DomainInputPortDef("drive_frequency", domain_input.value_type),)
+                if domain_input is not None
+                else ()
+            ),
+            result_ports=tuple(
+                DomainResultPortDef(binding.id) for binding in result_bindings
+            ),
         )
-        domain_product_producers.append(
-            DomainProductProducer(
-                id=producer_id,
-                product_id=product.id,
-                call_id=call_id,
-                result_id="result",
-            )
+        domain_execution = TypedDomainExecution(
+            program=domain_program,
+            inputs=(
+                {"drive_frequency": domain_input} if domain_input is not None else {}
+            ),
+            results=tuple(result_bindings),
         )
     instrument_product_producers = tuple(
         instrument_product_producer(product)
@@ -399,8 +380,7 @@ def _linked_program(
         kind="compiler_test",
         point_domain=points,
         state=state,
-        domain_programs=tuple(domain_programs),
-        domain_calls=tuple(domain_calls),
+        domain_execution=domain_execution,
         product_defs=products,
         instrument_product_producers=instrument_product_producers,
         domain_product_producers=tuple(domain_product_producers),
@@ -603,22 +583,7 @@ def test_planning_reports_unplaced_transform_as_a_capability_boundary() -> None:
     assert captured.value.problems[0].phase is ProblemPhase.PLANNING
 
 
-def test_adapter_offer_is_revalidated_at_the_plugin_boundary() -> None:
-    linked = _linked_program()
-    adapter = _ForgedOfferAdapter("tests.forged-offer")
-
-    with pytest.raises(ValueError, match="max_points_per_batch must be positive"):
-        ExecutionBackend(domain_adapters=(adapter,)).prepare(
-            linked,
-            config=load_config(),
-        )
-
-    assert adapter.select_calls == 1
-    assert adapter.prepare_calls == 0
-    _assert_no_domain_effects(adapter)
-
-
-def test_unified_planning_rejects_overlapping_task_claim_before_effects() -> None:
+def test_unified_planning_rejects_ambiguous_domain_adapter_before_effects() -> None:
     linked = _linked_program()
     first = _DomainAdapter("tests.overlap.first")
     second = _DomainAdapter("tests.overlap.second")
@@ -629,39 +594,11 @@ def test_unified_planning_rejects_overlapping_task_claim_before_effects() -> Non
     with pytest.raises(CheckFailed) as captured:
         backend.prepare(linked, config=load_config())
 
-    assert _problem_codes(captured.value) == {"execution_task_claim_overlap"}
+    assert _problem_codes(captured.value) == {"domain_adapter_selection_ambiguous"}
     assert first.select_calls == 1
     assert second.select_calls == 1
     assert first.prepare_calls == 0
     assert second.prepare_calls == 0
-    _assert_no_domain_effects(first, second)
-
-
-def test_unified_planning_rejects_overlapping_resources_before_effects() -> None:
-    linked = _linked_program(product_count=2)
-    shared = (DomainResourceClaim("instrument", "shared-instrument"),)
-    first = _DomainAdapter(
-        "tests.resource.first",
-        product_indices=(0,),
-        resource_claims=shared,
-    )
-    second = _DomainAdapter(
-        "tests.resource.second",
-        product_indices=(1,),
-        resource_claims=shared,
-    )
-    backend = ExecutionBackend(
-        domain_adapters=(first, second),
-    )
-
-    with pytest.raises(CheckFailed) as captured:
-        backend.prepare(linked, config=load_config())
-
-    assert _problem_codes(captured.value) == {"execution_resource_claim_overlap"}
-    assert first.select_calls == 1
-    assert second.select_calls == 1
-    assert first.prepare_calls == 1
-    assert second.prepare_calls == 1
     _assert_no_domain_effects(first, second)
 
 
@@ -677,9 +614,8 @@ def test_varying_local_state_splits_automatic_domain_batches() -> None:
     plan = backend.prepare(linked, config=load_config())
 
     assert tuple(segment.point_indices for segment in plan.segments) == ((0,), (1,))
-    assert tuple(
-        job.point_indices for unit in plan.domain_units for job in unit.jobs
-    ) == ((0,), (1,))
+    assert plan.domain_unit is not None
+    assert tuple(job.point_indices for job in plan.domain_unit.jobs) == ((0,), (1,))
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert adapter.select_calls == 1
@@ -698,26 +634,25 @@ def test_constant_local_state_is_automatically_fused() -> None:
 
     plan = backend.prepare(linked, config=load_config())
     assert plan.point_unit is not None
-    assert (plan.point_unit.id, *(unit.id for unit in plan.domain_units)) == (
+    assert plan.domain_unit is not None
+    assert (plan.point_unit.id, plan.domain_unit.id) == (
         "point-instrument",
-        "domain-program-0-tests.constant-peripheral",
+        "domain-tests.constant-peripheral",
     )
     assert tuple(segment.point_indices for segment in plan.segments) == ((0, 1),)
-    assert tuple(
-        job.point_indices for unit in plan.domain_units for job in unit.jobs
-    ) == ((0, 1),)
+    assert tuple(job.point_indices for job in plan.domain_unit.jobs) == ((0, 1),)
     assert plan.point_unit.product_use_ids == ()
-    assert len(plan.domain_units) == 1
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert adapter.select_calls == 1
     assert adapter.prepare_calls == 1
-    [domain] = plan.domain_units
-    assert [job.prepared.semantic_operation_id for job in domain.jobs] == ["execute-0"]
+    assert [job.prepared.semantic_operation_id for job in plan.domain_unit.jobs] == [
+        "domain"
+    ]
     _assert_no_domain_effects(adapter)
 
 
-def test_materialized_domain_call_retains_direct_config_lookup_bindings() -> None:
+def test_materialized_domain_execution_retains_direct_config_lookup_bindings() -> None:
     config = _config_with_domain_lookup()
     adapter = _DomainAdapter("tests.config-provenance")
     prepared = ExecutionBackend(domain_adapters=(adapter,)).prepare(
@@ -728,7 +663,8 @@ def test_materialized_domain_call_retains_direct_config_lookup_bindings() -> Non
         config=config,
     )
 
-    [call] = prepared.linked_points.domain_calls
+    execution = prepared.linked_points.domain_execution
+    assert execution is not None
     assert [
         (
             point.logical_ordinal,
@@ -738,7 +674,7 @@ def test_materialized_domain_call_retains_direct_config_lookup_bindings() -> Non
             binding.column_id,
             binding.resolved_value,
         )
-        for point in call.points
+        for point in execution.points
         for binding in point.config_input_bindings
     ] == [
         (
@@ -753,7 +689,7 @@ def test_materialized_domain_call_retains_direct_config_lookup_bindings() -> Non
     ]
 
 
-def test_materialized_domain_call_does_not_mark_transformed_lookup_as_direct() -> None:
+def test_materialized_domain_execution_omits_transformed_direct_lookup() -> None:
     config = _config_with_domain_lookup()
     adapter = _DomainAdapter("tests.transformed-config-input")
     prepared = ExecutionBackend(domain_adapters=(adapter,)).prepare(
@@ -764,8 +700,9 @@ def test_materialized_domain_call_does_not_mark_transformed_lookup_as_direct() -
         config=config,
     )
 
-    [call] = prepared.linked_points.domain_calls
-    assert all(not point.config_input_bindings for point in call.points)
+    execution = prepared.linked_points.domain_execution
+    assert execution is not None
+    assert all(not point.config_input_bindings for point in execution.points)
 
 
 def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None:
@@ -788,32 +725,6 @@ def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None
     _assert_no_domain_effects(adapter)
 
 
-def test_multiple_adapters_batch_independently_within_state_segment() -> None:
-    linked = _linked_program(product_count=2)
-    pointwise = _DomainAdapter(
-        "tests.pointwise-target",
-        product_indices=(0,),
-        max_points_per_batch=1,
-    )
-    list_mode = _DomainAdapter(
-        "tests.list-target",
-        product_indices=(1,),
-        max_points_per_batch=100,
-    )
-
-    plan = ExecutionBackend(domain_adapters=(pointwise, list_mode)).prepare(
-        linked,
-        config=load_config(),
-    )
-
-    assert tuple(segment.point_indices for segment in plan.segments) == ((0, 1),)
-    assert tuple(
-        tuple(job.point_indices for job in unit.jobs) for unit in plan.domain_units
-    ) == (((0,), (1,)), ((0, 1),))
-    assert pointwise.prepare_calls == 2
-    assert list_mode.prepare_calls == 1
-
-
 def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
     linked = _linked_program(point_count=0)
     adapter = _DomainAdapter("tests.zero-point")
@@ -823,9 +734,8 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
         config=load_config(),
     )
     assert plan.segments == ()
-    assert all(not unit.jobs for unit in plan.domain_units)
+    assert plan.domain_unit is not None
+    assert plan.domain_unit.jobs == ()
     assert adapter.select_calls == 1
     assert adapter.prepare_calls == 0
     assert len(plan.linked_points.point_domain.points) == 0
-    [domain] = plan.domain_units
-    assert domain.jobs == ()

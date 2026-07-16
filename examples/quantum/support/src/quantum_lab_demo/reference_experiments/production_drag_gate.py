@@ -12,8 +12,8 @@ from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
     DomainBatchView,
-    DomainCallView,
     DomainExecutionOffer,
+    DomainExecutionView,
     DomainHostTransformBinding,
     DomainHostTransformImplementation,
     DomainMeasurementPlan,
@@ -141,12 +141,6 @@ def trusted_xm90_calibration_catalog() -> CalibrationCatalog:
 _PRODUCTION_DRAG_PROGRAM = production_drag_gate_program()
 [_IQ_SHOTS_RESULT] = _PRODUCTION_DRAG_PROGRAM.results
 _PRODUCTION_DRAG_DOMAIN_PROGRAM = quantum.domain_program(_PRODUCTION_DRAG_PROGRAM)
-_PRODUCTION_DRAG_CALL = quantum.domain_call(
-    "execute",
-    _PRODUCTION_DRAG_DOMAIN_PROGRAM,
-    inputs={PRODUCTION_DRAG_BETA_INPUT: ACTIVE_DRAG_BETA},
-    results={_IQ_SHOTS_RESULT: "integrated_iq_shots"},
-)
 _DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
@@ -169,12 +163,18 @@ PRODUCTION_DRAG_GATE_CAPTURE_MODULE = (
         axes=(sc.shot_axis(PRODUCTION_DRAG_GATE_SHOTS),),
     )
     .product("probability_0", "probability_1", unit="ratio")
-    .domain_calls(_PRODUCTION_DRAG_CALL)
     .measurement_transforms(_PROBABILITY_TRANSFORM)
     .build()
 )
 
 _TEMPLATE_CAPTURE = PRODUCTION_DRAG_GATE_CAPTURE_MODULE.instantiate("capture")
+_PRODUCTION_DRAG_EXECUTION = quantum.domain_execution(
+    _PRODUCTION_DRAG_DOMAIN_PROGRAM,
+    inputs={PRODUCTION_DRAG_BETA_INPUT: ACTIVE_DRAG_BETA},
+    results={
+        _IQ_SHOTS_RESULT: _TEMPLATE_CAPTURE.products.integrated_iq_shots,
+    },
+)
 PRODUCTION_DRAG_GATE_TEMPLATE = (
     sc.module("quantum_lab_demo.production.drag_x90.root")
     .use(_TEMPLATE_CAPTURE)
@@ -182,6 +182,7 @@ PRODUCTION_DRAG_GATE_TEMPLATE = (
         PRODUCTION_DRAG_GATE_TEMPLATE_ID,
         kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
     )
+    .domain(_PRODUCTION_DRAG_EXECUTION)
     .experiment_id(PRODUCTION_DRAG_GATE_EXPERIMENT_ID)
     .record_product(_TEMPLATE_CAPTURE.products.probability_0, record_id="probability_0")
     .record_product(_TEMPLATE_CAPTURE.products.probability_1, record_id="probability_1")
@@ -381,25 +382,25 @@ class ProductionDragGateExecutionAdapter:
         return sum(item.runtime.physical_execution_count for item in self._preparations)
 
     def select(self, view: DomainBatchView) -> DomainExecutionOffer | None:
-        call = _call_or_none(view)
-        return None if call is None else DomainExecutionOffer.for_call(call)
+        execution = _execution_or_none(view)
+        return None if execution is None else DomainExecutionOffer()
 
     def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
-        call = context.call
-        if tuple(point.ref for point in call.points) != context.points:
-            msg = "production DRAG call points do not match the selected context"
+        execution = context.execution
+        if tuple(point.ref for point in execution.points) != context.points:
+            msg = "production DRAG execution points do not match the context"
             raise ValueError(msg)
-        if len(call.points) != 1:
+        if len(execution.points) != 1:
             msg = "production DRAG execution requires exactly one logical point"
             raise ValueError(msg)
         preparation = context.new_preparation()
-        iq_result = _validated_result_contracts(call)
+        iq_result = _validated_result_contracts(execution)
         reference = prepare_production_drag_gate(
             preparation,
-            _product_binding(call),
+            _product_binding(execution),
             result_slot_id=iq_result.acquisition_slot_id,
-            declaration=_program_body(call),
-            drag_beta=_decode_beta(call.points[0].input("drag_beta")),
+            declaration=_program_body(execution),
+            drag_beta=_decode_beta(execution.points[0].input("drag_beta")),
             target=self.target,
             invocation_id=f"production-drag-gate.batch-{context.batch_ordinal}",
         )
@@ -428,44 +429,41 @@ def _decode_beta(value: object) -> Quantity:
     return Quantity(selected, "ns")
 
 
-def _call_or_none(view: DomainBatchView) -> DomainCallView | None:
-    selected = tuple(
-        call
-        for call in view.matching_calls(
-            dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
-            dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
-        )
-        if isinstance(call.program.body, quantum.Program)
-        and call.program.body.id == _PRODUCTION_DRAG_PROGRAM.id
+def _execution_or_none(view: DomainBatchView) -> DomainExecutionView | None:
+    selected = view.matching_execution(
+        dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
+        dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
     )
-    if len(selected) > 1:
-        msg = "production DRAG adapter found multiple matching calls"
-        raise ValueError(msg)
-    if not selected:
+    if selected is None or not (
+        isinstance(selected.program.body, quantum.Program)
+        and selected.program.body.id == _PRODUCTION_DRAG_PROGRAM.id
+    ):
         return None
-    _validated_result_contracts(selected[0])
-    return selected[0]
+    _validated_result_contracts(selected)
+    return selected
 
 
-def _program_body(call: DomainCallView) -> quantum.Program:
-    body = call.program.body
+def _program_body(execution: DomainExecutionView) -> quantum.Program:
+    body = execution.program.body
     if not isinstance(body, quantum.Program):
         msg = "production DRAG domain body must be a Program"
         raise TypeError(msg)
     return body
 
 
-def _product_binding(call: DomainCallView) -> ProductionDragProductBinding:
-    [transform] = call.measurement_transforms
+def _product_binding(execution: DomainExecutionView) -> ProductionDragProductBinding:
+    [transform] = execution.measurement_transforms
     return ProductionDragProductBinding(
-        iq_shots=call.result("iq_shots").product_uses,
+        iq_shots=execution.result("iq_shots").product_uses,
         transform=transform,
     )
 
 
-def _validated_result_contracts(call: DomainCallView) -> quantum.MeasurementResult:
-    body = _program_body(call)
-    iq_result = call.result("iq_shots").contract
+def _validated_result_contracts(
+    execution: DomainExecutionView,
+) -> quantum.MeasurementResult:
+    body = _program_body(execution)
+    iq_result = execution.result("iq_shots").contract
     if (
         not isinstance(iq_result, quantum.MeasurementResult)
         or iq_result.id != "iq_shots"
@@ -473,11 +471,11 @@ def _validated_result_contracts(call: DomainCallView) -> quantum.MeasurementResu
     ):
         msg = "production DRAG IQ result must bind its authored result handle"
         raise ValueError(msg)
-    if len(call.measurement_transforms) != 1:
-        msg = "production DRAG call requires exactly one measurement transform"
+    if len(execution.measurement_transforms) != 1:
+        msg = "production DRAG execution requires one measurement transform"
         raise ValueError(msg)
     binary_iq_probability_host_implementation().validate_transform(
-        call.measurement_transforms[0]
+        execution.measurement_transforms[0]
     )
     return iq_result
 

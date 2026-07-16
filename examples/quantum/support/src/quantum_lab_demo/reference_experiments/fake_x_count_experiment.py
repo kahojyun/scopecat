@@ -9,8 +9,8 @@ from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
     DomainBatchView,
-    DomainCallView,
     DomainExecutionOffer,
+    DomainExecutionView,
     PreparedDomainExecution,
 )
 from scopecat_quantum import (
@@ -66,12 +66,6 @@ _X_COUNT_PROGRAM = quantum.program(
     ),
 )
 _X_COUNT_DOMAIN_PROGRAM = quantum.domain_program(_X_COUNT_PROGRAM)
-_X_COUNT_CALL = quantum.domain_call(
-    "execute",
-    _X_COUNT_DOMAIN_PROGRAM,
-    inputs={_X_COUNT_INPUT: X_COUNT},
-    results={_READOUT.result: "integrated_iq_shots"},
-)
 _X_COUNT_DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
@@ -94,12 +88,26 @@ FAKE_X_COUNT_CAPTURE_MODULE = (
         axes=(sc.shot_axis(FAKE_X_COUNT_SHOTS),),
     )
     .product("probability_0", "probability_1", unit="ratio")
-    .domain_calls(_X_COUNT_CALL)
     .measurement_transforms(_X_COUNT_TRANSFORM)
     .build()
 )
 
 _TEMPLATE_CAPTURE = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("capture")
+
+
+def fake_x_count_domain_execution(iq_shots: sc.ProductRef) -> sc.DomainExecution:
+    """Bind the reference quantum program to one composed capture product."""
+
+    return quantum.domain_execution(
+        _X_COUNT_DOMAIN_PROGRAM,
+        inputs={_X_COUNT_INPUT: X_COUNT},
+        results={_READOUT.result: iq_shots},
+    )
+
+
+_X_COUNT_EXECUTION = fake_x_count_domain_execution(
+    _TEMPLATE_CAPTURE.products.integrated_iq_shots
+)
 FAKE_X_COUNT_TEMPLATE = (
     sc.module("quantum_lab_demo.reference.fake_x_count.root")
     .use(_TEMPLATE_CAPTURE)
@@ -107,6 +115,7 @@ FAKE_X_COUNT_TEMPLATE = (
         FAKE_X_COUNT_TEMPLATE_ID,
         kind=FAKE_X_COUNT_EXPERIMENT_ID,
     )
+    .domain(_X_COUNT_EXECUTION)
     .experiment_id(FAKE_X_COUNT_EXPERIMENT_ID)
     .scan(X_COUNT, DEFAULT_X_COUNTS)
     .record_product(
@@ -140,23 +149,22 @@ class FakeXCountDomainExecutionAdapter:
         self,
         view: DomainBatchView,
     ) -> DomainExecutionOffer | None:
-        call = _call_or_none(view)
-        if call is None:
+        execution = _execution_or_none(view)
+        if execution is None:
             return None
-        return DomainExecutionOffer.for_call(
-            call,
+        return DomainExecutionOffer(
             max_points_per_batch=self.target.max_list_entries,
         )
 
     def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
-        call = context.call
+        execution = context.execution
         preparation = context.new_preparation()
-        iq_result = _validated_result_contracts(call)
-        products = _product_binding(call)
+        iq_result = _validated_result_contracts(execution)
+        products = _product_binding(execution)
         x_counts = tuple(
-            _decode_x_count(value) for value in call.input_values("x_count")
+            _decode_x_count(value) for value in execution.input_values("x_count")
         )
-        body = call.program.body
+        body = execution.program.body
         if not isinstance(body, quantum.Program):
             msg = "fake X-count domain program body must be a quantum Program"
             raise TypeError(msg)
@@ -189,9 +197,11 @@ def fake_x_count_scratch_experiment(
     """Build the same reference semantics through the scratch Experiment UX."""
 
     capture = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("capture")
+    execution = fake_x_count_domain_execution(capture.products.integrated_iq_shots)
     return (
         lab.experiment("fake X-count scratch")
         .use(capture)
+        .domain(execution)
         .scan(X_COUNT, tuple(x_counts))
         .record_product(
             capture.products.probability_0,
@@ -204,26 +214,21 @@ def fake_x_count_scratch_experiment(
     )
 
 
-def _call_or_none(view: DomainBatchView) -> DomainCallView | None:
-    selected = tuple(
-        call
-        for call in view.matching_calls(
-            dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
-            dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
-        )
-        if isinstance(call.program.body, quantum.Program)
-        and call.program.body.id == _X_COUNT_PROGRAM.id
+def _execution_or_none(view: DomainBatchView) -> DomainExecutionView | None:
+    selected = view.matching_execution(
+        dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
+        dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
     )
-    if len(selected) > 1:
-        msg = "fake X-count adapter found multiple matching authored calls"
-        raise ValueError(msg)
-    if not selected:
+    if selected is None or not (
+        isinstance(selected.program.body, quantum.Program)
+        and selected.program.body.id == _X_COUNT_PROGRAM.id
+    ):
         return None
-    _validated_result_contracts(selected[0])
-    return selected[0]
+    _validated_result_contracts(selected)
+    return selected
 
 
-def _product_binding(view: DomainCallView) -> FakeXCountProductBinding:
+def _product_binding(view: DomainExecutionView) -> FakeXCountProductBinding:
     [transform] = view.measurement_transforms
     return FakeXCountProductBinding(
         iq_shots=view.result("iq_shots").product_uses,
@@ -231,12 +236,14 @@ def _product_binding(view: DomainCallView) -> FakeXCountProductBinding:
     )
 
 
-def _validated_result_contracts(call: DomainCallView) -> quantum.MeasurementResult:
-    body = call.program.body
+def _validated_result_contracts(
+    execution: DomainExecutionView,
+) -> quantum.MeasurementResult:
+    body = execution.program.body
     if not isinstance(body, quantum.Program):
         msg = "fake X-count domain program body must be a quantum Program"
         raise TypeError(msg)
-    iq_result = call.result("iq_shots").contract
+    iq_result = execution.result("iq_shots").contract
     if (
         not isinstance(iq_result, quantum.MeasurementResult)
         or iq_result.id != "iq_shots"
@@ -244,11 +251,11 @@ def _validated_result_contracts(call: DomainCallView) -> quantum.MeasurementResu
     ):
         msg = "fake X-count IQ result must bind its authored MeasurementResult handle"
         raise ValueError(msg)
-    if len(call.measurement_transforms) != 1:
-        msg = "fake X-count call requires exactly one authored measurement transform"
+    if len(execution.measurement_transforms) != 1:
+        msg = "fake X-count execution requires one authored measurement transform"
         raise ValueError(msg)
     binary_iq_probability_host_implementation().validate_transform(
-        call.measurement_transforms[0]
+        execution.measurement_transforms[0]
     )
     return iq_result
 
@@ -273,5 +280,6 @@ __all__ = [
     "FAKE_X_COUNT_TEMPLATE_ID",
     "X_COUNT",
     "FakeXCountDomainExecutionAdapter",
+    "fake_x_count_domain_execution",
     "fake_x_count_scratch_experiment",
 ]

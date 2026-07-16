@@ -1,4 +1,4 @@
-"""Domain-neutral authored programs and compile-time calls.
+"""Domain-neutral programs and their template-bound execution.
 
 Domain bodies and result contracts are opaque transient values.  Core owns
 only their stable identities, typed value ports, and logical product bindings;
@@ -13,10 +13,11 @@ from typing import cast
 
 from scopecat.authoring._frozen_values import freeze_runtime_input
 from scopecat.authoring._intents import ComputeNodeInputValue
+from scopecat.authoring._record_intents import ProductRef
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.value_types import ValueType
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.product_identity import ProductId, product_id
+from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
 
 
@@ -54,21 +55,18 @@ class DomainProgramDef:
     body: object = field(repr=False)
     input_ports: tuple[DomainInputPort, ...] = ()
     result_ports: tuple[DomainResultPort, ...] = ()
-    scope: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not all((self.id, self.dialect_id, self.dialect_version)):
             raise ValueError(
                 "domain program, dialect, and dialect version ids must be non-empty"
             )
-        if any(not segment for segment in self.scope):
-            raise ValueError("domain program scope must contain non-empty strings")
         _require_unique("domain input port", tuple(p.id for p in self.input_ports))
         _require_unique("domain result port", tuple(p.id for p in self.result_ports))
 
     @property
     def symbol_id(self) -> SymbolId:
-        return SymbolId(scope=self.scope, local_id=self.id)
+        return SymbolId(local_id=self.id)
 
     def __deepcopy__(self, _memo: dict[int, object]) -> DomainProgramDef:
         # The body is trusted frozen transient IR owned by its dialect.
@@ -76,33 +74,35 @@ class DomainProgramDef:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainCall:
-    """One authored invocation binding values and logical product outputs."""
+class DomainExecution:
+    """The optional domain-program execution selected by one template."""
 
-    id: str
     program: DomainProgramDef
     input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
-    result_bindings: tuple[tuple[str, ProductId], ...] = ()
-    scope: tuple[str, ...] = ()
+    result_bindings: tuple[tuple[str, ProductRef], ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.id:
-            raise ValueError("domain call ids must be non-empty")
-        if any(not segment for segment in self.scope):
-            raise ValueError("domain call scope must contain non-empty strings")
-        _require_unique("domain call input", tuple(k for k, _ in self.input_bindings))
-        _require_unique("domain call result", tuple(k for k, _ in self.result_bindings))
+        _require_unique(
+            "domain execution input",
+            tuple(k for k, _ in self.input_bindings),
+        )
+        _require_unique(
+            "domain execution result",
+            tuple(k for k, _ in self.result_bindings),
+        )
         expected_inputs = tuple(port.id for port in self.program.input_ports)
         actual_inputs = tuple(name for name, _value in self.input_bindings)
         if actual_inputs != expected_inputs:
             raise ValueError(
-                "domain call input bindings must match program port declaration order"
+                "domain execution input bindings must match program port "
+                "declaration order"
             )
         expected_results = tuple(port.id for port in self.program.result_ports)
         actual_results = tuple(name for name, _value in self.result_bindings)
         if actual_results != expected_results:
             raise ValueError(
-                "domain call result bindings must match program port declaration order"
+                "domain execution result bindings must match program port "
+                "declaration order"
             )
         object.__setattr__(
             self,
@@ -113,9 +113,27 @@ class DomainCall:
             ),
         )
 
-    @property
-    def symbol_id(self) -> SymbolId:
-        return SymbolId(scope=self.scope, local_id=self.id)
+
+@dataclass(frozen=True, slots=True)
+class LoweredDomainExecution:
+    """Internal product-resolved form of the template-owned execution."""
+
+    program: DomainProgramDef
+    input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
+    result_bindings: tuple[tuple[str, ProductId], ...] = ()
+
+
+def lower_domain_execution(execution: DomainExecution) -> LoweredDomainExecution:
+    """Lower the root binding after its product ownership has been validated."""
+
+    return LoweredDomainExecution(
+        program=execution.program,
+        input_bindings=execution.input_bindings,
+        result_bindings=tuple(
+            (result_id, product.product_id)
+            for result_id, product in execution.result_bindings
+        ),
+    )
 
 
 def domain_program(
@@ -145,31 +163,27 @@ def domain_program(
     )
 
 
-def domain_call(
-    id: str,  # noqa: A002
+def domain_execution(
     program: DomainProgramDef,
     *,
     inputs: Mapping[str, ComputeNodeInputValue] | None = None,
-    results: Mapping[str, str] | None = None,
-) -> DomainCall:
-    """Bind one program invocation to authored values and module products."""
+    results: Mapping[str, ProductRef] | None = None,
+) -> DomainExecution:
+    """Bind one template's domain program to values and composed products."""
 
     selected_inputs = inputs or {}
     selected_results = results or {}
-    if any(not value for value in selected_results.values()):
-        raise ValueError("domain call results must name non-empty local products")
     _require_exact_keys(
-        "domain call inputs",
+        "domain execution inputs",
         selected_inputs,
         tuple(port.id for port in program.input_ports),
     )
     _require_exact_keys(
-        "domain call results",
+        "domain execution results",
         selected_results,
         tuple(port.id for port in program.result_ports),
     )
-    return DomainCall(
-        id=id,
+    return DomainExecution(
         program=program,
         input_bindings=tuple(
             (port.id, selected_inputs[port.id]) for port in program.input_ports
@@ -177,7 +191,7 @@ def domain_call(
         result_bindings=tuple(
             (
                 port.id,
-                product_id(selected_results[port.id]),
+                selected_results[port.id],
             )
             for port in program.result_ports
         ),
@@ -214,10 +228,10 @@ def _capture_domain_input(value: ComputeNodeInputValue) -> ComputeNodeInputValue
 
 
 __all__ = [
-    "DomainCall",
+    "DomainExecution",
     "DomainInputPort",
     "DomainProgramDef",
     "DomainResultPort",
-    "domain_call",
+    "domain_execution",
     "domain_program",
 ]

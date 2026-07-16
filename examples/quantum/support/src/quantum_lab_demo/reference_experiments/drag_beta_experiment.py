@@ -17,8 +17,8 @@ from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
     DomainBatchView,
-    DomainCallView,
     DomainExecutionOffer,
+    DomainExecutionView,
     PreparedDomainExecution,
 )
 from scopecat_quantum import (
@@ -90,15 +90,6 @@ AMPLIFICATION = sc.point(
 _DRAG_BETA_PROGRAM = drag_beta_calibration_program()
 [_IQ_SHOTS_RESULT] = _DRAG_BETA_PROGRAM.results
 _DRAG_BETA_DOMAIN_PROGRAM = quantum.domain_program(_DRAG_BETA_PROGRAM)
-_DRAG_BETA_CALL = quantum.domain_call(
-    "execute",
-    _DRAG_BETA_DOMAIN_PROGRAM,
-    inputs={
-        BETA_INPUT: BETA,
-        AMPLIFICATION_INPUT: AMPLIFICATION,
-    },
-    results={_IQ_SHOTS_RESULT: "integrated_iq_shots"},
-)
 _DRAG_BETA_DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
@@ -121,12 +112,21 @@ DRAG_BETA_CAPTURE_MODULE = (
         axes=(sc.shot_axis(DRAG_BETA_SHOTS),),
     )
     .product("probability_0", "probability_1", unit="ratio")
-    .domain_calls(_DRAG_BETA_CALL)
     .measurement_transforms(_DRAG_BETA_TRANSFORM)
     .build()
 )
 
 _TEMPLATE_CAPTURE = DRAG_BETA_CAPTURE_MODULE.instantiate("capture")
+_DRAG_BETA_EXECUTION = quantum.domain_execution(
+    _DRAG_BETA_DOMAIN_PROGRAM,
+    inputs={
+        BETA_INPUT: BETA,
+        AMPLIFICATION_INPUT: AMPLIFICATION,
+    },
+    results={
+        _IQ_SHOTS_RESULT: _TEMPLATE_CAPTURE.products.integrated_iq_shots,
+    },
+)
 DRAG_BETA_TEMPLATE = (
     sc.module("quantum_lab_demo.reference.drag_beta.root")
     .use(_TEMPLATE_CAPTURE)
@@ -134,6 +134,7 @@ DRAG_BETA_TEMPLATE = (
         DRAG_BETA_TEMPLATE_ID,
         kind=DRAG_BETA_EXPERIMENT_ID,
     )
+    .domain(_DRAG_BETA_EXECUTION)
     .experiment_id(DRAG_BETA_EXPERIMENT_ID)
     .scan(
         sc.cartesian(
@@ -201,31 +202,32 @@ class DragBetaDomainExecutionAdapter:
         return DRAG_BETA_ADAPTER_ID
 
     def select(self, view: DomainBatchView) -> DomainExecutionOffer | None:
-        call = _call_or_none(view)
-        if call is None:
+        execution = _execution_or_none(view)
+        if execution is None:
             return None
-        return DomainExecutionOffer.for_call(
-            call,
+        return DomainExecutionOffer(
             max_points_per_batch=self.target.max_list_entries,
         )
 
     def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
-        call = context.call
-        call_points = tuple(call.points)
-        if tuple(point.ref for point in call_points) != context.points:
-            msg = "DRAG-beta call points do not match the selected batch context"
+        execution = context.execution
+        execution_points = tuple(execution.points)
+        if tuple(point.ref for point in execution_points) != context.points:
+            msg = "DRAG-beta execution points do not match the batch context"
             raise ValueError(msg)
         preparation = context.new_preparation()
-        iq_result = _validated_result_contracts(call)
+        iq_result = _validated_result_contracts(execution)
         reference = prepare_drag_beta_reference(
             preparation,
-            _product_binding(call),
+            _product_binding(execution),
             result_slot_id=iq_result.acquisition_slot_id,
-            declaration=_program_body(call),
-            betas=tuple(_decode_beta(point.input("beta")) for point in call_points),
+            declaration=_program_body(execution),
+            betas=tuple(
+                _decode_beta(point.input("beta")) for point in execution_points
+            ),
             amplifications=tuple(
                 _decode_amplification(point.input("amplification"))
-                for point in call_points
+                for point in execution_points
             ),
             baseline_beta=self.baseline_beta,
             shots=DRAG_BETA_SHOTS,
@@ -250,9 +252,20 @@ def drag_beta_scratch_experiment(
     """Build the same 2-D semantics through the scratch Experiment UX."""
 
     capture = DRAG_BETA_CAPTURE_MODULE.instantiate("capture")
+    execution = quantum.domain_execution(
+        _DRAG_BETA_DOMAIN_PROGRAM,
+        inputs={
+            BETA_INPUT: BETA,
+            AMPLIFICATION_INPUT: AMPLIFICATION,
+        },
+        results={
+            _IQ_SHOTS_RESULT: capture.products.integrated_iq_shots,
+        },
+    )
     return (
         lab.experiment("DRAG beta calibration scratch")
         .use(capture)
+        .domain(execution)
         .scan(
             sc.cartesian(
                 sc.axis(BETA, tuple(betas)),
@@ -270,34 +283,29 @@ def drag_beta_scratch_experiment(
     )
 
 
-def _call_or_none(view: DomainBatchView) -> DomainCallView | None:
-    selected = tuple(
-        call
-        for call in view.matching_calls(
-            dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
-            dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
-        )
-        if isinstance(call.program.body, quantum.Program)
-        and call.program.body.id == _DRAG_BETA_PROGRAM.id
+def _execution_or_none(view: DomainBatchView) -> DomainExecutionView | None:
+    selected = view.matching_execution(
+        dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
+        dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
     )
-    if len(selected) > 1:
-        msg = "DRAG-beta adapter found multiple matching authored calls"
-        raise ValueError(msg)
-    if not selected:
+    if selected is None or not (
+        isinstance(selected.program.body, quantum.Program)
+        and selected.program.body.id == _DRAG_BETA_PROGRAM.id
+    ):
         return None
-    _validated_result_contracts(selected[0])
-    return selected[0]
+    _validated_result_contracts(selected)
+    return selected
 
 
-def _program_body(call: DomainCallView) -> quantum.Program:
-    body = call.program.body
+def _program_body(execution: DomainExecutionView) -> quantum.Program:
+    body = execution.program.body
     if not isinstance(body, quantum.Program):
         msg = "DRAG-beta domain program body must be a Program"
         raise TypeError(msg)
     return body
 
 
-def _product_binding(view: DomainCallView) -> DragBetaProductBinding:
+def _product_binding(view: DomainExecutionView) -> DragBetaProductBinding:
     [transform] = view.measurement_transforms
     return DragBetaProductBinding(
         iq_shots=view.result("iq_shots").product_uses,
@@ -305,9 +313,11 @@ def _product_binding(view: DomainCallView) -> DragBetaProductBinding:
     )
 
 
-def _validated_result_contracts(call: DomainCallView) -> quantum.MeasurementResult:
-    body = _program_body(call)
-    iq_result = call.result("iq_shots").contract
+def _validated_result_contracts(
+    execution: DomainExecutionView,
+) -> quantum.MeasurementResult:
+    body = _program_body(execution)
+    iq_result = execution.result("iq_shots").contract
     if (
         not isinstance(iq_result, quantum.MeasurementResult)
         or iq_result.id != "iq_shots"
@@ -315,11 +325,11 @@ def _validated_result_contracts(call: DomainCallView) -> quantum.MeasurementResu
     ):
         msg = "DRAG-beta IQ result must bind its authored result handle"
         raise ValueError(msg)
-    if len(call.measurement_transforms) != 1:
-        msg = "DRAG-beta call requires exactly one authored measurement transform"
+    if len(execution.measurement_transforms) != 1:
+        msg = "DRAG-beta execution requires one authored measurement transform"
         raise ValueError(msg)
     binary_iq_probability_host_implementation().validate_transform(
-        call.measurement_transforms[0]
+        execution.measurement_transforms[0]
     )
     return iq_result
 

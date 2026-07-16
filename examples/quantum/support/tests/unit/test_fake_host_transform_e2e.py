@@ -18,7 +18,6 @@ from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.model import (
-    DomainCallId,
     DomainProgramId,
     DomainResultPortDef,
     MeasurementTransformId,
@@ -30,7 +29,7 @@ from scopecat.compiler.typed.products import (
     MeasurementTransformProductProducer,
 )
 from scopecat.compiler.typed.program import (
-    TypedDomainCall,
+    TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
     TypedMeasurementTransform,
@@ -55,7 +54,6 @@ from scopecat.measurements.recording import commit_projected_measurement_records
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
-    DomainExecutionOffer,
     DomainHostTransformBinding,
     DomainHostTransformCall,
     DomainHostTransformImplementation,
@@ -182,7 +180,6 @@ def _linked_points() -> MaterializedLinkedPoints:
     probability_0_use, probability_0_record = record_product(probability_0)
     probability_1_use, probability_1_record = record_product(probability_1)
     domain_program_id = DomainProgramId(SymbolId(local_id="binary-iq-program"))
-    domain_call_id = DomainCallId(SymbolId(local_id="execute"))
     authored_transform = binary_iq_probability_transform(
         "binary-iq-discrimination",
         iq_shots="integrated_iq_shots",
@@ -203,26 +200,20 @@ def _linked_points() -> MaterializedLinkedPoints:
         kind="fake_host_transform_e2e",
         point_domain=point_domain,
         product_defs=(iq_shots, probability_0, probability_1),
-        domain_programs=(
-            TypedDomainProgram(
+        domain_execution=TypedDomainExecution(
+            program=TypedDomainProgram(
                 id=domain_program_id,
                 dialect_id="test.quantum.host-transform",
                 dialect_version="1",
                 body=("binary-iq-readout", "v1"),
                 result_ports=(DomainResultPortDef("iq_shots"),),
             ),
-        ),
-        domain_calls=(
-            TypedDomainCall(
-                id=domain_call_id,
-                program_id=domain_program_id,
-                results=(
-                    TypedDomainResultBinding(
-                        id="iq_shots",
-                        product_id=iq_shots.id,
-                        producer_id=iq_producer_id,
-                        product_use_ids=(iq_use.id,),
-                    ),
+            results=(
+                TypedDomainResultBinding(
+                    id="iq_shots",
+                    product_id=iq_shots.id,
+                    producer_id=iq_producer_id,
+                    product_use_ids=(iq_use.id,),
                 ),
             ),
         ),
@@ -258,7 +249,6 @@ def _linked_points() -> MaterializedLinkedPoints:
             DomainProductProducer(
                 id=iq_producer_id,
                 product_id=iq_shots.id,
-                call_id=domain_call_id,
                 result_id="iq_shots",
             ),
         ),
@@ -351,23 +341,18 @@ def _scenario(
     linked_points = _linked_points()
     projection = project_domain_plan(linked_points)
     view = projection.view(linked_points)
-    call = view.require_one_call(dialect_id="test.quantum.host-transform")
-    iq_use = call.result("iq_shots").require_one_product_use()
-    [transform] = call.measurement_transforms
+    execution = view.require_execution(dialect_id="test.quantum.host-transform")
+    iq_use = execution.result("iq_shots").require_one_product_use()
+    [transform] = execution.measurement_transforms
     [probability_0_use] = transform.output("probability_0").product_uses
     [probability_1_use] = transform.output("probability_1").product_uses
     assert all(
         isinstance(product_use, DomainProductUseRef)
         for product_use in (iq_use, probability_0_use, probability_1_use)
     )
-    offer = DomainExecutionOffer.for_call(
-        call,
-        max_points_per_batch=3,
-    )
     context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
-        offer,
         adapter_id="test.fake-host-transform",
         batch_ordinal=0,
     )

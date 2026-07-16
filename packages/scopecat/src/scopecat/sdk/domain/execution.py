@@ -80,7 +80,7 @@ class PreparedDomainExecution:
 
     @property
     def semantic_operation_id(self) -> str:
-        return self.context.call.id
+        return "domain"
 
 
 class DomainExecutionAdapter(Protocol):

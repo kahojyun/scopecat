@@ -19,11 +19,11 @@ from scopecat.authoring.assembly import (
     module,
 )
 from scopecat.authoring.domain import (
-    DomainCall,
+    DomainExecution,
     DomainInputPort,
     DomainProgramDef,
     DomainResultPort,
-    domain_call,
+    domain_execution,
     domain_program,
 )
 from scopecat.authoring.measurements import (
@@ -100,7 +100,7 @@ __all__ = [
     "BoolType",
     "Compute",
     "ComputeInput",
-    "DomainCall",
+    "DomainExecution",
     "DomainInputPort",
     "DomainProgramDef",
     "DomainResultPort",
@@ -142,7 +142,7 @@ __all__ = [
     "ValueType",
     "ValueValidationError",
     "compute",
-    "domain_call",
+    "domain_execution",
     "domain_program",
     "entity_axis",
     "input",

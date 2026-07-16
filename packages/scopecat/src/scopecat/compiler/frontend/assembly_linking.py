@@ -155,8 +155,9 @@ def _bind_verified_assembly(
         non_instrument_product_ids=(
             frozenset(
                 product_id
-                for call in verified_graph.semantic_graph.graph.domain_calls
-                for _result_id, product_id in call.results
+                for execution in (verified_graph.semantic_graph.graph.domain_execution,)
+                if execution is not None
+                for _result_id, product_id in execution.results
             )
             | authored_measurement_transform_output_product_ids(
                 verified_graph.semantic_graph
@@ -181,13 +182,11 @@ def _bind_verified_assembly(
         *record_product_uses,
         *measurement_transforms.input_product_uses,
     )
-    domain_programs, domain_calls, domain_product_producers = (
-        lower_semantic_domain_graph(
-            verified_graph.semantic_graph,
-            inputs,
-            type_bindings=type_bindings,
-            product_uses=product_uses,
-        )
+    domain_execution, domain_product_producers = lower_semantic_domain_graph(
+        verified_graph.semantic_graph,
+        inputs,
+        type_bindings=type_bindings,
+        product_uses=product_uses,
     )
     program = TypedProgram(
         id=verified.experiment_id,
@@ -195,8 +194,7 @@ def _bind_verified_assembly(
         point_domain=point_domain,
         route_intents=tuple(route_intents),
         compute_nodes=compute_nodes,
-        domain_programs=domain_programs,
-        domain_calls=domain_calls,
+        domain_execution=domain_execution,
         measurement_transforms=measurement_transforms.transforms,
         implementation_catalog=implementation_catalog,
         source_map=verified_graph.source_map,

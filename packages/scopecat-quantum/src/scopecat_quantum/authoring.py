@@ -16,15 +16,16 @@ from typing import Literal, cast, overload
 from scopecat import Quantity
 from scopecat.authoring import (
     ComputeInput,
-    DomainCall,
+    DomainExecution,
     DomainProgramDef,
     FloatType,
     IntType,
+    ProductRef,
     QuantityType,
     ScalarType,
 )
 from scopecat.authoring import (
-    domain_call as _core_domain_call,
+    domain_execution as _core_domain_execution,
 )
 from scopecat.authoring import (
     domain_program as _core_domain_program,
@@ -1105,21 +1106,20 @@ def domain_program(declaration: Program) -> DomainProgramDef:
     )
 
 
-def domain_call(
-    id: str,  # noqa: A002
+def domain_execution(
     program: DomainProgramDef,
     *,
     inputs: Mapping[ProgramInput, ComputeInput] | None = None,
-    results: Mapping[MeasurementResult, str] | None = None,
-) -> DomainCall:
-    """Bind program handles to core values and logical products."""
+    results: Mapping[MeasurementResult, ProductRef] | None = None,
+) -> DomainExecution:
+    """Bind one template's quantum program to core values and products."""
 
     if (
         program.dialect_id != QUANTUM_PROGRAM_DIALECT_ID
         or program.dialect_version != QUANTUM_PROGRAM_DIALECT_VERSION
         or not isinstance(program.body, Program)
     ):
-        msg = "domain_call requires a quantum program domain program"
+        msg = "domain_execution requires a quantum program domain program"
         raise TypeError(msg)
     declaration = program.body
     expected_program = domain_program(declaration)
@@ -1133,14 +1133,14 @@ def domain_call(
     selected_inputs: Mapping[ProgramInput, ComputeInput] = (
         {} if inputs is None else inputs
     )
-    selected_results: Mapping[MeasurementResult, str] = (
+    selected_results: Mapping[MeasurementResult, ProductRef] = (
         {} if results is None else results
     )
     if set(selected_inputs) != set(declaration.inputs):
-        msg = "quantum program domain call inputs must bind every declared input"
+        msg = "quantum domain execution inputs must bind every declared input"
         raise ValueError(msg)
     if set(selected_results) != set(declaration.results):
-        msg = "quantum program domain call results must bind every declared result"
+        msg = "quantum domain execution results must bind every declared result"
         raise ValueError(msg)
     normalized_inputs = {
         handle.id: (
@@ -1153,8 +1153,7 @@ def domain_call(
         )
         for handle, value in selected_inputs.items()
     }
-    return _core_domain_call(
-        id,
+    return _core_domain_execution(
         program,
         inputs=normalized_inputs,
         results={handle.id: value for handle, value in selected_results.items()},
@@ -2114,7 +2113,7 @@ __all__ = [
     "constant",
     "coupler",
     "delay",
-    "domain_call",
+    "domain_execution",
     "domain_program",
     "drag",
     "drive",

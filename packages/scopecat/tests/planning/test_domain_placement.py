@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.semantic.model import (
-    DomainCallId,
     DomainProgramId,
     MeasurementTransformId,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    TypedDomainCall,
+    TypedDomainExecution,
+    TypedDomainProgram,
     TypedDomainResultBinding,
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
@@ -24,7 +24,7 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.planning.coverage import ExecutionTask
-from scopecat.planning.domain_placement import domain_call_execution_slices
+from scopecat.planning.domain_placement import domain_execution_slice
 
 
 def test_domain_slice_follows_exact_product_use_edges() -> None:
@@ -33,9 +33,13 @@ def test_domain_slice_follows_exact_product_use_edges() -> None:
     direct_use = ProductUse(shared_product, ProductUseId("shared/direct"))
     foreign_use = ProductUse(shared_product, ProductUseId("shared/foreign"))
     output_use = ProductUse(output_product, ProductUseId("output/use"))
-    call = TypedDomainCall(
-        id=DomainCallId(SymbolId(local_id="execute")),
-        program_id=DomainProgramId(SymbolId(local_id="program")),
+    execution = TypedDomainExecution(
+        program=TypedDomainProgram(
+            id=DomainProgramId(SymbolId(local_id="program")),
+            dialect_id="test",
+            dialect_version="1",
+            body=object(),
+        ),
         results=(
             TypedDomainResultBinding(
                 id="shared",
@@ -69,18 +73,19 @@ def test_domain_slice_follows_exact_product_use_edges() -> None:
         id="test.domain-placement",
         kind="test",
         point_domain=PointDomain(POINT_UNIT),
-        domain_calls=(call,),
+        domain_execution=execution,
         measurement_transforms=(transform,),
         product_uses=(direct_use, foreign_use, output_use),
     )
 
-    [execution_slice] = domain_call_execution_slices(program)
+    execution_slice = domain_execution_slice(program)
+    assert execution_slice is not None
 
     assert execution_slice.transforms == ()
     assert execution_slice.direct_product_use_ids == (direct_use.id,)
     assert execution_slice.derived_product_use_ids == ()
     assert execution_slice.product_use_ids == (direct_use.id,)
     assert execution_slice.coverage.tasks == (
-        ExecutionTask("domain_call", "execute"),
+        ExecutionTask("domain_execution", "domain"),
         ExecutionTask("product", direct_use.id.value),
     )

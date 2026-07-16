@@ -1,7 +1,7 @@
-"""Canonical execution placement slices for typed domain calls.
+"""Canonical execution placement for the optional typed domain execution.
 
 This module is the sole owner of the rule that a domain adapter lane may claim
-one call and the measurement-transform closure fed exactly by that call's
+the execution and measurement-transform closure fed exactly by its
 product-use slots. SDK projection and backend preparation consume the frozen
 result instead of reconstructing ownership from projected object identity.
 """
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.compiler.semantic.model import DomainCallId
 from scopecat.compiler.typed.program import TypedMeasurementTransform, TypedProgram
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.planning.coverage import (
@@ -21,10 +20,9 @@ from scopecat.planning.coverage import (
 
 
 @dataclass(frozen=True, slots=True)
-class DomainCallExecutionSlice:
-    """One call and the exact transform/product tasks hosted on its lane."""
+class DomainExecutionSlice:
+    """The exact transform and product tasks hosted with domain execution."""
 
-    call_id: DomainCallId
     transforms: tuple[TypedMeasurementTransform, ...]
     direct_product_use_ids: tuple[ProductUseId, ...]
     derived_product_use_ids: tuple[ProductUseId, ...]
@@ -32,26 +30,17 @@ class DomainCallExecutionSlice:
     coverage: ExecutionCoverage
 
 
-def domain_call_execution_slices(
+def domain_execution_slice(
     program: TypedProgram,
-) -> tuple[DomainCallExecutionSlice, ...]:
-    """Derive every currently placeable domain lane exactly once."""
+) -> DomainExecutionSlice | None:
+    """Derive the optional domain lane's exact execution slice."""
 
+    execution = program.domain_execution
+    if execution is None:
+        return None
     ordered_use_ids = tuple(use.id for use in program.product_uses)
-    return tuple(
-        _domain_call_execution_slice(program, ordered_use_ids, call_index)
-        for call_index in range(len(program.domain_calls))
-    )
-
-
-def _domain_call_execution_slice(
-    program: TypedProgram,
-    ordered_use_ids: tuple[ProductUseId, ...],
-    call_index: int,
-) -> DomainCallExecutionSlice:
-    call = program.domain_calls[call_index]
     direct_ids = {
-        use_id for result in call.results for use_id in result.product_use_ids
+        use_id for result in execution.results for use_id in result.product_use_ids
     }
     transforms = _typed_transform_closure(
         program.measurement_transforms,
@@ -74,7 +63,7 @@ def _domain_call_execution_slice(
     products = product_execution_coverage(product_use_ids)
     coverage = ExecutionCoverage(
         (
-            ExecutionTask("domain_call", call.id.qualified_name),
+            ExecutionTask("domain_execution", "domain"),
             *(
                 ExecutionTask(
                     "measurement_transform",
@@ -85,8 +74,7 @@ def _domain_call_execution_slice(
             *products.tasks,
         )
     )
-    return DomainCallExecutionSlice(
-        call_id=call.id,
+    return DomainExecutionSlice(
         transforms=transforms,
         direct_product_use_ids=direct_product_use_ids,
         derived_product_use_ids=derived_product_use_ids,
@@ -127,6 +115,6 @@ def _typed_transform_closure(
 
 
 __all__ = [
-    "DomainCallExecutionSlice",
-    "domain_call_execution_slices",
+    "DomainExecutionSlice",
+    "domain_execution_slice",
 ]

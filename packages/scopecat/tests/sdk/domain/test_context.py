@@ -31,7 +31,6 @@ def _domain_scenario(
     tmp_path: Path,
     *,
     namespace: str,
-    call_id: str,
     record_raw: bool = True,
 ) -> tuple[MaterializedLinkedPoints, DomainPlanProjection]:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
@@ -46,12 +45,6 @@ def _domain_scenario(
             "raw": ("raw", "v1"),
         },
     )
-    call = sc.domain_call(
-        call_id,
-        program,
-        inputs={"count": count},
-        results={"raw": "raw"},
-    )
     transform = sc.measurement_transform(
         "summarize",
         semantic=sc.MeasurementTransformSemanticContract(
@@ -65,13 +58,19 @@ def _domain_scenario(
     module = (
         sc.module(f"test.sdk.context.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
-        .domain_calls(call)
         .measurement_transforms(transform)
         .build()
     )
-    template_builder = module.template(
-        f"test.sdk.context.{namespace}", kind="domain_context"
-    ).scan(count, (1, 3, 5))
+    execution = sc.domain_execution(
+        program,
+        inputs={"count": count},
+        results={"raw": module.products["raw"]},
+    )
+    template_builder = (
+        module.template(f"test.sdk.context.{namespace}", kind="domain_context")
+        .domain(execution)
+        .scan(count, (1, 3, 5))
+    )
     if record_raw:
         template_builder = template_builder.record_product("raw")
     template = template_builder.record_product("summary").build()
@@ -90,11 +89,11 @@ def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
     linked_points, projection = _domain_scenario(
         tmp_path,
         namespace="hidden-input",
-        call_id="execute",
         record_raw=False,
     )
     program = linked_points.linked_plan.program
-    [call] = program.domain_calls
+    call = program.domain_execution
+    assert call is not None
     [transform] = program.measurement_transforms
     [direct_result] = call.results
     [transform_input] = transform.inputs
@@ -106,13 +105,9 @@ def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
     assert transform_input.product_use_id not in recorded_use_ids
     assert set(transform_output.product_use_ids) == recorded_use_ids
 
-    view = projection.view(linked_points)
-    call_view = view.require_one_call(dialect_id="test.context")
-    offer = DomainExecutionOffer.for_call(call_view)
     context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
-        offer,
         adapter_id="test.hidden-input",
         batch_ordinal=0,
     )
@@ -128,31 +123,24 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
     linked_points, projection = _domain_scenario(
         tmp_path,
         namespace="owned",
-        call_id="execute",
     )
     full = projection.view(linked_points)
-    call = full.require_one_call(dialect_id="test.context")
-    raw_uses = call.result("raw").product_uses
-    [transform] = call.measurement_transforms
+    execution = full.require_execution(dialect_id="test.context")
+    raw_uses = execution.result("raw").product_uses
+    [transform] = execution.measurement_transforms
     [summary_use] = transform.outputs[0].product_uses
-    offer = DomainExecutionOffer.for_call(
-        call,
-        max_points_per_batch=2,
-    )
     batch = MaterializedLinkedPointBatch(linked_points, (1, 2))
 
     context = make_domain_batch_context(
         projection,
         batch,
-        offer,
         adapter_id="test.adapter",
         batch_ordinal=4,
     )
 
     assert isinstance(context, DomainBatchContext)
     assert context.batch_ordinal == 4
-    assert context.call.id == "execute"
-    assert context.call.input_values("count") == (3, 5)
+    assert context.execution.input_values("count") == (3, 5)
     assert context.product_uses == full.product_uses
     assert context.direct_product_uses == raw_uses
     assert context.derived_product_uses == (summary_use,)
@@ -169,7 +157,7 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
     )
     assert all(
         point.ref is ref
-        for point, ref in zip(context.call.points, context.points, strict=True)
+        for point, ref in zip(context.execution.points, context.points, strict=True)
     )
     assert all(
         isinstance(product_use, DomainProductUseRef)
@@ -181,38 +169,17 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
     assert preparation.context is context
 
 
-def test_domain_plan_projection_rejects_foreign_offer_and_points(
+def test_domain_plan_projection_rejects_foreign_points(
     tmp_path: Path,
 ) -> None:
-    linked_points, projection = _domain_scenario(
+    _linked_points, projection = _domain_scenario(
         tmp_path,
         namespace="owned",
-        call_id="execute",
     )
     foreign_points, foreign_projection = _domain_scenario(
         tmp_path,
         namespace="foreign",
-        call_id="foreign_execute",
     )
-    view = projection.view(linked_points)
-    call = view.require_one_call(dialect_id="test.context")
-    offer = DomainExecutionOffer.for_call(call)
-    batch = MaterializedLinkedPointBatch(linked_points, (0, 1))
-
-    foreign_view = foreign_projection.view(foreign_points)
-    foreign_call = foreign_view.require_one_call(dialect_id="test.context")
-    foreign_offer = DomainExecutionOffer.for_call(
-        foreign_call,
-    )
-    with pytest.raises(ValueError, match="does not identify exactly one call"):
-        make_domain_batch_context(
-            projection,
-            batch,
-            foreign_offer,
-            adapter_id="test.adapter",
-            batch_ordinal=0,
-        )
-
     with pytest.raises(ValueError, match="points from its materialized plan"):
         projection.view(foreign_points)
 
@@ -221,7 +188,6 @@ def test_domain_plan_projection_rejects_foreign_offer_and_points(
         make_domain_batch_context(
             projection,
             foreign_batch,
-            offer,
             adapter_id="test.adapter",
             batch_ordinal=0,
         )
@@ -244,18 +210,6 @@ def test_domain_plan_projection_rejects_foreign_offer_and_points(
     )
 
 
-def test_domain_execution_offer_rejects_invalid_batch_capacity(
-    tmp_path: Path,
-) -> None:
-    linked_points, projection = _domain_scenario(
-        tmp_path,
-        namespace="offer",
-        call_id="execute",
-    )
-    call = projection.view(linked_points).require_one_call(dialect_id="test.context")
-
+def test_domain_execution_offer_rejects_invalid_batch_capacity() -> None:
     with pytest.raises(ValueError, match="must be positive"):
-        DomainExecutionOffer.for_call(
-            call,
-            max_points_per_batch=0,
-        )
+        DomainExecutionOffer(max_points_per_batch=0)

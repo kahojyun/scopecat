@@ -22,7 +22,6 @@ from scopecat.compiler.relations.verification import (
     verify_relation_plan,
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.semantic.model import DomainCallId
 from scopecat.compiler.semantic.operation_contract import (
     ScalarBinarySemantics,
     operation_contract_issues,
@@ -403,34 +402,10 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
 
 def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
     problems: list[Problem] = []
-    program_ids = tuple(item.id for item in program.domain_programs)
-    for program_id in sorted(set(program_ids), key=lambda item: item.qualified_name):
-        if program_ids.count(program_id) > 1:
-            problems.append(
-                _problem(
-                    "domain_program_duplicate",
-                    f"domain program {program_id.qualified_name!r} is duplicated",
-                    model_location("domain_programs", program_id.qualified_name),
-                )
-            )
-    programs = {item.id: item for item in program.domain_programs}
-    call_ids = tuple(item.id for item in program.domain_calls)
-    for call_id in sorted(set(call_ids), key=lambda item: item.qualified_name):
-        if call_ids.count(call_id) > 1:
-            problems.append(
-                _problem(
-                    "domain_call_duplicate",
-                    f"domain call {call_id.qualified_name!r} is duplicated",
-                    model_location("domain_calls", call_id.qualified_name),
-                )
-            )
 
     products = {item.id for item in program.product_defs}
     uses = {item.id: item for item in program.product_uses}
-    producers_by_result: dict[
-        tuple[DomainCallId, str],
-        DomainProductProducer,
-    ] = {}
+    producers_by_result: dict[str, DomainProductProducer] = {}
     producer_ids: set[ProductProducerId] = set()
     for producer in program.domain_product_producers:
         if producer.id in producer_ids:
@@ -446,12 +421,12 @@ def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
                 )
             )
         producer_ids.add(producer.id)
-        key = (producer.call_id, producer.result_id)
+        key = producer.result_id
         if key in producers_by_result:
             problems.append(
                 _problem(
                     "domain_result_producer_duplicate",
-                    "one domain call result has more than one product producer",
+                    "one domain result has more than one product producer",
                     model_location(
                         "domain_product_producers",
                         producer.id.qualified_name,
@@ -460,31 +435,23 @@ def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
             )
         producers_by_result[key] = producer
 
-    declared_result_keys: set[tuple[DomainCallId, str]] = set()
+    declared_result_ids: set[str] = set()
     produced_products: set[ProductId] = set()
-    for call in program.domain_calls:
-        location = model_location("domain_calls", call.id.qualified_name)
-        declared = programs.get(call.program_id)
-        if declared is None:
-            problems.append(
-                _problem(
-                    "domain_call_program_missing",
-                    "domain call references unknown program "
-                    f"{call.program_id.qualified_name!r}",
-                    model_location(location.root, *location.path, "program_id"),
-                )
-            )
-            continue
+    for execution in (
+        () if program.domain_execution is None else (program.domain_execution,)
+    ):
+        location = model_location("domain_execution")
+        declared = execution.program
         input_ports = {port.id: port for port in declared.input_ports}
-        if tuple(call.inputs) != tuple(input_ports):
+        if tuple(execution.inputs) != tuple(input_ports):
             problems.append(
                 _problem(
-                    "domain_call_input_contract_mismatch",
-                    "domain call inputs do not match the program port order",
+                    "domain_execution_input_contract_mismatch",
+                    "domain execution inputs do not match the program port order",
                     model_location(location.root, *location.path, "inputs"),
                 )
             )
-        for name, value in call.inputs.items():
+        for name, value in execution.inputs.items():
             port = input_ports.get(name)
             if port is not None and not is_assignable(
                 value.value_type,
@@ -492,8 +459,8 @@ def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
             ):
                 problems.append(
                     _problem(
-                        "domain_call_input_type_mismatch",
-                        f"domain call input {name!r} does not match its port type",
+                        "domain_execution_input_type_mismatch",
+                        f"domain execution input {name!r} does not match its port type",
                         model_location(
                             location.root,
                             *location.path,
@@ -502,25 +469,25 @@ def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
                         ),
                     )
                 )
-        if tuple(result.id for result in call.results) != tuple(
+        if tuple(result.id for result in execution.results) != tuple(
             port.id for port in declared.result_ports
         ):
             problems.append(
                 _problem(
-                    "domain_call_result_contract_mismatch",
-                    "domain call results do not match the program port order",
+                    "domain_execution_result_contract_mismatch",
+                    "domain execution results do not match the program port order",
                     model_location(location.root, *location.path, "results"),
                 )
             )
-        for result in call.results:
+        for result in execution.results:
             result_location = model_location(
                 location.root,
                 *location.path,
                 "results",
                 result.id,
             )
-            key = (call.id, result.id)
-            declared_result_keys.add(key)
+            key = result.id
+            declared_result_ids.add(key)
             if result.product_id in produced_products:
                 problems.append(
                     _problem(
@@ -580,11 +547,11 @@ def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
                 )
 
     for key, producer in producers_by_result.items():
-        if key not in declared_result_keys:
+        if key not in declared_result_ids:
             problems.append(
                 _problem(
                     "domain_product_producer_orphan",
-                    "domain product producer references an unknown call result",
+                    "domain product producer references an unknown execution result",
                     model_location(
                         "domain_product_producers",
                         producer.id.qualified_name,
@@ -910,17 +877,17 @@ def _program_relation_consumers_with_roles(
                 point_role,
             )
 
-    for call in program.domain_calls:
-        for input_name, input_value in call.inputs.items():
+    for execution in (
+        () if program.domain_execution is None else (program.domain_execution,)
+    ):
+        for input_name, input_value in execution.inputs.items():
             yield (
                 _consumer(
                     input_value.relation_use_id,
-                    ProgramRelationConsumerKind.DOMAIN_CALL_INPUT,
+                    ProgramRelationConsumerKind.DOMAIN_EXECUTION_INPUT,
                     input_value.value,
                     model_location(
-                        "domain_calls",
-                        *call.id.scope,
-                        call.id.local_id,
+                        "domain_execution",
                         "inputs",
                         input_name,
                     ),

@@ -190,9 +190,6 @@ def _compile_invocation_template(
     inputs: Mapping[str, object],
 ) -> SemanticExperimentIR:
     template = invocation.template
-    if template.module is None:
-        msg = "experiment template requires a module"
-        raise ValueError(msg)
     exposed_inputs = {
         port.id: port.value_type for port in template.module.ir.interface.imports
     }
@@ -204,7 +201,13 @@ def _compile_invocation_template(
             msg = f"module input {input_id!r} is not typed or closed literal data"
             raise TypeError(msg)
         module_inputs[input_id] = cast("ModuleInput", value)
-    fragments = [elaborate_module(template.module, **module_inputs)]
+    fragments = [
+        elaborate_module(
+            template.module,
+            template.domain_execution,
+            **module_inputs,
+        )
+    ]
     if template.record_selections:
         fragments.append(
             SemanticExperimentIR(

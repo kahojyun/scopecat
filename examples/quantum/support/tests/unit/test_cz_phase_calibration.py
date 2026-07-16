@@ -180,12 +180,13 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
 
 def test_cz_phase_capture_uses_one_quantum_program_without_payload_compute() -> None:
     body = CZ_PHASE_CAPTURE_MODULE.ir.body
-    [program] = body.domain_programs
-    [call] = body.domain_calls
+    execution = CZ_PHASE_TEMPLATE.build().domain_execution
+    assert execution is not None
+    program = execution.program
 
     assert program.dialect_id == quantum.QUANTUM_PROGRAM_DIALECT_ID
     assert isinstance(program.body, quantum.Program)
-    assert tuple(name for name, _value in call.input_bindings) == (
+    assert tuple(name for name, _value in execution.input_bindings) == (
         "control_state",
         "coupler_amplitude",
         "analyzer_phase",

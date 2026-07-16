@@ -12,7 +12,7 @@ from scopecat.compiler.frontend.environment import (
 )
 from scopecat.compiler.linking.linked import (
     MaterializedConfigInputBinding,
-    MaterializedDomainCallPoint,
+    MaterializedDomainExecutionPoint,
     MaterializedLinkedPointBatch,
     link_program,
     link_verified_program,
@@ -600,7 +600,7 @@ def test_materialized_config_binding_must_reference_a_point_input() -> None:
     )
 
     with pytest.raises(ValueError, match="unknown inputs: missing"):
-        MaterializedDomainCallPoint(
+        MaterializedDomainExecutionPoint(
             logical_id=LogicalPointId(PointDomainId("test", "root"), 0),
             logical_ordinal=0,
             inputs=(("frequency", 5.0),),

@@ -22,7 +22,6 @@ from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
 from quantum_lab_demo.reference_experiments.production_drag_gate import (
     ACTIVE_DRAG_BETA,
     PRODUCTION_DRAG_BETA_INPUT,
-    PRODUCTION_DRAG_GATE_CAPTURE_MODULE,
     PRODUCTION_DRAG_GATE_TEMPLATE,
     TRUSTED_REFERENCE_BETA,
     ProductionDragGateExecutionAdapter,
@@ -39,15 +38,15 @@ def _entity_id(value: object) -> str:
 
 def test_production_drag_gate_authors_config_lookup_into_program_input() -> None:
     declaration = production_drag_gate_program()
-    body = PRODUCTION_DRAG_GATE_CAPTURE_MODULE.ir.body
-    [program] = body.domain_programs
-    [call] = body.domain_calls
+    execution = PRODUCTION_DRAG_GATE_TEMPLATE.build().domain_execution
+    assert execution is not None
+    program = execution.program
 
     assert declaration.inputs == (PRODUCTION_DRAG_BETA_INPUT,)
     assert isinstance(program.body, quantum.Program)
     assert program.body.inputs == (PRODUCTION_DRAG_BETA_INPUT,)
     assert tuple(port.id for port in program.input_ports) == ("drag_beta",)
-    assert call.input_bindings == (("drag_beta", ACTIVE_DRAG_BETA),)
+    assert execution.input_bindings == (("drag_beta", ACTIVE_DRAG_BETA),)
 
     [reference] = trusted_xm90_calibration_catalog().gates.entries
     assert reference.id == XM90_CALIBRATION_ID

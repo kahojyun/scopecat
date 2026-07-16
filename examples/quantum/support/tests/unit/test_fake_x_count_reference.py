@@ -13,7 +13,6 @@ from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.model import (
-    DomainCallId,
     DomainProgramId,
     DomainResultPortDef,
     MeasurementTransformId,
@@ -25,7 +24,7 @@ from scopecat.compiler.typed.products import (
     MeasurementTransformProductProducer,
 )
 from scopecat.compiler.typed.program import (
-    TypedDomainCall,
+    TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
     TypedMeasurementTransform,
@@ -44,7 +43,6 @@ from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
     project_domain_plan,
 )
-from scopecat.sdk.domain.context import DomainExecutionOffer
 from scopecat.sdk.domain.invocation import materialize_linked_points
 from scopecat_quantum import (
     BinaryIqDiscriminator,
@@ -105,7 +103,6 @@ def _linked_points():
     probability_0_use, probability_0_record = record_product(probability_0)
     probability_1_use, probability_1_record = record_product(probability_1)
     program_id = DomainProgramId(SymbolId(local_id="fake-x-count-program"))
-    call_id = DomainCallId(SymbolId(local_id="execute"))
     authored_transform = binary_iq_probability_transform(
         "binary-iq-probability",
         iq_shots="integrated_iq_shots",
@@ -125,26 +122,20 @@ def _linked_points():
         kind="fake_x_count_reference",
         point_domain=point_domain,
         product_defs=(iq_shots, probability_0, probability_1),
-        domain_programs=(
-            TypedDomainProgram(
+        domain_execution=TypedDomainExecution(
+            program=TypedDomainProgram(
                 id=program_id,
                 dialect_id="test.quantum",
                 dialect_version="1",
                 body=_PROGRAM,
                 result_ports=(DomainResultPortDef("iq_shots"),),
             ),
-        ),
-        domain_calls=(
-            TypedDomainCall(
-                id=call_id,
-                program_id=program_id,
-                results=(
-                    TypedDomainResultBinding(
-                        id="iq_shots",
-                        product_id=iq_shots.id,
-                        producer_id=iq_producer_id,
-                        product_use_ids=(iq_use.id,),
-                    ),
+            results=(
+                TypedDomainResultBinding(
+                    id="iq_shots",
+                    product_id=iq_shots.id,
+                    producer_id=iq_producer_id,
+                    product_use_ids=(iq_use.id,),
                 ),
             ),
         ),
@@ -180,7 +171,6 @@ def _linked_points():
             DomainProductProducer(
                 id=iq_producer_id,
                 product_id=iq_shots.id,
-                call_id=call_id,
                 result_id="iq_shots",
             ),
         ),
@@ -213,21 +203,16 @@ def _linked_points():
     linked_points = materialize_linked_points(link_program(program, environment))
     projection = project_domain_plan(linked_points)
     view = projection.view(linked_points)
-    call = view.require_one_call(dialect_id="test.quantum")
-    offer = DomainExecutionOffer.for_call(
-        call,
-        max_points_per_batch=3,
-    )
+    execution = view.require_execution(dialect_id="test.quantum")
     context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
-        offer,
         adapter_id="test.fake-x-count",
         batch_ordinal=0,
     )
-    [transform] = call.measurement_transforms
+    [transform] = execution.measurement_transforms
     return context.new_preparation(), FakeXCountProductBinding(
-        iq_shots=call.result("iq_shots").product_uses,
+        iq_shots=execution.result("iq_shots").product_uses,
         transform=transform,
     )
 

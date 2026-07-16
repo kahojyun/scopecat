@@ -48,8 +48,7 @@ from scopecat.compiler.typed.products import (
     ProductDef,
 )
 from scopecat.compiler.typed.program import (
-    TypedDomainCall,
-    TypedDomainProgram,
+    TypedDomainExecution,
     TypedMeasurementTransform,
     TypedProgram,
     ValueInput,
@@ -195,8 +194,8 @@ class MaterializedConfigInputBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class MaterializedDomainCallPoint:
-    """One logical point's closed inputs for a domain call."""
+class MaterializedDomainExecutionPoint:
+    """One logical point's closed inputs for the domain execution."""
 
     logical_id: LogicalPointId
     logical_ordinal: int
@@ -206,7 +205,7 @@ class MaterializedDomainCallPoint:
     def __post_init__(self) -> None:
         names = tuple(name for name, _value in self.inputs)
         if any(not name for name in names) or len(names) != len(set(names)):
-            msg = "materialized domain call input ids must be non-empty and unique"
+            msg = "materialized domain execution input ids must be non-empty and unique"
             raise ValueError(msg)
         binding_ids = tuple(binding.input_id for binding in self.config_input_bindings)
         if len(binding_ids) != len(set(binding_ids)):
@@ -230,28 +229,23 @@ class MaterializedDomainCallPoint:
 
 
 @dataclass(frozen=True, slots=True)
-class MaterializedDomainCall:
-    """A typed domain call whose prepare-stage inputs are concrete per point."""
+class MaterializedDomainExecution:
+    """The typed domain execution with concrete prepare-stage inputs."""
 
-    program: TypedDomainProgram
-    call: TypedDomainCall
-    points: tuple[MaterializedDomainCallPoint, ...]
+    execution: TypedDomainExecution
+    points: tuple[MaterializedDomainExecutionPoint, ...]
 
     def __post_init__(self) -> None:
-        if self.call.program_id != self.program.id:
-            msg = "materialized domain call must retain its declared program"
-            raise ValueError(msg)
         ordinals = tuple(point.logical_ordinal for point in self.points)
         if len(ordinals) != len(set(ordinals)):
-            msg = "materialized domain call points must have unique logical ordinals"
+            msg = "materialized domain execution points need unique logical ordinals"
             raise ValueError(msg)
 
-    def select(self, ordinals: frozenset[int]) -> MaterializedDomainCall:
-        """Project this already materialized call onto a canonical batch."""
+    def select(self, ordinals: frozenset[int]) -> MaterializedDomainExecution:
+        """Project this materialized execution onto a canonical batch."""
 
-        return MaterializedDomainCall(
-            program=self.program,
-            call=self.call,
+        return MaterializedDomainExecution(
+            execution=self.execution,
             points=tuple(
                 point for point in self.points if point.logical_ordinal in ordinals
             ),
@@ -260,7 +254,7 @@ class MaterializedDomainCall:
 
 @dataclass(frozen=True, slots=True, init=False)
 class MaterializedLinkedPoints:
-    """One linked plan with canonical points and materialized domain calls.
+    """One linked plan with canonical points and materialized domain execution.
 
     This artifact is deliberately narrower than a local bound plan: it retains
     the exact linked program and materialized logical point domain while owning
@@ -269,20 +263,20 @@ class MaterializedLinkedPoints:
 
     _linked_plan: LinkedPlan
     _point_domain: MaterializedPointDomain
-    _domain_calls: tuple[MaterializedDomainCall, ...]
+    _domain_execution: MaterializedDomainExecution | None
 
     def __init__(
         self,
         linked_plan: LinkedPlan,
         point_domain: MaterializedPointDomain,
-        domain_calls: Sequence[MaterializedDomainCall] = (),
+        domain_execution: MaterializedDomainExecution | None = None,
     ) -> None:
         if point_domain.id != linked_plan.point_domain.id:
             msg = "materialized point domain must belong to the linked plan"
             raise ValueError(msg)
         object.__setattr__(self, "_linked_plan", linked_plan)
         object.__setattr__(self, "_point_domain", point_domain)
-        object.__setattr__(self, "_domain_calls", tuple(domain_calls))
+        object.__setattr__(self, "_domain_execution", domain_execution)
 
     @property
     def linked_plan(self) -> LinkedPlan:
@@ -297,10 +291,10 @@ class MaterializedLinkedPoints:
         return self._point_domain
 
     @property
-    def domain_calls(self) -> tuple[MaterializedDomainCall, ...]:
-        """Return domain calls with every plan-stage input already evaluated."""
+    def domain_execution(self) -> MaterializedDomainExecution | None:
+        """Return the domain execution with evaluated plan-stage inputs."""
 
-        return self._domain_calls
+        return self._domain_execution
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -413,11 +407,14 @@ class MaterializedLinkedPointBatch:
         return self._point_domain
 
     @property
-    def domain_calls(self) -> tuple[MaterializedDomainCall, ...]:
-        """Return the parent calls restricted to this canonical point batch."""
+    def domain_execution(self) -> MaterializedDomainExecution | None:
+        """Return the parent execution restricted to this canonical batch."""
 
+        execution = self._parent.domain_execution
+        if execution is None:
+            return None
         ordinals = frozenset(self.point_indices)
-        return tuple(call.select(ordinals) for call in self._parent.domain_calls)
+        return execution.select(ordinals)
 
 
 type MaterializedLinkedPointSet = (
@@ -468,9 +465,8 @@ def materialize_linked_points(
             )
         )
         raise CheckFailed(problems) from error
-    domain_calls = _materialize_domain_calls(
-        program.domain_programs,
-        program.domain_calls,
+    domain_execution = _materialize_domain_execution(
+        program.domain_execution,
         points=point_domain.points,
         verified_program=linked.verified_program,
         parameters=environment.parameters,
@@ -481,97 +477,87 @@ def materialize_linked_points(
     return MaterializedLinkedPoints(
         linked,
         point_domain,
-        domain_calls,
+        domain_execution,
     )
 
 
-def _materialize_domain_calls(
-    programs: Sequence[TypedDomainProgram],
-    calls: Sequence[TypedDomainCall],
+def _materialize_domain_execution(
+    execution: TypedDomainExecution | None,
     *,
     points: Sequence[MaterializedPoint],
     verified_program: VerifiedTypedProgram,
     parameters: ParameterRelationData,
     problems: list[Problem],
-) -> tuple[MaterializedDomainCall, ...]:
-    """Evaluate verified plan-stage call inputs using the selected backend."""
+) -> MaterializedDomainExecution | None:
+    """Evaluate the optional verified domain execution's plan-stage inputs."""
 
-    programs_by_id = {program.id: program for program in programs}
-    materialized: list[MaterializedDomainCall] = []
-    for call in calls:
-        program = programs_by_id.get(call.program_id)
-        if program is None:
-            raise AssertionError("verified domain call lost its program declaration")
-        call_points: list[MaterializedDomainCallPoint] = []
-        failed = False
-        for point in points:
-            input_values: list[tuple[str, object]] = []
-            config_input_bindings: list[MaterializedConfigInputBinding] = []
-            context = EvalContext(params=parameters, point_row=point.row)
-            for input_name, input_spec in call.inputs.items():
-                try:
-                    evaluated = _evaluate_domain_input(
-                        input_spec,
-                        verified_program=verified_program,
-                        context=context,
-                    )
-                    value = coerce_literal(
-                        input_spec.value_type,
-                        evaluated,
-                        path=(
-                            "domain_calls",
-                            call.id.qualified_name,
+    if execution is None:
+        return None
+    execution_points: list[MaterializedDomainExecutionPoint] = []
+    failed = False
+    for point in points:
+        input_values: list[tuple[str, object]] = []
+        config_input_bindings: list[MaterializedConfigInputBinding] = []
+        context = EvalContext(params=parameters, point_row=point.row)
+        for input_name, input_spec in execution.inputs.items():
+            try:
+                evaluated = _evaluate_domain_input(
+                    input_spec,
+                    verified_program=verified_program,
+                    context=context,
+                )
+                value = coerce_literal(
+                    input_spec.value_type,
+                    evaluated,
+                    path=(
+                        "domain_execution",
+                        "points",
+                        point.logical_ordinal,
+                        "inputs",
+                        input_name,
+                    ),
+                )
+                resolved_value = _unwrap_domain_input(value)
+                input_values.append((input_name, resolved_value))
+                config_binding = _materialize_direct_config_input_binding(
+                    input_name,
+                    input_spec,
+                    resolved_value=resolved_value,
+                    context=context,
+                )
+                if config_binding is not None:
+                    config_input_bindings.append(config_binding)
+            except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+                failed = True
+                problems.append(
+                    compiler_problem(
+                        "domain_execution_input_evaluation_failed",
+                        f"domain execution input {input_name!r} failed for point "
+                        f"{point.logical_ordinal}: {error}",
+                        model_location(
+                            "domain_execution",
                             "points",
                             point.logical_ordinal,
                             "inputs",
                             input_name,
                         ),
+                        phase=ProblemPhase.PLANNING,
                     )
-                    resolved_value = _unwrap_domain_input(value)
-                    input_values.append((input_name, resolved_value))
-                    config_binding = _materialize_direct_config_input_binding(
-                        input_name,
-                        input_spec,
-                        resolved_value=resolved_value,
-                        context=context,
-                    )
-                    if config_binding is not None:
-                        config_input_bindings.append(config_binding)
-                except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-                    failed = True
-                    problems.append(
-                        compiler_problem(
-                            "domain_call_input_evaluation_failed",
-                            f"domain call input {input_name!r} failed for point "
-                            f"{point.logical_ordinal}: {error}",
-                            model_location(
-                                "domain_calls",
-                                call.id.qualified_name,
-                                "points",
-                                point.logical_ordinal,
-                                "inputs",
-                                input_name,
-                            ),
-                            phase=ProblemPhase.PLANNING,
-                        )
-                    )
-            call_points.append(
-                MaterializedDomainCallPoint(
-                    logical_id=point.logical_id,
-                    logical_ordinal=point.logical_ordinal,
-                    inputs=tuple(input_values),
-                    config_input_bindings=tuple(config_input_bindings),
                 )
+        execution_points.append(
+            MaterializedDomainExecutionPoint(
+                logical_id=point.logical_id,
+                logical_ordinal=point.logical_ordinal,
+                inputs=tuple(input_values),
+                config_input_bindings=tuple(config_input_bindings),
             )
-        if not failed:
-            materialized.append(
-                MaterializedDomainCall(
-                    program=program,
-                    call=call,
-                    points=tuple(call_points),
-                )
-            )
-    return tuple(materialized)
+        )
+    if failed:
+        return None
+    return MaterializedDomainExecution(
+        execution=execution,
+        points=tuple(execution_points),
+    )
 
 
 def _materialize_direct_config_input_binding(
@@ -987,8 +973,8 @@ def _resolve_entity(
 __all__ = [
     "LinkedPlan",
     "MaterializedConfigInputBinding",
-    "MaterializedDomainCall",
-    "MaterializedDomainCallPoint",
+    "MaterializedDomainExecution",
+    "MaterializedDomainExecutionPoint",
     "MaterializedLinkedPointBatch",
     "MaterializedLinkedPointSet",
     "MaterializedLinkedPoints",

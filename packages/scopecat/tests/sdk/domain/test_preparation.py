@@ -15,7 +15,6 @@ from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain import (
     DomainBatchContext,
     DomainEntryPointBinding,
-    DomainExecutionOffer,
     DomainMeasurementPlan,
     DomainResultMapping,
     DomainResultUseBinding,
@@ -94,12 +93,6 @@ def _preparation_context(
             "raw": ("raw", "v1"),
         },
     )
-    call = sc.domain_call(
-        "execute",
-        program,
-        inputs={"count": count},
-        results={"raw": "raw"},
-    )
     transform = sc.measurement_transform(
         "summarize",
         semantic=MeasurementTransformSemanticContract(
@@ -113,14 +106,22 @@ def _preparation_context(
     module = (
         sc.module(f"test.sdk.preparation.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
-        .domain_calls(call)
         .measurement_transforms(transform)
         .build()
     )
-    template = module.template(
-        f"test.sdk.preparation.{namespace}",
-        kind="domain_preparation",
-    ).scan(count, (1, 3))
+    execution = sc.domain_execution(
+        program,
+        inputs={"count": count},
+        results={"raw": module.products["raw"]},
+    )
+    template = (
+        module.template(
+            f"test.sdk.preparation.{namespace}",
+            kind="domain_preparation",
+        )
+        .domain(execution)
+        .scan(count, (1, 3))
+    )
     if shared_product_uses:
         selected = (
             template.record_product("raw", record_id="raw-first")
@@ -136,18 +137,10 @@ def _preparation_context(
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     linked_points = materialize_linked_points(linked)
     projection = project_domain_plan(linked_points)
-    call_view = projection.view(linked_points).require_one_call(
-        dialect_id="test.preparation"
-    )
-    offer = DomainExecutionOffer.for_call(
-        call_view,
-        max_points_per_batch=2,
-    )
     batch = MaterializedLinkedPointBatch(linked_points, (0, 1))
     return make_domain_batch_context(
         projection,
         batch,
-        offer,
         adapter_id=f"test.adapter.{namespace}",
         batch_ordinal=0,
     )

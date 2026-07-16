@@ -53,7 +53,11 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
 )
-from scopecat.authoring.domain import DomainCall, DomainProgramDef
+from scopecat.authoring.domain import (
+    DomainExecution,
+    LoweredDomainExecution,
+    lower_domain_execution,
+)
 from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.value_types import (
     Entity as EntityType,
@@ -120,8 +124,7 @@ class _ModuleFragment(_ExperimentEnvelope):
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ScopedPythonImplementation, ...] = ()
     measurement_transforms: tuple[MeasurementTransform, ...] = ()
-    domain_programs: tuple[DomainProgramDef, ...] = ()
-    domain_calls: tuple[DomainCall, ...] = ()
+    domain_execution: LoweredDomainExecution | None = None
     state_intents: tuple[ExperimentStateIntent, ...] = ()
     actions: tuple[ModuleActionDecl, ...] = ()
 
@@ -254,12 +257,7 @@ def _merge_module_fragments(
         measurement_transforms=tuple(
             item for fragment in fragments for item in fragment.measurement_transforms
         ),
-        domain_programs=tuple(
-            item for fragment in fragments for item in fragment.domain_programs
-        ),
-        domain_calls=tuple(
-            item for fragment in fragments for item in fragment.domain_calls
-        ),
+        domain_execution=_merge_fragment_domain_execution(fragments),
         python_implementations=tuple(
             item for fragment in fragments for item in fragment.python_implementations
         ),
@@ -277,21 +275,38 @@ def _merge_module_fragments(
     )
 
 
+def _merge_fragment_domain_execution(
+    fragments: Sequence[_ModuleFragment],
+) -> LoweredDomainExecution | None:
+    selected = tuple(
+        fragment.domain_execution
+        for fragment in fragments
+        if fragment.domain_execution is not None
+    )
+    if len(selected) > 1:
+        raise ValueError("module fragments cannot merge domain executions")
+    return selected[0] if selected else None
+
+
 def elaborate_module(
     module: ExperimentModule,
+    domain_execution: DomainExecution | None = None,
     /,
     **inputs: object,
 ) -> SemanticExperimentIR:
     """Elaborate one root module through the only hierarchy-flattening pass."""
 
-    fragment = _elaborate_module_ir(module.ir, inputs=inputs)
+    fragment = _elaborate_module_ir(
+        module.ir,
+        inputs=inputs,
+        domain_execution=domain_execution,
+    )
     _require_closed_module_fragment(fragment)
     semantic = elaborate_semantic_graph(
         fragment.operations,
         fragment.python_implementations,
         measurement_transforms=fragment.measurement_transforms,
-        domain_programs=fragment.domain_programs,
-        domain_calls=fragment.domain_calls,
+        domain_execution=fragment.domain_execution,
         actions=fragment.actions,
         value_roots=_module_fragment_semantic_value_roots(fragment),
         state_regions=fragment.state_intents,
@@ -325,6 +340,7 @@ def _elaborate_module_ir(
     module: ModuleIR,
     *,
     inputs: Mapping[str, object],
+    domain_execution: DomainExecution | None = None,
 ) -> _ModuleFragment:
     resolver = _ModuleValueResolver(module)
     source_fragments = tuple(
@@ -336,6 +352,21 @@ def _elaborate_module_ir(
         implementation.declaration_key: implementation
         for implementation in module.python_implementations
     }
+    lowered_execution = (
+        _resolve_domain_execution(
+            lower_domain_execution(domain_execution),
+            resolver=resolver,
+        )
+        if domain_execution is not None
+        else None
+    )
+    domain_input_values = tuple(
+        value
+        for _name, value in (
+            () if lowered_execution is None else lowered_execution.input_bindings
+        )
+        if isinstance(value, ValueRef)
+    )
     own = _ModuleFragment(
         inputs=dict(inputs),
         input_ports=module.interface.imports,
@@ -344,7 +375,13 @@ def _elaborate_module_ir(
             _resolve_resource_port(port, resolver=resolver)
             for port in module.interface.resources
         ),
-        point_dependencies=_module_point_dependencies(module, inputs, resolver),
+        point_dependencies=_merge_point_dependencies(
+            _module_point_dependencies(module, inputs, resolver),
+            *(
+                internal_value_ref_point_dependencies(value)
+                for value in domain_input_values
+            ),
+        ),
         bindings=tuple(
             _resolve_binding(binding, resolver=resolver)
             for binding in module.body.bindings
@@ -360,11 +397,7 @@ def _elaborate_module_ir(
             for operation in module.body.operations
         ),
         measurement_transforms=module.body.measurement_transforms,
-        domain_programs=module.body.domain_programs,
-        domain_calls=tuple(
-            _resolve_domain_call(call, resolver=resolver)
-            for call in module.body.domain_calls
-        ),
+        domain_execution=lowered_execution,
         python_implementations=tuple(
             ScopedPythonImplementation(
                 operation_id=semantic_operation_id(operation.operation_id),
@@ -380,7 +413,13 @@ def _elaborate_module_ir(
             _resolve_product(product, resolver=resolver)
             for product in module.body.products
         ),
-        parameter_contracts=_module_parameter_contracts(module, inputs, resolver),
+        parameter_contracts=merge_parameter_contracts(
+            _module_parameter_contracts(module, inputs, resolver),
+            *(
+                internal_value_ref_parameter_contracts(value)
+                for value in domain_input_values
+            ),
+        ),
         metadata=dict(module.metadata),
     )
     if not source_fragments:
@@ -486,11 +525,6 @@ def _module_value_roots(module: ModuleIR) -> tuple[object, ...]:
         value
         for operation in module.body.operations
         for _name, value in operation.inputs
-    )
-    values.extend(
-        value
-        for call in module.body.domain_calls
-        for _name, value in call.input_bindings
     )
     values.extend(export.source for export in module.interface.exports)
     values.extend(axis.size for record in module.body.records for axis in record.axes)
@@ -737,19 +771,19 @@ def _resolve_operation(
     )
 
 
-def _resolve_domain_call(
-    call: DomainCall,
+def _resolve_domain_execution(
+    execution: LoweredDomainExecution,
     *,
     resolver: _ModuleValueResolver,
-) -> DomainCall:
+) -> LoweredDomainExecution:
     return replace(
-        call,
+        execution,
         input_bindings=tuple(
             (
                 name,
                 resolver.resolve(value) if isinstance(value, ValueRef) else value,
             )
-            for name, value in call.input_bindings
+            for name, value in execution.input_bindings
         ),
     )
 
@@ -830,9 +864,10 @@ def _module_fragment_consumed_value_roots(
     values.extend(
         value for operation in fragment.operations for _name, value in operation.inputs
     )
-    values.extend(
-        value for call in fragment.domain_calls for _name, value in call.input_bindings
-    )
+    if fragment.domain_execution is not None:
+        values.extend(
+            value for _name, value in fragment.domain_execution.input_bindings
+        )
     values.extend(axis.size for record in fragment.records for axis in record.axes)
     values.extend(
         axis.size for product in fragment.product_ports for axis in product.axes
@@ -855,9 +890,10 @@ def _module_fragment_semantic_value_roots(
     values.extend(
         value for operation in fragment.operations for _name, value in operation.inputs
     )
-    values.extend(
-        value for call in fragment.domain_calls for _name, value in call.input_bindings
-    )
+    if fragment.domain_execution is not None:
+        values.extend(
+            value for _name, value in fragment.domain_execution.input_bindings
+        )
     values.extend(axis.size for record in fragment.records for axis in record.axes)
     values.extend(
         axis.size for product in fragment.product_ports for axis in product.axes
@@ -888,22 +924,10 @@ def _scope_instance_graph(
         scope=scope,
         origin=origin,
     )
-    domain_programs = tuple(
-        replace(program, scope=(*scope, *program.scope))
-        for program in fragment.domain_programs
-    )
     measurement_transforms = tuple(
         _scope_measurement_transform(transform, scope=scope)
         for transform in fragment.measurement_transforms
     )
-    domain_programs_by_id = {
-        original.symbol_id: scoped
-        for original, scoped in zip(
-            fragment.domain_programs,
-            domain_programs,
-            strict=True,
-        )
-    }
     scoped = replace(
         fragment,
         # Module metadata describes the module declaration itself.  It is not
@@ -974,17 +998,6 @@ def _scope_instance_graph(
             for operation in fragment.operations
         ),
         measurement_transforms=measurement_transforms,
-        domain_programs=domain_programs,
-        domain_calls=tuple(
-            _scope_domain_call(
-                call,
-                local_inputs,
-                scope=scope,
-                origin=origin,
-                program=domain_programs_by_id[call.program.symbol_id],
-            )
-            for call in fragment.domain_calls
-        ),
         python_implementations=tuple(
             replace(
                 implementation,
@@ -1257,39 +1270,6 @@ def _scope_operation(
                 ),
             )
             for name, value in operation.inputs
-        ),
-    )
-
-
-def _scope_domain_call(
-    call: DomainCall,
-    inputs: Mapping[str, object],
-    *,
-    scope: tuple[str, ...],
-    origin: tuple[object, ...],
-    program: DomainProgramDef,
-) -> DomainCall:
-    return replace(
-        call,
-        program=program,
-        scope=(*scope, *call.scope),
-        input_bindings=tuple(
-            (
-                name,
-                _scope_value_ref(
-                    value,
-                    inputs,
-                    scope=scope,
-                    origin=origin,
-                )
-                if isinstance(value, ValueRef)
-                else value,
-            )
-            for name, value in call.input_bindings
-        ),
-        result_bindings=tuple(
-            (name, product_id.prefixed(*scope))
-            for name, product_id in call.result_bindings
         ),
     )
 

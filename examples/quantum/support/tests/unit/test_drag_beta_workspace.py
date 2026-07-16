@@ -31,7 +31,6 @@ from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
 from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
     DEFAULT_AMPLIFICATIONS,
     DEFAULT_BETAS,
-    DRAG_BETA_CAPTURE_MODULE,
     DRAG_BETA_PARAMETER_COLUMN,
     DRAG_BETA_PARAMETER_ID,
     DRAG_BETA_TEMPLATE,
@@ -53,9 +52,9 @@ def _quantity_in_unit(value: object, unit: str) -> float:
 
 def test_drag_beta_authors_one_mixed_program_for_both_scan_axes() -> None:
     declaration = drag_beta_calibration_program()
-    body = DRAG_BETA_CAPTURE_MODULE.ir.body
-    [program] = body.domain_programs
-    [call] = body.domain_calls
+    execution = DRAG_BETA_TEMPLATE.build().domain_execution
+    assert execution is not None
+    program = execution.program
 
     assert declaration.id == "drag-beta-rough-calibration"
     assert declaration.inputs == (AMPLIFICATION_INPUT, BETA_INPUT)
@@ -68,11 +67,11 @@ def test_drag_beta_authors_one_mixed_program_for_both_scan_axes() -> None:
         "beta",
     )
     assert tuple(port.id for port in program.result_ports) == ("iq_shots",)
-    assert tuple(name for name, _value in call.input_bindings) == (
+    assert tuple(name for name, _value in execution.input_bindings) == (
         "amplification",
         "beta",
     )
-    assert tuple(name for name, _value in call.result_bindings) == ("iq_shots",)
+    assert tuple(name for name, _value in execution.result_bindings) == ("iq_shots",)
 
 
 def test_drag_beta_template_and_scratch_share_the_2d_point_model(

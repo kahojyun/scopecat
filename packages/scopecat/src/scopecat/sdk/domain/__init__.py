@@ -61,8 +61,8 @@ if TYPE_CHECKING:
     )
     from scopecat.sdk.domain.view import (
         DomainBatchView,
-        DomainCallPointView,
-        DomainCallView,
+        DomainExecutionPointView,
+        DomainExecutionView,
         DomainInputPortView,
         DomainMeasurementTransform,
         DomainPointRef,
@@ -122,8 +122,8 @@ _RUNTIME_EXPORTS = (
 )
 _VIEW_EXPORTS = (
     "DomainBatchView",
-    "DomainCallPointView",
-    "DomainCallView",
+    "DomainExecutionPointView",
+    "DomainExecutionView",
     "DomainInputPortView",
     "DomainMeasurementTransform",
     "DomainProductAxisView",
@@ -168,11 +168,11 @@ __all__ = [
     "CorrelatedDomainFetch",
     "DomainBatchContext",
     "DomainBatchView",
-    "DomainCallPointView",
-    "DomainCallView",
     "DomainEntryPointBinding",
     "DomainExecutionAdapter",
     "DomainExecutionOffer",
+    "DomainExecutionPointView",
+    "DomainExecutionView",
     "DomainFetchCandidate",
     "DomainFetchReceipt",
     "DomainFetchRequest",

@@ -20,7 +20,7 @@ type ExecutionTaskKind = Literal[
     "compute",
     "state",
     "action",
-    "domain_call",
+    "domain_execution",
     "measurement_transform",
     "product",
 ]
@@ -32,7 +32,7 @@ _TASK_KIND_ORDER: dict[ExecutionTaskKind, int] = {
     "compute": 2,
     "state": 3,
     "action": 4,
-    "domain_call": 5,
+    "domain_execution": 5,
     "measurement_transform": 6,
     "product": 7,
 }
@@ -113,8 +113,9 @@ def program_execution_coverage(program: TypedProgram) -> ExecutionCoverage:
                 for action in program.actions
             ),
             *(
-                ExecutionTask("domain_call", call.id.qualified_name)
-                for call in program.domain_calls
+                ExecutionTask("domain_execution", "domain")
+                for execution in (program.domain_execution,)
+                if execution is not None
             ),
             *(
                 ExecutionTask(

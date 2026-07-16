@@ -20,7 +20,6 @@ from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.model import (
-    DomainCallId,
     DomainProgramId,
     DomainResultPortDef,
 )
@@ -32,7 +31,7 @@ from scopecat.compiler.typed.products import (
     ProductKind,
 )
 from scopecat.compiler.typed.program import (
-    TypedDomainCall,
+    TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
     TypedProgram,
@@ -62,7 +61,7 @@ from scopecat.measurements.results import (
     MeasurementArray,
     MeasurementDType,
 )
-from scopecat.sdk.domain import DomainExecutionOffer, DomainPreparationBuilder
+from scopecat.sdk.domain import DomainPreparationBuilder
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
     project_domain_plan,
@@ -335,18 +334,10 @@ def _preparation_for_all_points(
     linked_points: MaterializedLinkedPoints,
 ) -> DomainPreparationBuilder:
     projection = project_domain_plan(linked_points)
-    call = projection.view(linked_points).require_one_call(
-        dialect_id=_DOMAIN_DIALECT_ID
-    )
     point_indices = tuple(range(len(linked_points.point_domain.points)))
-    offer = DomainExecutionOffer.for_call(
-        call,
-        max_points_per_batch=len(point_indices),
-    )
     context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, point_indices),
-        offer,
         adapter_id="test.quantum.fake-list-runtime",
         batch_ordinal=0,
     )
@@ -393,33 +384,26 @@ def _linked_points(
         for index in range(product_use_count)
     )
     domain_program_id = DomainProgramId(SymbolId(local_id="program"))
-    domain_call_id = DomainCallId(SymbolId(local_id="execute"))
     producer_id = product_producer_id("result-producer")
     program = TypedProgram(
         id="fake-circuit-runtime",
         kind="fake_circuit_runtime_test",
         point_domain=point_domain,
         product_defs=(product,),
-        domain_programs=(
-            TypedDomainProgram(
+        domain_execution=TypedDomainExecution(
+            program=TypedDomainProgram(
                 id=domain_program_id,
                 dialect_id=_DOMAIN_DIALECT_ID,
                 dialect_version="1",
                 body=object(),
                 result_ports=(DomainResultPortDef(_SINGLE_RESULT_ID),),
             ),
-        ),
-        domain_calls=(
-            TypedDomainCall(
-                id=domain_call_id,
-                program_id=domain_program_id,
-                results=(
-                    TypedDomainResultBinding(
-                        id=_SINGLE_RESULT_ID,
-                        product_id=product.id,
-                        producer_id=producer_id,
-                        product_use_ids=tuple(use.id for use, _record in selections),
-                    ),
+            results=(
+                TypedDomainResultBinding(
+                    id=_SINGLE_RESULT_ID,
+                    product_id=product.id,
+                    producer_id=producer_id,
+                    product_use_ids=tuple(use.id for use, _record in selections),
                 ),
             ),
         ),
@@ -427,7 +411,6 @@ def _linked_points(
             DomainProductProducer(
                 id=producer_id,
                 product_id=product.id,
-                call_id=domain_call_id,
                 result_id=_SINGLE_RESULT_ID,
             ),
         ),
@@ -483,7 +466,6 @@ def _mixed_linked_points(
     iq_use, iq_record = record_product(iq_product)
     trace_use, trace_record = record_product(trace_product)
     domain_program_id = DomainProgramId(SymbolId(local_id="program"))
-    domain_call_id = DomainCallId(SymbolId(local_id="execute"))
     iq_producer_id = product_producer_id("iq-result-producer")
     trace_producer_id = product_producer_id("trace-result-producer")
     program = TypedProgram(
@@ -491,8 +473,8 @@ def _mixed_linked_points(
         kind="mixed_fake_circuit_runtime_test",
         point_domain=point_domain,
         product_defs=(iq_product, trace_product),
-        domain_programs=(
-            TypedDomainProgram(
+        domain_execution=TypedDomainExecution(
+            program=TypedDomainProgram(
                 id=domain_program_id,
                 dialect_id=_DOMAIN_DIALECT_ID,
                 dialect_version="1",
@@ -502,24 +484,18 @@ def _mixed_linked_points(
                     DomainResultPortDef(_MIXED_TRACE_RESULT_ID),
                 ),
             ),
-        ),
-        domain_calls=(
-            TypedDomainCall(
-                id=domain_call_id,
-                program_id=domain_program_id,
-                results=(
-                    TypedDomainResultBinding(
-                        id=_MIXED_IQ_RESULT_ID,
-                        product_id=iq_product.id,
-                        producer_id=iq_producer_id,
-                        product_use_ids=(iq_use.id,),
-                    ),
-                    TypedDomainResultBinding(
-                        id=_MIXED_TRACE_RESULT_ID,
-                        product_id=trace_product.id,
-                        producer_id=trace_producer_id,
-                        product_use_ids=(trace_use.id,),
-                    ),
+            results=(
+                TypedDomainResultBinding(
+                    id=_MIXED_IQ_RESULT_ID,
+                    product_id=iq_product.id,
+                    producer_id=iq_producer_id,
+                    product_use_ids=(iq_use.id,),
+                ),
+                TypedDomainResultBinding(
+                    id=_MIXED_TRACE_RESULT_ID,
+                    product_id=trace_product.id,
+                    producer_id=trace_producer_id,
+                    product_use_ids=(trace_use.id,),
                 ),
             ),
         ),
@@ -527,13 +503,11 @@ def _mixed_linked_points(
             DomainProductProducer(
                 id=iq_producer_id,
                 product_id=iq_product.id,
-                call_id=domain_call_id,
                 result_id=_MIXED_IQ_RESULT_ID,
             ),
             DomainProductProducer(
                 id=trace_producer_id,
                 product_id=trace_product.id,
-                call_id=domain_call_id,
                 result_id=_MIXED_TRACE_RESULT_ID,
             ),
         ),
@@ -792,7 +766,7 @@ def _scenario(
     )
     preparation = _preparation_for_all_points(linked_points)
     points = preparation.context.points
-    product_uses = preparation.context.call.result(_SINGLE_RESULT_ID).product_uses
+    product_uses = preparation.context.execution.result(_SINGLE_RESULT_ID).product_uses
     mapping = seal_circuit_target_result_mapping(
         preparation,
         batch,
@@ -873,10 +847,10 @@ def _mixed_scenario(
     )
     preparation = _preparation_for_all_points(linked_points)
     points = preparation.context.points
-    iq_use = preparation.context.call.result(
+    iq_use = preparation.context.execution.result(
         _MIXED_IQ_RESULT_ID
     ).require_one_product_use()
-    trace_use = preparation.context.call.result(
+    trace_use = preparation.context.execution.result(
         _MIXED_TRACE_RESULT_ID
     ).require_one_product_use()
     mapping = seal_circuit_target_result_mapping(
@@ -989,7 +963,7 @@ def test_three_point_fake_circuit_run_correlates_target_and_logical_order() -> N
     )
 
     points = scenario.preparation.context.points
-    product_use = scenario.preparation.context.call.result(
+    product_use = scenario.preparation.context.execution.result(
         _SINGLE_RESULT_ID
     ).product_uses[0]
     assert tuple(
@@ -1071,7 +1045,7 @@ def test_mixed_quantum_program_reuses_fake_selection_and_correlation() -> None:
         repetitions=2,
     )
     points = preparation.context.points
-    product_use = preparation.context.call.result(
+    product_use = preparation.context.execution.result(
         _SINGLE_RESULT_ID
     ).require_one_product_use()
     mapping = seal_quantum_target_result_mapping(
@@ -1151,7 +1125,7 @@ def test_one_physical_fake_result_fans_out_to_every_product_use() -> None:
         product_axes=(shot_axis(2),),
     )
     points = scenario.preparation.context.points
-    uses = scenario.preparation.context.call.result(_SINGLE_RESULT_ID).product_uses
+    uses = scenario.preparation.context.execution.result(_SINGLE_RESULT_ID).product_uses
     correlated = execute_correlated_fake_list(
         FakeListRuntime(),
         scenario.compiled_target,

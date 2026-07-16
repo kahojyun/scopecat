@@ -17,6 +17,7 @@ from scopecat.authoring._validation import (
     validate_template_definition,
 )
 from scopecat.authoring._value_refs import ValueRef
+from scopecat.authoring.domain import DomainExecution
 from scopecat.authoring.scans import (
     Scan,
     ScanCenter,
@@ -82,10 +83,11 @@ class InputDescription:
 @dataclass(frozen=True, slots=True, repr=False)
 class ExperimentTemplate:
     id: str
+    kind: str
+    module: TemplateModule
     experiment_id: str | None = None
-    kind: str | None = None
     category: str | None = None
-    module: TemplateModule | None = None
+    domain_execution: DomainExecution | None = None
     record_selections: tuple[TemplateRecordSelection, ...] = ()
     inputs: tuple[InputDescription, ...] = ()
     default_scans: tuple[Scan, ...] = ()
@@ -97,18 +99,12 @@ class ExperimentTemplate:
         if not self.id:
             msg = "experiment template id must be non-empty"
             raise ValueError(msg)
-        if self.module is None:
-            msg = "experiment template requires a module"
-            raise ValueError(msg)
         if not self.kind:
             msg = "experiment template requires kind"
             raise ValueError(msg)
 
     def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
         _validate_runtime_inputs(inputs)
-        if self.module is None:
-            msg = "experiment template requires a module"
-            raise ValueError(msg)
         validate_template_bound_inputs(
             module=self.module,
             descriptions=self.inputs,
@@ -131,12 +127,8 @@ class ExperimentInvocation:
         _validate_runtime_inputs(inputs)
         selected = dict(self.inputs)
         selected.update(inputs)
-        module = self.template.module
-        if module is None:
-            msg = "experiment template requires a module"
-            raise ValueError(msg)
         validate_template_bound_inputs(
-            module=module,
+            module=self.template.module,
             descriptions=self.template.inputs,
             default_scans=self.template.default_scans,
             inputs=selected,
@@ -178,9 +170,10 @@ class TemplateBuilder:
 
     id: str
     kind: str
+    module: TemplateModule
     _category: str | None = None
     _experiment_id: str | None = None
-    _module: TemplateModule | None = None
+    _domain_execution: DomainExecution | None = None
     record_selections: tuple[TemplateRecordSelection, ...] = ()
     _inputs: tuple[InputDescription, ...] = ()
     _default_scans: tuple[Scan, ...] = ()
@@ -202,10 +195,11 @@ class TemplateBuilder:
     def build(self) -> ExperimentTemplate:
         template = ExperimentTemplate(
             id=self.id,
-            experiment_id=self._experiment_id,
             kind=self.kind,
+            module=self.module,
+            experiment_id=self._experiment_id,
             category=self._category,
-            module=self._module,
+            domain_execution=self._domain_execution,
             record_selections=self.record_selections,
             inputs=self._inputs,
             default_scans=self._default_scans,
@@ -213,16 +207,21 @@ class TemplateBuilder:
             description=self._description,
             metadata=freeze_json_mapping(self._metadata),
         )
-        if template.module is None:
-            msg = "experiment template requires a module"
-            raise ValueError(msg)
         validate_template_definition(
             module=template.module,
+            domain_execution=template.domain_execution,
             inputs=template.inputs,
             default_scans=template.default_scans,
             record_selections=template.record_selections,
         )
         return template
+
+    def domain(self, execution: DomainExecution) -> TemplateBuilder:
+        """Select the template's sole domain-program execution."""
+
+        if self._domain_execution is not None:
+            raise ValueError("experiment template already has a domain execution")
+        return replace(self, _domain_execution=execution)
 
     def experiment_id(self, experiment_id: str) -> TemplateBuilder:
         return replace(self, _experiment_id=experiment_id)
@@ -339,7 +338,7 @@ def template_builder_from_module(
     return TemplateBuilder(
         id=id,
         kind=kind,
-        _module=module,
+        module=module,
         _experiment_id=experiment_id,
         _label=label,
         _description=description,

@@ -172,12 +172,13 @@ def _execute_unified_run(
     measurements = services.measurements_for(run_id)
     readbacks = services.collections_for(run_id)
     payloads = services.payloads_for(run_id)
-    domain_values: dict[str, list[ClosedMeasurementProductValues]] = {
-        unit.id: [] for unit in prepared.domain_units
-    }
-    unit_id_by_job = {
-        job.id: unit.id for unit in prepared.domain_units for job in unit.jobs
-    }
+    domain = prepared.domain_unit
+    domain_values: dict[str, list[ClosedMeasurementProductValues]] = (
+        {} if domain is None else {domain.id: []}
+    )
+    unit_id_by_job = (
+        {} if domain is None else {job.id: domain.id for job in domain.jobs}
+    )
     domain_failure: tuple[PreparedDomainJob, BaseException] | None = None
 
     def execute_domain_segment(segment: PreparedExecutionSegment) -> None:
@@ -218,7 +219,7 @@ def _execute_unified_run(
                     Callable[[ExecutionEngine], ExecutionEngineResult] | None
                 ) = (
                     None
-                    if not prepared.domain_units
+                    if domain is None
                     else lambda engine: engine.run_around_point_segments(
                         segment_effects
                     )
@@ -523,9 +524,8 @@ def _measurement_fragments(
                 receipts=readbacks.receipts(),
             )
         )
-    for unit in prepared.domain_units:
-        if not unit.product_use_ids:
-            continue
+    unit = prepared.domain_unit
+    if unit is not None and unit.product_use_ids:
         value_batches = domain_values[unit.id]
         fragments.append(
             seal_measurement_value_fragment(

@@ -347,7 +347,7 @@ def test_program_binding_requires_exact_typed_inputs() -> None:
         authoring.bind(declaration, {"beta": "not-a-quantity"})
 
 
-def test_domain_program_and_call_expose_typed_ports() -> None:
+def test_domain_program_and_execution_expose_typed_ports() -> None:
     q0 = authoring.qubit("q0")
     beta_type = sc.ScalarType(sc.QuantityType(unit="ns"))
     beta = authoring.input("beta", beta_type)
@@ -366,13 +366,15 @@ def test_domain_program_and_call_expose_typed_ports() -> None:
     repetitions_type = sc.ScalarType(sc.IntType(minimum=0))
     repetitions_point = sc.point("repetitions", repetitions_type)
     beta_point = sc.point("beta", beta_type)
+    products = (
+        sc.module("test.quantum.typed-drag").product("integrated_iq_shots").build()
+    )
 
     domain_program = authoring.domain_program(declaration)
-    call = authoring.domain_call(
-        "acquire-drag-point",
+    execution = authoring.domain_execution(
         domain_program,
         inputs={beta: beta_point, repetitions: repetitions_point},
-        results={readout.result: "integrated_iq_shots"},
+        results={readout.result: products.products["integrated_iq_shots"]},
     )
 
     assert domain_program.dialect_id == authoring.QUANTUM_PROGRAM_DIALECT_ID
@@ -383,12 +385,12 @@ def test_domain_program_and_call_expose_typed_ports() -> None:
     ]
     assert domain_program.result_ports[0].id == "raw_iq"
     assert domain_program.result_ports[0].contract is readout.result
-    assert call.input_bindings == (
+    assert execution.input_bindings == (
         ("repetitions", repetitions_point),
         ("beta", beta_point),
     )
-    assert call.result_bindings[0][0] == "raw_iq"
-    assert call.result_bindings[0][1].local_id == "integrated_iq_shots"
+    assert execution.result_bindings[0][0] == "raw_iq"
+    assert execution.result_bindings[0][1].local_id == "integrated_iq_shots"
 
 
 def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> None:
@@ -432,7 +434,7 @@ def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> 
     assert provenance.acquisition_slot_id == capture.result.acquisition_slot_id
 
 
-def test_domain_call_requires_the_exact_measurement_result_handle() -> None:
+def test_domain_execution_requires_the_exact_measurement_result_handle() -> None:
     q0 = authoring.qubit("q0")
     capture = authoring.acquire(
         q0,
@@ -446,12 +448,12 @@ def test_domain_call_requires_the_exact_measurement_result_handle() -> None:
     )
     declaration = authoring.program("explicit-acquire", capture)
     domain_program = authoring.domain_program(declaration)
+    products = sc.module("test.quantum.explicit-acquire").product("iq_shots").build()
 
     with pytest.raises(ValueError, match="bind every declared result"):
-        authoring.domain_call(
-            "foreign-result",
+        authoring.domain_execution(
             domain_program,
-            results={foreign.result: "iq_shots"},
+            results={foreign.result: products.products["iq_shots"]},
         )
 
 

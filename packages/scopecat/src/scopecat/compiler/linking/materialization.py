@@ -154,7 +154,9 @@ def materialize_local_plan(
     if task_coverage is not None:
         selected_tasks = tuple(task_coverage.tasks)
         unsupported = tuple(
-            task for task in selected_tasks if task.kind in {"product", "domain_call"}
+            task
+            for task in selected_tasks
+            if task.kind in {"product", "domain_execution"}
         )
         if unsupported:
             msg = "local point materialization cannot own product or domain-call tasks"

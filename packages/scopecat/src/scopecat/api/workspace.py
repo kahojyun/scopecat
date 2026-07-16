@@ -45,6 +45,7 @@ from scopecat.authoring.assembly import (
     ModuleBuilder,
     ModuleInvocation,
 )
+from scopecat.authoring.domain import DomainExecution
 from scopecat.authoring.scans import (
     Scan,
     ScanCenter,
@@ -314,6 +315,7 @@ class Experiment:
         default_factory=empty_frozen_mapping
     )
     module: ModuleBuilder = field(default_factory=public_authoring.module)
+    domain_execution: DomainExecution | None = None
     scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
 
@@ -358,6 +360,13 @@ class Experiment:
                 )
             ),
         )
+
+    def domain(self, execution: DomainExecution) -> Experiment:
+        """Select this scratch experiment's sole domain execution."""
+
+        if self.domain_execution is not None:
+            raise ValueError("experiment already has a domain execution")
+        return replace(self, domain_execution=execution)
 
     def use(
         self,
@@ -984,6 +993,8 @@ def _workspace_template(
     )
     for scan in experiment.scans:
         builder = builder.scan(scan)
+    if experiment.domain_execution is not None:
+        builder = builder.domain(experiment.domain_execution)
     builder = builder.records(*experiment.record_selections)
     return builder.build()
 

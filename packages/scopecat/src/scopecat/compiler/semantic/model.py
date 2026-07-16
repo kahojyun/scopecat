@@ -119,28 +119,6 @@ class DomainProgramId:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainCallId:
-    """Nominal identity in the domain-call symbol space."""
-
-    symbol: SymbolId
-
-    @property
-    def qualified_name(self) -> str:
-        return self.symbol.qualified_name
-
-    @property
-    def scope(self) -> tuple[str, ...]:
-        return self.symbol.scope
-
-    @property
-    def local_id(self) -> str:
-        return self.symbol.local_id
-
-    def prefixed(self, *scope: str) -> DomainCallId:
-        return DomainCallId(self.symbol.prefixed(*scope))
-
-
-@dataclass(frozen=True, slots=True)
 class MeasurementTransformId:
     """Nominal identity in the authored measurement-transform symbol space."""
 
@@ -524,17 +502,16 @@ class SemanticDomainProgram:
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticDomainCall:
-    """One plan-stage domain call with logical result-product bindings."""
+class SemanticDomainExecution:
+    """One program and its plan-stage logical product bindings."""
 
-    id: DomainCallId
-    program_id: DomainProgramId
+    program: SemanticDomainProgram
     inputs: tuple[tuple[str, ValueUse], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
 
     def __post_init__(self) -> None:
-        _require_unique_names("domain call input", self.inputs)
-        _require_unique_names("domain call result", self.results)
+        _require_unique_names("domain execution input", self.inputs)
+        _require_unique_names("domain execution result", self.results)
 
 
 @dataclass(frozen=True, slots=True)
@@ -580,8 +557,7 @@ class SemanticGraphIR:
     value_defs: tuple[ValueDef, ...] = ()
     operations: tuple[SemanticOperation, ...] = ()
     measurement_transforms: tuple[SemanticMeasurementTransform, ...] = ()
-    domain_programs: tuple[SemanticDomainProgram, ...] = ()
-    domain_calls: tuple[SemanticDomainCall, ...] = ()
+    domain_execution: SemanticDomainExecution | None = None
     actions: tuple[InstrumentActionEffect, ...] = ()
     row_regions: tuple[StateEachRegion, ...] = ()
 
@@ -641,13 +617,23 @@ def merge_semantic_graphs(*graphs: SemanticGraphIR) -> SemanticGraphIR:
         measurement_transforms=tuple(
             item for graph in graphs for item in graph.measurement_transforms
         ),
-        domain_programs=tuple(
-            item for graph in graphs for item in graph.domain_programs
+        domain_execution=_merge_optional_domain_value(
+            "domain execution",
+            tuple(graph.domain_execution for graph in graphs),
         ),
-        domain_calls=tuple(item for graph in graphs for item in graph.domain_calls),
         actions=tuple(item for graph in graphs for item in graph.actions),
         row_regions=tuple(item for graph in graphs for item in graph.row_regions),
     )
+
+
+def _merge_optional_domain_value[T](
+    label: str,
+    values: tuple[T | None, ...],
+) -> T | None:
+    selected = tuple(value for value in values if value is not None)
+    if len(selected) > 1:
+        raise ValueError(f"semantic graph merge found more than one {label}")
+    return selected[0] if selected else None
 
 
 def merge_implementation_catalogs(

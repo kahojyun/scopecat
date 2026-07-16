@@ -1,4 +1,4 @@
-"""Narrow immutable projection of authored domain calls for adapter code.
+"""Narrow immutable projection of authored domain execution for adapters.
 
 The values in this module are the complete compiler-facing inspection surface
 for a domain adapter. References are assembled while projecting one
@@ -172,8 +172,8 @@ class DomainMeasurementTransform:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainCallPointView:
-    """Concrete named call inputs for one canonical logical point."""
+class DomainExecutionPointView:
+    """Concrete domain inputs for one canonical logical point."""
 
     ref: DomainPointRef
     inputs: tuple[tuple[str, object], ...]
@@ -217,12 +217,11 @@ class DomainResultBindingView:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainCallView:
-    """One prepare-stage invocation without linked-plan inventory exposure."""
+class DomainExecutionView:
+    """The prepare-stage domain execution without linked-plan internals."""
 
-    id: str
     program: DomainProgramView
-    points: tuple[DomainCallPointView, ...]
+    points: tuple[DomainExecutionPointView, ...]
     results: tuple[DomainResultBindingView, ...]
     measurement_transforms: tuple[DomainMeasurementTransform, ...] = ()
 
@@ -246,52 +245,49 @@ class DomainCallView:
 
 @dataclass(frozen=True, slots=True)
 class DomainBatchView:
-    """All explicit domain calls for one complete point set or batch."""
+    """The optional domain execution projected over one point set or batch."""
 
-    calls: tuple[DomainCallView, ...]
+    execution: DomainExecutionView | None
     points: tuple[DomainPointRef, ...] = ()
     product_uses: tuple[DomainProductUseRef, ...] = ()
 
-    def matching_calls(
+    def matching_execution(
         self,
         *,
         dialect_id: str,
         dialect_version: str | None = None,
-    ) -> tuple[DomainCallView, ...]:
-        return tuple(
-            call
-            for call in self.calls
-            if call.program.dialect_id == dialect_id
-            and (
-                dialect_version is None
-                or call.program.dialect_version == dialect_version
-            )
-        )
+    ) -> DomainExecutionView | None:
+        execution = self.execution
+        if execution is None or execution.program.dialect_id != dialect_id:
+            return None
+        if (
+            dialect_version is not None
+            and execution.program.dialect_version != dialect_version
+        ):
+            return None
+        return execution
 
-    def require_one_call(
+    def require_execution(
         self,
         *,
         dialect_id: str,
         dialect_version: str | None = None,
-    ) -> DomainCallView:
-        selected = self.matching_calls(
+    ) -> DomainExecutionView:
+        selected = self.matching_execution(
             dialect_id=dialect_id,
             dialect_version=dialect_version,
         )
-        if len(selected) != 1:
+        if selected is None:
             version = "" if dialect_version is None else f" version {dialect_version!r}"
-            msg = (
-                f"expected exactly one domain call for dialect {dialect_id!r}"
-                f"{version}, found {len(selected)}"
-            )
+            msg = f"expected domain execution for dialect {dialect_id!r}{version}"
             raise ValueError(msg)
-        return selected[0]
+        return selected
 
 
 __all__ = [
     "DomainBatchView",
-    "DomainCallPointView",
-    "DomainCallView",
+    "DomainExecutionPointView",
+    "DomainExecutionView",
     "DomainInputPortView",
     "DomainMeasurementTransform",
     "DomainPointRef",

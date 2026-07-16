@@ -14,7 +14,6 @@ from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.model import (
-    DomainCallId,
     DomainProgramId,
     DomainResultPortDef,
 )
@@ -22,7 +21,7 @@ from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import DomainProductProducer
 from scopecat.compiler.typed.program import (
-    TypedDomainCall,
+    TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
     TypedProgram,
@@ -34,7 +33,6 @@ from scopecat.kernel.product_identity import product_producer_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.sdk.domain import (
-    DomainExecutionOffer,
     DomainPreparationBuilder,
     DomainResultMapping,
 )
@@ -160,7 +158,6 @@ def _preparation(
             for index, product in enumerate(products)
         )
     domain_program_id = DomainProgramId(SymbolId(local_id="program"))
-    domain_call_id = DomainCallId(SymbolId(local_id="execute"))
     producer_ids = {
         result_id: product_producer_id(f"{result_id}-producer")
         for result_id, _product, _use_ids in result_specs
@@ -170,8 +167,8 @@ def _preparation(
         kind="domain_mapping_test",
         point_domain=point_domain,
         product_defs=products,
-        domain_programs=(
-            TypedDomainProgram(
+        domain_execution=TypedDomainExecution(
+            program=TypedDomainProgram(
                 id=domain_program_id,
                 dialect_id="test.quantum.result-mapping",
                 dialect_version="1",
@@ -181,27 +178,20 @@ def _preparation(
                     for result_id, _product, _use_ids in result_specs
                 ),
             ),
-        ),
-        domain_calls=(
-            TypedDomainCall(
-                id=domain_call_id,
-                program_id=domain_program_id,
-                results=tuple(
-                    TypedDomainResultBinding(
-                        id=result_id,
-                        product_id=product.id,
-                        producer_id=producer_ids[result_id],
-                        product_use_ids=use_ids,
-                    )
-                    for result_id, product, use_ids in result_specs
-                ),
+            results=tuple(
+                TypedDomainResultBinding(
+                    id=result_id,
+                    product_id=product.id,
+                    producer_id=producer_ids[result_id],
+                    product_use_ids=use_ids,
+                )
+                for result_id, product, use_ids in result_specs
             ),
         ),
         domain_product_producers=tuple(
             DomainProductProducer(
                 id=producer_ids[result_id],
                 product_id=product.id,
-                call_id=domain_call_id,
                 result_id=result_id,
             )
             for result_id, product, _use_ids in result_specs
@@ -216,17 +206,9 @@ def _preparation(
     )
     linked_points = materialize_linked_points(link_program(program, environment))
     projection = project_domain_plan(linked_points)
-    call = projection.view(linked_points).require_one_call(
-        dialect_id="test.quantum.result-mapping"
-    )
-    offer = DomainExecutionOffer.for_call(
-        call,
-        max_points_per_batch=2,
-    )
     context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1)),
-        offer,
         adapter_id="test.quantum.result-mapping",
         batch_ordinal=0,
     )

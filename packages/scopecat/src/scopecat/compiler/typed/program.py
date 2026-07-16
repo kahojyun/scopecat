@@ -26,7 +26,6 @@ from scopecat.compiler.semantic.availability import ValueAvailability
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     ActionId,
-    DomainCallId,
     DomainInputPortDef,
     DomainProgramId,
     DomainResultPortDef,
@@ -168,7 +167,7 @@ class TypedDomainProgram:
 
 @dataclass(frozen=True, slots=True)
 class TypedDomainResultBinding:
-    """Exact logical product occurrences produced by one named call result."""
+    """Exact logical product occurrences produced by one named domain result."""
 
     id: str
     product_id: ProductId
@@ -182,11 +181,10 @@ class TypedDomainResultBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class TypedDomainCall:
-    """One linked prepare-stage call with executable plan value inputs."""
+class TypedDomainExecution:
+    """One domain program with executable plan inputs and result bindings."""
 
-    id: DomainCallId
-    program_id: DomainProgramId
+    program: TypedDomainProgram
     inputs: Mapping[str, ValueInput] = field(default_factory=_empty_value_inputs)
     results: tuple[TypedDomainResultBinding, ...] = ()
 
@@ -278,8 +276,7 @@ class TypedProgram:
     route_intents: tuple[ResourceRouteIntent, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
-    domain_programs: tuple[TypedDomainProgram, ...] = ()
-    domain_calls: tuple[TypedDomainCall, ...] = ()
+    domain_execution: TypedDomainExecution | None = None
     measurement_transforms: tuple[TypedMeasurementTransform, ...] = ()
     implementation_catalog: ImplementationCatalog = field(
         default_factory=ImplementationCatalog
@@ -577,8 +574,7 @@ def typed_program(
     route_intents: Sequence[ResourceRouteIntent] = (),
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     compute_nodes: Sequence[TypedComputeNode] = (),
-    domain_programs: Sequence[TypedDomainProgram] = (),
-    domain_calls: Sequence[TypedDomainCall] = (),
+    domain_execution: TypedDomainExecution | None = None,
     measurement_transforms: Sequence[TypedMeasurementTransform] = (),
     implementation_catalog: ImplementationCatalog | None = None,
     source_map: SourceMap | None = None,
@@ -605,8 +601,7 @@ def typed_program(
         route_intents=tuple(route_intents),
         parameter_overlays=tuple(parameter_overlays),
         compute_nodes=order_compute_nodes(compute_nodes),
-        domain_programs=tuple(domain_programs),
-        domain_calls=tuple(domain_calls),
+        domain_execution=domain_execution,
         measurement_transforms=tuple(measurement_transforms),
         implementation_catalog=implementation_catalog or ImplementationCatalog(),
         source_map=source_map or SourceMap(),
@@ -631,7 +626,7 @@ __all__ = [
     "RouteInput",
     "TypedComputeNode",
     "TypedComputeOutput",
-    "TypedDomainCall",
+    "TypedDomainExecution",
     "TypedDomainProgram",
     "TypedDomainResultBinding",
     "TypedMeasurementTransform",

@@ -148,21 +148,19 @@ def test_domain_and_transform_cannot_own_the_same_product() -> None:
         body=object(),
         results={"raw": None},
     )
-    call = sc.domain_call(
-        "execute",
-        program,
-        results={"raw": "raw"},
-    )
     module = (
         sc.module("test.transform.owner")
         .product("source", "raw")
-        .domain_calls(call)
         .measurement_transforms(_transform("derive", source="source", output="raw"))
         .build()
     )
+    execution = sc.domain_execution(
+        program,
+        results={"raw": module.products["raw"]},
+    )
 
     with pytest.raises(CheckFailed) as error:
-        elaborate_module(module)
+        elaborate_module(module, execution)
     assert "semantic_product_producer_duplicate" in {
         problem.code for problem in error.value.problems
     }

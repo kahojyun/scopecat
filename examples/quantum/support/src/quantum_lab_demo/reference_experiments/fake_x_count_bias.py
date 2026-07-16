@@ -27,6 +27,7 @@ from quantum_lab_demo.reference_experiments.fake_x_count_experiment import (
     DEFAULT_X_COUNTS,
     FAKE_X_COUNT_CAPTURE_MODULE,
     X_COUNT,
+    fake_x_count_domain_execution,
 )
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
@@ -60,6 +61,7 @@ FAKE_BIAS_SOURCE_MODULE = (
 
 _CAPTURE = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("capture")
 _BIAS_SOURCE = FAKE_BIAS_SOURCE_MODULE.instantiate("bias_source")
+_DOMAIN_EXECUTION = fake_x_count_domain_execution(_CAPTURE.products.integrated_iq_shots)
 FAKE_X_COUNT_BIAS_TEMPLATE = (
     sc.module("quantum_lab_demo.reference.fake_x_count.bias.root")
     .use(_CAPTURE, _BIAS_SOURCE)
@@ -67,6 +69,7 @@ FAKE_X_COUNT_BIAS_TEMPLATE = (
         "quantum_lab_demo.reference.fake_x_count.bias",
         kind="fake-x-count-bias",
     )
+    .domain(_DOMAIN_EXECUTION)
     .experiment_id("fake-x-count-bias")
     .scan(
         sc.cartesian(

@@ -34,20 +34,19 @@ def test_domain_batch_view_materializes_typed_inputs_results_and_batches(
         inputs={"count": count_type},
         results={"counts": ("counts", "v1")},
     )
-    call = sc.domain_call(
-        "execute",
-        program,
-        inputs={"count": count},
-        results={"counts": "counts"},
-    )
     module = (
         sc.module("test.domain.view")
         .product("counts", unit="count", dtype="int64")
-        .domain_calls(call)
         .build()
+    )
+    execution = sc.domain_execution(
+        program,
+        inputs={"count": count},
+        results={"counts": module.products["counts"]},
     )
     template = (
         module.template("test.domain.view", kind="domain_view")
+        .domain(execution)
         .scan(count, (1, 3, 5))
         .record_product("counts")
         .build()
@@ -61,7 +60,7 @@ def test_domain_batch_view_materializes_typed_inputs_results_and_batches(
 
     projection = project_domain_plan(linked_points)
     full = projection.view(linked_points)
-    selected = full.require_one_call(
+    selected = full.require_execution(
         dialect_id="test.domain",
         dialect_version="1",
     )
@@ -85,16 +84,12 @@ def test_domain_batch_view_materializes_typed_inputs_results_and_batches(
     assert product_use.product is result.product
     assert product_use is full.product_uses[0]
 
-    offer = DomainExecutionOffer.for_call(
-        selected,
-        max_points_per_batch=8,
-    )
-    assert offer.call_id == "execute"
+    offer = DomainExecutionOffer(max_points_per_batch=8)
     assert offer.max_points_per_batch == 8
 
     batch = MaterializedLinkedPointBatch(linked_points, (1, 2))
     batch_view = projection.view(batch)
-    batched = batch_view.require_one_call(dialect_id="test.domain")
+    batched = batch_view.require_execution(dialect_id="test.domain")
     assert batched.input_values("count") == (3, 5)
     assert [point.logical_ordinal for point in batched.points] == [1, 2]
     assert all(

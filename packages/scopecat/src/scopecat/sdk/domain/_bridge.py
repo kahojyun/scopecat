@@ -10,19 +10,18 @@ from scopecat.compiler.linking.linked import (
     MaterializedLinkedPoints,
     MaterializedLinkedPointSet,
 )
-from scopecat.compiler.semantic.model import DomainCallId
 from scopecat.compiler.typed.point_domain import LogicalPointId
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.planning.domain_placement import (
-    DomainCallExecutionSlice,
-    domain_call_execution_slices,
+    DomainExecutionSlice,
+    domain_execution_slice,
 )
-from scopecat.sdk.domain.context import DomainBatchContext, DomainExecutionOffer
+from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.view import (
     DomainBatchView,
-    DomainCallPointView,
-    DomainCallView,
+    DomainExecutionPointView,
+    DomainExecutionView,
     DomainInputPortView,
     DomainMeasurementTransform,
     DomainPointRef,
@@ -54,11 +53,11 @@ class DomainPlanProjection:
         repr=False,
         compare=False,
     )
-    _measurement_transforms_by_call: dict[
-        DomainCallId,
-        tuple[DomainMeasurementTransform, ...],
-    ] = field(repr=False, compare=False)
-    _execution_slices_by_call: dict[DomainCallId, DomainCallExecutionSlice] = field(
+    _measurement_transforms: tuple[DomainMeasurementTransform, ...] = field(
+        repr=False,
+        compare=False,
+    )
+    _execution_slice: DomainExecutionSlice | None = field(
         repr=False,
         compare=False,
     )
@@ -69,26 +68,28 @@ class DomainPlanProjection:
             self._point_refs_by_id[point.logical_id]
             for point in selected.point_domain.points
         )
+        materialized = selected.domain_execution
         return DomainBatchView(
-            calls=tuple(
-                DomainCallView(
-                    id=materialized.call.id.qualified_name,
+            execution=(
+                None
+                if materialized is None
+                else DomainExecutionView(
                     program=DomainProgramView(
-                        id=materialized.program.id.qualified_name,
-                        dialect_id=materialized.program.dialect_id,
-                        dialect_version=materialized.program.dialect_version,
-                        body=materialized.program.body,
+                        id=materialized.execution.program.id.qualified_name,
+                        dialect_id=materialized.execution.program.dialect_id,
+                        dialect_version=materialized.execution.program.dialect_version,
+                        body=materialized.execution.program.body,
                         inputs=tuple(
                             DomainInputPortView(port.id, port.value_type)
-                            for port in materialized.program.input_ports
+                            for port in materialized.execution.program.input_ports
                         ),
                         results=tuple(
                             DomainResultPortView(port.id, port.contract)
-                            for port in materialized.program.result_ports
+                            for port in materialized.execution.program.result_ports
                         ),
                     ),
                     points=tuple(
-                        DomainCallPointView(
+                        DomainExecutionPointView(
                             ref=self._point_refs_by_id[point.logical_id],
                             inputs=point.inputs,
                         )
@@ -104,18 +105,14 @@ class DomainPlanProjection:
                             ),
                             contract=next(
                                 port.contract
-                                for port in materialized.program.result_ports
+                                for port in materialized.execution.program.result_ports
                                 if port.id == result.id
                             ),
                         )
-                        for result in materialized.call.results
+                        for result in materialized.execution.results
                     ),
-                    measurement_transforms=self._measurement_transforms_by_call.get(
-                        materialized.call.id,
-                        (),
-                    ),
+                    measurement_transforms=self._measurement_transforms,
                 )
-                for materialized in selected.domain_calls
             ),
             points=points,
             product_uses=self.product_use_refs,
@@ -132,16 +129,11 @@ class DomainPlanProjection:
         msg = "domain view projection requires points from its materialized plan"
         raise ValueError(msg)
 
-    def execution_slice(self, call: DomainCallView) -> DomainCallExecutionSlice:
-        selected = tuple(
-            execution_slice
-            for call_id, execution_slice in self._execution_slices_by_call.items()
-            if call_id.qualified_name == call.id
-        )
-        if len(selected) != 1:
-            msg = f"domain call {call.id!r} has no unique execution slice"
-            raise ValueError(msg)
-        return selected[0]
+    def execution_slice(self) -> DomainExecutionSlice:
+        selected = self._execution_slice
+        if selected is None:
+            raise ValueError("domain execution has no placement slice")
+        return selected
 
 
 def project_domain_plan(
@@ -197,16 +189,14 @@ def project_domain_plan(
         )
         for transform in linked_points.linked_plan.program.measurement_transforms
     }
-    execution_slices = domain_call_execution_slices(linked_points.linked_plan.program)
-    execution_slices_by_call = {
-        execution_slice.call_id: execution_slice for execution_slice in execution_slices
-    }
-    transforms_by_call = {
-        execution_slice.call_id: tuple(
+    execution_slice = domain_execution_slice(linked_points.linked_plan.program)
+    measurement_transforms = (
+        ()
+        if execution_slice is None
+        else tuple(
             transform_refs[transform.id] for transform in execution_slice.transforms
         )
-        for execution_slice in execution_slices
-    }
+    )
     return DomainPlanProjection(
         linked_points=linked_points,
         point_refs=point_refs,
@@ -214,22 +204,23 @@ def project_domain_plan(
         _point_refs_by_id=point_refs_by_id,
         _product_use_refs_by_id=product_use_refs_by_id,
         _product_contracts=product_contracts,
-        _measurement_transforms_by_call=transforms_by_call,
-        _execution_slices_by_call=execution_slices_by_call,
+        _measurement_transforms=measurement_transforms,
+        _execution_slice=execution_slice,
     )
 
 
 def make_domain_batch_context(
     projection: DomainPlanProjection,
     batch: MaterializedLinkedPointBatch,
-    offer: DomainExecutionOffer,
     *,
     adapter_id: str,
     batch_ordinal: int,
 ) -> DomainBatchContext:
     view = projection.view(batch)
-    call = offered_call(view, offer)
-    execution_slice = projection.execution_slice(call)
+    execution = view.execution
+    if execution is None:
+        raise AssertionError("selected domain execution is missing")
+    execution_slice = projection.execution_slice()
     owned_ids = set(execution_slice.product_use_ids)
     direct_ids = set(execution_slice.direct_product_use_ids)
     derived_ids = set(execution_slice.derived_product_use_ids)
@@ -250,26 +241,15 @@ def make_domain_batch_context(
     )
     return DomainBatchContext(
         batch_ordinal=batch_ordinal,
-        call=call,
+        execution=execution,
         points=view.points,
         product_uses=owned,
         direct_product_uses=direct,
         derived_product_uses=derived,
-        measurement_transforms=call.measurement_transforms,
+        measurement_transforms=execution.measurement_transforms,
         linked_points=batch,
         adapter_id=adapter_id,
     )
-
-
-def offered_call(view: DomainBatchView, offer: DomainExecutionOffer) -> DomainCallView:
-    selected = tuple(call for call in view.calls if call.id == offer.call_id)
-    if len(selected) != 1:
-        msg = (
-            f"domain execution offer call {offer.call_id!r} does not identify "
-            "exactly one call in this plan"
-        )
-        raise ValueError(msg)
-    return selected[0]
 
 
 def point_id(ref: DomainPointRef) -> LogicalPointId:

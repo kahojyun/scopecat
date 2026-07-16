@@ -51,7 +51,6 @@ from scopecat.authoring._value_refs import (
     internal_module_export_value_ref,
     internal_value_ref_input_id,
 )
-from scopecat.authoring.domain import DomainCall, DomainProgramDef
 from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.value_types import (
     Entity as EntityType,
@@ -138,8 +137,6 @@ class ModuleBuilder:
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
     measurement_transform_intents: tuple[MeasurementTransform, ...] = ()
-    domain_programs: tuple[DomainProgramDef, ...] = ()
-    domain_call_intents: tuple[DomainCall, ...] = ()
     records: tuple[RecordIntent, ...] = ()
     product_ports: tuple[ModuleProductPort, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
@@ -162,8 +159,6 @@ class ModuleBuilder:
                 self.operations,
                 self.python_implementations,
                 self.measurement_transform_intents,
-                self.domain_programs,
-                self.domain_call_intents,
                 self.records,
                 self.product_ports,
             )
@@ -435,30 +430,6 @@ class ModuleBuilder:
                 *self.python_implementations,
                 *implementations,
             ),
-        )
-
-    def domain_calls(self, *calls: DomainCall) -> ModuleBuilder:
-        """Register independent compile-stage domain program invocations."""
-
-        existing_calls = {call.symbol_id for call in self.domain_call_intents}
-        if any(call.symbol_id in existing_calls for call in calls):
-            raise ValueError("module domain call ids must be unique")
-        programs = list(self.domain_programs)
-        by_id = {program.symbol_id: program for program in programs}
-        for call in calls:
-            existing = by_id.get(call.program.symbol_id)
-            if existing is not None and existing is not call.program:
-                raise ValueError(
-                    "one module cannot declare different domain programs with "
-                    f"identity {call.program.symbol_id.qualified_name!r}"
-                )
-            if existing is None:
-                programs.append(call.program)
-                by_id[call.program.symbol_id] = call.program
-        return replace(
-            self,
-            domain_programs=tuple(programs),
-            domain_call_intents=(*self.domain_call_intents, *calls),
         )
 
     def measurement_transforms(

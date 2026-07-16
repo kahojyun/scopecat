@@ -28,6 +28,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_availability,
     internal_value_ref_input_id,
 )
+from scopecat.authoring.domain import DomainExecution
 from scopecat.compiler.semantic.availability import (
     ValueAvailabilityError,
     ValueStage,
@@ -62,6 +63,7 @@ class TemplateInputDescription(Protocol):
 def validate_template_definition(
     *,
     module: ExperimentModule,
+    domain_execution: DomainExecution | None,
     inputs: Sequence[TemplateInputDescription],
     default_scans: Sequence[Scan],
     record_selections: Sequence[RecordSelection],
@@ -77,6 +79,7 @@ def validate_template_definition(
     problems.extend(_validate_input_descriptions(inputs, input_types))
     problems.extend(_validate_default_scans(default_scans, input_types))
     problems.extend(_validate_record_selections(module, record_selections))
+    problems.extend(_validate_domain_execution(module, domain_execution))
     _raise_problems(problems, phase=ProblemPhase.DEFINITION)
 
 
@@ -475,6 +478,40 @@ def _validate_record_selections(
                 "records",
             )
         )
+    return problems
+
+
+def _validate_domain_execution(
+    module: ExperimentModule,
+    execution: DomainExecution | None,
+) -> list[Problem]:
+    if execution is None:
+        return []
+    products_by_id: dict[ProductId, list[tuple[object, ...]]] = {}
+    for product in module.ir.interface.products:
+        products_by_id.setdefault(product.symbol_id, []).append(product.target_origin)
+    problems: list[Problem] = []
+    for result_id, product in execution.result_bindings:
+        origins = products_by_id.get(product.product_id)
+        if origins is None:
+            problems.append(
+                problem(
+                    "domain_execution_product_unknown",
+                    f"domain result {result_id!r} binds unknown product {product.id!r}",
+                    "domain_execution",
+                    path=("results", result_id),
+                )
+            )
+        elif product.origin not in origins:
+            problems.append(
+                problem(
+                    "domain_execution_product_foreign_instance",
+                    f"domain result {result_id!r} binds product {product.id!r} "
+                    "from another module instance",
+                    "domain_execution",
+                    path=("results", result_id),
+                )
+            )
     return problems
 
 

@@ -10,8 +10,8 @@ from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
     DomainBatchView,
-    DomainCallView,
     DomainExecutionOffer,
+    DomainExecutionView,
     PreparedDomainExecution,
 )
 from scopecat_quantum import (
@@ -61,19 +61,6 @@ ANALYZER_PHASE = sc.point("analyzer_phase", _PHASE_TYPE)
 _CZ_PROGRAM = cz_conditional_phase_program()
 [_CONTROL_RESULT, _TARGET_RESULT] = _CZ_PROGRAM.results
 _CZ_DOMAIN_PROGRAM = quantum.domain_program(_CZ_PROGRAM)
-_CZ_CALL = quantum.domain_call(
-    "execute",
-    _CZ_DOMAIN_PROGRAM,
-    inputs={
-        CZ_AMPLITUDE_INPUT: CZ_AMPLITUDE,
-        CONTROL_STATE_INPUT: CONTROL_STATE,
-        ANALYZER_PHASE_INPUT: ANALYZER_PHASE,
-    },
-    results={
-        _CONTROL_RESULT: "control_iq_shots",
-        _TARGET_RESULT: "target_iq_shots",
-    },
-)
 _DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
@@ -115,12 +102,23 @@ CZ_PHASE_CAPTURE_MODULE = (
         "target_probability_1",
         unit="ratio",
     )
-    .domain_calls(_CZ_CALL)
     .measurement_transforms(_CONTROL_TRANSFORM, _TARGET_TRANSFORM)
     .build()
 )
 
 _TEMPLATE_CAPTURE = CZ_PHASE_CAPTURE_MODULE.instantiate("capture")
+_CZ_EXECUTION = quantum.domain_execution(
+    _CZ_DOMAIN_PROGRAM,
+    inputs={
+        CZ_AMPLITUDE_INPUT: CZ_AMPLITUDE,
+        CONTROL_STATE_INPUT: CONTROL_STATE,
+        ANALYZER_PHASE_INPUT: ANALYZER_PHASE,
+    },
+    results={
+        _CONTROL_RESULT: _TEMPLATE_CAPTURE.products.control_iq_shots,
+        _TARGET_RESULT: _TEMPLATE_CAPTURE.products.target_iq_shots,
+    },
+)
 CZ_PHASE_TEMPLATE = (
     sc.module("quantum_lab_demo.reference.cz_phase.root")
     .use(_TEMPLATE_CAPTURE)
@@ -128,6 +126,7 @@ CZ_PHASE_TEMPLATE = (
         CZ_PHASE_TEMPLATE_ID,
         kind=CZ_PHASE_EXPERIMENT_ID,
     )
+    .domain(_CZ_EXECUTION)
     .experiment_id(CZ_PHASE_EXPERIMENT_ID)
     .scan(
         sc.cartesian(
@@ -176,38 +175,38 @@ class CzPhaseDomainExecutionAdapter:
         )
 
     def select(self, view: DomainBatchView) -> DomainExecutionOffer | None:
-        call = _call_or_none(view)
-        if call is None:
+        execution = _execution_or_none(view)
+        if execution is None:
             return None
-        return DomainExecutionOffer.for_call(
-            call,
+        return DomainExecutionOffer(
             max_points_per_batch=self.target.max_list_entries,
         )
 
     def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
-        call = context.call
-        call_points = tuple(call.points)
-        if tuple(point.ref for point in call_points) != context.points:
-            msg = "CZ phase call points do not match the selected batch context"
+        execution = context.execution
+        execution_points = tuple(execution.points)
+        if tuple(point.ref for point in execution_points) != context.points:
+            msg = "CZ phase execution points do not match the batch context"
             raise ValueError(msg)
-        control_result, target_result = _validated_result_contracts(call)
+        control_result, target_result = _validated_result_contracts(execution)
         preparation = context.new_preparation()
         reference = prepare_cz_phase_reference(
             preparation,
-            _product_binding(call),
+            _product_binding(execution),
             control_slot_id=control_result.acquisition_slot_id,
             target_slot_id=target_result.acquisition_slot_id,
-            declaration=_program_body(call),
+            declaration=_program_body(execution),
             amplitudes=tuple(
                 _decode_amplitude(point.input("coupler_amplitude"))
-                for point in call_points
+                for point in execution_points
             ),
             control_states=tuple(
                 _decode_control_state(point.input("control_state"))
-                for point in call_points
+                for point in execution_points
             ),
             analyzer_phases=tuple(
-                _decode_phase(point.input("analyzer_phase")) for point in call_points
+                _decode_phase(point.input("analyzer_phase"))
+                for point in execution_points
             ),
             shots=CZ_PHASE_SHOTS,
             target=self.target,
@@ -222,49 +221,44 @@ class CzPhaseDomainExecutionAdapter:
         )
 
 
-def _call_or_none(view: DomainBatchView) -> DomainCallView | None:
-    selected = tuple(
-        call
-        for call in view.matching_calls(
-            dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
-            dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
-        )
-        if isinstance(call.program.body, quantum.Program)
-        and call.program.body.id == _CZ_PROGRAM.id
+def _execution_or_none(view: DomainBatchView) -> DomainExecutionView | None:
+    selected = view.matching_execution(
+        dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
+        dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
     )
-    if len(selected) > 1:
-        msg = "CZ phase adapter found multiple matching authored calls"
-        raise ValueError(msg)
-    if not selected:
+    if selected is None or not (
+        isinstance(selected.program.body, quantum.Program)
+        and selected.program.body.id == _CZ_PROGRAM.id
+    ):
         return None
-    _validated_result_contracts(selected[0])
-    return selected[0]
+    _validated_result_contracts(selected)
+    return selected
 
 
-def _program_body(call: DomainCallView) -> quantum.Program:
-    body = call.program.body
+def _program_body(execution: DomainExecutionView) -> quantum.Program:
+    body = execution.program.body
     if not isinstance(body, quantum.Program):
         msg = "CZ phase domain program body must be a Program"
         raise TypeError(msg)
     return body
 
 
-def _product_binding(call: DomainCallView) -> CzPhaseProductBinding:
-    [control_transform, target_transform] = call.measurement_transforms
+def _product_binding(execution: DomainExecutionView) -> CzPhaseProductBinding:
+    [control_transform, target_transform] = execution.measurement_transforms
     return CzPhaseProductBinding(
-        control_iq_shots=call.result("control_iq_shots").product_uses,
-        target_iq_shots=call.result("target_iq_shots").product_uses,
+        control_iq_shots=execution.result("control_iq_shots").product_uses,
+        target_iq_shots=execution.result("target_iq_shots").product_uses,
         control_transform=control_transform,
         target_transform=target_transform,
     )
 
 
 def _validated_result_contracts(
-    call: DomainCallView,
+    execution: DomainExecutionView,
 ) -> tuple[quantum.MeasurementResult, quantum.MeasurementResult]:
-    body = _program_body(call)
-    control = call.result("control_iq_shots").contract
-    target = call.result("target_iq_shots").contract
+    body = _program_body(execution)
+    control = execution.result("control_iq_shots").contract
+    target = execution.result("target_iq_shots").contract
     if (
         not isinstance(control, quantum.MeasurementResult)
         or control.id != "control_iq_shots"
@@ -275,11 +269,11 @@ def _validated_result_contracts(
     ):
         msg = "CZ phase IQ results must bind their authored result handles"
         raise ValueError(msg)
-    if len(call.measurement_transforms) != 2:
-        msg = "CZ phase call requires exactly two measurement transforms"
+    if len(execution.measurement_transforms) != 2:
+        msg = "CZ phase execution requires exactly two measurement transforms"
         raise ValueError(msg)
     implementation = binary_iq_probability_host_implementation()
-    for transform in call.measurement_transforms:
+    for transform in execution.measurement_transforms:
         implementation.validate_transform(transform)
     return control, target
 

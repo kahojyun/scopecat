@@ -108,7 +108,7 @@ from scopecat.compiler.typed.program import (
     RouteInput,
     TypedComputeNode,
     TypedComputeOutput,
-    TypedDomainCall,
+    TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
     ValueInput,
@@ -246,33 +246,28 @@ def lower_semantic_domain_graph(
     *,
     type_bindings: RelationTypeBindings,
     product_uses: Sequence[ProductUse],
-) -> tuple[
-    tuple[TypedDomainProgram, ...],
-    tuple[TypedDomainCall, ...],
-    tuple[DomainProductProducer, ...],
-]:
-    """Lower verified prepare-stage domain calls and exact product uses."""
+) -> tuple[TypedDomainExecution | None, tuple[DomainProductProducer, ...]]:
+    """Lower the optional prepare-stage domain execution and its product uses."""
 
     operations = {operation.id: operation for operation in graph.graph.operations}
-    programs = tuple(
-        TypedDomainProgram(
-            id=program.id,
-            dialect_id=program.dialect_id,
-            dialect_version=program.dialect_version,
-            body=program.body,
-            input_ports=program.input_ports,
-            result_ports=program.result_ports,
-        )
-        for program in graph.graph.domain_programs
-    )
     uses_by_product: dict[ProductId, list[ProductUseId]] = {}
     for use in product_uses:
         uses_by_product.setdefault(use.product_id, []).append(use.id)
-    calls: list[TypedDomainCall] = []
     producers: list[DomainProductProducer] = []
-    for call in graph.graph.domain_calls:
+    execution = graph.graph.domain_execution
+    typed_execution: TypedDomainExecution | None = None
+    if execution is not None:
+        semantic_program = execution.program
+        program = TypedDomainProgram(
+            id=semantic_program.id,
+            dialect_id=semantic_program.dialect_id,
+            dialect_version=semantic_program.dialect_version,
+            body=semantic_program.body,
+            input_ports=semantic_program.input_ports,
+            result_ports=semantic_program.result_ports,
+        )
         lowered_inputs: dict[str, ValueInput] = {}
-        for name, use in call.inputs:
+        for name, use in execution.inputs:
             lowered = _lower_semantic_input(
                 use.value_id,
                 definitions=graph.value_defs,
@@ -282,11 +277,11 @@ def lower_semantic_domain_graph(
             )
             if not isinstance(lowered, ValueInput):
                 raise AssertionError(
-                    "verified domain call inputs must lower to plan values"
+                    "verified domain execution inputs must lower to plan values"
                 )
             lowered_inputs[name] = lowered
         result_bindings: list[TypedDomainResultBinding] = []
-        for result_id, product_id in call.results:
+        for result_id, product_id in execution.results:
             producer_id = ProductProducerId(product_id.symbol)
             result_bindings.append(
                 TypedDomainResultBinding(
@@ -300,19 +295,15 @@ def lower_semantic_domain_graph(
                 DomainProductProducer(
                     id=producer_id,
                     product_id=product_id,
-                    call_id=call.id,
                     result_id=result_id,
                 )
             )
-        calls.append(
-            TypedDomainCall(
-                id=call.id,
-                program_id=call.program_id,
-                inputs=lowered_inputs,
-                results=tuple(result_bindings),
-            )
+        typed_execution = TypedDomainExecution(
+            program=program,
+            inputs=lowered_inputs,
+            results=tuple(result_bindings),
         )
-    return programs, tuple(calls), tuple(producers)
+    return typed_execution, tuple(producers)
 
 
 def _operation_is_execute_stage(

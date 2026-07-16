@@ -141,15 +141,16 @@ class _WrongResultAdapter(FakeXCountDomainExecutionAdapter):
 
 def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -> None:
     body = FAKE_X_COUNT_CAPTURE_MODULE.ir.body
-    [program] = body.domain_programs
-    [call] = body.domain_calls
+    execution = FAKE_X_COUNT_TEMPLATE.build().domain_execution
+    assert execution is not None
+    program = execution.program
     [transform] = body.measurement_transforms
 
     assert tuple(port.id for port in program.result_ports) == ("iq_shots",)
-    assert tuple(result_id for result_id, _product in call.result_bindings) == (
+    assert tuple(result_id for result_id, _product in execution.result_bindings) == (
         "iq_shots",
     )
-    assert call.result_bindings[0][1].local_id == "integrated_iq_shots"
+    assert execution.result_bindings[0][1].local_id == "integrated_iq_shots"
     assert [(role, product.local_id) for role, product in transform.input_bindings] == [
         ("iq_shots", "integrated_iq_shots")
     ]

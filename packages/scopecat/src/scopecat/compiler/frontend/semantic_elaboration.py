@@ -27,7 +27,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_operation_id,
     internal_value_ref_scalar_operation,
 )
-from scopecat.authoring.domain import DomainCall, DomainProgramDef
+from scopecat.authoring.domain import LoweredDomainExecution
 from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.values import ComputeDeclarationKey, ComputeFunction, RouteRef
 from scopecat.compiler.frontend.value_binding import literal_data_expr
@@ -58,7 +58,6 @@ from scopecat.compiler.semantic.availability import (
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     ActionId,
-    DomainCallId,
     DomainInputPortDef,
     DomainProgramId,
     DomainResultPortDef,
@@ -74,7 +73,7 @@ from scopecat.compiler.semantic.model import (
     RouteValueSource,
     RowArgumentDef,
     RowRegionId,
-    SemanticDomainCall,
+    SemanticDomainExecution,
     SemanticDomainProgram,
     SemanticGraphIR,
     SemanticMeasurementTransform,
@@ -146,8 +145,7 @@ def elaborate_semantic_graph(
     implementations: Sequence[ScopedPythonImplementation],
     *,
     measurement_transforms: Sequence[MeasurementTransform] = (),
-    domain_programs: Sequence[DomainProgramDef] = (),
-    domain_calls: Sequence[DomainCall] = (),
+    domain_execution: LoweredDomainExecution | None = None,
     actions: Sequence[ModuleActionDecl] = (),
     value_roots: Sequence[object] = (),
     state_regions: Sequence[StateEachIntent] = (),
@@ -166,12 +164,10 @@ def elaborate_semantic_graph(
     builder.declare_state_regions(state_regions)
     for transform in measurement_transforms:
         builder.add_measurement_transform(transform)
-    for program in domain_programs:
-        builder.add_domain_program(program)
     for operation in operations:
         builder.add_authored_operation(operation)
-    for call in domain_calls:
-        builder.add_domain_call(call)
+    if domain_execution is not None:
+        builder.add_domain_execution(domain_execution)
     for action in actions:
         builder.add_action(action)
     for root in value_roots:
@@ -234,8 +230,7 @@ class _SemanticGraphBuilder:
         self._definitions: dict[ValueId, ValueDef] = {}
         self._operations: dict[OperationId, SemanticOperation] = {}
         self._measurement_transforms: list[SemanticMeasurementTransform] = []
-        self._domain_programs: dict[DomainProgramId, SemanticDomainProgram] = {}
-        self._domain_calls: list[SemanticDomainCall] = []
+        self._domain_execution: SemanticDomainExecution | None = None
         self._actions: list[InstrumentActionEffect] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
         self._operation_sources: dict[OperationId, SourceAnchor] = {}
@@ -334,25 +329,42 @@ class _SemanticGraphBuilder:
         self._operation_sources[operation_id] = anchor
         self._value_sources[output_id] = anchor
 
-    def add_domain_program(self, declaration: DomainProgramDef) -> None:
-        program_id = DomainProgramId(declaration.symbol_id)
-        if program_id in self._domain_programs:
-            raise ValueError(
-                f"domain program {program_id.qualified_name!r} is redefined"
-            )
-        self._domain_programs[program_id] = SemanticDomainProgram(
-            id=program_id,
-            dialect_id=declaration.dialect_id,
-            dialect_version=declaration.dialect_version,
-            body=declaration.body,
+    def add_domain_execution(self, execution: LoweredDomainExecution) -> None:
+        program = execution.program
+        semantic_program = SemanticDomainProgram(
+            id=DomainProgramId(program.symbol_id),
+            dialect_id=program.dialect_id,
+            dialect_version=program.dialect_version,
+            body=program.body,
             input_ports=tuple(
                 DomainInputPortDef(port.id, port.value_type)
-                for port in declaration.input_ports
+                for port in program.input_ports
             ),
             result_ports=tuple(
                 DomainResultPortDef(port.id, port.contract)
-                for port in declaration.result_ports
+                for port in program.result_ports
             ),
+        )
+        operation_id = OperationId(
+            SymbolId(scope=("domain_execution",), local_id="domain")
+        )
+        self._domain_execution = SemanticDomainExecution(
+            program=semantic_program,
+            inputs=tuple(
+                (
+                    name,
+                    ValueUse(
+                        self._add_compute_input(
+                            value,
+                            operation_id=operation_id,
+                            declaration_id="domain",
+                            input_name=name,
+                        )
+                    ),
+                )
+                for name, value in execution.input_bindings
+            ),
+            results=execution.result_bindings,
         )
 
     def add_measurement_transform(
@@ -366,36 +378,6 @@ class _SemanticGraphBuilder:
                 rate=declaration.rate,
                 inputs=declaration.input_bindings,
                 outputs=declaration.output_bindings,
-            )
-        )
-
-    def add_domain_call(self, declaration: DomainCall) -> None:
-        call_id = DomainCallId(declaration.symbol_id)
-        call_operation_id = OperationId(
-            SymbolId(
-                scope=(*declaration.scope, "domain_calls"),
-                local_id=declaration.id,
-            )
-        )
-        self._domain_calls.append(
-            SemanticDomainCall(
-                id=call_id,
-                program_id=DomainProgramId(declaration.program.symbol_id),
-                inputs=tuple(
-                    (
-                        name,
-                        ValueUse(
-                            self._add_compute_input(
-                                value,
-                                operation_id=call_operation_id,
-                                declaration_id=call_id.qualified_name,
-                                input_name=name,
-                            )
-                        ),
-                    )
-                    for name, value in declaration.input_bindings
-                ),
-                results=declaration.result_bindings,
             )
         )
 
@@ -490,8 +472,7 @@ class _SemanticGraphBuilder:
             value_defs=tuple(self._definitions.values()),
             operations=tuple(self._operations.values()),
             measurement_transforms=tuple(self._measurement_transforms),
-            domain_programs=tuple(self._domain_programs.values()),
-            domain_calls=tuple(self._domain_calls),
+            domain_execution=self._domain_execution,
             actions=tuple(self._actions),
             row_regions=tuple(self._row_regions),
         )

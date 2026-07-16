@@ -21,7 +21,7 @@ def test_authoring_exposes_one_program_entry_path() -> None:
         "program",
         "bind",
         "domain_program",
-        "domain_call",
+        "domain_execution",
     } <= names
 
 

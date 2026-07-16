@@ -45,12 +45,6 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
         inputs={"count": count_type},
         results={"raw": ("raw", "v1")},
     )
-    call = sc.domain_call(
-        "execute",
-        program,
-        inputs={"count": count},
-        results={"raw": "raw"},
-    )
     transform = sc.measurement_transform(
         "summarize",
         semantic=MeasurementTransformSemanticContract(
@@ -64,15 +58,20 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
     module = (
         sc.module(f"test.sdk.measurements.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
-        .domain_calls(call)
         .measurement_transforms(transform)
         .build()
+    )
+    execution = sc.domain_execution(
+        program,
+        inputs={"count": count},
+        results={"raw": module.products["raw"]},
     )
     template = (
         module.template(
             f"test.sdk.measurements.{namespace}",
             kind="domain_measurements",
         )
+        .domain(execution)
         .scan(count, (1, 3))
         .record_product("raw")
         .record_product("summary")
@@ -86,17 +85,9 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
         link_verified_program(resolved.verified_program, resolved.environment)
     )
     projection = project_domain_plan(linked_points)
-    call_view = projection.view(linked_points).require_one_call(
-        dialect_id="test.sdk.measurements"
-    )
-    offer = sc.DomainExecutionOffer.for_call(
-        call_view,
-        max_points_per_batch=2,
-    )
     return make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1)),
-        offer,
         adapter_id=f"test.sdk.measurements.{namespace}",
         batch_ordinal=0,
     )

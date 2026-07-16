@@ -38,8 +38,6 @@ from scopecat.compiler.semantic.availability import (
 )
 from scopecat.compiler.semantic.model import (
     ActionId,
-    DomainCallId,
-    DomainProgramId,
     ImplementationCatalog,
     ImplementationId,
     InstrumentActionEffect,
@@ -50,8 +48,7 @@ from scopecat.compiler.semantic.model import (
     PlanExpressionSource,
     RouteValueSource,
     RowRegionId,
-    SemanticDomainCall,
-    SemanticDomainProgram,
+    SemanticDomainExecution,
     SemanticGraphIR,
     SemanticMeasurementTransform,
     SemanticOperation,
@@ -119,12 +116,7 @@ class VerifiedSemanticGraph:
         compare=False,
         hash=False,
     )
-    domain_programs: Mapping[DomainProgramId, SemanticDomainProgram] = field(
-        init=False,
-        compare=False,
-        hash=False,
-    )
-    domain_calls: Mapping[DomainCallId, SemanticDomainCall] = field(
+    domain_execution: SemanticDomainExecution | None = field(
         init=False,
         compare=False,
         hash=False,
@@ -139,10 +131,6 @@ class VerifiedSemanticGraph:
         measurement_transforms = {
             transform.id: transform for transform in self.graph.measurement_transforms
         }
-        domain_programs = {
-            program.id: program for program in self.graph.domain_programs
-        }
-        domain_calls = {call.id: call for call in self.graph.domain_calls}
         object.__setattr__(self, "value_defs", MappingProxyType(definitions))
         object.__setattr__(self, "row_regions", MappingProxyType(regions))
         object.__setattr__(self, "actions", MappingProxyType(actions))
@@ -151,12 +139,7 @@ class VerifiedSemanticGraph:
             "measurement_transforms",
             MappingProxyType(measurement_transforms),
         )
-        object.__setattr__(
-            self,
-            "domain_programs",
-            MappingProxyType(domain_programs),
-        )
-        object.__setattr__(self, "domain_calls", MappingProxyType(domain_calls))
+        object.__setattr__(self, "domain_execution", self.graph.domain_execution)
 
 
 def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
@@ -174,14 +157,6 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
     actions, ambiguous_action_ids = _actions_by_id(graph.actions, problems)
     _measurement_transforms, ambiguous_measurement_transform_ids = (
         _measurement_transforms_by_id(graph.measurement_transforms, problems)
-    )
-    domain_programs, ambiguous_domain_program_ids = _domain_programs_by_id(
-        graph.domain_programs,
-        problems,
-    )
-    domain_calls, ambiguous_domain_call_ids = _domain_calls_by_id(
-        graph.domain_calls,
-        problems,
     )
     regions, ambiguous_region_ids = _regions_by_id(graph.row_regions, problems)
     unambiguous_operations = tuple(
@@ -201,10 +176,8 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         ambiguous_value_ids,
         problems,
     )
-    _verify_domain_calls(
-        tuple(domain_calls.values()),
-        domain_programs,
-        ambiguous_domain_program_ids,
+    _verify_domain_execution(
+        graph.domain_execution,
         definitions,
         ambiguous_value_ids,
         problems,
@@ -215,7 +188,7 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         if transform.id not in ambiguous_measurement_transform_ids
     )
     _verify_measurement_product_owners(
-        tuple(domain_calls.values()),
+        graph.domain_execution,
         unambiguous_measurement_transforms,
         problems,
     )
@@ -269,18 +242,7 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         value_defs=ordered_defs,
         operations=ordered_operations,
         measurement_transforms=ordered_measurement_transforms,
-        domain_programs=tuple(
-            domain_programs[program_id]
-            for program_id in sorted(
-                domain_programs,
-                key=lambda item: item.qualified_name,
-            )
-        ),
-        domain_calls=tuple(
-            call
-            for call in graph.domain_calls
-            if call.id not in ambiguous_domain_call_ids
-        ),
+        domain_execution=graph.domain_execution,
         actions=tuple(
             action for action in graph.actions if action.id not in ambiguous_action_ids
         ),
@@ -289,72 +251,6 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         row_regions=graph.row_regions,
     )
     return VerifiedSemanticGraph(normalized)
-
-
-def _domain_programs_by_id(
-    programs: tuple[SemanticDomainProgram, ...],
-    problems: list[Problem],
-) -> tuple[
-    dict[DomainProgramId, SemanticDomainProgram],
-    frozenset[DomainProgramId],
-]:
-    grouped: dict[DomainProgramId, list[SemanticDomainProgram]] = {}
-    for program in programs:
-        grouped.setdefault(program.id, []).append(program)
-    ambiguous = frozenset(
-        program_id
-        for program_id, declarations in grouped.items()
-        if len(declarations) > 1
-    )
-    for program_id in sorted(ambiguous, key=lambda item: item.qualified_name):
-        problems.append(
-            _problem(
-                "semantic_domain_program_duplicate",
-                "domain program "
-                f"{program_id.qualified_name!r} is declared more than once",
-                "domain_programs",
-                program_id.qualified_name,
-                category=ProblemCategory.CONFLICT,
-            )
-        )
-    return (
-        {
-            program_id: declarations[0]
-            for program_id, declarations in grouped.items()
-            if program_id not in ambiguous
-        },
-        ambiguous,
-    )
-
-
-def _domain_calls_by_id(
-    calls: tuple[SemanticDomainCall, ...],
-    problems: list[Problem],
-) -> tuple[dict[DomainCallId, SemanticDomainCall], frozenset[DomainCallId]]:
-    grouped: dict[DomainCallId, list[SemanticDomainCall]] = {}
-    for call in calls:
-        grouped.setdefault(call.id, []).append(call)
-    ambiguous = frozenset(
-        call_id for call_id, declarations in grouped.items() if len(declarations) > 1
-    )
-    for call_id in sorted(ambiguous, key=lambda item: item.qualified_name):
-        problems.append(
-            _problem(
-                "semantic_domain_call_duplicate",
-                f"domain call {call_id.qualified_name!r} is declared more than once",
-                "domain_calls",
-                call_id.qualified_name,
-                category=ProblemCategory.CONFLICT,
-            )
-        )
-    return (
-        {
-            call_id: declarations[0]
-            for call_id, declarations in grouped.items()
-            if call_id not in ambiguous
-        },
-        ambiguous,
-    )
 
 
 def _measurement_transforms_by_id(
@@ -394,16 +290,16 @@ def _measurement_transforms_by_id(
 
 
 def _verify_measurement_product_owners(
-    calls: tuple[SemanticDomainCall, ...],
+    execution: SemanticDomainExecution | None,
     transforms: tuple[SemanticMeasurementTransform, ...],
     problems: list[Problem],
 ) -> None:
     owners: dict[object, tuple[str, str]] = {}
-    for call in calls:
-        for result_id, product_id in call.results:
+    if execution is not None:
+        for result_id, product_id in execution.results:
             owners.setdefault(
                 product_id,
-                (f"domain call {call.id.qualified_name!r}", result_id),
+                ("domain execution", result_id),
             )
     for transform in transforms:
         for role, product_id in transform.outputs:
@@ -495,125 +391,109 @@ def _topological_measurement_transforms(
     return transforms
 
 
-def _verify_domain_calls(
-    calls: tuple[SemanticDomainCall, ...],
-    programs: Mapping[DomainProgramId, SemanticDomainProgram],
-    ambiguous_program_ids: frozenset[DomainProgramId],
+def _verify_domain_execution(
+    execution: SemanticDomainExecution | None,
     definitions: Mapping[ValueId, ValueDef],
     ambiguous_value_ids: frozenset[ValueId],
     problems: list[Problem],
 ) -> None:
-    product_owners: dict[object, tuple[DomainCallId, str]] = {}
-    for call in calls:
-        location = ("domain_calls", call.id.qualified_name)
-        program = programs.get(call.program_id)
-        if program is None:
-            if call.program_id not in ambiguous_program_ids:
+    if execution is None:
+        return
+    program = execution.program
+    product_owners: dict[object, str] = {}
+    location = ("domain_execution",)
+    expected_inputs = tuple(port.id for port in program.input_ports)
+    if tuple(name for name, _use in execution.inputs) != expected_inputs:
+        problems.append(
+            _problem(
+                "semantic_domain_execution_input_contract_mismatch",
+                "domain execution inputs do not match the declared program ports",
+                *location,
+                "inputs",
+            )
+        )
+    expected_results = tuple(port.id for port in program.result_ports)
+    if tuple(name for name, _product in execution.results) != expected_results:
+        problems.append(
+            _problem(
+                "semantic_domain_execution_result_contract_mismatch",
+                "domain execution results do not match the declared program ports",
+                *location,
+                "results",
+            )
+        )
+    input_ports = {port.id: port for port in program.input_ports}
+    for name, use in execution.inputs:
+        definition = definitions.get(use.value_id)
+        if definition is None:
+            if use.value_id not in ambiguous_value_ids:
                 problems.append(
                     _problem(
-                        "semantic_domain_program_missing",
-                        "domain call references unknown program "
-                        f"{call.program_id.qualified_name!r}",
+                        "semantic_domain_execution_input_dangling",
+                        f"domain execution input {name!r} references unknown value "
+                        f"{use.value_id.qualified_name!r}",
                         *location,
-                        "program_id",
+                        "inputs",
+                        name,
                         category=ProblemCategory.NOT_FOUND,
                     )
                 )
             continue
-        expected_inputs = tuple(port.id for port in program.input_ports)
-        if tuple(name for name, _use in call.inputs) != expected_inputs:
+        port = input_ports.get(name)
+        if port is not None and (
+            isinstance(definition.value_type, Route)
+            or not is_assignable(
+                definition.value_type,
+                port.value_type,
+            )
+        ):
             problems.append(
                 _problem(
-                    "semantic_domain_call_input_contract_mismatch",
-                    "domain call inputs do not match the declared program ports",
+                    "semantic_domain_execution_input_type_mismatch",
+                    f"domain execution input {name!r} is not assignable to its "
+                    "declared port type",
                     *location,
                     "inputs",
+                    name,
                 )
             )
-        expected_results = tuple(port.id for port in program.result_ports)
-        if tuple(name for name, _product in call.results) != expected_results:
+        if definition.availability.stage is not ValueStage.PLAN:
             problems.append(
                 _problem(
-                    "semantic_domain_call_result_contract_mismatch",
-                    "domain call results do not match the declared program ports",
+                    "semantic_domain_execution_input_stage_unavailable",
+                    f"domain execution input {name!r} must be available at plan stage",
                     *location,
-                    "results",
+                    "inputs",
+                    name,
                 )
             )
-        input_ports = {port.id: port for port in program.input_ports}
-        for name, use in call.inputs:
-            definition = definitions.get(use.value_id)
-            if definition is None:
-                if use.value_id not in ambiguous_value_ids:
-                    problems.append(
-                        _problem(
-                            "semantic_domain_call_input_dangling",
-                            f"domain call input {name!r} references unknown value "
-                            f"{use.value_id.qualified_name!r}",
-                            *location,
-                            "inputs",
-                            name,
-                            category=ProblemCategory.NOT_FOUND,
-                        )
-                    )
-                continue
-            port = input_ports.get(name)
-            if port is not None and (
-                isinstance(definition.value_type, Route)
-                or not is_assignable(
-                    definition.value_type,
-                    port.value_type,
+        if definition.owner_region_id is not None:
+            problems.append(
+                _problem(
+                    "semantic_domain_execution_input_region_invalid",
+                    f"domain execution input {name!r} is owned by a row region",
+                    *location,
+                    "inputs",
+                    name,
                 )
-            ):
-                problems.append(
-                    _problem(
-                        "semantic_domain_call_input_type_mismatch",
-                        f"domain call input {name!r} is not assignable to its "
-                        "declared port type",
-                        *location,
-                        "inputs",
-                        name,
-                    )
+            )
+    for result_name, product_id in execution.results:
+        existing = product_owners.get(product_id)
+        if existing is not None:
+            problems.append(
+                _problem(
+                    "semantic_domain_product_producer_duplicate",
+                    f"logical product {product_id.qualified_name!r} is "
+                    "produced by both "
+                    f"domain execution results {existing!r} and {result_name!r}",
+                    *location,
+                    "results",
+                    result_name,
+                    category=ProblemCategory.CONFLICT,
                 )
-            if definition.availability.stage is not ValueStage.PLAN:
-                problems.append(
-                    _problem(
-                        "semantic_domain_call_input_stage_unavailable",
-                        f"domain call input {name!r} must be available at plan stage",
-                        *location,
-                        "inputs",
-                        name,
-                    )
-                )
-            if definition.owner_region_id is not None:
-                problems.append(
-                    _problem(
-                        "semantic_domain_call_input_region_invalid",
-                        f"domain call input {name!r} is owned by a row region",
-                        *location,
-                        "inputs",
-                        name,
-                    )
-                )
-        for result_name, product_id in call.results:
-            existing = product_owners.get(product_id)
-            if existing is not None:
-                owner, owner_result = existing
-                problems.append(
-                    _problem(
-                        "semantic_domain_product_producer_duplicate",
-                        f"logical product {product_id.qualified_name!r} is "
-                        "produced by both "
-                        f"{owner.qualified_name!r}/{owner_result!r} and "
-                        f"{call.id.qualified_name!r}/{result_name!r}",
-                        *location,
-                        "results",
-                        result_name,
-                        category=ProblemCategory.CONFLICT,
-                    )
-                )
-            else:
-                product_owners[product_id] = (call.id, result_name)
+            )
+        else:
+            product_owners[product_id] = result_name
 
 
 def verify_implementation_catalog(
