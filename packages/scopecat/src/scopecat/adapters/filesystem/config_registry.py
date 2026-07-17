@@ -368,7 +368,7 @@ def _registry_lock(lock_path: Path) -> Generator[None]:
             message="storage could not acquire the config registry lock",
             location=_registry_storage_location(CONFIG_REGISTRY_LOCK_REF),
         ) from error
-    assert lock_file is not None
+    assert lock_file is not None  # noqa: S101
     try:
         yield
     finally:

@@ -95,7 +95,7 @@ def test_schedule_normalizes_quantities_and_flattens_authoring_tree() -> None:
     assert scheduled.duration_seconds == Decimal("2.02e-6")
     assert [event.id.value for event in scheduled.events] == ["readout", "wait"]
     assert scheduled.events[1].start_seconds == Decimal("2e-6")
-    envelope = cast(Play, scheduled.events[0].instruction).envelope
+    envelope = cast("Play", scheduled.events[0].instruction).envelope
     assert isinstance(envelope, Gaussian)
     assert envelope.duration == Quantity(2e-6, "s")
     assert envelope.sigma == Quantity(2.5e-7, "s")
@@ -130,7 +130,7 @@ def test_shift_phase_is_a_normalized_zero_duration_frame_event() -> None:
         Decimal(0),
         Decimal("1e-8"),
     ]
-    normalized = cast(ShiftPhase, scheduled.events[0].instruction)
+    normalized = cast("ShiftPhase", scheduled.events[0].instruction)
     assert normalized.signal is DRIVE_Q0
     assert normalized.phase == Quantity(3.14159265359, "rad")
 
@@ -178,7 +178,7 @@ def test_parallel_phase_shifts_are_canonical_and_preserve_signal_identity() -> N
 
     assert first == second
     assert first.duration_seconds == 0
-    assert [cast(ShiftPhase, event.instruction).signal for event in first.events] == [
+    assert [cast("ShiftPhase", event.instruction).signal for event in first.events] == [
         DRIVE_Q0,
         readout_signal,
     ]
@@ -404,7 +404,7 @@ def test_acquisition_slots_are_closed_exactly_once() -> None:
     scheduled = schedule(program)
 
     assert scheduled.acquisition_slots == (slot,)
-    assert cast(Acquire, scheduled.events[0].instruction).duration == Quantity(
+    assert cast("Acquire", scheduled.events[0].instruction).duration == Quantity(
         1e-6, "s"
     )
 
@@ -638,7 +638,7 @@ def test_logical_flux_and_barrier_are_hardware_independent_and_canonical() -> No
 
     scheduled = schedule(_program(barrier))
 
-    assert cast(Barrier, scheduled.events[0].instruction).signals == (
+    assert cast("Barrier", scheduled.events[0].instruction).signals == (
         DRIVE_Q0,
         coupler_flux,
         qubit_flux,

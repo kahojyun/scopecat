@@ -610,5 +610,5 @@ def test_outer_scope_supports_repeated_state_style_bindings() -> None:
 
 
 def test_values_rejects_non_numeric_unit_items() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="could not convert string to float"):
         grid(axis=values(["bad"], unit="GHz"))

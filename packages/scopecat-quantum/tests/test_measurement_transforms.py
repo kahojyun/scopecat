@@ -321,7 +321,7 @@ def test_reference_implementation_rejects_invalid_sdk_contract(
             ),
         )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="binary IQ"):
         binary_iq_probability_host_implementation().validate_transform(invalid)
 
 

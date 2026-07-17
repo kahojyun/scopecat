@@ -822,7 +822,7 @@ def _validate_overlaps(placed: list[_PlacedLeaf], issues: list[PulseIssue]) -> N
         active_id: PulseEventId | None = None
         for event in ordered:
             if event.start < active_end:
-                assert active_id is not None
+                assert active_id is not None  # noqa: S101
                 _issue(
                     issues,
                     "pulse_signal_overlap",
@@ -839,7 +839,7 @@ def _validate_overlaps(placed: list[_PlacedLeaf], issues: list[PulseIssue]) -> N
                 active_id = event.leaf.id
 
     for shift in frame_shifts:
-        assert isinstance(shift.leaf, ShiftPhase)
+        assert isinstance(shift.leaf, ShiftPhase)  # noqa: S101
         for active in by_signal.get(shift.leaf.signal, ()):
             if (
                 isinstance(active.leaf, Play)

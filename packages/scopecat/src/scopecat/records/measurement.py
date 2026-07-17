@@ -183,7 +183,7 @@ class ComplexQuantity(BaseModel):
     @classmethod
     def validate_unit(cls, value: str) -> str:
         validated = validate_supported_unit(value)
-        assert validated is not None
+        assert validated is not None  # noqa: S101
         return validated
 
 
@@ -736,7 +736,7 @@ def _per_record_shape(variable: MeasurementVariable) -> list[int]:
 def _array_shape(values: object) -> list[int]:
     if not isinstance(values, list):
         return []
-    items = cast(list[object], values)
+    items = cast("list[object]", values)
     if not items:
         return [0]
     first_shape = _array_shape(items[0])

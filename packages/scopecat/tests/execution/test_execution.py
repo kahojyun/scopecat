@@ -359,7 +359,7 @@ def test_run_round_trips_non_finite_terminal_measurements(
     assert "-Infinity" in wire
     measurements = read_measurement_records(raw_path)
     values = [
-        cast(Quantity, measurement.observables["signal"]).value
+        cast("Quantity", measurement.observables["signal"]).value
         for measurement in measurements
     ]
     assert math.isnan(values[0])

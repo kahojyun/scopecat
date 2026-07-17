@@ -111,29 +111,47 @@ src = [
 select = [
   "A",
   "ARG",
+  "ASYNC",
   "B",
   "C4",
+  "C90",
+  "DTZ",
   "E",
   "F",
   "FA",
+  "G",
   "I",
   "ISC",
+  "LOG",
+  "PERF102",
+  "PERF402",
   "PIE",
   "PTH",
+  "PT011",
+  "PT017",
   "PYI",
+  "RSE",
   "RUF",
+  "S",
   "SIM",
+  "T10",
+  "TC006",
+  "TRY400",
   "UP",
   "W",
-]
-ignore = [
-  "ISC001",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**/*.py" = [
   "ARG001",
+  "S101",
 ]
+"examples/quantum/notebooks/*.py" = [
+  "S101",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 30
 
 [tool.uv]
 exclude-newer = "14d"

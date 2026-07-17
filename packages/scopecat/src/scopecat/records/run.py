@@ -164,5 +164,5 @@ class RunManifest(BaseModel):
             return "planned"
         if self.lifecycle == "running":
             return "running"
-        assert self.outcome is not None
+        assert self.outcome is not None  # noqa: S101
         return self.outcome.status

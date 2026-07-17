@@ -78,6 +78,32 @@ def verify_typed_program(program: TypedProgram) -> TypedProgram:
     return _verify_typed_program(program).program
 
 
+def _verified_route_capabilities(
+    program: TypedProgram,
+) -> tuple[dict[LogicalResourcePortId, set[str]], tuple[Problem, ...]]:
+    route_problems: list[Problem] = []
+    route_capabilities: dict[LogicalResourcePortId, set[str]] = {}
+    duplicate_routes: set[LogicalResourcePortId] = set()
+    for route in program.route_intents:
+        if route.port_id in route_capabilities:
+            duplicate_routes.add(route.port_id)
+            continue
+        route_capabilities[route.port_id] = set(route.capabilities)
+    for port_id in sorted(
+        duplicate_routes,
+        key=lambda item: item.qualified_name,
+    ):
+        route_problems.append(
+            _problem(
+                "resource_route_duplicate",
+                f"route port {port_id.qualified_name!r} is declared more than once",
+                model_location("route_intents", port_id.qualified_name),
+            )
+        )
+
+    return route_capabilities, tuple(route_problems)
+
+
 def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
     """Normalize once and retain every proof derived during verification."""
 
@@ -125,24 +151,8 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
         )
         problems.extend(_relation_use_identity_problems(consumers))
 
-    route_capabilities: dict[LogicalResourcePortId, set[str]] = {}
-    duplicate_routes: set[LogicalResourcePortId] = set()
-    for route in program.route_intents:
-        if route.port_id in route_capabilities:
-            duplicate_routes.add(route.port_id)
-            continue
-        route_capabilities[route.port_id] = set(route.capabilities)
-    for port_id in sorted(
-        duplicate_routes,
-        key=lambda item: item.qualified_name,
-    ):
-        problems.append(
-            _problem(
-                "resource_route_duplicate",
-                f"route port {port_id.qualified_name!r} is declared more than once",
-                model_location("route_intents", port_id.qualified_name),
-            )
-        )
+    route_capabilities, route_problems = _verified_route_capabilities(program)
+    problems.extend(route_problems)
 
     for node in compute_nodes:
         for input_name, input_value in node.inputs.items():

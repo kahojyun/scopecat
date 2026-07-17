@@ -336,7 +336,7 @@ def _exclusive_lock(
             with suppress(OSError):
                 lock_file.close()
         raise _storage_failure(run_id=run_id, ref=ref) from error
-    assert lock_file is not None
+    assert lock_file is not None  # noqa: S101
     try:
         yield
     finally:

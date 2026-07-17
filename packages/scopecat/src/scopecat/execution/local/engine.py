@@ -1191,7 +1191,7 @@ class ExecutionEngine:
                 )
             )
             return False
-        assert receipt.readback is not None
+        assert receipt.readback is not None  # noqa: S101
         readback = receipt.readback
         try:
             chunk = CollectionChunk(
@@ -1478,11 +1478,10 @@ class ExecutionEngine:
             return
         try:
             self.payload_observer(payload)
-        except BaseException as error:
-            logger.error(
+        except BaseException:
+            logger.exception(
                 "execution payload observer failed",
                 extra={"run_id": self.run_id, "payload_id": payload.id},
-                exc_info=(type(error), error, error.__traceback__),
             )
 
     def _record_interruption(

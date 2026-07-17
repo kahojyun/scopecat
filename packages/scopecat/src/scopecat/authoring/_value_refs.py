@@ -982,7 +982,7 @@ def internal_value_ref_source_kind(value: ValueRef) -> str:
         return "expression"
     if isinstance(source, _ModuleExportSource):
         return "module_export"
-    assert isinstance(source, _ScalarOperationValueSource)
+    assert isinstance(source, _ScalarOperationValueSource)  # noqa: S101
     return "scalar_operation"
 
 

@@ -443,7 +443,7 @@ def _verify_state_compute_values(
             problems.append(_availability_problem(error))
             continue
         if definition.availability.stage is ValueStage.PLAN:
-            assert isinstance(definition.value_type, Scalar), (
+            assert isinstance(definition.value_type, Scalar), (  # noqa: S101
                 "verified row-region state values must be scalar-shaped"
             )
             continue
@@ -550,7 +550,7 @@ def _verify_plan_value_availability(
 
     for index, state in enumerate(graph.graph.row_regions):
         relation = graph.value_defs[state.relation.value_id]
-        assert isinstance(relation.value_type, Table), (
+        assert isinstance(relation.value_type, Table), (  # noqa: S101
             "verified row-region relations must be table-shaped"
         )
         _require_semantic_plan_value(
@@ -562,7 +562,7 @@ def _verify_plan_value_availability(
         )
         if state.resource is not None:
             resource = graph.value_defs[state.resource.value_id]
-            assert isinstance(resource.value_type, Scalar), (
+            assert isinstance(resource.value_type, Scalar), (  # noqa: S101
                 "verified row-region resource selectors must be scalar-shaped"
             )
             _require_semantic_plan_value(
@@ -575,7 +575,7 @@ def _verify_plan_value_availability(
             )
         for route_index, route_entity in enumerate(state.route_entities):
             route = graph.value_defs[route_entity.value_id]
-            assert isinstance(route.value_type, Scalar | Series), (
+            assert isinstance(route.value_type, Scalar | Series), (  # noqa: S101
                 "verified row-region route selectors must be scalar- or series-shaped"
             )
             _require_semantic_plan_value(

@@ -163,5 +163,5 @@ def _is_number(value: object) -> TypeGuard[int | float]:
 def _is_string_key_mapping(value: object) -> TypeGuard[Mapping[str, object]]:
     if not isinstance(value, Mapping):
         return False
-    mapping = cast(Mapping[object, object], value)
+    mapping = cast("Mapping[object, object]", value)
     return all(isinstance(key, str) for key in mapping)

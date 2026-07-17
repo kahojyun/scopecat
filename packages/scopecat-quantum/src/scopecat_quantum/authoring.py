@@ -567,7 +567,7 @@ def single_qubit_gate(
     """Declare one hardware-independent single-qubit gate semantic."""
 
     selected = gate(id, arity=1, parameters=parameters)
-    assert isinstance(selected, SingleQubitGate)
+    assert isinstance(selected, SingleQubitGate)  # noqa: S101
     return selected
 
 
@@ -579,7 +579,7 @@ def two_qubit_gate(
     """Declare one hardware-independent two-qubit gate semantic."""
 
     selected = gate(id, arity=2, parameters=parameters)
-    assert isinstance(selected, TwoQubitGate)
+    assert isinstance(selected, TwoQubitGate)  # noqa: S101
     return selected
 
 
@@ -1704,15 +1704,15 @@ def _substitute_signal(
 ) -> LogicalSignal:
     if isinstance(signal, DriveSignal):
         owner = bindings.get(signal.qubit, signal.qubit)
-        assert isinstance(owner, QubitId)
+        assert isinstance(owner, QubitId)  # noqa: S101
         return DriveSignal(owner)
     if isinstance(signal, ReadoutSignal):
         owner = bindings.get(signal.qubit, signal.qubit)
-        assert isinstance(owner, QubitId)
+        assert isinstance(owner, QubitId)  # noqa: S101
         return ReadoutSignal(owner)
     if isinstance(signal, AcquireSignal):
         owner = bindings.get(signal.qubit, signal.qubit)
-        assert isinstance(owner, QubitId)
+        assert isinstance(owner, QubitId)  # noqa: S101
         return AcquireSignal(owner)
     owner = signal.owner
     return FluxSignal(bindings.get(owner, owner))

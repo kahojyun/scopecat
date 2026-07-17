@@ -373,7 +373,7 @@ def _execute_provider_result(
         # property or provider completion metadata.  A non-conforming iterable
         # that fails part-way through cannot orphan already yielded drivers.
         for instrument in provider_result.drivers:
-            instruments.append(instrument)
+            instruments.append(instrument)  # noqa: PERF402
         provider_problems = list(
             contextualize_problems(
                 provider_result.problems,

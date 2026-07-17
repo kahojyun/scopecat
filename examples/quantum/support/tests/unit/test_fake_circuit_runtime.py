@@ -915,29 +915,25 @@ def _prepared_mixed_execution(
     )
 
 
+type _ClosedMixedInvocation = ClosedDomainInvocation[
+    TargetCompileEntryId,
+    TargetAcquisitionAddress,
+    SelectedFakeMeasurementRealization,
+]
+
+
 def _closed_mixed_invocation(
     scenario: _Scenario,
     runtime: DomainRuntime[SelectedFakeMeasurementRealization, FakeListRun],
     *,
     response_intent: object | None = None,
-) -> ClosedDomainInvocation[
-    TargetCompileEntryId,
-    TargetAcquisitionAddress,
-    SelectedFakeMeasurementRealization,
-]:
+) -> _ClosedMixedInvocation:
     prepared = _prepared_mixed_execution(
         scenario,
         runtime,
         response_intent=response_intent,
     )
-    return cast(
-        ClosedDomainInvocation[
-            TargetCompileEntryId,
-            TargetAcquisitionAddress,
-            SelectedFakeMeasurementRealization,
-        ],
-        prepared.invocation,
-    )
+    return cast("_ClosedMixedInvocation", prepared.invocation)
 
 
 def test_three_point_fake_quantum_run_correlates_target_and_logical_order() -> None:

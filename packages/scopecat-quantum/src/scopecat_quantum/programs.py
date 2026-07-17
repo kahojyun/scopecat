@@ -706,7 +706,7 @@ def _lower_node(
 
     binding = selection.binding_for(node.id)
     if isinstance(node, GateCall):
-        assert isinstance(binding, GateCalibrationBinding)
+        assert isinstance(binding, GateCalibrationBinding)  # noqa: S101
         instantiated = _instantiate_template(binding.pulse_template, prefix=prefix)
         event_provenance.extend(
             CircuitPulseEventProvenance(
@@ -721,8 +721,8 @@ def _lower_node(
         )
         return instantiated.body
 
-    assert isinstance(node, Measure)
-    assert isinstance(binding, MeasurementCalibrationBinding)
+    assert isinstance(node, Measure)  # noqa: S101
+    assert isinstance(binding, MeasurementCalibrationBinding)  # noqa: S101
     template_slot = binding.pulse_template.acquisition_slots[0]
     instantiated = _instantiate_template(
         binding.pulse_template,

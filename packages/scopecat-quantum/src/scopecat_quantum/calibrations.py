@@ -390,7 +390,7 @@ def select_calibrations(
                 )
             )
         else:
-            assert isinstance(operation, Measure)
+            assert isinstance(operation, Measure)  # noqa: S101
             key = MeasurementCalibrationKey.from_measurement(operation)
             matches = tuple(
                 sorted(
@@ -401,8 +401,8 @@ def select_calibrations(
         if len(matches) == 1:
             selected = matches[0]
             if isinstance(operation, GateCall):
-                assert isinstance(key, GateCalibrationKey)
-                assert isinstance(selected, GateCalibration)
+                assert isinstance(key, GateCalibrationKey)  # noqa: S101
+                assert isinstance(selected, GateCalibration)  # noqa: S101
                 bindings.append(
                     GateCalibrationBinding(
                         call_id=operation.id,
@@ -412,8 +412,8 @@ def select_calibrations(
                     )
                 )
             else:
-                assert isinstance(key, MeasurementCalibrationKey)
-                assert isinstance(selected, MeasurementCalibration)
+                assert isinstance(key, MeasurementCalibrationKey)  # noqa: S101
+                assert isinstance(selected, MeasurementCalibration)  # noqa: S101
                 bindings.append(
                     MeasurementCalibrationBinding(
                         measurement_id=operation.id,

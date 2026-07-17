@@ -676,7 +676,8 @@ def execute_host_measurement_transforms(
             try:
                 raw_candidate = _invoke_host_kernel(implementation.kernel, call)
             except Exception as error:
-                logger.error(
+                # Kernel messages can contain sensitive input; omit the traceback.
+                logger.error(  # noqa: TRY400
                     "host measurement transform kernel raised",
                     extra={
                         "transform_id": transform.id.value,

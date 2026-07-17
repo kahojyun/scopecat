@@ -782,7 +782,7 @@ def _activate_config_registry_entry_locked(
         allow_current_generation=True,
     )
     if repeated is not None:
-        assert current_state is not None
+        assert current_state is not None  # noqa: S101
         entry = _load_config_registry_entry_locked(
             entry_id=entry_id,
             work=work,
@@ -850,7 +850,7 @@ def rollback_config_registry(
             expected_generation=expected_generation,
         )
         if repeated is not None:
-            assert current_state is not None
+            assert current_state is not None  # noqa: S101
             _load_current_active_entry_for_rollback_locked(
                 state=current_state,
                 work=work,

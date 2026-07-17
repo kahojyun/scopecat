@@ -563,11 +563,12 @@ def as_scalar_expr(value: object) -> ScalarExpression:
 def values(items: Sequence[object], *, unit: str | None = None) -> ValuesSeriesExpr:
     if unit is None:
         return ValuesSeriesExpr(
-            items=[cast(CellValue, item) for item in items],
+            items=[cast("CellValue", item) for item in items],
         )
     return ValuesSeriesExpr(
         items=[
-            Quantity(value=float(cast(int | float, item)), unit=unit) for item in items
+            Quantity(value=float(cast("int | float", item)), unit=unit)
+            for item in items
         ],
     )
 

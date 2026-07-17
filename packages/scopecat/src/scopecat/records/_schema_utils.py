@@ -40,7 +40,7 @@ def declared_shape_for_dims(
 def array_shape(value: object, path: str) -> list[int]:
     if not isinstance(value, list):
         return []
-    items = cast(list[object], value)
+    items = cast("list[object]", value)
     if not items:
         return [0]
     child_shapes = [array_shape(item, path) for item in items]
@@ -54,7 +54,7 @@ def array_shape(value: object, path: str) -> list[int]:
 
 def validate_array_dtype(value: object, dtype: str, path: str) -> None:
     if isinstance(value, list):
-        for index, item in enumerate(cast(list[object], value)):
+        for index, item in enumerate(cast("list[object]", value)):
             validate_array_dtype(item, dtype, f"{path}[{index}]")
         return
     validate_scalar_dtype(value, dtype, path)

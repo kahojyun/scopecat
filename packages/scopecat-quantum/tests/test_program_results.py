@@ -367,7 +367,7 @@ def test_entry_mapping_requires_exact_coverage(change: str) -> None:
             replace(selected[1], entry_id=TargetCompileEntryId("foreign")),
         )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="entry-point bindings"):
         seal_quantum_target_result_mapping(
             preparation,
             batch,
@@ -396,7 +396,7 @@ def test_acquisition_mapping_requires_exact_qualified_addresses(change: str) -> 
             ),
         )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="result-use bindings"):
         seal_quantum_target_result_mapping(
             preparation,
             batch,

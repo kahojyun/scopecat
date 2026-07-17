@@ -199,7 +199,7 @@ def materialize_parameter_updates(
 
     for parameter_id in touched:
         definition = catalog.get(parameter_id)
-        assert definition is not None
+        assert definition is not None  # noqa: S101
         selected[parameter_id] = coerce_stored_parameter_value(
             definition,
             selected[parameter_id],

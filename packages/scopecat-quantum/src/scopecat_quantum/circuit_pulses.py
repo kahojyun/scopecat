@@ -376,7 +376,7 @@ def _lower_circuit_node(
 ) -> PulseInstruction:
     if isinstance(node, GateCall):
         binding = bindings_by_operation[node.id]
-        assert isinstance(binding, GateCalibrationBinding)
+        assert isinstance(binding, GateCalibrationBinding)  # noqa: S101
         prefix = (
             "circuits",
             source_circuit_id.value,
@@ -397,7 +397,7 @@ def _lower_circuit_node(
             acquire_event_ids=acquire_event_ids,
             provenance=provenance,
         )
-        assert not acquire_event_ids
+        assert not acquire_event_ids  # noqa: S101
         instantiations.append(
             GatePulseInstantiation(
                 call_id=node.id,
@@ -410,7 +410,7 @@ def _lower_circuit_node(
         return lowered
     if isinstance(node, Measure):
         binding = bindings_by_operation[node.id]
-        assert isinstance(binding, MeasurementCalibrationBinding)
+        assert isinstance(binding, MeasurementCalibrationBinding)  # noqa: S101
         template_slot = binding.pulse_template.acquisition_slots[0]
         output_slot = replace(template_slot, id=node.acquisition_slot_id)
         prefix = (

@@ -73,7 +73,7 @@ def typed_measurement_transform_problems(
             (producer.transform_id, producer.output_id),
             [],
         ).append(producer)
-    for (_transform_id, _output_id), selected in producers_by_output.items():
+    for selected in producers_by_output.values():
         if len(selected) < 2:
             continue
         producer = selected[0]

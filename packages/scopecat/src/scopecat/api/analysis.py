@@ -138,7 +138,7 @@ class Analysis:
                 metadata=metadata,
             )
             return replace(self, inputs=(*self.inputs, analysis_input))
-        assert selector is not None
+        assert selector is not None  # noqa: S101
         if expected_kind in {"measurement_dataset", "data_table", "data_array"}:
             dataset = self.run.data().dataset(selector, expected_kind=expected_kind)
             analysis_input = AnalysisInput(

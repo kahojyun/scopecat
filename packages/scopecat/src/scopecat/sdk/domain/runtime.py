@@ -368,7 +368,7 @@ class KnownDomainSubmission:
 
     @property
     def job_id(self) -> str:
-        assert self.receipt.job_id is not None
+        assert self.receipt.job_id is not None  # noqa: S101
         return self.receipt.job_id
 
     @property
@@ -1044,7 +1044,7 @@ def fetch_domain_invocation[PayloadT, ResultT](
         prior_problems=receipt_problems,
     )
     if receipt.status == "fetched":
-        assert candidate.result is not None
+        assert candidate.result is not None  # noqa: S101
         return _correlated_domain_fetch(
             submission,
             receipt,

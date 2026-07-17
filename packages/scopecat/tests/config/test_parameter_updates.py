@@ -208,17 +208,13 @@ def test_materialization_rejects_unknown_and_wrong_shape_updates() -> None:
             "not table-shaped",
         ),
     ):
-        try:
+        with pytest.raises(ValueError, match=message):
             materialize_parameter_updates(
                 catalog=_catalog(),
                 base=source,
                 candidate_id="invalid",
                 updates=(update,),
             )
-        except ValueError as error:
-            assert message in str(error)
-        else:
-            raise AssertionError("invalid parameter update was accepted")
 
 
 def test_materialization_rejects_semantic_no_op_after_normalization() -> None:
