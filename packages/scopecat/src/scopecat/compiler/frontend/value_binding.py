@@ -120,10 +120,6 @@ def input_cell(value: object) -> CellValue:
     return relation_input_binding.input_cell(value)
 
 
-def literal_scalar(value: CellValue) -> ScalarExpr:
-    return relation_input_binding.literal_scalar(value)
-
-
 def value_input_refs(expression: _DataExpr) -> tuple[str, ...]:
     return relation_input_binding.value_input_refs(expression)
 

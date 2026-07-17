@@ -39,15 +39,9 @@ def commit_projected_measurement_records(
 ) -> CommittedProjectedMeasurementRecords:
     """Commit a canonical projected batch with journaled point-level evidence."""
 
-    if type(attempt) is not int or attempt < 1:
+    if attempt < 1:
         msg = "measurement recording attempt must be a positive integer"
         raise ValueError(msg)
-    if not callable(getattr(committer, "commit", None)):
-        msg = "measurement recording requires a MeasurementRecordCommitter"
-        raise TypeError(msg)
-    if not callable(getattr(journal, "append", None)):
-        msg = "measurement recording requires an ExecutionJournal"
-        raise TypeError(msg)
 
     # Construct every durable chunk before the first journal or committer
     # effect. No later point can reveal a structural batch error.

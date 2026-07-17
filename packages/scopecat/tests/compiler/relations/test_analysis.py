@@ -14,11 +14,9 @@ from scopecat.compiler.relations.analysis import (
     walk_plan,
 )
 from scopecat.compiler.relations.model import (
-    GridColumn,
-    RelationExpr,
     RowScopeId,
-    SeriesExpr,
     col,
+    grid,
     input_ref,
     input_series,
     input_table,
@@ -28,6 +26,7 @@ from scopecat.compiler.relations.model import (
     param,
     parameter_series,
     point_col,
+    range_values,
     table,
 )
 from scopecat.compiler.relations.verification import (
@@ -58,13 +57,10 @@ from tests.testkit.relation_plans import value_expr
 
 
 def test_plan_input_refs_deduplicate_ids_across_shapes() -> None:
-    plan = RelationExpr(
-        kind="grid",
-        columns={
-            "scalar": GridColumn(kind="scalar", scalar=input_ref("shared")),
-            "series": GridColumn(kind="series", series=input_series("shared")),
-            "table": GridColumn(kind="relation", relation=input_table("shared")),
-        },
+    plan = grid(
+        scalar=input_ref("shared"),
+        series=input_series("shared"),
+        table=input_table("shared"),
     )
 
     assert plan_input_refs(plan) == ("shared",)
@@ -119,31 +115,15 @@ def test_plan_walk_and_references_cover_every_nested_shape() -> None:
         },
         column="gain",
     )
-    left = RelationExpr(
-        kind="grid",
-        columns={
-            "sweep": GridColumn(
-                kind="series",
-                series=SeriesExpr(
-                    kind="range",
-                    start=input_ref("start"),
-                    stop=param("stop"),
-                    step=lit(1.0),
-                ),
-            ),
-            "input_offsets": GridColumn(
-                kind="series",
-                series=input_series("offsets"),
-            ),
-            "configured_offsets": GridColumn(
-                kind="series",
-                series=parameter_series("configured_offsets"),
-            ),
-            "rows": GridColumn(
-                kind="relation",
-                relation=input_table("rows"),
-            ),
-        },
+    left = grid(
+        sweep=range_values(
+            input_ref("start"),
+            param("stop"),
+            lit(1.0),
+        ),
+        input_offsets=input_series("offsets"),
+        configured_offsets=parameter_series("configured_offsets"),
+        rows=input_table("rows"),
     )
     right = (
         table("records")

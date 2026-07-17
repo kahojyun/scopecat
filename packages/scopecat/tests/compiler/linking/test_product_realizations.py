@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from scopecat.compiler.linking.product_realizations import (
@@ -20,7 +22,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
 )
 from scopecat.kernel.product_identity import ProductUse, product_id, product_use
-from scopecat.kernel.resource_identity import physical_resource_id
+from scopecat.kernel.resource_identity import PhysicalResourceId
 from scopecat.planning.routing import RoutingView
 from scopecat.records.config import RoutingResource
 from tests.testkit.typed_program import instrument_product_producer
@@ -85,7 +87,7 @@ def test_local_product_selection_seals_exact_use_order_and_coverage() -> None:
             product=second,
             producer_id=second_producer.id,
             producer=second_producer,
-            implicit_resource_id=physical_resource_id("source-0"),
+            implicit_resource_id=PhysicalResourceId("source-0"),
         ),
         SelectedLocalProductRealization(
             product_use_id=first_use.id,
@@ -93,7 +95,7 @@ def test_local_product_selection_seals_exact_use_order_and_coverage() -> None:
             product=first,
             producer_id=first_producer.id,
             producer=first_producer,
-            implicit_resource_id=physical_resource_id("source-0"),
+            implicit_resource_id=PhysicalResourceId("source-0"),
         ),
     )
     assert selected.selected_for(second_use.id) is selected.entries[0]
@@ -147,7 +149,7 @@ def test_multiple_producers_for_one_demand_are_rejected_as_ambiguous() -> None:
     assert problems[0].category is ProblemCategory.CONFLICT
 
 
-def test_selected_realization_seals_an_exact_producer_snapshot() -> None:
+def test_selected_realization_reuses_an_immutable_producer_contract() -> None:
     product = _product("signal")
     producer = instrument_product_producer(
         product,
@@ -167,9 +169,10 @@ def test_selected_realization_seals_an_exact_producer_snapshot() -> None:
     proof = selected.selected_for(use.id)
     assert proof.producer_id == producer.id
     assert proof.producer == producer
-    assert proof.producer is not producer
+    assert proof.producer is producer
 
-    producer.metadata["owner"] = {"name": "mutated"}
+    with pytest.raises(TypeError, match="frozen mapping is immutable"):
+        cast("dict[str, object]", producer.metadata)["owner"] = {"name": "mutated"}
 
     assert proof.producer.metadata == {"owner": {"name": "original"}}
 
@@ -197,7 +200,7 @@ def test_selected_realization_seals_an_exact_producer_snapshot() -> None:
         ),
     ),
 )
-def test_malformed_product_graph_returns_problems(
+def test_invalid_product_graph_short_circuits_local_selection(
     products: tuple[ProductDef, ...],
     producers: tuple[InstrumentProductProducer, ...],
     uses: tuple[ProductUse, ...],

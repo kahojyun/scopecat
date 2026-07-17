@@ -29,7 +29,6 @@ from scopecat.execution.ports.journal import (
     ExecutionJournal,
     PayloadEvidenceCommitter,
 )
-from scopecat.execution.ports.measurement import MeasurementRecordCommitter
 from scopecat.execution.problems import (
     contextualize_problems,
     problem_from_exception,
@@ -72,7 +71,6 @@ class PreparedExecution:
 
     context: InstrumentProviderContext
     provider_id: str
-    provider_description: InstrumentProviderDescription
     instrument_order: tuple[str, ...]
     advertised_descriptions: dict[str, InstrumentDescription]
     program: ExecutionProgram
@@ -176,7 +174,6 @@ def prepare_execution(
     return PreparedExecution(
         context=context,
         provider_id=provider_id,
-        provider_description=provider_description,
         instrument_order=instrument_order,
         advertised_descriptions=advertised_descriptions,
         program=program,
@@ -191,7 +188,6 @@ def execute_prepared_local_effects(
     provider: InstrumentProvider,
     run_id: str,
     journal: ExecutionJournal,
-    measurements: MeasurementRecordCommitter,
     readbacks: CollectionRepository,
     payloads: PayloadEvidenceCommitter,
     event_sink: RuntimeEventSink | None = None,
@@ -227,7 +223,6 @@ def execute_prepared_local_effects(
         setup_problems=setup_problems,
         journal=journal,
         transition_observer=transition_observer,
-        measurements=measurements,
         readbacks=readbacks,
         payloads=payloads,
         payload_observer=payload_observer,
@@ -249,7 +244,6 @@ def _provision_and_execute(
     setup_problems: list[Problem],
     journal: ExecutionJournal,
     transition_observer: RuntimeTransitionProjector,
-    measurements: MeasurementRecordCommitter,
     readbacks: CollectionRepository,
     payloads: PayloadEvidenceCommitter,
     payload_observer: RuntimePayloadObserver | None,
@@ -343,7 +337,6 @@ def _provision_and_execute(
         setup_problems=setup_problems,
         journal=journal,
         transition_observer=transition_observer,
-        measurements=measurements,
         readbacks=readbacks,
         payloads=payloads,
         payload_observer=payload_observer,
@@ -364,7 +357,6 @@ def _execute_provider_result(
     setup_problems: list[Problem],
     journal: ExecutionJournal,
     transition_observer: RuntimeTransitionProjector,
-    measurements: MeasurementRecordCommitter,
     readbacks: CollectionRepository,
     payloads: PayloadEvidenceCommitter,
     payload_observer: RuntimePayloadObserver | None,
@@ -459,7 +451,6 @@ def _execute_provider_result(
                     },
                     journal=journal,
                     transition_observer=transition_observer,
-                    measurements=measurements,
                     readbacks=readbacks,
                     payloads=payloads,
                     payload_observer=lambda payload: observe_payload(
@@ -574,7 +565,6 @@ def _setup_result(
             else "provider_setup_failed"
         ),
         problems=tuple(problems),
-        measurements=(),
         initial_state=(),
         final_state=tuple(final_state),
         points=(),

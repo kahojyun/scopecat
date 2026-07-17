@@ -26,7 +26,7 @@ from scopecat.kernel.problems import (
     has_blocking_problems,
     model_location,
 )
-from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
+from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_type_wire import ScalarWire, scalar_type_wire_schema
 from scopecat.kernel.value_types import Bool as BoolType
 from scopecat.kernel.value_types import Float as FloatType
@@ -65,7 +65,6 @@ from scopecat.records.instrument import (
 from scopecat.records.instrument import (
     validate_entity_target as _validate_entity_target,
 )
-from scopecat.records.parameter import Quantity as QuantityValue
 from scopecat.sdk.instruments.provider_options import ProviderOptionDescription
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
@@ -88,12 +87,7 @@ class CapabilityField(BaseModel):
 
     id: str
     value_type: CapabilityFieldScalar
-    metadata: JsonMetadata = Field(
-        default_factory=dict,
-        json_schema_extra={
-            "propertyNames": {"not": {"const": "payload_kinds"}},
-        },
-    )
+    metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("value_type")
     @classmethod
@@ -112,17 +106,6 @@ class CapabilityField(BaseModel):
             raise ValueError(msg)
         if isinstance(value.atom, FloatType | QuantityType) and not value.atom.finite:
             msg = "instrument capability numeric fields must require finite values"
-            raise ValueError(msg)
-        return value
-
-    @field_validator("metadata")
-    @classmethod
-    def reject_legacy_payload_kinds(cls, value: dict[str, object]) -> dict[str, object]:
-        if "payload_kinds" in value:
-            msg = (
-                "payload_kinds is no longer metadata; declare Payload.schema_id "
-                "in value_type"
-            )
             raise ValueError(msg)
         return value
 
@@ -803,55 +786,13 @@ def _validate_state_value(
 ) -> list[Problem]:
     atom = spec.value_type.atom
     state_literal = value.root
-    literal: object
-    literal_path: ValuePath
-    if isinstance(atom, BoolType):
-        if not isinstance(state_literal, bool):
-            return _field_value_mismatch(
-                field_path,
-                f"expected bool, got {_state_literal_type(state_literal)}",
-            )
-        literal = state_literal
-        literal_path = ("value",)
-    elif isinstance(atom, IntType):
-        if not isinstance(state_literal, int) or isinstance(state_literal, bool):
-            return _field_value_mismatch(
-                field_path,
-                f"expected int, got {_state_literal_type(state_literal)}",
-            )
-        literal = state_literal
-        literal_path = ("value",)
-    elif isinstance(atom, FloatType):
-        if not isinstance(state_literal, int | float) or isinstance(
-            state_literal, bool
-        ):
-            return _field_value_mismatch(
-                field_path,
-                f"expected float, got {_state_literal_type(state_literal)}",
-            )
-        literal = state_literal
-        literal_path = ("value",)
-    elif isinstance(atom, StringType):
-        if not isinstance(state_literal, str):
-            return _field_value_mismatch(
-                field_path,
-                f"expected string, got {_state_literal_type(state_literal)}",
-            )
-        literal = state_literal
-        literal_path = ("value",)
-    elif isinstance(atom, QuantityType):
-        if not isinstance(state_literal, QuantityValue):
-            return _field_value_mismatch(
-                field_path,
-                f"expected quantity, got {_state_literal_type(state_literal)}",
-            )
-        literal = state_literal
-        literal_path = ("value",)
-    elif isinstance(atom, PayloadType):
+    literal: object = state_literal
+    literal_path: ValuePath = ("value",)
+    if isinstance(atom, PayloadType):
         if not isinstance(state_literal, PayloadRef):
             return _field_value_mismatch(
                 field_path,
-                f"expected payload reference, got {_state_literal_type(state_literal)}",
+                f"expected payload reference, got {state_literal!r}",
             )
         payload = payloads.get(state_literal.payload_id)
         if payload is None:
@@ -866,8 +807,6 @@ def _validate_state_value(
             ]
         literal = PayloadValue(schema_id=payload.schema_id, payload=payload.payload)
         literal_path = ("value", "payload_id")
-    else:  # CapabilityField validation makes this unreachable.
-        raise AssertionError(type(atom).__name__)
     try:
         validate_literal(spec.value_type, literal, path=literal_path)
     except ValueValidationError as error:
@@ -877,20 +816,6 @@ def _validate_state_value(
             path=error.path,
         )
     return []
-
-
-def _state_literal_type(value: StateLiteral) -> str:
-    if isinstance(value, bool):
-        return "bool"
-    if isinstance(value, int):
-        return "int"
-    if isinstance(value, float):
-        return "float"
-    if isinstance(value, str):
-        return "string"
-    if isinstance(value, QuantityValue):
-        return "quantity"
-    return "payload reference"
 
 
 def _field_value_mismatch(

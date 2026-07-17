@@ -32,6 +32,7 @@ from scopecat.execution.local.program import (
     ExecutionProgram,
     PointProgram,
 )
+from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.kernel.product_identity import ProductUse, product_use
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.measurements.host_transforms import (
@@ -159,8 +160,8 @@ def _source_only_execution_program(scenario: _Scenario) -> ExecutionProgram:
         ),
         product_uses=(scenario.source, scenario.derived),
         collection_product_use_ids=(scenario.source.id,),
-        record_projections=(),
         resource_order=(_INSTRUMENT_ID,),
+        resource_claims=(ResourceClaim(id=_INSTRUMENT_ID),),
     )
 
 
@@ -310,14 +311,12 @@ def test_local_collection_reaches_neutral_transform_and_recording() -> None:
     driver = TestSignalInstrument(instrument_id=_INSTRUMENT_ID)
     journal = MemoryExecutionJournal()
     readbacks = MemoryCollectionRepository()
-    legacy_measurements = MemoryMeasurementRecordCommitter()
     engine_result = ExecutionEngine(
         run_id=_RUN_ID,
         program=program,
         drivers={driver.instrument_id: driver},
         descriptions={driver.instrument_id: driver.describe()},
         journal=journal,
-        measurements=legacy_measurements,
         readbacks=readbacks,
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run()
@@ -346,8 +345,6 @@ def test_local_collection_reaches_neutral_transform_and_recording() -> None:
 
     points = scenario.linked_points.point_domain.points
     assert engine_result.status == "completed"
-    assert engine_result.measurements == ()
-    assert legacy_measurements.chunks == ()
     assert program.collection_product_use_ids == (scenario.source.id,)
     assert local_binding.collection_product_use_ids == (scenario.source.id,)
     assert transform_plan.source_fragment_ids == (local_binding.fragment_id,)

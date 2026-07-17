@@ -12,11 +12,11 @@ from scopecat.compiler.relations.evaluation import (
     evaluate_relation,
 )
 from scopecat.compiler.relations.model import (
-    GridColumn,
+    LinspaceSeriesExpr,
+    RangeSeriesExpr,
     RelationExpr,
     RowScopeId,
     ScalarExpr,
-    SeriesExpr,
     case,
     col,
     grid,
@@ -348,8 +348,7 @@ def test_empty_grid_column_uses_output_schema_context() -> None:
 
 
 def test_explicit_series_unit_types_numeric_bounds_as_quantities() -> None:
-    expression = SeriesExpr(
-        kind="linspace",
+    expression = LinspaceSeriesExpr(
         start=input_ref("start"),
         stop=input_ref("stop"),
         count=3,
@@ -372,8 +371,7 @@ def test_explicit_series_unit_types_numeric_bounds_as_quantities() -> None:
 
 
 def test_explicit_series_unit_is_validated_before_materialization() -> None:
-    expression = SeriesExpr(
-        kind="linspace",
+    expression = LinspaceSeriesExpr(
         start=lit(0.0),
         stop=lit(1.0),
         count=2,
@@ -387,8 +385,7 @@ def test_explicit_series_unit_is_validated_before_materialization() -> None:
 
 
 def test_series_bounds_must_statically_guarantee_finite_values() -> None:
-    expression = SeriesExpr(
-        kind="linspace",
+    expression = LinspaceSeriesExpr(
         start=input_ref("start"),
         stop=lit(1.0),
         count=2,
@@ -539,7 +536,7 @@ def test_typed_imports_reject_reference_shape_mismatches(
 def test_unknown_import_reports_a_stable_code_and_nested_path() -> None:
     root = grid(
         known=[1],
-        missing=GridColumn(kind="series", series=input_series("missing")),
+        missing=input_series("missing"),
     )
 
     with pytest.raises(RelationPlanVerificationError) as caught:
@@ -1046,8 +1043,7 @@ def test_dynamic_range_step_and_parameter_lookup_emit_runtime_obligations() -> N
         parameters={"rows": TABLE_PARAMETER},
     )
     dynamic_range = verify_relation_plan(
-        SeriesExpr(
-            kind="range",
+        RangeSeriesExpr(
             start=lit(0.0),
             stop=lit(1.0),
             step=input_ref("step"),

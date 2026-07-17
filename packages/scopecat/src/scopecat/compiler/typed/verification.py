@@ -15,6 +15,7 @@ from types import MappingProxyType
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.model import (
+    LiteralScalarExpr,
     RowScopeId,
 )
 from scopecat.compiler.relations.uses import RelationUseId
@@ -50,9 +51,11 @@ from scopecat.compiler.typed.records import (
 )
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
 from scopecat.compiler.typed.state import (
+    ForEachStateSpec,
     LogicalStateResourceTarget,
     PhysicalStateResourceTarget,
-    StateSpec,
+    SetStateSpec,
+    StateSpecVariant,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -234,7 +237,9 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
                     )
                 )
     for location, state in _state_specs(program.state):
-        if state.kind == "set" and (not state.capability_id or not state.field_path):
+        if not isinstance(state, SetStateSpec):
+            continue
+        if not state.capability_id or not state.field_path:
             problems.append(
                 _problem(
                     "state_field_requires_capability",
@@ -259,10 +264,7 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
                     consumer="state",
                 )
             )
-        elif isinstance(target, PhysicalStateResourceTarget) and not isinstance(
-            target.use.value.value_type.atom,
-            String,
-        ):
+        elif not isinstance(target.use.value.value_type.atom, String):
             problems.append(
                 _problem(
                     "state_physical_resource_type_invalid",
@@ -274,9 +276,9 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
                     ),
                 )
             )
-        elif isinstance(target, PhysicalStateResourceTarget):
+        else:
             root = target.use.value.plan.root
-            if root.kind == "literal" and (
+            if isinstance(root, LiteralScalarExpr) and (
                 not isinstance(root.value, str) or not root.value
             ):
                 problems.append(
@@ -905,12 +907,12 @@ def _relation_use_identity_problems(
 
 
 def _state_relation_consumers_with_roles(
-    state: StateSpec,
+    state: StateSpecVariant,
     *,
     role: _PlanConsumerRole,
     location: ModelLocation,
 ) -> Iterator[tuple[ProgramRelationConsumer, _PlanConsumerRole]]:
-    if state.kind == "set":
+    if isinstance(state, SetStateSpec):
         resource_target = state.resource_target
         if isinstance(resource_target, PhysicalStateResourceTarget):
             yield (
@@ -926,9 +928,7 @@ def _state_relation_consumers_with_roles(
                 ),
                 role,
             )
-        if state.value_use is not None and not isinstance(
-            state.value_use, ComputeResultRef
-        ):
+        if not isinstance(state.value_use, ComputeResultRef):
             yield (
                 _consumer(
                     state.value_use.id,
@@ -961,8 +961,6 @@ def _state_relation_consumers_with_roles(
         row_arguments=role.row_arguments,
     )
     relation_use = state.relation_use
-    if relation_use is None:
-        return
     relation = relation_use.value
     yield (
         _consumer(
@@ -983,7 +981,7 @@ def _state_relation_consumers_with_roles(
         outer=relation_role.outer,
         row_arguments=tuple(row_arguments.items()),
     )
-    for index, child in enumerate(state.state or ()):
+    for index, child in enumerate(state.state):
         yield from _state_relation_consumers_with_roles(
             child,
             role=child_role,
@@ -992,14 +990,16 @@ def _state_relation_consumers_with_roles(
 
 
 def _state_specs(
-    roots: Sequence[StateSpec],
-) -> Iterator[tuple[ModelLocation, StateSpec]]:
+    roots: Sequence[StateSpecVariant],
+) -> Iterator[tuple[ModelLocation, StateSpecVariant]]:
     def visit(
         location: ModelLocation,
-        state: StateSpec,
-    ) -> Iterator[tuple[ModelLocation, StateSpec]]:
+        state: StateSpecVariant,
+    ) -> Iterator[tuple[ModelLocation, StateSpecVariant]]:
         yield location, state
-        for index, child in enumerate(state.state or ()):
+        if not isinstance(state, ForEachStateSpec):
+            return
+        for index, child in enumerate(state.state):
             yield from visit(
                 model_location(location.root, *location.path, "state", index),
                 child,

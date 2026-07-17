@@ -9,11 +9,15 @@ from scopecat.compiler.linking.bound import (
     BoundResourceState,
     BoundStateField,
 )
+from scopecat.compiler.linking.linked import materialize_linked_points
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.kernel.problems import Problem
-from scopecat.kernel.state import StateValue
+from scopecat.measurements.projection import (
+    SelectedMeasurementProjection,
+    select_measurement_projection,
+)
 from scopecat.records.config import ConfigProfileSnapshot, RoutingResource
 from tests.testkit.authoring import load_config
 from tests.testkit.typed_program import link_program
@@ -102,6 +106,20 @@ def bound_plan_result(
     return plan, plan.problems
 
 
+def measurement_projection_contract(
+    experiment: TypedProgram,
+    parameters: ParameterRelationData,
+    *,
+    config: ConfigProfileSnapshot | None = None,
+) -> SelectedMeasurementProjection:
+    environment = replace(
+        validate_config_environment(config or load_config()),
+        parameters=parameters,
+    )
+    linked_points = materialize_linked_points(link_program(experiment, environment))
+    return select_measurement_projection(linked_points)
+
+
 def bound_state_fields(
     plan: BoundPlan,
 ) -> tuple[tuple[int, BoundResourceState, BoundStateField], ...]:
@@ -116,37 +134,4 @@ def bound_state_fields(
 
 
 def bound_coordinate_ids(plan: BoundPlan) -> tuple[str, ...]:
-    schema = plan.expected_dataset_schema
-    if schema is not None:
-        return tuple(schema.primary_coordinates)
-    return plan.point_coordinate_ids
-
-
-def bound_primary_observables(plan: BoundPlan) -> tuple[str, ...]:
-    schema = plan.expected_dataset_schema
-    if schema is not None:
-        return tuple(schema.primary_observables)
-    return tuple(record.id for record in plan.records if record.kind == "observable")
-
-
-def bound_dataset_dimensions(plan: BoundPlan) -> dict[str, int]:
-    schema = plan.expected_dataset_schema
-    dimensions = (
-        {
-            dimension.id: dimension.size
-            for dimension in schema.dimensions
-            if dimension.size is not None
-        }
-        if schema is not None
-        else {}
-    )
-    if (
-        schema is not None
-        and any(dimension.id == "point" for dimension in schema.dimensions)
-    ) or any("point" in record.dims for record in plan.records):
-        dimensions["point"] = len(plan.points)
-    return dimensions
-
-
-def state_literal(value: object) -> object:
-    return value.root if isinstance(value, StateValue) else value
+    return tuple(plan.points[0].coordinates) if plan.points else ()

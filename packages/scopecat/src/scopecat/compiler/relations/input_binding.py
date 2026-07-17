@@ -15,8 +15,12 @@ from scopecat.compiler.relations.model import (
     CellValue,
     GridColumn,
     RelationExpr,
+    RelationExpression,
     ScalarExpr,
+    ScalarExpression,
     SeriesExpr,
+    SeriesExpression,
+    lit,
     literal_rows,
     point_col,
     values,
@@ -64,33 +68,35 @@ def bind_scalar_input_refs(
 ) -> ScalarExpr:
     """Bind scalar input nodes without exposing relation syntax to users."""
 
-    if expression.kind == "input":
-        input_name = _required_name(expression.name, "input.name")
+    scalar = cast("ScalarExpression", expression)
+    if scalar.kind == "input":
+        input_name = scalar.name
         if input_name not in inputs:
             if preserve_unbound_inputs:
-                return expression
+                return scalar
             return point_col(input_name)
         selected = inputs[input_name]
         substitute_once = isinstance(selected, _LexicalReplacement)
         value = selected.value if substitute_once else selected
         next_resolving = _descend_input_resolution(input_name, resolving)
         if isinstance(value, ScalarExpr):
+            value_scalar = cast("ScalarExpression", value)
             if substitute_once:
-                return value
-            if value.kind == "input" and value.name == input_name:
+                return value_scalar
+            if value_scalar.kind == "input" and value_scalar.name == input_name:
                 if preserve_unbound_inputs:
-                    return value
+                    return value_scalar
                 return point_col(input_name)
             bound = bind_scalar_input_refs(
-                value,
+                value_scalar,
                 inputs,
                 preserve_unbound_inputs=preserve_unbound_inputs,
                 resolving=next_resolving,
             )
             return bound
-        return literal_scalar(input_cell(value))
-    if expression.kind == "param_lookup":
-        return expression.model_copy(
+        return lit(input_cell(value))
+    if scalar.kind == "param_lookup":
+        return scalar.model_copy(
             update={
                 "key": {
                     name: bind_scalar_input_refs(
@@ -99,29 +105,29 @@ def bind_scalar_input_refs(
                         preserve_unbound_inputs=preserve_unbound_inputs,
                         resolving=resolving,
                     )
-                    for name, value in (expression.key or {}).items()
+                    for name, value in scalar.key.items()
                 }
             }
         )
-    if expression.kind == "binary":
-        return expression.model_copy(
+    if scalar.kind == "binary":
+        return scalar.model_copy(
             update={
                 "left": bind_scalar_input_refs(
-                    _required_scalar(expression.left, "expression.left"),
+                    scalar.left,
                     inputs,
                     preserve_unbound_inputs=preserve_unbound_inputs,
                     resolving=resolving,
                 ),
                 "right": bind_scalar_input_refs(
-                    _required_scalar(expression.right, "expression.right"),
+                    scalar.right,
                     inputs,
                     preserve_unbound_inputs=preserve_unbound_inputs,
                     resolving=resolving,
                 ),
             }
         )
-    if expression.kind == "case":
-        return expression.model_copy(
+    if scalar.kind == "case":
+        return scalar.model_copy(
             update={
                 "cases": [
                     branch.model_copy(
@@ -140,17 +146,17 @@ def bind_scalar_input_refs(
                             ),
                         }
                     )
-                    for branch in (expression.cases or ())
+                    for branch in scalar.cases
                 ],
                 "fallback": bind_scalar_input_refs(
-                    _required_scalar(expression.fallback, "expression.fallback"),
+                    scalar.fallback,
                     inputs,
                     preserve_unbound_inputs=preserve_unbound_inputs,
                     resolving=resolving,
                 ),
             }
         )
-    return expression
+    return scalar
 
 
 def bind_value_input_refs(
@@ -202,10 +208,11 @@ def bind_series_input_refs(
     preserve_unbound_inputs: bool = False,
     resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
 ) -> SeriesExpr:
-    if expression.kind == "input":
-        input_name = _required_name(expression.name, "input.name")
+    series = cast("SeriesExpression", expression)
+    if series.kind == "input":
+        input_name = series.name
         if input_name not in inputs:
-            return expression
+            return series
         value = inputs[input_name]
         substitute_once = isinstance(value, _LexicalReplacement)
         selected = series_input_value(
@@ -222,24 +229,37 @@ def bind_series_input_refs(
             preserve_unbound_inputs=preserve_unbound_inputs,
             resolving=_descend_input_resolution(input_name, resolving),
         )
-    update: dict[str, object] = {}
-    for field_name in ("start", "stop", "step"):
-        value = cast("ScalarExpr | None", getattr(expression, field_name))
-        if value is not None:
-            update[field_name] = bind_scalar_input_refs(
-                value,
-                inputs,
-                preserve_unbound_inputs=preserve_unbound_inputs,
-                resolving=resolving,
-            )
-    if expression.source is not None:
-        update["source"] = bind_relation_input_refs(
-            expression.source,
+
+    def bind_scalar(scalar: ScalarExpr) -> ScalarExpr:
+        return bind_scalar_input_refs(
+            scalar,
             inputs,
             preserve_unbound_inputs=preserve_unbound_inputs,
             resolving=resolving,
         )
-    return expression.model_copy(update=update) if update else expression
+
+    if series.kind == "linspace" or series.kind == "range":
+        update = {
+            "start": bind_scalar(series.start),
+            "stop": bind_scalar(series.stop),
+        }
+        if series.kind == "range":
+            update["step"] = bind_scalar(series.step)
+        return series.model_copy(update=update)
+    if series.kind == "relation_column" or series.kind == "relation_entities":
+        source = series.source
+    else:
+        return series
+    return series.model_copy(
+        update={
+            "source": bind_relation_input_refs(
+                source,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            )
+        }
+    )
 
 
 def bind_relation_input_refs(
@@ -249,10 +269,11 @@ def bind_relation_input_refs(
     preserve_unbound_inputs: bool = False,
     resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
 ) -> RelationExpr:
-    if expression.kind == "input":
-        input_name = _required_name(expression.name, "input.name")
+    relation = cast("RelationExpression", expression)
+    if relation.kind == "input":
+        input_name = relation.name
         if input_name not in inputs:
-            return expression
+            return relation
         value = inputs[input_name]
         substitute_once = isinstance(value, _LexicalReplacement)
         selected = table_input_value(
@@ -269,54 +290,107 @@ def bind_relation_input_refs(
             preserve_unbound_inputs=preserve_unbound_inputs,
             resolving=_descend_input_resolution(input_name, resolving),
         )
-    update: dict[str, object] = {}
-    for field_name in ("source", "left", "right"):
-        value = cast("RelationExpr | None", getattr(expression, field_name))
-        if value is not None:
-            update[field_name] = bind_relation_input_refs(
-                value,
-                inputs,
-                preserve_unbound_inputs=preserve_unbound_inputs,
-                resolving=resolving,
-            )
-    if expression.sources is not None:
-        update["sources"] = [
-            bind_relation_input_refs(
-                source,
-                inputs,
-                preserve_unbound_inputs=preserve_unbound_inputs,
-                resolving=resolving,
-            )
-            for source in expression.sources
-        ]
-    if expression.columns is not None:
-        update["columns"] = {
-            name: _bind_grid_column_input_refs(
-                column,
-                inputs,
-                preserve_unbound_inputs=preserve_unbound_inputs,
-                resolving=resolving,
-            )
-            for name, column in expression.columns.items()
-        }
-    if expression.condition is not None:
-        update["condition"] = bind_scalar_input_refs(
-            expression.condition,
-            inputs,
-            preserve_unbound_inputs=preserve_unbound_inputs,
-            resolving=resolving,
+    if relation.kind == "literal_rows" or relation.kind == "table":
+        return relation
+    if relation.kind == "grid":
+        return relation.model_copy(
+            update={
+                "columns": {
+                    name: _bind_grid_column_input_refs(
+                        column,
+                        inputs,
+                        preserve_unbound_inputs=preserve_unbound_inputs,
+                        resolving=resolving,
+                    )
+                    for name, column in relation.columns.items()
+                }
+            }
         )
-    if expression.new_columns is not None:
-        update["new_columns"] = {
-            name: bind_scalar_input_refs(
-                value,
-                inputs,
-                preserve_unbound_inputs=preserve_unbound_inputs,
-                resolving=resolving,
-            )
-            for name, value in expression.new_columns.items()
-        }
-    return expression.model_copy(update=update) if update else expression
+    if relation.kind == "select" or relation.kind == "sort" or relation.kind == "limit":
+        return relation.model_copy(
+            update={
+                "source": bind_relation_input_refs(
+                    relation.source,
+                    inputs,
+                    preserve_unbound_inputs=preserve_unbound_inputs,
+                    resolving=resolving,
+                )
+            }
+        )
+    if relation.kind == "filter":
+        return relation.model_copy(
+            update={
+                "source": bind_relation_input_refs(
+                    relation.source,
+                    inputs,
+                    preserve_unbound_inputs=preserve_unbound_inputs,
+                    resolving=resolving,
+                ),
+                "condition": bind_scalar_input_refs(
+                    relation.condition,
+                    inputs,
+                    preserve_unbound_inputs=preserve_unbound_inputs,
+                    resolving=resolving,
+                ),
+            }
+        )
+    if (
+        relation.kind == "join"
+        or relation.kind == "cross"
+        or relation.kind == "lateral_cross"
+        or relation.kind == "point_cross"
+    ):
+        return relation.model_copy(
+            update={
+                "left": bind_relation_input_refs(
+                    relation.left,
+                    inputs,
+                    preserve_unbound_inputs=preserve_unbound_inputs,
+                    resolving=resolving,
+                ),
+                "right": bind_relation_input_refs(
+                    relation.right,
+                    inputs,
+                    preserve_unbound_inputs=preserve_unbound_inputs,
+                    resolving=resolving,
+                ),
+            }
+        )
+    if relation.kind == "zip":
+        return relation.model_copy(
+            update={
+                "sources": [
+                    bind_relation_input_refs(
+                        source,
+                        inputs,
+                        preserve_unbound_inputs=preserve_unbound_inputs,
+                        resolving=resolving,
+                    )
+                    for source in relation.sources
+                ]
+            }
+        )
+    if relation.kind == "with_columns":
+        return relation.model_copy(
+            update={
+                "source": bind_relation_input_refs(
+                    relation.source,
+                    inputs,
+                    preserve_unbound_inputs=preserve_unbound_inputs,
+                    resolving=resolving,
+                ),
+                "new_columns": {
+                    name: bind_scalar_input_refs(
+                        value,
+                        inputs,
+                        preserve_unbound_inputs=preserve_unbound_inputs,
+                        resolving=resolving,
+                    )
+                    for name, value in relation.new_columns.items()
+                },
+            }
+        )
+    raise AssertionError(f"unhandled relation expression: {relation!r}")
 
 
 def _bind_grid_column_input_refs(
@@ -326,7 +400,7 @@ def _bind_grid_column_input_refs(
     preserve_unbound_inputs: bool,
     resolving: frozenset[str],
 ) -> GridColumn:
-    if column.scalar is not None:
+    if column.kind == "scalar":
         return column.model_copy(
             update={
                 "scalar": bind_scalar_input_refs(
@@ -337,7 +411,7 @@ def _bind_grid_column_input_refs(
                 )
             }
         )
-    if column.series is not None:
+    if column.kind == "series":
         return column.model_copy(
             update={
                 "series": bind_series_input_refs(
@@ -348,7 +422,7 @@ def _bind_grid_column_input_refs(
                 )
             }
         )
-    if column.relation is not None:
+    if column.kind == "relation":
         return column.model_copy(
             update={
                 "relation": bind_relation_input_refs(
@@ -362,9 +436,9 @@ def _bind_grid_column_input_refs(
     return column
 
 
-def series_input_value(input_name: str, value: object) -> SeriesExpr:
+def series_input_value(input_name: str, value: object) -> SeriesExpression:
     if isinstance(value, SeriesExpr):
-        return value
+        return cast("SeriesExpression", value)
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
         sequence = value
         return values([input_cell(item) for item in sequence])
@@ -372,9 +446,9 @@ def series_input_value(input_name: str, value: object) -> SeriesExpr:
     raise TypeError(msg)
 
 
-def table_input_value(input_name: str, value: object) -> RelationExpr:
+def table_input_value(input_name: str, value: object) -> RelationExpression:
     if isinstance(value, RelationExpr):
-        return value
+        return cast("RelationExpression", value)
     if not isinstance(value, Sequence) or isinstance(value, str | bytes):
         msg = f"table input {input_name!r} must bind to a sequence of rows"
         raise TypeError(msg)
@@ -397,7 +471,7 @@ def literal_data_expr(value: object) -> _DataExpr:
         if sequence and all(isinstance(item, Mapping) for item in sequence):
             return table_input_value("literal", sequence)
         return values([input_cell(item) for item in sequence])
-    return literal_scalar(input_cell(value))
+    return lit(input_cell(value))
 
 
 def input_cell(value: object) -> CellValue:
@@ -419,10 +493,6 @@ def input_cell(value: object) -> CellValue:
     raise TypeError(msg)
 
 
-def literal_scalar(value: CellValue) -> ScalarExpr:
-    return ScalarExpr(kind="literal", value=value)
-
-
 def value_input_refs(expression: _DataExpr) -> tuple[str, ...]:
     return plan_input_refs(expression)
 
@@ -435,17 +505,3 @@ def _descend_input_resolution(
         msg = f"cyclic module input reference: {input_name}"
         raise ValueError(msg)
     return resolving | {input_name}
-
-
-def _required_scalar(value: ScalarExpr | None, path: str) -> ScalarExpr:
-    if value is None:
-        msg = f"{path} is required"
-        raise ValueError(msg)
-    return value
-
-
-def _required_name(value: str | None, path: str) -> str:
-    if not value:
-        msg = f"{path} is required"
-        raise ValueError(msg)
-    return value

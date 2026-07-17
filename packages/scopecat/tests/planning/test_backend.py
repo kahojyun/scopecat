@@ -6,19 +6,19 @@ from typing import Literal
 
 import pytest
 
+import scopecat.compiler.linking.materialization as local_materialization
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
+    MaterializedLinkedPoints,
 )
 from scopecat.compiler.relations.model import (
     lit,
     literal_rows,
-    param,
     point_col,
 )
 from scopecat.compiler.relations.point_domain import POINT_UNIT, point_rows
 from scopecat.compiler.relations.verification import (
-    ParameterLookupSignature,
     RelationTypeBindings,
     RowType,
 )
@@ -46,6 +46,7 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
+from scopecat.execution.local.program import ApplyStateStage
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
@@ -60,9 +61,7 @@ from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.planning.backend import ExecutionBackend
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
-    ParameterDefinition,
     Quantity,
-    TableParameterValue,
 )
 from scopecat.sdk.domain.context import (
     DomainBatchContext,
@@ -392,66 +391,6 @@ def _linked_program(
     )
 
 
-def _config_with_domain_lookup() -> ConfigProfileSnapshot:
-    config = load_config()
-    table_type = Table(
-        columns=(
-            TableColumn("device", Scalar(String())),
-            TableColumn(
-                "drive_frequency",
-                Scalar(QuantityType(unit="GHz")),
-            ),
-        ),
-        primary_key=("device",),
-        min_rows=1,
-        max_rows=1,
-    )
-    definition = ParameterDefinition(
-        id="drive_calibration",
-        value_type=table_type,
-    )
-    value = TableParameterValue(
-        id="drive_calibration",
-        rows=(
-            {
-                "device": "q0",
-                "drive_frequency": Quantity(value=5.25, unit="GHz"),
-            },
-        ),
-    )
-    catalog = config.parameter_catalog.model_copy(
-        update={"definitions": (*config.parameter_catalog.definitions, definition)}
-    )
-    system = config.system.model_copy(update={"parameter_catalog": catalog})
-    snapshot = config.parameter_snapshot.model_copy(
-        update={"values": (*config.parameter_snapshot.values, value)}
-    )
-    return config.model_copy(update={"system": system, "parameter_snapshot": snapshot})
-
-
-def _domain_lookup_input(*, transformed: bool) -> ValueInput:
-    result_type = Scalar(QuantityType(unit="GHz"))
-    signature = ParameterLookupSignature(
-        table_id="drive_calibration",
-        key_input_types=(("device", Scalar(String())),),
-        column_id="drive_frequency",
-        result_type=result_type,
-    )
-    lookup = param(
-        "drive_calibration",
-        key={"device": "q0"},
-        column="drive_frequency",
-    )
-    expression = lookup + Quantity(value=0.1, unit="GHz") if transformed else lookup
-    return ValueInput(
-        scalar_value_expr(
-            expression,
-            bindings=RelationTypeBindings(parameter_lookups=(signature,)),
-            expected_type=result_type,
-        )
-    )
-
-
 def _linked_instrument_fed_transform_program() -> LinkedPlan:
     source = product_output("source", unit="ratio")
     derived = product_output("derived", unit="ratio")
@@ -651,57 +590,28 @@ def test_constant_local_state_is_automatically_fused() -> None:
     _assert_no_domain_effects(adapter)
 
 
-def test_materialized_domain_execution_retains_direct_config_lookup_bindings() -> None:
-    config = _config_with_domain_lookup()
-    adapter = _DomainAdapter("tests.config-provenance")
-    prepared = ExecutionBackend(domain_adapters=(adapter,)).prepare(
-        _linked_program(
-            domain_input=_domain_lookup_input(transformed=False),
-            config=config,
-        ),
-        config=config,
+def test_mixed_planning_reuses_materialized_linked_points(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    linked = _linked_program(state_mode="constant")
+    adapter = _DomainAdapter("tests.single-materialization")
+
+    def reject_rematerialization(_linked: LinkedPlan) -> MaterializedLinkedPoints:
+        raise AssertionError("backend must reuse its materialized linked points")
+
+    monkeypatch.setattr(
+        local_materialization,
+        "materialize_linked_points",
+        reject_rematerialization,
     )
 
-    execution = prepared.linked_points.domain_execution
-    assert execution is not None
-    assert [
-        (
-            point.logical_ordinal,
-            binding.input_id,
-            binding.table_id,
-            dict(binding.key),
-            binding.column_id,
-            binding.resolved_value,
-        )
-        for point in execution.points
-        for binding in point.config_input_bindings
-    ] == [
-        (
-            point_index,
-            "drive_frequency",
-            "drive_calibration",
-            {"device": "q0"},
-            "drive_frequency",
-            Quantity(value=5.25, unit="GHz"),
-        )
-        for point_index in range(2)
-    ]
+    prepared = ExecutionBackend(
+        provider=_TrackingProvider(),
+        domain_adapters=(adapter,),
+    ).prepare(linked, config=load_config())
 
-
-def test_materialized_domain_execution_omits_transformed_direct_lookup() -> None:
-    config = _config_with_domain_lookup()
-    adapter = _DomainAdapter("tests.transformed-config-input")
-    prepared = ExecutionBackend(domain_adapters=(adapter,)).prepare(
-        _linked_program(
-            domain_input=_domain_lookup_input(transformed=True),
-            config=config,
-        ),
-        config=config,
-    )
-
-    execution = prepared.linked_points.domain_execution
-    assert execution is not None
-    assert all(not point.config_input_bindings for point in execution.points)
+    assert prepared.point_unit is not None
+    assert prepared.domain_unit is not None
 
 
 def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None:
@@ -715,11 +625,11 @@ def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None
 
     assert [record.id for record in plan.projection.projection.records] == ["record-0"]
     assert plan.point_unit is not None
-    assert plan.point_unit.bound_plan.state_changes
     assert any(
-        state.fields
-        for point in plan.point_unit.bound_plan.points
-        for state in point.desired_state
+        stage.operations
+        for point in plan.point_unit.prepared.program.points
+        for stage in point.stages
+        if isinstance(stage, ApplyStateStage)
     )
     _assert_no_domain_effects(adapter)
 

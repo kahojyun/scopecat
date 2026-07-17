@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
-from typing import Literal, Protocol
+from typing import Protocol
 
 from pydantic import BaseModel
 
@@ -16,15 +16,11 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 
-type RunRefKind = Literal["missing", "file", "directory", "other"]
-
 
 class RunRepository(Protocol):
     """Durable run repository shared by use cases and storage adapters."""
 
     def exists(self, run_id: str, ref: str) -> bool: ...
-
-    def ref_kind(self, run_id: str, ref: str) -> RunRefKind: ...
 
     def read_manifest(self, run_id: str) -> RunManifest: ...
 

@@ -44,7 +44,11 @@ from scopecat.compiler.semantic.value_expressions import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import bind_each, set_state_field
-from scopecat.compiler.typed.state import StateSpec
+from scopecat.compiler.typed.state import (
+    ForEachStateSpec,
+    SetStateSpec,
+    StateSpecVariant,
+)
 from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 
 
@@ -120,7 +124,7 @@ def state_field(
     bindings: RelationTypeBindings | None = None,
     resource_type: Scalar | None = None,
     value_type: Scalar | None = None,
-) -> StateSpec:
+) -> SetStateSpec:
     selected_bindings = bindings or RelationTypeBindings()
     return set_state_field(
         scalar_value_expr(
@@ -154,11 +158,11 @@ def state_field(
 
 def each_state(
     relation: RelationExpr,
-    *state: StateSpec,
+    *state: StateSpecVariant,
     bindings: RelationTypeBindings | None = None,
     expected_type: Table | None = None,
     row_scope_id: RowScopeId | None = None,
-) -> StateSpec:
+) -> ForEachStateSpec:
     return bind_each(
         table_value_expr(
             relation,

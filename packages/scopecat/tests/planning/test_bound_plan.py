@@ -1,5 +1,3 @@
-from dataclasses import replace
-
 import pytest
 
 from scopecat.compiler.relations.model import (
@@ -43,8 +41,8 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import (
+    PhysicalResourceId,
     logical_resource_port_id,
-    physical_resource_id,
 )
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
@@ -53,12 +51,10 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.parameter import Quantity
 from tests.testkit.bound_plan import (
     bound_coordinate_ids,
-    bound_dataset_dimensions,
     bound_plan_contract,
     bound_plan_result,
-    bound_primary_observables,
+    bound_state_fields,
     config_with_physical_resources,
-    state_literal,
 )
 from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
@@ -89,7 +85,7 @@ def _point_domain(expr: RelationExpr) -> PointDomain:
     )
 
 
-def test_bound_plan_contract_summarizes_points_state_and_records() -> None:
+def test_bound_plan_contract_summarizes_points_and_state() -> None:
     points = _point_domain(
         grid(
             readout=table("readout_devices").filter(col("enabled").eq(True)),
@@ -107,7 +103,7 @@ def test_bound_plan_contract_summarizes_points_state_and_records() -> None:
     )
     producer = instrument_product_producer(
         product,
-        physical_resource_id=physical_resource_id("readout-a"),
+        physical_resource_id=PhysicalResourceId("readout-a"),
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
@@ -158,82 +154,10 @@ def test_bound_plan_contract_summarizes_points_state_and_records() -> None:
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
     ]
-    assert [state_literal(change.after) for change in preview.state_changes] == [
+    assert [field.value.root for _, _, field in bound_state_fields(preview)] == [
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
     ]
-    assert [
-        (
-            record.id,
-            record.kind,
-            record.unit,
-            record.dtype,
-            record.dims,
-            record.shape,
-        )
-        for record in preview.records
-    ] == [
-        (
-            "signal",
-            "observable",
-            "ratio",
-            "float64",
-            ("point",),
-            (2,),
-        )
-    ]
-    assert bound_dataset_dimensions(preview) == {"point": 2}
-    assert bound_primary_observables(preview) == ("signal",)
-    assert preview.expected_dataset_schema is not None
-    assert preview.expected_dataset_schema.primary_coordinates == ["readout_frequency"]
-    assert preview.expected_dataset_schema.primary_observables == ["signal"]
-    assert [
-        (
-            variable.id,
-            variable.dtype,
-            variable.unit,
-            variable.dims,
-            variable.shape,
-            variable.metadata,
-        )
-        for variable in preview.expected_dataset_schema.variables
-        if variable.role == "coordinate"
-    ] == [
-        (
-            "readout_frequency",
-            "float64",
-            "GHz",
-            ["point"],
-            [2],
-            {},
-        )
-    ]
-
-
-def test_bound_plan_contract_summarizes_record_axes() -> None:
-    product = observable_product(
-        "i0",
-        unit="ratio",
-        axes=[product_axis("shot", size=3, kind="shot", unit="count")],
-    )
-    producer = instrument_product_producer(product)
-    product_use, record_use = record_product(product)
-    spec = typed_program(
-        id="readout-iq",
-        kind="readout.iq",
-        point_domain=_point_domain(grid(index=[0])),
-        product_defs=[product],
-        instrument_product_producers=[producer],
-        product_uses=[product_use],
-        record_uses=[record_use],
-    )
-
-    preview = bound_plan_contract(spec, _parameters())
-
-    assert preview.records[0].dims == ("point", "shot")
-    assert preview.records[0].shape == (1, 3)
-    assert bound_dataset_dimensions(preview) == {"point": 1, "shot": 3}
-    assert bound_primary_observables(preview) == ("i0",)
 
 
 def test_bound_plan_contract_summarizes_compute_payload_boundary() -> None:
@@ -417,7 +341,7 @@ def test_bound_plan_contract_rejects_unknown_compute_payload_nodes() -> None:
     ]
 
 
-def test_bound_plan_exposes_lowered_record_bindings() -> None:
+def test_bound_plan_selects_local_product_realization() -> None:
     product = observable_product(
         "iq_trace",
         unit="V",
@@ -437,49 +361,9 @@ def test_bound_plan_exposes_lowered_record_bindings() -> None:
         product_uses=[product_use],
         record_uses=[record_use],
     )
-    changed_product = observable_product(
-        "phase_trace",
-        unit="rad",
-    )
-    changed_producer = instrument_product_producer(
-        changed_product,
-        physical_resource_id="readout-a",
-    )
-    changed_product_use, changed_record_use = record_product(changed_product)
-    changed = replace(
-        spec,
-        product_defs=(changed_product,),
-        instrument_product_producers=(changed_producer,),
-        product_uses=(changed_product_use,),
-        record_uses=(changed_record_use,),
-    )
-
     config = config_with_physical_resources({"readout-a": ()})
     preview = bound_plan_contract(spec, _parameters(), config=config)
-    changed_preview = bound_plan_contract(changed, _parameters(), config=config)
-
-    assert [
-        (
-            record.id,
-            record.kind,
-            record.unit,
-            record.dtype,
-            record.dims,
-            record.shape,
-        )
-        for record in preview.records
-    ] == [
-        (
-            "iq_trace",
-            "observable",
-            "V",
-            "float64",
-            ("point", "time"),
-            (1, 16),
-        )
-    ]
     assert preview.local_product_realizations is not None
     [realization] = preview.local_product_realizations.entries
-    assert realization.producer.resource_target == physical_resource_id("readout-a")
+    assert realization.producer.resource_target == PhysicalResourceId("readout-a")
     assert realization.implicit_resource_id is None
-    assert changed_preview.records != preview.records

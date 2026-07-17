@@ -99,8 +99,8 @@ class RunRepositoryContract:
             "records/events.jsonl",
             _ContractRecord,
         ) == [_ContractRecord(message="one"), _ContractRecord(message="two")]
-        assert repository.ref_kind(run_id, "records/model.json") == "file"
-        assert repository.ref_kind(run_id, "records/missing.json") == "missing"
+        assert repository.exists(run_id, "records/model.json")
+        assert not repository.exists(run_id, "records/missing.json")
 
     def test_lists_runs_by_creation_time(self, tmp_path: Path) -> None:
         repository = self.make_repository(tmp_path)
@@ -159,7 +159,7 @@ class RunRepositoryContract:
                     config=config,
                 )
             assert captured.value.problems[0].code == ("run.config_provenance_mismatch")
-            assert repository.ref_kind(manifest.run_id, MANIFEST_REF) == "missing"
+            assert not repository.exists(manifest.run_id, MANIFEST_REF)
 
     def test_structured_run_reads_detect_snapshot_drift(
         self,

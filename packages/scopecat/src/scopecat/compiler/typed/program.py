@@ -52,10 +52,13 @@ from scopecat.compiler.typed.products import (
 )
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.state import (
+    ForEachStateSpec,
     LogicalStateResourceTarget,
     PhysicalStateResourceTarget,
-    StateSpec,
+    SetStateSpec,
+    StateSpecVariant,
 )
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -129,8 +132,8 @@ def _empty_compute_inputs() -> dict[str, ComputeInput]:
     return {}
 
 
-def _empty_metadata() -> dict[str, JsonValue]:
-    return {}
+def _empty_metadata() -> FrozenMapping[str, JsonValue]:
+    return FrozenMapping()
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,7 +276,7 @@ class TypedProgram:
         default_factory=ImplementationCatalog
     )
     source_map: SourceMap = field(default_factory=SourceMap)
-    state: tuple[StateSpec, ...] = ()
+    state: tuple[StateSpecVariant, ...] = ()
     actions: tuple[ActionSpec, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     instrument_product_producers: tuple[InstrumentProductProducer, ...] = ()
@@ -289,8 +292,14 @@ class TypedProgram:
         if not self.id or not self.kind:
             msg = "typed program id and kind must be non-empty"
             raise ValueError(msg)
-        selected_metadata: dict[str, JsonValue] = dict(self.metadata)
-        object.__setattr__(self, "metadata", selected_metadata)
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata,
+                path=f"typed program {self.id!r} metadata",
+            ),
+        )
 
 
 def set_state_field(
@@ -301,7 +310,7 @@ def set_state_field(
     field_path: str,
     value: ScalarValueExpr | ComputeResultRef,
     route_entities: Sequence[ScalarOrSeriesValueExpr] = (),
-) -> StateSpec:
+) -> SetStateSpec:
     """Build desired state from orthogonal capability and field identities."""
 
     if (resource is None) == (resource_port_id is None):
@@ -311,8 +320,7 @@ def set_state_field(
         msg = "physical state resource expressions must have string scalar type"
         raise TypeError(msg)
 
-    return StateSpec(
-        kind="set",
+    return SetStateSpec(
         resource_target=(
             LogicalStateResourceTarget(port_id=resource_port_id)
             if resource_port_id is not None
@@ -331,14 +339,13 @@ def set_state_field(
 
 def bind_each(
     relation: TableValueExpr,
-    *state: StateSpec,
+    *state: StateSpecVariant,
     row_scope_id: RowScopeId | None = None,
-) -> StateSpec:
-    return StateSpec(
-        kind="for_each",
+) -> ForEachStateSpec:
+    return ForEachStateSpec(
         relation_use=relation_use(relation),
-        row_scope_id=row_scope_id,
         state=tuple(state),
+        row_scope_id=row_scope_id,
     )
 
 
@@ -375,14 +382,14 @@ def product_axis(
     size: int,
     kind: str | None = None,
     unit: str | None = None,
-    metadata: dict[str, JsonValue] | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
 ) -> ProductAxisDef:
     return ProductAxisDef(
         id=id,
         kind=kind or id,
         size=size,
         unit=unit,
-        metadata=dict(metadata or {}),
+        metadata=metadata or {},
     )
 
 
@@ -397,7 +404,7 @@ def product_output(
     unit: str | None = None,
     dtype: MeasurementDType = "float64",
     axes: Sequence[ProductAxisDef] = (),
-    metadata: dict[str, JsonValue] | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
 ) -> ProductDef:
     selected_id = id if isinstance(id, ProductId) else product_id(id)
     return ProductDef(
@@ -406,7 +413,7 @@ def product_output(
         unit=unit,
         dtype=dtype,
         axes=tuple(axes),
-        metadata=dict(metadata or {}),
+        metadata=metadata or {},
     )
 
 
@@ -414,7 +421,7 @@ def record_product(
     product: ProductDef | ProductId,
     *,
     record_id: str | None = None,
-    metadata: dict[str, JsonValue] | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
 ) -> tuple[ProductUse, RecordUse]:
     """Create one product-use occurrence and one durable record consumer."""
 
@@ -423,5 +430,5 @@ def record_product(
     return use, RecordUse(
         id=record_id or selected_id.qualified_name,
         product_use_id=use.id,
-        metadata=dict(metadata or {}),
+        metadata=metadata or {},
     )

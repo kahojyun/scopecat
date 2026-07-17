@@ -181,7 +181,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
 
     monkeypatch.setattr(
         execution_backends,
-        "materialize_local_plan",
+        "materialize_local_plan_from_points",
         reject_local_lowering,
     )
     semantics: dict[str, object] = {}

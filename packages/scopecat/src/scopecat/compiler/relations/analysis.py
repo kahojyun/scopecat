@@ -14,9 +14,12 @@ from typing import cast
 
 from scopecat.compiler.relations.model import (
     RelationExpr,
+    RelationExpression,
     RowScopeId,
     ScalarExpr,
+    ScalarExpression,
     SeriesExpr,
+    SeriesExpression,
 )
 
 type PlanNode = ScalarExpr | SeriesExpr | RelationExpr
@@ -165,16 +168,19 @@ def relation_operation(node: PlanNode) -> PlanOperation:
     if isinstance(node, ScalarExpr):
         operations = _SCALAR_OPERATIONS
         shape = "scalar"
+        kind = cast("ScalarExpression", node).kind
     elif isinstance(node, SeriesExpr):
         operations = _SERIES_OPERATIONS
         shape = "series"
+        kind = cast("SeriesExpression", node).kind
     else:
         operations = _RELATION_OPERATIONS
         shape = "relation"
+        kind = cast("RelationExpression", node).kind
     try:
-        return operations[str(node.kind)]
+        return operations[kind]
     except KeyError as error:
-        msg = f"unsupported {shape} plan operation: {node.kind!r}"
+        msg = f"unsupported {shape} plan operation: {kind!r}"
         raise ValueError(msg) from error
 
 
@@ -183,93 +189,92 @@ def iter_plan_children(node: PlanNode) -> Iterator[PlanNode]:
 
     operation = relation_operation(node)
     if isinstance(node, ScalarExpr):
-        if operation in {
-            PlanOperation.SCALAR_LITERAL,
-            PlanOperation.SCALAR_CURRENT_COLUMN,
-            PlanOperation.SCALAR_OUTER_COLUMN,
-            PlanOperation.SCALAR_POINT_COLUMN,
-            PlanOperation.SCALAR_INPUT,
-            PlanOperation.SCALAR_PARAMETER,
+        scalar = cast("ScalarExpression", node)
+        if scalar.kind in {
+            "literal",
+            "column",
+            "outer_column",
+            "point_column",
+            "input",
+            "param_scalar",
         }:
             return
-        if operation is PlanOperation.SCALAR_PARAMETER_LOOKUP:
-            yield from (node.key or {}).values()
+        if scalar.kind == "param_lookup":
+            yield from scalar.key.values()
             return
-        if operation is PlanOperation.SCALAR_BINARY:
-            yield _required_node(node.left, "scalar binary left")
-            yield _required_node(node.right, "scalar binary right")
+        if scalar.kind == "binary":
+            yield scalar.left
+            yield scalar.right
             return
-        if operation is PlanOperation.SCALAR_CASE:
-            for branch in node.cases or ():
+        if scalar.kind == "case":
+            for branch in scalar.cases:
                 yield branch.condition
                 yield branch.value
-            yield _required_node(node.fallback, "scalar case fallback")
+            yield scalar.fallback
             return
-        raise AssertionError(f"unhandled scalar relation operation: {operation}")
+        raise AssertionError(f"unhandled scalar expression: {scalar!r}")
 
     if isinstance(node, SeriesExpr):
-        if operation in {
-            PlanOperation.SERIES_VALUES,
-            PlanOperation.SERIES_INPUT,
-            PlanOperation.SERIES_PARAMETER,
-        }:
+        series = cast("SeriesExpression", node)
+        if series.kind in {"values", "input", "param_series"}:
             return
-        if operation in {
-            PlanOperation.SERIES_LINSPACE,
-            PlanOperation.SERIES_RANGE,
-        }:
-            for bound in (node.start, node.stop, node.step):
-                if bound is not None:
-                    yield bound
+        if series.kind == "linspace":
+            yield series.start
+            yield series.stop
             return
-        if operation in {
-            PlanOperation.SERIES_RELATION_COLUMN,
-            PlanOperation.SERIES_RELATION_ENTITIES,
-        }:
-            yield _required_node(node.source, "relation-backed series source")
+        if series.kind == "range":
+            yield series.start
+            yield series.stop
+            yield series.step
+            return
+        if series.kind == "relation_column":
+            yield series.source
+            return
+        if series.kind == "relation_entities":
+            yield series.source
             return
         raise AssertionError(f"unhandled series relation operation: {operation}")
 
-    if operation in {
-        PlanOperation.RELATION_LITERAL_ROWS,
-        PlanOperation.RELATION_PARAMETER_TABLE,
-        PlanOperation.RELATION_INPUT,
-    }:
+    relation = cast("RelationExpression", node)
+    if (
+        relation.kind == "literal_rows"
+        or relation.kind == "table"
+        or relation.kind == "input"
+    ):
         return
-    if operation is PlanOperation.RELATION_GRID:
-        for column in (node.columns or {}).values():
-            for child in (column.scalar, column.series, column.relation):
-                if child is not None:
-                    yield child
+    if relation.kind == "grid":
+        for column in relation.columns.values():
+            if column.kind == "scalar":
+                yield column.scalar
+            elif column.kind == "series":
+                yield column.series
+            elif column.kind == "relation":
+                yield column.relation
         return
-    if operation in {
-        PlanOperation.RELATION_SELECT,
-        PlanOperation.RELATION_SORT,
-        PlanOperation.RELATION_LIMIT,
-    }:
-        yield _required_node(node.source, f"{operation} source")
+    if relation.kind == "select" or relation.kind == "sort" or relation.kind == "limit":
+        yield relation.source
         return
-    if operation is PlanOperation.RELATION_FILTER:
-        yield _required_node(node.source, "relation filter source")
-        yield _required_node(node.condition, "relation filter condition")
+    if relation.kind == "filter":
+        yield relation.source
+        yield relation.condition
         return
-    if operation in {
-        PlanOperation.RELATION_JOIN,
-        PlanOperation.RELATION_CROSS,
-        PlanOperation.RELATION_LATERAL_CROSS,
-        PlanOperation.RELATION_POINT_CROSS,
-    }:
-        yield _required_node(node.left, f"{operation} left")
-        yield _required_node(node.right, f"{operation} right")
+    if (
+        relation.kind == "join"
+        or relation.kind == "cross"
+        or relation.kind == "lateral_cross"
+        or relation.kind == "point_cross"
+    ):
+        yield relation.left
+        yield relation.right
         return
-    if operation is PlanOperation.RELATION_ZIP:
-        yield from node.sources or ()
+    if relation.kind == "zip":
+        yield from relation.sources
         return
-    if operation is PlanOperation.RELATION_WITH_COLUMNS:
-        yield _required_node(node.source, "relation with_columns source")
-        yield from (node.new_columns or {}).values()
+    if relation.kind == "with_columns":
+        yield relation.source
+        yield from relation.new_columns.values()
         return
-    raise AssertionError(f"unhandled relation operation: {operation}")
+    raise AssertionError(f"unhandled relation expression: {relation!r}")
 
 
 def walk_plan(root: PlanNode) -> Iterator[PlanNode]:
@@ -360,12 +365,12 @@ def _verify_row_binder_hygiene(
     external: frozenset[RowScopeId],
 ) -> None:
     for node in walk_plan(root):
-        if not isinstance(node, RelationExpr) or node.kind not in {
-            "filter",
-            "with_columns",
-        }:
+        if not isinstance(node, RelationExpr):
             continue
-        row_scope_id = node.row_scope_id
+        relation = cast("RelationExpression", node)
+        if relation.kind != "filter" and relation.kind != "with_columns":
+            continue
+        row_scope_id = relation.row_scope_id
         if row_scope_id is None:
             continue
         if row_scope_id in external:
@@ -401,24 +406,25 @@ def _collect_free_row_references(
     references: set[PlanReference],
 ) -> None:
     if isinstance(node, ScalarExpr):
-        if node.kind == "column":
+        scalar = cast("ScalarExpression", node)
+        if scalar.kind == "column":
             reference = PlanReference(
                 PlanReferenceKind.CURRENT_COLUMN,
-                _required_id(node.name, str(node.kind)),
-                row_scope_id=node.row_scope_id,
+                scalar.name,
+                row_scope_id=scalar.row_scope_id,
             )
-            if (node.row_scope_id is not None and node.row_scope_id not in active) or (
-                node.row_scope_id is None and not current_row_available
-            ):
+            if (
+                scalar.row_scope_id is not None and scalar.row_scope_id not in active
+            ) or (scalar.row_scope_id is None and not current_row_available):
                 references.add(reference)
-        elif node.kind == "outer_column" and not outer_row_available:
+        elif scalar.kind == "outer_column" and not outer_row_available:
             references.add(
                 PlanReference(
                     PlanReferenceKind.OUTER_COLUMN,
-                    _required_id(node.name, str(node.kind)),
+                    scalar.name,
                 )
             )
-        for child in iter_plan_children(node):
+        for child in iter_plan_children(scalar):
             _collect_free_row_references(
                 child,
                 active=active,
@@ -439,38 +445,42 @@ def _collect_free_row_references(
             )
         return
 
-    operation = relation_operation(node)
-    if operation is PlanOperation.RELATION_FILTER:
+    relation = cast("RelationExpression", node)
+    if relation.kind == "filter":
         _collect_free_row_references(
-            _required_node(node.source, "relation filter source"),
+            relation.source,
             active=active,
             current_row_available=current_row_available,
             outer_row_available=outer_row_available,
             references=references,
         )
         nested = (
-            active | {node.row_scope_id} if node.row_scope_id is not None else active
+            active | {relation.row_scope_id}
+            if relation.row_scope_id is not None
+            else active
         )
         _collect_free_row_references(
-            _required_node(node.condition, "relation filter condition"),
+            relation.condition,
             active=frozenset(nested),
             current_row_available=True,
             outer_row_available=outer_row_available,
             references=references,
         )
         return
-    if operation is PlanOperation.RELATION_WITH_COLUMNS:
+    if relation.kind == "with_columns":
         _collect_free_row_references(
-            _required_node(node.source, "relation with_columns source"),
+            relation.source,
             active=active,
             current_row_available=current_row_available,
             outer_row_available=outer_row_available,
             references=references,
         )
         nested = (
-            active | {node.row_scope_id} if node.row_scope_id is not None else active
+            active | {relation.row_scope_id}
+            if relation.row_scope_id is not None
+            else active
         )
-        for scalar in (node.new_columns or {}).values():
+        for scalar in relation.new_columns.values():
             _collect_free_row_references(
                 scalar,
                 active=frozenset(nested),
@@ -479,23 +489,23 @@ def _collect_free_row_references(
                 references=references,
             )
         return
-    if operation is PlanOperation.RELATION_LATERAL_CROSS:
+    if relation.kind == "lateral_cross":
         _collect_free_row_references(
-            _required_node(node.left, "relation lateral_cross left"),
+            relation.left,
             active=active,
             current_row_available=current_row_available,
             outer_row_available=outer_row_available,
             references=references,
         )
         _collect_free_row_references(
-            _required_node(node.right, "relation lateral_cross right"),
+            relation.right,
             active=active,
             current_row_available=True,
             outer_row_available=True,
             references=references,
         )
         return
-    for child in iter_plan_children(node):
+    for child in iter_plan_children(relation):
         _collect_free_row_references(
             child,
             active=active,
@@ -513,25 +523,26 @@ def _verify_node_scopes(
     outer_row_available: bool,
 ) -> None:
     if isinstance(node, ScalarExpr):
-        if node.kind == "column":
+        scalar = cast("ScalarExpression", node)
+        if scalar.kind == "column":
             reference = PlanReference(
                 PlanReferenceKind.CURRENT_COLUMN,
-                _required_id(node.name, str(node.kind)),
-                row_scope_id=node.row_scope_id,
+                scalar.name,
+                row_scope_id=scalar.row_scope_id,
             )
-            if node.row_scope_id is not None:
-                if node.row_scope_id not in active:
+            if scalar.row_scope_id is not None:
+                if scalar.row_scope_id not in active:
                     raise RelationPlanScopeError(reference)
             elif not current_row_available:
                 raise RelationPlanScopeError(reference)
-        elif node.kind == "outer_column" and not outer_row_available:
+        elif scalar.kind == "outer_column" and not outer_row_available:
             raise RelationPlanScopeError(
                 PlanReference(
                     PlanReferenceKind.OUTER_COLUMN,
-                    _required_id(node.name, str(node.kind)),
+                    scalar.name,
                 )
             )
-        for child in iter_plan_children(node):
+        for child in iter_plan_children(scalar):
             _verify_node_scopes(
                 child,
                 active=active,
@@ -550,35 +561,39 @@ def _verify_node_scopes(
             )
         return
 
-    operation = relation_operation(node)
-    if operation is PlanOperation.RELATION_FILTER:
+    relation = cast("RelationExpression", node)
+    if relation.kind == "filter":
         _verify_node_scopes(
-            _required_node(node.source, "relation filter source"),
+            relation.source,
             active=active,
             current_row_available=current_row_available,
             outer_row_available=outer_row_available,
         )
         nested = (
-            active | {node.row_scope_id} if node.row_scope_id is not None else active
+            active | {relation.row_scope_id}
+            if relation.row_scope_id is not None
+            else active
         )
         _verify_node_scopes(
-            _required_node(node.condition, "relation filter condition"),
+            relation.condition,
             active=frozenset(nested),
             current_row_available=True,
             outer_row_available=outer_row_available,
         )
         return
-    if operation is PlanOperation.RELATION_WITH_COLUMNS:
+    if relation.kind == "with_columns":
         _verify_node_scopes(
-            _required_node(node.source, "relation with_columns source"),
+            relation.source,
             active=active,
             current_row_available=current_row_available,
             outer_row_available=outer_row_available,
         )
         nested = (
-            active | {node.row_scope_id} if node.row_scope_id is not None else active
+            active | {relation.row_scope_id}
+            if relation.row_scope_id is not None
+            else active
         )
-        for scalar in (node.new_columns or {}).values():
+        for scalar in relation.new_columns.values():
             _verify_node_scopes(
                 scalar,
                 active=frozenset(nested),
@@ -586,21 +601,21 @@ def _verify_node_scopes(
                 outer_row_available=outer_row_available,
             )
         return
-    if operation is PlanOperation.RELATION_LATERAL_CROSS:
+    if relation.kind == "lateral_cross":
         _verify_node_scopes(
-            _required_node(node.left, "relation lateral_cross left"),
+            relation.left,
             active=active,
             current_row_available=current_row_available,
             outer_row_available=outer_row_available,
         )
         _verify_node_scopes(
-            _required_node(node.right, "relation lateral_cross right"),
+            relation.right,
             active=active,
             current_row_available=True,
             outer_row_available=True,
         )
         return
-    for child in iter_plan_children(node):
+    for child in iter_plan_children(relation):
         _verify_node_scopes(
             child,
             active=active,
@@ -625,135 +640,198 @@ def _prefix_plan_row_scopes(
     scope: tuple[str, ...],
 ) -> PlanNode:
     if isinstance(node, ScalarExpr):
-        update: dict[str, object] = {}
-        if node.row_scope_id is not None:
-            update["row_scope_id"] = node.row_scope_id.prefixed(*scope)
-        if node.key is not None:
-            update["key"] = {
-                name: _prefix_plan_row_scopes(value, scope)
-                for name, value in node.key.items()
-            }
-        for field_name in ("left", "right", "fallback"):
-            value = cast("PlanNode | None", getattr(node, field_name))
-            if value is not None:
-                update[field_name] = _prefix_plan_row_scopes(value, scope)
-        if node.cases is not None:
-            update["cases"] = [
-                branch.model_copy(
-                    update={
-                        "condition": _prefix_plan_row_scopes(
-                            branch.condition,
-                            scope,
-                        ),
-                        "value": _prefix_plan_row_scopes(branch.value, scope),
+        scalar = cast("ScalarExpression", node)
+        if scalar.kind == "column":
+            if scalar.row_scope_id is None:
+                return scalar
+            return scalar.model_copy(
+                update={"row_scope_id": scalar.row_scope_id.prefixed(*scope)}
+            )
+        if scalar.kind == "param_lookup":
+            return scalar.model_copy(
+                update={
+                    "key": {
+                        name: _prefix_plan_row_scopes(value, scope)
+                        for name, value in scalar.key.items()
                     }
-                )
-                for branch in node.cases
-            ]
-        return node.model_copy(update=update) if update else node
+                }
+            )
+        if scalar.kind == "binary":
+            return scalar.model_copy(
+                update={
+                    "left": _prefix_plan_row_scopes(scalar.left, scope),
+                    "right": _prefix_plan_row_scopes(scalar.right, scope),
+                }
+            )
+        if scalar.kind == "case":
+            return scalar.model_copy(
+                update={
+                    "cases": [
+                        branch.model_copy(
+                            update={
+                                "condition": _prefix_plan_row_scopes(
+                                    branch.condition,
+                                    scope,
+                                ),
+                                "value": _prefix_plan_row_scopes(
+                                    branch.value,
+                                    scope,
+                                ),
+                            }
+                        )
+                        for branch in scalar.cases
+                    ],
+                    "fallback": _prefix_plan_row_scopes(scalar.fallback, scope),
+                }
+            )
+        return scalar
 
     if isinstance(node, SeriesExpr):
-        update = {}
-        for field_name in ("start", "stop", "step", "source"):
-            value = cast("PlanNode | None", getattr(node, field_name))
-            if value is not None:
-                update[field_name] = _prefix_plan_row_scopes(value, scope)
-        return node.model_copy(update=update) if update else node
-
-    update = {}
-    if node.row_scope_id is not None:
-        update["row_scope_id"] = node.row_scope_id.prefixed(*scope)
-    for field_name in ("source", "left", "right", "condition"):
-        value = cast("PlanNode | None", getattr(node, field_name))
-        if value is not None:
-            update[field_name] = _prefix_plan_row_scopes(value, scope)
-    if node.sources is not None:
-        update["sources"] = [
-            _prefix_plan_row_scopes(source, scope) for source in node.sources
-        ]
-    if node.columns is not None:
-        columns = {}
-        for name, column in node.columns.items():
-            column_update = {
-                field_name: _prefix_plan_row_scopes(value, scope)
-                for field_name in ("scalar", "series", "relation")
-                if (value := cast("PlanNode | None", getattr(column, field_name)))
-                is not None
-            }
-            columns[name] = (
-                column.model_copy(update=column_update) if column_update else column
+        series = cast("SeriesExpression", node)
+        if series.kind == "linspace":
+            return series.model_copy(
+                update={
+                    "start": _prefix_plan_row_scopes(series.start, scope),
+                    "stop": _prefix_plan_row_scopes(series.stop, scope),
+                }
             )
-        update["columns"] = columns
-    if node.new_columns is not None:
-        update["new_columns"] = {
-            name: _prefix_plan_row_scopes(value, scope)
-            for name, value in node.new_columns.items()
+        if series.kind == "range":
+            return series.model_copy(
+                update={
+                    "start": _prefix_plan_row_scopes(series.start, scope),
+                    "stop": _prefix_plan_row_scopes(series.stop, scope),
+                    "step": _prefix_plan_row_scopes(series.step, scope),
+                }
+            )
+        if series.kind == "relation_column" or series.kind == "relation_entities":
+            source = series.source
+        else:
+            return series
+        return series.model_copy(
+            update={"source": _prefix_plan_row_scopes(source, scope)}
+        )
+
+    relation = cast("RelationExpression", node)
+    if (
+        relation.kind == "literal_rows"
+        or relation.kind == "table"
+        or relation.kind == "input"
+    ):
+        return relation
+    if relation.kind == "grid":
+        columns = {}
+        for name, column in relation.columns.items():
+            if column.kind == "scalar":
+                columns[name] = column.model_copy(
+                    update={"scalar": _prefix_plan_row_scopes(column.scalar, scope)}
+                )
+            elif column.kind == "series":
+                columns[name] = column.model_copy(
+                    update={"series": _prefix_plan_row_scopes(column.series, scope)}
+                )
+            elif column.kind == "relation":
+                columns[name] = column.model_copy(
+                    update={"relation": _prefix_plan_row_scopes(column.relation, scope)}
+                )
+            else:
+                columns[name] = column
+        return relation.model_copy(update={"columns": columns})
+    if relation.kind == "select" or relation.kind == "sort" or relation.kind == "limit":
+        return relation.model_copy(
+            update={"source": _prefix_plan_row_scopes(relation.source, scope)}
+        )
+    if relation.kind == "filter":
+        update: dict[str, object] = {
+            "source": _prefix_plan_row_scopes(relation.source, scope),
+            "condition": _prefix_plan_row_scopes(relation.condition, scope),
         }
-    return node.model_copy(update=update) if update else node
+        if relation.row_scope_id is not None:
+            update["row_scope_id"] = relation.row_scope_id.prefixed(*scope)
+        return relation.model_copy(update=update)
+    if (
+        relation.kind == "join"
+        or relation.kind == "cross"
+        or relation.kind == "lateral_cross"
+        or relation.kind == "point_cross"
+    ):
+        return relation.model_copy(
+            update={
+                "left": _prefix_plan_row_scopes(relation.left, scope),
+                "right": _prefix_plan_row_scopes(relation.right, scope),
+            }
+        )
+    if relation.kind == "zip":
+        return relation.model_copy(
+            update={
+                "sources": [
+                    _prefix_plan_row_scopes(source, scope)
+                    for source in relation.sources
+                ]
+            }
+        )
+    if relation.kind == "with_columns":
+        update = {
+            "source": _prefix_plan_row_scopes(relation.source, scope),
+            "new_columns": {
+                name: _prefix_plan_row_scopes(value, scope)
+                for name, value in relation.new_columns.items()
+            },
+        }
+        if relation.row_scope_id is not None:
+            update["row_scope_id"] = relation.row_scope_id.prefixed(*scope)
+        return relation.model_copy(update=update)
+    raise AssertionError(f"unhandled relation expression: {relation!r}")
 
 
 def _scalar_reference(node: ScalarExpr) -> PlanReference | None:
-    kind = str(node.kind)
-    reference_kind = {
-        "column": PlanReferenceKind.CURRENT_COLUMN,
-        "outer_column": PlanReferenceKind.OUTER_COLUMN,
-        "point_column": PlanReferenceKind.POINT_COLUMN,
-        "input": PlanReferenceKind.INPUT_SCALAR,
-        "param_scalar": PlanReferenceKind.PARAMETER_SCALAR,
-    }.get(kind)
-    if reference_kind is not None:
+    scalar = cast("ScalarExpression", node)
+    if scalar.kind == "column":
         return PlanReference(
-            reference_kind,
-            _required_id(node.name, kind),
-            row_scope_id=node.row_scope_id if kind == "column" else None,
+            PlanReferenceKind.CURRENT_COLUMN,
+            scalar.name,
+            row_scope_id=scalar.row_scope_id,
         )
-    if kind == "param_lookup":
+    if scalar.kind == "outer_column":
+        return PlanReference(PlanReferenceKind.OUTER_COLUMN, scalar.name)
+    if scalar.kind == "point_column":
+        return PlanReference(PlanReferenceKind.POINT_COLUMN, scalar.name)
+    if scalar.kind == "input":
+        return PlanReference(PlanReferenceKind.INPUT_SCALAR, scalar.name)
+    if scalar.kind == "param_scalar":
+        return PlanReference(PlanReferenceKind.PARAMETER_SCALAR, scalar.name)
+    if scalar.kind == "param_lookup":
         return PlanReference(
             PlanReferenceKind.PARAMETER_TABLE,
-            _required_id(node.table_id, kind),
+            scalar.table_id,
         )
     return None
 
 
 def _series_reference(node: SeriesExpr) -> PlanReference | None:
-    kind = str(node.kind)
-    if kind == "input":
+    series = cast("SeriesExpression", node)
+    if series.kind == "input":
         return PlanReference(
             PlanReferenceKind.INPUT_SERIES,
-            _required_id(node.name, kind),
+            series.name,
         )
-    if kind == "param_series":
+    if series.kind == "param_series":
         return PlanReference(
             PlanReferenceKind.PARAMETER_SERIES,
-            _required_id(node.name, kind),
+            series.name,
         )
     return None
 
 
 def _relation_reference(node: RelationExpr) -> PlanReference | None:
-    kind = str(node.kind)
-    if kind == "input":
+    relation = cast("RelationExpression", node)
+    if relation.kind == "input":
         return PlanReference(
             PlanReferenceKind.INPUT_TABLE,
-            _required_id(node.name, kind),
+            relation.name,
         )
-    if kind == "table":
+    if relation.kind == "table":
         return PlanReference(
             PlanReferenceKind.PARAMETER_TABLE,
-            _required_id(node.table_id, kind),
+            relation.table_id,
         )
     return None
-
-
-def _required_node[NodeT: PlanNode](node: NodeT | None, path: str) -> NodeT:
-    if node is None:
-        msg = f"validated relation plan is missing {path}"
-        raise ValueError(msg)
-    return node
-
-
-def _required_id(value: str | None, operation: str) -> str:
-    if not value:
-        msg = f"validated {operation} plan reference has no id"
-        raise ValueError(msg)
-    return value

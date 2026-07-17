@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal
@@ -40,24 +39,10 @@ class SelectedLocalProductRealization:
     implicit_resource_id: PhysicalResourceId | None = None
     kind: Literal["instrument_collection"] = "instrument_collection"
 
-    def __post_init__(self) -> None:
-        if self.product.id != self.product_id:
-            msg = "selected product realization must retain its product contract"
-            raise ValueError(msg)
-        if self.producer.id != self.producer_id:
-            msg = "selected product realization must retain its producer contract"
-            raise ValueError(msg)
-        if self.producer.product_id != self.product_id:
-            msg = "selected producer must close over the selected logical product"
-            raise ValueError(msg)
-        if self.product.kind != "observable":
-            msg = "local instrument collection requires an observable product"
-            raise ValueError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class SelectedLocalProductRealizations:
-    """Complete, unique local realization coverage for selected product uses."""
+    """Complete local realization coverage for selected product uses."""
 
     entries: tuple[SelectedLocalProductRealization, ...]
     _by_use: Mapping[ProductUseId, SelectedLocalProductRealization] = field(
@@ -68,22 +53,11 @@ class SelectedLocalProductRealizations:
     )
 
     def __post_init__(self) -> None:
-        entries = tuple(self.entries)
-        by_use = {entry.product_use_id: entry for entry in entries}
-        if len(by_use) != len(entries):
-            msg = "selected local product realizations require unique product uses"
-            raise ValueError(msg)
-        object.__setattr__(self, "entries", entries)
-        object.__setattr__(self, "_by_use", MappingProxyType(by_use))
-
-    def __copy__(self) -> SelectedLocalProductRealizations:
-        return self
-
-    def __deepcopy__(
-        self,
-        _memo: dict[int, object],
-    ) -> SelectedLocalProductRealizations:
-        return self
+        object.__setattr__(
+            self,
+            "_by_use",
+            MappingProxyType({entry.product_use_id: entry for entry in self.entries}),
+        )
 
     def selected_for(
         self,
@@ -126,21 +100,7 @@ def select_local_product_realizations(
     selected: list[SelectedLocalProductRealization] = []
     problems: list[Problem] = []
     for use in product_uses:
-        product = products_by_id.get(use.product_id)
-        if product is None:
-            # Product-graph validation above owns this expected failure. Keep
-            # selection total if that validation is ever independently changed.
-            problems.append(
-                compiler_problem(
-                    "product_use_definition_missing",
-                    f"product use {use.id.value!r} references unknown product "
-                    f"{use.product_id.qualified_name!r}",
-                    _realization_location(use),
-                    phase=phase,
-                    category=ProblemCategory.NOT_FOUND,
-                )
-            )
-            continue
+        product = products_by_id[use.product_id]
         supported = True
         if product.kind != "observable":
             supported = False
@@ -260,17 +220,15 @@ def select_local_product_realizations(
                 SelectedLocalProductRealization(
                     product_use_id=use.id,
                     product_id=product.id,
-                    product=deepcopy(product),
+                    product=product,
                     producer_id=producer.id,
-                    producer=deepcopy(producer),
+                    producer=producer,
                     implicit_resource_id=implicit_resource_id,
                 )
             )
 
     if problems:
         return None, tuple(problems)
-    if len(selected) != len(product_uses):
-        raise AssertionError("successful local product selection lost use coverage")
     return (
         SelectedLocalProductRealizations(
             tuple(selected),

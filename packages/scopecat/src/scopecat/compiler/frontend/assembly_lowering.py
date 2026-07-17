@@ -49,9 +49,11 @@ from scopecat.compiler.frontend.value_binding import (
     value_input_refs,
 )
 from scopecat.compiler.relations.model import (
+    BinaryScalarExpr,
     CellValue,
     RelationExpr,
     ScalarExpr,
+    ScalarExpression,
     SeriesExpr,
     as_scalar_expr,
     point_col,
@@ -116,7 +118,7 @@ from scopecat.compiler.typed.program import (
     invoke_action,
     set_state_field,
 )
-from scopecat.compiler.typed.state import StateSpec
+from scopecat.compiler.typed.state import ForEachStateSpec, SetStateSpec
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -431,11 +433,10 @@ def _semantic_plan_expression(
     )
     if not isinstance(left, ScalarExpr) or not isinstance(right, ScalarExpr):
         raise AssertionError("scalar semantic operands must lower to scalar plans")
-    return ScalarExpr(
-        kind="binary",
+    return BinaryScalarExpr(
         op=operation.contract.semantics.operator,
-        left=left,
-        right=right,
+        left=cast("ScalarExpression", left),
+        right=cast("ScalarExpression", right),
     )
 
 
@@ -446,7 +447,7 @@ def lower_state_region(
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
-) -> StateSpec:
+) -> ForEachStateSpec:
     if region.resource_port is not None:
         port = resource_ports.get(region.resource_port)
         if port is None:
@@ -1000,8 +1001,8 @@ def state_specs(
     *,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> list[StateSpec]:
-    specs: list[StateSpec] = []
+) -> list[SetStateSpec]:
+    specs: list[SetStateSpec] = []
     for binding in bindings:
         value = binding.value
         specs.append(

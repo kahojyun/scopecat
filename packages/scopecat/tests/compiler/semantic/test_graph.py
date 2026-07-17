@@ -6,6 +6,7 @@ from typing import cast
 import pytest
 
 from scopecat.compiler.relations.model import (
+    LiteralScalarExpr,
     RelationExpr,
     RowScopeId,
     ScalarExpr,
@@ -477,13 +478,16 @@ def test_opaque_operation_rejects_plan_available_result() -> None:
 
 def test_plan_expression_source_defensively_retains_semantics() -> None:
     expression = as_scalar_expr(1.0)
+    assert isinstance(expression, LiteralScalarExpr)
     source = _plan_source(expression, expected_type=FLOAT)
 
     expression.value = 2.0
-    projected = cast("ScalarExpr", source.expression)
+    projected = source.expression
+    assert isinstance(projected, LiteralScalarExpr)
     projected.value = 3.0
 
-    retained = cast("ScalarExpr", source.expression)
+    retained = source.expression
+    assert isinstance(retained, LiteralScalarExpr)
     assert retained.value == 1.0
 
 

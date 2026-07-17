@@ -8,6 +8,7 @@ import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.semantic.model import RouteValueSource
+from scopecat.compiler.typed.state import ForEachStateSpec, SetStateSpec
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
@@ -98,11 +99,19 @@ def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> No
         root.template("test.resources.root", kind="resources").build().bind(),
         config_profile=load_config(),
     )
-    assert [state.capability_id for state in resolved.experiment.state] == [
+    assert [
+        state.capability_id
+        for state in resolved.experiment.state
+        if isinstance(state, SetStateSpec)
+    ] == [
         "set.frequency",
         "set.frequency",
     ]
-    assert [state.field_path for state in resolved.experiment.state] == [
+    assert [
+        state.field_path
+        for state in resolved.experiment.state
+        if isinstance(state, SetStateSpec)
+    ] == [
         "value.path",
         "value.path",
     ]
@@ -321,9 +330,11 @@ def test_state_each_keeps_dotted_capability_and_field_ids_structured(
     )
 
     state = resolved.experiment.state[0]
-    assert state.state is not None
-    assert state.state[0].capability_id == "set.offset"
-    assert state.state[0].field_path == "value.path"
+    assert isinstance(state, ForEachStateSpec)
+    child = state.state[0]
+    assert isinstance(child, SetStateSpec)
+    assert child.capability_id == "set.offset"
+    assert child.field_path == "value.path"
 
 
 def _capture_route(*, route: object) -> dict[str, object]:

@@ -55,6 +55,8 @@ from scopecat.compiler.frontend.scan_lowering import (
 )
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
+    InputScalarExpr,
+    LiteralScalarExpr,
     as_scalar_expr,
     input_ref,
     param,
@@ -68,7 +70,10 @@ from scopecat.compiler.semantic.model import (
     ValueUse,
     operation_result_id,
 )
-from scopecat.compiler.typed.state import LogicalStateResourceTarget
+from scopecat.compiler.typed.state import (
+    LogicalStateResourceTarget,
+    SetStateSpec,
+)
 from scopecat.composition.local import (
     local_config_registry_unit_of_work,
     local_workspace_services,
@@ -100,10 +105,9 @@ from tests.testkit.bound_plan import (
     bound_coordinate_ids,
     bound_plan_contract,
     bound_plan_result,
-    bound_primary_observables,
     bound_state_fields,
     config_with_physical_resources,
-    state_literal,
+    measurement_projection_contract,
 )
 from tests.testkit.relation_plans import evaluate_scalar
 
@@ -255,13 +259,11 @@ def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
         value=4.9, unit="GHz"
     )
     assert [record.id for record in experiment.record_uses] == ["signal"]
-    assert bound_primary_observables(preview) == ("signal",)
-    assert preview.state_changes[0].resource_id.value == "source-0"
-    assert preview.state_changes[0].field == "set_frequency.frequency"
-    assert state_literal(preview.state_changes[0].after) == Quantity(
-        value=4.9, unit="GHz"
-    )
-    assert bound_state_fields(preview)[0][1].resource_id.value == "source-0"
+    _, state, field = bound_state_fields(preview)[0]
+    assert state.resource_id.value == "source-0"
+    assert state.capability_id == "set_frequency"
+    assert field.field_path == "frequency"
+    assert field.value.root == Quantity(value=4.9, unit="GHz")
 
 
 def test_template_selects_module_products_as_records() -> None:
@@ -441,15 +443,18 @@ def test_template_can_scan_entity_input_without_subject_special_case() -> None:
         config_profile=load_config(),
     )
     preview = bound_plan_contract(resolved.experiment, resolved.parameters)
+    projection = measurement_projection_contract(
+        resolved.experiment,
+        resolved.parameters,
+    )
 
     assert preview.points[0].coordinates["qubit"] == EntityRef(
         id="q0", kind="logical_device"
     )
-    assert preview.expected_dataset_schema is not None
+    schema = projection.schema
+    assert schema is not None
     coordinate = next(
-        variable
-        for variable in preview.expected_dataset_schema.variables
-        if variable.id == "qubit"
+        variable for variable in schema.variables if variable.id == "qubit"
     )
     assert coordinate.dtype == "string"
     assert coordinate.metadata == {"entity_kind": "logical_device"}
@@ -912,7 +917,7 @@ def test_entity_series_input_can_define_record_axis() -> None:
     assert axis.size == 1
     assert axis.metadata == {
         "entity_kind": "logical_device",
-        "entities": [{"id": "q0", "kind": "logical_device", "metadata": {}}],
+        "entities": ({"id": "q0", "kind": "logical_device", "metadata": {}},),
     }
 
     with pytest.raises(CheckFailed) as error:
@@ -1076,8 +1081,6 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
     [realization] = preview.local_product_realizations.entries
     assert realization.producer.resource_target == logical_resource_port_id("readout")
     assert realization.implicit_resource_id is None
-    assert preview.records[0].dims == ("point", "qubit")
-    assert preview.records[0].shape == (1, 2)
 
 
 def test_module_elaborates_without_config() -> None:
@@ -1171,7 +1174,7 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
     assert resolved.experiment.id == "authored-simple-scan"
     assert resolved.config.id == load_config().id
     preview = bound_plan_contract(resolved.experiment, resolved.parameters)
-    assert preview.state_changes[0].resource_id.value == "source-0"
+    assert bound_state_fields(preview)[0][1].resource_id.value == "source-0"
 
 
 def test_link_assembly_validates_parameter_contracts_owned_by_point_source() -> None:
@@ -1307,6 +1310,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
     assert all(port.id != "drive_frequency" for port in assembly.input_ports)
     assert isinstance(assembly.bindings[0].value, ValueRef)
     first_value = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    assert isinstance(first_value, LiteralScalarExpr)
     assert first_value.value == Quantity(value=5.0, unit="GHz")
 
 
@@ -1542,7 +1546,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
     assert "drive_frequency" not in assembly.inputs
     assert isinstance(assembly.bindings[0].value, ValueRef)
     localized = internal_lower_scalar_value_ref(assembly.bindings[0].value)
-    assert localized.kind == "input"
+    assert isinstance(localized, InputScalarExpr)
     assert localized.name == "outer_frequency"
 
 
@@ -1604,6 +1608,8 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
     assert isinstance(assembly.bindings[1].value, ValueRef)
     first_value = internal_lower_scalar_value_ref(assembly.bindings[0].value)
     second_value = internal_lower_scalar_value_ref(assembly.bindings[1].value)
+    assert isinstance(first_value, LiteralScalarExpr)
+    assert isinstance(second_value, LiteralScalarExpr)
     assert first_value.value == Quantity(value=5.0, unit="GHz")
     assert second_value.value == Quantity(value=5.1, unit="GHz")
 
@@ -1656,7 +1662,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
     assert isinstance(localized_entity, ValueRef)
     assert localized_entity.value_type == authoring.ScalarType(authoring.EntityType())
     lowered_entity = internal_lower_scalar_value_ref(localized_entity)
-    assert lowered_entity.kind == "literal"
+    assert isinstance(lowered_entity, LiteralScalarExpr)
     assert lowered_entity.value == EntityRef(id="q0")
 
 
@@ -1867,7 +1873,9 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         resolved.parameters,
         config=config,
     )
-    resource_target = resolved.experiment.state[0].resource_target
+    state = resolved.experiment.state[0]
+    assert isinstance(state, SetStateSpec)
+    resource_target = state.resource_target
     assert isinstance(resource_target, LogicalStateResourceTarget)
     assert resource_target.port_id.qualified_name == "drive"
     assert preview.points[0].routes[0].resource_id.value == "source-1"
@@ -1970,8 +1978,12 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
     )
 
     assert [
-        (change.resource_id.value, change.field, state_literal(change.after))
-        for change in preview.state_changes
+        (
+            state.resource_id.value,
+            f"{state.capability_id}.{field.field_path}",
+            field.value.root,
+        )
+        for _, state, field in bound_state_fields(preview)
     ] == [
         ("flux-q0", "set_offset.offset", Quantity(value=0.1, unit="arb")),
         ("flux-q1", "set_offset.offset", Quantity(value=-0.2, unit="arb")),

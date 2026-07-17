@@ -20,12 +20,17 @@ from scopecat.compiler.relations.evaluation import (
     evaluate_series,
     validate_relation_parameter_import,
 )
-from scopecat.compiler.relations.model import RelationExpr, Row, ScalarExpr, SeriesExpr
+from scopecat.compiler.relations.model import (
+    LiteralScalarExpr,
+    RelationExpr,
+    Row,
+    ScalarExpr,
+    SeriesExpr,
+)
 from scopecat.compiler.relations.point_domain import PointCardinality
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
     VerifiedRelationPlan,
-    verify_relation_plan,
 )
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
@@ -56,7 +61,8 @@ from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.state import (
     LogicalStateResourceTarget,
     PhysicalStateResourceTarget,
-    StateSpec,
+    SetStateSpec,
+    StateSpecVariant,
 )
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
@@ -146,49 +152,17 @@ class LinkedPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class MaterializedConfigInputBinding:
-    """One direct config lookup resolved for a domain-call input."""
-
-    input_id: str
-    table_id: str
-    key: tuple[tuple[str, object], ...]
-    column_id: str
-    resolved_value: object
-
-    def __post_init__(self) -> None:
-        if not self.input_id or not self.table_id or not self.column_id:
-            msg = "materialized config input binding ids must be non-empty"
-            raise ValueError(msg)
-        key_ids = tuple(column_id for column_id, _value in self.key)
-        if key_ids != tuple(sorted(set(key_ids))):
-            msg = "materialized config input binding keys must be unique and ordered"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
 class MaterializedDomainExecutionPoint:
     """One logical point's closed inputs for the domain execution."""
 
     logical_id: LogicalPointId
     logical_ordinal: int
     inputs: tuple[tuple[str, object], ...]
-    config_input_bindings: tuple[MaterializedConfigInputBinding, ...] = ()
 
     def __post_init__(self) -> None:
         names = tuple(name for name, _value in self.inputs)
         if any(not name for name in names) or len(names) != len(set(names)):
             msg = "materialized domain execution input ids must be non-empty and unique"
-            raise ValueError(msg)
-        binding_ids = tuple(binding.input_id for binding in self.config_input_bindings)
-        if len(binding_ids) != len(set(binding_ids)):
-            msg = "materialized config input bindings must have unique input ids"
-            raise ValueError(msg)
-        unknown_binding_ids = sorted(set(binding_ids) - set(names))
-        if unknown_binding_ids:
-            msg = (
-                "materialized config input bindings reference unknown inputs: "
-                + ", ".join(unknown_binding_ids)
-            )
             raise ValueError(msg)
 
     def input(self, name: str) -> object:
@@ -419,7 +393,6 @@ def _materialize_domain_execution(
     failed = False
     for point in points:
         input_values: list[tuple[str, object]] = []
-        config_input_bindings: list[MaterializedConfigInputBinding] = []
         context = EvalContext(params=parameters, point_row=point.row)
         for input_name, input_spec in execution.inputs.items():
             try:
@@ -441,14 +414,6 @@ def _materialize_domain_execution(
                 )
                 resolved_value = _unwrap_domain_input(value)
                 input_values.append((input_name, resolved_value))
-                config_binding = _materialize_direct_config_input_binding(
-                    input_name,
-                    input_spec,
-                    resolved_value=resolved_value,
-                    context=context,
-                )
-                if config_binding is not None:
-                    config_input_bindings.append(config_binding)
             except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                 failed = True
                 problems.append(
@@ -471,7 +436,6 @@ def _materialize_domain_execution(
                 logical_id=point.logical_id,
                 logical_ordinal=point.logical_ordinal,
                 inputs=tuple(input_values),
-                config_input_bindings=tuple(config_input_bindings),
             )
         )
     if failed:
@@ -479,47 +443,6 @@ def _materialize_domain_execution(
     return MaterializedDomainExecution(
         execution=execution,
         points=tuple(execution_points),
-    )
-
-
-def _materialize_direct_config_input_binding(
-    input_id: str,
-    input_spec: ValueInput,
-    *,
-    resolved_value: object,
-    context: EvalContext,
-) -> MaterializedConfigInputBinding | None:
-    value = input_spec.value
-    if not isinstance(value, ScalarValueExpr):
-        return None
-    root = value.plan.root
-    if root.kind != "param_lookup":
-        return None
-    if root.table_id is None or root.key is None or root.column is None:
-        raise AssertionError("verified parameter lookup lost its required fields")
-    resolved_key = tuple(
-        (
-            column_id,
-            evaluate_scalar(
-                verify_relation_plan(
-                    expression,
-                    bindings=value.plan.bindings,
-                ),
-                context,
-            ),
-        )
-        for column_id, expression in sorted(root.key.items())
-    )
-    canonical_row = context.params.lookup_row(root.table_id, dict(resolved_key))
-    key = tuple(
-        (column_id, canonical_row[column_id]) for column_id, _value in resolved_key
-    )
-    return MaterializedConfigInputBinding(
-        input_id=input_id,
-        table_id=root.table_id,
-        key=key,
-        column_id=root.column,
-        resolved_value=resolved_value,
     )
 
 
@@ -669,10 +592,12 @@ def _instrument_resource_port_ids(
 ) -> frozenset[LogicalResourcePortId]:
     selected: set[LogicalResourcePortId] = set()
 
-    def visit(state: StateSpec) -> None:
-        if isinstance(state.resource_target, LogicalStateResourceTarget):
-            selected.add(state.resource_target.port_id)
-        for child in state.state or ():
+    def visit(state: StateSpecVariant) -> None:
+        if isinstance(state, SetStateSpec):
+            if isinstance(state.resource_target, LogicalStateResourceTarget):
+                selected.add(state.resource_target.port_id)
+            return
+        for child in state.state:
             visit(child)
 
     for state in program.state:
@@ -682,32 +607,36 @@ def _instrument_resource_port_ids(
 
 
 def _static_state_resource_problems(
-    state: StateSpec,
+    state: StateSpecVariant,
     *,
     routing: RoutingView,
     location: ModelLocation,
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
-    target = state.resource_target
-    if isinstance(target, PhysicalStateResourceTarget):
-        root = target.use.value.plan.root
-        if isinstance(root.value, str) and root.kind == "literal" and root.value:
-            problems.extend(
-                _physical_resource_problems(
-                    routing,
-                    PhysicalResourceId(root.value),
-                    capabilities=(
-                        () if state.capability_id is None else (state.capability_id,)
-                    ),
-                    require_instrument=True,
-                    location=model_location(
-                        location.root,
-                        *location.path,
-                        "physical_resource_id",
-                    ),
+    if isinstance(state, SetStateSpec):
+        target = state.resource_target
+        if isinstance(target, PhysicalStateResourceTarget):
+            root = target.use.value.plan.root
+            if (
+                isinstance(root, LiteralScalarExpr)
+                and isinstance(root.value, str)
+                and root.value
+            ):
+                problems.extend(
+                    _physical_resource_problems(
+                        routing,
+                        PhysicalResourceId(root.value),
+                        capabilities=(state.capability_id,),
+                        require_instrument=True,
+                        location=model_location(
+                            location.root,
+                            *location.path,
+                            "physical_resource_id",
+                        ),
+                    )
                 )
-            )
-    for child_index, child in enumerate(state.state or ()):
+        return tuple(problems)
+    for child_index, child in enumerate(state.state):
         problems.extend(
             _static_state_resource_problems(
                 child,

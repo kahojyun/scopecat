@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
-import pytest
-
 from scopecat.execution.local.program import (
     CollectionResultBinding,
     CollectOperation,
     CollectStage,
     ExecutionProgram,
     PointProgram,
-    RecordProjection,
 )
 from scopecat.execution.local.validation import validate_execution_program_instruments
+from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemImpact,
@@ -105,20 +101,6 @@ def test_duplicate_product_key_within_selected_capability_is_ambiguous() -> None
     assert "'readout', 'readout'" in problems[0].message
 
 
-def test_collect_operation_rejects_command_identity_mismatch() -> None:
-    program = _collect_program(capability_id=None, dtype="float64")
-    point = program.points[0]
-    stage = point.stages[0]
-    assert isinstance(stage, CollectStage)
-    operation = stage.operations[0]
-
-    with pytest.raises(ValueError, match="command identity"):
-        replace(
-            operation,
-            command=operation.command.model_copy(update={"operation_id": "wrong"}),
-        )
-
-
 def _collect_program(
     *,
     capability_id: str | None,
@@ -167,13 +149,8 @@ def _collect_program(
         ),
         product_uses=(signal_use,),
         collection_product_use_ids=(signal_use.id,),
-        record_projections=(
-            RecordProjection(
-                record_id="record.signal",
-                product_use_id=signal_use.id,
-                product_id=signal_use.product_id,
-            ),
-        ),
+        resource_order=("source-0",),
+        resource_claims=(ResourceClaim(id="source-0"),),
     )
 
 

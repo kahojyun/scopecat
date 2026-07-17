@@ -11,8 +11,6 @@ from scopecat.compiler.frontend.environment import (
     validate_config_environment,
 )
 from scopecat.compiler.linking.linked import (
-    MaterializedConfigInputBinding,
-    MaterializedDomainExecutionPoint,
     MaterializedLinkedPointBatch,
     link_verified_program,
     materialize_linked_points,
@@ -23,9 +21,9 @@ from scopecat.compiler.relations.evaluation import (
 )
 from scopecat.compiler.relations.model import (
     RelationExpr,
-    ScalarExpr,
     grid,
     input_ref,
+    lit,
     literal_rows,
     param,
     parameter_series,
@@ -50,11 +48,7 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.semantic.value_expressions import TableValueExpr
-from scopecat.compiler.typed.point_domain import (
-    LogicalPointId,
-    PointDomain,
-    PointDomainId,
-)
+from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ResourceRouteIntent,
     TypedProgram,
@@ -217,17 +211,21 @@ def test_link_retains_unit_domain() -> None:
     assert linked.coordinate_ids == ()
 
 
-def test_raw_link_seals_program_and_retains_accepted_environment() -> None:
+def test_raw_link_retains_immutable_metadata_and_accepted_environment() -> None:
     program = _symbolic_program()
     environment = _environment()
     linked = link_program(program, environment)
 
     assert linked.environment is environment
 
-    cast("dict[str, object]", program.metadata)["owner"] = {"name": "mutated-source"}
-    program.product_defs[0].metadata["mutated-source"] = True
-    program.instrument_product_producers[0].metadata["mutated-source"] = True
-    program.record_uses[0].metadata["mutated-source"] = True
+    for metadata in (
+        program.metadata,
+        program.product_defs[0].metadata,
+        program.instrument_product_producers[0].metadata,
+        program.record_uses[0].metadata,
+    ):
+        with pytest.raises(TypeError, match="frozen mapping is immutable"):
+            cast("dict[str, object]", metadata)["mutated-source"] = True
 
     assert linked.program.metadata == {"owner": {"name": "original"}}
     assert linked.product_defs[0].metadata == {"owner": "selected"}
@@ -288,7 +286,7 @@ def test_link_reports_environment_problems_without_target_selection() -> None:
         routing=None,
         problems=(environment_problem,),
     )
-    expression = grid(x=ScalarExpr(kind="literal", value=1.0) + 2.0)
+    expression = grid(x=lit(1.0) + 2.0)
     program = TypedProgram(
         id="rejected-linked-plan",
         kind="compiler_test",
@@ -572,7 +570,7 @@ def test_link_reports_every_missing_import_in_one_relation_consumer() -> None:
     } == set(missing_ids)
 
 
-def test_local_materialization_is_the_existing_bound_plan_projection() -> None:
+def test_local_materialization_builds_the_executable_bound_plan() -> None:
     program = load_experiment()
     environment = _environment()
 
@@ -582,29 +580,9 @@ def test_local_materialization_is_the_existing_bound_plan_projection() -> None:
     assert actual == expected
     assert actual.valid, actual.problems
     assert actual.point_count == 3
-    assert actual.records
-    assert actual.expected_dataset_schema is not None
     assert all(point.routes for point in actual.points)
     assert all(point.desired_state for point in actual.points)
     assert all(point.collect for point in actual.points)
-
-
-def test_materialized_config_binding_must_reference_a_point_input() -> None:
-    binding = MaterializedConfigInputBinding(
-        input_id="missing",
-        table_id="qubits",
-        key=(("qubit", "q0"),),
-        column_id="drive_frequency",
-        resolved_value=5.0,
-    )
-
-    with pytest.raises(ValueError, match="unknown inputs: missing"):
-        MaterializedDomainExecutionPoint(
-            logical_id=LogicalPointId(PointDomainId("test", "root"), 0),
-            logical_ordinal=0,
-            inputs=(("frequency", 5.0),),
-            config_input_bindings=(binding,),
-        )
 
 
 def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> None:

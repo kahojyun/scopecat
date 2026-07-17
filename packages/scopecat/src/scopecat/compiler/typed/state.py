@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, cast
 
 from scopecat.compiler.relations.analysis import PlanNode
@@ -35,10 +35,8 @@ from scopecat.kernel.resource_identity import (
     PhysicalResourceId,
     ResourceTarget,
 )
-from scopecat.kernel.value_types import String
 from scopecat.records.entity import EntityRef
 
-type StateSpecKind = Literal["set", "for_each"]
 type RouteEntityValue = str | EntityRef
 type RelationPlanResolver = Callable[[RelationUseId], VerifiedRelationPlan[PlanNode]]
 
@@ -62,76 +60,43 @@ class PhysicalStateResourceTarget:
     use: RelationUse[ScalarValueExpr]
     kind: Literal["physical_relation"] = "physical_relation"
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.use.value.value_type.atom, String):
-            msg = "physical state resource targets require a string scalar relation"
-            raise ValueError(msg)
-
 
 type StateResourceTarget = LogicalStateResourceTarget | PhysicalStateResourceTarget
 
 
-@dataclass(frozen=True, slots=True)
 class StateSpec:
-    """Desired-state binding evaluated after point-local parameter overlays."""
+    """Base class for desired-state bindings."""
 
-    kind: StateSpecKind
-    resource_target: StateResourceTarget | None = None
-    capability_id: str | None = None
-    field_path: str | None = None
-    value_use: StateValueUse | None = None
+    __slots__ = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SetStateSpec(StateSpec):
+    """Assign one capability field after point-local parameter overlays."""
+
+    resource_target: StateResourceTarget
+    capability_id: str
+    field_path: str
+    value_use: StateValueUse
     route_entity_uses: tuple[RelationUse[ScalarOrSeriesValueExpr], ...] = ()
-    relation_use: RelationUse[TableValueExpr] | None = None
-    row_scope_id: RowScopeId | None = None
-    state: tuple[StateSpec, ...] | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "route_entity_uses", tuple(self.route_entity_uses))
-        if self.state is not None:
-            object.__setattr__(self, "state", tuple(self.state))
-        if self.capability_id == "" or self.field_path == "":
-            msg = "state capability id and field path must be non-empty when present"
-            raise ValueError(msg)
-        if self.kind == "set":
-            if (
-                self.resource_target is None
-                or self.capability_id is None
-                or self.field_path is None
-                or self.value_use is None
-            ):
-                msg = "set state requires resource, capability, field path, and value"
-                raise ValueError(msg)
-            self._reject("relation_use", "row_scope_id", "state")
-        elif self.kind == "for_each":
-            if self.relation_use is None or not self.state:
-                msg = "for_each state requires relation and state"
-                raise ValueError(msg)
-            self._reject(
-                "resource_target",
-                "capability_id",
-                "field_path",
-                "value_use",
-                "route_entity_uses",
-            )
-        else:
-            msg = f"unsupported state kind: {self.kind!r}"
-            raise ValueError(msg)
+    kind: Literal["set"] = field(default="set", init=False)
 
     @property
-    def field(self) -> str | None:
-        if self.capability_id is None or self.field_path is None:
-            return None
+    def field(self) -> str:
         return f"{self.capability_id}.{self.field_path}"
 
-    def _reject(self, *field_names: str) -> None:
-        unexpected = [
-            field_name
-            for field_name in field_names
-            if _is_present(cast("object", getattr(self, field_name)))
-        ]
-        if unexpected:
-            msg = f"{self.kind} state cannot contain: {', '.join(unexpected)}"
-            raise ValueError(msg)
+
+@dataclass(frozen=True, slots=True)
+class ForEachStateSpec(StateSpec):
+    """Evaluate child state bindings for every row of one relation."""
+
+    relation_use: RelationUse[TableValueExpr]
+    state: tuple[StateSpecVariant, ...]
+    row_scope_id: RowScopeId | None = None
+    kind: Literal["for_each"] = field(default="for_each", init=False)
+
+
+type StateSpecVariant = SetStateSpec | ForEachStateSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,19 +108,13 @@ class StateRecord:
     value: EvaluatedStateValue
     route_entities: tuple[RouteEntityValue, ...] = ()
 
-    def __post_init__(self) -> None:
-        if self.point_index < 0 or not self.capability_id or not self.field_path:
-            msg = "state records require nonnegative points and non-empty field ids"
-            raise ValueError(msg)
-        object.__setattr__(self, "route_entities", tuple(self.route_entities))
-
     @property
     def field(self) -> str:
         return f"{self.capability_id}.{self.field_path}"
 
 
 def evaluate_state_spec(
-    spec: StateSpec,
+    spec: StateSpecVariant,
     *,
     point_index: int,
     ctx: EvalContext,
@@ -164,8 +123,8 @@ def evaluate_state_spec(
 ) -> list[StateRecord]:
     """Materialize one data-only state plan."""
 
-    if spec.kind == "set":
-        resource_target = _required(spec.resource_target)
+    if isinstance(spec, SetStateSpec):
+        resource_target = spec.resource_target
         resource = (
             resource_target.port_id
             if isinstance(resource_target, LogicalStateResourceTarget)
@@ -177,13 +136,13 @@ def evaluate_state_spec(
                 )
             )
         )
-        value_use = _required(spec.value_use)
+        value_use = spec.value_use
         return [
             StateRecord(
                 point_index=point_index,
                 resource_target=resource,
-                capability_id=_required(spec.capability_id),
-                field_path=_required(spec.field_path),
+                capability_id=spec.capability_id,
+                field_path=spec.field_path,
                 value=(
                     value_use
                     if isinstance(value_use, ComputeResultRef)
@@ -204,57 +163,50 @@ def evaluate_state_spec(
                 ),
             )
         ]
-    if spec.kind == "for_each":
-        records: list[StateRecord] = []
-        relation_ctx = EvalContext(
+    records: list[StateRecord] = []
+    relation_ctx = EvalContext(
+        params=ctx.params,
+        row=None,
+        outer_row=ctx.row if ctx.row is not None else ctx.outer_row,
+        point_row=ctx.point_row,
+        row_scopes=ctx.row_scopes,
+        inputs=ctx.inputs,
+    )
+    relation_use = spec.relation_use
+    for row in evaluate_relation_in_context(
+        cast(
+            "VerifiedRelationPlan[RelationExpr]",
+            relation_plan(relation_use.id),
+        ),
+        relation_ctx,
+    ):
+        child_ctx = EvalContext(
             params=ctx.params,
-            row=None,
+            row=row,
             outer_row=ctx.row if ctx.row is not None else ctx.outer_row,
             point_row=ctx.point_row,
-            row_scopes=ctx.row_scopes,
+            row_scopes={
+                **ctx.row_scopes,
+                **({spec.row_scope_id: row} if spec.row_scope_id is not None else {}),
+            },
             inputs=ctx.inputs,
         )
-        relation_use = _required(spec.relation_use)
-        for row in evaluate_relation_in_context(
-            cast(
-                "VerifiedRelationPlan[RelationExpr]",
-                relation_plan(relation_use.id),
-            ),
-            relation_ctx,
-        ):
-            child_ctx = EvalContext(
-                params=ctx.params,
-                row=row,
-                outer_row=ctx.row if ctx.row is not None else ctx.outer_row,
-                point_row=ctx.point_row,
-                row_scopes={
-                    **ctx.row_scopes,
-                    **(
-                        {spec.row_scope_id: row}
-                        if spec.row_scope_id is not None
-                        else {}
+        for child_index, child in enumerate(spec.state):
+            records.extend(
+                evaluate_state_spec(
+                    child,
+                    point_index=point_index,
+                    ctx=child_ctx,
+                    relation_plan=relation_plan,
+                    location=model_location(
+                        location.root,
+                        *location.path,
+                        "state",
+                        child_index,
                     ),
-                },
-                inputs=ctx.inputs,
-            )
-            for child_index, child in enumerate(_required(spec.state)):
-                records.extend(
-                    evaluate_state_spec(
-                        child,
-                        point_index=point_index,
-                        ctx=child_ctx,
-                        relation_plan=relation_plan,
-                        location=model_location(
-                            location.root,
-                            *location.path,
-                            "state",
-                            child_index,
-                        ),
-                    )
                 )
-        return records
-    msg = f"unsupported state spec kind: {spec.kind}"
-    raise ValueError(msg)
+            )
+    return records
 
 
 def _evaluate_physical_resource(
@@ -276,12 +228,6 @@ def _evaluate_physical_resource(
     if not value:
         msg = "physical state resource id must be non-empty"
         raise ValueError(msg)
-    return value
-
-
-def _required[T](value: T | None) -> T:
-    if value is None:
-        raise AssertionError("validated field is unexpectedly missing")
     return value
 
 
@@ -336,9 +282,3 @@ def _evaluate_route_entities(
         seen_ids.add(entity_id)
         entities.append(value)
     return entities
-
-
-def _is_present(value: object) -> bool:
-    if value is None:
-        return False
-    return not (isinstance(value, list | tuple) and not value)

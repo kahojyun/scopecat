@@ -39,7 +39,7 @@ from scopecat.compiler.relations.verification import (
     verify_relation_plan,
 )
 from scopecat.compiler.semantic.value_expressions import TableValueExpr
-from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.value_types import (
     Bool,
@@ -248,17 +248,14 @@ class MaterializedPoint:
 
     logical_id: LogicalPointId
     _row: Row
-    row_key: str | None
 
     def __init__(
         self,
         logical_id: LogicalPointId,
         row: Mapping[str, CellValue],
-        row_key: str | None,
     ) -> None:
         object.__setattr__(self, "logical_id", logical_id)
         object.__setattr__(self, "_row", _snapshot_row(row))
-        object.__setattr__(self, "row_key", row_key)
 
     @property
     def row(self) -> Row:
@@ -394,7 +391,6 @@ def materialize_point_domain(
         MaterializedPoint(
             LogicalPointId(verified.id, ordinal),
             cast("Mapping[str, CellValue]", row),
-            _best_effort_row_key(row),
         )
         for ordinal, row in enumerate(typed_rows)
     )
@@ -743,13 +739,6 @@ def _snapshot_value(value: object) -> object:
         return deepcopy(value)
     except Exception:  # pragma: no cover - defensive fallback for extension atoms
         return value
-
-
-def _best_effort_row_key(row: Mapping[str, object]) -> str | None:
-    try:
-        return stable_content_hash(content_fingerprint(row))
-    except Exception:  # pragma: no cover - extension fingerprint failures vary
-        return None
 
 
 def is_point_coordinate_type(value_type: Scalar) -> bool:

@@ -45,7 +45,6 @@ class MeasurementTransform:
             "measurement transform output",
             tuple(role for role, _product in self.output_bindings),
         )
-        object.__setattr__(self, "semantic", self.semantic.model_copy(deep=True))
 
     @property
     def symbol_id(self) -> SymbolId:

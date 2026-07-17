@@ -27,6 +27,8 @@ from scopecat.records.instrument import (
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     CapabilityField,
+    CollectCommand,
+    CollectProductRequest,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -364,7 +366,7 @@ def test_instrument_driver_validator_applies_scalar_constraints() -> None:
         ),
         description=description,
     )
-    number_frequency = validate_state_command(
+    implicit_unit_frequency = validate_state_command(
         command=_state_command(
             capability_id="set_frequency",
             field_path="frequency",
@@ -377,7 +379,7 @@ def test_instrument_driver_validator_applies_scalar_constraints() -> None:
     assert compatible_frequency == []
     assert out_of_range_gain[0].code == "instrument_driver_field_value_mismatch"
     assert out_of_range_frequency[0].code == "instrument_driver_field_value_mismatch"
-    assert number_frequency[0].code == "instrument_driver_field_value_mismatch"
+    assert implicit_unit_frequency == []
 
 
 def test_instrument_driver_validator_checks_payload_references_and_schemas() -> None:
@@ -453,6 +455,15 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
         description=description,
         payloads={payload.id: payload},
     )
+    not_a_reference = validate_state_command(
+        command=_state_command(
+            capability_id="play_program",
+            field_path="program",
+            value=StateValue("program-a"),
+        ),
+        description=description,
+        payloads={payload.id: payload},
+    )
     wrong_schema = validate_state_command(
         command=_state_command(
             capability_id="play_program",
@@ -466,6 +477,7 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
     assert valid == []
     assert command_payload == []
     assert missing[0].code == "instrument_driver_unknown_payload"
+    assert not_a_reference[0].code == "instrument_driver_field_value_mismatch"
     assert wrong_schema[0].code == "instrument_driver_field_value_mismatch"
 
 
@@ -538,6 +550,18 @@ def test_provider_description_rejects_duplicate_instrument_ids() -> None:
         InstrumentProviderDescription(
             provider_id="tests.duplicate-provider",
             instruments=(instrument, instrument),
+        )
+
+
+def test_collect_command_rejects_duplicate_request_ids() -> None:
+    request = CollectProductRequest(id="signal")
+
+    with pytest.raises(ValidationError, match="request ids must be unique"):
+        CollectCommand(
+            instrument_id="source-0",
+            point_index=0,
+            point_count=1,
+            requests=[request, request],
         )
 
 

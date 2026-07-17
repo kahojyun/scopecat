@@ -7,6 +7,7 @@ from typing import override
 
 import pytest
 
+from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.composition.local import local_run_repository
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
 from scopecat.records.instrument import InstrumentReadback
@@ -92,7 +93,9 @@ def test_run_rejects_missing_instrument(tmp_path: Path) -> None:
 
 def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
     experiment = load_experiment()
-    state = replace(experiment.state[0], field_path="amplitude")
+    selected_state = experiment.state[0]
+    assert isinstance(selected_state, SetStateSpec)
+    state = replace(selected_state, field_path="amplitude")
     experiment = replace(experiment, state=(state,))
 
     with pytest.raises(ProviderContractError) as error:

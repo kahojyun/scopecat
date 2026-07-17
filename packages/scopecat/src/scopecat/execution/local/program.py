@@ -13,18 +13,12 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from scopecat.compiler.semantic.model import ValueId
-from scopecat.compiler.semantic.operation_contract import (
-    OperationContract,
-    operation_contract_issues,
-)
+from scopecat.compiler.semantic.operation_contract import OperationContract
 from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import ValueType
-from scopecat.measurements.results import (
-    CoordinateValue,
-    MeasurementDatasetSchema,
-)
+from scopecat.measurements.results import CoordinateValue
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
@@ -63,11 +57,6 @@ class PayloadSlot:
     id: str
     schema_id: str
 
-    def __post_init__(self) -> None:
-        if not self.id or not self.schema_id:
-            msg = "payload slot id and schema_id must be non-empty"
-            raise ValueError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class ComputeResultSlot:
@@ -95,27 +84,6 @@ class ComputeOperation:
     cache_namespace: str | None = None
     cache_key: object | None = None
 
-    def __post_init__(self) -> None:
-        issues = operation_contract_issues(self.contract)
-        if issues:
-            msg = "invalid local compute contract: " + "; ".join(
-                issue.message for issue in issues
-            )
-            raise ValueError(msg)
-        if (
-            not self.operation_id
-            or not self.semantic_operation_id
-            or not self.implementation_id
-        ):
-            msg = (
-                "compute invocation, semantic operation, and implementation ids "
-                "must be non-empty"
-            )
-            raise ValueError(msg)
-        if self.cache_namespace is None and self.cache_key is not None:
-            msg = "compute cache_key requires cache_namespace"
-            raise ValueError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class ComputeStage:
@@ -134,23 +102,6 @@ class StateTarget:
     value: StateValue
     entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.capability_id or not self.field_path:
-            msg = "state target capability_id and field_path must be non-empty"
-            raise ValueError(msg)
-        if any(not entity_id for entity_id in self.entity_ids):
-            msg = "state target entity ids must be non-empty"
-            raise ValueError(msg)
-        if len(self.entity_ids) != len(set(self.entity_ids)):
-            msg = "state target entity ids must be unique"
-            raise ValueError(msg)
-        if any(
-            binding.entity_id not in self.entity_ids
-            for binding in self.channel_bindings
-        ):
-            msg = "state target channel bindings must reference targeted entities"
-            raise ValueError(msg)
 
     def command_field(self, *, resource_id: str) -> InstrumentStateCommandField:
         return InstrumentStateCommandField(
@@ -171,11 +122,6 @@ class ApplyStateOperation:
     instrument_id: str
     targets: tuple[StateTarget, ...]
 
-    def __post_init__(self) -> None:
-        if not self.operation_id or not self.instrument_id:
-            msg = "state operation and instrument ids must be non-empty"
-            raise ValueError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class ApplyStateStage:
@@ -193,23 +139,6 @@ class ActionField:
     value: StateValue
     entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.id:
-            msg = "action field ids must be non-empty"
-            raise ValueError(msg)
-        if any(not entity_id for entity_id in self.entity_ids):
-            msg = "action field entity ids must be non-empty"
-            raise ValueError(msg)
-        if len(self.entity_ids) != len(set(self.entity_ids)):
-            msg = "action field entity ids must be unique"
-            raise ValueError(msg)
-        if any(
-            binding.entity_id not in self.entity_ids
-            for binding in self.channel_bindings
-        ):
-            msg = "action field channel bindings must reference targeted entities"
-            raise ValueError(msg)
 
     def command_field(self) -> InstrumentActionCommandField:
         return InstrumentActionCommandField(
@@ -229,15 +158,6 @@ class InstrumentActionOperation:
     capability_id: str
     fields: tuple[ActionField, ...] = ()
 
-    def __post_init__(self) -> None:
-        if not self.operation_id or not self.instrument_id or not self.capability_id:
-            msg = "action operation, instrument, and capability ids must be non-empty"
-            raise ValueError(msg)
-        field_ids = tuple(field.id for field in self.fields)
-        if len(field_ids) != len(set(field_ids)):
-            msg = "action operation field ids must be unique"
-            raise ValueError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class ActionStage:
@@ -255,11 +175,6 @@ class CollectionResultBinding:
     product_use_id: ProductUseId
     product_id: ProductId
 
-    def __post_init__(self) -> None:
-        if not self.provider_key:
-            msg = "collection result provider key must be non-empty"
-            raise ValueError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class CollectOperation:
@@ -269,35 +184,6 @@ class CollectOperation:
     instrument_id: str
     command: CollectCommand
     result_bindings: tuple[CollectionResultBinding, ...]
-
-    def __post_init__(self) -> None:
-        command = self.command.model_copy(deep=True)
-        bindings = tuple(self.result_bindings)
-        object.__setattr__(self, "command", command)
-        object.__setattr__(self, "result_bindings", bindings)
-        if not self.operation_id or not self.instrument_id:
-            msg = "collect operation and instrument ids must be non-empty"
-            raise ValueError(msg)
-        if command.instrument_id != self.instrument_id:
-            msg = "collect command instrument must match its operation"
-            raise ValueError(msg)
-        if command.operation_id != self.operation_id:
-            msg = "collect command identity must match its operation"
-            raise ValueError(msg)
-        if command.attempt != 1:
-            msg = "collect command attempt is runtime-owned and must start at one"
-            raise ValueError(msg)
-        request_ids = [request.id for request in command.requests]
-        if any(not request_id for request_id in request_ids):
-            msg = "collect command product request ids must be non-empty"
-            raise ValueError(msg)
-        if len(request_ids) != len(set(request_ids)):
-            msg = "collect command product request ids must be unique"
-            raise ValueError(msg)
-        binding_keys = tuple(binding.provider_key for binding in bindings)
-        if tuple(request_ids) != binding_keys:
-            msg = "collect result bindings must match ordered command product requests"
-            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,30 +206,6 @@ class PointProgram:
     coordinates: Mapping[str, CoordinateValue]
     stages: tuple[ExecutionStage, ...]
 
-    def __post_init__(self) -> None:
-        if self.point_index < 0:
-            msg = "point_index must be nonnegative"
-            raise ValueError(msg)
-        if not self.point_uid:
-            msg = "point_uid must be non-empty"
-            raise ValueError(msg)
-        _validate_point_stage_order(self)
-        _validate_point_compute_order(self)
-
-
-@dataclass(frozen=True, slots=True)
-class RecordProjection:
-    """Project one logical product result into one durable observable id."""
-
-    record_id: str
-    product_use_id: ProductUseId
-    product_id: ProductId
-
-    def __post_init__(self) -> None:
-        if not self.record_id:
-            msg = "record projection id must be non-empty"
-            raise ValueError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class ExecutionProgram:
@@ -353,93 +215,12 @@ class ExecutionProgram:
     points: tuple[PointProgram, ...]
     product_uses: tuple[ProductUse, ...]
     collection_product_use_ids: tuple[ProductUseId, ...]
-    record_projections: tuple[RecordProjection, ...]
-    resource_order: tuple[str, ...] = ()
-    resource_claims: tuple[ResourceClaim, ...] = ()
-    expected_dataset_schema: MeasurementDatasetSchema | None = None
-
-    def __post_init__(self) -> None:
-        if not self.experiment_id:
-            msg = "execution program experiment_id must be non-empty"
-            raise ValueError(msg)
-        if not self.resource_order:
-            object.__setattr__(
-                self,
-                "resource_order",
-                tuple(
-                    dict.fromkeys(
-                        operation.instrument_id
-                        for point in self.points
-                        for stage in point.stages
-                        if isinstance(
-                            stage,
-                            ApplyStateStage | ActionStage | CollectStage,
-                        )
-                        for operation in stage.operations
-                    )
-                ),
-            )
-        if not self.resource_claims:
-            object.__setattr__(
-                self,
-                "resource_claims",
-                tuple(ResourceClaim(id=item) for item in self.resource_order),
-            )
+    resource_order: tuple[str, ...]
+    resource_claims: tuple[ResourceClaim, ...]
 
     @property
     def point_count(self) -> int:
         return len(self.points)
-
-    @property
-    def expected_output_ids(self) -> frozenset[str]:
-        return frozenset(projection.record_id for projection in self.record_projections)
-
-
-def _validate_point_compute_order(point: PointProgram) -> None:
-    available: set[ValueId] = set()
-    for stage in point.stages:
-        if not isinstance(stage, ComputeStage):
-            continue
-        for operation in stage.operations:
-            missing = sorted(
-                (
-                    value.value_id
-                    for value in operation.inputs.values()
-                    if isinstance(value, OutputInput)
-                    and value.value_id not in available
-                ),
-                key=lambda value_id: value_id.qualified_name,
-            )
-            if missing:
-                msg = (
-                    f"compute operation {operation.operation_id!r} references "
-                    "results that are not topologically available: "
-                    + ", ".join(value_id.qualified_name for value_id in missing)
-                )
-                raise ValueError(msg)
-            if operation.result.id in available:
-                msg = (
-                    "point compute operations must produce unique result ids: "
-                    f"{operation.result.id.qualified_name}"
-                )
-                raise ValueError(msg)
-            available.add(operation.result.id)
-
-
-def _validate_point_stage_order(point: PointProgram) -> None:
-    order = {"compute": 0, "apply_state": 1, "action": 2, "collect": 3}
-    stage_kinds = [stage.kind for stage in point.stages]
-    if len(stage_kinds) != len(set(stage_kinds)):
-        msg = "point execution stages must not repeat a stage kind"
-        raise ValueError(msg)
-    if [order[kind] for kind in stage_kinds] != sorted(
-        order[kind] for kind in stage_kinds
-    ):
-        msg = (
-            "point execution stages must follow compute, apply_state, action, "
-            "collect order"
-        )
-        raise ValueError(msg)
 
 
 __all__ = [
@@ -462,7 +243,6 @@ __all__ = [
     "OutputInput",
     "PayloadSlot",
     "PointProgram",
-    "RecordProjection",
     "ResourceClaim",
     "StateTarget",
 ]

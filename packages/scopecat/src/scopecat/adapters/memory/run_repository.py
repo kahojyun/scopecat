@@ -31,7 +31,6 @@ from scopecat.runs.refs import (
     MANIFEST_REF,
     RUN_REQUEST_REF,
 )
-from scopecat.runs.repository import RunRefKind
 
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -45,9 +44,6 @@ class MemoryRunRepository:
 
     def exists(self, run_id: str, ref: str) -> bool:
         return self._key(run_id, ref) in self._content
-
-    def ref_kind(self, run_id: str, ref: str) -> RunRefKind:
-        return "file" if self.exists(run_id, ref) else "missing"
 
     def read_manifest(self, run_id: str) -> RunManifest:
         key = self._key(run_id, MANIFEST_REF)

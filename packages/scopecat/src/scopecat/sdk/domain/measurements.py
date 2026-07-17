@@ -60,7 +60,7 @@ class DomainHostTransformCall:
 
     @property
     def semantic(self) -> MeasurementTransformSemanticContract:
-        return self.transform.semantic.model_copy(deep=True)
+        return self.transform.semantic
 
     @property
     def input_ports(self) -> tuple[DomainTransformInputPort, ...]:

@@ -21,6 +21,7 @@ from scopecat.execution.local.program import CollectStage, ExecutionProgram
 from scopecat.execution.ports.journal import CollectionRepository
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
+from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
@@ -198,10 +199,6 @@ def local_collection_fragment(
     if not run_id:
         msg = "local collection fragment run_id must be non-empty"
         raise ValueError(msg)
-    resolver = getattr(repository, "resolve", None)
-    if not callable(resolver):
-        msg = "local collection fragments require a resolvable collection repository"
-        raise TypeError(msg)
     supplied_receipts = tuple(receipts)
 
     operation_bindings = bound.operation_bindings
@@ -631,7 +628,7 @@ def _request_matches_product(request: object, product: object) -> bool:
         for axis in request.dimensions
     )
     expected_axes = tuple(
-        (axis.id, axis.kind, axis.size, axis.unit, dict(axis.metadata))
+        (axis.id, axis.kind, axis.size, axis.unit, thaw_json_value(axis.metadata))
         for axis in product.axes
     )
     return (

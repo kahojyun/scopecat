@@ -42,7 +42,7 @@ from scopecat.compiler.typed.program import (
     product_output,
 )
 from scopecat.compiler.typed.records import RecordUse
-from scopecat.compiler.typed.state import StateSpec
+from scopecat.compiler.typed.state import StateSpecVariant
 from scopecat.compiler.typed.verification import seal_typed_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.json_types import JsonValue
@@ -182,7 +182,7 @@ def typed_program(
     measurement_transforms: Sequence[TypedMeasurementTransform] = (),
     implementation_catalog: ImplementationCatalog | None = None,
     source_map: SourceMap | None = None,
-    state: Sequence[StateSpec] = (),
+    state: Sequence[StateSpecVariant] = (),
     actions: Sequence[ActionSpec] = (),
     product_defs: Sequence[ProductDef] = (),
     instrument_product_producers: Sequence[InstrumentProductProducer] = (),

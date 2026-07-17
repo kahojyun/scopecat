@@ -36,7 +36,7 @@ def test_simple_scan_dsl_produces_durable_request_and_user_plan() -> None:
         config=config,
     )
     assert preview.point_count == 3
-    assert preview.records
+    assert preview.product_uses
 
 
 def test_parameter_scan_request_materializes_typed_input_keys() -> None:

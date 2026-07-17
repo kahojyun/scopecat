@@ -41,7 +41,7 @@ def lower_domain_measurement_transform(
 
     return MeasurementTransformDef(
         id=NativeMeasurementTransformId(transform.id),
-        semantic=transform.semantic.model_copy(deep=True),
+        semantic=transform.semantic,
         rate=transform.rate,
         inputs=tuple(
             _lower_input_port(context, port)

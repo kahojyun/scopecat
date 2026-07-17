@@ -24,8 +24,10 @@ from scopecat.compiler.frontend.problems import (
 )
 from scopecat.compiler.frontend.value_binding import bind_value_input_refs
 from scopecat.compiler.relations.model import (
+    LiteralScalarExpr,
     ScalarExpr,
     SeriesExpr,
+    ValuesSeriesExpr,
     as_scalar_expr,
 )
 from scopecat.compiler.relations.uses import relation_use
@@ -150,7 +152,7 @@ def _route_entity_expr(
         raise AssertionError(
             "binding a verified resource entity source must preserve its shape"
         )
-    if isinstance(bound, ScalarExpr) and bound.kind == "literal":
+    if isinstance(bound, LiteralScalarExpr):
         bound = bound.model_copy(
             update={
                 "value": _resolve_route_entity(
@@ -159,12 +161,12 @@ def _route_entity_expr(
                 )
             }
         )
-    if isinstance(bound, SeriesExpr) and bound.kind == "values":
+    if isinstance(bound, ValuesSeriesExpr):
         bound = bound.model_copy(
             update={
                 "items": list(
                     _resolve_route_entities(
-                        topology, cast("Sequence[EntityRef | str]", bound.items or ())
+                        topology, cast("Sequence[EntityRef | str]", bound.items)
                     )
                 )
             }

@@ -60,7 +60,3 @@ def logical_resource_port_id(
 
     symbol = value if isinstance(value, SymbolId) else SymbolId(local_id=value)
     return LogicalResourcePortId(symbol)
-
-
-def physical_resource_id(value: str) -> PhysicalResourceId:
-    return PhysicalResourceId(value)

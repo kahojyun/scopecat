@@ -19,7 +19,8 @@ from scopecat.compiler.relations.evaluation import (
     ParameterRelationData,
 )
 from scopecat.compiler.relations.model import (
-    ScalarExpr,
+    ColumnScalarExpr,
+    LiteralScalarExpr,
     grid,
     literal_rows,
     outer,
@@ -47,7 +48,11 @@ from scopecat.compiler.typed.program import (
     ComputeEdge,
     ValueInput,
 )
-from scopecat.compiler.typed.state import evaluate_state_spec
+from scopecat.compiler.typed.state import (
+    ForEachStateSpec,
+    SetStateSpec,
+    evaluate_state_spec,
+)
 from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import ActionStage
 from scopecat.kernel.errors import CheckFailed
@@ -92,7 +97,12 @@ def test_action_lowers_as_a_distinct_point_effect() -> None:
     )
     assert not bound.problems
     assert len(bound.points[0].actions) == 1
-    execution = build_execution_program(bound)
+    execution = build_execution_program(
+        bound,
+        instrument_order=tuple(
+            action.resource_id.value for action in bound.points[0].actions
+        ),
+    )
     action_stage = next(
         stage for stage in execution.points[0].stages if isinstance(stage, ActionStage)
     )
@@ -314,7 +324,7 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
     assert axis.size == 1
     assert axis.metadata == {
         "entity_kind": "logical_device",
-        "entities": [{"id": "q0", "kind": "logical_device", "metadata": {}}],
+        "entities": ({"id": "q0", "kind": "logical_device", "metadata": {}},),
     }
 
     preview = bound_plan_contract(
@@ -859,6 +869,7 @@ def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
     assert isinstance(value_input, ValueInput)
     value = value_input.value
     assert isinstance(value, ScalarValueExpr)
+    assert isinstance(value.plan.root, LiteralScalarExpr)
     assert value.plan.root.value is None
 
 
@@ -1072,7 +1083,7 @@ def test_module_instances_alpha_rename_state_row_scopes() -> None:
         definition = definitions[region.resource.value_id]
         assert isinstance(definition.source, PlanExpressionSource)
         expression = definition.source.expression
-        assert isinstance(expression, ScalarExpr)
+        assert isinstance(expression, ColumnScalarExpr)
         assert expression.row_scope_id == region.row_argument.id
         assert definition.owner_region_id == region.id
 
@@ -1112,10 +1123,13 @@ def test_state_regions_and_lowered_state_preserve_authored_order() -> None:
         template.bind(),
         config_profile=load_config(),
     )
-    assert [
-        state.state[0].field_path
+    children = [
+        state.state[0]
         for state in resolved.experiment.state
-        if state.state is not None
+        if isinstance(state, ForEachStateSpec)
+    ]
+    assert [
+        state.field_path for state in children if isinstance(state, SetStateSpec)
     ] == ["first", "second"]
 
 
@@ -1148,8 +1162,10 @@ def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
     )
 
     state = resolved.experiment.state[0]
-    assert state.state is not None
-    route_entities = state.state[0].route_entity_uses
+    assert isinstance(state, ForEachStateSpec)
+    child = state.state[0]
+    assert isinstance(child, SetStateSpec)
+    route_entities = child.route_entity_uses
     assert isinstance(route_entities[0].value, ScalarValueExpr)
     assert isinstance(route_entities[1].value, SeriesValueExpr)
 
@@ -1186,15 +1202,14 @@ def test_nested_state_preserves_an_empty_parent_row_as_outer_scope() -> None:
         ),
     )
     state = each_state(literal_rows([{}]), nested)
-    assert state.relation_use is not None
-    assert state.state is not None
-    assert state.state[0].relation_use is not None
+    child = state.state[0]
+    assert isinstance(child, ForEachStateSpec)
     verified_plans: dict[
         RelationUseId,
         VerifiedRelationPlan[PlanNode],
     ] = {
         state.relation_use.id: state.relation_use.value.plan,
-        state.state[0].relation_use.id: state.state[0].relation_use.value.plan,
+        child.relation_use.id: child.relation_use.value.plan,
     }
 
     with pytest.raises(
@@ -1252,8 +1267,10 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
     )
 
     state = resolved.experiment.state[0]
-    assert state.state is not None
-    assert state.state[0].value_use == ComputeResultRef(
+    assert isinstance(state, ForEachStateSpec)
+    child = state.state[0]
+    assert isinstance(child, SetStateSpec)
+    assert child.value_use == ComputeResultRef(
         value_id=operation_result_id(
             OperationId(
                 SymbolId(

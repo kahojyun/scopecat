@@ -166,7 +166,7 @@ def project_domain_plan(
     transform_refs = {
         transform.id: DomainMeasurementTransform(
             id=transform.id.qualified_name,
-            semantic=transform.semantic.model_copy(deep=True),
+            semantic=transform.semantic,
             inputs=tuple(
                 DomainTransformInputPort(
                     id=port.id,

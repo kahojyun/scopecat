@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import override
 
@@ -42,7 +41,6 @@ class MeasurementTransformInputPort:
         if not self.id:
             msg = "measurement transform port id must be non-empty"
             raise ValueError(msg)
-        object.__setattr__(self, "product", deepcopy(self.product))
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +58,6 @@ class MeasurementTransformOutputPort:
         if len(self.product_use_ids) != len(set(self.product_use_ids)):
             msg = "measurement transform output product uses must be unique"
             raise ValueError(msg)
-        object.__setattr__(self, "product", deepcopy(self.product))
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,4 +74,3 @@ class MeasurementTransformDef:
         if self.rate != "point":
             msg = "measurement transform rate must be point"
             raise ValueError(msg)
-        object.__setattr__(self, "semantic", self.semantic.model_copy(deep=True))

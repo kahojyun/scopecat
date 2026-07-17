@@ -21,6 +21,7 @@ from scopecat.compiler.relations.model import (
     RowScopeId,
     ScalarExpr,
     SeriesExpr,
+    ValuesSeriesExpr,
 )
 from scopecat.compiler.relations.operators import (
     is_scalar_operator,
@@ -1024,16 +1025,9 @@ def _valid_region_route_type(definition: ValueDef) -> bool:
     source = definition.source
     if isinstance(source, PlanExpressionSource):
         expression = source.expression
-        if (
-            isinstance(expression, SeriesExpr)
-            and expression.kind == "values"
-            and any(
-                not (
-                    isinstance(item, EntityRef)
-                    or (isinstance(item, str) and bool(item))
-                )
-                for item in expression.items or ()
-            )
+        if isinstance(expression, ValuesSeriesExpr) and any(
+            not (isinstance(item, EntityRef) or (isinstance(item, str) and bool(item)))
+            for item in expression.items
         ):
             return False
     value_type = definition.value_type

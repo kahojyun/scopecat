@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, cast
 
@@ -21,7 +21,7 @@ from scopecat.compiler.typed.products import (
     ProductAxisDef,
     ProductDef,
 )
-from scopecat.kernel.frozen import thaw_json_value
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import (
     Problem,
@@ -41,19 +41,27 @@ from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
 
+def _empty_metadata() -> FrozenMapping[str, JsonValue]:
+    return FrozenMapping()
+
+
 @dataclass(frozen=True, slots=True)
 class RecordUse:
     """Template-owned durable destination for one logical product use."""
 
     id: str
     product_use_id: ProductUseId
-    metadata: dict[str, JsonValue] = field(default_factory=dict)
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
         if not self.id:
             msg = "record use id must be non-empty"
             raise ValueError(msg)
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(self.metadata, path=f"record use {self.id!r} metadata"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,10 +70,16 @@ class RecordAxisPlan:
     kind: str
     size: int
     unit: str | None = None
-    metadata: dict[str, JsonValue] = field(default_factory=dict)
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata, path=f"record axis {self.id!r} metadata"
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,13 +93,19 @@ class RecordPlan:
     axes: tuple[RecordAxisPlan, ...] = ()
     dims: tuple[str, ...] = ()
     shape: tuple[int, ...] = ()
-    metadata: dict[str, JsonValue] = field(default_factory=dict)
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "axes", tuple(self.axes))
         object.__setattr__(self, "dims", tuple(self.dims))
         object.__setattr__(self, "shape", tuple(self.shape))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata, path=f"record plan {self.id!r} metadata"
+            ),
+        )
 
 
 class PointRecordLike(Protocol):
@@ -551,7 +571,7 @@ def _coordinate_variable(
     )
 
 
-def _wire_metadata(metadata: dict[str, JsonValue]) -> dict[str, WireJsonValue]:
+def _wire_metadata(metadata: Mapping[str, JsonValue]) -> dict[str, WireJsonValue]:
     return cast("dict[str, WireJsonValue]", thaw_json_value(metadata))
 
 

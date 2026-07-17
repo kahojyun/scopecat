@@ -1,20 +1,62 @@
+from typing import cast
+
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
-    ScalarExpr,
+    BinaryScalarExpr,
+    CaseScalarExpr,
+    ColumnScalarExpr,
+    CrossRelationExpr,
+    FilterRelationExpr,
+    GridRelationExpr,
+    InputRelationExpr,
+    InputScalarExpr,
+    InputSeriesExpr,
+    JoinRelationExpr,
+    LateralCrossRelationExpr,
+    LimitRelationExpr,
+    LinspaceSeriesExpr,
+    LiteralRowsRelationExpr,
+    LiteralScalarExpr,
+    OuterColumnScalarExpr,
+    ParameterLookupScalarExpr,
+    ParameterScalarExpr,
+    ParameterSeriesExpr,
+    PointColumnScalarExpr,
+    PointCrossRelationExpr,
+    RangeSeriesExpr,
+    RelationColumnSeriesExpr,
+    RelationEntitiesSeriesExpr,
+    RelationExpr,
+    RelationExpression,
+    RelationGridColumn,
+    ScalarGridColumn,
+    SelectRelationExpr,
+    SeriesGridColumn,
+    SortRelationExpr,
+    TableRelationExpr,
+    ValuesSeriesExpr,
+    WithColumnsRelationExpr,
+    ZipRelationExpr,
+    case,
     col,
     grid,
+    input_ref,
     input_series,
     input_table,
     linspace,
+    lit,
     literal_rows,
     outer,
     param,
-    parameter_table,
+    parameter_series,
+    point_col,
     range_values,
     table,
     values,
+    zip_relations,
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
@@ -139,7 +181,7 @@ def test_parameter_data_drives_variable_key_lookup_and_joins() -> None:
     )
 
     relation = (
-        parameter_table("readout_devices")
+        table("readout_devices")
         .filter(col("enabled").eq(True))
         .with_columns(
             demod=param("readout.demod_frequency"),
@@ -225,13 +267,6 @@ def test_parameter_lookup_matches_compatible_quantity_units() -> None:
     )
 
 
-def test_parameter_table_root_is_durable_table_relation() -> None:
-    relation = parameter_table("readout_devices")
-    restored = assert_model_round_trip(relation)
-
-    assert restored == table("readout_devices")
-
-
 def test_series_and_table_inputs_are_durable_typed_expressions() -> None:
     rows = [
         {"qubit": "q0", "frequency": Quantity(value=5.0, unit="GHz")},
@@ -271,6 +306,199 @@ def test_series_and_table_inputs_are_durable_typed_expressions() -> None:
     ]
 
 
+def test_grid_round_trip_restores_concrete_series_variants() -> None:
+    source = literal_rows([{"value": 1, "entity": EntityRef(id="q0", kind="qubit")}])
+    relation = grid(
+        literal=values([1]),
+        evenly_spaced=linspace(0, 1, 2),
+        stepped=range_values(0, 2, 1),
+        input=input_series("samples"),
+        parameter=parameter_series("frequencies"),
+        column=source.column("value"),
+        entities=source.entities("entity"),
+    )
+
+    restored = assert_model_round_trip(relation)
+
+    series = [
+        column.series
+        for column in restored.columns.values()
+        if isinstance(column, SeriesGridColumn)
+    ]
+    assert [type(expression) for expression in series] == [
+        ValuesSeriesExpr,
+        LinspaceSeriesExpr,
+        RangeSeriesExpr,
+        InputSeriesExpr,
+        ParameterSeriesExpr,
+        RelationColumnSeriesExpr,
+        RelationEntitiesSeriesExpr,
+    ]
+
+
+def test_grid_round_trip_restores_recursive_scalar_variants() -> None:
+    relation = grid(
+        literal=lit(None),
+        column=col("current"),
+        outer=outer("outer"),
+        point=point_col("point"),
+        input=input_ref("input"),
+        parameter=param("scalar"),
+        lookup=param("table", key={"id": input_ref("id")}, column="value"),
+        binary=input_ref("left") + param("right"),
+        case=case(
+            (
+                input_ref("enabled"),
+                input_ref("selected")
+                + param("table", key={"id": input_ref("case_id")}, column="value"),
+            ),
+            fallback=None,
+        ),
+    )
+
+    restored = assert_model_round_trip(relation)
+
+    scalars = [
+        column.scalar
+        for column in restored.columns.values()
+        if isinstance(column, ScalarGridColumn)
+    ]
+    assert [type(expression) for expression in scalars] == [
+        LiteralScalarExpr,
+        ColumnScalarExpr,
+        OuterColumnScalarExpr,
+        PointColumnScalarExpr,
+        InputScalarExpr,
+        ParameterScalarExpr,
+        ParameterLookupScalarExpr,
+        BinaryScalarExpr,
+        CaseScalarExpr,
+    ]
+
+    lookup = scalars[6]
+    assert isinstance(lookup, ParameterLookupScalarExpr)
+    assert isinstance(lookup.key["id"], InputScalarExpr)
+    binary = scalars[7]
+    assert isinstance(binary, BinaryScalarExpr)
+    assert isinstance(binary.left, InputScalarExpr)
+    assert isinstance(binary.right, ParameterScalarExpr)
+    selected = scalars[8]
+    assert isinstance(selected, CaseScalarExpr)
+    assert isinstance(selected.cases[0].condition, InputScalarExpr)
+    case_value = selected.cases[0].value
+    assert isinstance(case_value, BinaryScalarExpr)
+    assert isinstance(case_value.left, InputScalarExpr)
+    assert isinstance(case_value.right, ParameterLookupScalarExpr)
+    assert isinstance(case_value.right.key["id"], InputScalarExpr)
+    assert isinstance(selected.fallback, LiteralScalarExpr)
+
+
+def test_scalar_variant_fields_preserve_existing_required_semantics() -> None:
+    assert LiteralScalarExpr(value=None).value is None
+    with pytest.raises(ValidationError):
+        LiteralScalarExpr.model_validate({})
+
+    lookup = ParameterLookupScalarExpr(table_id="", key={}, column="")
+    assert lookup.table_id == lookup.column == ""
+    assert lookup.key == {}
+
+
+def _relation_variant_cases() -> tuple[
+    tuple[RelationExpression, type[RelationExpr]], ...
+]:
+    leaf = literal_rows([{"value": 1, "entity": EntityRef(id="q0")}])
+    right = literal_rows([{"other": 2}])
+    return (
+        (leaf, LiteralRowsRelationExpr),
+        (table(""), TableRelationExpr),
+        (input_table("rows"), InputRelationExpr),
+        (
+            grid(
+                relation=leaf,
+                relation_column=leaf.column("value"),
+                relation_entities=leaf.entities("entity"),
+            ),
+            GridRelationExpr,
+        ),
+        (leaf.select(), SelectRelationExpr),
+        (leaf.filter(lit(True)), FilterRelationExpr),
+        (leaf.join(right, on={"value": "other"}), JoinRelationExpr),
+        (leaf.cross(right), CrossRelationExpr),
+        (leaf.lateral_cross(right), LateralCrossRelationExpr),
+        (leaf.point_cross(right), PointCrossRelationExpr),
+        (zip_relations(leaf, right), ZipRelationExpr),
+        (leaf.with_columns(), WithColumnsRelationExpr),
+        (leaf.sort("value"), SortRelationExpr),
+        (leaf.limit(0), LimitRelationExpr),
+    )
+
+
+def test_relation_variants_round_trip_as_recursive_discriminated_models() -> None:
+    adapter = cast(
+        "TypeAdapter[RelationExpression]",
+        TypeAdapter(RelationExpression),
+    )
+    cases = _relation_variant_cases()
+
+    assert len(cases) == 14
+    for expression, expected_type in cases:
+        restored = adapter.validate_json(expression.model_dump_json())
+        assert type(restored) is expected_type
+        assert isinstance(restored, RelationExpr)
+        assert restored == expression
+
+    restored_grid = adapter.validate_json(cases[3][0].model_dump_json())
+    assert isinstance(restored_grid, GridRelationExpr)
+    relation_column = restored_grid.columns["relation"]
+    assert isinstance(relation_column, RelationGridColumn)
+    assert isinstance(relation_column.relation, LiteralRowsRelationExpr)
+    for name in ("relation_column", "relation_entities"):
+        series_column = restored_grid.columns[name]
+        assert isinstance(series_column, SeriesGridColumn)
+        assert isinstance(
+            series_column.series,
+            RelationColumnSeriesExpr | RelationEntitiesSeriesExpr,
+        )
+        assert isinstance(series_column.series.source, LiteralRowsRelationExpr)
+
+
+def test_relation_variant_fields_preserve_required_and_empty_semantics() -> None:
+    leaf = literal_rows([])
+
+    assert leaf.rows == []
+    assert TableRelationExpr(table_id="").table_id == ""
+    assert GridRelationExpr(columns={}).columns == {}
+    assert SelectRelationExpr(source=leaf, select_columns=[]).select_columns == []
+    assert WithColumnsRelationExpr(source=leaf, new_columns={}).new_columns == {}
+    assert JoinRelationExpr(left=leaf, right=leaf, on={"": ""}).on == {"": ""}
+    assert SortRelationExpr(source=leaf, sort_columns=[""]).sort_columns == [""]
+    assert LimitRelationExpr(source=leaf, limit_count=0).limit_count == 0
+
+    invalid_cases: tuple[tuple[type[RelationExpr], dict[str, object]], ...] = (
+        (LiteralRowsRelationExpr, {}),
+        (TableRelationExpr, {}),
+        (GridRelationExpr, {}),
+        (SelectRelationExpr, {"source": leaf}),
+        (FilterRelationExpr, {"source": leaf}),
+        (JoinRelationExpr, {"left": leaf, "right": leaf, "on": {}}),
+        (CrossRelationExpr, {"left": leaf}),
+        (LateralCrossRelationExpr, {"left": leaf}),
+        (PointCrossRelationExpr, {"left": leaf}),
+        (ZipRelationExpr, {"sources": []}),
+        (WithColumnsRelationExpr, {"source": leaf}),
+        (SortRelationExpr, {"source": leaf, "sort_columns": []}),
+        (LimitRelationExpr, {"source": leaf}),
+    )
+    for model, value in invalid_cases:
+        with pytest.raises(ValidationError):
+            model.model_validate(value)
+
+    with pytest.raises(ValidationError):
+        InputRelationExpr(name="")
+    with pytest.raises(ValidationError):
+        LimitRelationExpr(source=leaf, limit_count=-1)
+
+
 def test_relation_column_and_entities_series_have_explicit_ordering_rules() -> None:
     q0 = EntityRef(id="q0", kind="qubit")
     q1 = EntityRef(id="q1", kind="qubit")
@@ -295,8 +523,7 @@ def test_relation_column_and_entities_series_have_explicit_ordering_rules() -> N
 
 
 def test_record_with_entities_field_round_trips_without_collection_coercion() -> None:
-    expression = ScalarExpr(
-        kind="literal",
+    expression = LiteralScalarExpr(
         value={
             "entities": [{"id": "q0"}, {"id": "q1"}],
             "kind": "batch",

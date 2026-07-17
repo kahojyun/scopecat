@@ -9,6 +9,7 @@ from hypothesis import strategies as st
 
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
+    LiteralRowsRelationExpr,
     grid,
     input_table,
     literal_rows,
@@ -104,12 +105,12 @@ def test_generated_point_identity_is_ordinal_and_batch_stable(
     ]
 
 
-def test_duplicate_rows_have_distinct_identity_but_same_best_effort_key() -> None:
+def test_duplicate_rows_have_distinct_identity() -> None:
     materialized = _materialize(_domain([7, 7]))
 
     left, right = materialized.points
     assert left.logical_id != right.logical_id
-    assert left.row_key == right.row_key
+    assert left.row == right.row
 
 
 def test_domain_namespace_participates_in_logical_identity() -> None:
@@ -533,7 +534,6 @@ def test_opaque_row_value_never_prevents_logical_identity() -> None:
     point = _materialize(domain).points[0]
 
     assert point.logical_id == LogicalPointId(PointDomainId("experiment", "root"), 0)
-    assert point.row_key is None
     assert cast("PayloadValue", point.row["payload"]).payload is opaque
 
 
@@ -566,10 +566,11 @@ def test_point_rows_are_defensive_snapshots_including_payload_containers() -> No
 def test_verified_domain_is_a_defensive_snapshot() -> None:
     verified = verify_point_domain(_domain([1]), program_id="program")
     exposed_root = verified.relation_leaves[0].value.plan.root
-    assert exposed_root.rows is not None
+    assert isinstance(exposed_root, LiteralRowsRelationExpr)
     exposed_root.rows[0]["x"] = 99
 
     captured_root = verified.relation_leaves[0].value.plan.root
+    assert isinstance(captured_root, LiteralRowsRelationExpr)
     assert captured_root.rows == [{"x": 1}]
 
 
@@ -578,7 +579,6 @@ def test_materialized_domain_rejects_a_forged_noncanonical_point_identity() -> N
     forged = MaterializedPoint(
         LogicalPointId(verified.id, 7),
         {"x": 1},
-        None,
     )
 
     with pytest.raises(ValueError, match="canonical contiguous ordinal order"):
@@ -640,7 +640,7 @@ def test_entity_column_accepts_entity_type() -> None:
     assert [column.id for column in verified.coordinate_columns] == ["entity"]
 
 
-def test_entity_metadata_does_not_change_row_key_or_logical_identity() -> None:
+def test_entity_metadata_does_not_change_logical_identity() -> None:
     table_type = Table(
         (TableColumn("entity", Scalar(Entity("qubit"))),),
         min_rows=1,
@@ -673,7 +673,6 @@ def test_entity_metadata_does_not_change_row_key_or_logical_identity() -> None:
     ).points[0]
 
     assert first.logical_id == second.logical_id
-    assert first.row_key == second.row_key
     assert verified.row_type == RowType.from_table(table_type)
 
 

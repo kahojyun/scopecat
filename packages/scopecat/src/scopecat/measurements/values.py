@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Hashable, Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import cast
@@ -65,21 +64,13 @@ class SelectedMeasurementValueFragment:
     contract_fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
-        if not self.id:
-            msg = "measurement value fragment id must be non-empty"
-            raise ValueError(msg)
-        selected = tuple(self.product_use_ids)
-        if len(selected) != len(set(selected)):
-            msg = "measurement value fragment product uses must be unique"
-            raise ValueError(msg)
-        object.__setattr__(self, "product_use_ids", selected)
         object.__setattr__(
             self,
             "contract_fingerprint",
             _fragment_contract_fingerprint(
                 self.linked_contract_fingerprint,
                 self.id,
-                selected,
+                self.product_use_ids,
             ),
         )
 
@@ -119,63 +110,9 @@ class SelectedMeasurementValueAssembly:
     )
 
     def __post_init__(self) -> None:
-        product_use_ids = tuple(self.product_use_ids)
-        fragments = tuple(self.fragments)
-        if len(product_use_ids) != len(set(product_use_ids)):
-            msg = "selected measurement product uses must be unique"
-            raise ValueError(msg)
-        if len(fragments) != len({fragment.id for fragment in fragments}):
-            msg = "selected measurement fragment ids must be unique"
-            raise ValueError(msg)
-
         all_uses, all_products = _measurement_product_inventory(self.linked_points)
         all_use_by_id = {use.id: use for use in all_uses}
-        unknown = tuple(
-            use_id for use_id in product_use_ids if use_id not in all_use_by_id
-        )
-        if unknown:
-            msg = f"selected measurement product uses are unknown: {unknown!r}"
-            raise ValueError(msg)
-        covered = tuple(
-            use_id for fragment in fragments for use_id in fragment.product_use_ids
-        )
-        if len(covered) != len(set(covered)) or set(covered) != set(product_use_ids):
-            msg = (
-                "measurement fragments must exactly and disjointly cover selected uses"
-            )
-            raise ValueError(msg)
-
         linked_fingerprint = measurement_value_contract_fingerprint(self.linked_points)
-        if any(
-            fragment.linked_contract_fingerprint != linked_fingerprint
-            for fragment in fragments
-        ):
-            msg = "measurement fragment belongs to another linked contract"
-            raise ValueError(msg)
-
-        canonical_use_ids = tuple(
-            use.id for use in all_uses if use.id in set(product_use_ids)
-        )
-        canonical_use_order = {
-            use_id: index for index, use_id in enumerate(canonical_use_ids)
-        }
-        canonical_fragments = tuple(
-            sorted(
-                fragments,
-                key=lambda fragment: (
-                    min(
-                        (
-                            canonical_use_order[use_id]
-                            for use_id in fragment.product_use_ids
-                        ),
-                        default=len(canonical_use_ids),
-                    ),
-                    fragment.id,
-                ),
-            )
-        )
-        object.__setattr__(self, "product_use_ids", canonical_use_ids)
-        object.__setattr__(self, "fragments", canonical_fragments)
         object.__setattr__(
             self,
             "linked_contract_fingerprint",
@@ -186,22 +123,20 @@ class SelectedMeasurementValueAssembly:
             "contract_fingerprint",
             _assembly_contract_fingerprint(
                 linked_fingerprint,
-                canonical_use_ids,
-                canonical_fragments,
+                self.product_use_ids,
+                self.fragments,
             ),
         )
         object.__setattr__(
             self,
             "_fragment_by_id",
-            MappingProxyType(
-                {fragment.id: fragment for fragment in canonical_fragments}
-            ),
+            MappingProxyType({fragment.id: fragment for fragment in self.fragments}),
         )
         object.__setattr__(
             self,
             "_use_by_id",
             MappingProxyType(
-                {use_id: all_use_by_id[use_id] for use_id in canonical_use_ids}
+                {use_id: all_use_by_id[use_id] for use_id in self.product_use_ids}
             ),
         )
         object.__setattr__(
@@ -209,9 +144,9 @@ class SelectedMeasurementValueAssembly:
             "_product_by_use_id",
             MappingProxyType(
                 {
-                    use_id: deepcopy(product)
+                    use_id: product
                     for use_id, product in all_products.items()
-                    if use_id in set(canonical_use_ids)
+                    if use_id in set(self.product_use_ids)
                 }
             ),
         )
@@ -242,7 +177,7 @@ class SelectedMeasurementValueAssembly:
 
     def product_for_use(self, product_use_id: ProductUseId) -> ProductDef:
         try:
-            return deepcopy(self._product_by_use_id[product_use_id])
+            return self._product_by_use_id[product_use_id]
         except KeyError as error:
             msg = f"product use {product_use_id.value!r} is not selected"
             raise KeyError(msg) from error
@@ -271,21 +206,10 @@ class BoundDomainMeasurementValueFragment[
     result_contract_fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
-        fragment = self.selection.fragment(self.fragment_id)
-        mapping = self.domain_outputs.mapping
-        if (
-            measurement_value_contract_fingerprint(mapping.linked_points)
-            != self.selection.linked_contract_fingerprint
-        ):
-            msg = "domain outputs belong to a different measurement contract"
-            raise ValueError(msg)
-        if tuple(mapping.selected_product_use_ids) != fragment.product_use_ids:
-            msg = "domain outputs do not exactly own the selected fragment"
-            raise ValueError(msg)
         object.__setattr__(
             self,
             "result_contract_fingerprint",
-            mapping.contract_fingerprint,
+            self.domain_outputs.mapping.contract_fingerprint,
         )
 
 
@@ -319,7 +243,7 @@ class ClosedMeasurementProductValue:
         object.__setattr__(self, "fragment_id", fragment_id)
         object.__setattr__(self, "point", point)
         object.__setattr__(self, "product_use", product_use)
-        object.__setattr__(self, "_product", deepcopy(product))
+        object.__setattr__(self, "_product", product)
         object.__setattr__(self, "_value", validated_measurement_value_copy(value))
 
     @property
@@ -336,7 +260,7 @@ class ClosedMeasurementProductValue:
 
     @property
     def product(self) -> ProductDef:
-        return deepcopy(self._product)
+        return self._product
 
     @property
     def value(self) -> MeasurementValue:
@@ -354,25 +278,11 @@ class ClosedMeasurementValueFragment:
 
     def __post_init__(self) -> None:
         fragment = self.selection.fragment(self.fragment_id)
-        values = tuple(self.values)
-        expected = {
-            (point.logical_id, use_id)
-            for point in self.selection.linked_points.point_domain.points
-            for use_id in fragment.product_use_ids
-        }
-        actual = {(value.logical_point_id, value.product_use_id) for value in values}
-        if len(actual) != len(values) or actual != expected:
-            msg = "closed measurement fragment must exactly cover its selected outputs"
-            raise ValueError(msg)
-        if any(value.fragment_id != self.fragment_id for value in values):
-            msg = "closed measurement values must belong to their fragment"
-            raise ValueError(msg)
         object.__setattr__(
             self,
             "fragment_contract_fingerprint",
             fragment.contract_fingerprint,
         )
-        object.__setattr__(self, "values", values)
 
     def value_for_output(
         self,
@@ -406,19 +316,10 @@ class ClosedMeasurementProductValues:
     ] = field(init=False, repr=False, compare=False, hash=False)
 
     def __post_init__(self) -> None:
-        values = tuple(self.values)
         by_output = {
-            (value.logical_point_id, value.product_use_id): value for value in values
+            (value.logical_point_id, value.product_use_id): value
+            for value in self.values
         }
-        expected = {
-            (point.logical_id, use_id)
-            for point in self.selection.linked_points.point_domain.points
-            for use_id in self.selection.product_use_ids
-        }
-        if len(by_output) != len(values) or set(by_output) != expected:
-            msg = "assembled measurement values must exactly cover selected outputs"
-            raise ValueError(msg)
-        object.__setattr__(self, "values", values)
         object.__setattr__(self, "_by_output", MappingProxyType(by_output))
 
     @property
@@ -889,11 +790,7 @@ def _measurement_product_inventory(
     linked_plan = linked_points.linked_plan
     uses = tuple(linked_plan.product_uses)
     products_by_id = {product.id: product for product in linked_plan.product_defs}
-    try:
-        products = {use.id: deepcopy(products_by_id[use.product_id]) for use in uses}
-    except KeyError as error:
-        msg = "measurement value assembly requires a closed product graph"
-        raise ValueError(msg) from error
+    products = {use.id: products_by_id[use.product_id] for use in uses}
     return uses, products
 
 
@@ -911,7 +808,6 @@ def measurement_value_contract_fingerprint(
                     {
                         "logical_point_id": point.logical_id.value,
                         "row": point.row,
-                        "row_key": point.row_key,
                     }
                     for point in linked_points.point_domain.points
                 ],

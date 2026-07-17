@@ -1061,7 +1061,8 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
     config = load_config()
     environment = validate_config_environment(config)
     assert environment.routing is not None
-    plan = materialize_local_plan(link_program(load_experiment(), environment))
+    experiment = load_experiment()
+    plan = materialize_local_plan(link_program(experiment, environment))
     point = plan.points[0]
     collect = point.collect[0]
     request = replace(
@@ -1073,18 +1074,12 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
         collect=(replace(collect, requests=(request,)),),
     )
     product = replace(
-        plan.product_defs[0],
+        experiment.product_defs[0],
         axes=(ProductAxisDef(id="sample", kind="sample", size=2, unit="ns"),),
-    )
-    record = replace(
-        plan.records[0],
-        axes=request.axes,
-        dims=("point", "sample"),
-        shape=(1, 2),
     )
     realizations, realization_problems = select_local_product_realizations(
         (product,),
-        plan.instrument_product_producers,
+        experiment.instrument_product_producers,
         plan.product_uses,
         routing=environment.routing,
     )
@@ -1093,8 +1088,6 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
     plan = replace(
         plan,
         points=(point,),
-        product_defs=(product,),
-        records=(record,),
         local_product_realizations=realizations,
     )
 
@@ -1130,9 +1123,6 @@ def _first_point_plan(
     return replace(
         plan,
         points=plan.points[:1],
-        records=tuple(
-            replace(record, shape=(1, *record.shape[1:])) for record in plan.records
-        ),
         **({"problems": problems} if problems is not None else {}),
     )
 

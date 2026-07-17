@@ -5,7 +5,6 @@ from dataclasses import replace
 from scopecat.adapters.memory import (
     MemoryCollectionRepository,
     MemoryExecutionJournal,
-    MemoryMeasurementRecordCommitter,
     MemoryPayloadEvidenceCommitter,
 )
 from scopecat.compiler.frontend.environment import validate_config_environment
@@ -23,7 +22,7 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
-from scopecat.compiler.typed.state import StateSpec
+from scopecat.compiler.typed.state import StateSpecVariant
 from scopecat.execution.local.engine import ExecutionEngine
 from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import (
@@ -34,6 +33,7 @@ from scopecat.execution.local.program import (
     PointProgram,
     StateTarget,
 )
+from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemPhase,
@@ -102,7 +102,7 @@ def _unit_program(
     *,
     experiment_id: str,
     route_intents: tuple[ResourceRouteIntent, ...] = (),
-    state: tuple[StateSpec, ...] = (),
+    state: tuple[StateSpecVariant, ...] = (),
     products: tuple[ProductDef, ...] = (),
     producers: tuple[InstrumentProductProducer, ...] = (),
 ) -> TypedProgram:
@@ -175,7 +175,7 @@ def test_record_products_keep_their_exact_logical_route_bindings() -> None:
     )
 
     plan = _bind(program, config=config)
-    execution = build_execution_program(plan)
+    execution = build_execution_program(plan, instrument_order=("source-0",))
 
     assert plan.valid, plan.problems
     requests_by_key = {
@@ -215,7 +215,7 @@ def test_record_products_keep_their_exact_logical_route_bindings() -> None:
     }
 
 
-def test_logical_product_schema_is_invariant_across_instrument_producers() -> None:
+def test_instrument_product_producers_bind_distinct_collection_requests() -> None:
     config = config_with_physical_resources(
         {
             "source-0": ("measure.signal",),
@@ -257,11 +257,6 @@ def test_logical_product_schema_is_invariant_across_instrument_producers() -> No
 
     assert source_0_plan.valid, source_0_plan.problems
     assert source_1_plan.valid, source_1_plan.problems
-    assert source_0_plan.product_defs == source_1_plan.product_defs
-    assert source_0_plan.records == source_1_plan.records
-    assert (
-        source_0_plan.expected_dataset_schema == source_1_plan.expected_dataset_schema
-    )
 
     source_0_collect = source_0_plan.points[0].collect[0]
     source_1_collect = source_1_plan.points[0].collect[0]
@@ -488,8 +483,9 @@ def test_mixed_explicit_and_fallback_route_topology_closes_durably() -> None:
         (binding.capability, binding.channel_id)
         for binding in plan.points[0].desired_state[0].fields[0].channel_bindings
     ] == [("A", "drive-q0")]
-    assert plan.state_changes[0].resource_port_id is not None
-    assert plan.state_changes[0].resource_port_id.qualified_name == "source"
+    field = plan.points[0].desired_state[0].fields[0]
+    assert field.resource_port_id is not None
+    assert field.resource_port_id.qualified_name == "source"
 
 
 def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() -> None:
@@ -513,7 +509,10 @@ def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() ->
         _unit_program(experiment_id="direct-state-claims", state=(first_state,)),
         config=config,
     )
-    execution = build_execution_program(single_plan)
+    execution = build_execution_program(
+        single_plan,
+        instrument_order=("source-0",),
+    )
 
     assert single_plan.valid, single_plan.problems
     field = single_plan.points[0].desired_state[0].fields[0]
@@ -575,7 +574,7 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
     )
 
     plan = _bind(program, config=config)
-    execution = build_execution_program(plan)
+    execution = build_execution_program(plan, instrument_order=("source-0",))
 
     assert plan.valid, plan.problems
     state_field = plan.points[0].desired_state[0].fields[0]
@@ -702,8 +701,8 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         ),
         product_uses=(),
         collection_product_use_ids=(),
-        record_projections=(),
         resource_order=("source-0",),
+        resource_claims=(ResourceClaim(id="source-0"),),
     )
 
     result = ExecutionEngine(
@@ -712,7 +711,6 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         drivers={driver.instrument_id: driver},
         descriptions={driver.instrument_id: driver.describe()},
         journal=MemoryExecutionJournal(),
-        measurements=MemoryMeasurementRecordCommitter(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run()

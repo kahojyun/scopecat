@@ -24,6 +24,7 @@ from scopecat.execution.local.program import (
     PointProgram,
     StateTarget,
 )
+from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.product_identity import ProductUse
@@ -103,8 +104,8 @@ def _program(
         ),
         product_uses=scenario.uses,
         collection_product_use_ids=(collected_use.id,),
-        record_projections=(),
         resource_order=(_INSTRUMENT_ID,) if points else (),
+        resource_claims=(ResourceClaim(id=_INSTRUMENT_ID),) if points else (),
     )
 
 

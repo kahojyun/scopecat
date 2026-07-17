@@ -16,6 +16,7 @@ from scopecat.compiler.linking.bound import (
 )
 from scopecat.execution.observation import RuntimePayloadObservation
 from scopecat.kernel.errors import CheckFailed
+from scopecat.measurements.projection import SelectedMeasurementProjection
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import ConfigProfileSnapshot
@@ -75,7 +76,11 @@ from quantum_lab_demo.experiments.templates import (
 )
 from quantum_lab_demo.lab import quantum_lab
 
-from .demo_lab_experiment_testkit import bound_plan, load_experiment_config
+from .demo_lab_experiment_testkit import (
+    bound_plan,
+    load_experiment_config,
+    measurement_projection,
+)
 
 
 def test_template_constants_cover_experiment_system() -> None:
@@ -259,9 +264,9 @@ def test_experiment_system_resolve_to_and_preview_invocation(
     assert resolved.template_id == template_id
     assert resolved.experiment.kind == kind
 
-    preview = _bound_plan(tmp_path, invocation, config)
-    assert preview.expected_dataset_schema is not None
-    assert preview.expected_dataset_schema.primary_observables, label
+    projection = _measurement_projection(tmp_path, invocation, config)
+    assert projection.schema is not None
+    assert projection.schema.primary_observables, label
 
 
 def test_rabi_infers_default_scan_from_config(tmp_path: Path) -> None:
@@ -427,15 +432,15 @@ def test_system_background_rabi_materializes_coupler_parking_table(
 def test_multiplexed_readout_is_single_point_entity_axis_record(
     tmp_path: Path,
 ) -> None:
-    preview = _bound_plan(
+    projection = _measurement_projection(
         tmp_path,
         MULTIPLEXED_READOUT_TEMPLATE.bind(qubits=("q0", "q1")),
     )
 
     observable = next(
-        record for record in preview.records if record.id == "multiplexed_iq"
+        record for record in projection.records if record.id == "multiplexed_iq"
     )
-    assert preview.point_count == 1
+    assert len(projection.linked_points.point_domain.points) == 1
     assert observable.dtype == "complex128"
     assert observable.dims == ("point", "qubit")
     assert observable.shape == (1, 2)
@@ -444,15 +449,15 @@ def test_multiplexed_readout_is_single_point_entity_axis_record(
 def test_multiplexed_readout_calibration_scans_shared_readout_pulse(
     tmp_path: Path,
 ) -> None:
-    preview = _bound_plan(
+    projection = _measurement_projection(
         tmp_path,
         MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE.bind(qubits=("q0", "q1")),
     )
 
     observable = next(
-        record for record in preview.records if record.id == "multiplexed_iq"
+        record for record in projection.records if record.id == "multiplexed_iq"
     )
-    assert preview.point_count == 5
+    assert len(projection.linked_points.point_domain.points) == 5
     assert observable.dims == ("point", "qubit")
     assert observable.shape == (5, 2)
 
@@ -804,7 +809,7 @@ def test_parallel_gate_table_drives_program_and_resource_route_order(
 def test_toy_surface_code_round_uses_round_and_entity_axes(tmp_path: Path) -> None:
     config = load_experiment_config()
     invocation = TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(rounds=2)
-    preview = _bound_plan(tmp_path, invocation, config)
+    projection = _measurement_projection(tmp_path, invocation, config)
 
     payloads = _run_observed_payloads(tmp_path, invocation)
     surface_program = next(
@@ -813,7 +818,7 @@ def test_toy_surface_code_round_uses_round_and_entity_axes(tmp_path: Path) -> No
         if isinstance(payload.payload, SurfaceCodeRoundProgram)
     )
     observable = next(
-        record for record in preview.records if record.id == "stabilizer_iq"
+        record for record in projection.records if record.id == "stabilizer_iq"
     )
 
     assert isinstance(surface_program, SurfaceCodeRoundProgram)
@@ -826,7 +831,7 @@ def test_toy_surface_code_round_uses_round_and_entity_axes(tmp_path: Path) -> No
 def test_qnd_repeated_measurement_keeps_dense_round_shot_array(
     tmp_path: Path,
 ) -> None:
-    preview = _bound_plan(
+    projection = _measurement_projection(
         tmp_path,
         QND_REPEATED_MEASUREMENT_TEMPLATE.bind(
             qubit="q0",
@@ -835,9 +840,9 @@ def test_qnd_repeated_measurement_keeps_dense_round_shot_array(
         ),
     )
 
-    observable = next(record for record in preview.records if record.id == "qnd_iq")
+    observable = next(record for record in projection.records if record.id == "qnd_iq")
 
-    assert preview.point_count == 1
+    assert len(projection.linked_points.point_domain.points) == 1
     assert observable.dims == ("point", "round", "shot")
     assert observable.shape == (1, 3, 5)
 
@@ -850,7 +855,7 @@ def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
         logical_points=4,
         seed=5,
     )
-    preview = _bound_plan(tmp_path, invocation, config)
+    projection = _measurement_projection(tmp_path, invocation, config)
 
     payloads = _run_observed_payloads(tmp_path, invocation)
     batch_job = next(
@@ -859,7 +864,7 @@ def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
         if isinstance(payload.payload, BackendBatchJob)
     )
     observable = next(
-        record for record in preview.records if record.id == "backend_probabilities"
+        record for record in projection.records if record.id == "backend_probabilities"
     )
 
     assert isinstance(batch_job, BackendBatchJob)
@@ -906,6 +911,15 @@ def _bound_plan(
 ) -> BoundPlan:
     del tmp_path
     return bound_plan(invocation, config=config)
+
+
+def _measurement_projection(
+    tmp_path: Path,
+    invocation: ExperimentInvocation,
+    config: ConfigProfileSnapshot | None = None,
+) -> SelectedMeasurementProjection:
+    del tmp_path
+    return measurement_projection(invocation, config=config)
 
 
 def _state_fields(

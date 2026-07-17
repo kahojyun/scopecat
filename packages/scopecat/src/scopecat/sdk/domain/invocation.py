@@ -10,7 +10,6 @@ reconciliation are defined separately in :mod:`scopecat.sdk.domain.runtime`.
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, cast
@@ -126,7 +125,7 @@ class ClosedDomainResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
         object.__setattr__(self, "result_address", result_address)
         object.__setattr__(self, "point", point)
         object.__setattr__(self, "product_uses", selected_uses)
-        object.__setattr__(self, "_product", deepcopy(product))
+        object.__setattr__(self, "_product", product)
 
     @property
     def logical_point_id(self) -> LogicalPointId:
@@ -144,9 +143,9 @@ class ClosedDomainResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
 
     @property
     def product(self) -> ProductDef:
-        """Return a defensive copy of the retained logical product contract."""
+        """Return the immutable retained logical product contract."""
 
-        return deepcopy(self._product)
+        return self._product
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -414,7 +413,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
             "_product_by_id",
             MappingProxyType(
                 {
-                    use.product_id: deepcopy(products_by_id[use.product_id])
+                    use.product_id: products_by_id[use.product_id]
                     for use in selected_uses
                 }
             ),
@@ -426,7 +425,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
         )
 
     def product_for_use(self, product_use_id: ProductUseId) -> ProductDef:
-        """Return the snapshotted product contract of one selected use."""
+        """Return the immutable product contract of one selected use."""
 
         selected = next(
             (use for use in self.selected_product_uses if use.id == product_use_id),
@@ -435,7 +434,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
         if selected is None:
             msg = f"product use {product_use_id.value!r} is not selected"
             raise KeyError(msg)
-        return deepcopy(self._product_by_id[selected.product_id])
+        return self._product_by_id[selected.product_id]
 
     def entry_for_address(
         self,
@@ -1137,18 +1136,9 @@ def _closed_product_inventory(
     linked_points: MaterializedLinkedPointSet,
 ) -> tuple[tuple[ProductUse, ...], dict[ProductId, ProductDef]]:
     program = linked_points.linked_plan.program
-    products_by_id = {product.id: product for product in program.product_defs}
-    if len(products_by_id) != len(program.product_defs):
-        msg = "linked domain mappings require unique product definitions"
-        raise ValueError(msg)
-    uses_by_id = {use.id: use for use in program.product_uses}
-    if len(uses_by_id) != len(program.product_uses):
-        msg = "linked domain mappings require unique product uses"
-        raise ValueError(msg)
-    if any(use.product_id not in products_by_id for use in program.product_uses):
-        msg = "linked domain product uses must reference retained definitions"
-        raise ValueError(msg)
-    return program.product_uses, products_by_id
+    return program.product_uses, {
+        product.id: product for product in program.product_defs
+    }
 
 
 def _canonical_selected_product_uses(

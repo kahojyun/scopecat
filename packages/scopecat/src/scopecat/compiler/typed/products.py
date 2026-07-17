@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
 from scopecat.compiler.semantic.model import MeasurementTransformId
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import ProductId, ProductProducerId
 from scopecat.kernel.resource_identity import ResourceTarget
 from scopecat.measurements.results import MeasurementDType
 
 type ProductKind = Literal["observable", "artifact", "readback", "expression"]
+
+
+def _empty_metadata() -> FrozenMapping[str, JsonValue]:
+    return FrozenMapping()
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,13 +28,19 @@ class ProductAxisDef:
     kind: str
     size: int
     unit: str | None = None
-    metadata: dict[str, JsonValue] = field(default_factory=dict)
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
         if not self.id or not self.kind or self.size <= 0:
             msg = "product axes require non-empty ids and kinds and positive sizes"
             raise ValueError(msg)
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata, path=f"product axis {self.id!r} metadata"
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,10 +52,15 @@ class ProductDef:
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     axes: tuple[ProductAxisDef, ...] = ()
-    metadata: dict[str, JsonValue] = field(default_factory=dict)
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "axes", tuple(self.axes))
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(self.metadata, path=f"product {self.id!s} metadata"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,13 +72,20 @@ class InstrumentProductProducer:
     provider_key: str
     resource_target: ResourceTarget | None = None
     capability: str | None = None
-    metadata: dict[str, JsonValue] = field(default_factory=dict)
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
         if not self.provider_key:
             msg = "instrument product producer provider_key must be non-empty"
             raise ValueError(msg)
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata,
+                path=f"product producer {self.id!s} metadata",
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

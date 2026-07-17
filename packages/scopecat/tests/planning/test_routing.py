@@ -33,7 +33,6 @@ from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     PhysicalResourceId,
     logical_resource_port_id,
-    physical_resource_id,
 )
 from scopecat.kernel.value_types import (
     Entity,
@@ -79,7 +78,7 @@ def _port(value: str) -> LogicalResourcePortId:
 
 
 def _physical(value: str) -> PhysicalResourceId:
-    return physical_resource_id(value)
+    return PhysicalResourceId(value)
 
 
 def _number(value: float) -> ScalarValueExpr:

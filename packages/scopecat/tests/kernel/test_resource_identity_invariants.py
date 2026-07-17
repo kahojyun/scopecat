@@ -38,7 +38,6 @@ from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     PhysicalResourceId,
     logical_resource_port_id,
-    physical_resource_id,
 )
 from scopecat.kernel.value_types import Float, Scalar, String, Table, TableColumn
 from scopecat.planning.authoring import resolve_experiment
@@ -108,7 +107,7 @@ def _config_with_resources(
 
 def test_logical_and_physical_resource_ids_with_same_text_do_not_alias() -> None:
     logical = logical_resource_port_id("source-0")
-    physical = physical_resource_id("source-0")
+    physical = PhysicalResourceId("source-0")
 
     assert logical.qualified_name == physical.value
     assert len({logical, physical}) == 2
@@ -253,10 +252,8 @@ def test_public_dsl_direct_physical_state_is_not_captured_by_same_named_port(
 
     assert plan.valid, plan.problems
     assert plan.points[0].routes[0].port_id == logical_resource_port_id("source-0")
-    assert plan.points[0].routes[0].resource_id == physical_resource_id("source-1")
-    assert plan.points[0].desired_state[0].resource_id == physical_resource_id(
-        "source-0"
-    )
+    assert plan.points[0].routes[0].resource_id == PhysicalResourceId("source-1")
+    assert plan.points[0].desired_state[0].resource_id == PhysicalResourceId("source-0")
 
 
 def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> None:
@@ -287,11 +284,10 @@ def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> 
     )
 
     assert plan.valid, plan.problems
-    assert plan.points[0].routes[0].resource_id == physical_resource_id("source-1")
-    assert plan.instrument_product_producers[0].resource_target == physical_resource_id(
-        "source-0"
-    )
-    assert plan.points[0].collect[0].resource_id == physical_resource_id("source-0")
+    assert plan.points[0].routes[0].resource_id == PhysicalResourceId("source-1")
+    producer_target = program.instrument_product_producers[0].resource_target
+    assert producer_target == PhysicalResourceId("source-0")
+    assert plan.points[0].collect[0].resource_id == PhysicalResourceId("source-0")
 
 
 @pytest.mark.parametrize(
@@ -302,7 +298,7 @@ def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> 
                 route_intents=(
                     ResourceRouteIntent(
                         port_id=logical_resource_port_id("drive"),
-                        fixed_resource_id=physical_resource_id("definitely-missing"),
+                        fixed_resource_id=PhysicalResourceId("definitely-missing"),
                     ),
                 )
             ),
@@ -316,7 +312,7 @@ def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> 
                     ResourceRouteIntent(
                         port_id=logical_resource_port_id("drive"),
                         capabilities=("definitely.unsupported",),
-                        fixed_resource_id=physical_resource_id("source-0"),
+                        fixed_resource_id=PhysicalResourceId("source-0"),
                     ),
                 )
             ),
@@ -402,7 +398,7 @@ def test_unused_logical_product_producer_does_not_constrain_route_placement() ->
             ResourceRouteIntent(
                 port_id=port,
                 capabilities=("schedule",),
-                fixed_resource_id=physical_resource_id("scheduler-0"),
+                fixed_resource_id=PhysicalResourceId("scheduler-0"),
             ),
         ),
     )
@@ -441,7 +437,7 @@ def test_demanded_logical_product_producer_requires_instrument_during_binding() 
             ResourceRouteIntent(
                 port_id=port,
                 capabilities=("schedule",),
-                fixed_resource_id=physical_resource_id("scheduler-0"),
+                fixed_resource_id=PhysicalResourceId("scheduler-0"),
             ),
         ),
     )

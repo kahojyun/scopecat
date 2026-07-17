@@ -533,7 +533,6 @@ class SemanticMeasurementTransform:
         if not self.outputs:
             msg = "semantic measurement transforms require at least one output"
             raise ValueError(msg)
-        object.__setattr__(self, "semantic", self.semantic.model_copy(deep=True))
 
 
 @dataclass(frozen=True, slots=True)

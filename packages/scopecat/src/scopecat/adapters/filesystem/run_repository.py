@@ -6,7 +6,7 @@ from collections.abc import Generator, Iterable
 from contextlib import contextmanager, suppress
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
-from stat import S_ISDIR, S_ISREG
+from stat import S_ISDIR
 
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
@@ -54,7 +54,6 @@ from scopecat.runs.refs import (
     MANIFEST_REF,
     RUN_REQUEST_REF,
 )
-from scopecat.runs.repository import RunRefKind
 
 
 class FilesystemRunRepository:
@@ -81,20 +80,6 @@ class FilesystemRunRepository:
         except OSError as error:
             raise _storage_failure(run_id=run_id, ref=ref) from error
         return True
-
-    def ref_kind(self, run_id: str, ref: str) -> RunRefKind:
-        path = self.ref_path(run_id, ref)
-        try:
-            mode = path.stat().st_mode
-        except FileNotFoundError:
-            return "missing"
-        except OSError as error:
-            raise _storage_failure(run_id=run_id, ref=ref) from error
-        if S_ISREG(mode):
-            return "file"
-        if S_ISDIR(mode):
-            return "directory"
-        return "other"
 
     def read_manifest(self, run_id: str) -> RunManifest:
         manifest_path = self.ref_path(run_id, MANIFEST_REF)

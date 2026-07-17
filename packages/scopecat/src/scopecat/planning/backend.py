@@ -5,14 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from scopecat.compiler.linking.bound import BoundPlan
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
     MaterializedLinkedPointBatch,
     MaterializedLinkedPoints,
     materialize_linked_points,
 )
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import (
+    materialize_local_plan_from_points,
+)
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.execution.local.executor import PreparedExecution, prepare_execution
 from scopecat.execution.local.program import ApplyStateStage, ComputeStage
@@ -88,7 +89,6 @@ class PreparedPointInstrumentUnit:
 
     id: str
     product_use_ids: tuple[ProductUseId, ...]
-    bound_plan: BoundPlan = field(repr=False)
     prepared: PreparedExecution = field(repr=False)
     provider: InstrumentProvider = field(repr=False, compare=False)
 
@@ -274,7 +274,7 @@ def _prepare_backend_plan(
     )
     point_unit = _prepare_point_unit(
         backend,
-        linked,
+        linked_points,
         config=config,
         coverage=local_coverage,
     )
@@ -435,7 +435,7 @@ def _select_domain_adapter(
 
 def _prepare_point_unit(
     backend: ExecutionBackend,
-    linked: LinkedPlan,
+    linked_points: MaterializedLinkedPoints,
     *,
     config: ConfigProfileSnapshot,
     coverage: ExecutionCoverage,
@@ -446,8 +446,8 @@ def _prepare_point_unit(
     non_product_coverage = ExecutionCoverage(
         tuple(task for task in coverage.tasks if task.kind != "product")
     )
-    plan = materialize_local_plan(
-        linked,
+    plan = materialize_local_plan_from_points(
+        linked_points,
         product_use_ids=frozenset(product_use_ids),
         task_coverage=non_product_coverage,
     )
@@ -461,7 +461,6 @@ def _prepare_point_unit(
     return PreparedPointInstrumentUnit(
         id=_POINT_UNIT_ID,
         product_use_ids=coverage.product_use_ids,
-        bound_plan=plan,
         prepared=prepared,
         provider=backend.provider,
     )

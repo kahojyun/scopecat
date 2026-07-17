@@ -24,6 +24,7 @@ from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
 from tests.testkit.bound_plan import (
     bound_plan_contract,
+    bound_state_fields,
     config_with_physical_resources,
 )
 from tests.testkit.parameter_fixtures import (
@@ -80,7 +81,7 @@ def _state_bindings(
     )
 
 
-def test_bound_plan_state_changes_record_adjacent_desired_state_diffs() -> None:
+def test_bound_plan_binds_desired_state_for_each_point() -> None:
     unchanged_points = _point_domain(grid(index=[0, 1]))
     unchanged = typed_program(
         id="unchanged-state-patches",
@@ -115,42 +116,30 @@ def test_bound_plan_state_changes_record_adjacent_desired_state_diffs() -> None:
     config = config_with_physical_resources({"drive-a": ("drive",)})
     unchanged_preview = bound_plan_contract(unchanged, _parameters(), config=config)
     swept_preview = bound_plan_contract(swept, _parameters(), config=config)
-    unchanged_patches = [
+    unchanged_state = [
         (
-            change.point_index,
-            change.resource_id.value,
-            change.field,
-            _state_literal(change.before),
-            _state_literal(change.after),
+            point_index,
+            state.resource_id.value,
+            f"{state.capability_id}.{field.field_path}",
+            _state_literal(field.value),
         )
-        for change in unchanged_preview.state_changes
+        for point_index, state, field in bound_state_fields(unchanged_preview)
     ]
-    swept_patches = [
+    swept_state = [
         (
-            change.point_index,
-            change.resource_id.value,
-            change.field,
-            _state_literal(change.before),
-            _state_literal(change.after),
+            point_index,
+            state.resource_id.value,
+            f"{state.capability_id}.{field.field_path}",
+            _state_literal(field.value),
         )
-        for change in swept_preview.state_changes
+        for point_index, state, field in bound_state_fields(swept_preview)
     ]
 
-    assert unchanged_patches == [
+    assert unchanged_state == [
         (
             0,
             "drive-a",
             "drive.carrier_frequency",
-            None,
-            Quantity(value=5.0, unit="GHz"),
-        )
-    ]
-    assert swept_patches == [
-        (
-            0,
-            "drive-a",
-            "drive.carrier_frequency",
-            None,
             Quantity(value=5.0, unit="GHz"),
         ),
         (
@@ -158,10 +147,23 @@ def test_bound_plan_state_changes_record_adjacent_desired_state_diffs() -> None:
             "drive-a",
             "drive.carrier_frequency",
             Quantity(value=5.0, unit="GHz"),
+        ),
+    ]
+    assert swept_state == [
+        (
+            0,
+            "drive-a",
+            "drive.carrier_frequency",
+            Quantity(value=5.0, unit="GHz"),
+        ),
+        (
+            1,
+            "drive-a",
+            "drive.carrier_frequency",
             Quantity(value=5.1, unit="GHz"),
         ),
     ]
-    assert unchanged_patches != swept_patches
+    assert unchanged_state != swept_state
 
 
 def test_bound_plan_repeated_state_uses_outer_point_row() -> None:
@@ -198,12 +200,12 @@ def test_bound_plan_repeated_state_uses_outer_point_row() -> None:
     ]
     assert [
         (
-            change.point_index,
-            change.resource_id.value,
-            change.field,
-            _state_literal(change.after),
+            point_index,
+            state.resource_id.value,
+            f"{state.capability_id}.{field.field_path}",
+            _state_literal(field.value),
         )
-        for change in preview.state_changes
+        for point_index, state, field in bound_state_fields(preview)
     ] == [
         (0, "xy0", "drive.carrier_frequency", Quantity(value=5.0, unit="GHz")),
         (0, "xy1", "drive.carrier_frequency", Quantity(value=5.02, unit="GHz")),
@@ -283,12 +285,12 @@ def test_bound_plan_selected_target_table_plans_simultaneous_resources() -> None
     assert [point.coordinates["device_id"] for point in preview.points] == ["r0", "r1"]
     assert [
         (
-            change.point_index,
-            change.resource_id.value,
-            change.field,
-            _state_literal(change.after),
+            point_index,
+            state.resource_id.value,
+            f"{state.capability_id}.{field.field_path}",
+            _state_literal(field.value),
         )
-        for change in preview.state_changes
+        for point_index, state, field in bound_state_fields(preview)
     ] == [
         (0, "readout-a", "readout.frequency", Quantity(value=6.0, unit="GHz")),
         (0, "xy0", "drive.carrier_frequency", Quantity(value=6.05, unit="GHz")),
@@ -297,4 +299,3 @@ def test_bound_plan_selected_target_table_plans_simultaneous_resources() -> None
         (1, "xy0", "drive.carrier_frequency", Quantity(value=6.2, unit="GHz")),
         (1, "xy1", "drive.carrier_frequency", Quantity(value=6.22, unit="GHz")),
     ]
-    assert preview.records == ()

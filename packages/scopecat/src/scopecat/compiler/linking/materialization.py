@@ -16,18 +16,15 @@ from scopecat.compiler.linking.bound import (
     BoundAxis,
     BoundCollect,
     BoundComputeCall,
-    BoundComputeDefinition,
     BoundComputeOutput,
     BoundComputeResult,
     BoundPlan,
     BoundPoint,
-    BoundRecord,
     BoundResourceState,
     BoundRoute,
     BoundStateField,
     BoundValue,
     CollectionRequest,
-    PlannedStateChange,
     normalize_collection_channel_bindings,
 )
 from scopecat.compiler.linking.implementations import (
@@ -36,6 +33,7 @@ from scopecat.compiler.linking.implementations import (
 )
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
+    MaterializedLinkedPoints,
     materialize_linked_points,
 )
 from scopecat.compiler.linking.product_realizations import (
@@ -92,13 +90,7 @@ from scopecat.compiler.typed.program import (
     ValueInput,
 )
 from scopecat.compiler.typed.records import (
-    RecordAxisPlan,
-    RecordPlan,
-    expected_dataset_schema,
-    plan_records,
     point_coordinate_ids,
-    validate_product_graph,
-    validate_record_plan,
 )
 from scopecat.compiler.typed.state import StateRecord, evaluate_state_spec
 from scopecat.compiler.typed.verification import (
@@ -112,7 +104,6 @@ from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
     ProblemPhase,
-    has_blocking_problems,
     model_location,
 )
 from scopecat.kernel.product_identity import ProductUseId
@@ -147,6 +138,39 @@ def materialize_local_plan(
     *,
     product_use_ids: AbstractSet[ProductUseId] | None = None,
     task_coverage: ExecutionCoverage | None = None,
+) -> BoundPlan:
+    """Materialize and lower one selected semantic-task fragment."""
+
+    return _materialize_local_plan(
+        linked,
+        linked_points=None,
+        product_use_ids=product_use_ids,
+        task_coverage=task_coverage,
+    )
+
+
+def materialize_local_plan_from_points(
+    linked_points: MaterializedLinkedPoints,
+    *,
+    product_use_ids: AbstractSet[ProductUseId] | None = None,
+    task_coverage: ExecutionCoverage | None = None,
+) -> BoundPlan:
+    """Lower an already-materialized linked point domain to a local plan."""
+
+    return _materialize_local_plan(
+        linked_points.linked_plan,
+        linked_points=linked_points,
+        product_use_ids=product_use_ids,
+        task_coverage=task_coverage,
+    )
+
+
+def _materialize_local_plan(
+    linked: LinkedPlan,
+    *,
+    linked_points: MaterializedLinkedPoints | None,
+    product_use_ids: AbstractSet[ProductUseId] | None,
+    task_coverage: ExecutionCoverage | None,
 ) -> BoundPlan:
     """Lower one selected semantic-task fragment to a point-local plan."""
 
@@ -253,27 +277,24 @@ def materialize_local_plan(
         return _empty_plan(
             program,
             problems,
-            local_implementations=implementations,
             local_product_realizations=product_realizations,
         )
-    try:
-        linked_points = materialize_linked_points(linked)
-    except CheckFailed as error:
-        problems.extend(error.problems)
-        return _empty_plan(
-            program,
-            problems,
-            local_implementations=implementations,
-            local_product_realizations=product_realizations,
-        )
+    if linked_points is None:
+        try:
+            linked_points = materialize_linked_points(linked)
+        except CheckFailed as error:
+            problems.extend(error.problems)
+            return _empty_plan(
+                program,
+                problems,
+                local_product_realizations=product_realizations,
+            )
     verified_program = linked_points.verified_program
     materialized_domain = linked_points.point_domain
     planner_points = materialized_domain.points
-    coordinate_schema_valid = True
     try:
         coordinate_ids = tuple(point_coordinate_ids(planner_points))
     except ValueError as error:
-        coordinate_schema_valid = False
         coordinate_ids = ()
         problems.append(
             _problem(
@@ -282,18 +303,6 @@ def materialize_local_plan(
                 model_location("points"),
             )
         )
-    record_plans = plan_records(
-        program.product_defs,
-        program.product_uses,
-        program.record_uses,
-        point_count=len(planner_points),
-    )
-    record_problems = validate_record_plan(
-        record_plans,
-        coordinate_ids=coordinate_ids,
-    )
-    problems.extend(record_problems)
-
     state_records: list[StateRecord] = []
     action_records: list[ActionRecord] = []
     point_parameters: dict[int, ParameterRelationData] = {}
@@ -354,7 +363,6 @@ def materialize_local_plan(
         return _empty_plan(
             program,
             problems,
-            local_implementations=implementations,
             local_product_realizations=product_realizations,
         )
     routes_by_point = _bind_routes(
@@ -372,29 +380,7 @@ def materialize_local_plan(
     for record in action_records:
         actions_by_point.setdefault(record.point_index, []).append(record)
 
-    schema = None
-    if coordinate_schema_valid and not has_blocking_problems(record_problems):
-        try:
-            schema = expected_dataset_schema(
-                experiment_id=program.id,
-                points=planner_points,
-                records=record_plans,
-            )
-        except ValueError as error:
-            problems.append(
-                _problem(
-                    "experiment_dataset_schema_invalid",
-                    f"experiment output schema is invalid: {error}",
-                    model_location("records"),
-                )
-            )
-    bound_records = tuple(_bound_record(record) for record in record_plans)
     bound_points: list[BoundPoint] = []
-    previous_state: dict[
-        tuple[PhysicalResourceId, str, str, tuple[str, ...], _ChannelSignature],
-        object,
-    ] = {}
-    state_changes: list[PlannedStateChange] = []
 
     for point in planner_points:
         params = point_parameters.get(point.logical_ordinal)
@@ -465,37 +451,11 @@ def materialize_local_plan(
             point_index=point.logical_ordinal,
             problems=problems,
         )
-        for resource in desired:
-            for field in resource.fields:
-                key = (
-                    resource.resource_id,
-                    resource.capability_id,
-                    field.field_path,
-                    field.entity_ids,
-                    channel_signature(field.channel_bindings),
-                )
-                before = previous_state.get(key)
-                if before != field.value:
-                    state_changes.append(
-                        PlannedStateChange(
-                            point_index=point.logical_ordinal,
-                            resource_id=resource.resource_id,
-                            capability_id=resource.capability_id,
-                            field_path=field.field_path,
-                            before=before,
-                            after=field.value,
-                            resource_port_id=field.resource_port_id,
-                            entity_ids=field.entity_ids,
-                            channel_bindings=field.channel_bindings,
-                        )
-                    )
-                previous_state[key] = field.value
         bound_points.append(
             BoundPoint(
                 point_index=point.logical_ordinal,
                 logical_id=point.logical_id,
                 row=dict(point.row),
-                parameters=params,
                 coordinates={
                     name: cast("CoordinateValue", value)
                     for name, value in point.row.items()
@@ -511,22 +471,9 @@ def materialize_local_plan(
 
     return BoundPlan(
         experiment_id=program.id,
-        experiment_kind=program.kind,
-        point_coordinate_ids=coordinate_ids,
         points=tuple(bound_points),
-        product_defs=program.product_defs,
-        instrument_product_producers=program.instrument_product_producers,
         product_uses=program.product_uses,
-        record_uses=program.record_uses,
-        records=bound_records,
-        route_intents=program.route_intents,
-        state_changes=tuple(state_changes),
-        expected_dataset_schema=schema,
-        local_implementations=implementations,
         local_product_realizations=product_realizations,
-        compute_definitions=tuple(
-            _bound_compute_definition(node) for node in program.compute_nodes
-        ),
         problems=tuple(problems),
     )
 
@@ -535,46 +482,13 @@ def _empty_plan(
     program: TypedProgram,
     problems: Sequence[Problem],
     *,
-    local_implementations: SelectedLocalImplementations | None = None,
     local_product_realizations: SelectedLocalProductRealizations | None = None,
 ) -> BoundPlan:
-    product_problems = validate_product_graph(
-        program.product_defs,
-        program.instrument_product_producers,
-        program.product_uses,
-        program.record_uses,
-    )
-    records = (
-        tuple(
-            _bound_record(record)
-            for record in plan_records(
-                program.product_defs,
-                program.product_uses,
-                program.record_uses,
-                point_count=0,
-            )
-        )
-        if not product_problems
-        else ()
-    )
     return BoundPlan(
         experiment_id=program.id,
-        experiment_kind=program.kind,
-        point_coordinate_ids=(),
         points=(),
-        product_defs=program.product_defs,
-        instrument_product_producers=program.instrument_product_producers,
         product_uses=program.product_uses,
-        record_uses=program.record_uses,
-        records=records,
-        route_intents=program.route_intents,
-        state_changes=(),
-        expected_dataset_schema=None,
-        local_implementations=local_implementations,
         local_product_realizations=local_product_realizations,
-        compute_definitions=tuple(
-            _bound_compute_definition(node) for node in program.compute_nodes
-        ),
         problems=tuple(problems),
     )
 
@@ -832,18 +746,10 @@ def _bind_compute_calls(
     return tuple(calls), payload_ids
 
 
-def _bound_compute_definition(node: TypedComputeNode) -> BoundComputeDefinition:
-    return BoundComputeDefinition(
-        operation_id=node.id,
-        result=_bound_compute_result(node.result),
-    )
-
-
 def _bound_compute_result(result: TypedComputeOutput) -> BoundComputeResult:
     return BoundComputeResult(
         id=result.id,
         value_type=result.value_type,
-        availability=result.availability,
     )
 
 
@@ -1483,22 +1389,7 @@ def _validate_collection_requests(
             )
 
 
-def _bound_record(record: RecordPlan) -> BoundRecord:
-    return BoundRecord(
-        id=record.id,
-        product_use_id=record.product_use_id,
-        product_id=record.product_id,
-        kind=record.kind,
-        unit=record.unit,
-        dtype=record.dtype,
-        axes=tuple(_bound_axis(axis) for axis in record.axes),
-        dims=tuple(record.dims),
-        shape=tuple(record.shape),
-        metadata=dict(record.metadata),
-    )
-
-
-def _bound_axis(axis: RecordAxisPlan | ProductAxisDef) -> BoundAxis:
+def _bound_axis(axis: ProductAxisDef) -> BoundAxis:
     return BoundAxis(
         id=axis.id,
         kind=axis.kind,

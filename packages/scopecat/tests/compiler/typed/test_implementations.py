@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from copy import deepcopy
 from dataclasses import replace
 
 import pytest
@@ -9,7 +8,6 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.bound import BoundValue
 from scopecat.compiler.linking.implementations import (
     select_local_implementations,
 )
@@ -35,7 +33,6 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
     PlacementConstraint,
-    scalar_binary_operation_contract,
 )
 from scopecat.compiler.typed.program import (
     TypedComputeNode,
@@ -157,7 +154,6 @@ def test_linking_does_not_require_a_local_implementation() -> None:
     assert linked.program.compute_nodes[0].contract == program.compute_nodes[0].contract
     assert not plan.valid
     assert plan.points == ()
-    assert plan.local_implementations is None
     assert [problem.code for problem in plan.problems] == [
         "semantic_operation_implementation_missing"
     ]
@@ -178,7 +174,6 @@ def test_local_materialization_rejects_ambiguous_implementation() -> None:
 
     assert not plan.valid
     assert plan.points == ()
-    assert plan.local_implementations is None
     assert [problem.code for problem in plan.problems] == [
         "semantic_operation_implementation_ambiguous"
     ]
@@ -347,37 +342,15 @@ def test_bound_plan_pins_selection_and_execution_only_projects_it() -> None:
         link_program(program, validate_config_environment(load_config()))
     )
 
-    execution = build_execution_program(plan)
+    execution = build_execution_program(plan, instrument_order=())
 
     call = plan.points[0].compute[0]
-    assert plan.local_implementations is not None
-    assert plan.local_implementations.selected_for(operation_id) is call.implementation
     assert call.implementation.kernel is kernel
     stage = execution.points[0].stages[0]
     assert isinstance(stage, ComputeStage)
     assert stage.operations[0].semantic_operation_id == "compute"
     assert stage.operations[0].implementation_id == "python-v1"
     assert stage.operations[0].kernel is kernel
-
-
-def test_sealed_selection_is_shared_safely_across_defensive_copies() -> None:
-    operation_id = _operation_id()
-    plan = materialize_local_plan(
-        link_program(
-            _program(
-                catalog=_catalog(("python-v1", operation_id, lambda: 1.0)),
-            ),
-            validate_config_environment(load_config()),
-        )
-    )
-
-    copied = deepcopy(plan)
-
-    assert copied.local_implementations is plan.local_implementations
-    assert (
-        copied.points[0].compute[0].implementation
-        is plan.points[0].compute[0].implementation
-    )
 
 
 def test_implementation_id_versions_cache_while_plan_pins_exact_callable() -> None:
@@ -407,33 +380,6 @@ def test_implementation_id_versions_cache_while_plan_pins_exact_callable() -> No
     assert second_plan.points[0].compute[0].implementation.kernel is second_kernel
 
 
-def test_zero_point_plan_retains_complete_local_selection() -> None:
-    operation_id = _operation_id()
-    program = _program(
-        catalog=_catalog(("python-v1", operation_id, lambda: 1.0)),
-        point_count=0,
-    )
-
-    plan = materialize_local_plan(
-        link_program(program, validate_config_environment(load_config()))
-    )
-
-    assert plan.valid
-    assert plan.points == ()
-    assert plan.local_implementations is not None
-    assert [entry.operation_id for entry in plan.local_implementations.entries] == [
-        operation_id
-    ]
-    assert len(plan.compute_definitions) == 1
-    definition = plan.compute_definitions[0]
-    assert definition.operation_id == operation_id
-    assert definition.result.id == program.compute_nodes[0].result.id
-    assert definition.result.value_type == program.compute_nodes[0].result.value_type
-    assert (
-        definition.result.availability == program.compute_nodes[0].result.availability
-    )
-
-
 def test_unsupported_local_result_availability_fails_before_point_evaluation() -> None:
     operation_id = _operation_id()
     availability = ValueAvailability(ValueStage.EXECUTE, ValueRate.RUN)
@@ -447,8 +393,6 @@ def test_unsupported_local_result_availability_fails_before_point_evaluation() -
 
     assert not plan.valid
     assert plan.points == ()
-    assert plan.local_implementations is None
-    assert plan.compute_definitions[0].result.availability == availability
     assert [problem.code for problem in plan.problems] == [
         "semantic_operation_local_output_availability_unsupported"
     ]
@@ -508,39 +452,3 @@ def test_compute_interface_cache_accepts_payload_python_type() -> None:
 
     assert plan.valid
     assert plan.points[0].compute[0].cache_key
-
-
-def test_bound_call_rejects_selection_and_interface_drift_at_construction() -> None:
-    operation_id = _operation_id()
-    plan = materialize_local_plan(
-        link_program(
-            _program(
-                catalog=_catalog(("python-v1", operation_id, lambda: 1.0)),
-            ),
-            validate_config_environment(load_config()),
-        )
-    )
-
-    with pytest.raises(ValueError, match="output type"):
-        replace(
-            plan.points[0].compute[0],
-            result=replace(
-                plan.points[0].compute[0].result,
-                value_type=Scalar(String()),
-            ),
-        )
-    with pytest.raises(ValueError, match="own the invoked operation"):
-        replace(
-            plan.points[0].compute[0],
-            operation_id=_operation_id("other"),
-        )
-    with pytest.raises(ValueError, match="contract does not match"):
-        replace(
-            plan.points[0].compute[0],
-            contract=scalar_binary_operation_contract("+"),
-        )
-    with pytest.raises(ValueError, match="inputs do not match"):
-        replace(
-            plan.points[0].compute[0],
-            inputs={"extra": BoundValue(1.0)},
-        )

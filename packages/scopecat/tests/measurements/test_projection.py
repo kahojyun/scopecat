@@ -5,7 +5,6 @@ import pytest
 from scopecat.compiler.linking.linked import MaterializedLinkedPointBatch
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.projection import (
-    ProjectedMeasurementRecords,
     bind_measurement_projection,
     project_measurement_records,
     select_measurement_projection,
@@ -227,27 +226,6 @@ def test_projection_snapshots_values_and_emits_complete_run_records() -> None:
     retained_primary = projected.records[0].observables["primary"]
     assert isinstance(retained_primary, Quantity)
     assert retained_primary.value == 0.0
-
-
-def test_projected_records_reject_values_outside_the_selected_schema() -> None:
-    scenario, selected, assembled = assembled_measurement_values_for_all_uses(
-        point_values=(0.0,)
-    )
-    bound = bind_measurement_projection(
-        select_measurement_projection(scenario.linked_points),
-        selected,
-    )
-    projected = project_measurement_records(bound, assembled, run_id="schema-run")
-    [record] = projected.records
-    record.coordinates["x"] = "not-a-number"
-
-    with pytest.raises(CheckFailed, match="measurement_record"):
-        ProjectedMeasurementRecords(
-            projected.selection,
-            projected.run_id,
-            (record,),
-            projected.schema,
-        )
 
 
 def test_zero_points_and_no_record_projection_produce_no_measurement_records() -> None:

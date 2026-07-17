@@ -224,22 +224,6 @@ def test_zero_or_empty_recording_has_no_write_or_transition(
     assert journal.entries == ()
 
 
-def test_recording_rejects_fractional_attempt() -> None:
-    committer = MemoryMeasurementRecordCommitter()
-    journal = MemoryExecutionJournal()
-
-    with pytest.raises(ValueError, match="positive integer"):
-        commit_projected_measurement_records(
-            _projected(),
-            committer,
-            journal,
-            attempt=cast("int", 1.5),
-        )
-
-    assert committer.chunks == ()
-    assert journal.entries == ()
-
-
 @dataclass
 class _NoSequenceJournal:
     append_calls: int = 0

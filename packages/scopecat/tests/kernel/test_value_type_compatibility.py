@@ -8,6 +8,7 @@ import scopecat as sc
 from scopecat.authoring._value_refs import (
     internal_lower_scalar_value_ref,
 )
+from scopecat.compiler.relations.model import BinaryScalarExpr, LiteralScalarExpr
 from scopecat.kernel.value_type_compatibility import (
     describe_value_type,
     is_assignable,
@@ -42,7 +43,8 @@ def test_scalar_operations_capture_entity_literal_snapshots() -> None:
     labels.append("changed")
     lowered = internal_lower_scalar_value_ref(expression)
 
-    assert lowered.right is not None
+    assert isinstance(lowered, BinaryScalarExpr)
+    assert isinstance(lowered.right, LiteralScalarExpr)
     captured = lowered.right.value
     assert isinstance(captured, sc.EntityRef)
     assert captured.metadata == {"labels": ("data",)}

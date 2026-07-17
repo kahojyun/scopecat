@@ -112,7 +112,7 @@ def test_contract_survives_every_local_compiler_boundary() -> None:
 
     linked = link_program(program, environment)
     bound = materialize_local_plan(linked)
-    execution = build_execution_program(bound)
+    execution = build_execution_program(bound, instrument_order=())
 
     assert bound.valid, bound.problems
     semantic_contracts = {

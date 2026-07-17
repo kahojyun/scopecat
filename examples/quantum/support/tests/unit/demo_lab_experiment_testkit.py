@@ -9,12 +9,21 @@ from scopecat.compiler.frontend.environment import (
     validate_config_environment,
 )
 from scopecat.compiler.linking.bound import BoundPlan
-from scopecat.compiler.linking.linked import LinkedPlan, link_verified_program
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.linked import (
+    LinkedPlan,
+    MaterializedLinkedPoints,
+    link_verified_program,
+    materialize_linked_points,
+)
+from scopecat.compiler.linking.materialization import materialize_local_plan_from_points
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.compiler.typed.verification import seal_typed_program
 from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.problems import ProblemPhase
+from scopecat.measurements.projection import (
+    SelectedMeasurementProjection,
+    select_measurement_projection,
+)
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.config import ConfigProfileSnapshot
 
@@ -44,12 +53,33 @@ def bound_plan(
 ) -> BoundPlan:
     """Compile an invocation for direct test-only inspection."""
 
+    linked_points = _materialized_linked_points(invocation, config=config)
+    plan = materialize_local_plan_from_points(linked_points)
+    assert plan.problems == ()
+    return plan
+
+
+def measurement_projection(
+    invocation: ExperimentInvocation,
+    *,
+    config: ConfigProfileSnapshot | None = None,
+) -> SelectedMeasurementProjection:
+    """Build the production record projection for focused shape assertions."""
+
+    return select_measurement_projection(
+        _materialized_linked_points(invocation, config=config)
+    )
+
+
+def _materialized_linked_points(
+    invocation: ExperimentInvocation,
+    *,
+    config: ConfigProfileSnapshot | None,
+) -> MaterializedLinkedPoints:
     selected_config = config or load_experiment_config()
     resolved = resolve_experiment(invocation, config_profile=selected_config)
     environment = replace(
         validate_config_environment(selected_config),
         parameters=resolved.parameters,
     )
-    plan = materialize_local_plan(link_program(resolved.experiment, environment))
-    assert plan.problems == ()
-    return plan
+    return materialize_linked_points(link_program(resolved.experiment, environment))

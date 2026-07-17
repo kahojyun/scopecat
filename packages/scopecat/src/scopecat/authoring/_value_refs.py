@@ -26,15 +26,18 @@ from scopecat.compiler.relations.analysis import (
     verify_plan_scopes,
 )
 from scopecat.compiler.relations.model import (
+    BinaryScalarExpr,
     RelationExpr,
     RowScopeId,
     ScalarExpr,
+    ScalarExpression,
     SeriesExpr,
     as_scalar_expr,
     col,
     input_ref,
     input_series,
     input_table,
+    lit,
     point_col,
 )
 from scopecat.compiler.relations.operators import (
@@ -1481,8 +1484,7 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
         raise ValueError(msg)
     if source_kind == "scalar_operation":
         operation = _required_scalar_operation(value)
-        return ScalarExpr(
-            kind="binary",
+        return BinaryScalarExpr(
             op=operation.operator,
             left=_lower_scalar_operation_operand(operation.left),
             right=_lower_scalar_operation_operand(operation.right),
@@ -1517,7 +1519,7 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
 
 def _lower_scalar_operation_operand(
     operand: ScalarOperationOperand,
-) -> ScalarExpr:
+) -> ScalarExpression:
     if not isinstance(operand, ValueRef):
         return as_scalar_expr(operand)
     lowered = internal_lower_value_ref(operand)
@@ -1530,10 +1532,10 @@ def _lower_scalar_operation_operand(
     if not isinstance(lowered, ScalarExpr):
         msg = "scalar operation operands must be scalar-shaped"
         raise TypeError(msg)
-    return lowered
+    return cast("ScalarExpression", lowered)
 
 
-def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpr:
+def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpression:
     """Lower a typed scalar edge at the private compiler boundary."""
 
     if not isinstance(value.value_type, Scalar):
@@ -1543,7 +1545,7 @@ def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpr:
     if not isinstance(lowered, ScalarExpr):
         msg = "compute outputs must be connected as standalone values"
         raise TypeError(msg)
-    return lowered
+    return cast("ScalarExpression", lowered)
 
 
 def internal_lower_table_value_ref(value: ValueRef) -> RelationExpr:
@@ -1598,7 +1600,6 @@ def internal_literal_value_ref(
 
     from scopecat.compiler.relations.input_binding import (
         input_cell,
-        literal_scalar,
         series_input_value,
         table_input_value,
     )
@@ -1606,7 +1607,7 @@ def internal_literal_value_ref(
     coerced = coerce_literal(value_type, value, path=path)
     input_name = format_value_path(path)
     expression = (
-        literal_scalar(input_cell(coerced))
+        lit(input_cell(coerced))
         if isinstance(value_type, Scalar)
         else series_input_value(input_name, coerced)
         if isinstance(value_type, Series)

@@ -25,10 +25,8 @@ from scopecat.kernel.value_types import Scalar, String, ValueType
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
 from tests.testkit.bound_plan import (
-    bound_dataset_dimensions,
     bound_plan_result,
-    bound_primary_observables,
-    state_literal,
+    bound_state_fields,
 )
 from tests.testkit.parameter_fixtures import PARAMETER_TYPES, parameters
 from tests.testkit.relation_plans import (
@@ -180,8 +178,7 @@ def test_bound_plan_rejects_duplicate_collection_provider_keys() -> None:
     assert [problem.code for problem in problems] == [
         "collection_provider_key_duplicate"
     ]
-    assert bound_dataset_dimensions(preview) == {"point": 1}
-    assert bound_primary_observables(preview) == ("raw_i", "demod_i")
+    assert len(preview.product_uses) == 2
 
 
 def test_bound_plan_reports_demanded_product_without_a_local_producer() -> None:
@@ -199,7 +196,7 @@ def test_bound_plan_reports_demanded_product_without_a_local_producer() -> None:
     preview, problems = bound_plan_result(spec, parameters())
 
     assert [problem.code for problem in problems] == ["product_local_producer_missing"]
-    assert preview.expected_dataset_schema is None
+    assert preview.local_product_realizations is None
 
 
 @pytest.mark.parametrize(
@@ -338,7 +335,7 @@ def test_bound_plan_reports_parameter_overlay_problems() -> None:
     assert [problem.code for problem in problems] == [
         "experiment_parameter_overlay_row_not_found"
     ]
-    assert preview.state_changes == ()
+    assert preview.points == ()
 
 
 def test_bound_plan_reports_unknown_parameter_table_problems() -> None:
@@ -366,7 +363,7 @@ def test_bound_plan_reports_unknown_parameter_table_problems() -> None:
     assert [problem.code for problem in problems] == [
         "experiment_parameter_overlay_table_missing"
     ]
-    assert preview.state_changes == ()
+    assert preview.points == ()
 
 
 def test_bound_plan_reports_state_evaluation_and_conflict_problems() -> None:
@@ -407,7 +404,5 @@ def test_bound_plan_reports_state_evaluation_and_conflict_problems() -> None:
         "experiment_conflicting_desired_state"
     ]
     assert [
-        state_literal(change.after) for change in conflict_preview.state_changes
-    ] == [
-        Quantity(value=5.9, unit="GHz"),
-    ]
+        field.value.root for _, _, field in bound_state_fields(conflict_preview)
+    ] == [Quantity(value=5.9, unit="GHz")]

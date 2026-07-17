@@ -35,7 +35,6 @@ from scopecat.execution.local.program import (
     OutputInput,
     PayloadSlot,
     PointProgram,
-    RecordProjection,
     StateTarget,
 )
 from scopecat.execution.ports.resources import ResourceClaim
@@ -53,7 +52,7 @@ from scopecat.sdk.instruments.contracts import (
 def build_execution_program(
     plan: BoundPlan,
     *,
-    instrument_order: Sequence[str] = (),
+    instrument_order: Sequence[str],
 ) -> ExecutionProgram:
     """Build the sole executable program consumed by ``ExecutionEngine``.
 
@@ -101,18 +100,8 @@ def build_execution_program(
             realization.product_use_id
             for realization in local_product_realizations.entries
         ),
-        record_projections=tuple(
-            RecordProjection(
-                record_id=record.id,
-                product_use_id=record.product_use_id,
-                product_id=record.product_id,
-            )
-            for record in plan.records
-            if record.kind == "observable"
-        ),
         resource_order=resource_order,
         resource_claims=claims,
-        expected_dataset_schema=plan.expected_dataset_schema,
     )
 
 
@@ -232,10 +221,6 @@ def _collect_stage(
         requests = requests_by_instrument.get(instrument_id)
         if not requests:
             continue
-        provider_keys = [request.provider_key for request in requests]
-        if len(provider_keys) != len(set(provider_keys)):
-            msg = f"instrument {instrument_id} has duplicate collection product keys"
-            raise ValueError(msg)
         operation_id = f"{point.logical_id.value}.collect.{instrument_id}"
         operations.append(
             CollectOperation(
@@ -347,11 +332,9 @@ def _explicit_instrument_order(
         }
     )
     missing = sorted(fixed - set(selected))
-    if selected and missing:
+    if missing:
         msg = "instrument_order is missing bound resources: " + ", ".join(missing)
         raise ValueError(msg)
-    if not selected:
-        return tuple(sorted(fixed))
     return selected
 
 

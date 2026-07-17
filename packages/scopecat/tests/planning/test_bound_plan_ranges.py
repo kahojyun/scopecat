@@ -22,7 +22,6 @@ from scopecat.records.parameter import Quantity
 from tests.testkit.bound_plan import (
     bound_plan_result,
     bound_state_fields,
-    state_literal,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.relation_plans import (
@@ -60,19 +59,12 @@ def test_bound_plan_experiment_builds_expected_plan() -> None:
     preview, problems = _bound_plan_spec(spec, config)
 
     assert preview.experiment_id == spec.id
-    assert preview.experiment_kind == spec.kind
     assert preview.point_count == 3
-    assert preview.state_changes[0].resource_id.value == "source-0"
-    assert preview.state_changes[0].field == "set_frequency.frequency"
-    assert state_literal(preview.state_changes[0].after) == Quantity(
-        value=4.9, unit="GHz"
-    )
     _, state, field = bound_state_fields(preview)[0]
     assert state.resource_id.value == "source-0"
     assert state.capability_id == "set_frequency"
     assert field.field_path == "frequency"
     assert field.value.root == Quantity(value=4.9, unit="GHz")
-    assert preview.records[0].shape == (3,)
     assert problems == ()
 
 

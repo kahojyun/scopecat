@@ -63,19 +63,10 @@ class SelectedLocalImplementation:
     interface: ComputeInterface
     kernel: Callable[..., object] = field(repr=False, compare=False)
 
-    def __copy__(self) -> SelectedLocalImplementation:
-        return self
-
-    def __deepcopy__(
-        self,
-        _memo: dict[int, object],
-    ) -> SelectedLocalImplementation:
-        return self
-
 
 @dataclass(frozen=True, slots=True)
 class SelectedLocalImplementations:
-    """Complete, unique local implementation coverage for a typed program."""
+    """Complete local implementation coverage for a typed program."""
 
     entries: tuple[SelectedLocalImplementation, ...]
     _by_operation: Mapping[OperationId, SelectedLocalImplementation] = field(
@@ -86,22 +77,11 @@ class SelectedLocalImplementations:
     )
 
     def __post_init__(self) -> None:
-        entries = tuple(self.entries)
-        by_operation = {entry.operation_id: entry for entry in entries}
-        if len(by_operation) != len(entries):
-            msg = "selected local implementations must have unique operation owners"
-            raise ValueError(msg)
-        object.__setattr__(self, "entries", entries)
-        object.__setattr__(self, "_by_operation", MappingProxyType(by_operation))
-
-    def __copy__(self) -> SelectedLocalImplementations:
-        return self
-
-    def __deepcopy__(
-        self,
-        _memo: dict[int, object],
-    ) -> SelectedLocalImplementations:
-        return self
+        object.__setattr__(
+            self,
+            "_by_operation",
+            MappingProxyType({entry.operation_id: entry for entry in self.entries}),
+        )
 
     def selected_for(self, operation_id: OperationId) -> SelectedLocalImplementation:
         try:

@@ -21,7 +21,12 @@ from scopecat.compiler.typed.program import (
     bind_each,
     set_state_field,
 )
-from scopecat.compiler.typed.state import StateSpec
+from scopecat.compiler.typed.state import (
+    ForEachStateSpec,
+    SetStateSpec,
+    StateSpec,
+    StateSpecVariant,
+)
 from scopecat.compiler.typed.verification import verify_typed_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
@@ -42,7 +47,7 @@ _STRING = Scalar(String())
 
 def _empty_program(
     *,
-    state: tuple[StateSpec, ...] = (),
+    state: tuple[StateSpecVariant, ...] = (),
     route_intents: tuple[ResourceRouteIntent, ...] = (),
 ) -> TypedProgram:
     return TypedProgram(
@@ -187,6 +192,10 @@ def test_state_each_body_proof_accepts_its_real_current_row() -> None:
         ),
         child,
     )
+    assert isinstance(child, StateSpec)
+    assert isinstance(child, SetStateSpec)
+    assert isinstance(state, StateSpec)
+    assert isinstance(state, ForEachStateSpec)
     program = _empty_program(state=(state,))
 
     assert verify_typed_program(program) is program

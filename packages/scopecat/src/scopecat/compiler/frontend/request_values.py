@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
-from scopecat.compiler.relations.model import ScalarExpr
+from scopecat.compiler.relations.model import ScalarExpr, ScalarExpression
 from scopecat.records._run_request_values import (
     normalize_json_value,
     normalize_run_request_value,
@@ -64,36 +64,33 @@ def project_run_request_value(
 def project_run_request_scalar(expression: ScalarExpr) -> object:
     """Project transient relation syntax into durable request semantics."""
 
-    if expression.kind == "literal":
-        return project_run_request_value(expression.value, path="expression.literal")
-    if expression.kind == "point_column" and expression.name:
-        return {"kind": "axis", "axis_id": expression.name}
-    if expression.kind == "input" and expression.name:
-        return {"kind": "input", "input_id": expression.name}
-    if expression.kind == "param_scalar" and expression.name:
-        return {"kind": "parameter", "parameter_id": expression.name}
-    if expression.kind == "param_lookup":
+    scalar = cast("ScalarExpression", expression)
+    if scalar.kind == "literal":
+        return project_run_request_value(scalar.value, path="expression.literal")
+    if scalar.kind == "point_column":
+        return {"kind": "axis", "axis_id": scalar.name}
+    if scalar.kind == "input":
+        return {"kind": "input", "input_id": scalar.name}
+    if scalar.kind == "param_scalar":
+        return {"kind": "parameter", "parameter_id": scalar.name}
+    if scalar.kind == "param_lookup":
         return {
             "kind": "parameter_lookup",
-            "table_id": expression.table_id,
+            "table_id": scalar.table_id,
             "key": {
                 name: project_run_request_scalar(value)
-                for name, value in (expression.key or {}).items()
+                for name, value in scalar.key.items()
             },
-            "column": expression.column,
+            "column": scalar.column,
         }
-    if expression.kind == "binary":
+    if scalar.kind == "binary":
         return {
             "kind": "binary",
-            "operator": expression.op,
-            "left": project_run_request_scalar(
-                _required_scalar(expression.left, "expression.left")
-            ),
-            "right": project_run_request_scalar(
-                _required_scalar(expression.right, "expression.right")
-            ),
+            "operator": scalar.op,
+            "left": project_run_request_scalar(scalar.left),
+            "right": project_run_request_scalar(scalar.right),
         }
-    if expression.kind == "case":
+    if scalar.kind == "case":
         return {
             "kind": "case",
             "branches": [
@@ -101,16 +98,8 @@ def project_run_request_scalar(expression: ScalarExpr) -> object:
                     "when": project_run_request_scalar(branch.condition),
                     "then": project_run_request_scalar(branch.value),
                 }
-                for branch in (expression.cases or ())
+                for branch in scalar.cases
             ],
-            "fallback": project_run_request_scalar(
-                _required_scalar(expression.fallback, "expression.fallback")
-            ),
+            "fallback": project_run_request_scalar(scalar.fallback),
         }
-    raise AssertionError(f"unsupported request scalar kind: {expression.kind}")
-
-
-def _required_scalar(expression: ScalarExpr | None, path: str) -> ScalarExpr:
-    if expression is None:
-        raise AssertionError(f"{path} must be defined")
-    return expression
+    raise AssertionError(f"unsupported request scalar expression: {scalar!r}")

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
 
 from scopecat.execution.effects.domain import (
     DomainSynchronousCompletionPending,
@@ -126,14 +125,7 @@ def _execute_unified_run(
 ) -> RunManifest:
     point = prepared.point_unit
     local_binding = _bind_local_fragment(prepared)
-    local_prepared = (
-        None
-        if point is None
-        else replace(
-            point.prepared,
-            program=replace(point.prepared.program, record_projections=()),
-        )
-    )
+    local_prepared = None if point is None else point.prepared
     program = prepared.linked_points.linked_plan.program
     projection = prepared.projection.projection
     point_count = len(prepared.linked_points.point_domain.points)
@@ -230,7 +222,6 @@ def _execute_unified_run(
                     provider=point.provider,
                     run_id=run_id,
                     journal=journal,
-                    measurements=measurements,
                     readbacks=readbacks,
                     payloads=payloads,
                     event_sink=event_sink,

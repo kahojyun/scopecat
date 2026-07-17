@@ -1,19 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import cast
-
-import pytest
 
 from scopecat.compiler.linking.bound import (
     BoundCollect,
     BoundComputeCall,
-    BoundComputeDefinition,
     BoundComputeOutput,
     BoundComputeResult,
     BoundPlan,
     BoundPoint,
-    BoundRecord,
     BoundResourceState,
     BoundStateField,
     CollectionRequest,
@@ -22,7 +17,6 @@ from scopecat.compiler.linking.implementations import select_local_implementatio
 from scopecat.compiler.linking.product_realizations import (
     select_local_product_realizations,
 )
-from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.semantic.availability import (
     ValueAvailability,
     ValueRate,
@@ -33,7 +27,6 @@ from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
     OperationId,
-    ValueId,
     operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
@@ -46,25 +39,21 @@ from scopecat.compiler.typed.program import (
     TypedComputeNode,
     TypedComputeOutput,
 )
-from scopecat.compiler.typed.records import RecordUse
 from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import (
     ApplyStateStage,
     CollectionResultBinding,
     CollectOperation,
     CollectStage,
-    ComputeOperation,
-    ComputeResultSlot,
     ComputeStage,
     ExecutionProgram,
     OutputInput,
     PointProgram,
-    RecordProjection,
     ResourceClaim,
 )
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import product_id, product_use
-from scopecat.kernel.resource_identity import physical_resource_id
+from scopecat.kernel.resource_identity import PhysicalResourceId
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
@@ -162,7 +151,6 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         point_index=0,
         logical_id=LogicalPointId(PointDomainId("test-program", "root"), 0),
         row={},
-        parameters=ParameterRelationData(),
         coordinates={},
         compute=(
             BoundComputeCall(
@@ -173,7 +161,6 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
                 result=BoundComputeResult(
                     id=producer_result_id,
                     value_type=Scalar(Float()),
-                    availability=availability,
                 ),
                 cache_key="producer-key",
             ),
@@ -185,7 +172,6 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
                 result=BoundComputeResult(
                     id=consumer_result_id,
                     value_type=Scalar(Float()),
-                    availability=availability,
                 ),
                 cache_key="consumer-key",
             ),
@@ -197,7 +183,7 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         ),
         collect=(
             BoundCollect(
-                resource_id=physical_resource_id("source-a"),
+                resource_id=PhysicalResourceId("source-a"),
                 requests=(
                     CollectionRequest(
                         product_use_id=source_a_signal.id,
@@ -210,7 +196,7 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
                 ),
             ),
             BoundCollect(
-                resource_id=physical_resource_id("source-b"),
+                resource_id=PhysicalResourceId("source-b"),
                 requests=(
                     CollectionRequest(
                         product_use_id=source_b_signal.id,
@@ -226,62 +212,8 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
     )
     plan = BoundPlan(
         experiment_id="explicit-stages",
-        experiment_kind="execution_test",
-        point_coordinate_ids=(),
         points=(point,),
-        product_defs=(source_a_product, source_b_product),
-        instrument_product_producers=(source_a_producer, source_b_producer),
         product_uses=(source_a_signal, source_b_signal),
-        record_uses=(
-            RecordUse(id="source-a-signal", product_use_id=source_a_signal.id),
-            RecordUse(id="source-b-signal", product_use_id=source_b_signal.id),
-        ),
-        records=(
-            BoundRecord(
-                id="source-a-signal",
-                product_use_id=source_a_signal.id,
-                product_id=source_a_product.id,
-                kind="observable",
-                unit="ratio",
-                dtype="float64",
-                axes=(),
-                dims=("point",),
-                shape=(1,),
-            ),
-            BoundRecord(
-                id="source-b-signal",
-                product_use_id=source_b_signal.id,
-                product_id=source_b_product.id,
-                kind="observable",
-                unit="ratio",
-                dtype="float64",
-                axes=(),
-                dims=("point",),
-                shape=(1,),
-            ),
-        ),
-        route_intents=(),
-        state_changes=(),
-        expected_dataset_schema=None,
-        compute_definitions=(
-            BoundComputeDefinition(
-                operation_id=producer_id,
-                result=BoundComputeResult(
-                    id=producer_result_id,
-                    value_type=Scalar(Float()),
-                    availability=availability,
-                ),
-            ),
-            BoundComputeDefinition(
-                operation_id=consumer_id,
-                result=BoundComputeResult(
-                    id=consumer_result_id,
-                    value_type=Scalar(Float()),
-                    availability=availability,
-                ),
-            ),
-        ),
-        local_implementations=local_implementations,
         local_product_realizations=select_local_product_realizations(
             (source_a_product, source_b_product),
             (source_a_producer, source_b_producer),
@@ -365,118 +297,11 @@ def test_zero_point_execution_retains_nonempty_collection_inventory() -> None:
         points=(),
         product_uses=(source_use,),
         collection_product_use_ids=(source_use.id,),
-        record_projections=(),
+        resource_order=(),
+        resource_claims=(),
     )
 
     assert program.collection_product_use_ids == (source_use.id,)
-
-
-def test_point_program_rejects_non_topological_compute_order() -> None:
-    producer_id = OperationId(SymbolId(local_id="producer"))
-    consumer_id = OperationId(SymbolId(local_id="consumer"))
-    producer = ComputeOperation(
-        operation_id="point.compute.producer",
-        semantic_operation_id="producer",
-        implementation_id="python.producer.v1",
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        kernel=lambda: 1.0,
-        inputs={},
-        result=ComputeResultSlot(
-            id=operation_result_id(producer_id),
-            value_type=Scalar(Float()),
-        ),
-    )
-    consumer = ComputeOperation(
-        operation_id="point.compute.consumer",
-        semantic_operation_id="consumer",
-        implementation_id="python.consumer.v1",
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        kernel=_identity_value,
-        inputs={"value": OutputInput(producer.result.id)},
-        result=ComputeResultSlot(
-            id=operation_result_id(consumer_id),
-            value_type=Scalar(Float()),
-        ),
-    )
-
-    with pytest.raises(ValueError, match="not topologically available"):
-        PointProgram(
-            point_index=0,
-            point_uid="point",
-            coordinates={},
-            stages=(ComputeStage(operations=(consumer, producer)),),
-        )
-
-
-def test_point_compute_order_does_not_alias_operation_and_value_namespaces() -> None:
-    shared_symbol = SymbolId(local_id="shared")
-    producer_id = OperationId(shared_symbol)
-    producer_result_id = operation_result_id(producer_id)
-    wrong_value_id = ValueId(shared_symbol)
-    assert producer_id != wrong_value_id
-
-    producer = ComputeOperation(
-        operation_id=shared_symbol.qualified_name,
-        semantic_operation_id=producer_id.qualified_name,
-        implementation_id="python.shared.v1",
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        kernel=lambda: 1.0,
-        inputs={},
-        result=ComputeResultSlot(
-            id=producer_result_id,
-            value_type=Scalar(Float()),
-        ),
-    )
-    consumer = ComputeOperation(
-        operation_id="point.compute.consumer",
-        semantic_operation_id="consumer",
-        implementation_id="python.consumer.v1",
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        kernel=_identity_value,
-        inputs={"value": OutputInput(wrong_value_id)},
-        result=ComputeResultSlot(
-            id=operation_result_id(OperationId(SymbolId(local_id="consumer"))),
-            value_type=Scalar(Float()),
-        ),
-    )
-
-    with pytest.raises(ValueError, match=r"results.*not topologically available"):
-        PointProgram(
-            point_index=0,
-            point_uid="point",
-            coordinates={},
-            stages=(ComputeStage(operations=(producer, consumer)),),
-        )
-
-
-def test_execution_program_defaults_resources_from_used_instruments() -> None:
-    program = _source_and_derived_execution_program()
-
-    assert program.resource_order == ("source-0",)
-    assert program.resource_claims == (ResourceClaim(id="source-0"),)
-
-
-def test_collect_command_attempt_is_rejected_before_execution() -> None:
-    program = _source_and_derived_execution_program()
-    stage = cast("CollectStage", program.points[0].stages[0])
-    operation = stage.operations[0]
-
-    with pytest.raises(ValueError, match="runtime-owned and must start at one"):
-        replace(
-            operation,
-            command=operation.command.model_copy(update={"attempt": 2}),
-        )
-
-
-def test_collect_operation_snapshots_supplied_command() -> None:
-    program = _source_and_derived_execution_program()
-    stage = cast("CollectStage", program.points[0].stages[0])
-    supplied = stage.operations[0].command
-    operation = replace(stage.operations[0], command=supplied)
-
-    supplied.metadata["mutated-after-construction"] = True
-
-    assert operation.command.metadata == {}
 
 
 def _source_and_derived_execution_program() -> ExecutionProgram:
@@ -513,23 +338,14 @@ def _source_and_derived_execution_program() -> ExecutionProgram:
         ),
         product_uses=(source_use, derived_use),
         collection_product_use_ids=(source_use.id,),
-        record_projections=(
-            RecordProjection(
-                record_id="source",
-                product_use_id=source_use.id,
-                product_id=source_use.product_id,
-            ),
-        ),
+        resource_order=("source-0",),
+        resource_claims=(ResourceClaim(id="source-0"),),
     )
 
 
 def _gain_state(instrument_id: str, value: float) -> BoundResourceState:
     return BoundResourceState(
-        resource_id=physical_resource_id(instrument_id),
+        resource_id=PhysicalResourceId(instrument_id),
         capability_id="set_gain",
         fields=(BoundStateField(field_path="gain", value=StateValue(value)),),
     )
-
-
-def _identity_value(*, value: object) -> object:
-    return value

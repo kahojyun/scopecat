@@ -214,8 +214,9 @@ def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> No
     assert mapping.entry_for_point(points[2].logical_id).entry_address == "entry-2"
 
     exposed_product = selected.product
-    exposed_product.metadata["mutated"] = True
-    assert "mutated" not in selected.product.metadata
+    assert exposed_product is selected.product
+    with pytest.raises(TypeError, match="frozen mapping is immutable"):
+        cast("dict[str, object]", exposed_product.metadata)["mutated"] = True
 
     with pytest.raises(ValueError, match="exactly cover adapter entries"):
         ClosedDomainResultMapping(
@@ -435,7 +436,7 @@ def test_empty_result_contract_fingerprint_covers_use_subset_and_entry_mapping()
     assert fingerprint(mapping_a) != fingerprint(mapping_b)
 
 
-def test_mapping_snapshots_selected_product_contracts_for_invocation_identity() -> None:
+def test_mapping_reuses_immutable_product_contracts_for_invocation_identity() -> None:
     linked_points = _linked_points(point_count=0, product_count=1)
     use = linked_points.linked_plan.product_uses[0]
     mapping: ClosedDomainResultMapping[str, str] = seal_domain_result_mapping(
@@ -461,15 +462,15 @@ def test_mapping_snapshots_selected_product_contracts_for_invocation_identity() 
 
     before = mapping.contract_fingerprint
     assert fingerprint() == before
-    linked_points.linked_plan.program.product_defs[0].metadata["mutated"] = True
     exposed = mapping.product_for_use(use.id)
-    exposed.metadata["also-mutated"] = True
+    assert exposed is linked_points.linked_plan.program.product_defs[0]
+    with pytest.raises(TypeError, match="frozen mapping is immutable"):
+        cast("dict[str, object]", exposed.metadata)["mutated"] = True
 
     assert mapping.contract_fingerprint == before
     assert fingerprint() == before
     retained = mapping.product_for_use(use.id)
-    assert "mutated" not in retained.metadata
-    assert "also-mutated" not in retained.metadata
+    assert retained is exposed
 
 
 @given(
