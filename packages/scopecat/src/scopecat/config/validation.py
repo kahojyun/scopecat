@@ -63,31 +63,32 @@ def coerce_parameter_atom(
         )
     except ValueValidationError as error:
         atom = value_type.atom
-        if isinstance(atom, Bool):
-            label = "bool"
-            code = "invalid_parameter_bool"
-        elif isinstance(atom, Int):
-            label = "int"
-            code = "invalid_parameter_int"
-        elif isinstance(atom, Float):
-            label = "number"
-            code = "invalid_parameter_number"
-        elif isinstance(atom, String):
-            label = "string"
-            code = "invalid_parameter_string"
-        elif isinstance(atom, Quantity):
-            label = "quantity"
-            code = (
-                "incompatible_parameter_quantity_unit"
-                if error.code == "incompatible_unit"
-                else "invalid_parameter_quantity"
-            )
-        elif isinstance(atom, Entity):
-            label = "entity"
-            code = "invalid_parameter_entity"
-        else:  # PersistableValueType rejects non-durable atoms.
-            label = type(atom).__name__.lower()
-            code = "invalid_parameter_value"
+        match atom:
+            case Bool():
+                label = "bool"
+                code = "invalid_parameter_bool"
+            case Int():
+                label = "int"
+                code = "invalid_parameter_int"
+            case Float():
+                label = "number"
+                code = "invalid_parameter_number"
+            case String():
+                label = "string"
+                code = "invalid_parameter_string"
+            case Quantity():
+                label = "quantity"
+                code = (
+                    "incompatible_parameter_quantity_unit"
+                    if error.code == "incompatible_unit"
+                    else "invalid_parameter_quantity"
+                )
+            case Entity():
+                label = "entity"
+                code = "invalid_parameter_entity"
+            case _:  # PersistableValueType rejects non-durable atoms.
+                label = type(atom).__name__.lower()
+                code = "invalid_parameter_value"
         msg = f"parameter {parameter_id} requires {label}: {error.reason}"
         raise ParameterValueValidationError(code, msg, path=error.path) from error
 

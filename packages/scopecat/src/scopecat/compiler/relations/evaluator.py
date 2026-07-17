@@ -11,6 +11,7 @@ from typing import cast
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
+    CaseScalarExpr,
     CellValue,
     ColumnScalarExpr,
     CrossRelationExpr,
@@ -22,6 +23,7 @@ from scopecat.compiler.relations.model import (
     InputSeriesExpr,
     JoinRelationExpr,
     LateralCrossRelationExpr,
+    LimitRelationExpr,
     LinspaceSeriesExpr,
     LiteralRowsRelationExpr,
     LiteralScalarExpr,
@@ -33,6 +35,7 @@ from scopecat.compiler.relations.model import (
     PointCrossRelationExpr,
     RangeSeriesExpr,
     RelationColumnSeriesExpr,
+    RelationEntitiesSeriesExpr,
     RelationExpr,
     RelationExpression,
     RelationGridColumn,
@@ -47,6 +50,7 @@ from scopecat.compiler.relations.model import (
     SeriesGridColumn,
     SortRelationExpr,
     TableRelationExpr,
+    ValuesGridColumn,
     ValuesSeriesExpr,
     WithColumnsRelationExpr,
     ZipRelationExpr,
@@ -67,301 +71,319 @@ from scopecat.records.parameter import Quantity
 
 def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> CellValue:
     scalar = cast("ScalarExpression", expression)
-    if isinstance(scalar, LiteralScalarExpr):
-        return scalar.value
-    if isinstance(scalar, ColumnScalarExpr):
-        row_scope_id = scalar.row_scope_id
-        row = ctx.row_scopes.get(row_scope_id) if row_scope_id is not None else ctx.row
-        if row is None:
-            scope_name = (
-                row_scope_id.qualified_name
+    match scalar:
+        case LiteralScalarExpr():
+            return scalar.value
+        case ColumnScalarExpr():
+            row_scope_id = scalar.row_scope_id
+            row = (
+                ctx.row_scopes.get(row_scope_id)
                 if row_scope_id is not None
-                else "<implicit-current-row>"
+                else ctx.row
             )
-            msg = f"row column references an inactive scope: {scope_name!r}"
-            raise ValueError(msg)
-        return read_path(row, scalar.name)
-    if isinstance(scalar, OuterColumnScalarExpr):
-        if ctx.outer_row is None:
-            msg = f"outer column {scalar.name!r} used outside scope"
-            raise ValueError(msg)
-        return read_path(ctx.outer_row, scalar.name)
-    if isinstance(scalar, PointColumnScalarExpr):
-        return read_path(ctx.point_row, scalar.name)
-    if isinstance(scalar, InputScalarExpr):
-        return read_path(ctx.inputs, scalar.name)
-    if isinstance(scalar, ParameterScalarExpr):
-        return ctx.params.scalar(scalar.name)
-    if isinstance(scalar, ParameterLookupScalarExpr):
-        resolved_key = {
-            name: evaluate_scalar_expression(value, ctx)
-            for name, value in scalar.key.items()
-        }
-        row = ctx.params.lookup_row(scalar.table_id, resolved_key)
-        return read_path(row, scalar.column)
-    if isinstance(scalar, BinaryScalarExpr):
-        return eval_binary(
-            scalar.op,
-            evaluate_scalar_expression(scalar.left, ctx),
-            evaluate_scalar_expression(scalar.right, ctx),
-        )
-    for branch in scalar.cases:
-        if evaluate_scalar_expression(branch.condition, ctx) is True:
-            return evaluate_scalar_expression(branch.value, ctx)
-    return evaluate_scalar_expression(scalar.fallback, ctx)
+            if row is None:
+                scope_name = (
+                    row_scope_id.qualified_name
+                    if row_scope_id is not None
+                    else "<implicit-current-row>"
+                )
+                msg = f"row column references an inactive scope: {scope_name!r}"
+                raise ValueError(msg)
+            return read_path(row, scalar.name)
+        case OuterColumnScalarExpr():
+            if ctx.outer_row is None:
+                msg = f"outer column {scalar.name!r} used outside scope"
+                raise ValueError(msg)
+            return read_path(ctx.outer_row, scalar.name)
+        case PointColumnScalarExpr():
+            return read_path(ctx.point_row, scalar.name)
+        case InputScalarExpr():
+            return read_path(ctx.inputs, scalar.name)
+        case ParameterScalarExpr():
+            return ctx.params.scalar(scalar.name)
+        case ParameterLookupScalarExpr():
+            resolved_key = {
+                name: evaluate_scalar_expression(value, ctx)
+                for name, value in scalar.key.items()
+            }
+            row = ctx.params.lookup_row(scalar.table_id, resolved_key)
+            return read_path(row, scalar.column)
+        case BinaryScalarExpr():
+            return eval_binary(
+                scalar.op,
+                evaluate_scalar_expression(scalar.left, ctx),
+                evaluate_scalar_expression(scalar.right, ctx),
+            )
+        case CaseScalarExpr():
+            for branch in scalar.cases:
+                if evaluate_scalar_expression(branch.condition, ctx) is True:
+                    return evaluate_scalar_expression(branch.value, ctx)
+            return evaluate_scalar_expression(scalar.fallback, ctx)
 
 
 def evaluate_series_expression(
     expression: SeriesExpr, ctx: EvalContext
 ) -> list[CellValue]:
     series = cast("SeriesExpression", expression)
-    if isinstance(series, ValuesSeriesExpr):
-        return list(series.items)
-    if isinstance(series, LinspaceSeriesExpr):
-        count = series.count
-        start_value = evaluate_scalar_expression(series.start, ctx)
-        stop_value = evaluate_scalar_expression(series.stop, ctx)
-        unit = series.unit or _quantity_unit(start_value)
-        start = _series_float(start_value, unit=unit)
-        stop = _series_float(stop_value, unit=unit)
-        if count == 1:
-            return _series_values([start], unit=unit)
-        step_value = (stop - start) / (count - 1)
-        return _series_values(
-            [start + index * step_value for index in range(count)],
-            unit=unit,
-        )
-    if isinstance(series, RangeSeriesExpr):
-        start_value = evaluate_scalar_expression(series.start, ctx)
-        stop_value = evaluate_scalar_expression(series.stop, ctx)
-        step_value = evaluate_scalar_expression(series.step, ctx)
-        unit = series.unit or _quantity_unit(start_value)
-        start = _series_float(start_value, unit=unit)
-        stop = _series_float(stop_value, unit=unit)
-        step = _series_float(step_value, unit=unit)
-        if step == 0:
-            msg = "range step must not be zero"
-            raise ValueError(msg)
-        selected: list[float] = []
-        current = start
-        if step > 0:
-            while current < stop or (
-                series.include_stop and _float_almost_equal(current, stop)
-            ):
-                selected.append(current)
-                next_current = current + step
-                if next_current == current:
-                    msg = "range step is too small to advance the current value"
-                    raise ValueError(msg)
-                current = next_current
-        else:
-            while current > stop or (
-                series.include_stop and _float_almost_equal(current, stop)
-            ):
-                selected.append(current)
-                next_current = current + step
-                if next_current == current:
-                    msg = "range step is too small to advance the current value"
-                    raise ValueError(msg)
-                current = next_current
-        return _series_values(selected, unit=unit)
-    if isinstance(series, InputSeriesExpr):
-        return _input_series(ctx.inputs, series.name)
-    if isinstance(series, ParameterSeriesExpr):
-        return ctx.params.series_values(series.name)
-    if isinstance(series, RelationColumnSeriesExpr):
-        return [
-            read_path(row, series.column)
-            for row in evaluate_relation_expression(series.source, ctx)
-        ]
-    entities: list[CellValue] = []
-    for row in evaluate_relation_expression(series.source, ctx):
-        for column in series.columns:
-            value = read_path(row, column)
-            if not any(cell_matches(existing, value) for existing in entities):
-                entities.append(value)
-    return entities
+    match series:
+        case ValuesSeriesExpr():
+            return list(series.items)
+        case LinspaceSeriesExpr():
+            count = series.count
+            start_value = evaluate_scalar_expression(series.start, ctx)
+            stop_value = evaluate_scalar_expression(series.stop, ctx)
+            unit = series.unit or _quantity_unit(start_value)
+            start = _series_float(start_value, unit=unit)
+            stop = _series_float(stop_value, unit=unit)
+            if count == 1:
+                return _series_values([start], unit=unit)
+            step_value = (stop - start) / (count - 1)
+            return _series_values(
+                [start + index * step_value for index in range(count)],
+                unit=unit,
+            )
+        case RangeSeriesExpr():
+            start_value = evaluate_scalar_expression(series.start, ctx)
+            stop_value = evaluate_scalar_expression(series.stop, ctx)
+            step_value = evaluate_scalar_expression(series.step, ctx)
+            unit = series.unit or _quantity_unit(start_value)
+            start = _series_float(start_value, unit=unit)
+            stop = _series_float(stop_value, unit=unit)
+            step = _series_float(step_value, unit=unit)
+            if step == 0:
+                msg = "range step must not be zero"
+                raise ValueError(msg)
+            selected: list[float] = []
+            current = start
+            if step > 0:
+                while current < stop or (
+                    series.include_stop and _float_almost_equal(current, stop)
+                ):
+                    selected.append(current)
+                    next_current = current + step
+                    if next_current == current:
+                        msg = "range step is too small to advance the current value"
+                        raise ValueError(msg)
+                    current = next_current
+            else:
+                while current > stop or (
+                    series.include_stop and _float_almost_equal(current, stop)
+                ):
+                    selected.append(current)
+                    next_current = current + step
+                    if next_current == current:
+                        msg = "range step is too small to advance the current value"
+                        raise ValueError(msg)
+                    current = next_current
+            return _series_values(selected, unit=unit)
+        case InputSeriesExpr():
+            return _input_series(ctx.inputs, series.name)
+        case ParameterSeriesExpr():
+            return ctx.params.series_values(series.name)
+        case RelationColumnSeriesExpr():
+            return [
+                read_path(row, series.column)
+                for row in evaluate_relation_expression(series.source, ctx)
+            ]
+        case RelationEntitiesSeriesExpr():
+            entities: list[CellValue] = []
+            for row in evaluate_relation_expression(series.source, ctx):
+                for column in series.columns:
+                    value = read_path(row, column)
+                    if not any(cell_matches(existing, value) for existing in entities):
+                        entities.append(value)
+            return entities
 
 
 def _evaluate_grid_column(column: GridColumn, ctx: EvalContext) -> list[CellValue]:
-    if isinstance(column, ScalarGridColumn):
-        return [evaluate_scalar_expression(column.scalar, ctx)]
-    if isinstance(column, SeriesGridColumn):
-        return evaluate_series_expression(column.series, ctx)
-    if isinstance(column, RelationGridColumn):
-        return cast(
-            "list[CellValue]",
-            evaluate_relation_expression(column.relation, ctx),
-        )
-    return list(column.values)
+    match column:
+        case ScalarGridColumn():
+            return [evaluate_scalar_expression(column.scalar, ctx)]
+        case SeriesGridColumn():
+            return evaluate_series_expression(column.series, ctx)
+        case RelationGridColumn():
+            return cast(
+                "list[CellValue]",
+                evaluate_relation_expression(column.relation, ctx),
+            )
+        case ValuesGridColumn():
+            return list(column.values)
 
 
 def evaluate_relation_expression(
     expression: RelationExpr, ctx: EvalContext
 ) -> list[Row]:
     relation = cast("RelationExpression", expression)
-    if isinstance(relation, LiteralRowsRelationExpr):
-        return [dict(row) for row in relation.rows]
-    if isinstance(relation, TableRelationExpr):
-        return ctx.params.table_rows(relation.table_id)
-    if isinstance(relation, InputRelationExpr):
-        return _input_table(ctx.inputs, relation.name)
-    if isinstance(relation, GridRelationExpr):
-        names = tuple(relation.columns)
-        choices = [_evaluate_grid_column(relation.columns[name], ctx) for name in names]
-        return [dict(zip(names, values, strict=True)) for values in product(*choices)]
-    if isinstance(relation, SelectRelationExpr):
-        return [
-            {
-                column: read_path(source_row, column)
-                for column in relation.select_columns
+    match relation:
+        case LiteralRowsRelationExpr():
+            return [dict(row) for row in relation.rows]
+        case TableRelationExpr():
+            return ctx.params.table_rows(relation.table_id)
+        case InputRelationExpr():
+            return _input_table(ctx.inputs, relation.name)
+        case GridRelationExpr():
+            names = tuple(relation.columns)
+            choices = [
+                _evaluate_grid_column(relation.columns[name], ctx) for name in names
+            ]
+            return [
+                dict(zip(names, values, strict=True)) for values in product(*choices)
+            ]
+        case SelectRelationExpr():
+            return [
+                {
+                    column: read_path(source_row, column)
+                    for column in relation.select_columns
+                }
+                for source_row in evaluate_relation_expression(relation.source, ctx)
+            ]
+        case FilterRelationExpr():
+            selected: list[Row] = []
+            for source_row in evaluate_relation_expression(relation.source, ctx):
+                child_ctx = _child_context(
+                    ctx,
+                    row=source_row,
+                    row_scope_id=relation.row_scope_id,
+                )
+                if evaluate_scalar_expression(relation.condition, child_ctx) is True:
+                    selected.append(source_row)
+            return selected
+        case JoinRelationExpr():
+            left_rows = evaluate_relation_expression(relation.left, ctx)
+            right_rows = evaluate_relation_expression(relation.right, ctx)
+            on = relation.on
+            allowed_shared = {
+                left_column
+                for left_column, right_column in on.items()
+                if left_column == right_column
             }
-            for source_row in evaluate_relation_expression(relation.source, ctx)
-        ]
-    if isinstance(relation, FilterRelationExpr):
-        selected: list[Row] = []
-        for source_row in evaluate_relation_expression(relation.source, ctx):
-            child_ctx = _child_context(
-                ctx,
-                row=source_row,
-                row_scope_id=relation.row_scope_id,
-            )
-            if evaluate_scalar_expression(relation.condition, child_ctx) is True:
-                selected.append(source_row)
-        return selected
-    if isinstance(relation, JoinRelationExpr):
-        left_rows = evaluate_relation_expression(relation.left, ctx)
-        right_rows = evaluate_relation_expression(relation.right, ctx)
-        on = relation.on
-        allowed_shared = {
-            left_column
-            for left_column, right_column in on.items()
-            if left_column == right_column
-        }
-        _require_disjoint_row_columns(
-            left_rows,
-            right_rows,
-            operation="join",
-            allowed_shared=allowed_shared,
-        )
-        return [
-            _merge_rows(
-                left_row,
-                right_row,
+            _require_disjoint_row_columns(
+                left_rows,
+                right_rows,
                 operation="join",
                 allowed_shared=allowed_shared,
             )
-            for left_row in left_rows
-            for right_row in right_rows
-            if _join_keys_match(left_row, right_row, on)
-        ]
-    if isinstance(relation, CrossRelationExpr):
-        left_rows = evaluate_relation_expression(relation.left, ctx)
-        right_rows = evaluate_relation_expression(relation.right, ctx)
-        _require_disjoint_row_columns(left_rows, right_rows, operation="cross")
-        return [
-            _merge_rows(left_row, right_row, operation="cross")
-            for left_row in left_rows
-            for right_row in right_rows
-        ]
-    if isinstance(relation, LateralCrossRelationExpr):
-        crossed: list[Row] = []
-        for left_row in evaluate_relation_expression(relation.left, ctx):
-            right_rows = evaluate_relation_expression(
-                relation.right,
-                EvalContext(
-                    params=ctx.params,
-                    row=left_row,
-                    outer_row=left_row,
-                    point_row=ctx.point_row,
-                    row_scopes=ctx.row_scopes,
-                    inputs=ctx.inputs,
+            return [
+                _merge_rows(
+                    left_row,
+                    right_row,
+                    operation="join",
+                    allowed_shared=allowed_shared,
+                )
+                for left_row in left_rows
+                for right_row in right_rows
+                if _join_keys_match(left_row, right_row, on)
+            ]
+        case CrossRelationExpr():
+            left_rows = evaluate_relation_expression(relation.left, ctx)
+            right_rows = evaluate_relation_expression(relation.right, ctx)
+            _require_disjoint_row_columns(left_rows, right_rows, operation="cross")
+            return [
+                _merge_rows(left_row, right_row, operation="cross")
+                for left_row in left_rows
+                for right_row in right_rows
+            ]
+        case LateralCrossRelationExpr():
+            crossed: list[Row] = []
+            for left_row in evaluate_relation_expression(relation.left, ctx):
+                right_rows = evaluate_relation_expression(
+                    relation.right,
+                    EvalContext(
+                        params=ctx.params,
+                        row=left_row,
+                        outer_row=left_row,
+                        point_row=ctx.point_row,
+                        row_scopes=ctx.row_scopes,
+                        inputs=ctx.inputs,
+                    ),
+                )
+                _require_disjoint_row_columns(
+                    [left_row],
+                    right_rows,
+                    operation="lateral_cross",
+                )
+                crossed.extend(
+                    _merge_rows(left_row, right_row, operation="lateral_cross")
+                    for right_row in right_rows
+                )
+            return crossed
+        case PointCrossRelationExpr():
+            crossed = []
+            for left_row in evaluate_relation_expression(relation.left, ctx):
+                point_row = (
+                    _merge_rows(ctx.point_row, left_row, operation="point_cross")
+                    if ctx.point_row
+                    else left_row
+                )
+                right_rows = evaluate_relation_expression(
+                    relation.right,
+                    EvalContext(
+                        params=ctx.params,
+                        row=ctx.row,
+                        outer_row=ctx.outer_row,
+                        point_row=point_row,
+                        row_scopes=ctx.row_scopes,
+                        inputs=ctx.inputs,
+                    ),
+                )
+                _require_disjoint_row_columns(
+                    [left_row],
+                    right_rows,
+                    operation="point_cross",
+                )
+                crossed.extend(
+                    _merge_rows(left_row, right_row, operation="point_cross")
+                    for right_row in right_rows
+                )
+            return crossed
+        case ZipRelationExpr():
+            rows_by_source = [
+                evaluate_relation_expression(source, ctx) for source in relation.sources
+            ]
+            lengths = {len(rows) for rows in rows_by_source}
+            if len(lengths) != 1:
+                msg = "zip relation requires sources with equal length"
+                raise ValueError(msg)
+            zipped: list[Row] = []
+            for row_index in range(next(iter(lengths), 0)):
+                merged: Row = {}
+                for rows in rows_by_source:
+                    row = rows[row_index]
+                    overlap = set(merged).intersection(row)
+                    if overlap:
+                        msg = "zip relation contains duplicate columns: " + ", ".join(
+                            sorted(overlap)
+                        )
+                        raise ValueError(msg)
+                    merged.update(row)
+                zipped.append(merged)
+            return zipped
+        case WithColumnsRelationExpr():
+            derived: list[Row] = []
+            for source_row in evaluate_relation_expression(relation.source, ctx):
+                next_row = dict(source_row)
+                child_ctx = _child_context(
+                    ctx,
+                    row=next_row,
+                    row_scope_id=relation.row_scope_id,
+                )
+                for name, scalar in relation.new_columns.items():
+                    next_row[name] = evaluate_scalar_expression(scalar, child_ctx)
+                derived.append(next_row)
+            return derived
+        case SortRelationExpr():
+            rows = evaluate_relation_expression(relation.source, ctx)
+            columns = tuple(relation.sort_columns)
+            return sorted(
+                rows,
+                key=cmp_to_key(
+                    lambda left, right: _compare_rows(left, right, columns=columns)
                 ),
             )
-            _require_disjoint_row_columns(
-                [left_row],
-                right_rows,
-                operation="lateral_cross",
-            )
-            crossed.extend(
-                _merge_rows(left_row, right_row, operation="lateral_cross")
-                for right_row in right_rows
-            )
-        return crossed
-    if isinstance(relation, PointCrossRelationExpr):
-        crossed = []
-        for left_row in evaluate_relation_expression(relation.left, ctx):
-            point_row = (
-                _merge_rows(ctx.point_row, left_row, operation="point_cross")
-                if ctx.point_row
-                else left_row
-            )
-            right_rows = evaluate_relation_expression(
-                relation.right,
-                EvalContext(
-                    params=ctx.params,
-                    row=ctx.row,
-                    outer_row=ctx.outer_row,
-                    point_row=point_row,
-                    row_scopes=ctx.row_scopes,
-                    inputs=ctx.inputs,
-                ),
-            )
-            _require_disjoint_row_columns(
-                [left_row],
-                right_rows,
-                operation="point_cross",
-            )
-            crossed.extend(
-                _merge_rows(left_row, right_row, operation="point_cross")
-                for right_row in right_rows
-            )
-        return crossed
-    if isinstance(relation, ZipRelationExpr):
-        rows_by_source = [
-            evaluate_relation_expression(source, ctx) for source in relation.sources
-        ]
-        lengths = {len(rows) for rows in rows_by_source}
-        if len(lengths) != 1:
-            msg = "zip relation requires sources with equal length"
-            raise ValueError(msg)
-        zipped: list[Row] = []
-        for row_index in range(next(iter(lengths), 0)):
-            merged: Row = {}
-            for rows in rows_by_source:
-                row = rows[row_index]
-                overlap = set(merged).intersection(row)
-                if overlap:
-                    msg = "zip relation contains duplicate columns: " + ", ".join(
-                        sorted(overlap)
-                    )
-                    raise ValueError(msg)
-                merged.update(row)
-            zipped.append(merged)
-        return zipped
-    if isinstance(relation, WithColumnsRelationExpr):
-        derived: list[Row] = []
-        for source_row in evaluate_relation_expression(relation.source, ctx):
-            next_row = dict(source_row)
-            child_ctx = _child_context(
-                ctx,
-                row=next_row,
-                row_scope_id=relation.row_scope_id,
-            )
-            for name, scalar in relation.new_columns.items():
-                next_row[name] = evaluate_scalar_expression(scalar, child_ctx)
-            derived.append(next_row)
-        return derived
-    if isinstance(relation, SortRelationExpr):
-        rows = evaluate_relation_expression(relation.source, ctx)
-        columns = tuple(relation.sort_columns)
-        return sorted(
-            rows,
-            key=cmp_to_key(
-                lambda left, right: _compare_rows(left, right, columns=columns)
-            ),
-        )
-    return evaluate_relation_expression(relation.source, ctx)[: relation.limit_count]
+        case LimitRelationExpr():
+            return evaluate_relation_expression(relation.source, ctx)[
+                : relation.limit_count
+            ]
 
 
 def _child_context(

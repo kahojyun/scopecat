@@ -652,24 +652,25 @@ class Workspace:
         execution_backend: ExecutionBackend | None = None,
         execution_options: ExecutionOptions | None = None,
     ) -> PreparedExperiment:
-        if isinstance(experiment, TemplateBuilder):
-            invocation = experiment.build().bind()
-            prepared_invocation = prepare_invocation(invocation)
-        elif isinstance(experiment, ExperimentTemplate):
-            invocation = experiment.bind()
-            prepared_invocation = prepare_invocation(invocation)
-        elif isinstance(experiment, Experiment):
-            invocation = experiment.to_invocation()
-            prepared_invocation = prepare_invocation(
-                invocation,
-                request_context=replace(
-                    default_request_context(invocation),
-                    template_inputs=_workspace_request_inputs(experiment),
-                ),
-            )
-        else:
-            invocation = experiment
-            prepared_invocation = prepare_invocation(invocation)
+        match experiment:
+            case TemplateBuilder():
+                invocation = experiment.build().bind()
+                prepared_invocation = prepare_invocation(invocation)
+            case ExperimentTemplate():
+                invocation = experiment.bind()
+                prepared_invocation = prepare_invocation(invocation)
+            case Experiment():
+                invocation = experiment.to_invocation()
+                prepared_invocation = prepare_invocation(
+                    invocation,
+                    request_context=replace(
+                        default_request_context(invocation),
+                        template_inputs=_workspace_request_inputs(experiment),
+                    ),
+                )
+            case ExperimentInvocation():
+                invocation = experiment
+                prepared_invocation = prepare_invocation(invocation)
         return PreparedExperiment(
             _session=self,
             _prepared_invocation=prepared_invocation,

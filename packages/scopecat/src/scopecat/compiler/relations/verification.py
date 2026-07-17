@@ -29,6 +29,7 @@ from scopecat.compiler.relations.analysis import (
 )
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
+    CaseScalarExpr,
     ColumnScalarExpr,
     CrossRelationExpr,
     FilterRelationExpr,
@@ -51,6 +52,7 @@ from scopecat.compiler.relations.model import (
     PointCrossRelationExpr,
     RangeSeriesExpr,
     RelationColumnSeriesExpr,
+    RelationEntitiesSeriesExpr,
     RelationExpr,
     RelationExpression,
     RelationGridColumn,
@@ -64,6 +66,7 @@ from scopecat.compiler.relations.model import (
     SeriesGridColumn,
     SortRelationExpr,
     TableRelationExpr,
+    ValuesGridColumn,
     ValuesSeriesExpr,
     WithColumnsRelationExpr,
     ZipRelationExpr,
@@ -509,21 +512,34 @@ class _Verifier:
         rows: _Rows | None = None,
     ) -> ValueType:
         selected_rows = rows or self.rows
-        if isinstance(node, ScalarExpr):
-            scalar_expected = expected if isinstance(expected, Scalar) else None
-            if expected is not None and scalar_expected is None:
-                raise self.error("wrong_shape", path, "expected a non-scalar value")
-            result = self.scalar(node, path, scalar_expected, selected_rows)
-        elif isinstance(node, SeriesExpr):
-            series_expected = expected if isinstance(expected, Series) else None
-            if expected is not None and series_expected is None:
-                raise self.error("wrong_shape", path, "expected a non-series value")
-            result = self.series(node, path, series_expected, selected_rows)
-        else:
-            table_expected = expected if isinstance(expected, Table) else None
-            if expected is not None and table_expected is None:
-                raise self.error("wrong_shape", path, "expected a non-table value")
-            result = self.relation(node, path, table_expected, selected_rows)
+        match node:
+            case ScalarExpr():
+                scalar_expected = expected if isinstance(expected, Scalar) else None
+                if expected is not None and scalar_expected is None:
+                    raise self.error(
+                        "wrong_shape",
+                        path,
+                        "expected a non-scalar value",
+                    )
+                result = self.scalar(node, path, scalar_expected, selected_rows)
+            case SeriesExpr():
+                series_expected = expected if isinstance(expected, Series) else None
+                if expected is not None and series_expected is None:
+                    raise self.error(
+                        "wrong_shape",
+                        path,
+                        "expected a non-series value",
+                    )
+                result = self.series(node, path, series_expected, selected_rows)
+            case RelationExpr():
+                table_expected = expected if isinstance(expected, Table) else None
+                if expected is not None and table_expected is None:
+                    raise self.error(
+                        "wrong_shape",
+                        path,
+                        "expected a non-table value",
+                    )
+                result = self.relation(node, path, table_expected, selected_rows)
         self.facts.append(PlanTypeFact(path, relation_operation(node), result))
         return result
 
@@ -535,176 +551,182 @@ class _Verifier:
         rows: _Rows,
     ) -> Scalar:
         scalar = cast("ScalarExpression", node)
-        if isinstance(scalar, LiteralScalarExpr):
-            result = self.literal(scalar.value, path, expected)
-        elif isinstance(scalar, ColumnScalarExpr):
-            selected = (
-                rows.arguments.get(scalar.row_scope_id)
-                if scalar.row_scope_id is not None
-                else rows.current
-            )
-            result = self.row_column(selected, scalar.name, path)
-        elif isinstance(scalar, OuterColumnScalarExpr):
-            result = self.row_column(rows.outer, scalar.name, path)
-        elif isinstance(scalar, PointColumnScalarExpr):
-            name = scalar.name
-            result = self.row_column(rows.point, name, path)
-            if _row_column_root_id(rows.point, name) not in rows.local_point_columns:
-                self.external_point_references.add(name)
-        elif isinstance(scalar, InputScalarExpr):
-            result = self.import_type(
-                PlanImportNamespace.INPUT,
-                scalar.name,
-                Scalar,
-                path,
-            )
-        elif isinstance(scalar, ParameterScalarExpr):
-            result = self.import_type(
-                PlanImportNamespace.PARAMETER,
-                scalar.name,
-                Scalar,
-                path,
-            )
-        elif isinstance(scalar, ParameterLookupScalarExpr):
-            result = self.parameter_lookup(scalar, path, rows)
-        elif isinstance(scalar, BinaryScalarExpr):
-            left_node = scalar.left
-            right_node = scalar.right
-            if scalar.op in {"==", "!="} and _is_null_literal(left_node):
-                if _is_null_literal(right_node):
-                    raise self.error(
-                        "ambiguous_null",
-                        path,
-                        "comparing two null literals has no scalar type context",
-                    )
-                right = cast(
-                    "Scalar",
-                    self.infer(right_node, (*path, "right"), rows=rows),
+        match scalar:
+            case LiteralScalarExpr():
+                result = self.literal(scalar.value, path, expected)
+            case ColumnScalarExpr():
+                selected = (
+                    rows.arguments.get(scalar.row_scope_id)
+                    if scalar.row_scope_id is not None
+                    else rows.current
                 )
-                left = cast(
-                    "Scalar",
-                    self.infer(
-                        left_node,
-                        (*path, "left"),
-                        Scalar(right.atom, nullable=True),
-                        rows=rows,
-                    ),
-                )
-            elif scalar.op in {"==", "!="} and _is_null_literal(right_node):
-                left = cast(
-                    "Scalar",
-                    self.infer(left_node, (*path, "left"), rows=rows),
-                )
-                right = cast(
-                    "Scalar",
-                    self.infer(
-                        right_node,
-                        (*path, "right"),
-                        Scalar(left.atom, nullable=True),
-                        rows=rows,
-                    ),
-                )
-            else:
-                left = cast(
-                    "Scalar",
-                    self.infer(left_node, (*path, "left"), rows=rows),
-                )
-                right = cast(
-                    "Scalar",
-                    self.infer(right_node, (*path, "right"), rows=rows),
-                )
-            try:
-                result = scalar_operator_result_type(
-                    left,
-                    right,
-                    scalar.op,
-                    left_is_null_literal=_is_null_literal(scalar.left),
-                    right_is_null_literal=_is_null_literal(scalar.right),
-                )
-            except (TypeError, ValueError) as error:
-                raise self.error("invalid_scalar_operator", path, str(error)) from error
-            if scalar.op == "/":
-                if _is_zero_literal(scalar.right):
-                    raise self.error(
-                        "division_by_zero",
-                        (*path, "right"),
-                        "division denominator is statically zero",
-                    )
-                if not _literal_is_provably_nonzero(scalar.right):
-                    self.obligation(
-                        RelationRuntimeObligationKind.DIVISION_RIGHT_NONZERO,
-                        (*path, "right"),
-                        "division denominator must be non-zero",
-                    )
-            if scalar.op in {"+", "-", "*", "/"} and isinstance(
-                result.atom,
-                Float | Quantity,
-            ):
-                self.obligation(
-                    RelationRuntimeObligationKind.SCALAR_RESULT_FINITE,
+                result = self.row_column(selected, scalar.name, path)
+            case OuterColumnScalarExpr():
+                result = self.row_column(rows.outer, scalar.name, path)
+            case PointColumnScalarExpr():
+                name = scalar.name
+                result = self.row_column(rows.point, name, path)
+                if (
+                    _row_column_root_id(rows.point, name)
+                    not in rows.local_point_columns
+                ):
+                    self.external_point_references.add(name)
+            case InputScalarExpr():
+                result = self.import_type(
+                    PlanImportNamespace.INPUT,
+                    scalar.name,
+                    Scalar,
                     path,
-                    "floating-point arithmetic must produce a finite result",
                 )
-        else:
-            value_nodes: list[tuple[ScalarExpr, PlanPath]] = []
-            for index, branch in enumerate(scalar.cases):
-                condition = cast(
-                    "Scalar",
-                    self.infer(
-                        branch.condition,
-                        (*path, "cases", index, "condition"),
-                        rows=rows,
-                    ),
+            case ParameterScalarExpr():
+                result = self.import_type(
+                    PlanImportNamespace.PARAMETER,
+                    scalar.name,
+                    Scalar,
+                    path,
                 )
-                self.require_bool(condition, (*path, "cases", index, "condition"))
-                value_nodes.append((branch.value, (*path, "cases", index, "value")))
-            value_nodes.append((scalar.fallback, (*path, "fallback")))
-            if expected is not None:
-                values = [
-                    cast(
+            case ParameterLookupScalarExpr():
+                result = self.parameter_lookup(scalar, path, rows)
+            case BinaryScalarExpr():
+                left_node = scalar.left
+                right_node = scalar.right
+                if scalar.op in {"==", "!="} and _is_null_literal(left_node):
+                    if _is_null_literal(right_node):
+                        raise self.error(
+                            "ambiguous_null",
+                            path,
+                            "comparing two null literals has no scalar type context",
+                        )
+                    right = cast(
                         "Scalar",
-                        self.infer(value, value_path, expected, rows=rows),
+                        self.infer(right_node, (*path, "right"), rows=rows),
                     )
-                    for value, value_path in value_nodes
-                ]
-                result = expected
-            else:
-                seed_index = next(
-                    (
-                        index
-                        for index, (value, _) in enumerate(value_nodes)
-                        if not _is_null_literal(value)
-                    ),
-                    None,
-                )
-                if seed_index is None:
+                    left = cast(
+                        "Scalar",
+                        self.infer(
+                            left_node,
+                            (*path, "left"),
+                            Scalar(right.atom, nullable=True),
+                            rows=rows,
+                        ),
+                    )
+                elif scalar.op in {"==", "!="} and _is_null_literal(right_node):
+                    left = cast(
+                        "Scalar",
+                        self.infer(left_node, (*path, "left"), rows=rows),
+                    )
+                    right = cast(
+                        "Scalar",
+                        self.infer(
+                            right_node,
+                            (*path, "right"),
+                            Scalar(left.atom, nullable=True),
+                            rows=rows,
+                        ),
+                    )
+                else:
+                    left = cast(
+                        "Scalar",
+                        self.infer(left_node, (*path, "left"), rows=rows),
+                    )
+                    right = cast(
+                        "Scalar",
+                        self.infer(right_node, (*path, "right"), rows=rows),
+                    )
+                try:
+                    result = scalar_operator_result_type(
+                        left,
+                        right,
+                        scalar.op,
+                        left_is_null_literal=_is_null_literal(scalar.left),
+                        right_is_null_literal=_is_null_literal(scalar.right),
+                    )
+                except (TypeError, ValueError) as error:
                     raise self.error(
-                        "ambiguous_null",
+                        "invalid_scalar_operator", path, str(error)
+                    ) from error
+                if scalar.op == "/":
+                    if _is_zero_literal(scalar.right):
+                        raise self.error(
+                            "division_by_zero",
+                            (*path, "right"),
+                            "division denominator is statically zero",
+                        )
+                    if not _literal_is_provably_nonzero(scalar.right):
+                        self.obligation(
+                            RelationRuntimeObligationKind.DIVISION_RIGHT_NONZERO,
+                            (*path, "right"),
+                            "division denominator must be non-zero",
+                        )
+                if scalar.op in {"+", "-", "*", "/"} and isinstance(
+                    result.atom,
+                    Float | Quantity,
+                ):
+                    self.obligation(
+                        RelationRuntimeObligationKind.SCALAR_RESULT_FINITE,
                         path,
-                        "a case containing only null values needs an expected type",
+                        "floating-point arithmetic must produce a finite result",
                     )
-                seed_node, seed_path = value_nodes[seed_index]
-                seed = cast(
-                    "Scalar",
-                    self.infer(seed_node, seed_path, rows=rows),
-                )
-                values = [seed]
-                nullable_seed = Scalar(seed.atom, nullable=True)
-                for index, (value, value_path) in enumerate(value_nodes):
-                    if index == seed_index:
-                        continue
-                    values.append(
+            case CaseScalarExpr():
+                value_nodes: list[tuple[ScalarExpr, PlanPath]] = []
+                for index, branch in enumerate(scalar.cases):
+                    condition = cast(
+                        "Scalar",
+                        self.infer(
+                            branch.condition,
+                            (*path, "cases", index, "condition"),
+                            rows=rows,
+                        ),
+                    )
+                    self.require_bool(condition, (*path, "cases", index, "condition"))
+                    value_nodes.append((branch.value, (*path, "cases", index, "value")))
+                value_nodes.append((scalar.fallback, (*path, "fallback")))
+                if expected is not None:
+                    values = [
                         cast(
                             "Scalar",
-                            self.infer(
-                                value,
-                                value_path,
-                                nullable_seed if _is_null_literal(value) else None,
-                                rows=rows,
-                            ),
+                            self.infer(value, value_path, expected, rows=rows),
                         )
+                        for value, value_path in value_nodes
+                    ]
+                    result = expected
+                else:
+                    seed_index = next(
+                        (
+                            index
+                            for index, (value, _) in enumerate(value_nodes)
+                            if not _is_null_literal(value)
+                        ),
+                        None,
                     )
-                result = _common_scalars(values, path)
+                    if seed_index is None:
+                        raise self.error(
+                            "ambiguous_null",
+                            path,
+                            "a case containing only null values needs an expected type",
+                        )
+                    seed_node, seed_path = value_nodes[seed_index]
+                    seed = cast(
+                        "Scalar",
+                        self.infer(seed_node, seed_path, rows=rows),
+                    )
+                    values = [seed]
+                    nullable_seed = Scalar(seed.atom, nullable=True)
+                    for index, (value, value_path) in enumerate(value_nodes):
+                        if index == seed_index:
+                            continue
+                        values.append(
+                            cast(
+                                "Scalar",
+                                self.infer(
+                                    value,
+                                    value_path,
+                                    nullable_seed if _is_null_literal(value) else None,
+                                    rows=rows,
+                                ),
+                            )
+                        )
+                    result = _common_scalars(values, path)
         self.require_expected(result, expected, path)
         return result
 
@@ -716,121 +738,122 @@ class _Verifier:
         rows: _Rows,
     ) -> Series:
         series = cast("SeriesExpression", node)
-        if isinstance(series, ValuesSeriesExpr):
-            items = series.items
-            if expected is not None:
-                self.validate_literal(expected, items, path)
-                result = Series(expected.item_type, len(items), len(items))
-            else:
-                if not items:
-                    raise self.error(
-                        "ambiguous_empty_series",
-                        path,
-                        "an empty values series needs an expected Series type",
+        match series:
+            case ValuesSeriesExpr():
+                items = series.items
+                if expected is not None:
+                    self.validate_literal(expected, items, path)
+                    result = Series(expected.item_type, len(items), len(items))
+                else:
+                    if not items:
+                        raise self.error(
+                            "ambiguous_empty_series",
+                            path,
+                            "an empty values series needs an expected Series type",
+                        )
+                    result = Series(
+                        _common_scalars(
+                            [
+                                self.literal(item, (*path, "items", index), None)
+                                for index, item in enumerate(items)
+                            ],
+                            path,
+                        ),
+                        len(items),
+                        len(items),
                     )
-                result = Series(
-                    _common_scalars(
-                        [
-                            self.literal(item, (*path, "items", index), None)
-                            for index, item in enumerate(items)
-                        ],
-                        path,
-                    ),
-                    len(items),
-                    len(items),
-                )
-        elif isinstance(series, (LinspaceSeriesExpr, RangeSeriesExpr)):
-            start = cast(
-                "Scalar",
-                self.infer(series.start, (*path, "start"), rows=rows),
-            )
-            stop = cast(
-                "Scalar",
-                self.infer(series.stop, (*path, "stop"), rows=rows),
-            )
-            operands = [start, stop]
-            if isinstance(series, RangeSeriesExpr):
-                step = cast(
+            case LinspaceSeriesExpr() | RangeSeriesExpr():
+                start = cast(
                     "Scalar",
-                    self.infer(series.step, (*path, "step"), rows=rows),
+                    self.infer(series.start, (*path, "start"), rows=rows),
                 )
-                operands.append(step)
-                if _is_zero_literal(series.step):
-                    raise self.error(
-                        "range_step_zero",
-                        (*path, "step"),
-                        "range step is statically zero",
+                stop = cast(
+                    "Scalar",
+                    self.infer(series.stop, (*path, "stop"), rows=rows),
+                )
+                operands = [start, stop]
+                if isinstance(series, RangeSeriesExpr):
+                    step = cast(
+                        "Scalar",
+                        self.infer(series.step, (*path, "step"), rows=rows),
                     )
-                if not _literal_is_provably_nonzero(series.step):
+                    operands.append(step)
+                    if _is_zero_literal(series.step):
+                        raise self.error(
+                            "range_step_zero",
+                            (*path, "step"),
+                            "range step is statically zero",
+                        )
+                    if not _literal_is_provably_nonzero(series.step):
+                        self.obligation(
+                            RelationRuntimeObligationKind.RANGE_STEP_NONZERO,
+                            (*path, "step"),
+                            "range step must be non-zero",
+                        )
+                item = _numeric_series_item(operands, path, unit=series.unit)
+                if isinstance(series, LinspaceSeriesExpr):
+                    result = Series(item, series.count, series.count)
                     self.obligation(
-                        RelationRuntimeObligationKind.RANGE_STEP_NONZERO,
-                        (*path, "step"),
-                        "range step must be non-zero",
+                        RelationRuntimeObligationKind.SERIES_VALUES_FINITE,
+                        path,
+                        "linspace materialization must produce only finite values",
                     )
-            item = _numeric_series_item(operands, path, unit=series.unit)
-            if isinstance(series, LinspaceSeriesExpr):
-                result = Series(item, series.count, series.count)
-                self.obligation(
-                    RelationRuntimeObligationKind.SERIES_VALUES_FINITE,
+                else:
+                    result = Series(item)
+                    self.obligation(
+                        RelationRuntimeObligationKind.RANGE_PROGRESS,
+                        path,
+                        "range step must advance every materialized value",
+                    )
+            case InputSeriesExpr():
+                result = self.import_type(
+                    PlanImportNamespace.INPUT,
+                    series.name,
+                    Series,
                     path,
-                    "linspace materialization must produce only finite values",
                 )
-            else:
-                result = Series(item)
-                self.obligation(
-                    RelationRuntimeObligationKind.RANGE_PROGRESS,
+            case ParameterSeriesExpr():
+                result = self.import_type(
+                    PlanImportNamespace.PARAMETER,
+                    series.name,
+                    Series,
                     path,
-                    "range step must advance every materialized value",
                 )
-        elif isinstance(series, InputSeriesExpr):
-            result = self.import_type(
-                PlanImportNamespace.INPUT,
-                series.name,
-                Series,
-                path,
-            )
-        elif isinstance(series, ParameterSeriesExpr):
-            result = self.import_type(
-                PlanImportNamespace.PARAMETER,
-                series.name,
-                Series,
-                path,
-            )
-        elif isinstance(series, RelationColumnSeriesExpr):
-            source = cast(
-                "Table",
-                self.infer(series.source, (*path, "source"), rows=rows),
-            )
-            item = self.row_column(
-                RowType.from_table(source),
-                series.column,
-                (*path, "column"),
-            )
-            result = Series(item, source.min_rows, source.max_rows)
-        else:
-            source = cast(
-                "Table",
-                self.infer(series.source, (*path, "source"), rows=rows),
-            )
-            entity_types = [
-                self.row_column(
+            case RelationColumnSeriesExpr():
+                source = cast(
+                    "Table",
+                    self.infer(series.source, (*path, "source"), rows=rows),
+                )
+                item = self.row_column(
                     RowType.from_table(source),
-                    name,
-                    (*path, "columns", index),
+                    series.column,
+                    (*path, "column"),
                 )
-                for index, name in enumerate(series.columns)
-            ]
-            for index, item in enumerate(entity_types):
-                if item.nullable or not isinstance(item.atom, Entity):
-                    raise self.error(
-                        "non_entity_column",
+                result = Series(item, source.min_rows, source.max_rows)
+            case RelationEntitiesSeriesExpr():
+                source = cast(
+                    "Table",
+                    self.infer(series.source, (*path, "source"), rows=rows),
+                )
+                entity_types = [
+                    self.row_column(
+                        RowType.from_table(source),
+                        name,
                         (*path, "columns", index),
-                        "relation entities requires non-null Entity columns",
                     )
-            item = _common_scalars(entity_types, path)
-            maximum = _multiply_optional(source.max_rows, len(entity_types))
-            minimum = 1 if source.min_rows > 0 and entity_types else 0
-            result = Series(item, minimum, maximum)
+                    for index, name in enumerate(series.columns)
+                ]
+                for index, item in enumerate(entity_types):
+                    if item.nullable or not isinstance(item.atom, Entity):
+                        raise self.error(
+                            "non_entity_column",
+                            (*path, "columns", index),
+                            "relation entities requires non-null Entity columns",
+                        )
+                item = _common_scalars(entity_types, path)
+                maximum = _multiply_optional(source.max_rows, len(entity_types))
+                minimum = 1 if source.min_rows > 0 and entity_types else 0
+                result = Series(item, minimum, maximum)
         self.require_expected(result, expected, path)
         return result
 
@@ -842,323 +865,329 @@ class _Verifier:
         rows: _Rows,
     ) -> Table:
         relation = cast("RelationExpression", node)
-        if isinstance(relation, LiteralRowsRelationExpr):
-            literal_rows = relation.rows
-            if expected is not None:
-                self.validate_literal(expected, literal_rows, path)
-                result = Table(
-                    expected.columns,
-                    expected.primary_key,
-                    len(literal_rows),
-                    len(literal_rows),
-                    expected.allow_extra_columns,
-                )
-            else:
-                if not literal_rows:
-                    raise self.error(
-                        "ambiguous_empty_table",
-                        path,
-                        "empty literal rows need an expected Table type",
+        match relation:
+            case LiteralRowsRelationExpr():
+                literal_rows = relation.rows
+                if expected is not None:
+                    self.validate_literal(expected, literal_rows, path)
+                    result = Table(
+                        expected.columns,
+                        expected.primary_key,
+                        len(literal_rows),
+                        len(literal_rows),
+                        expected.allow_extra_columns,
                     )
-                result = _infer_literal_table(literal_rows, path)
-        elif isinstance(relation, TableRelationExpr):
-            result = self.import_type(
-                PlanImportNamespace.PARAMETER,
-                relation.table_id,
-                Table,
-                path,
-            )
-        elif isinstance(relation, InputRelationExpr):
-            result = self.import_type(
-                PlanImportNamespace.INPUT,
-                relation.name,
-                Table,
-                path,
-            )
-        elif isinstance(relation, GridRelationExpr):
-            result = self.grid(relation.columns, path, rows, expected)
-        elif isinstance(relation, SelectRelationExpr):
-            source = cast(
-                "Table",
-                self.infer(relation.source, (*path, "source"), rows=rows),
-            )
-            selected_columns = tuple(
-                TableColumn(
-                    name,
-                    self.row_column(
-                        RowType.from_table(source),
-                        name,
-                        (*path, "select_columns", index),
-                    ),
+                else:
+                    if not literal_rows:
+                        raise self.error(
+                            "ambiguous_empty_table",
+                            path,
+                            "empty literal rows need an expected Table type",
+                        )
+                    result = _infer_literal_table(literal_rows, path)
+            case TableRelationExpr():
+                result = self.import_type(
+                    PlanImportNamespace.PARAMETER,
+                    relation.table_id,
+                    Table,
+                    path,
                 )
-                for index, name in enumerate(relation.select_columns)
-            )
-            _require_unique_column_ids(selected_columns, path)
-            selected_ids = {column.id for column in selected_columns}
-            primary_key = (
-                source.primary_key
-                if source.primary_key and set(source.primary_key) <= selected_ids
-                else ()
-            )
-            result = Table(
-                selected_columns,
-                primary_key,
-                source.min_rows,
-                source.max_rows,
-            )
-        elif isinstance(relation, FilterRelationExpr):
-            source = cast(
-                "Table",
-                self.infer(relation.source, (*path, "source"), rows=rows),
-            )
-            row = RowType.from_table(source)
-            condition = cast(
-                "Scalar",
-                self.infer(
-                    relation.condition,
-                    (*path, "condition"),
-                    rows=rows.with_current(row, relation.row_scope_id),
-                ),
-            )
-            self.require_bool(condition, (*path, "condition"))
-            result = Table(
-                source.columns,
-                source.primary_key,
-                0,
-                source.max_rows,
-                source.allow_extra_columns,
-            )
-        elif isinstance(relation, JoinRelationExpr):
-            on = relation.on
-            allowed_shared = {
-                left_name
-                for left_name, right_name in on.items()
-                if left_name == right_name
-            }
-            left = cast(
-                "Table",
-                self.infer(
-                    relation.left,
-                    (*path, "left"),
-                    self.relation_expected(relation.left, expected),
-                    rows=rows,
-                ),
-            )
-            right = cast(
-                "Table",
-                self.infer(
-                    relation.right,
-                    (*path, "right"),
-                    self.relation_expected(
-                        relation.right,
-                        expected,
-                        excluded_column_ids=allowed_shared,
-                    ),
-                    rows=rows,
-                ),
-            )
-            for left_name, right_name in on.items():
-                left_key = self.row_column(
-                    RowType.from_table(left), left_name, (*path, "on", left_name)
+            case InputRelationExpr():
+                result = self.import_type(
+                    PlanImportNamespace.INPUT,
+                    relation.name,
+                    Table,
+                    path,
                 )
-                right_key = self.row_column(
-                    RowType.from_table(right), right_name, (*path, "on", left_name)
-                )
-                if left_key.nullable or right_key.nullable:
-                    raise self.error(
-                        "nullable_join_key",
-                        (*path, "on", left_name),
-                        "join keys must be non-null scalars",
-                    )
-                try:
-                    scalar_operator_result_type(left_key, right_key, "==")
-                except TypeError as error:
-                    raise self.error(
-                        "incompatible_join_key",
-                        (*path, "on", left_name),
-                        str(error),
-                    ) from error
-            result = self.merge_tables(
-                left,
-                right,
-                path,
-                operation="join",
-                allowed_shared=allowed_shared,
-                minimum=0,
-                maximum=_multiply_optional(left.max_rows, right.max_rows),
-            )
-        elif isinstance(
-            relation,
-            (CrossRelationExpr, LateralCrossRelationExpr, PointCrossRelationExpr),
-        ):
-            left = cast(
-                "Table",
-                self.infer(
-                    relation.left,
-                    (*path, "left"),
-                    self.relation_expected(relation.left, expected),
-                    rows=rows,
-                ),
-            )
-            right_rows = rows
-            if isinstance(relation, LateralCrossRelationExpr):
-                left_row = RowType.from_table(left)
-                right_rows = _Rows(
-                    rows.point,
-                    left_row,
-                    left_row,
-                    rows.arguments,
-                    rows.local_point_columns,
-                )
-            elif isinstance(relation, PointCrossRelationExpr):
-                external_point = self.bindings.point_row
-                self.requires_full_external_point_row |= (
-                    left.max_rows != 0 and external_point is not None
-                )
-                point = self.merge_rows(
-                    rows.point or RowType(),
-                    RowType.from_table(left),
-                    (*path, "point"),
-                    operation="point_cross",
-                    rows_can_coexist=left.max_rows != 0,
-                )
-                right_rows = _Rows(
-                    point,
-                    rows.current,
-                    rows.outer,
-                    rows.arguments,
-                    rows.local_point_columns
-                    | frozenset(column.id for column in left.columns),
-                )
-            right = cast(
-                "Table",
-                self.infer(
-                    relation.right,
-                    (*path, "right"),
-                    self.relation_expected(relation.right, expected),
-                    rows=right_rows,
-                ),
-            )
-            result = self.merge_tables(
-                left,
-                right,
-                path,
-                operation=relation_operation(relation).value.removeprefix("relation."),
-                minimum=left.min_rows * right.min_rows,
-                maximum=_multiply_optional(left.max_rows, right.max_rows),
-            )
-        elif isinstance(relation, ZipRelationExpr):
-            sources = [
-                cast(
+            case GridRelationExpr():
+                result = self.grid(relation.columns, path, rows, expected)
+            case SelectRelationExpr():
+                source = cast(
                     "Table",
-                    self.infer(source, (*path, "sources", index), rows=rows),
+                    self.infer(relation.source, (*path, "source"), rows=rows),
                 )
-                for index, source in enumerate(relation.sources)
-            ]
-            minimum = max(source.min_rows for source in sources)
-            maxima = [source.max_rows for source in sources]
-            finite_maxima = [maximum for maximum in maxima if maximum is not None]
-            maximum = min(finite_maxima) if finite_maxima else None
-            if maximum is not None and minimum > maximum:
-                raise self.error(
-                    "zip_cardinality_mismatch",
-                    path,
-                    "zip source cardinality ranges do not overlap",
+                selected_columns = tuple(
+                    TableColumn(
+                        name,
+                        self.row_column(
+                            RowType.from_table(source),
+                            name,
+                            (*path, "select_columns", index),
+                        ),
+                    )
+                    for index, name in enumerate(relation.select_columns)
                 )
-            exact = {
-                source.min_rows
-                for source in sources
-                if source.max_rows == source.min_rows
-            }
-            all_exact = all(source.min_rows == source.max_rows for source in sources)
-            if all_exact and len(exact) > 1:
-                raise self.error(
-                    "zip_cardinality_mismatch",
-                    path,
-                    "zip sources have unequal fixed lengths",
+                _require_unique_column_ids(selected_columns, path)
+                selected_ids = {column.id for column in selected_columns}
+                primary_key = (
+                    source.primary_key
+                    if source.primary_key and set(source.primary_key) <= selected_ids
+                    else ()
                 )
-            if not all_exact:
-                self.obligation(
-                    RelationRuntimeObligationKind.ZIP_EQUAL_LENGTH,
-                    path,
-                    "zip sources must materialize with equal lengths",
+                result = Table(
+                    selected_columns,
+                    primary_key,
+                    source.min_rows,
+                    source.max_rows,
                 )
-            result = Table((), (), minimum, maximum)
-            for index, source in enumerate(sources):
-                result = self.merge_tables(
-                    result,
-                    source,
-                    (*path, "sources", index),
-                    operation="zip",
-                    minimum=minimum,
-                    maximum=maximum,
+            case FilterRelationExpr():
+                source = cast(
+                    "Table",
+                    self.infer(relation.source, (*path, "source"), rows=rows),
                 )
-        elif isinstance(relation, WithColumnsRelationExpr):
-            source = cast(
-                "Table",
-                self.infer(relation.source, (*path, "source"), rows=rows),
-            )
-            columns = list(source.columns)
-            overwritten: set[str] = set()
-            for name, expression in relation.new_columns.items():
-                current = RowType(tuple(columns), source.allow_extra_columns)
-                value_type = cast(
+                row = RowType.from_table(source)
+                condition = cast(
                     "Scalar",
                     self.infer(
-                        expression,
-                        (*path, "new_columns", name),
-                        rows=rows.with_current(current, relation.row_scope_id),
+                        relation.condition,
+                        (*path, "condition"),
+                        rows=rows.with_current(row, relation.row_scope_id),
                     ),
                 )
-                if any(column.id == name for column in columns):
-                    overwritten.add(name)
-                    columns = [column for column in columns if column.id != name]
-                columns.append(TableColumn(name, value_type))
-            primary_key = (
-                source.primary_key
-                if not overwritten.intersection(source.primary_key)
-                else ()
-            )
-            result = Table(
-                tuple(columns),
-                primary_key,
-                source.min_rows,
-                source.max_rows,
-                source.allow_extra_columns,
-            )
-        elif isinstance(relation, SortRelationExpr):
-            source = cast(
-                "Table",
-                self.infer(relation.source, (*path, "source"), rows=rows),
-            )
-            for index, name in enumerate(relation.sort_columns):
-                value_type = self.row_column(
-                    RowType.from_table(source),
-                    name,
-                    (*path, "sort_columns", index),
+                self.require_bool(condition, (*path, "condition"))
+                result = Table(
+                    source.columns,
+                    source.primary_key,
+                    0,
+                    source.max_rows,
+                    source.allow_extra_columns,
                 )
-                try:
-                    require_sortable_scalar(value_type, column_id=name)
-                except TypeError as error:
+            case JoinRelationExpr():
+                on = relation.on
+                allowed_shared = {
+                    left_name
+                    for left_name, right_name in on.items()
+                    if left_name == right_name
+                }
+                left = cast(
+                    "Table",
+                    self.infer(
+                        relation.left,
+                        (*path, "left"),
+                        self.relation_expected(relation.left, expected),
+                        rows=rows,
+                    ),
+                )
+                right = cast(
+                    "Table",
+                    self.infer(
+                        relation.right,
+                        (*path, "right"),
+                        self.relation_expected(
+                            relation.right,
+                            expected,
+                            excluded_column_ids=allowed_shared,
+                        ),
+                        rows=rows,
+                    ),
+                )
+                for left_name, right_name in on.items():
+                    left_key = self.row_column(
+                        RowType.from_table(left), left_name, (*path, "on", left_name)
+                    )
+                    right_key = self.row_column(
+                        RowType.from_table(right), right_name, (*path, "on", left_name)
+                    )
+                    if left_key.nullable or right_key.nullable:
+                        raise self.error(
+                            "nullable_join_key",
+                            (*path, "on", left_name),
+                            "join keys must be non-null scalars",
+                        )
+                    try:
+                        scalar_operator_result_type(left_key, right_key, "==")
+                    except TypeError as error:
+                        raise self.error(
+                            "incompatible_join_key",
+                            (*path, "on", left_name),
+                            str(error),
+                        ) from error
+                result = self.merge_tables(
+                    left,
+                    right,
+                    path,
+                    operation="join",
+                    allowed_shared=allowed_shared,
+                    minimum=0,
+                    maximum=_multiply_optional(left.max_rows, right.max_rows),
+                )
+            case (
+                CrossRelationExpr()
+                | LateralCrossRelationExpr()
+                | PointCrossRelationExpr()
+            ):
+                left = cast(
+                    "Table",
+                    self.infer(
+                        relation.left,
+                        (*path, "left"),
+                        self.relation_expected(relation.left, expected),
+                        rows=rows,
+                    ),
+                )
+                right_rows = rows
+                if isinstance(relation, LateralCrossRelationExpr):
+                    left_row = RowType.from_table(left)
+                    right_rows = _Rows(
+                        rows.point,
+                        left_row,
+                        left_row,
+                        rows.arguments,
+                        rows.local_point_columns,
+                    )
+                elif isinstance(relation, PointCrossRelationExpr):
+                    external_point = self.bindings.point_row
+                    self.requires_full_external_point_row |= (
+                        left.max_rows != 0 and external_point is not None
+                    )
+                    point = self.merge_rows(
+                        rows.point or RowType(),
+                        RowType.from_table(left),
+                        (*path, "point"),
+                        operation="point_cross",
+                        rows_can_coexist=left.max_rows != 0,
+                    )
+                    right_rows = _Rows(
+                        point,
+                        rows.current,
+                        rows.outer,
+                        rows.arguments,
+                        rows.local_point_columns
+                        | frozenset(column.id for column in left.columns),
+                    )
+                right = cast(
+                    "Table",
+                    self.infer(
+                        relation.right,
+                        (*path, "right"),
+                        self.relation_expected(relation.right, expected),
+                        rows=right_rows,
+                    ),
+                )
+                result = self.merge_tables(
+                    left,
+                    right,
+                    path,
+                    operation=relation_operation(relation).value.removeprefix(
+                        "relation."
+                    ),
+                    minimum=left.min_rows * right.min_rows,
+                    maximum=_multiply_optional(left.max_rows, right.max_rows),
+                )
+            case ZipRelationExpr():
+                sources = [
+                    cast(
+                        "Table",
+                        self.infer(source, (*path, "sources", index), rows=rows),
+                    )
+                    for index, source in enumerate(relation.sources)
+                ]
+                minimum = max(source.min_rows for source in sources)
+                maxima = [source.max_rows for source in sources]
+                finite_maxima = [maximum for maximum in maxima if maximum is not None]
+                maximum = min(finite_maxima) if finite_maxima else None
+                if maximum is not None and minimum > maximum:
                     raise self.error(
-                        "unsortable_column",
+                        "zip_cardinality_mismatch",
+                        path,
+                        "zip source cardinality ranges do not overlap",
+                    )
+                exact = {
+                    source.min_rows
+                    for source in sources
+                    if source.max_rows == source.min_rows
+                }
+                all_exact = all(
+                    source.min_rows == source.max_rows for source in sources
+                )
+                if all_exact and len(exact) > 1:
+                    raise self.error(
+                        "zip_cardinality_mismatch",
+                        path,
+                        "zip sources have unequal fixed lengths",
+                    )
+                if not all_exact:
+                    self.obligation(
+                        RelationRuntimeObligationKind.ZIP_EQUAL_LENGTH,
+                        path,
+                        "zip sources must materialize with equal lengths",
+                    )
+                result = Table((), (), minimum, maximum)
+                for index, source in enumerate(sources):
+                    result = self.merge_tables(
+                        result,
+                        source,
+                        (*path, "sources", index),
+                        operation="zip",
+                        minimum=minimum,
+                        maximum=maximum,
+                    )
+            case WithColumnsRelationExpr():
+                source = cast(
+                    "Table",
+                    self.infer(relation.source, (*path, "source"), rows=rows),
+                )
+                columns = list(source.columns)
+                overwritten: set[str] = set()
+                for name, expression in relation.new_columns.items():
+                    current = RowType(tuple(columns), source.allow_extra_columns)
+                    value_type = cast(
+                        "Scalar",
+                        self.infer(
+                            expression,
+                            (*path, "new_columns", name),
+                            rows=rows.with_current(current, relation.row_scope_id),
+                        ),
+                    )
+                    if any(column.id == name for column in columns):
+                        overwritten.add(name)
+                        columns = [column for column in columns if column.id != name]
+                    columns.append(TableColumn(name, value_type))
+                primary_key = (
+                    source.primary_key
+                    if not overwritten.intersection(source.primary_key)
+                    else ()
+                )
+                result = Table(
+                    tuple(columns),
+                    primary_key,
+                    source.min_rows,
+                    source.max_rows,
+                    source.allow_extra_columns,
+                )
+            case SortRelationExpr():
+                source = cast(
+                    "Table",
+                    self.infer(relation.source, (*path, "source"), rows=rows),
+                )
+                for index, name in enumerate(relation.sort_columns):
+                    value_type = self.row_column(
+                        RowType.from_table(source),
+                        name,
                         (*path, "sort_columns", index),
-                        str(error),
-                    ) from error
-            result = source
-        else:
-            source = cast(
-                "Table",
-                self.infer(relation.source, (*path, "source"), rows=rows),
-            )
-            count = relation.limit_count
-            result = Table(
-                source.columns,
-                source.primary_key,
-                min(source.min_rows, count),
-                _min_optional(source.max_rows, count),
-                source.allow_extra_columns,
-            )
+                    )
+                    try:
+                        require_sortable_scalar(value_type, column_id=name)
+                    except TypeError as error:
+                        raise self.error(
+                            "unsortable_column",
+                            (*path, "sort_columns", index),
+                            str(error),
+                        ) from error
+                result = source
+            case LimitRelationExpr():
+                source = cast(
+                    "Table",
+                    self.infer(relation.source, (*path, "source"), rows=rows),
+                )
+                count = relation.limit_count
+                result = Table(
+                    source.columns,
+                    source.primary_key,
+                    min(source.min_rows, count),
+                    _min_optional(source.max_rows, count),
+                    source.allow_extra_columns,
+                )
         self.require_expected(result, expected, path)
         return result
 
@@ -1184,75 +1213,80 @@ class _Verifier:
                 if (selected := expected_columns.get(name)) is not None
                 else None
             )
-            if isinstance(column, ScalarGridColumn):
-                item = cast(
-                    "Scalar",
-                    self.infer(
-                        column.scalar,
-                        (*column_path, "scalar"),
-                        expected_item,
-                        rows=rows,
-                    ),
-                )
-                lower, upper = 1, 1
-            elif isinstance(column, SeriesGridColumn):
-                series = cast(
-                    "Series",
-                    self.infer(
-                        column.series,
-                        (*column_path, "series"),
-                        (Series(expected_item) if expected_item is not None else None),
-                        rows=rows,
-                    ),
-                )
-                item = series.item_type
-                lower, upper = series.min_length, series.max_length
-            elif isinstance(column, RelationGridColumn):
-                relation_expected = (
-                    _table_from_record(expected_item.atom)
-                    if expected_item is not None
-                    and isinstance(expected_item.atom, Record)
-                    else None
-                )
-                relation = cast(
-                    "Table",
-                    self.infer(
-                        column.relation,
-                        (*column_path, "relation"),
-                        relation_expected,
-                        rows=rows,
-                    ),
-                )
-                item = Scalar(_record_from_row(RowType.from_table(relation)))
-                lower, upper = relation.min_rows, relation.max_rows
-            else:
-                values = column.values
-                if expected_item is not None:
-                    self.validate_literal(
-                        Series(expected_item, len(values), len(values)),
-                        values,
-                        (*column_path, "values"),
+            match column:
+                case ScalarGridColumn():
+                    item = cast(
+                        "Scalar",
+                        self.infer(
+                            column.scalar,
+                            (*column_path, "scalar"),
+                            expected_item,
+                            rows=rows,
+                        ),
                     )
-                    item = expected_item
-                elif not values:
-                    raise self.error(
-                        "ambiguous_empty_series",
-                        (*column_path, "values"),
-                        "an empty grid values column needs contextual typing",
+                    lower, upper = 1, 1
+                case SeriesGridColumn():
+                    series = cast(
+                        "Series",
+                        self.infer(
+                            column.series,
+                            (*column_path, "series"),
+                            (
+                                Series(expected_item)
+                                if expected_item is not None
+                                else None
+                            ),
+                            rows=rows,
+                        ),
                     )
-                else:
-                    item = _common_scalars(
-                        [
-                            self.literal(
-                                value,
-                                (*column_path, "values", index),
-                                None,
-                            )
-                            for index, value in enumerate(values)
-                        ],
-                        column_path,
+                    item = series.item_type
+                    lower, upper = series.min_length, series.max_length
+                case RelationGridColumn():
+                    relation_expected = (
+                        _table_from_record(expected_item.atom)
+                        if expected_item is not None
+                        and isinstance(expected_item.atom, Record)
+                        else None
                     )
-                lower = upper = len(values)
+                    relation = cast(
+                        "Table",
+                        self.infer(
+                            column.relation,
+                            (*column_path, "relation"),
+                            relation_expected,
+                            rows=rows,
+                        ),
+                    )
+                    item = Scalar(_record_from_row(RowType.from_table(relation)))
+                    lower, upper = relation.min_rows, relation.max_rows
+                case ValuesGridColumn():
+                    values = column.values
+                    if expected_item is not None:
+                        self.validate_literal(
+                            Series(expected_item, len(values), len(values)),
+                            values,
+                            (*column_path, "values"),
+                        )
+                        item = expected_item
+                    elif not values:
+                        raise self.error(
+                            "ambiguous_empty_series",
+                            (*column_path, "values"),
+                            "an empty grid values column needs contextual typing",
+                        )
+                    else:
+                        item = _common_scalars(
+                            [
+                                self.literal(
+                                    value,
+                                    (*column_path, "values", index),
+                                    None,
+                                )
+                                for index, value in enumerate(values)
+                            ],
+                            column_path,
+                        )
+                    lower = upper = len(values)
             output.append(TableColumn(name, item))
             minimum *= lower
             maximum = _multiply_optional(maximum, upper)

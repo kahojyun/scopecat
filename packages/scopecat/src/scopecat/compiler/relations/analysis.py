@@ -50,6 +50,7 @@ from scopecat.compiler.relations.model import (
     SeriesGridColumn,
     SortRelationExpr,
     TableRelationExpr,
+    ValuesGridColumn,
     ValuesSeriesExpr,
     WithColumnsRelationExpr,
     ZipRelationExpr,
@@ -255,12 +256,15 @@ def iter_plan_children(node: PlanNode) -> Iterator[PlanNode]:
         return
     if isinstance(relation, GridRelationExpr):
         for column in relation.columns.values():
-            if isinstance(column, ScalarGridColumn):
-                yield column.scalar
-            elif isinstance(column, SeriesGridColumn):
-                yield column.series
-            elif isinstance(column, RelationGridColumn):
-                yield column.relation
+            match column:
+                case ScalarGridColumn(scalar=scalar):
+                    yield scalar
+                case SeriesGridColumn(series=series):
+                    yield series
+                case RelationGridColumn(relation=source):
+                    yield source
+                case ValuesGridColumn():
+                    pass
         return
     if isinstance(relation, (SelectRelationExpr, SortRelationExpr, LimitRelationExpr)):
         yield relation.source
@@ -723,23 +727,24 @@ def _prefix_plan_row_scopes(
     if isinstance(relation, GridRelationExpr):
         columns = {}
         for name, column in relation.columns.items():
-            if isinstance(column, ScalarGridColumn):
-                columns[name] = replace(
-                    column,
-                    scalar=_prefix_plan_row_scopes(column.scalar, scope),
-                )
-            elif isinstance(column, SeriesGridColumn):
-                columns[name] = replace(
-                    column,
-                    series=_prefix_plan_row_scopes(column.series, scope),
-                )
-            elif isinstance(column, RelationGridColumn):
-                columns[name] = replace(
-                    column,
-                    relation=_prefix_plan_row_scopes(column.relation, scope),
-                )
-            else:
-                columns[name] = column
+            match column:
+                case ScalarGridColumn(scalar=scalar):
+                    columns[name] = replace(
+                        column,
+                        scalar=_prefix_plan_row_scopes(scalar, scope),
+                    )
+                case SeriesGridColumn(series=series):
+                    columns[name] = replace(
+                        column,
+                        series=_prefix_plan_row_scopes(series, scope),
+                    )
+                case RelationGridColumn(relation=source):
+                    columns[name] = replace(
+                        column,
+                        relation=_prefix_plan_row_scopes(source, scope),
+                    )
+                case ValuesGridColumn():
+                    columns[name] = column
         return replace(relation, columns=columns)
     if isinstance(relation, (SelectRelationExpr, SortRelationExpr, LimitRelationExpr)):
         return replace(

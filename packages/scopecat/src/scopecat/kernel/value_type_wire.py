@@ -185,59 +185,71 @@ def scalar_type_to_wire(value: Scalar) -> dict[str, object]:
     _validate_scalar_type_declaration(value)
     atom = value.atom
     data: dict[str, object]
-    if isinstance(atom, Bool):
-        data = {"type": "bool"}
-    elif isinstance(atom, Int):
-        data = {"type": "int"}
-        if atom.minimum is not None:
-            data["minimum"] = atom.minimum
-        if atom.maximum is not None:
-            data["maximum"] = atom.maximum
-    elif isinstance(atom, Float):
-        data = {"type": "float"}
-        if atom.minimum is not None:
-            data["minimum"] = atom.minimum
-        if atom.maximum is not None:
-            data["maximum"] = atom.maximum
-        if not atom.finite:
-            data["finite"] = False
-    elif isinstance(atom, String):
-        data = {"type": "string"}
-        if atom.min_length:
-            data["min_length"] = atom.min_length
-        if atom.max_length is not None:
-            data["max_length"] = atom.max_length
-        if atom.pattern is not None:
-            data["pattern"] = atom.pattern
-        if atom.choices is not None:
-            data["choices"] = list(atom.choices)
-    elif isinstance(atom, Quantity):
-        data = {"type": "quantity"}
-        if atom.dimension is not None:
-            data["dimension"] = atom.dimension
-        if atom.unit is not None:
-            data["unit"] = atom.unit
-        if atom.minimum is not None:
-            data["minimum"] = atom.minimum
-        if atom.maximum is not None:
-            data["maximum"] = atom.maximum
-        if not atom.finite:
-            data["finite"] = False
-    elif isinstance(atom, Entity):
-        data = {"type": "entity"}
-        if atom.entity_kind is not None:
-            data["entity_kind"] = atom.entity_kind
-    elif isinstance(atom, Payload):
-        if atom.python_type is not None:
-            msg = (
-                "payload scalar type python_type is runtime-only and cannot be "
-                "serialized"
-            )
+    match atom:
+        case Bool():
+            data = {"type": "bool"}
+        case Int(minimum=minimum, maximum=maximum):
+            data = {"type": "int"}
+            if minimum is not None:
+                data["minimum"] = minimum
+            if maximum is not None:
+                data["maximum"] = maximum
+        case Float(minimum=minimum, maximum=maximum, finite=finite):
+            data = {"type": "float"}
+            if minimum is not None:
+                data["minimum"] = minimum
+            if maximum is not None:
+                data["maximum"] = maximum
+            if not finite:
+                data["finite"] = False
+        case String(
+            min_length=min_length,
+            max_length=max_length,
+            pattern=pattern,
+            choices=choices,
+        ):
+            data = {"type": "string"}
+            if min_length:
+                data["min_length"] = min_length
+            if max_length is not None:
+                data["max_length"] = max_length
+            if pattern is not None:
+                data["pattern"] = pattern
+            if choices is not None:
+                data["choices"] = list(choices)
+        case Quantity(
+            dimension=dimension,
+            unit=unit,
+            minimum=minimum,
+            maximum=maximum,
+            finite=finite,
+        ):
+            data = {"type": "quantity"}
+            if dimension is not None:
+                data["dimension"] = dimension
+            if unit is not None:
+                data["unit"] = unit
+            if minimum is not None:
+                data["minimum"] = minimum
+            if maximum is not None:
+                data["maximum"] = maximum
+            if not finite:
+                data["finite"] = False
+        case Entity(entity_kind=entity_kind):
+            data = {"type": "entity"}
+            if entity_kind is not None:
+                data["entity_kind"] = entity_kind
+        case Payload(schema_id=schema_id, python_type=python_type):
+            if python_type is not None:
+                msg = (
+                    "payload scalar type python_type is runtime-only and cannot be "
+                    "serialized"
+                )
+                raise TypeError(msg)
+            data = {"type": "payload", "schema_id": schema_id}
+        case _:
+            msg = f"unsupported durable scalar type: {type(atom).__name__}"
             raise TypeError(msg)
-        data = {"type": "payload", "schema_id": atom.schema_id}
-    else:
-        msg = f"unsupported durable scalar type: {type(atom).__name__}"
-        raise TypeError(msg)
     if value.nullable:
         data["nullable"] = True
     return data
@@ -299,33 +311,45 @@ def _validate_wire_field_types(
 def _validate_scalar_type_declaration(value: Scalar) -> None:
     _require_bool(value.nullable, label="scalar value_type nullable")
     atom = value.atom
-    if isinstance(atom, Bool):
-        return
-    elif isinstance(atom, Int):
-        _require_optional_int(atom.minimum, label="Int minimum")
-        _require_optional_int(atom.maximum, label="Int maximum")
-    elif isinstance(atom, Float):
-        _require_optional_number(atom.minimum, label="Float minimum")
-        _require_optional_number(atom.maximum, label="Float maximum")
-        _require_bool(atom.finite, label="Float finite")
-    elif isinstance(atom, String):
-        _require_int(atom.min_length, label="String min_length")
-        _require_optional_int(atom.max_length, label="String max_length")
-        _require_optional_string(atom.pattern, label="String pattern")
-        _require_optional_string_tuple(atom.choices, label="String choices")
-    elif isinstance(atom, Quantity):
-        _require_optional_string(atom.dimension, label="Quantity dimension")
-        _require_optional_string(atom.unit, label="Quantity unit")
-        _require_optional_number(atom.minimum, label="Quantity minimum")
-        _require_optional_number(atom.maximum, label="Quantity maximum")
-        _require_bool(atom.finite, label="Quantity finite")
-    elif isinstance(atom, Entity):
-        _require_optional_string(atom.entity_kind, label="Entity entity_kind")
-    elif isinstance(atom, Payload):
-        _require_string(atom.schema_id, label="Payload schema_id")
-    else:
-        msg = f"unsupported durable scalar type: {type(atom).__name__}"
-        raise TypeError(msg)
+    match atom:
+        case Bool():
+            return
+        case Int(minimum=minimum, maximum=maximum):
+            _require_optional_int(minimum, label="Int minimum")
+            _require_optional_int(maximum, label="Int maximum")
+        case Float(minimum=minimum, maximum=maximum, finite=finite):
+            _require_optional_number(minimum, label="Float minimum")
+            _require_optional_number(maximum, label="Float maximum")
+            _require_bool(finite, label="Float finite")
+        case String(
+            min_length=min_length,
+            max_length=max_length,
+            pattern=pattern,
+            choices=choices,
+        ):
+            _require_int(min_length, label="String min_length")
+            _require_optional_int(max_length, label="String max_length")
+            _require_optional_string(pattern, label="String pattern")
+            _require_optional_string_tuple(choices, label="String choices")
+        case Quantity(
+            dimension=dimension,
+            unit=unit,
+            minimum=minimum,
+            maximum=maximum,
+            finite=finite,
+        ):
+            _require_optional_string(dimension, label="Quantity dimension")
+            _require_optional_string(unit, label="Quantity unit")
+            _require_optional_number(minimum, label="Quantity minimum")
+            _require_optional_number(maximum, label="Quantity maximum")
+            _require_bool(finite, label="Quantity finite")
+        case Entity(entity_kind=entity_kind):
+            _require_optional_string(entity_kind, label="Entity entity_kind")
+        case Payload(schema_id=schema_id):
+            _require_string(schema_id, label="Payload schema_id")
+        case _:
+            msg = f"unsupported durable scalar type: {type(atom).__name__}"
+            raise TypeError(msg)
 
 
 def _require_bool(value: object, *, label: str) -> None:

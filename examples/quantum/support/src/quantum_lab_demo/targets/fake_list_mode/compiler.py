@@ -22,6 +22,7 @@ from scopecat_quantum import (
     Acquire,
     AcquireSignal,
     AcquisitionKind,
+    Barrier,
     Constant,
     Delay,
     DriveSignal,
@@ -308,97 +309,101 @@ class FakeListTargetCompiler:
                     ),
                 )
             instruction = event.instruction
-            if isinstance(instruction, Play):
-                self._plan_play(
-                    entry_id=entry.id,
-                    event_id=event.id.value,
-                    instruction=instruction,
-                    start_sample=start_sample,
-                    sample_count=duration_sample_count,
-                    intervals=output_intervals,
-                    plays=plays,
-                    phase_offset=(
-                        frame_phases.get(instruction.signal, 0.0)
-                        if isinstance(instruction.signal, DriveSignal | ReadoutSignal)
-                        else 0.0
-                    ),
-                    issues=issues,
-                )
-            elif isinstance(instruction, Acquire):
-                channel_id = self.target.acquisition_channel(instruction.signal)
-                if channel_id is None:
-                    _entry_issue(
-                        issues,
-                        entry.id,
-                        code="fake_list_acquisition_signal_unbound",
-                        message=(
-                            f"acquisition signal {_signal_label(instruction.signal)} "
-                            "has no digitizer binding"
-                        ),
-                    )
-                slot = slots_by_id.get(instruction.slot_id)
-                if slot is None:
-                    _entry_issue(
-                        issues,
-                        entry.id,
-                        code="fake_list_acquisition_slot_missing",
-                        message=(
-                            f"event {event.id.value!r} references undeclared "
-                            f"acquisition slot {instruction.slot_id.value!r}"
-                        ),
-                    )
-                if (
-                    channel_id is not None
-                    and start_sample is not None
-                    and duration_sample_count is not None
-                    and duration_sample_count > 0
-                ):
-                    _claim_interval(
-                        intervals=acquisition_intervals,
-                        channel_id=channel_id,
+            match instruction:
+                case Play():
+                    self._plan_play(
+                        entry_id=entry.id,
+                        event_id=event.id.value,
+                        instruction=instruction,
                         start_sample=start_sample,
                         sample_count=duration_sample_count,
-                        event_id=event.id.value,
-                        entry_id=entry.id,
-                        overlap_code="fake_list_physical_acquisition_overlap",
-                        resource_label="digitizer channel",
+                        intervals=output_intervals,
+                        plays=plays,
+                        phase_offset=(
+                            frame_phases.get(instruction.signal, 0.0)
+                            if isinstance(
+                                instruction.signal, DriveSignal | ReadoutSignal
+                            )
+                            else 0.0
+                        ),
                         issues=issues,
                     )
-                    if slot is not None:
-                        acquisitions.append(
-                            FakeAcquisitionWindow(
-                                event_id=event.id,
-                                slot_id=instruction.slot_id,
-                                signal=instruction.signal,
-                                channel_id=channel_id,
-                                start_sample=start_sample,
-                                sample_count=duration_sample_count,
-                                kind=slot.kind,
-                            )
+                case Acquire():
+                    channel_id = self.target.acquisition_channel(instruction.signal)
+                    if channel_id is None:
+                        _entry_issue(
+                            issues,
+                            entry.id,
+                            code="fake_list_acquisition_signal_unbound",
+                            message=(
+                                "acquisition signal "
+                                f"{_signal_label(instruction.signal)} "
+                                "has no digitizer binding"
+                            ),
                         )
-            elif isinstance(instruction, Delay):
-                self._validate_signal_binding(
-                    entry_id=entry.id,
-                    signal=instruction.signal,
-                    issues=issues,
-                )
-            elif isinstance(instruction, ShiftPhase):
-                self._validate_signal_binding(
-                    entry_id=entry.id,
-                    signal=instruction.signal,
-                    issues=issues,
-                )
-                frame_phases[instruction.signal] = _wrapped_phase(
-                    frame_phases.get(instruction.signal, 0.0)
-                    + _wrapped_phase(float(instruction.phase.value))
-                )
-            else:
-                for signal in instruction.signals:
+                    slot = slots_by_id.get(instruction.slot_id)
+                    if slot is None:
+                        _entry_issue(
+                            issues,
+                            entry.id,
+                            code="fake_list_acquisition_slot_missing",
+                            message=(
+                                f"event {event.id.value!r} references undeclared "
+                                f"acquisition slot {instruction.slot_id.value!r}"
+                            ),
+                        )
+                    if (
+                        channel_id is not None
+                        and start_sample is not None
+                        and duration_sample_count is not None
+                        and duration_sample_count > 0
+                    ):
+                        _claim_interval(
+                            intervals=acquisition_intervals,
+                            channel_id=channel_id,
+                            start_sample=start_sample,
+                            sample_count=duration_sample_count,
+                            event_id=event.id.value,
+                            entry_id=entry.id,
+                            overlap_code="fake_list_physical_acquisition_overlap",
+                            resource_label="digitizer channel",
+                            issues=issues,
+                        )
+                        if slot is not None:
+                            acquisitions.append(
+                                FakeAcquisitionWindow(
+                                    event_id=event.id,
+                                    slot_id=instruction.slot_id,
+                                    signal=instruction.signal,
+                                    channel_id=channel_id,
+                                    start_sample=start_sample,
+                                    sample_count=duration_sample_count,
+                                    kind=slot.kind,
+                                )
+                            )
+                case Delay():
                     self._validate_signal_binding(
                         entry_id=entry.id,
-                        signal=signal,
+                        signal=instruction.signal,
                         issues=issues,
                     )
+                case ShiftPhase():
+                    self._validate_signal_binding(
+                        entry_id=entry.id,
+                        signal=instruction.signal,
+                        issues=issues,
+                    )
+                    frame_phases[instruction.signal] = _wrapped_phase(
+                        frame_phases.get(instruction.signal, 0.0)
+                        + _wrapped_phase(float(instruction.phase.value))
+                    )
+                case Barrier():
+                    for signal in instruction.signals:
+                        self._validate_signal_binding(
+                            entry_id=entry.id,
+                            signal=signal,
+                            issues=issues,
+                        )
 
         if duration_samples is None or duration_samples <= 0:
             return None

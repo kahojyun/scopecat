@@ -492,14 +492,15 @@ class ExecutionEngine:
         )
         self._observe_transition(point_entry)
         for stage in point.stages:
-            if isinstance(stage, ComputeStage):
-                self._execute_compute_stage(frame, stage)
-            elif isinstance(stage, ApplyStateStage):
-                self._execute_apply_stage(frame, stage)
-            elif isinstance(stage, ActionStage):
-                self._execute_action_stage(frame, stage)
-            else:
-                self._execute_collect_stage(frame, stage)
+            match stage:
+                case ComputeStage():
+                    self._execute_compute_stage(frame, stage)
+                case ApplyStateStage():
+                    self._execute_apply_stage(frame, stage)
+                case ActionStage():
+                    self._execute_action_stage(frame, stage)
+                case CollectStage():
+                    self._execute_collect_stage(frame, stage)
             if has_blocking_problems(self.problems[problem_count_before:]):
                 break
 

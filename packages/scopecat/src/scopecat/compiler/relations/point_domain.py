@@ -180,15 +180,18 @@ def walk_point_domain[LeafT](
         path: PointDomainPath,
     ) -> Iterator[tuple[PointDomainPath, PointDomainExpr[LeafT]]]:
         yield path, node
-        if isinstance(node, PointProduct):
-            for index, factor in enumerate(node.factors):
-                yield from visit(factor, (*path, "factors", index))
-        elif isinstance(node, PointDependentProduct):
-            yield from visit(node.left, (*path, "left"))
-            yield from visit(node.right, (*path, "right"))
-        elif isinstance(node, PointZip):
-            for index, source in enumerate(node.sources):
-                yield from visit(source, (*path, "sources", index))
+        match node:
+            case PointUnit() | PointRelationRows():
+                return
+            case PointProduct(factors=factors):
+                for index, factor in enumerate(factors):
+                    yield from visit(factor, (*path, "factors", index))
+            case PointDependentProduct(left=left, right=right):
+                yield from visit(left, (*path, "left"))
+                yield from visit(right, (*path, "right"))
+            case PointZip(sources=sources):
+                for index, source in enumerate(sources):
+                    yield from visit(source, (*path, "sources", index))
 
     yield from visit(root, ())
 
@@ -213,31 +216,33 @@ def map_point_relation_rows[LeafT, MappedLeafT](
         node: PointDomainExpr[LeafT],
         path: PointDomainPath,
     ) -> PointDomainExpr[MappedLeafT]:
-        if isinstance(node, PointUnit):
-            return POINT_UNIT
-        if isinstance(node, PointRelationRows):
-            return PointRelationRows(
-                transform(node.rows, path),
-                relation_use_id=node.relation_use_id,
-            )
-        if isinstance(node, PointProduct):
-            return PointProduct(
-                tuple(
-                    visit(factor, (*path, "factors", index))
-                    for index, factor in enumerate(node.factors)
+        match node:
+            case PointUnit():
+                return POINT_UNIT
+            case PointRelationRows(rows=rows, relation_use_id=relation_use_id):
+                return PointRelationRows(
+                    transform(rows, path),
+                    relation_use_id=relation_use_id,
                 )
-            )
-        if isinstance(node, PointDependentProduct):
-            return PointDependentProduct(
-                visit(node.left, (*path, "left")),
-                visit(node.right, (*path, "right")),
-            )
-        return PointZip(
-            tuple(
-                visit(source, (*path, "sources", index))
-                for index, source in enumerate(node.sources)
-            )
-        )
+            case PointProduct(factors=factors):
+                return PointProduct(
+                    tuple(
+                        visit(factor, (*path, "factors", index))
+                        for index, factor in enumerate(factors)
+                    )
+                )
+            case PointDependentProduct(left=left, right=right):
+                return PointDependentProduct(
+                    visit(left, (*path, "left")),
+                    visit(right, (*path, "right")),
+                )
+            case PointZip(sources=sources):
+                return PointZip(
+                    tuple(
+                        visit(source, (*path, "sources", index))
+                        for index, source in enumerate(sources)
+                    )
+                )
 
     return visit(root, ())
 
@@ -291,28 +296,29 @@ def analyze_point_domain[LeafT](
         node: PointDomainExpr[LeafT],
         path: PointDomainPath,
     ) -> PointDomainShape:
-        if isinstance(node, PointUnit):
-            shape = PointDomainShape(Table(columns=(), min_rows=1, max_rows=1))
-        elif isinstance(node, PointRelationRows):
-            shape = PointDomainShape(leaf_value_type(node.rows, path))
-        elif isinstance(node, PointProduct):
-            children = tuple(
-                analyze(factor, (*path, "factors", index))
-                for index, factor in enumerate(node.factors)
-            )
-            shape = _product_shape(children, path=path)
-        elif isinstance(node, PointDependentProduct):
-            children = (
-                analyze(node.left, (*path, "left")),
-                analyze(node.right, (*path, "right")),
-            )
-            shape = _product_shape(children, path=path)
-        else:
-            children = tuple(
-                analyze(source, (*path, "sources", index))
-                for index, source in enumerate(node.sources)
-            )
-            shape = _zip_shape(children, path=path)
+        match node:
+            case PointUnit():
+                shape = PointDomainShape(Table(columns=(), min_rows=1, max_rows=1))
+            case PointRelationRows(rows=rows):
+                shape = PointDomainShape(leaf_value_type(rows, path))
+            case PointProduct(factors=factors):
+                children = tuple(
+                    analyze(factor, (*path, "factors", index))
+                    for index, factor in enumerate(factors)
+                )
+                shape = _product_shape(children, path=path)
+            case PointDependentProduct(left=left, right=right):
+                children = (
+                    analyze(left, (*path, "left")),
+                    analyze(right, (*path, "right")),
+                )
+                shape = _product_shape(children, path=path)
+            case PointZip(sources=sources):
+                children = tuple(
+                    analyze(source, (*path, "sources", index))
+                    for index, source in enumerate(sources)
+                )
+                shape = _zip_shape(children, path=path)
         facts[path] = shape
         return shape
 

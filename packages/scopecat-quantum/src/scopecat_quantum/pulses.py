@@ -179,15 +179,12 @@ type PulseInstruction = PulseLeaf | Sequence | Parallel
 def iter_pulse_leaves(instruction: PulseInstruction) -> Iterator[PulseLeaf]:
     """Yield pulse leaves in deterministic structural order."""
 
-    if isinstance(instruction, Play | Acquire | Delay | ShiftPhase | Barrier):
-        yield instruction
-        return
-    if isinstance(instruction, Sequence):
-        children = instruction.instructions
-    else:
-        children = instruction.branches
-    for child in children:
-        yield from iter_pulse_leaves(child)
+    match instruction:
+        case Play() | Acquire() | Delay() | ShiftPhase() | Barrier():
+            yield instruction
+        case Sequence(instructions=children) | Parallel(branches=children):
+            for child in children:
+                yield from iter_pulse_leaves(child)
 
 
 @dataclass(frozen=True, slots=True)
@@ -582,20 +579,26 @@ def _normalized_envelope(
 
 
 def _signal_key(signal: LogicalSignal) -> tuple[str, str, str]:
-    if isinstance(signal, DriveSignal):
-        return ("drive", "qubit", signal.qubit.value)
-    if isinstance(signal, ReadoutSignal):
-        return ("readout", "qubit", signal.qubit.value)
-    if isinstance(signal, AcquireSignal):
-        return ("acquire", "qubit", signal.qubit.value)
-    owner_kind = "qubit" if isinstance(signal.owner, QubitId) else "coupler"
-    return ("flux", owner_kind, signal.owner.value)
+    match signal:
+        case DriveSignal(qubit=qubit):
+            return ("drive", "qubit", qubit.value)
+        case ReadoutSignal(qubit=qubit):
+            return ("readout", "qubit", qubit.value)
+        case AcquireSignal(qubit=qubit):
+            return ("acquire", "qubit", qubit.value)
+        case FluxSignal(owner=owner):
+            owner_kind = "qubit" if isinstance(owner, QubitId) else "coupler"
+            return ("flux", owner_kind, owner.value)
 
 
 def _leaf_signals(leaf: PulseLeaf) -> tuple[LogicalSignal, ...]:
-    if isinstance(leaf, Barrier):
-        return leaf.signals
-    return (leaf.signal,)
+    match leaf:
+        case Barrier(signals=signals):
+            return signals
+        case Play(signal=signal) | Acquire(signal=signal) | Delay(signal=signal):
+            return (signal,)
+        case ShiftPhase(signal=signal):
+            return (signal,)
 
 
 def _place_instruction(
@@ -664,85 +667,86 @@ def _place_instruction(
 
     normalized: PulseLeaf = instruction
     duration = Decimal(0)
-    if isinstance(instruction, Play):
-        envelope = _normalized_envelope(
-            instruction.envelope,
-            issues=issues,
-            instruction_id=event_id,
-            path=path,
-        )
-        if envelope is not None:
-            normalized_envelope, duration = envelope
-            normalized = replace(instruction, envelope=normalized_envelope)
-    elif isinstance(instruction, Acquire):
-        acquisition_uses.setdefault(instruction.slot_id, []).append(instruction)
-        normalized_duration = _time_value(
-            instruction.duration,
-            name="acquisition duration",
-            issues=issues,
-            instruction_id=event_id,
-            path=path,
-            positive=True,
-        )
-        if normalized_duration is not None:
-            duration = normalized_duration
-            normalized_duration_value = _representable_quantity_seconds(
-                duration,
+    match instruction:
+        case Play():
+            envelope = _normalized_envelope(
+                instruction.envelope,
+                issues=issues,
+                instruction_id=event_id,
+                path=path,
+            )
+            if envelope is not None:
+                normalized_envelope, duration = envelope
+                normalized = replace(instruction, envelope=normalized_envelope)
+        case Acquire():
+            acquisition_uses.setdefault(instruction.slot_id, []).append(instruction)
+            normalized_duration = _time_value(
+                instruction.duration,
                 name="acquisition duration",
                 issues=issues,
                 instruction_id=event_id,
                 path=path,
+                positive=True,
             )
-            if normalized_duration_value is not None:
-                normalized = replace(
-                    instruction,
-                    duration=Quantity(value=normalized_duration_value, unit="s"),
+            if normalized_duration is not None:
+                duration = normalized_duration
+                normalized_duration_value = _representable_quantity_seconds(
+                    duration,
+                    name="acquisition duration",
+                    issues=issues,
+                    instruction_id=event_id,
+                    path=path,
                 )
-    elif isinstance(instruction, Delay):
-        normalized_duration = _time_value(
-            instruction.duration,
-            name="delay duration",
-            issues=issues,
-            instruction_id=event_id,
-            path=path,
-            positive=True,
-        )
-        if normalized_duration is not None:
-            duration = normalized_duration
-            normalized_duration_value = _representable_quantity_seconds(
-                duration,
+                if normalized_duration_value is not None:
+                    normalized = replace(
+                        instruction,
+                        duration=Quantity(value=normalized_duration_value, unit="s"),
+                    )
+        case Delay():
+            normalized_duration = _time_value(
+                instruction.duration,
                 name="delay duration",
                 issues=issues,
                 instruction_id=event_id,
                 path=path,
+                positive=True,
             )
-            if normalized_duration_value is not None:
-                normalized = replace(
-                    instruction,
-                    duration=Quantity(value=normalized_duration_value, unit="s"),
+            if normalized_duration is not None:
+                duration = normalized_duration
+                normalized_duration_value = _representable_quantity_seconds(
+                    duration,
+                    name="delay duration",
+                    issues=issues,
+                    instruction_id=event_id,
+                    path=path,
                 )
-    elif isinstance(instruction, ShiftPhase):
-        normalized_phase = _normalized_phase(
-            instruction.phase,
-            issues=issues,
-            instruction_id=event_id,
-            path=path,
-        )
-        if normalized_phase is not None:
-            normalized = replace(instruction, phase=normalized_phase)
-    else:
-        if len(set(instruction.signals)) != len(instruction.signals):
-            _issue(
-                issues,
-                "pulse_barrier_signal_duplicate",
-                "Barrier signals must be unique",
+                if normalized_duration_value is not None:
+                    normalized = replace(
+                        instruction,
+                        duration=Quantity(value=normalized_duration_value, unit="s"),
+                    )
+        case ShiftPhase():
+            normalized_phase = _normalized_phase(
+                instruction.phase,
+                issues=issues,
                 instruction_id=event_id,
                 path=path,
             )
-        normalized = replace(
-            instruction,
-            signals=tuple(sorted(instruction.signals, key=_signal_key)),
-        )
+            if normalized_phase is not None:
+                normalized = replace(instruction, phase=normalized_phase)
+        case Barrier():
+            if len(set(instruction.signals)) != len(instruction.signals):
+                _issue(
+                    issues,
+                    "pulse_barrier_signal_duplicate",
+                    "Barrier signals must be unique",
+                    instruction_id=event_id,
+                    path=path,
+                )
+            normalized = replace(
+                instruction,
+                signals=tuple(sorted(instruction.signals, key=_signal_key)),
+            )
     return [_PlacedLeaf(normalized, start, duration, path)], duration
 
 
