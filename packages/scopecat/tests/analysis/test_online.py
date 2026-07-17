@@ -1,6 +1,6 @@
 import pytest
 
-from scopecat.analysis import EarlyStopDecision, decide_online_convergence
+from scopecat.analysis import decide_online_convergence
 
 
 def test_decide_online_convergence_stops_when_tail_is_stable() -> None:
@@ -21,10 +21,6 @@ def test_decide_online_convergence_stops_when_tail_is_stable() -> None:
         window=2,
     )
 
-    restored = EarlyStopDecision.model_validate_json(decision.model_dump_json())
-
-    assert restored == decision
-    assert decision.schema_version == "scopecat.early_stop_decision.v3"
     assert decision.stop is True
     assert decision.evaluation_status == "evaluated"
     assert decision.completed_point_indices == (0, 1, 2)

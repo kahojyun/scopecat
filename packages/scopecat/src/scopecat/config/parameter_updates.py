@@ -10,6 +10,7 @@ from scopecat.config.validation import (
     coerce_stored_parameter_value,
     parameter_table_key_part,
 )
+from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.value_types import Scalar, Series, Table
 from scopecat.records.parameter import (
     ParameterAtomValue,
@@ -39,8 +40,8 @@ class UpdateParameterRows:
     """Transient intent to update one row selected by a table primary key."""
 
     parameter_id: str
-    key: Mapping[str, ParameterAtomValue]
-    values: Mapping[str, ParameterAtomValue]
+    key: FrozenMapping[str, ParameterAtomValue]
+    values: FrozenMapping[str, ParameterAtomValue]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +49,7 @@ class InsertParameterRows:
     """Transient intent to append rows to a table-shaped parameter."""
 
     parameter_id: str
-    rows: Sequence[Mapping[str, ParameterAtomValue]]
+    rows: tuple[FrozenMapping[str, ParameterAtomValue], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +57,7 @@ class DeleteParameterRows:
     """Transient intent to delete one row selected by a table primary key."""
 
     parameter_id: str
-    key: Mapping[str, ParameterAtomValue]
+    key: FrozenMapping[str, ParameterAtomValue]
 
 
 type ParameterUpdate = (
@@ -103,18 +104,17 @@ def update_parameter_rows(
 ) -> UpdateParameterRows:
     """Build a keyed row update intent.
 
-    The mapping is recursively frozen by the durable table-value validator,
-    while catalog-dependent checks happen when an analysis materializes it.
+    Parameter atoms are already immutable; catalog-dependent checks happen when
+    an analysis materializes the intent.
     """
 
     if not values:
         msg = "parameter row update values must be non-empty"
         raise ValueError(msg)
-    frozen = TableParameterValue(id=parameter_id, rows=(key, values)).rows
     return UpdateParameterRows(
         parameter_id=parameter_id,
-        key=frozen[0],
-        values=frozen[1],
+        key=FrozenMapping(key.items()),
+        values=FrozenMapping(values.items()),
     )
 
 
@@ -127,8 +127,10 @@ def insert_parameter_rows(
     if not rows:
         msg = "parameter row insertion requires at least one row"
         raise ValueError(msg)
-    frozen = TableParameterValue(id=parameter_id, rows=tuple(rows)).rows
-    return InsertParameterRows(parameter_id=parameter_id, rows=frozen)
+    return InsertParameterRows(
+        parameter_id=parameter_id,
+        rows=tuple(FrozenMapping(row.items()) for row in rows),
+    )
 
 
 def delete_parameter_rows(
@@ -138,8 +140,10 @@ def delete_parameter_rows(
 ) -> DeleteParameterRows:
     """Build a keyed row deletion intent."""
 
-    frozen = TableParameterValue(id=parameter_id, rows=(key,)).rows[0]
-    return DeleteParameterRows(parameter_id=parameter_id, key=frozen)
+    return DeleteParameterRows(
+        parameter_id=parameter_id,
+        key=FrozenMapping(key.items()),
+    )
 
 
 def materialize_parameter_updates(

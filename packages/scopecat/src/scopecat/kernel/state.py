@@ -45,9 +45,6 @@ class StateValue(RootModel[StateLiteral]):
         if isinstance(value, str):
             return value
         if isinstance(value, Quantity):
-            if not math.isfinite(value.value):
-                msg = "instrument state quantity must be finite"
-                raise ValueError(msg)
             return value
         if isinstance(value, PayloadRef | dict):
             return cast("object", value)

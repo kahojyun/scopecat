@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import datetime
-from typing import Annotated, Literal, Self, override
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -24,32 +23,19 @@ type EvidenceContentHash = Annotated[
 ]
 
 
-class _FrozenValidatedModel(BaseModel):
+class _FrozenRegistryModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
         revalidate_instances="always",
     )
 
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> Self:
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)
 
-
-class DirectConfigRegistrySource(_FrozenValidatedModel):
+class DirectConfigRegistrySource(_FrozenRegistryModel):
     kind: Literal["direct_config_profile"] = "direct_config_profile"
 
 
-class CandidateProposalRegistryEvidence(_FrozenValidatedModel):
+class CandidateProposalRegistryEvidence(_FrozenRegistryModel):
     proposal_id: str
     proposal_record_content_hash: EvidenceContentHash
     approval_event_id: str
@@ -63,7 +49,7 @@ class CandidateProposalRegistryEvidence(_FrozenValidatedModel):
         return self
 
 
-class CandidateConfigRegistrySource(_FrozenValidatedModel):
+class CandidateConfigRegistrySource(_FrozenRegistryModel):
     kind: Literal["candidate_config"] = "candidate_config"
     run_id: str
     proposal_evidence: tuple[CandidateProposalRegistryEvidence, ...] = Field(
@@ -93,7 +79,7 @@ ConfigRegistryEntrySource = Annotated[
 ]
 
 
-class ConfigRegistryEntry(_FrozenValidatedModel):
+class ConfigRegistryEntry(_FrozenRegistryModel):
     schema_version: Literal["scopecat.config.registry_entry.v6"] = (
         CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION
     )
@@ -114,7 +100,7 @@ class ConfigRegistryEntry(_FrozenValidatedModel):
         return self
 
 
-class ConfigRegistryIndex(_FrozenValidatedModel):
+class ConfigRegistryIndex(_FrozenRegistryModel):
     schema_version: Literal["scopecat.config.registry_index.v2"] = (
         CONFIG_REGISTRY_INDEX_SCHEMA_VERSION
     )
@@ -130,7 +116,7 @@ class ConfigRegistryIndex(_FrozenValidatedModel):
         return self
 
 
-class ConfigRegistryActivationRecord(_FrozenValidatedModel):
+class ConfigRegistryActivationRecord(_FrozenRegistryModel):
     schema_version: Literal["scopecat.config.registry_activation_record.v2"] = (
         CONFIG_REGISTRY_ACTIVATION_RECORD_SCHEMA_VERSION
     )
@@ -158,7 +144,7 @@ class ConfigRegistryActivationRecord(_FrozenValidatedModel):
         return self
 
 
-class ConfigRegistryActiveState(_FrozenValidatedModel):
+class ConfigRegistryActiveState(_FrozenRegistryModel):
     schema_version: Literal["scopecat.config.registry_active_state.v2"] = (
         CONFIG_REGISTRY_ACTIVE_STATE_SCHEMA_VERSION
     )

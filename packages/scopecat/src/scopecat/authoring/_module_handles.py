@@ -930,5 +930,5 @@ def _capture_state_literal(value: object) -> object:
     if isinstance(value, ValueRef):
         return value
     if isinstance(value, PayloadValue):
-        return value.model_copy()
+        return value
     return freeze_runtime_input(value)

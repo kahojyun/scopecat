@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from pydantic import JsonValue
+from scopecat.kernel.json_types import JsonValue
 
 
 @dataclass(frozen=True)

@@ -8,10 +8,8 @@ plan fingerprint; those are independent compiler facts.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, override
+from typing import override
 from uuid import uuid4
-
-from pydantic import ConfigDict
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,11 +35,6 @@ class RelationUseId:
 @dataclass(frozen=True, slots=True)
 class RelationUse[ValueT]:
     """A value paired with the identity of this particular use occurrence."""
-
-    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(
-        arbitrary_types_allowed=True,
-        revalidate_instances="always",
-    )
 
     value: ValueT
     id: RelationUseId = field(default_factory=RelationUseId.fresh)

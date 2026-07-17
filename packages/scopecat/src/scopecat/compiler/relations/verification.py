@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
@@ -284,8 +285,8 @@ class RelationPlanVerificationError(ValueError):
 class VerifiedRelationPlan[NodeT: PlanNode]:
     """Publicly immutable proof that a relation plan is closed and well typed.
 
-    The plan is copied both on entry and on public access so mutation of a
-    Pydantic AST cannot invalidate the proof after verification.
+    The plan is copied both on entry and on public access so mutation of nested
+    literal containers cannot invalidate the proof after verification.
     """
 
     __slots__ = (
@@ -313,7 +314,7 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
     ) -> None:
         if external_row_interface is None:
             raise AssertionError("verified relation plan row interface is missing")
-        self._root = cast("NodeT", root.model_copy(deep=True))
+        self._root = deepcopy(root)
         self._certified_type = certified_type
         self._facts = facts
         self._imports = imports
@@ -338,7 +339,7 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
 
     @property
     def root(self) -> NodeT:
-        return cast("NodeT", self._root.model_copy(deep=True))
+        return deepcopy(self._root)
 
     @property
     def certified_type(self) -> ValueType:

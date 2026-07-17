@@ -6,11 +6,11 @@ from typing import cast, override
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from pydantic import JsonValue
 
 from scopecat.compiler.linking.linked import MaterializedLinkedPointBatch
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.errors import CheckFailed, MeasurementTransformExecutionError
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ProblemCategory, ProblemPhase
 from scopecat.kernel.product_identity import ProductUse, ProductUseId
 from scopecat.measurements.host_transforms import (
@@ -25,6 +25,7 @@ from scopecat.measurements.host_transforms import (
     select_host_measurement_transforms,
 )
 from scopecat.measurements.semantics import (
+    MeasurementTransformPortability,
     MeasurementTransformRate,
     MeasurementTransformSemanticContract,
 )
@@ -403,6 +404,55 @@ def test_semantic_parameters_are_recursively_frozen_and_snapshot_inputs() -> Non
     nested = cast("dict[str, object]", semantic.parameters["nested"])
     with pytest.raises(TypeError, match="immutable"):
         nested["thresholds"] = ()
+
+
+@pytest.mark.parametrize(
+    ("semantic_id", "semantic_version"),
+    (("", "1"), ("test.identity", "")),
+)
+def test_semantic_contract_requires_non_empty_identity(
+    semantic_id: str,
+    semantic_version: str,
+) -> None:
+    with pytest.raises(ValueError, match="must be non-empty"):
+        MeasurementTransformSemanticContract(
+            id=semantic_id,
+            version=semantic_version,
+        )
+
+
+def test_semantic_contract_rejects_unknown_portability() -> None:
+    portability = cast(
+        "MeasurementTransformPortability",
+        cast("object", "remote"),
+    )
+
+    with pytest.raises(ValueError, match="portable or host_only"):
+        MeasurementTransformSemanticContract(
+            id="test.identity",
+            version="1",
+            portability=portability,
+        )
+
+
+def test_semantic_contract_fingerprint_is_explicit_and_order_independent() -> None:
+    first = MeasurementTransformSemanticContract(
+        id="test.identity",
+        version="2",
+        portability="host_only",
+        parameters={"z": [1, 2], "a": {"enabled": True}},
+    )
+    second = MeasurementTransformSemanticContract(
+        id="test.identity",
+        version="2",
+        portability="host_only",
+        parameters={"a": {"enabled": True}, "z": [1, 2]},
+    )
+
+    assert first.contract_fingerprint == second.contract_fingerprint
+    assert first.contract_fingerprint == (
+        "dd9456477ac23ea1c1014cebf0097685a818419e3294847d0c9de18fabda1140"
+    )
 
 
 def test_host_selection_requires_explicit_binding() -> None:

@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, override
+from typing import override
 from uuid import uuid4
-
-from pydantic import ConfigDict
 
 from scopecat.kernel.qualified_name import parse_qualified_name
 from scopecat.kernel.symbols import SymbolId
@@ -87,11 +85,6 @@ class ProductUseId:
 @dataclass(frozen=True, slots=True)
 class ProductUse:
     """One occurrence that references exactly one logical product definition."""
-
-    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(
-        arbitrary_types_allowed=True,
-        revalidate_instances="always",
-    )
 
     product_id: ProductId
     id: ProductUseId = field(default_factory=ProductUseId.fresh)

@@ -19,7 +19,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
 from scopecat.config.changes import ParameterChangeDecisionRecord
@@ -167,7 +167,6 @@ def _register_config_profile_locked(
     registered_by: str,
     note: str,
 ) -> ConfigRegistryEntry:
-    _validate_entry_id(entry_id)
     entry = ConfigRegistryEntry(
         id=entry_id,
         config_ref=work.registry.config_ref(entry_id),
@@ -287,7 +286,6 @@ def _register_candidate_config_locked(
     base_config_content_hash: ConfigContentHash,
     note: str,
 ) -> ConfigRegistryEntry:
-    _validate_entry_id(entry_id)
     if not proposal_ids:
         raise _registry_failure(
             CheckFailed,
@@ -430,22 +428,13 @@ def _validate_candidate_source_records_locked(
             message="candidate config cannot be derived from its durable proposals",
             location=_registry_model_location("proposal_ids"),
         ) from error
-    try:
-        expected_config = ConfigProfileSnapshot.model_validate(
-            source_config.model_dump(mode="python")
-            | {
-                "id": requested_config.id,
-                "parameter_snapshot": expected_parameters,
-            }
-        )
-    except ValidationError as error:
-        raise _registry_failure(
-            DataIntegrityError,
-            code="config_registry.candidate_derivation_mismatch",
-            category=ProblemCategory.DATA_INTEGRITY,
-            message="candidate config cannot be derived from its durable proposals",
-            location=_registry_model_location("proposal_ids"),
-        ) from error
+    expected_config = source_config.model_copy(
+        update={
+            "id": requested_config.id,
+            "parameter_snapshot": expected_parameters,
+        },
+        deep=True,
+    )
     if config_content_hash(expected_config) != config_content_hash(requested_config):
         raise _registry_failure(
             Conflict,

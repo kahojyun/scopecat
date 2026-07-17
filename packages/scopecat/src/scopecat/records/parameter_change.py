@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import datetime
-from typing import Literal, Self, override
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -42,21 +41,6 @@ class ParameterValueDelta(BaseModel):
             msg = f"parameter delta {self.parameter_id!r} must change its value"
             raise ValueError(msg)
         return self
-
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> Self:
-        """Copy through validation so durable delta invariants cannot drift."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)
 
 
 class ParameterChangeProposal(BaseModel):
@@ -102,18 +86,3 @@ class ParameterChangeProposal(BaseModel):
                 raise ValueError(msg)
             seen.add(delta.parameter_id)
         return self
-
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> Self:
-        """Copy through validation so durable proposal invariants cannot drift."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)

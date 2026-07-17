@@ -669,7 +669,6 @@ def submit_domain_invocation[
     _require_positive_attempt(submit_attempt, label="domain submit call attempt")
     operation_id = attempt.submit_operation_id
     started = _transition(
-        intent,
         attempt,
         operation_id=operation_id,
         stage="domain_submit",
@@ -908,7 +907,6 @@ def fetch_domain_invocation[PayloadT, ResultT](
     operation_id = attempt.fetch_operation_id
     _require_positive_attempt(fetch_attempt, label="domain fetch attempt")
     started = _transition(
-        intent,
         attempt,
         operation_id=operation_id,
         stage="domain_fetch",
@@ -1085,7 +1083,6 @@ def reconcile_domain_invocation[PayloadT, ResultT](
     _require_positive_attempt(reconcile_attempt, label="domain reconcile attempt")
     operation_id = attempt.reconcile_operation_id
     started = _transition(
-        intent,
         attempt,
         operation_id=operation_id,
         stage="domain_reconcile",
@@ -1453,7 +1450,6 @@ def _require_receipt_identity(
 
 
 def _transition(
-    intent: DomainInvocationIntent,
     attempt: DomainSubmissionId,
     *,
     operation_id: str,
@@ -1463,7 +1459,6 @@ def _transition(
     evidence: Mapping[str, JsonValue],
     transition_attempt: int | None = None,
 ) -> ExecutionTransition:
-    _ = intent
     return ExecutionTransition(
         run_id=attempt.run_id,
         operation_id=operation_id,
@@ -1655,7 +1650,6 @@ def _append_submit_resolution(
     else:
         state = "completed"
     resolution = _transition(
-        intent,
         attempt,
         operation_id=attempt.submit_operation_id,
         stage="domain_submit",

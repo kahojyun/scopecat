@@ -8,7 +8,7 @@ grow independent, silently incomplete tree walkers.
 from __future__ import annotations
 
 from collections.abc import Collection, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import cast
 
@@ -644,72 +644,65 @@ def _prefix_plan_row_scopes(
         if scalar.kind == "column":
             if scalar.row_scope_id is None:
                 return scalar
-            return scalar.model_copy(
-                update={"row_scope_id": scalar.row_scope_id.prefixed(*scope)}
+            return replace(
+                scalar,
+                row_scope_id=scalar.row_scope_id.prefixed(*scope),
             )
         if scalar.kind == "param_lookup":
-            return scalar.model_copy(
-                update={
-                    "key": {
-                        name: _prefix_plan_row_scopes(value, scope)
-                        for name, value in scalar.key.items()
-                    }
-                }
+            return replace(
+                scalar,
+                key={
+                    name: _prefix_plan_row_scopes(value, scope)
+                    for name, value in scalar.key.items()
+                },
             )
         if scalar.kind == "binary":
-            return scalar.model_copy(
-                update={
-                    "left": _prefix_plan_row_scopes(scalar.left, scope),
-                    "right": _prefix_plan_row_scopes(scalar.right, scope),
-                }
+            return replace(
+                scalar,
+                left=_prefix_plan_row_scopes(scalar.left, scope),
+                right=_prefix_plan_row_scopes(scalar.right, scope),
             )
         if scalar.kind == "case":
-            return scalar.model_copy(
-                update={
-                    "cases": [
-                        branch.model_copy(
-                            update={
-                                "condition": _prefix_plan_row_scopes(
-                                    branch.condition,
-                                    scope,
-                                ),
-                                "value": _prefix_plan_row_scopes(
-                                    branch.value,
-                                    scope,
-                                ),
-                            }
-                        )
-                        for branch in scalar.cases
-                    ],
-                    "fallback": _prefix_plan_row_scopes(scalar.fallback, scope),
-                }
+            return replace(
+                scalar,
+                cases=[
+                    replace(
+                        branch,
+                        condition=_prefix_plan_row_scopes(
+                            branch.condition,
+                            scope,
+                        ),
+                        value=_prefix_plan_row_scopes(
+                            branch.value,
+                            scope,
+                        ),
+                    )
+                    for branch in scalar.cases
+                ],
+                fallback=_prefix_plan_row_scopes(scalar.fallback, scope),
             )
         return scalar
 
     if isinstance(node, SeriesExpr):
         series = cast("SeriesExpression", node)
         if series.kind == "linspace":
-            return series.model_copy(
-                update={
-                    "start": _prefix_plan_row_scopes(series.start, scope),
-                    "stop": _prefix_plan_row_scopes(series.stop, scope),
-                }
+            return replace(
+                series,
+                start=_prefix_plan_row_scopes(series.start, scope),
+                stop=_prefix_plan_row_scopes(series.stop, scope),
             )
         if series.kind == "range":
-            return series.model_copy(
-                update={
-                    "start": _prefix_plan_row_scopes(series.start, scope),
-                    "stop": _prefix_plan_row_scopes(series.stop, scope),
-                    "step": _prefix_plan_row_scopes(series.step, scope),
-                }
+            return replace(
+                series,
+                start=_prefix_plan_row_scopes(series.start, scope),
+                stop=_prefix_plan_row_scopes(series.stop, scope),
+                step=_prefix_plan_row_scopes(series.step, scope),
             )
         if series.kind == "relation_column" or series.kind == "relation_entities":
             source = series.source
         else:
             return series
-        return series.model_copy(
-            update={"source": _prefix_plan_row_scopes(source, scope)}
-        )
+        return replace(series, source=_prefix_plan_row_scopes(source, scope))
 
     relation = cast("RelationExpression", node)
     if (
@@ -722,64 +715,71 @@ def _prefix_plan_row_scopes(
         columns = {}
         for name, column in relation.columns.items():
             if column.kind == "scalar":
-                columns[name] = column.model_copy(
-                    update={"scalar": _prefix_plan_row_scopes(column.scalar, scope)}
+                columns[name] = replace(
+                    column,
+                    scalar=_prefix_plan_row_scopes(column.scalar, scope),
                 )
             elif column.kind == "series":
-                columns[name] = column.model_copy(
-                    update={"series": _prefix_plan_row_scopes(column.series, scope)}
+                columns[name] = replace(
+                    column,
+                    series=_prefix_plan_row_scopes(column.series, scope),
                 )
             elif column.kind == "relation":
-                columns[name] = column.model_copy(
-                    update={"relation": _prefix_plan_row_scopes(column.relation, scope)}
+                columns[name] = replace(
+                    column,
+                    relation=_prefix_plan_row_scopes(column.relation, scope),
                 )
             else:
                 columns[name] = column
-        return relation.model_copy(update={"columns": columns})
+        return replace(relation, columns=columns)
     if relation.kind == "select" or relation.kind == "sort" or relation.kind == "limit":
-        return relation.model_copy(
-            update={"source": _prefix_plan_row_scopes(relation.source, scope)}
+        return replace(
+            relation,
+            source=_prefix_plan_row_scopes(relation.source, scope),
         )
     if relation.kind == "filter":
-        update: dict[str, object] = {
-            "source": _prefix_plan_row_scopes(relation.source, scope),
-            "condition": _prefix_plan_row_scopes(relation.condition, scope),
-        }
-        if relation.row_scope_id is not None:
-            update["row_scope_id"] = relation.row_scope_id.prefixed(*scope)
-        return relation.model_copy(update=update)
+        return replace(
+            relation,
+            source=_prefix_plan_row_scopes(relation.source, scope),
+            condition=_prefix_plan_row_scopes(relation.condition, scope),
+            row_scope_id=(
+                relation.row_scope_id.prefixed(*scope)
+                if relation.row_scope_id is not None
+                else None
+            ),
+        )
     if (
         relation.kind == "join"
         or relation.kind == "cross"
         or relation.kind == "lateral_cross"
         or relation.kind == "point_cross"
     ):
-        return relation.model_copy(
-            update={
-                "left": _prefix_plan_row_scopes(relation.left, scope),
-                "right": _prefix_plan_row_scopes(relation.right, scope),
-            }
+        return replace(
+            relation,
+            left=_prefix_plan_row_scopes(relation.left, scope),
+            right=_prefix_plan_row_scopes(relation.right, scope),
         )
     if relation.kind == "zip":
-        return relation.model_copy(
-            update={
-                "sources": [
-                    _prefix_plan_row_scopes(source, scope)
-                    for source in relation.sources
-                ]
-            }
+        return replace(
+            relation,
+            sources=[
+                _prefix_plan_row_scopes(source, scope) for source in relation.sources
+            ],
         )
     if relation.kind == "with_columns":
-        update = {
-            "source": _prefix_plan_row_scopes(relation.source, scope),
-            "new_columns": {
+        return replace(
+            relation,
+            source=_prefix_plan_row_scopes(relation.source, scope),
+            new_columns={
                 name: _prefix_plan_row_scopes(value, scope)
                 for name, value in relation.new_columns.items()
             },
-        }
-        if relation.row_scope_id is not None:
-            update["row_scope_id"] = relation.row_scope_id.prefixed(*scope)
-        return relation.model_copy(update=update)
+            row_scope_id=(
+                relation.row_scope_id.prefixed(*scope)
+                if relation.row_scope_id is not None
+                else None
+            ),
+        )
     raise AssertionError(f"unhandled relation expression: {relation!r}")
 
 

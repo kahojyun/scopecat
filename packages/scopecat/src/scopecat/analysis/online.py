@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Literal, cast
-
-from pydantic import BaseModel, ConfigDict, model_validator
 
 from scopecat.kernel.problems import (
     Problem,
@@ -19,22 +18,17 @@ from scopecat.kernel.problems import (
 OnlineEvaluationStatus = Literal["collecting", "evaluated", "invalid"]
 
 
-class EarlyStopDecision(BaseModel):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class EarlyStopDecision:
     """Typed decision record for online stop conditions."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: Literal["scopecat.early_stop_decision.v3"] = (
-        "scopecat.early_stop_decision.v3"
-    )
     stop: bool
     evaluation_status: OnlineEvaluationStatus
     completed_point_indices: tuple[int, ...] = ()
     reason: str | None = None
     problems: tuple[Problem, ...] = ()
 
-    @model_validator(mode="after")
-    def validate_evaluation_state(self) -> EarlyStopDecision:
+    def __post_init__(self) -> None:
         blocking = has_blocking_problems(self.problems)
         if self.evaluation_status == "invalid" and not blocking:
             msg = "an invalid online evaluation requires a blocking problem"
@@ -45,7 +39,6 @@ class EarlyStopDecision(BaseModel):
         if self.stop and self.evaluation_status != "evaluated":
             msg = "only an evaluated online decision can stop a run"
             raise ValueError(msg)
-        return self
 
 
 def decide_online_convergence(

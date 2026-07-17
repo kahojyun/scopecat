@@ -13,8 +13,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
-from pydantic import JsonValue
-
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.typed.point_domain import LogicalPointId
 from scopecat.execution.local.program import CollectStage, ExecutionProgram
@@ -22,6 +20,7 @@ from scopecat.execution.ports.journal import CollectionRepository
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.frozen import thaw_json_value
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,

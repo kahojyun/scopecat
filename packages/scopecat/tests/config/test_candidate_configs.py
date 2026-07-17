@@ -223,7 +223,9 @@ def test_parameter_change_proposal_round_trips_and_is_persisted(
     assert persisted.deltas == proposal.deltas
 
 
-def test_durable_proposal_copies_revalidate_all_invariants(tmp_path: Path) -> None:
+def test_durable_proposal_validation_rejects_invalid_invariants(
+    tmp_path: Path,
+) -> None:
     run = _lab(tmp_path).prepare(load_invocation()).run()
     proposal = (
         run.analysis("validated copy")
@@ -237,10 +239,15 @@ def test_durable_proposal_copies_revalidate_all_invariants(tmp_path: Path) -> No
         .parameter_proposals[0]
     )
 
+    delta_data = proposal.deltas[0].model_dump(mode="python")
+    delta_data["parameter_id"] = "other"
     with pytest.raises(ValidationError):
-        proposal.deltas[0].model_copy(update={"parameter_id": "other"})
+        type(proposal.deltas[0]).model_validate(delta_data)
+
+    proposal_data = proposal.model_dump(mode="python")
+    proposal_data["deltas"] = ()
     with pytest.raises(ValidationError):
-        proposal.model_copy(update={"deltas": ()})
+        ParameterChangeProposal.model_validate(proposal_data)
 
 
 def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:

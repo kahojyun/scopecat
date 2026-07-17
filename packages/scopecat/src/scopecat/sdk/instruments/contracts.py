@@ -764,7 +764,7 @@ def apply_state_command_to_snapshot(
         ] = _InstrumentStateField(
             capability_id=field.capability_id,
             field_path=field.field_path,
-            value=field.value.model_copy(deep=True),
+            value=field.value,
             entity_ids=list(field.entity_ids),
             channel_bindings=[
                 binding.model_copy(deep=True) for binding in field.channel_bindings

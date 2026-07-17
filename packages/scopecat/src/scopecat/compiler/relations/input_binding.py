@@ -7,7 +7,7 @@ source values into relation expressions before crossing this boundary.
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast, override
 
 from scopecat.compiler.relations.analysis import plan_input_refs
@@ -96,65 +96,61 @@ def bind_scalar_input_refs(
             return bound
         return lit(input_cell(value))
     if scalar.kind == "param_lookup":
-        return scalar.model_copy(
-            update={
-                "key": {
-                    name: bind_scalar_input_refs(
-                        value,
+        return replace(
+            scalar,
+            key={
+                name: bind_scalar_input_refs(
+                    value,
+                    inputs,
+                    preserve_unbound_inputs=preserve_unbound_inputs,
+                    resolving=resolving,
+                )
+                for name, value in scalar.key.items()
+            },
+        )
+    if scalar.kind == "binary":
+        return replace(
+            scalar,
+            left=bind_scalar_input_refs(
+                scalar.left,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
+            right=bind_scalar_input_refs(
+                scalar.right,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
+        )
+    if scalar.kind == "case":
+        return replace(
+            scalar,
+            cases=[
+                replace(
+                    branch,
+                    condition=bind_scalar_input_refs(
+                        branch.condition,
                         inputs,
                         preserve_unbound_inputs=preserve_unbound_inputs,
                         resolving=resolving,
-                    )
-                    for name, value in scalar.key.items()
-                }
-            }
-        )
-    if scalar.kind == "binary":
-        return scalar.model_copy(
-            update={
-                "left": bind_scalar_input_refs(
-                    scalar.left,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                ),
-                "right": bind_scalar_input_refs(
-                    scalar.right,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                ),
-            }
-        )
-    if scalar.kind == "case":
-        return scalar.model_copy(
-            update={
-                "cases": [
-                    branch.model_copy(
-                        update={
-                            "condition": bind_scalar_input_refs(
-                                branch.condition,
-                                inputs,
-                                preserve_unbound_inputs=preserve_unbound_inputs,
-                                resolving=resolving,
-                            ),
-                            "value": bind_scalar_input_refs(
-                                branch.value,
-                                inputs,
-                                preserve_unbound_inputs=preserve_unbound_inputs,
-                                resolving=resolving,
-                            ),
-                        }
-                    )
-                    for branch in scalar.cases
-                ],
-                "fallback": bind_scalar_input_refs(
-                    scalar.fallback,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                ),
-            }
+                    ),
+                    value=bind_scalar_input_refs(
+                        branch.value,
+                        inputs,
+                        preserve_unbound_inputs=preserve_unbound_inputs,
+                        resolving=resolving,
+                    ),
+                )
+                for branch in scalar.cases
+            ],
+            fallback=bind_scalar_input_refs(
+                scalar.fallback,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
         )
     return scalar
 
@@ -239,26 +235,30 @@ def bind_series_input_refs(
         )
 
     if series.kind == "linspace" or series.kind == "range":
-        update = {
-            "start": bind_scalar(series.start),
-            "stop": bind_scalar(series.stop),
-        }
         if series.kind == "range":
-            update["step"] = bind_scalar(series.step)
-        return series.model_copy(update=update)
+            return replace(
+                series,
+                start=bind_scalar(series.start),
+                stop=bind_scalar(series.stop),
+                step=bind_scalar(series.step),
+            )
+        return replace(
+            series,
+            start=bind_scalar(series.start),
+            stop=bind_scalar(series.stop),
+        )
     if series.kind == "relation_column" or series.kind == "relation_entities":
         source = series.source
     else:
         return series
-    return series.model_copy(
-        update={
-            "source": bind_relation_input_refs(
-                source,
-                inputs,
-                preserve_unbound_inputs=preserve_unbound_inputs,
-                resolving=resolving,
-            )
-        }
+    return replace(
+        series,
+        source=bind_relation_input_refs(
+            source,
+            inputs,
+            preserve_unbound_inputs=preserve_unbound_inputs,
+            resolving=resolving,
+        ),
     )
 
 
@@ -293,46 +293,43 @@ def bind_relation_input_refs(
     if relation.kind == "literal_rows" or relation.kind == "table":
         return relation
     if relation.kind == "grid":
-        return relation.model_copy(
-            update={
-                "columns": {
-                    name: _bind_grid_column_input_refs(
-                        column,
-                        inputs,
-                        preserve_unbound_inputs=preserve_unbound_inputs,
-                        resolving=resolving,
-                    )
-                    for name, column in relation.columns.items()
-                }
-            }
-        )
-    if relation.kind == "select" or relation.kind == "sort" or relation.kind == "limit":
-        return relation.model_copy(
-            update={
-                "source": bind_relation_input_refs(
-                    relation.source,
+        return replace(
+            relation,
+            columns={
+                name: _bind_grid_column_input_refs(
+                    column,
                     inputs,
                     preserve_unbound_inputs=preserve_unbound_inputs,
                     resolving=resolving,
                 )
-            }
+                for name, column in relation.columns.items()
+            },
+        )
+    if relation.kind == "select" or relation.kind == "sort" or relation.kind == "limit":
+        return replace(
+            relation,
+            source=bind_relation_input_refs(
+                relation.source,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
         )
     if relation.kind == "filter":
-        return relation.model_copy(
-            update={
-                "source": bind_relation_input_refs(
-                    relation.source,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                ),
-                "condition": bind_scalar_input_refs(
-                    relation.condition,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                ),
-            }
+        return replace(
+            relation,
+            source=bind_relation_input_refs(
+                relation.source,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
+            condition=bind_scalar_input_refs(
+                relation.condition,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
         )
     if (
         relation.kind == "join"
@@ -340,55 +337,52 @@ def bind_relation_input_refs(
         or relation.kind == "lateral_cross"
         or relation.kind == "point_cross"
     ):
-        return relation.model_copy(
-            update={
-                "left": bind_relation_input_refs(
-                    relation.left,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                ),
-                "right": bind_relation_input_refs(
-                    relation.right,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                ),
-            }
+        return replace(
+            relation,
+            left=bind_relation_input_refs(
+                relation.left,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
+            right=bind_relation_input_refs(
+                relation.right,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
         )
     if relation.kind == "zip":
-        return relation.model_copy(
-            update={
-                "sources": [
-                    bind_relation_input_refs(
-                        source,
-                        inputs,
-                        preserve_unbound_inputs=preserve_unbound_inputs,
-                        resolving=resolving,
-                    )
-                    for source in relation.sources
-                ]
-            }
-        )
-    if relation.kind == "with_columns":
-        return relation.model_copy(
-            update={
-                "source": bind_relation_input_refs(
-                    relation.source,
+        return replace(
+            relation,
+            sources=[
+                bind_relation_input_refs(
+                    source,
                     inputs,
                     preserve_unbound_inputs=preserve_unbound_inputs,
                     resolving=resolving,
-                ),
-                "new_columns": {
-                    name: bind_scalar_input_refs(
-                        value,
-                        inputs,
-                        preserve_unbound_inputs=preserve_unbound_inputs,
-                        resolving=resolving,
-                    )
-                    for name, value in relation.new_columns.items()
-                },
-            }
+                )
+                for source in relation.sources
+            ],
+        )
+    if relation.kind == "with_columns":
+        return replace(
+            relation,
+            source=bind_relation_input_refs(
+                relation.source,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
+            new_columns={
+                name: bind_scalar_input_refs(
+                    value,
+                    inputs,
+                    preserve_unbound_inputs=preserve_unbound_inputs,
+                    resolving=resolving,
+                )
+                for name, value in relation.new_columns.items()
+            },
         )
     raise AssertionError(f"unhandled relation expression: {relation!r}")
 
@@ -401,37 +395,34 @@ def _bind_grid_column_input_refs(
     resolving: frozenset[str],
 ) -> GridColumn:
     if column.kind == "scalar":
-        return column.model_copy(
-            update={
-                "scalar": bind_scalar_input_refs(
-                    column.scalar,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                )
-            }
+        return replace(
+            column,
+            scalar=bind_scalar_input_refs(
+                column.scalar,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
         )
     if column.kind == "series":
-        return column.model_copy(
-            update={
-                "series": bind_series_input_refs(
-                    column.series,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                )
-            }
+        return replace(
+            column,
+            series=bind_series_input_refs(
+                column.series,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
         )
     if column.kind == "relation":
-        return column.model_copy(
-            update={
-                "relation": bind_relation_input_refs(
-                    column.relation,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                )
-            }
+        return replace(
+            column,
+            relation=bind_relation_input_refs(
+                column.relation,
+                inputs,
+                preserve_unbound_inputs=preserve_unbound_inputs,
+                resolving=resolving,
+            ),
         )
     return column
 

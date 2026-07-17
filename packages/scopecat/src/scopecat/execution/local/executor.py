@@ -62,7 +62,6 @@ from scopecat.sdk.instruments.contracts import (
 
 _PROVIDER_METADATA_ADAPTER = TypeAdapter(dict[str, JsonValue])
 _PROVIDER_DESCRIPTION_ADAPTER = TypeAdapter(InstrumentProviderDescription)
-_JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
 
 
 @dataclass(frozen=True, slots=True)
@@ -780,13 +779,7 @@ def _provider_result_evidence(
         "provisioning_receipt": receipt,
         "provisioning_receipt_content_hash": stable_content_hash(receipt),
     }
-    return cast(
-        "dict[str, JsonValue]",
-        _JSON_OBJECT_ADAPTER.dump_python(
-            _JSON_OBJECT_ADAPTER.validate_python(evidence),
-            mode="json",
-        ),
-    )
+    return cast("dict[str, JsonValue]", evidence)
 
 
 def _normalize_provider_description(value: object) -> InstrumentProviderDescription:

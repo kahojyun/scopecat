@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 
 from scopecat.authoring._binding_intents import (
@@ -153,23 +153,21 @@ def _route_entity_expr(
             "binding a verified resource entity source must preserve its shape"
         )
     if isinstance(bound, LiteralScalarExpr):
-        bound = bound.model_copy(
-            update={
-                "value": _resolve_route_entity(
-                    topology,
-                    cast("EntityRef | str", bound.value),
-                )
-            }
+        bound = replace(
+            bound,
+            value=_resolve_route_entity(
+                topology,
+                cast("EntityRef | str", bound.value),
+            ),
         )
     if isinstance(bound, ValuesSeriesExpr):
-        bound = bound.model_copy(
-            update={
-                "items": list(
-                    _resolve_route_entities(
-                        topology, cast("Sequence[EntityRef | str]", bound.items)
-                    )
+        bound = replace(
+            bound,
+            items=list(
+                _resolve_route_entities(
+                    topology, cast("Sequence[EntityRef | str]", bound.items)
                 )
-            }
+            ),
         )
     if isinstance(bound, ScalarExpr) and isinstance(value_type, Scalar):
         return verify_scalar_value_expr(

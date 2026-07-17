@@ -132,12 +132,12 @@ def _build_candidate_config_snapshot(
     )
     if problems:
         raise CheckFailed(problems)
-    return ConfigProfileSnapshot.model_validate(
-        config.model_dump(mode="python")
-        | {
+    return config.model_copy(
+        update={
             "id": candidate_id,
             "parameter_snapshot": parameter_snapshot,
-        }
+        },
+        deep=True,
     )
 
 

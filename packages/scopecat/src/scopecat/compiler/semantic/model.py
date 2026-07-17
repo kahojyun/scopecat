@@ -8,6 +8,7 @@ change graph equality.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -251,7 +252,7 @@ class PlanExpressionSource:
     def expression(self) -> PlanExpression:
         """Return a defensive copy of the retained plan semantics."""
 
-        return self._expression.model_copy(deep=True)
+        return deepcopy(self._expression)
 
     @property
     def source_inputs(self) -> tuple[str, ...]:
@@ -666,7 +667,7 @@ def _snapshot_literal(value: object) -> object:
     """Snapshot closed data without cloning opaque runtime payload bodies."""
 
     if isinstance(value, PayloadValue):
-        return value.model_copy(update={"payload": value.payload})
+        return value
     if isinstance(value, EntityRef | QuantityValue):
         return value.model_copy(deep=True)
     if value is None or isinstance(value, str | int | float | bool):

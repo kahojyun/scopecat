@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast, override
+from typing import override
 
 import pytest
 
@@ -389,7 +389,18 @@ class _MalformedApplyDriver(SignalInstrumentDriver):
     @override
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         super().apply_state(command)
-        return cast("ApplyReceipt", object())
+        return ApplyReceipt.model_construct(
+            status="applied",
+            problems=(
+                blocking_problem(
+                    "instrument_driver_receipt_conflict",
+                    "driver bypassed receipt validation",
+                    category=ProblemCategory.EXTERNAL_FAILURE,
+                    phase=ProblemPhase.EXECUTION,
+                    location=model_location("instrument", self.instrument_id),
+                ),
+            ),
+        )
 
     @override
     def abort(self) -> None:
@@ -416,7 +427,7 @@ class _MalformedCollectDriver(SignalInstrumentDriver):
     @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         super().collect(command)
-        return cast("CollectReceipt", object())
+        return CollectReceipt.model_construct(status="not_collected", problems=())
 
 
 class _UnknownActionDriver(SignalInstrumentDriver):
@@ -544,7 +555,7 @@ class _BrokenFinalizationJournal(MemoryExecutionJournal):
         return super().append(entry)
 
 
-def test_malformed_apply_receipt_is_unknown_and_journaled() -> None:
+def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -> None:
     driver = _MalformedApplyDriver()
     operation = _gain_operation(driver.instrument_id, 1.0)
     program = ExecutionProgram(
@@ -575,7 +586,9 @@ def test_malformed_apply_receipt_is_unknown_and_journaled() -> None:
 
     assert result.status == "unknown"
     assert result.uncertain
-    assert "instrument_apply_unknown" in {problem.code for problem in result.problems}
+    problem_codes = {problem.code for problem in result.problems}
+    assert "instrument_apply_unknown" in problem_codes
+    assert "instrument_apply_receipt_conflict" not in problem_codes
     assert [
         entry.state
         for entry in journal.entries
@@ -583,7 +596,7 @@ def test_malformed_apply_receipt_is_unknown_and_journaled() -> None:
     ] == ["started", "unknown"]
 
 
-def test_malformed_collect_readback_is_unknown_and_journaled() -> None:
+def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
     driver = _MalformedCollectDriver()
     point_uid = "malformed-collect-point"
     operation = _collect_operation(point_uid, driver.instrument_id, "signal")
@@ -616,7 +629,9 @@ def test_malformed_collect_readback_is_unknown_and_journaled() -> None:
 
     assert result.status == "unknown"
     assert result.uncertain
-    assert "instrument_collect_unknown" in {problem.code for problem in result.problems}
+    problem_codes = {problem.code for problem in result.problems}
+    assert "instrument_collect_unknown" in problem_codes
+    assert "instrument_collection_not_completed" not in problem_codes
     assert readbacks.chunks == ()
     assert [
         entry.state

@@ -1835,7 +1835,7 @@ def _capture_scalar_operation_operand(value: object) -> ScalarOperationOperand:
     if isinstance(value, ValueRef):
         return value
     if isinstance(value, PayloadValue):
-        return value.model_copy()
+        return value
     from scopecat.authoring._frozen_values import freeze_runtime_input
 
     try:

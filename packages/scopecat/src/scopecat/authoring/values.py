@@ -293,7 +293,7 @@ def _capture_compute_input(value: ComputeInput) -> ComputeInput:
     if isinstance(value, ValueRef | RouteRef):
         return value
     if isinstance(value, PayloadValue):
-        return value.model_copy()
+        return value
     return cast("ComputeInput", freeze_runtime_input(value))
 
 

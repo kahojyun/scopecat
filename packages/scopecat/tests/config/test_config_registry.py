@@ -1440,10 +1440,10 @@ def test_rollback_requires_the_historical_target_content_hash(tmp_path: Path) ->
     index_path.write_text(
         index.model_copy(
             update={
-                "entries": [
+                "entries": tuple(
                     drifted_entry if entry.id == first.id else entry
                     for entry in index.entries
-                ]
+                )
             }
         ).model_dump_json()
     )

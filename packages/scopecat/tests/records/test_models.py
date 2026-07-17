@@ -500,16 +500,18 @@ def test_parameter_catalog_supports_all_value_shapes() -> None:
     assert isinstance(calibration_points.value_type, Table)
 
 
-def test_durable_parameter_schema_model_copy_revalidates_updates() -> None:
+def test_durable_parameter_schema_rejects_invalid_values() -> None:
     definition = ParameterDefinition(id="enabled", value_type=Scalar(Bool()))
-    catalog = ParameterCatalog(id="catalog", definitions=[definition])
 
     with pytest.raises(ValidationError, match="supports only bool, int, float"):
-        definition.model_copy(update={"value_type": Scalar(Payload("command"))})
+        ParameterDefinition(
+            id="enabled",
+            value_type=Scalar(Payload("command")),
+        )
     with pytest.raises(ValidationError, match="duplicate parameter definition"):
-        catalog.model_copy(update={"definitions": [definition, definition]})
+        ParameterCatalog(id="catalog", definitions=[definition, definition])
     with pytest.raises(ValidationError, match="unsupported unit"):
-        Quantity(1.0, "GHz").model_copy(update={"unit": "invalid"})
+        Quantity(1.0, "invalid")
 
 
 @pytest.mark.parametrize(

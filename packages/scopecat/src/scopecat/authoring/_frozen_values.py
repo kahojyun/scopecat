@@ -70,7 +70,7 @@ def _freeze_value(
     if isinstance(value, ValueRef) and allow_value_ref:
         return value
     if isinstance(value, PayloadValue) and allow_payload:
-        return value.model_copy()
+        return value
     if isinstance(value, Mapping):
         mapping = cast("Mapping[object, object]", value)
         return _frozen.FrozenMapping(

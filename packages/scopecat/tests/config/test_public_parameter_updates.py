@@ -12,6 +12,7 @@ from scopecat.config.parameters import (
     ReplaceParameter,
     UpdateParameterRows,
 )
+from scopecat.kernel.frozen import FrozenMapping
 
 
 def test_public_parameter_update_builders_return_transient_typed_intents() -> None:
@@ -49,16 +50,29 @@ def test_public_parameter_update_builders_return_transient_typed_intents() -> No
     assert updates[3].values == {"gain": 0.75}
     assert updates[4].rows == ({"channel": "q1", "gain": 0.25},)
     assert updates[5].key == {"channel": "q2"}
+    assert isinstance(updates[3].key, FrozenMapping)
+    assert isinstance(updates[3].values, FrozenMapping)
+    assert all(isinstance(row, FrozenMapping) for row in updates[4].rows)
+    assert isinstance(updates[5].key, FrozenMapping)
 
 
 def test_parameter_update_intents_are_not_durable_wire_models() -> None:
+    key = {"channel": "q0"}
+    values = {"gain": 0.5}
     update = sc.update_parameter_rows(
         "channels",
-        key={"channel": "q0"},
-        values={"gain": 0.5},
+        key=key,
+        values=values,
     )
 
+    assert isinstance(update.key, FrozenMapping)
+    assert isinstance(update.values, FrozenMapping)
     with pytest.raises(TypeError, match="JSON serializable"):
         json.dumps(update)
     with pytest.raises(TypeError, match="immutable"):
-        cast("dict[str, object]", update.values)["gain"] = 0.75
+        cast("dict[str, object]", cast("object", update.values))["gain"] = 0.75
+
+    key["channel"] = "q1"
+    values["gain"] = 0.75
+    assert update.key == {"channel": "q0"}
+    assert update.values == {"gain": 0.5}

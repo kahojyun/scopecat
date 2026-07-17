@@ -2,36 +2,26 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import override
-
-from pydantic import BaseModel, ConfigDict, field_validator
 
 from scopecat.kernel.qualified_name import qualified_name
 
 
-class SymbolId(BaseModel):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SymbolId:
     """Hygienic address for a declaration in one typed symbol space."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     scope: tuple[str, ...] = ()
     local_id: str
 
-    @field_validator("scope")
-    @classmethod
-    def validate_scope(cls, scope: tuple[str, ...]) -> tuple[str, ...]:
-        if any(not segment for segment in scope):
+    def __post_init__(self) -> None:
+        if any(not segment for segment in self.scope):
             msg = "symbol scope segments must be non-empty"
             raise ValueError(msg)
-        return scope
-
-    @field_validator("local_id")
-    @classmethod
-    def validate_local_id(cls, local_id: str) -> str:
-        if not local_id:
+        if not self.local_id:
             msg = "symbol local id must be non-empty"
             raise ValueError(msg)
-        return local_id
 
     @property
     def qualified_name(self) -> str:
@@ -49,7 +39,3 @@ class SymbolId(BaseModel):
     @override
     def __str__(self) -> str:
         return self.qualified_name
-
-    @override
-    def __hash__(self) -> int:
-        return hash((self.scope, self.local_id))

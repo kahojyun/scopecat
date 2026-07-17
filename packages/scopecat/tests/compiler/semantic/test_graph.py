@@ -476,15 +476,14 @@ def test_opaque_operation_rejects_plan_available_result() -> None:
     ]
 
 
-def test_plan_expression_source_defensively_retains_semantics() -> None:
+def test_plan_expression_source_retains_semantics() -> None:
     expression = as_scalar_expr(1.0)
     assert isinstance(expression, LiteralScalarExpr)
     source = _plan_source(expression, expected_type=FLOAT)
 
-    expression.value = 2.0
     projected = source.expression
     assert isinstance(projected, LiteralScalarExpr)
-    projected.value = 3.0
+    assert projected is not expression
 
     retained = source.expression
     assert isinstance(retained, LiteralScalarExpr)
@@ -508,8 +507,6 @@ def test_plan_expression_source_derives_inputs_and_retains_value_equality() -> N
         expected_type=FLOAT,
         bindings=RelationTypeBindings(inputs={"offset": FLOAT}),
     )
-
-    expression.name = "mutated"
 
     assert source.source_inputs == ("gain",)
     assert source == same
@@ -637,7 +634,7 @@ def test_literal_source_captures_and_projects_by_value() -> None:
     assert source.value == {"nested": [1]}
 
 
-def test_literal_source_preserves_opaque_payload_identity_without_deepcopy() -> None:
+def test_literal_source_reuses_immutable_opaque_payload_without_deepcopy() -> None:
     class Undeepcopyable:
         def __deepcopy__(self, _memo: object) -> object:
             raise AssertionError("opaque payload body must not be deep-copied")
@@ -646,11 +643,8 @@ def test_literal_source_preserves_opaque_payload_identity_without_deepcopy() -> 
     original = PayloadValue(schema_id="program", payload=body)
     source = LiteralValueSource(original)
 
-    original.schema_id = "mutated"
-    projected = cast("PayloadValue", source.value)
-    projected.schema_id = "projected"
-
     retained = cast("PayloadValue", source.value)
+    assert retained is original
     assert retained.schema_id == "program"
     assert retained.payload is body
 

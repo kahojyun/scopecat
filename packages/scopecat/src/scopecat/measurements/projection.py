@@ -135,17 +135,15 @@ class ProjectedMeasurementRecords:
         selection: BoundMeasurementProjection,
         run_id: str,
         records: tuple[MeasurementRecord, ...],
-        schema: MeasurementDatasetSchema | None,
     ) -> None:
         object.__setattr__(self, "selection", selection)
         object.__setattr__(self, "run_id", run_id)
         selected_records = _snapshot_measurement_records(records)
         object.__setattr__(self, "_records", selected_records)
-        selected_schema = None if schema is None else schema.model_copy(deep=True)
         object.__setattr__(
             self,
             "_schema",
-            selected_schema,
+            selection.projection.schema,
         )
 
     @property
@@ -356,7 +354,6 @@ def project_measurement_records(
         bound,
         run_id,
         records,
-        projection.schema,
     )
 
 

@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import cast
-
-from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.model import (
@@ -231,7 +230,8 @@ class ParameterRelationData:
         )
 
 
-class EvalContext(BaseModel):
+@dataclass(slots=True)
+class EvalContext:
     """Closed bindings for one relation evaluation.
 
     ``row`` is the current relation-row scope, ``outer_row`` is an explicit
@@ -239,14 +239,12 @@ class EvalContext(BaseModel):
     never fall back to one another by name.
     """
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
-    params: ParameterRelationData = Field(default_factory=ParameterRelationData)
+    params: ParameterRelationData = field(default_factory=ParameterRelationData)
     row: Row | None = None
     outer_row: Row | None = None
-    point_row: Row = Field(default_factory=dict)
-    row_scopes: dict[RowScopeId, Row] = Field(default_factory=dict)
-    inputs: dict[str, object] = Field(default_factory=dict)
+    point_row: Row = field(default_factory=dict)
+    row_scopes: dict[RowScopeId, Row] = field(default_factory=dict)
+    inputs: dict[str, object] = field(default_factory=dict)
 
 
 def evaluate_scalar(

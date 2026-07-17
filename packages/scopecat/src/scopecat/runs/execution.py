@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from dataclasses import dataclass
 
 from scopecat.application.services import WorkspaceServices
 from scopecat.execution.evidence import run_outcome_ref
@@ -10,10 +10,9 @@ from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.run import RunLifecycle, RunOutcome
 
 
-class RunExecutionInspection(BaseModel):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RunExecutionInspection:
     """A read-only reconciliation view over manifest, outcome, and journal."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     lifecycle: RunLifecycle

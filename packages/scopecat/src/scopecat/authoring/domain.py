@@ -223,5 +223,5 @@ def _capture_domain_input(value: ComputeNodeInputValue) -> ComputeNodeInputValue
     if isinstance(value, ValueRef):
         return value
     if isinstance(value, PayloadValue):
-        return value.model_copy()
+        return value
     return cast("ComputeNodeInputValue", freeze_runtime_input(value))

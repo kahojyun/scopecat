@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Literal, Protocol, Self, cast, override
+from typing import Annotated, Literal, Protocol, Self, cast
 
 from pydantic import (
     BaseModel,
@@ -120,21 +120,6 @@ class Quantity(BaseModel):
             msg = f"unsupported unit: {value}"
             raise ValueError(msg)
         return value
-
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> Self:
-        """Copy through validation so durable quantity invariants cannot drift."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)
 
     def to(self, unit: str) -> Quantity:
         """Return this quantity converted to another compatible linear unit."""
@@ -520,21 +505,6 @@ class ParameterDefinition(BaseModel):
     def serialize_metadata(self, value: Mapping[str, object]) -> object:
         return thaw_json_value(value)
 
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> Self:
-        """Copy through validation so the durable definition stays well-typed."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)
-
 
 class ParameterCatalog(BaseModel):
     """Authored parameter schema in one shape-independent namespace."""
@@ -576,21 +546,6 @@ class ParameterCatalog(BaseModel):
                 return definition
         return None
 
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> Self:
-        """Copy through validation so namespace and metadata remain immutable."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)
-
 
 class _StoredParameterValue(BaseModel):
     """Shared recursively immutable state for one stored parameter value."""
@@ -619,21 +574,6 @@ class _StoredParameterValue(BaseModel):
     @field_serializer("metadata")
     def serialize_metadata(self, value: Mapping[str, object]) -> object:
         return thaw_json_value(value)
-
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> Self:
-        """Copy through validation so durable nested values cannot drift."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)
 
 
 class ScalarParameterValue(_StoredParameterValue):
@@ -789,18 +729,3 @@ class ParameterSnapshot(BaseModel):
             if value.id == value_id:
                 return value
         return None
-
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> ParameterSnapshot:
-        """Copy through validation so the snapshot remains immutable."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)

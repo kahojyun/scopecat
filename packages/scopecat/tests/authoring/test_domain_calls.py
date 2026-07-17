@@ -71,11 +71,10 @@ def test_domain_execution_captures_literal_inputs_at_authoring_ingress() -> None
     )
 
     execution = sc.domain_execution(program, inputs={"payload": payload})
-    payload.schema_id = "mutated"
 
     captured = execution.input_bindings[0][1]
     assert isinstance(captured, PayloadValue)
-    assert captured is not payload
+    assert captured is payload
     assert captured.schema_id == "test.program"
     assert captured.payload is body
 

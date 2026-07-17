@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import cast, override
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
@@ -46,21 +46,6 @@ class EntityRef(BaseModel):
         """Serialize immutable authoring snapshots as ordinary JSON containers."""
 
         return thaw_json_value(normalize_entity_metadata(value))
-
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> EntityRef:
-        """Copy through validation so metadata remains recursively immutable."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)
 
 
 def entity_identity(value: EntityRef) -> tuple[str | None, str]:

@@ -3,62 +3,72 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import ClassVar, Literal
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    JsonValue,
-    field_serializer,
-    field_validator,
-)
-
-from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.frozen import (
     FrozenMapping,
     freeze_json_mapping,
     thaw_json_value,
 )
+from scopecat.kernel.json_types import JsonValue
 
 type MeasurementTransformRate = Literal["point"]
+type MeasurementTransformPortability = Literal["portable", "host_only"]
+
+_SEMANTIC_CONTRACT_SCHEMA = "scopecat.measurement_transform_semantic.v1"
+_PORTABILITY_VALUES = frozenset({"portable", "host_only"})
 
 
 def _empty_semantic_parameters() -> FrozenMapping[str, JsonValue]:
     return FrozenMapping()
 
 
-class MeasurementTransformSemanticContract(BaseModel):
+@dataclass(frozen=True, slots=True)
+class MeasurementTransformSemanticContract:
     """Data-only pure meaning that a host or domain realization may satisfy."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: Literal["scopecat.measurement_transform_semantic.v1"] = (
-        "scopecat.measurement_transform_semantic.v1"
+    schema_version: ClassVar[Literal["scopecat.measurement_transform_semantic.v1"]] = (
+        _SEMANTIC_CONTRACT_SCHEMA
     )
-    id: str = Field(min_length=1)
-    version: str = Field(min_length=1)
-    purity: Literal["pure"] = "pure"
-    portability: Literal["portable", "host_only"] = "portable"
-    parameters: Mapping[str, JsonValue] = Field(
-        default_factory=_empty_semantic_parameters,
+    purity: ClassVar[Literal["pure"]] = "pure"
+
+    id: str
+    version: str
+    portability: MeasurementTransformPortability = "portable"
+    parameters: Mapping[str, JsonValue] = field(
+        default_factory=_empty_semantic_parameters
     )
 
-    @field_validator("parameters", mode="after")
-    @classmethod
-    def freeze_parameters(
-        cls,
-        value: Mapping[str, JsonValue],
-    ) -> FrozenMapping[str, JsonValue]:
-        return freeze_json_mapping(
-            value,
-            path="measurement transform semantic parameters",
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "measurement transform semantic id must be non-empty"
+            raise ValueError(msg)
+        if not self.version:
+            msg = "measurement transform semantic version must be non-empty"
+            raise ValueError(msg)
+        if self.portability not in _PORTABILITY_VALUES:
+            msg = "measurement transform portability must be portable or host_only"
+            raise ValueError(msg)
+        object.__setattr__(
+            self,
+            "parameters",
+            freeze_json_mapping(
+                self.parameters,
+                path="measurement transform semantic parameters",
+            ),
         )
-
-    @field_serializer("parameters")
-    def serialize_parameters(self, value: Mapping[str, JsonValue]) -> object:
-        return thaw_json_value(value)
 
     @property
     def contract_fingerprint(self) -> str:
-        return stable_content_hash(content_fingerprint(self))
+        return stable_content_hash(
+            {
+                "schema": self.schema_version,
+                "id": self.id,
+                "version": self.version,
+                "purity": self.purity,
+                "portability": self.portability,
+                "parameters": thaw_json_value(self.parameters),
+            }
+        )

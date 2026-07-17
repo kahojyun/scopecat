@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import JsonValue
 
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.execution_journal import (
@@ -18,30 +18,30 @@ from scopecat.records.execution_journal import (
 from scopecat.records.run import RunCertainty, RunResult
 
 
-class RuntimeProgress(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RuntimeProgress:
+    completed_points: int
+    total_points: int
 
-    completed_points: int = Field(ge=0)
-    total_points: int = Field(ge=0)
 
-
-class _RuntimeEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _RuntimeEvent:
     run_id: str
     experiment_id: str
-    observed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    observed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RunStartedEvent(_RuntimeEvent):
     """Live notification emitted after a run becomes durably active."""
 
-    kind: Literal["run_started"] = "run_started"
     progress: RuntimeProgress
     instrument_ids: tuple[str, ...] = ()
     record_ids: tuple[str, ...] = ()
+    kind: Literal["run_started"] = field(default="run_started", init=False)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RuntimeTransitionEvent(_RuntimeEvent):
     """Lossy observation of one transient or durably committed transition.
 
@@ -49,32 +49,33 @@ class RuntimeTransitionEvent(_RuntimeEvent):
     durable effect ledger.
     """
 
-    kind: Literal["transition"] = "transition"
-    sequence: int | None = Field(default=None, ge=0)
     occurred_at: datetime
     operation_id: str
     stage: ExecutionStage
     effect: ExecutionEffect
     state: JournalEntryState
-    point_index: int | None = Field(default=None, ge=0)
-    instrument_id: str | None = None
     progress: RuntimeProgress
-    metrics: dict[str, JsonValue] = Field(default_factory=dict)
+    sequence: int | None = None
+    point_index: int | None = None
+    instrument_id: str | None = None
+    metrics: dict[str, JsonValue] = field(default_factory=dict)
+    kind: Literal["transition"] = field(default="transition", init=False)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RunFinishedEvent(_RuntimeEvent):
     """Live notification emitted only after the terminal manifest commits."""
 
-    kind: Literal["run_finished"] = "run_finished"
     progress: RuntimeProgress
     result: RunResult
     certainty: RunCertainty
     termination_reason: str
-    measurement_count: int = Field(ge=0)
-    problem_count: int = Field(ge=0)
-    compute_evaluated_node_count: int = Field(ge=0)
-    compute_reused_node_count: int = Field(ge=0)
-    compute_payload_count: int = Field(ge=0)
+    measurement_count: int
+    problem_count: int
+    compute_evaluated_node_count: int
+    compute_reused_node_count: int
+    compute_payload_count: int
+    kind: Literal["run_finished"] = field(default="run_finished", init=False)
 
 
 type RuntimeEvent = RunStartedEvent | RuntimeTransitionEvent | RunFinishedEvent

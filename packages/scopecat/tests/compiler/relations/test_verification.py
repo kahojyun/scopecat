@@ -13,6 +13,7 @@ from scopecat.compiler.relations.evaluation import (
 )
 from scopecat.compiler.relations.model import (
     LinspaceSeriesExpr,
+    LiteralRowsRelationExpr,
     RangeSeriesExpr,
     RelationExpr,
     RowScopeId,
@@ -1258,12 +1259,16 @@ def test_statically_empty_point_cross_omits_point_collision_obligation() -> None
     assert verified.external_row_interface.point is None
 
 
-def test_verified_plan_defensively_copies_the_source_root() -> None:
+def test_verified_plan_defensively_copies_nested_literal_data() -> None:
     source = literal_rows([{"value": 1}]).limit(1)
     verified = verify_relation_plan(source)
 
-    source.limit_count = 0
+    assert isinstance(source.source, LiteralRowsRelationExpr)
+    source.source.rows[0]["value"] = 0
     projected = verified.root
-    projected.limit_count = 0
-    assert isinstance(verified.root, RelationExpr)
-    assert verified.root.limit_count == 1
+    assert isinstance(projected.source, LiteralRowsRelationExpr)
+    projected.source.rows[0]["value"] = 0
+    retained = verified.root
+    assert isinstance(retained, RelationExpr)
+    assert isinstance(retained.source, LiteralRowsRelationExpr)
+    assert retained.source.rows == [{"value": 1}]

@@ -1,37 +1,25 @@
-from typing import cast
-
 import pytest
-from pydantic import TypeAdapter, ValidationError
 
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
     CaseScalarExpr,
     ColumnScalarExpr,
-    CrossRelationExpr,
-    FilterRelationExpr,
     GridRelationExpr,
-    InputRelationExpr,
     InputScalarExpr,
     InputSeriesExpr,
     JoinRelationExpr,
-    LateralCrossRelationExpr,
     LimitRelationExpr,
     LinspaceSeriesExpr,
-    LiteralRowsRelationExpr,
     LiteralScalarExpr,
     OuterColumnScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     ParameterSeriesExpr,
     PointColumnScalarExpr,
-    PointCrossRelationExpr,
     RangeSeriesExpr,
     RelationColumnSeriesExpr,
     RelationEntitiesSeriesExpr,
-    RelationExpr,
-    RelationExpression,
-    RelationGridColumn,
     ScalarGridColumn,
     SelectRelationExpr,
     SeriesGridColumn,
@@ -39,7 +27,6 @@ from scopecat.compiler.relations.model import (
     TableRelationExpr,
     ValuesSeriesExpr,
     WithColumnsRelationExpr,
-    ZipRelationExpr,
     case,
     col,
     grid,
@@ -56,7 +43,6 @@ from scopecat.compiler.relations.model import (
     range_values,
     table,
     values,
-    zip_relations,
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
@@ -77,7 +63,6 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
-from tests.testkit.records import assert_model_round_trip
 from tests.testkit.relation_plans import evaluate_relation, evaluate_series
 
 _BOOL = Scalar(Bool())
@@ -119,7 +104,7 @@ def test_series_materialization_enforces_finiteness_and_progress() -> None:
         )
 
 
-def test_relation_grid_filter_select_and_round_trip() -> None:
+def test_relation_grid_filter_select() -> None:
     relation = (
         grid(
             device=literal_rows(
@@ -135,8 +120,7 @@ def test_relation_grid_filter_select_and_round_trip() -> None:
         .select("device.device_id", "frequency", "detuning")
     )
 
-    restored = assert_model_round_trip(relation)
-    rows = evaluate_relation(restored)
+    rows = evaluate_relation(relation)
 
     assert rows == [
         {
@@ -267,15 +251,13 @@ def test_parameter_lookup_matches_compatible_quantity_units() -> None:
     )
 
 
-def test_series_and_table_inputs_are_durable_typed_expressions() -> None:
+def test_series_and_table_inputs_are_typed_expressions() -> None:
     rows = [
         {"qubit": "q0", "frequency": Quantity(value=5.0, unit="GHz")},
         {"qubit": "q1", "frequency": Quantity(value=5.1, unit="GHz")},
     ]
-    relation = assert_model_round_trip(
-        input_table("gate_rows").filter(col("qubit").eq("q1"))
-    )
-    series = assert_model_round_trip(input_series("offsets"))
+    relation = input_table("gate_rows").filter(col("qubit").eq("q1"))
+    series = input_series("offsets")
 
     assert evaluate_relation(
         relation,
@@ -306,7 +288,7 @@ def test_series_and_table_inputs_are_durable_typed_expressions() -> None:
     ]
 
 
-def test_grid_round_trip_restores_concrete_series_variants() -> None:
+def test_grid_preserves_concrete_series_variants() -> None:
     source = literal_rows([{"value": 1, "entity": EntityRef(id="q0", kind="qubit")}])
     relation = grid(
         literal=values([1]),
@@ -318,11 +300,9 @@ def test_grid_round_trip_restores_concrete_series_variants() -> None:
         entities=source.entities("entity"),
     )
 
-    restored = assert_model_round_trip(relation)
-
     series = [
         column.series
-        for column in restored.columns.values()
+        for column in relation.columns.values()
         if isinstance(column, SeriesGridColumn)
     ]
     assert [type(expression) for expression in series] == [
@@ -336,7 +316,7 @@ def test_grid_round_trip_restores_concrete_series_variants() -> None:
     ]
 
 
-def test_grid_round_trip_restores_recursive_scalar_variants() -> None:
+def test_grid_preserves_recursive_scalar_variants() -> None:
     relation = grid(
         literal=lit(None),
         column=col("current"),
@@ -356,11 +336,9 @@ def test_grid_round_trip_restores_recursive_scalar_variants() -> None:
         ),
     )
 
-    restored = assert_model_round_trip(relation)
-
     scalars = [
         column.scalar
-        for column in restored.columns.values()
+        for column in relation.columns.values()
         if isinstance(column, ScalarGridColumn)
     ]
     assert [type(expression) for expression in scalars] == [
@@ -393,76 +371,7 @@ def test_grid_round_trip_restores_recursive_scalar_variants() -> None:
     assert isinstance(selected.fallback, LiteralScalarExpr)
 
 
-def test_scalar_variant_fields_preserve_existing_required_semantics() -> None:
-    assert LiteralScalarExpr(value=None).value is None
-    with pytest.raises(ValidationError):
-        LiteralScalarExpr.model_validate({})
-
-    lookup = ParameterLookupScalarExpr(table_id="", key={}, column="")
-    assert lookup.table_id == lookup.column == ""
-    assert lookup.key == {}
-
-
-def _relation_variant_cases() -> tuple[
-    tuple[RelationExpression, type[RelationExpr]], ...
-]:
-    leaf = literal_rows([{"value": 1, "entity": EntityRef(id="q0")}])
-    right = literal_rows([{"other": 2}])
-    return (
-        (leaf, LiteralRowsRelationExpr),
-        (table(""), TableRelationExpr),
-        (input_table("rows"), InputRelationExpr),
-        (
-            grid(
-                relation=leaf,
-                relation_column=leaf.column("value"),
-                relation_entities=leaf.entities("entity"),
-            ),
-            GridRelationExpr,
-        ),
-        (leaf.select(), SelectRelationExpr),
-        (leaf.filter(lit(True)), FilterRelationExpr),
-        (leaf.join(right, on={"value": "other"}), JoinRelationExpr),
-        (leaf.cross(right), CrossRelationExpr),
-        (leaf.lateral_cross(right), LateralCrossRelationExpr),
-        (leaf.point_cross(right), PointCrossRelationExpr),
-        (zip_relations(leaf, right), ZipRelationExpr),
-        (leaf.with_columns(), WithColumnsRelationExpr),
-        (leaf.sort("value"), SortRelationExpr),
-        (leaf.limit(0), LimitRelationExpr),
-    )
-
-
-def test_relation_variants_round_trip_as_recursive_discriminated_models() -> None:
-    adapter = cast(
-        "TypeAdapter[RelationExpression]",
-        TypeAdapter(RelationExpression),
-    )
-    cases = _relation_variant_cases()
-
-    assert len(cases) == 14
-    for expression, expected_type in cases:
-        restored = adapter.validate_json(expression.model_dump_json())
-        assert type(restored) is expected_type
-        assert isinstance(restored, RelationExpr)
-        assert restored == expression
-
-    restored_grid = adapter.validate_json(cases[3][0].model_dump_json())
-    assert isinstance(restored_grid, GridRelationExpr)
-    relation_column = restored_grid.columns["relation"]
-    assert isinstance(relation_column, RelationGridColumn)
-    assert isinstance(relation_column.relation, LiteralRowsRelationExpr)
-    for name in ("relation_column", "relation_entities"):
-        series_column = restored_grid.columns[name]
-        assert isinstance(series_column, SeriesGridColumn)
-        assert isinstance(
-            series_column.series,
-            RelationColumnSeriesExpr | RelationEntitiesSeriesExpr,
-        )
-        assert isinstance(series_column.series.source, LiteralRowsRelationExpr)
-
-
-def test_relation_variant_fields_preserve_required_and_empty_semantics() -> None:
+def test_relation_variant_fields_preserve_empty_semantics() -> None:
     leaf = literal_rows([])
 
     assert leaf.rows == []
@@ -473,30 +382,6 @@ def test_relation_variant_fields_preserve_required_and_empty_semantics() -> None
     assert JoinRelationExpr(left=leaf, right=leaf, on={"": ""}).on == {"": ""}
     assert SortRelationExpr(source=leaf, sort_columns=[""]).sort_columns == [""]
     assert LimitRelationExpr(source=leaf, limit_count=0).limit_count == 0
-
-    invalid_cases: tuple[tuple[type[RelationExpr], dict[str, object]], ...] = (
-        (LiteralRowsRelationExpr, {}),
-        (TableRelationExpr, {}),
-        (GridRelationExpr, {}),
-        (SelectRelationExpr, {"source": leaf}),
-        (FilterRelationExpr, {"source": leaf}),
-        (JoinRelationExpr, {"left": leaf, "right": leaf, "on": {}}),
-        (CrossRelationExpr, {"left": leaf}),
-        (LateralCrossRelationExpr, {"left": leaf}),
-        (PointCrossRelationExpr, {"left": leaf}),
-        (ZipRelationExpr, {"sources": []}),
-        (WithColumnsRelationExpr, {"source": leaf}),
-        (SortRelationExpr, {"source": leaf, "sort_columns": []}),
-        (LimitRelationExpr, {"source": leaf}),
-    )
-    for model, value in invalid_cases:
-        with pytest.raises(ValidationError):
-            model.model_validate(value)
-
-    with pytest.raises(ValidationError):
-        InputRelationExpr(name="")
-    with pytest.raises(ValidationError):
-        LimitRelationExpr(source=leaf, limit_count=-1)
 
 
 def test_relation_column_and_entities_series_have_explicit_ordering_rules() -> None:
@@ -510,8 +395,8 @@ def test_relation_column_and_entities_series_have_explicit_ordering_rules() -> N
         ]
     )
 
-    column = assert_model_round_trip(relation.column("control"))
-    entities = assert_model_round_trip(relation.entities("control", "partner"))
+    column = relation.column("control")
+    entities = relation.entities("control", "partner")
     ctx = ParameterRelationData().to_context()
 
     assert evaluate_series(column, ctx) == [q0, q1]
@@ -522,7 +407,7 @@ def test_relation_column_and_entities_series_have_explicit_ordering_rules() -> N
     ]
 
 
-def test_record_with_entities_field_round_trips_without_collection_coercion() -> None:
+def test_record_with_entities_field_preserves_collection_shape() -> None:
     expression = LiteralScalarExpr(
         value={
             "entities": [{"id": "q0"}, {"id": "q1"}],
@@ -530,10 +415,8 @@ def test_record_with_entities_field_round_trips_without_collection_coercion() ->
         },
     )
 
-    restored = assert_model_round_trip(expression)
-
-    assert type(restored.value) is dict
-    assert restored.value == {
+    assert type(expression.value) is dict
+    assert expression.value == {
         "entities": [{"id": "q0"}, {"id": "q1"}],
         "kind": "batch",
     }
@@ -573,10 +456,10 @@ def test_record_with_entities_field_round_trips_without_collection_coercion() ->
         ),
     )
     assert type(table_rows[0]["payload"]) is dict
-    assert table_rows[0]["payload"] == restored.value
+    assert table_rows[0]["payload"] == expression.value
 
 
-def test_entity_series_round_trips_as_series_shape() -> None:
+def test_entity_series_preserves_series_shape() -> None:
     series = values(
         [
             EntityRef(id="q0", kind="logical_device"),
@@ -584,10 +467,8 @@ def test_entity_series_round_trips_as_series_shape() -> None:
         ]
     )
 
-    restored = assert_model_round_trip(series)
-
     assert evaluate_series(
-        restored,
+        series,
         ParameterRelationData().to_context(),
     ) == [
         EntityRef(id="q0", kind="logical_device"),
@@ -651,7 +532,7 @@ def test_lateral_cross_evaluates_right_relation_with_left_row_context() -> None:
     ]
 
 
-def test_relation_join_sort_and_limit_are_durable_operations() -> None:
+def test_relation_join_sort_and_limit_operations() -> None:
     relation = (
         literal_rows(
             [
@@ -672,9 +553,7 @@ def test_relation_join_sort_and_limit_are_durable_operations() -> None:
         .limit(1)
     )
 
-    restored = assert_model_round_trip(relation)
-
-    assert evaluate_relation(restored) == [
+    assert evaluate_relation(relation) == [
         {
             "device_id": "r0",
             "frequency": Quantity(value=5.9, unit="GHz"),

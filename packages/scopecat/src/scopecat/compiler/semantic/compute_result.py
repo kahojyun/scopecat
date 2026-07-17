@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from dataclasses import dataclass
 
 from scopecat.compiler.semantic.model import ValueId
 
 
-class ComputeResultRef(BaseModel):
+@dataclass(frozen=True, slots=True)
+class ComputeResultRef:
     """Internal symbolic reference to one point-local compute result."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        revalidate_instances="always",
-    )
 
     value_id: ValueId

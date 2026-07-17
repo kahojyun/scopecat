@@ -14,14 +14,13 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import cast
 
-from pydantic import JsonValue
-
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.linking.linked import MaterializedLinkedPointSet
 from scopecat.compiler.typed.point_domain import LogicalPointId, MaterializedPoint
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,

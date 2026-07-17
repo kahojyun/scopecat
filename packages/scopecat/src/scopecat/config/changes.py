@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Literal, Self, override
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -79,21 +79,6 @@ class ParameterChangeDecisionRecord(BaseModel):
                 msg = f"parameter change decision ref escapes run directory: {ref}"
                 raise ValueError(msg)
         return value
-
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> Self:
-        """Copy through validation so durable decision invariants cannot drift."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)
 
 
 def is_safe_parameter_change_id(value: str) -> bool:
@@ -191,8 +176,6 @@ def invalidate_parameter_change_proposal(
     invalidated_by_refs: list[str] | None = None,
 ) -> ParameterChangeDecisionRecord:
     related_refs = list(invalidated_by_refs or [])
-    for ref in related_refs:
-        _validate_selector_path(ref)
     return _record_parameter_change_decision(
         run_id=run_id,
         selector=selector,

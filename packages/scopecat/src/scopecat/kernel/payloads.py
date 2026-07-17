@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from dataclasses import dataclass
 
 
-class PayloadValue(BaseModel):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PayloadValue:
     """An opaque, in-memory value tagged with its authoring schema.
 
-    The payload itself is deliberately excluded from durable model dumps.  It
-    follows the same transient boundary as in-memory compute functions and is
-    unwrapped immediately before a compute function is called.
+    The immutable wrapper follows the same transient boundary as in-memory
+    compute functions. Its opaque body is unwrapped immediately before a
+    compute function is called.
     """
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-
     schema_id: str
-    payload: object = Field(default=None, exclude=True)
+    payload: object = None

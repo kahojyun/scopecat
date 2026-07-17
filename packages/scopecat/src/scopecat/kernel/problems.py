@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
-from typing import Annotated, Literal, Self, override
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -70,21 +70,6 @@ class _LocationModel(BaseModel):
         frozen=True,
         revalidate_instances="always",
     )
-
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> Self:
-        """Copy through validation so structured identities stay valid."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)
 
 
 class ModelLocation(_LocationModel):
@@ -271,21 +256,6 @@ class Problem(BaseModel):
     @field_serializer("details")
     def serialize_details(self, value: Mapping[str, object]) -> object:
         return thaw_json_value(value)
-
-    @override
-    def model_copy(
-        self,
-        *,
-        update: Mapping[str, object] | None = None,
-        deep: bool = False,
-    ) -> Self:
-        """Copy through validation so frozen details and locations stay closed."""
-
-        _ = deep
-        data = self.model_dump(mode="python")
-        if update is not None:
-            data.update(update)
-        return type(self).model_validate(data)
 
 
 def model_location(root: str, *path: LocationPathItem) -> ModelLocation:

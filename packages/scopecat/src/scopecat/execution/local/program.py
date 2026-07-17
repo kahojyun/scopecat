@@ -108,7 +108,7 @@ class StateTarget:
             resource_id=resource_id,
             capability_id=self.capability_id,
             field_path=self.field_path,
-            value=self.value.model_copy(deep=True),
+            value=self.value,
             entity_ids=list(self.entity_ids),
             channel_bindings=list(self.channel_bindings),
         )
@@ -143,7 +143,7 @@ class ActionField:
     def command_field(self) -> InstrumentActionCommandField:
         return InstrumentActionCommandField(
             field_path=self.id,
-            value=self.value.model_copy(deep=True),
+            value=self.value,
             entity_ids=list(self.entity_ids),
             channel_bindings=list(self.channel_bindings),
         )

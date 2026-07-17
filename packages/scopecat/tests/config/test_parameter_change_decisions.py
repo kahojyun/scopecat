@@ -180,7 +180,7 @@ def test_concurrent_parameter_decisions_preserve_every_append(
     assert not list((tmp_path / "runs" / run_id).rglob("*.tmp"))
 
 
-def test_parameter_decision_copy_revalidates_identity(tmp_path: Path) -> None:
+def test_parameter_decision_validation_rejects_empty_actor(tmp_path: Path) -> None:
     run_id = signal_run_with_parameter_change(tmp_path)
     decision = review_parameter_change_proposal(
         run_id=run_id,
@@ -190,5 +190,7 @@ def test_parameter_decision_copy_revalidates_identity(tmp_path: Path) -> None:
         reviewer="reviewer",
     )
 
+    invalid = decision.model_dump(mode="python")
+    invalid["actor"] = ""
     with pytest.raises(ValidationError):
-        decision.model_copy(update={"actor": ""})
+        type(decision).model_validate(invalid)

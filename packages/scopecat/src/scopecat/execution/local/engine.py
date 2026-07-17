@@ -859,66 +859,16 @@ class ExecutionEngine:
             instrument_id=operation.instrument_id,
         )
         self.problems.extend(receipt_problems)
-        receipt_failed = has_blocking_problems(receipt_problems)
-        if receipt.status == "applied" and receipt_failed:
-            self._indeterminate = True
-            problem = self._problem(
-                "instrument_apply_receipt_conflict",
-                (
-                    f"instrument {operation.instrument_id} reported applied "
-                    "together with blocking problems"
-                ),
-                operation_id=operation.operation_id,
-                point_index=frame.point.point_index,
-                instrument_id=operation.instrument_id,
-            )
-            self.problems.append(problem)
-            self._commit_after_effect(
-                entry.model_copy(
-                    update={
-                        "state": "unknown",
-                        "problems": (*receipt_problems, problem),
-                        "evidence": {
-                            **self._state_event_summary(
-                                frame,
-                                entry.evidence,
-                                changed_field_count=0,
-                                state_command_count=0,
-                                payload_count=0,
-                            ),
-                            "receipt_status": receipt.status,
-                            **receipt_evidence,
-                        },
-                    }
-                )
-            )
-            # A contradictory receipt cannot safely advance predicted state.
-            return False
         if receipt.status != "applied":
             if receipt.status == "unknown":
                 self._indeterminate = True
-            if not receipt_failed:
-                problem = self._problem(
-                    "instrument_state_not_applied",
-                    (
-                        f"instrument {operation.instrument_id} reported "
-                        f"{receipt.status!r} for state operation"
-                    ),
-                    operation_id=operation.operation_id,
-                    point_index=frame.point.point_index,
-                    instrument_id=operation.instrument_id,
-                )
-                self.problems.append(problem)
-                operation_problems = (*receipt_problems, problem)
-            else:
-                operation_problems = receipt_problems
             self._commit_after_effect(
                 entry.model_copy(
                     update={
                         "state": (
                             "unknown" if receipt.status == "unknown" else "failed"
                         ),
-                        "problems": operation_problems,
+                        "problems": receipt_problems,
                         "evidence": {
                             **self._state_event_summary(
                                 frame,
@@ -1228,25 +1178,13 @@ class ExecutionEngine:
         if receipt.status != "collected":
             if receipt.status == "unknown":
                 self._indeterminate = True
-            if not has_blocking_problems(receipt_problems):
-                problem = self._problem(
-                    "instrument_collection_not_completed",
-                    f"instrument {operation.instrument_id} reported {receipt.status!r}",
-                    operation_id=operation.operation_id,
-                    point_index=frame.point.point_index,
-                    instrument_id=operation.instrument_id,
-                )
-                self.problems.append(problem)
-                operation_problems = (*receipt_problems, problem)
-            else:
-                operation_problems = receipt_problems
             self._commit_after_effect(
                 entry.model_copy(
                     update={
                         "state": (
                             "unknown" if receipt.status == "unknown" else "failed"
                         ),
-                        "problems": operation_problems,
+                        "problems": receipt_problems,
                         "evidence": {**entry.evidence, **receipt_evidence},
                     }
                 )
