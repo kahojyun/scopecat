@@ -23,6 +23,7 @@ from scopecat_quantum import (
     CircuitId,
     CircuitOperationId,
     CircuitProgram,
+    CircuitPulseAcquisitionProvenance,
     CircuitSequence,
     Constant,
     Delay,
@@ -39,12 +40,14 @@ from scopecat_quantum import (
     MeasurementCalibrationCatalog,
     MeasurementCalibrationKey,
     Play,
-    PreparedCircuitTargetEntry,
+    PreparedQuantumTargetEntry,
     PulseEventId,
     PulseParallel,
     PulseProgram,
     PulseProgramId,
     PulseSequence,
+    QuantumProgramId,
+    QuantumProgramIR,
     QubitId,
     ReadoutSignal,
     ScheduledPulseProgram,
@@ -58,11 +61,13 @@ from scopecat_quantum import (
     TargetId,
     compile_target,
     lower_circuit_to_pulses,
-    prepare_circuit_target_batch,
-    prepare_circuit_target_entry,
+    lower_quantum_program_to_pulses,
+    prepare_quantum_target_batch,
+    prepare_quantum_target_entry,
     schedule,
     select_calibrations,
     verify_circuit_program,
+    verify_quantum_program,
 )
 
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -289,23 +294,16 @@ def _parallel_two_qubit_program(
 def _prepared_measurement_entry(
     *,
     entry_id: str,
-    circuit_id: str,
+    program_id: str,
     qubit: QubitId,
     acquisition_kind: AcquisitionKind,
     acquisition_slot_id: AcquisitionSlotId,
-) -> tuple[PreparedCircuitTargetEntry, Measure, MeasurementCalibration]:
+) -> tuple[PreparedQuantumTargetEntry, Measure, MeasurementCalibration]:
     measurement = Measure(
         id=CircuitOperationId("measure"),
         qubit=qubit,
         acquisition_slot_id=acquisition_slot_id,
         acquisition_kind=acquisition_kind,
-    )
-    circuit = verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId(circuit_id),
-            body=measurement,
-        ),
-        (),
     )
     template_slot = AcquisitionSlot(
         id=AcquisitionSlotId("template-result"),
@@ -339,18 +337,24 @@ def _prepared_measurement_entry(
         key=MeasurementCalibrationKey.from_measurement(measurement),
         pulse_template=template,
     )
-    selection = select_calibrations(
-        circuit,
+    verified = verify_quantum_program(
+        QuantumProgramIR(
+            id=QuantumProgramId(program_id),
+            body=measurement,
+        ),
+        (),
+    )
+    lowered = lower_quantum_program_to_pulses(
+        verified,
         CalibrationCatalog(
             measurements=MeasurementCalibrationCatalog((calibration,)),
         ),
+        output_id=PulseProgramId(f"{entry_id}-pulses"),
     )
     return (
-        prepare_circuit_target_entry(
+        prepare_quantum_target_entry(
             TargetCompileEntryId(entry_id),
-            circuit,
-            selection,
-            output_id=PulseProgramId(f"{entry_id}-pulses"),
+            lowered,
         ),
         measurement,
         calibration,
@@ -744,7 +748,7 @@ def test_calibrated_measurement_reaches_fake_awg_and_digitizer() -> None:
     assert run == FakeListRuntime().execute(compiled)
 
 
-def test_prepared_circuit_batch_resolves_reused_slots_from_runtime_frames() -> None:
+def test_prepared_quantum_batch_resolves_reused_slots_from_runtime_frames() -> None:
     target = _target()
     compiler = FakeListTargetCompiler(
         TargetCompilerId("fake-list-compiler.v1"),
@@ -756,20 +760,20 @@ def test_prepared_circuit_batch_resolves_reused_slots_from_runtime_frames() -> N
     )
     iq_entry, iq_measurement, iq_calibration = _prepared_measurement_entry(
         entry_id="iq-entry",
-        circuit_id="iq-circuit",
+        program_id="iq-program",
         qubit=Q0,
         acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
         acquisition_slot_id=shared_slot_id,
     )
     trace_entry, trace_measurement, trace_calibration = _prepared_measurement_entry(
         entry_id="trace-entry",
-        circuit_id="trace-circuit",
+        program_id="trace-program",
         qubit=Q1,
         acquisition_kind=AcquisitionKind.RAW_TRACE,
         acquisition_slot_id=shared_slot_id,
     )
     repetitions = 3
-    batch = prepare_circuit_target_batch(
+    batch = prepare_quantum_target_batch(
         (iq_entry, trace_entry),
         target_id=target.id,
         compiler_id=compiler.id,
@@ -796,21 +800,22 @@ def test_prepared_circuit_batch_resolves_reused_slots_from_runtime_frames() -> N
 
     expected = {
         iq_entry.id: (
-            iq_entry.source_circuit_id,
+            iq_entry.source_program_id,
             iq_measurement,
             iq_calibration,
         ),
         trace_entry.id: (
-            trace_entry.source_circuit_id,
+            trace_entry.source_program_id,
             trace_measurement,
             trace_calibration,
         ),
     }
     for frame in run.frames:
         origin = batch.acquisition_origin_for(frame.address)
-        source_circuit_id, measurement, calibration = expected[frame.entry_id]
+        source_program_id, measurement, calibration = expected[frame.entry_id]
         assert origin.address == frame.address
-        assert origin.source_circuit_id == source_circuit_id
+        assert origin.source_program_id == source_program_id
+        assert isinstance(origin.provenance, CircuitPulseAcquisitionProvenance)
         assert origin.provenance.measurement_id == measurement.id
         assert origin.provenance.acquisition_slot_id == measurement.acquisition_slot_id
         assert origin.provenance.calibration_id == calibration.id

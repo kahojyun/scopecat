@@ -95,18 +95,3 @@ def operation_contract_issues(
             )
         )
     return tuple(issues)
-
-
-__all__ = [
-    "LOCAL_OPAQUE_OPERATION_CONTRACT",
-    "EffectClass",
-    "OpaqueSemantics",
-    "OperationContract",
-    "OperationContractIssue",
-    "OperationSemantics",
-    "PlacementConstraint",
-    "Portability",
-    "ScalarBinarySemantics",
-    "operation_contract_issues",
-    "scalar_binary_operation_contract",
-]

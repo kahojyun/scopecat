@@ -416,27 +416,3 @@ def _product_maximum(maximums: tuple[int | None, ...]) -> int | None:
             raise AssertionError("unknown point maximum was handled above")
         result *= maximum
     return result
-
-
-__all__ = [
-    "POINT_UNIT",
-    "PointCardinality",
-    "PointDependentProduct",
-    "PointDomainAnalysis",
-    "PointDomainExpr",
-    "PointDomainPath",
-    "PointDomainShape",
-    "PointDomainShapeError",
-    "PointProduct",
-    "PointRelationRows",
-    "PointUnit",
-    "PointZip",
-    "analyze_point_domain",
-    "iter_point_relation_rows",
-    "map_point_relation_rows",
-    "point_dependent_product",
-    "point_product",
-    "point_rows",
-    "point_zip",
-    "walk_point_domain",
-]

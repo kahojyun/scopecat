@@ -77,6 +77,65 @@ def test_literal_zero_repeat_elides_dead_inputs_and_gate_definitions() -> None:
     assert bound.verified.operations == ()
 
 
+def test_literal_zero_pulse_repeat_elides_inputs_but_retains_signal_owners() -> None:
+    q0 = authoring.qubit("q0")
+    amplitude = authoring.input(
+        "amplitude",
+        sc.ScalarType(sc.QuantityType(unit="arb")),
+    )
+    dead_pulse = authoring.repeat(
+        authoring.play(
+            authoring.drive(q0),
+            authoring.constant(
+                duration=Quantity(8, "ns"),
+                amplitude=amplitude,
+            ),
+        ),
+        0,
+    )
+
+    with pytest.raises(ValueError, match="undeclared formal elements: 'q0'"):
+        authoring.pulse_template("dead-pulse", dead_pulse, elements=())
+
+    template = authoring.pulse_template("dead-pulse", dead_pulse, elements=(q0,))
+    assert template.inputs == ()
+
+
+def test_implemented_gate_only_tightens_pulse_repeat_inputs() -> None:
+    q0 = authoring.qubit("q0")
+    gate_value = authoring.scalar_input("gate_value", GateParameterKind.INTEGER)
+    pulse_count = authoring.input(
+        "pulse_count",
+        sc.ScalarType(sc.IntType()),
+    )
+    custom = authoring.single_qubit_gate(
+        "custom",
+        parameters={"value": GateParameterKind.INTEGER},
+    )
+    pulse = authoring.repeat(
+        authoring.play(
+            authoring.drive(q0),
+            authoring.constant(
+                duration=Quantity(8, "ns"),
+                amplitude=Quantity(0.2, "arb"),
+            ),
+        ),
+        pulse_count,
+    )
+    declaration = authoring.program(
+        "implemented-repeat-inputs",
+        authoring.implements(custom(q0, value=gate_value), pulse),
+    )
+
+    assert declaration.inputs == (gate_value, pulse_count)
+    authoring.bind(declaration, {"gate_value": -1, "pulse_count": 1})
+    with pytest.raises(
+        authoring.ProgramBindingError,
+        match=r"bindings\.pulse_count",
+    ):
+        authoring.bind(declaration, {"gate_value": -1, "pulse_count": -1})
+
+
 @pytest.mark.parametrize("count", [-1, 1.5, True])
 def test_symbolic_repeat_rejects_invalid_bound_counts(count: object) -> None:
     declaration, _x_count, _raw_iq = _x_count_declaration()

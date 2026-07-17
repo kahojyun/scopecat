@@ -17,7 +17,6 @@ from scopecat.authoring._validation import validate_invocation_scans
 from scopecat.authoring._value_refs import (
     PointValueDependency,
     ValueRef,
-    internal_point_cross_value_refs,
     internal_value_ref_bound_point_input_ids,
     internal_value_ref_free_point_dependencies,
     internal_value_ref_from_expression,
@@ -54,6 +53,7 @@ from scopecat.compiler.typed.point_domain import (
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.value_types import Table
+from tests.testkit.value_refs import internal_point_cross_value_refs
 
 _FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))
 _DURATION = sc.ScalarType(sc.QuantityType(unit="ns"))

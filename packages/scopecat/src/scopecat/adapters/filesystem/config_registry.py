@@ -417,9 +417,3 @@ def _registry_model_location(*path: str | int) -> ModelLocation:
 
 def _registry_storage_location(ref: str) -> StorageLocation:
     return StorageLocation(ref=ref)
-
-
-__all__ = [
-    "FilesystemConfigRegistryRepository",
-    "FilesystemWorkspaceUnitOfWork",
-]

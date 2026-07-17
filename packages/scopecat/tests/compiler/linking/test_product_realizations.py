@@ -12,7 +12,6 @@ from scopecat.compiler.typed.products import (
     ProductDef,
     ProductKind,
 )
-from scopecat.compiler.typed.program import instrument_product_producer
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -24,6 +23,7 @@ from scopecat.kernel.product_identity import ProductUse, product_id, product_use
 from scopecat.kernel.resource_identity import physical_resource_id
 from scopecat.planning.routing import RoutingView
 from scopecat.records.config import RoutingResource
+from tests.testkit.typed_program import instrument_product_producer
 
 
 def _product(

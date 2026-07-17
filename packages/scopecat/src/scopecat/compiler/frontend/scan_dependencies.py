@@ -538,14 +538,3 @@ def _order_product_factors(
         for required in remaining.values():
             required.discard(next_index)
     return tuple(selected[index] for index in ordered), None
-
-
-__all__ = [
-    "ScanAxis",
-    "ScanDependencyEdge",
-    "ScanDependencyError",
-    "ScanDependencyIssue",
-    "ScanPath",
-    "VerifiedScanDependencyGraph",
-    "verify_scan_dependencies",
-]

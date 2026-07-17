@@ -45,6 +45,3 @@ def build_execution_plan_preview(
             for record in selected.records
         ),
     )
-
-
-__all__ = ["build_execution_plan_preview"]

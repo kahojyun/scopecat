@@ -16,6 +16,3 @@ class ProviderOptionDescription:
     label: str | None = None
     description: str | None = None
     metadata: dict[str, JsonValue] = field(default_factory=dict)
-
-
-__all__ = ["ProviderOptionDescription"]

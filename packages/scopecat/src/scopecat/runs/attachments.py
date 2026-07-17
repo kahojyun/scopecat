@@ -152,6 +152,3 @@ def _is_artifact_filename(filename: str) -> bool:
         return False
     path = PurePosixPath(filename)
     return path.name == filename and not path.is_absolute() and ".." not in path.parts
-
-
-__all__ = ["attach_run_artifact"]

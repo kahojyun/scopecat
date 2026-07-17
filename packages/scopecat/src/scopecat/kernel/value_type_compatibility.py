@@ -73,12 +73,6 @@ def describe_value_type(value_type: ValueType) -> str:
     return f"Table{{{columns}}}"
 
 
-def atom_is_assignable(source: AtomType, target: AtomType) -> bool:
-    """Return whether a scalar atom can safely feed another scalar atom."""
-
-    return _atom_assignable(source, target)
-
-
 def literal_scalar_type(value: object) -> Scalar:
     """Infer the narrow scalar type of one closed literal."""
 
@@ -311,12 +305,3 @@ def _describe_atom(atom: AtomType) -> str:
     if isinstance(atom, Record):
         return "Record"
     return type(atom).__name__
-
-
-__all__ = [
-    "atom_is_assignable",
-    "describe_value_type",
-    "is_assignable",
-    "literal_scalar_type",
-    "require_assignable",
-]

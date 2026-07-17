@@ -6,7 +6,6 @@ import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.bound import BoundPlan
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import (
     channel_signature,
     materialize_local_plan,
@@ -24,11 +23,8 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ResourceRouteIntent,
     TypedProgram,
-    instrument_product_producer,
-    observable_product,
     record_product,
     set_state_field,
-    typed_program,
 )
 from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import ApplyStateStage, CollectStage
@@ -65,6 +61,12 @@ from tests.testkit.authoring import load_config, parameters
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     series_value_expr,
+)
+from tests.testkit.typed_program import (
+    instrument_product_producer,
+    link_program,
+    observable_product,
+    typed_program,
 )
 
 

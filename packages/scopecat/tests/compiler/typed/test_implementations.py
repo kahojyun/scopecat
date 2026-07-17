@@ -13,7 +13,6 @@ from scopecat.compiler.linking.bound import BoundValue
 from scopecat.compiler.linking.implementations import (
     select_local_implementations,
 )
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.model import (
     literal_rows,
@@ -36,24 +35,22 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
     PlacementConstraint,
-    Portability,
     scalar_binary_operation_contract,
 )
 from scopecat.compiler.typed.program import (
     TypedComputeNode,
     TypedComputeOutput,
     TypedProgram,
-    typed_program,
 )
 from scopecat.compiler.typed.verification import verify_typed_program
 from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import ComputeStage
-from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Payload, Scalar, String, Table, ValueType
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import point_domain
+from tests.testkit.typed_program import link_program, typed_program
 
 _FLOAT = Scalar(Float())
 _EXECUTE_POINT = ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
@@ -149,29 +146,6 @@ def test_typed_program_keeps_implementation_and_source_as_sidecars() -> None:
     assert program.source_map is source_map
 
 
-def test_declared_implementation_contract_must_match_typed_operation() -> None:
-    operation_id = _operation_id()
-    program = _program(
-        catalog=ImplementationCatalog(
-            local_python=(
-                LocalPythonImplementation(
-                    id=ImplementationId("python-v1"),
-                    operation_id=operation_id,
-                    operation_contract=scalar_binary_operation_contract("+"),
-                    kernel=lambda: 1.0,
-                ),
-            )
-        )
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_typed_program(program)
-
-    assert [problem.code for problem in caught.value.problems] == [
-        "semantic_implementation_contract_mismatch"
-    ]
-
-
 def test_linking_does_not_require_a_local_implementation() -> None:
     program = _program(catalog=ImplementationCatalog())
     environment = validate_config_environment(load_config())
@@ -233,115 +207,6 @@ def test_ambiguous_selection_never_depends_on_catalog_order(
     assert selected is None
     assert [problem.code for problem in problems] == [
         "semantic_operation_implementation_ambiguous"
-    ]
-
-
-def test_malformed_candidate_does_not_create_a_false_ambiguity() -> None:
-    operation_id = _operation_id()
-    node = TypedComputeNode(
-        id=operation_id,
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        result=_result(operation_id),
-    )
-    catalog = ImplementationCatalog(
-        local_python=(
-            LocalPythonImplementation(
-                id=ImplementationId("exact"),
-                operation_id=operation_id,
-                operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                kernel=lambda: 1.0,
-            ),
-            LocalPythonImplementation(
-                id=ImplementationId("mismatch"),
-                operation_id=operation_id,
-                operation_contract=scalar_binary_operation_contract("+"),
-                kernel=lambda: 2.0,
-            ),
-        )
-    )
-
-    selected, problems = select_local_implementations(
-        (node,),
-        catalog,
-        phase=ProblemPhase.PLANNING,
-    )
-
-    assert selected is None
-    assert [problem.code for problem in problems] == [
-        "semantic_implementation_contract_mismatch"
-    ]
-
-
-@given(candidate_order=st.permutations(("exact", "mismatch")))
-def test_duplicate_diagnostics_ignore_catalog_tie_order(
-    candidate_order: list[str],
-) -> None:
-    operation_id = _operation_id()
-    contracts = {
-        "exact": LOCAL_OPAQUE_OPERATION_CONTRACT,
-        "mismatch": scalar_binary_operation_contract("+"),
-    }
-    node = TypedComputeNode(
-        id=operation_id,
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        result=_result(operation_id),
-    )
-    catalog = ImplementationCatalog(
-        local_python=tuple(
-            LocalPythonImplementation(
-                id=ImplementationId("shared"),
-                operation_id=operation_id,
-                operation_contract=contracts[kind],
-                kernel=lambda: 1.0,
-            )
-            for kind in candidate_order
-        )
-    )
-
-    selected, problems = select_local_implementations(
-        (node,),
-        catalog,
-        phase=ProblemPhase.PLANNING,
-    )
-
-    assert selected is None
-    assert [problem.code for problem in problems] == [
-        "semantic_implementation_duplicate",
-        "semantic_implementation_contract_mismatch",
-    ]
-
-
-def test_local_selection_rejects_intrinsically_invalid_contract() -> None:
-    operation_id = _operation_id()
-    invalid_contract = replace(
-        LOCAL_OPAQUE_OPERATION_CONTRACT,
-        portability=Portability.PORTABLE,
-    )
-    node = TypedComputeNode(
-        id=operation_id,
-        contract=invalid_contract,
-        result=_result(operation_id),
-    )
-    catalog = ImplementationCatalog(
-        local_python=(
-            LocalPythonImplementation(
-                id=ImplementationId("invalid"),
-                operation_id=operation_id,
-                operation_contract=invalid_contract,
-                kernel=lambda: 1.0,
-            ),
-        )
-    )
-
-    selected, problems = select_local_implementations(
-        (node,),
-        catalog,
-        phase=ProblemPhase.PLANNING,
-    )
-
-    assert selected is None
-    assert [problem.code for problem in problems] == [
-        "semantic_operation_local_target_unsupported"
     ]
 
 
@@ -540,34 +405,6 @@ def test_implementation_id_versions_cache_while_plan_pins_exact_callable() -> No
     )
     assert plan.points[0].compute[0].implementation.kernel is first_kernel
     assert second_plan.points[0].compute[0].implementation.kernel is second_kernel
-    assert second_plan.local_implementations is not None
-
-    with pytest.raises(ValueError, match="exact selected implementation"):
-        replace(
-            plan,
-            local_implementations=second_plan.local_implementations,
-        )
-    with pytest.raises(ValueError, match="compute definition inventory"):
-        replace(
-            plan,
-            points=(replace(plan.points[0], compute=()),),
-        )
-    drifted_call = replace(
-        plan.points[0].compute[0],
-        result=replace(
-            plan.points[0].compute[0].result,
-            id=ValueId(SymbolId(local_id="drifted-result")),
-        ),
-    )
-    with pytest.raises(ValueError, match="exact declared result facts"):
-        replace(
-            plan,
-            points=(replace(plan.points[0], compute=(drifted_call,)),),
-        )
-    with pytest.raises(ValueError, match="cover the compute inventory"):
-        replace(plan, compute_definitions=())
-    with pytest.raises(ValueError, match="valid bound plans require"):
-        replace(plan, local_implementations=None)
 
 
 def test_zero_point_plan_retains_complete_local_selection() -> None:
@@ -707,26 +544,3 @@ def test_bound_call_rejects_selection_and_interface_drift_at_construction() -> N
             plan.points[0].compute[0],
             inputs={"extra": BoundValue(1.0)},
         )
-
-
-def test_valid_bound_plan_rejects_nonlocal_compute_result_availability() -> None:
-    operation_id = _operation_id()
-    plan = materialize_local_plan(
-        link_program(
-            _program(
-                catalog=_catalog(("python-v1", operation_id, lambda: 1.0)),
-            ),
-            validate_config_environment(load_config()),
-        )
-    )
-    definition = plan.compute_definitions[0]
-    unsupported = replace(
-        definition,
-        result=replace(
-            definition.result,
-            availability=ValueAvailability(ValueStage.RESULT, ValueRate.ROW),
-        ),
-    )
-
-    with pytest.raises(ValueError, match="execute/point compute results"):
-        replace(plan, compute_definitions=(unsupported,))

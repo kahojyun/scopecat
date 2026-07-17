@@ -14,5 +14,3 @@ type JsonValue = (
     | tuple[JsonValue, ...]
     | Mapping[str, JsonValue]
 )
-
-__all__ = ["JsonValue"]

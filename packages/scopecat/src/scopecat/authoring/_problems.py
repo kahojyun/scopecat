@@ -31,6 +31,3 @@ def authoring_problem(
         location=model_location(root, *path),
         details=details,
     )
-
-
-__all__ = ["authoring_problem"]

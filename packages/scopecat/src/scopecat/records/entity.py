@@ -91,12 +91,3 @@ def entity_ref(entity: EntityRef | str, *, kind: str | None = None) -> EntityRef
     if isinstance(entity, EntityRef):
         return entity
     return EntityRef(id=entity, kind=kind)
-
-
-__all__ = [
-    "EntityRef",
-    "entity_identity",
-    "entity_ref",
-    "normalize_entity_metadata",
-    "same_entity_identity",
-]

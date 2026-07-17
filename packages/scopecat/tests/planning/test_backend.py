@@ -9,7 +9,6 @@ import pytest
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
-    link_program,
 )
 from scopecat.compiler.relations.model import (
     lit,
@@ -43,7 +42,6 @@ from scopecat.compiler.typed.program import (
     TypedMeasurementTransformOutput,
     TypedProgram,
     ValueInput,
-    instrument_product_producer,
     product_output,
     record_product,
     set_state_field,
@@ -102,6 +100,7 @@ from scopecat.sdk.instruments import (
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
+from tests.testkit.typed_program import instrument_product_producer, link_program
 
 
 class _EffectProbeRuntime:

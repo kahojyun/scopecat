@@ -925,6 +925,19 @@ def test_scalar_binary_requires_scalar_inputs() -> None:
     assert _problem_codes(caught.value) == ["semantic_scalar_binary_input_type_invalid"]
 
 
+def test_scalar_binary_requires_left_and_right_inputs() -> None:
+    graph = _binary_graph()
+    operation = replace(
+        graph.operations[0],
+        inputs=(("value", graph.operations[0].inputs[0][1]),),
+    )
+
+    with pytest.raises(CheckFailed) as caught:
+        verify_semantic_graph(replace(graph, operations=(operation,)))
+
+    assert _problem_codes(caught.value) == ["semantic_scalar_binary_shape_invalid"]
+
+
 def test_scalar_binary_collects_result_type_and_availability_mismatches() -> None:
     graph = _binary_graph(
         result_type=BOOL,

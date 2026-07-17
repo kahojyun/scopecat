@@ -90,6 +90,3 @@ def _latest_transitions(
     for transition in transitions:
         latest[transition.operation_id] = transition
     return latest
-
-
-__all__ = ["RunExecutionInspection", "inspect_run_execution"]

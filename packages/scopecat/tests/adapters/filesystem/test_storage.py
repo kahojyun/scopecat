@@ -650,7 +650,7 @@ def test_measurement_dataset_fsyncs_file_and_parent(
         real_fsync(file_descriptor)
 
     monkeypatch.setattr(
-        "scopecat.adapters.filesystem.measurement_files.os.fsync",
+        "scopecat.adapters.filesystem.io.os.fsync",
         recording_fsync,
     )
     write_measurement_records_path(

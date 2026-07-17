@@ -9,7 +9,6 @@ from scopecat.compiler.linking.bound import (
     BoundResourceState,
     BoundStateField,
 )
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.typed.program import TypedProgram
@@ -17,6 +16,7 @@ from scopecat.kernel.problems import Problem
 from scopecat.kernel.state import StateValue
 from scopecat.records.config import ConfigProfileSnapshot, RoutingResource
 from tests.testkit.authoring import load_config
+from tests.testkit.typed_program import link_program
 
 
 def config_with_physical_resources(

@@ -5,7 +5,6 @@ from dataclasses import replace
 import pytest
 
 import scopecat as sc
-import scopecat.compiler.frontend.assembly_verification as assembly_verification
 from scopecat.authoring._binding_intents import requires, resource_port
 from scopecat.authoring._record_intents import observable
 from scopecat.authoring._value_refs import internal_value_ref_from_expression
@@ -28,9 +27,17 @@ from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     LiteralValueSource,
     OperationOutputSource,
+    SemanticGraphIR,
+    SourceMap,
     ValueUse,
 )
 from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
+from scopecat.compiler.semantic.verification import (
+    VerifiedSemanticGraph,
+    verify_implementation_catalog,
+    verify_semantic_graph,
+    verify_source_map,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.value_types import Float, Payload, Scalar, Table, TableColumn
@@ -441,7 +448,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
 
     assert [
         operation.id.local_id
-        for operation in compiled.assembly.source.semantic_graph.operations
+        for operation in compiled.assembly.graph.semantic_graph.graph.operations
     ] == [
         "producer",
         "consumer",
@@ -470,17 +477,34 @@ def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> Non
 def test_compile_verifies_the_final_assembly_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[SemanticExperimentIR] = []
-    original_verify = verify_assembly_graph
+    calls = {"graph": 0, "catalog": 0, "source_map": 0}
 
-    def counted_verify(assembly: SemanticExperimentIR):
-        calls.append(assembly)
-        return original_verify(assembly)
+    def counted_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
+        calls["graph"] += 1
+        return verify_semantic_graph(graph)
+
+    def counted_catalog(
+        graph: SemanticGraphIR,
+        catalog: ImplementationCatalog,
+    ) -> ImplementationCatalog:
+        calls["catalog"] += 1
+        return verify_implementation_catalog(graph, catalog)
+
+    def counted_source_map(graph: SemanticGraphIR, source_map: SourceMap) -> SourceMap:
+        calls["source_map"] += 1
+        return verify_source_map(graph, source_map)
 
     monkeypatch.setattr(
-        assembly_verification,
-        "verify_assembly_graph",
-        counted_verify,
+        "scopecat.compiler.frontend.graph_validation.verify_semantic_graph",
+        counted_graph,
+    )
+    monkeypatch.setattr(
+        "scopecat.compiler.frontend.graph_validation.verify_implementation_catalog",
+        counted_catalog,
+    )
+    monkeypatch.setattr(
+        "scopecat.compiler.frontend.graph_validation.verify_source_map",
+        counted_source_map,
     )
     module = sc.module("test.graph.single-proof").build()
     invocation = module.template("test.graph.single-proof", kind="graph").build().bind()
@@ -491,7 +515,7 @@ def test_compile_verifies_the_final_assembly_once(
         environment=validate_config_environment(load_config()),
     )
 
-    assert calls == [compiled.assembly.source]
+    assert calls == {"graph": 1, "catalog": 1, "source_map": 1}
     assert resolved.experiment.id == "test.graph.single-proof"
 
 

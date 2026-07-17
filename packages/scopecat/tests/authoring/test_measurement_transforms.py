@@ -4,6 +4,7 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.kernel.errors import CheckFailed
 
 
@@ -116,7 +117,7 @@ def test_semantic_transform_graph_is_canonical_topological_order() -> None:
         .build()
     )
 
-    graph = elaborate_module(module).semantic_graph
+    graph = verify_assembly_graph(elaborate_module(module)).semantic_graph.graph
     assert tuple(
         transform.id.qualified_name for transform in graph.measurement_transforms
     ) == ("first", "second")
@@ -134,7 +135,7 @@ def test_semantic_transform_cycle_is_rejected() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        elaborate_module(module)
+        verify_assembly_graph(elaborate_module(module))
     assert "semantic_measurement_transform_cycle" in {
         problem.code for problem in error.value.problems
     }
@@ -160,7 +161,7 @@ def test_domain_and_transform_cannot_own_the_same_product() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        elaborate_module(module, execution)
+        verify_assembly_graph(elaborate_module(module, execution))
     assert "semantic_product_producer_duplicate" in {
         problem.code for problem in error.value.problems
     }

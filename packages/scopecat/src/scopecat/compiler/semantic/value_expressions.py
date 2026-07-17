@@ -212,16 +212,3 @@ def verify_value_expr(
         f"declared type {expected_type!r}"
     )
     raise TypeError(msg)
-
-
-__all__ = [
-    "ScalarOrSeriesValueExpr",
-    "ScalarValueExpr",
-    "SeriesValueExpr",
-    "TableValueExpr",
-    "ValueExpr",
-    "verify_scalar_value_expr",
-    "verify_series_value_expr",
-    "verify_table_value_expr",
-    "verify_value_expr",
-]

@@ -4,6 +4,7 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.typed.program import ValueInput
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -153,7 +154,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        elaborate_module(module, execution)
+        verify_assembly_graph(elaborate_module(module, execution))
     assert "semantic_domain_execution_input_stage_unavailable" in {
         problem.code for problem in error.value.problems
     }

@@ -530,10 +530,3 @@ def _required[T](value: T | None) -> T:
     if value is None:
         raise AssertionError("validated field is unexpectedly missing")
     return value
-
-
-__all__ = [
-    "evaluate_relation_expression",
-    "evaluate_scalar_expression",
-    "evaluate_series_expression",
-]

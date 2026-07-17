@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import replace
 from enum import IntEnum, StrEnum
 
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.bound import BoundComputeOutput, BoundValue
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.model import (
     RelationExpr,
@@ -44,14 +42,10 @@ from scopecat.compiler.typed.program import (
     ComputeEdge,
     TypedComputeNode,
     TypedComputeOutput,
-    TypedProgram,
     ValueInput,
-    compute_result,
     set_state_field,
-    typed_program,
 )
 from scopecat.kernel.content_identity import content_fingerprint
-from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
@@ -76,6 +70,7 @@ from tests.testkit.relation_plans import (
     table_value_expr,
     value_expr,
 )
+from tests.testkit.typed_program import compute_result, link_program, typed_program
 
 
 class _FirstIntegerToken(IntEnum):
@@ -209,93 +204,12 @@ def test_bound_state_preserves_primitive_field_types(
     assert type(plan.points[0].desired_state[0].fields[0].value.root) is type(value)
 
 
-def test_link_program_rejects_duplicate_compute_operations() -> None:
-    operation_id = _operation_id("duplicate")
-    program = TypedProgram(
-        id="duplicate-compute-operations",
-        kind="compiler_test",
-        point_domain=_point_domain(
-            literal_rows([{}]),
-            Table(columns=(), min_rows=1, max_rows=1),
-        ),
-        compute_nodes=(
-            TypedComputeNode(
-                id=operation_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                result=_output(
-                    operation_id,
-                    Scalar(Float()),
-                    value_id=ValueId(SymbolId(local_id="first-result")),
-                ),
-            ),
-            TypedComputeNode(
-                id=operation_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                result=_output(
-                    operation_id,
-                    Scalar(Float()),
-                    value_id=ValueId(SymbolId(local_id="second-result")),
-                ),
-            ),
-        ),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        link_program(program, validate_config_environment(load_config()))
-
-    assert [problem.code for problem in caught.value.problems] == [
-        "compute_operation_duplicate"
-    ]
-
-
-def test_link_program_rejects_duplicate_compute_outputs() -> None:
-    first_id = _operation_id("first")
-    second_id = _operation_id("second")
-    shared_output_id = ValueId(SymbolId(local_id="shared-result"))
-    program = TypedProgram(
-        id="duplicate-compute-outputs",
-        kind="compiler_test",
-        point_domain=_point_domain(
-            literal_rows([{}]),
-            Table(columns=(), min_rows=1, max_rows=1),
-        ),
-        compute_nodes=(
-            TypedComputeNode(
-                id=first_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                result=_output(
-                    first_id,
-                    Scalar(Float()),
-                    value_id=shared_output_id,
-                ),
-            ),
-            TypedComputeNode(
-                id=second_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                result=_output(
-                    second_id,
-                    Scalar(Float()),
-                    value_id=shared_output_id,
-                ),
-            ),
-        ),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        link_program(program, validate_config_environment(load_config()))
-
-    assert [problem.code for problem in caught.value.problems] == [
-        "compute_output_duplicate"
-    ]
-
-
 def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() -> None:
     producer_id = _operation_id("produce")
     consumer_id = _operation_id("consume")
     unused_id = _operation_id("a-unused-payload")
     producer_output_id = operation_result_id(producer_id)
     consumer_output_id = operation_result_id(consumer_id)
-    unused_output_id = operation_result_id(unused_id)
     point_type = Table(
         columns=(TableColumn("value", Scalar(Float())),),
         min_rows=3,
@@ -309,17 +223,6 @@ def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() 
             point_type,
         ),
         compute_nodes=(
-            TypedComputeNode(
-                id=consumer_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                inputs={
-                    "value": ComputeEdge(
-                        value_id=producer_output_id,
-                        expected_type=Scalar(Float()),
-                    )
-                },
-                result=_output(consumer_id, Scalar(Payload("pulse_program"))),
-            ),
             TypedComputeNode(
                 id=unused_id,
                 contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
@@ -338,6 +241,17 @@ def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() 
                     )
                 },
                 result=_output(producer_id, Scalar(Float())),
+            ),
+            TypedComputeNode(
+                id=consumer_id,
+                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                inputs={
+                    "value": ComputeEdge(
+                        value_id=producer_output_id,
+                        expected_type=Scalar(Float()),
+                    )
+                },
+                result=_output(consumer_id, Scalar(Payload("pulse_program"))),
             ),
         ),
         implementation_catalog=_catalog(
@@ -392,38 +306,6 @@ def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() 
 
     assert payload_ids[0] == payload_ids[1]
     assert payload_ids[2] != payload_ids[0]
-
-    first_point = plan.points[0]
-    consumer = next(
-        call for call in first_point.compute if call.operation_id == consumer_id
-    )
-    self_referencing = replace(
-        consumer,
-        inputs={"value": BoundComputeOutput(consumer_output_id)},
-    )
-    self_referencing_point = replace(
-        first_point,
-        compute=tuple(
-            self_referencing if call.operation_id == consumer_id else call
-            for call in first_point.compute
-        ),
-    )
-    with pytest.raises(ValueError, match="earlier result definition"):
-        replace(plan, points=(self_referencing_point, *plan.points[1:]))
-
-    wrong_typed = replace(
-        consumer,
-        inputs={"value": BoundComputeOutput(unused_output_id)},
-    )
-    wrong_typed_point = replace(
-        first_point,
-        compute=tuple(
-            wrong_typed if call.operation_id == consumer_id else call
-            for call in first_point.compute
-        ),
-    )
-    with pytest.raises(ValueError, match="input type"):
-        replace(plan, points=(wrong_typed_point, *plan.points[1:]))
 
 
 @pytest.mark.parametrize(

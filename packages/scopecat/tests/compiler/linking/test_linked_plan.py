@@ -14,7 +14,6 @@ from scopecat.compiler.linking.linked import (
     MaterializedConfigInputBinding,
     MaterializedDomainExecutionPoint,
     MaterializedLinkedPointBatch,
-    link_program,
     link_verified_program,
     materialize_linked_points,
 )
@@ -59,7 +58,6 @@ from scopecat.compiler.typed.point_domain import (
 from scopecat.compiler.typed.program import (
     ResourceRouteIntent,
     TypedProgram,
-    instrument_product_producer,
     product_output,
     record_product,
     set_state_field,
@@ -85,6 +83,7 @@ from scopecat.kernel.value_types import (
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
+from tests.testkit.typed_program import instrument_product_producer, link_program
 from tests.testkit.workflow_fixtures import load_experiment
 
 _FLOAT = Scalar(Float())

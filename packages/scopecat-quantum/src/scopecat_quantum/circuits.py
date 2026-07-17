@@ -512,19 +512,3 @@ def _issue_sort_key(issue: CircuitIssue) -> tuple[tuple[str, ...], str, str]:
         issue.code,
         issue.message,
     )
-
-
-__all__ = [
-    "CircuitIssue",
-    "CircuitIssuePathItem",
-    "CircuitNode",
-    "CircuitOperation",
-    "CircuitProgram",
-    "CircuitVerificationError",
-    "Measure",
-    "Parallel",
-    "Sequence",
-    "VerifiedCircuitProgram",
-    "iter_circuit_operations",
-    "verify_circuit_program",
-]

@@ -8,6 +8,3 @@ class AcquisitionKind(StrEnum):
 
     INTEGRATED_IQ = "integrated_iq"
     RAW_TRACE = "raw_trace"
-
-
-__all__ = ["AcquisitionKind"]

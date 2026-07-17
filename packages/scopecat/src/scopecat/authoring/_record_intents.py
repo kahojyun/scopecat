@@ -350,24 +350,3 @@ def _localize_record_axis_input_refs(
         localized = localize_value_ref(axis.size, inputs)
         return replace(axis, size=localized)
     return axis
-
-
-__all__ = [
-    "AxisSizeInput",
-    "ModuleProductPort",
-    "ProductOutputs",
-    "ProductRef",
-    "RecordAxis",
-    "RecordIntent",
-    "RecordKind",
-    "RecordSelection",
-    "entity_axis",
-    "localize_product_input_refs",
-    "localize_record_input_refs",
-    "observable",
-    "prefix_product_port",
-    "record_alias",
-    "record_axis",
-    "record_product",
-    "shot_axis",
-]

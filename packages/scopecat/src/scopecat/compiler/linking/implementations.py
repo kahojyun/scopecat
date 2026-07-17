@@ -21,10 +21,6 @@ from scopecat.compiler.semantic.operation_contract import (
     EffectClass,
     OperationContract,
     PlacementConstraint,
-    operation_contract_issues,
-)
-from scopecat.compiler.typed.implementation_catalog import (
-    analyze_local_implementation_catalog,
 )
 from scopecat.compiler.typed.program import TypedComputeNode
 from scopecat.kernel.problems import (
@@ -124,30 +120,21 @@ def select_local_implementations(
     *,
     phase: ProblemPhase,
 ) -> tuple[SelectedLocalImplementations | None, tuple[Problem, ...]]:
-    """Seal complete unique local Python coverage for the typed compute graph."""
+    """Select complete local coverage from a verified implementation catalog."""
 
-    analysis = analyze_local_implementation_catalog(
-        nodes,
-        catalog,
-        phase=phase,
-    )
-    by_operation = analysis.implementations_by_operation
-    blocked_operations = analysis.blocked_operations
-    problems = list(analysis.problems)
+    by_operation: dict[OperationId, list[LocalPythonImplementation]] = {}
+    for implementation in catalog.local_python:
+        by_operation.setdefault(implementation.operation_id, []).append(implementation)
+    problems: list[Problem] = []
     selected: list[SelectedLocalImplementation] = []
     for node in nodes:
-        if node.id in blocked_operations:
-            continue
         if (
             node.result.availability.stage is not ValueStage.EXECUTE
             or node.result.availability.rate is not ValueRate.POINT
         ):
             problems.append(_output_availability_problem(node, phase=phase))
             continue
-        candidates: tuple[LocalPythonImplementation, ...] = by_operation.get(
-            node.id,
-            (),
-        )
+        candidates = by_operation.get(node.id, [])
         if not candidates:
             problems.append(
                 _problem(
@@ -172,9 +159,7 @@ def select_local_implementations(
                 )
             )
             continue
-        implementation = next(iter(candidates))
-        if implementation.operation_contract != node.contract:
-            continue
+        implementation = candidates[0]
         if not _local_python_accepts(node.contract):
             problems.append(
                 _problem(
@@ -207,13 +192,9 @@ def select_local_implementations(
 
 
 def _local_python_accepts(contract: OperationContract) -> bool:
-    return (
-        not operation_contract_issues(contract)
-        and contract.effect is EffectClass.PURE
-        and (
-            contract.placement is PlacementConstraint.HOST
-            or contract.placement is PlacementConstraint.UNCONSTRAINED
-        )
+    return contract.effect is EffectClass.PURE and (
+        contract.placement is PlacementConstraint.HOST
+        or contract.placement is PlacementConstraint.UNCONSTRAINED
     )
 
 
@@ -260,11 +241,3 @@ def _output_availability_problem(
         phase=phase,
         category=ProblemCategory.UNAVAILABLE,
     )
-
-
-__all__ = [
-    "ComputeInterface",
-    "SelectedLocalImplementation",
-    "SelectedLocalImplementations",
-    "select_local_implementations",
-]

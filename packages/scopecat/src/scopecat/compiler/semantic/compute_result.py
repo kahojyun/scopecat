@@ -17,6 +17,3 @@ class ComputeResultRef(BaseModel):
     )
 
     value_id: ValueId
-
-
-__all__ = ["ComputeResultRef"]

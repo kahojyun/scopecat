@@ -64,12 +64,3 @@ def logical_resource_port_id(
 
 def physical_resource_id(value: str) -> PhysicalResourceId:
     return PhysicalResourceId(value)
-
-
-__all__ = [
-    "LogicalResourcePortId",
-    "PhysicalResourceId",
-    "ResourceTarget",
-    "logical_resource_port_id",
-    "physical_resource_id",
-]

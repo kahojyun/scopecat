@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 from scopecat import Quantity
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import MaterializedLinkedPointBatch, link_program
+from scopecat.compiler.linking.linked import (
+    MaterializedLinkedPointBatch,
+    link_verified_program,
+)
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import RelationTypeBindings
@@ -25,7 +28,9 @@ from scopecat.compiler.typed.program import (
     product_output,
     record_product,
 )
+from scopecat.compiler.typed.verification import seal_typed_program
 from scopecat.config.profiles import load_config_profile
+from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import product_producer_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
@@ -156,7 +161,12 @@ def _preparation(
             _WORKSPACE / "fixtures" / "core" / "simple_scan" / "config-profile.json"
         )
     )
-    linked_points = materialize_linked_points(link_program(program, environment))
+    linked_points = materialize_linked_points(
+        link_verified_program(
+            seal_typed_program(program, phase=ProblemPhase.PLANNING),
+            environment,
+        )
+    )
     projection = project_domain_plan(linked_points)
     context = make_domain_batch_context(
         projection,

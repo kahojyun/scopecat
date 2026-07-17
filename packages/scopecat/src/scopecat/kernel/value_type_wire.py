@@ -426,12 +426,3 @@ def _scalar_wire_variant(
             for field_name, dependencies in dependent_required.items()
         }
     return variant
-
-
-__all__ = [
-    "ScalarWire",
-    "ScalarWireAtomName",
-    "scalar_type_from_wire",
-    "scalar_type_to_wire",
-    "scalar_type_wire_schema",
-]

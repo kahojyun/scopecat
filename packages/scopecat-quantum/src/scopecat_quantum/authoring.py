@@ -707,10 +707,11 @@ def pulse_template(
 ) -> PulseTemplate:
     """Close a result-free symbolic pulse fragment as a reusable template."""
 
-    if not _is_pulse_only(body):
+    facts = _summarize_fragment(body)
+    if not facts.pulse_only:
         msg = "pulse_template body must contain only pulse statements"
         raise TypeError(msg)
-    if _quantum_fragment_results(body):
+    if facts.results:
         msg = "pulse templates cannot capture acquisition results"
         raise ValueError(msg)
     raw_elements = tuple(elements)
@@ -720,7 +721,7 @@ def pulse_template(
         raise ValueError(msg)
 
     inputs_by_id: dict[str, QuantumInput] = {}
-    for input_handle in _quantum_fragment_inputs(body):
+    for input_handle in facts.inputs:
         if not isinstance(input_handle, QuantumInput):
             msg = "pulse templates require QuantumInput rather than CircuitInput ports"
             raise TypeError(msg)
@@ -734,9 +735,7 @@ def pulse_template(
         inputs_by_id.setdefault(input_handle.id, input_handle)
 
     formal_ids = set(element_ids)
-    foreign_owners = {
-        owner for owner in _pulse_fragment_owners(body) if owner not in formal_ids
-    }
+    foreign_owners = {owner for owner in facts.pulse_owners if owner not in formal_ids}
     if foreign_owners:
         rendered = ", ".join(
             repr(owner.value)
@@ -849,10 +848,11 @@ def implements(
     if not isinstance(gate_call, _GateFragment):
         msg = "implements requires one authored gate call"
         raise TypeError(msg)
-    if not _is_pulse_only(pulse):
+    facts = _summarize_fragment(pulse)
+    if not facts.pulse_only:
         msg = "implements pulse must contain only pulse statements"
         raise TypeError(msg)
-    if _quantum_fragment_results(pulse):
+    if facts.results:
         msg = "implements pulse cannot acquire results"
         raise ValueError(msg)
     selected_resources = tuple(resources)
@@ -862,7 +862,7 @@ def implements(
         raise ValueError(msg)
     operand_ids = {qubit.ir_id for qubit in gate_call.qubits}
     allowed_owners = {*operand_ids, *resource_ids}
-    pulse_owners = set(_pulse_fragment_owners(pulse))
+    pulse_owners = set(facts.pulse_owners)
     foreign_owners = pulse_owners - allowed_owners
     if foreign_owners:
         rendered = ", ".join(
@@ -950,7 +950,7 @@ def repeat(operation: QuantumFragment, count: RepeatCount) -> QuantumFragment:
     excluded because a single result handle cannot represent repeated slots.
     """
 
-    if _quantum_fragment_results(operation):
+    if _summarize_fragment(operation).results:
         msg = (
             "repeat does not support fragments that produce measurement results "
             "or physical acquisition results"
@@ -978,12 +978,11 @@ def program(id: str, body: QuantumFragment) -> Program:  # noqa: A002
     """Close one unified gate-and-pulse fragment into a symbolic program."""
 
     ir_id = QuantumProgramId(id)
-    collected_inputs = _quantum_fragment_inputs(body)
+    facts = _summarize_fragment(body)
+    collected_inputs = facts.inputs
     inputs_by_id: dict[str, ProgramInput] = {}
     contracts_by_id: dict[str, ScalarType] = {}
-    repeat_input_ids = {
-        input_handle.id for input_handle in _quantum_fragment_repeat_inputs(body)
-    }
+    repeat_input_ids = {input_handle.id for input_handle in facts.repeat_inputs}
     for input_handle in collected_inputs:
         existing_handle = inputs_by_id.get(input_handle.id)
         if existing_handle is not None and existing_handle is not input_handle:
@@ -1003,7 +1002,7 @@ def program(id: str, body: QuantumFragment) -> Program:  # noqa: A002
         inputs_by_id.setdefault(input_handle.id, input_handle)
         contracts_by_id.setdefault(input_handle.id, contract)
 
-    results = _quantum_fragment_results(body)
+    results = facts.results
     duplicate_results = _duplicates(result.id for result in results)
     if duplicate_results:
         rendered = ", ".join(repr(item) for item in duplicate_results)
@@ -1011,7 +1010,7 @@ def program(id: str, body: QuantumFragment) -> Program:  # noqa: A002
         raise ValueError(msg)
 
     definitions_by_id: dict[str, GateDefinition] = {}
-    for definition in _quantum_fragment_gate_definitions(body):
+    for definition in facts.gate_definitions:
         existing = definitions_by_id.get(definition.id.value)
         if existing is not None and existing != definition:
             msg = (
@@ -1051,7 +1050,7 @@ def bind(
 
     repeat_input_ids = {
         input_handle.id
-        for input_handle in _quantum_fragment_repeat_inputs(declaration.body)
+        for input_handle in _summarize_fragment(declaration.body).repeat_inputs
     }
     concrete_bindings: dict[str, object] = {}
     for input_handle in declaration.inputs:
@@ -1088,7 +1087,7 @@ def domain_program(declaration: Program) -> DomainProgramDef:
 
     repeat_input_ids = {
         input_handle.id
-        for input_handle in _quantum_fragment_repeat_inputs(declaration.body)
+        for input_handle in _summarize_fragment(declaration.body).repeat_inputs
     }
     return _core_domain_program(
         declaration.id,
@@ -1817,47 +1816,157 @@ def _program_input_type(
     return ScalarType(IntType(minimum=minimum, maximum=atom.maximum))
 
 
-def _is_pulse_only(fragment: QuantumFragment) -> bool:
-    if isinstance(
-        fragment,
-        Acquisition
-        | _PlayFragment
-        | _DelayFragment
-        | _ShiftPhaseFragment
-        | _BarrierFragment
-        | _PulseTemplateCallFragment,
-    ):
-        return True
-    if isinstance(fragment, _QuantumSequenceFragment):
-        return all(_is_pulse_only(child) for child in fragment.operations)
-    if isinstance(fragment, _QuantumParallelFragment):
-        return all(_is_pulse_only(child) for child in fragment.branches)
-    if isinstance(fragment, _QuantumRepeatFragment):
-        return _is_pulse_only(fragment.operation)
-    return False
+@dataclass(frozen=True, slots=True)
+class _FragmentFacts:
+    """One structural summary shared by quantum authoring closure checks."""
+
+    pulse_only: bool = False
+    pulse_owners: tuple[QubitId | CouplerId, ...] = ()
+    inputs: tuple[ProgramInput, ...] = ()
+    repeat_inputs: tuple[ProgramInput, ...] = ()
+    results: tuple[MeasurementResult, ...] = ()
+    gate_definitions: tuple[GateDefinition, ...] = ()
 
 
-def _pulse_fragment_owners(
-    fragment: QuantumFragment,
-) -> tuple[QubitId | CouplerId, ...]:
-    if isinstance(
-        fragment,
-        Acquisition | _PlayFragment | _DelayFragment | _ShiftPhaseFragment,
-    ):
-        return (_signal_owner(fragment.signal),)
+def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
+    """Collect every closure fact in one structural fragment traversal."""
+
+    if isinstance(fragment, _GateFragment):
+        return _FragmentFacts(
+            inputs=tuple(
+                value
+                for _argument_id, value in fragment.arguments
+                if isinstance(value, CircuitInput)
+            ),
+            gate_definitions=(fragment.gate.definition,),
+        )
+    if isinstance(fragment, Measurement):
+        return _FragmentFacts(results=(fragment.result,))
+    if isinstance(fragment, Acquisition):
+        return _FragmentFacts(
+            pulse_only=True,
+            pulse_owners=(_signal_owner(fragment.signal),),
+            inputs=(
+                (fragment.duration,)
+                if isinstance(fragment.duration, QuantumInput)
+                else ()
+            ),
+            results=(fragment.result,),
+        )
+    if isinstance(fragment, _PlayFragment):
+        return _FragmentFacts(
+            pulse_only=True,
+            pulse_owners=(_signal_owner(fragment.signal),),
+            inputs=_envelope_inputs(fragment.envelope),
+        )
+    if isinstance(fragment, _DelayFragment):
+        return _FragmentFacts(
+            pulse_only=True,
+            pulse_owners=(_signal_owner(fragment.signal),),
+            inputs=(
+                (fragment.duration,)
+                if isinstance(fragment.duration, QuantumInput)
+                else ()
+            ),
+        )
+    if isinstance(fragment, _ShiftPhaseFragment):
+        return _FragmentFacts(
+            pulse_only=True,
+            pulse_owners=(_signal_owner(fragment.signal),),
+            inputs=(
+                (fragment.phase,) if isinstance(fragment.phase, QuantumInput) else ()
+            ),
+        )
     if isinstance(fragment, _BarrierFragment):
-        return tuple(_signal_owner(signal) for signal in fragment.signals)
+        return _FragmentFacts(
+            pulse_only=True,
+            pulse_owners=tuple(_signal_owner(signal) for signal in fragment.signals),
+        )
     if isinstance(fragment, _PulseTemplateCallFragment):
-        return _pulse_fragment_owners(fragment.body)
-    if isinstance(fragment, _QuantumSequenceFragment):
+        body = _summarize_fragment(fragment.body)
+        return _FragmentFacts(
+            # The template factory already proves this independently of its
+            # instantiated-body facts.
+            pulse_only=True,
+            pulse_owners=body.pulse_owners,
+            inputs=body.inputs,
+            repeat_inputs=body.repeat_inputs,
+            results=body.results,
+            gate_definitions=body.gate_definitions,
+        )
+    if isinstance(fragment, _ImplementedGateFragment):
+        gate = _summarize_fragment(fragment.gate)
+        pulse = _summarize_fragment(fragment.pulse)
+        return _FragmentFacts(
+            inputs=(*gate.inputs, *pulse.inputs),
+            # Gate arguments are ordinary inputs; only repeat counts inside
+            # the attached pulse acquire the non-negative contract.
+            repeat_inputs=pulse.repeat_inputs,
+            gate_definitions=(fragment.gate.gate.definition,),
+        )
+    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
+        operation = _summarize_fragment(fragment.operation)
+        carries_pulse_structure = isinstance(fragment, _QuantumRepeatFragment)
+        pulse_only = operation.pulse_only if carries_pulse_structure else False
+        pulse_owners = operation.pulse_owners if carries_pulse_structure else ()
+        if fragment.count == 0:
+            # A zero repeat elides executable declarations but remains a pulse
+            # fragment with the same authorized signal-owner surface.
+            return _FragmentFacts(
+                pulse_only=pulse_only,
+                pulse_owners=pulse_owners,
+            )
+        count_inputs: tuple[ProgramInput, ...] = (
+            (fragment.count,)
+            if isinstance(fragment.count, CircuitInput | QuantumInput)
+            else ()
+        )
+        return _FragmentFacts(
+            pulse_only=pulse_only,
+            pulse_owners=pulse_owners,
+            inputs=(*count_inputs, *operation.inputs),
+            repeat_inputs=(*count_inputs, *operation.repeat_inputs),
+            results=operation.results,
+            gate_definitions=operation.gate_definitions,
+        )
+    if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
         children = fragment.operations
-    elif isinstance(fragment, _QuantumParallelFragment):
+    elif isinstance(fragment, _ParallelFragment | _QuantumParallelFragment):
         children = fragment.branches
-    elif isinstance(fragment, _QuantumRepeatFragment):
-        return _pulse_fragment_owners(fragment.operation)
     else:
-        return ()
-    return tuple(owner for child in children for owner in _pulse_fragment_owners(child))
+        raise AssertionError(f"unsupported quantum fragment {type(fragment).__name__}")
+    return _merge_fragment_facts(
+        tuple(_summarize_fragment(child) for child in children),
+        carries_pulse_structure=isinstance(
+            fragment,
+            _QuantumSequenceFragment | _QuantumParallelFragment,
+        ),
+    )
+
+
+def _merge_fragment_facts(
+    children: tuple[_FragmentFacts, ...],
+    *,
+    carries_pulse_structure: bool,
+) -> _FragmentFacts:
+    return _FragmentFacts(
+        pulse_only=(
+            carries_pulse_structure and all(child.pulse_only for child in children)
+        ),
+        pulse_owners=(
+            tuple(owner for child in children for owner in child.pulse_owners)
+            if carries_pulse_structure
+            else ()
+        ),
+        inputs=tuple(value for child in children for value in child.inputs),
+        repeat_inputs=tuple(
+            value for child in children for value in child.repeat_inputs
+        ),
+        results=tuple(result for child in children for result in child.results),
+        gate_definitions=tuple(
+            definition for child in children for definition in child.gate_definitions
+        ),
+    )
 
 
 def _signal_owner(signal: LogicalSignal) -> QubitId | CouplerId:
@@ -1868,59 +1977,6 @@ def _signal_owner(signal: LogicalSignal) -> QubitId | CouplerId:
 
 def _operation_id(path: tuple[str, ...], kind: str) -> str:
     return "/".join((*path, kind))
-
-
-def _quantum_fragment_inputs(
-    fragment: QuantumFragment,
-) -> tuple[ProgramInput, ...]:
-    if isinstance(fragment, _GateFragment):
-        return tuple(
-            value
-            for _argument_id, value in fragment.arguments
-            if isinstance(value, CircuitInput)
-        )
-    if isinstance(fragment, Measurement | _BarrierFragment):
-        return ()
-    if isinstance(fragment, Acquisition):
-        return (
-            (fragment.duration,) if isinstance(fragment.duration, QuantumInput) else ()
-        )
-    if isinstance(fragment, _PlayFragment):
-        return _envelope_inputs(fragment.envelope)
-    if isinstance(fragment, _DelayFragment):
-        return (
-            (fragment.duration,) if isinstance(fragment.duration, QuantumInput) else ()
-        )
-    if isinstance(fragment, _ShiftPhaseFragment):
-        return (fragment.phase,) if isinstance(fragment.phase, QuantumInput) else ()
-    if isinstance(fragment, _PulseTemplateCallFragment):
-        return _quantum_fragment_inputs(fragment.body)
-    if isinstance(fragment, _ImplementedGateFragment):
-        return (
-            *_quantum_fragment_inputs(fragment.gate),
-            *_quantum_fragment_inputs(fragment.pulse),
-        )
-    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
-        if fragment.count == 0:
-            return ()
-        count_inputs: tuple[ProgramInput, ...] = (
-            (fragment.count,)
-            if isinstance(fragment.count, CircuitInput | QuantumInput)
-            else ()
-        )
-        return (*count_inputs, *_quantum_fragment_inputs(fragment.operation))
-    children = (
-        fragment.operations
-        if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment)
-        else fragment.branches
-        if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment)
-        else ()
-    )
-    return tuple(
-        input_handle
-        for child in children
-        for input_handle in _quantum_fragment_inputs(child)
-    )
 
 
 def _envelope_inputs(
@@ -1939,120 +1995,6 @@ def _envelope_inputs(
             phase,
         )
         if isinstance(value, QuantumInput)
-    )
-
-
-def _quantum_fragment_results(
-    fragment: QuantumFragment,
-) -> tuple[MeasurementResult, ...]:
-    if isinstance(fragment, Measurement | Acquisition):
-        return (fragment.result,)
-    if isinstance(
-        fragment,
-        _GateFragment
-        | _PlayFragment
-        | _DelayFragment
-        | _ShiftPhaseFragment
-        | _BarrierFragment
-        | _ImplementedGateFragment,
-    ):
-        return ()
-    if isinstance(fragment, _PulseTemplateCallFragment):
-        return _quantum_fragment_results(fragment.body)
-    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
-        if fragment.count == 0:
-            return ()
-        return _quantum_fragment_results(fragment.operation)
-    children = (
-        fragment.operations
-        if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment)
-        else fragment.branches
-        if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment)
-        else ()
-    )
-    return tuple(
-        result for child in children for result in _quantum_fragment_results(child)
-    )
-
-
-def _quantum_fragment_gate_definitions(
-    fragment: QuantumFragment,
-) -> tuple[GateDefinition, ...]:
-    if isinstance(fragment, _GateFragment):
-        return (fragment.gate.definition,)
-    if isinstance(fragment, _ImplementedGateFragment):
-        return (fragment.gate.gate.definition,)
-    if isinstance(
-        fragment,
-        Measurement
-        | Acquisition
-        | _PlayFragment
-        | _DelayFragment
-        | _ShiftPhaseFragment
-        | _BarrierFragment,
-    ):
-        return ()
-    if isinstance(fragment, _PulseTemplateCallFragment):
-        return _quantum_fragment_gate_definitions(fragment.body)
-    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
-        if fragment.count == 0:
-            return ()
-        return _quantum_fragment_gate_definitions(fragment.operation)
-    children = (
-        fragment.operations
-        if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment)
-        else fragment.branches
-        if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment)
-        else ()
-    )
-    return tuple(
-        definition
-        for child in children
-        for definition in _quantum_fragment_gate_definitions(child)
-    )
-
-
-def _quantum_fragment_repeat_inputs(
-    fragment: QuantumFragment,
-) -> tuple[ProgramInput, ...]:
-    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
-        if fragment.count == 0:
-            return ()
-        count_inputs: tuple[ProgramInput, ...] = (
-            (fragment.count,)
-            if isinstance(fragment.count, CircuitInput | QuantumInput)
-            else ()
-        )
-        return (
-            *count_inputs,
-            *_quantum_fragment_repeat_inputs(fragment.operation),
-        )
-    if isinstance(
-        fragment,
-        _GateFragment
-        | Measurement
-        | Acquisition
-        | _PlayFragment
-        | _DelayFragment
-        | _ShiftPhaseFragment
-        | _BarrierFragment,
-    ):
-        return ()
-    if isinstance(fragment, _PulseTemplateCallFragment):
-        return _quantum_fragment_repeat_inputs(fragment.body)
-    if isinstance(fragment, _ImplementedGateFragment):
-        return _quantum_fragment_repeat_inputs(fragment.pulse)
-    children = (
-        fragment.operations
-        if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment)
-        else fragment.branches
-        if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment)
-        else ()
-    )
-    return tuple(
-        input_handle
-        for child in children
-        for input_handle in _quantum_fragment_repeat_inputs(child)
     )
 
 

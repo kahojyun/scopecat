@@ -100,9 +100,3 @@ class DomainExecutionAdapter(Protocol):
     ) -> DomainExecutionOffer | None: ...
 
     def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution: ...
-
-
-__all__ = [
-    "DomainExecutionAdapter",
-    "PreparedDomainExecution",
-]

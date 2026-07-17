@@ -23,6 +23,3 @@ def parse_qualified_name(value: str) -> tuple[tuple[str, ...], str]:
         msg = "qualified name segments must be non-empty"
         raise ValueError(msg)
     return segments[:-1], segments[-1]
-
-
-__all__ = ["parse_qualified_name", "qualified_name"]

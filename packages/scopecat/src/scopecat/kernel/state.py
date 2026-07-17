@@ -63,6 +63,3 @@ class StateValue(RootModel[StateLiteral]):
             msg = "instrument state quantity must be finite"
             raise ValueError(msg)
         return self
-
-
-__all__ = ["PayloadRef", "StateLiteral", "StateValue"]

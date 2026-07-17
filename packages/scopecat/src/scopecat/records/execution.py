@@ -20,6 +20,3 @@ class InstrumentStateEvidence(BaseModel):
     run_id: str
     initial_state: list[InstrumentStateSnapshot] = Field(default_factory=list)
     final_state: list[InstrumentStateSnapshot] = Field(default_factory=list)
-
-
-__all__ = ["InstrumentStateEvidence"]

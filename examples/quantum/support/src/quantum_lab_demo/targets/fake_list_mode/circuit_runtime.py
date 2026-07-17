@@ -43,11 +43,6 @@ from scopecat_quantum import (
     PulseProgramId,
     TargetCompileEntryId,
 )
-from scopecat_quantum.circuit_results import (
-    CircuitTargetResultMapping,
-    CompiledCircuitTarget,
-)
-from scopecat_quantum.circuit_targets import CircuitTargetAcquisitionOrigin
 from scopecat_quantum.program_results import (
     CompiledQuantumTarget,
     QuantumTargetResultMapping,
@@ -68,13 +63,9 @@ from quantum_lab_demo.targets.fake_list_mode.runtime import (
 
 _FAKE_RESPONSE_UNIT = "ratio"
 
-type _FakeListCompiledTarget = (
-    CompiledCircuitTarget[FakeListArtifact] | CompiledQuantumTarget[FakeListArtifact]
-)
-type _FakeListResultMapping = CircuitTargetResultMapping | QuantumTargetResultMapping
-type _FakeListAcquisitionOrigin = (
-    CircuitTargetAcquisitionOrigin | QuantumTargetAcquisitionOrigin
-)
+type _FakeListCompiledTarget = CompiledQuantumTarget[FakeListArtifact]
+type _FakeListResultMapping = QuantumTargetResultMapping
+type _FakeListAcquisitionOrigin = QuantumTargetAcquisitionOrigin
 
 
 @dataclass(frozen=True, slots=True, init=False)

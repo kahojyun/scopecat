@@ -12,6 +12,3 @@ class MeasurementRecordCommitter(Protocol):
     """Idempotently commit one chunk by deterministic operation identity."""
 
     def commit(self, chunk: MeasurementRecordChunk) -> MeasurementRecordReceipt: ...
-
-
-__all__ = ["MeasurementRecordCommitter"]

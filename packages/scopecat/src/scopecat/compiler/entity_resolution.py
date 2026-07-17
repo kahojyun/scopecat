@@ -79,12 +79,3 @@ def resolve_entities(
     """Canonicalize an ordered collection of entity references."""
 
     return tuple(resolve_entity(topology, value) for value in values)
-
-
-__all__ = [
-    "EntityResolutionCode",
-    "EntityResolutionError",
-    "EntityResolutionIssue",
-    "resolve_entities",
-    "resolve_entity",
-]

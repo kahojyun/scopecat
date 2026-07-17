@@ -207,9 +207,3 @@ def _cell_matches(left: CellValue | None, right: CellValue) -> bool:
         return runtime_values_equal(left, right)
     except TypeError:
         return False
-
-
-__all__ = [
-    "PointParameterOverlay",
-    "apply_point_parameter_overlay",
-]

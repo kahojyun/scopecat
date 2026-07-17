@@ -503,11 +503,3 @@ def _entity_ids(values: Sequence[object]) -> tuple[str, ...]:
                 f"route entity must resolve to an entity reference, got {value!r}",
             )
     return tuple(dict.fromkeys(entity_ids))
-
-
-__all__ = [
-    "PhysicalResourceBinding",
-    "ResourceBinding",
-    "RoutingError",
-    "RoutingView",
-]

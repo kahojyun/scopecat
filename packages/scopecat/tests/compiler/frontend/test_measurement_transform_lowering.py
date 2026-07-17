@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
-from scopecat.compiler.linking.linked import link_program
 from scopecat.planning.authoring import resolve_experiment
 from tests.testkit.authoring import load_config
+from tests.testkit.typed_program import link_program
 
 
 def _semantic(name: str) -> sc.MeasurementTransformSemanticContract:

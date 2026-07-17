@@ -177,8 +177,7 @@ def read_run_artifact_text(
         content=read_artifact_text(
             storage=storage,
             run_id=run_id,
-            selector=selector,
-            expected_kind=expected_kind,
+            artifact=artifact,
         ),
     )
 
@@ -201,8 +200,7 @@ def read_run_artifact_json(
         content=read_artifact_json(
             storage=storage,
             run_id=run_id,
-            selector=selector,
-            expected_kind=expected_kind,
+            artifact=artifact,
         ),
     )
 
@@ -225,8 +223,7 @@ def read_run_record_json(
         content=read_record_json(
             storage=storage,
             run_id=run_id,
-            selector=selector,
-            expected_kind=expected_kind,
+            record=record,
         ),
     )
 
@@ -249,8 +246,7 @@ def read_run_artifact_bytes(
         content=read_artifact_bytes(
             storage=storage,
             run_id=run_id,
-            selector=selector,
-            expected_kind=expected_kind,
+            artifact=artifact,
         ),
     )
 
@@ -297,7 +293,7 @@ def read_run_data_table(
         table=read_data_table_artifact(
             storage=storage,
             run_id=run_id,
-            selector=selector,
+            dataset=dataset_entry,
         ),
     )
 
@@ -316,7 +312,7 @@ def read_run_data_array(
         array=read_data_array_artifact(
             storage=storage,
             run_id=run_id,
-            selector=selector,
+            dataset=dataset_entry,
         ),
     )
 

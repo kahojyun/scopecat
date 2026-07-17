@@ -13,6 +13,3 @@ class NoopResourceLeaseManager:
     ) -> AbstractContextManager[None]:
         del claims
         return nullcontext()
-
-
-__all__ = ["NoopResourceLeaseManager"]

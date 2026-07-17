@@ -53,6 +53,3 @@ class SymbolId(BaseModel):
     @override
     def __hash__(self) -> int:
         return hash((self.scope, self.local_id))
-
-
-__all__ = ["SymbolId"]

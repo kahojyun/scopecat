@@ -69,10 +69,3 @@ class WorkspaceUnitOfWork(Protocol):
 
 
 type WorkspaceUnitOfWorkFactory = Callable[[], WorkspaceUnitOfWork]
-
-
-__all__ = [
-    "ConfigRegistryRepository",
-    "WorkspaceUnitOfWork",
-    "WorkspaceUnitOfWorkFactory",
-]

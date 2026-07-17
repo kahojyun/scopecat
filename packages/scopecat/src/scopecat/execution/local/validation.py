@@ -319,6 +319,3 @@ def _problem(
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("execution_program", *path),
     )
-
-
-__all__ = ["validate_execution_program_instruments"]

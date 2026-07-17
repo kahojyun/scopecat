@@ -9,6 +9,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_from_expression,
 )
 from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.frontend.resolution import ResolvedExperiment
 from scopecat.compiler.linking.linked import link_verified_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
@@ -967,7 +968,7 @@ def test_state_each_rejects_a_row_value_captured_by_another_binder() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        elaborate_module(module)
+        verify_assembly_graph(elaborate_module(module))
 
     assert "semantic_row_region_body_visibility_invalid" in {
         problem.code for problem in error.value.problems
@@ -1025,7 +1026,7 @@ def test_state_each_rejects_body_values_outside_consumer_contracts(
     )
 
     with pytest.raises(CheckFailed) as error:
-        elaborate_module(module)
+        verify_assembly_graph(elaborate_module(module))
 
     assert {problem.code for problem in error.value.problems} == {code}
 

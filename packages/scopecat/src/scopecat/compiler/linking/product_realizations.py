@@ -292,10 +292,3 @@ def _producer_location(
         producer.id.qualified_name,
         field_name,
     )
-
-
-__all__ = [
-    "SelectedLocalProductRealization",
-    "SelectedLocalProductRealizations",
-    "select_local_product_realizations",
-]

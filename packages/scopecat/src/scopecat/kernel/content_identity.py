@@ -179,12 +179,6 @@ def canonical_json(value: object) -> str:
     )
 
 
-def payload_content_hash(payload: object) -> str:
-    """Return a stable digest suitable for command payload evidence."""
-
-    return stable_content_hash(content_fingerprint(payload))
-
-
 def model_wire_content_hash(model: BaseModel) -> str:
     """Hash the normalized JSON snapshot that a durable model writer publishes.
 
@@ -199,12 +193,3 @@ def model_wire_content_hash(model: BaseModel) -> str:
 
 def _type_name(value: object) -> str:
     return f"{type(value).__module__}.{type(value).__qualname__}"
-
-
-__all__ = [
-    "canonical_json",
-    "content_fingerprint",
-    "model_wire_content_hash",
-    "payload_content_hash",
-    "stable_content_hash",
-]

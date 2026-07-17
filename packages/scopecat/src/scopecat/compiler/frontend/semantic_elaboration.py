@@ -91,11 +91,6 @@ from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
     scalar_binary_operation_contract,
 )
-from scopecat.compiler.semantic.verification import (
-    verify_implementation_catalog,
-    verify_semantic_graph,
-    verify_source_map,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ProblemCategory,
@@ -153,7 +148,7 @@ def elaborate_semantic_graph(
     point_dependencies: Sequence[PointValueDependency] = (),
     parameter_contracts: Sequence[ParameterContract] = (),
 ) -> SemanticElaboration:
-    """Build and verify one closed semantic graph from flattened module data."""
+    """Assemble one semantic graph and its sidecars from flattened module data."""
 
     builder = _SemanticGraphBuilder(
         implementations,
@@ -476,44 +471,17 @@ class _SemanticGraphBuilder:
             actions=tuple(self._actions),
             row_regions=tuple(self._row_regions),
         )
-        verified = verify_semantic_graph(graph)
-        catalog = verify_implementation_catalog(
-            verified.graph,
-            ImplementationCatalog(
-                local_python=tuple(self._implementations.values()),
-            ),
+        catalog = ImplementationCatalog(
+            local_python=tuple(self._implementations.values()),
         )
-        source_map = verify_source_map(
-            verified.graph,
-            SourceMap(
-                operation_sources=tuple(
-                    sorted(
-                        self._operation_sources.items(),
-                        key=lambda item: item[0].qualified_name,
-                    )
-                ),
-                value_sources=tuple(
-                    sorted(
-                        self._value_sources.items(),
-                        key=lambda item: item[0].qualified_name,
-                    )
-                ),
-                action_sources=tuple(
-                    sorted(
-                        self._action_sources.items(),
-                        key=lambda item: item[0].qualified_name,
-                    )
-                ),
-                row_region_sources=tuple(
-                    sorted(
-                        self._row_region_sources.items(),
-                        key=lambda item: item[0].qualified_name,
-                    )
-                ),
-            ),
+        source_map = SourceMap(
+            operation_sources=tuple(self._operation_sources.items()),
+            value_sources=tuple(self._value_sources.items()),
+            action_sources=tuple(self._action_sources.items()),
+            row_region_sources=tuple(self._row_region_sources.items()),
         )
         return SemanticElaboration(
-            graph=verified.graph,
+            graph=graph,
             implementations=catalog,
             source_map=source_map,
         )
@@ -971,12 +939,3 @@ def _literal_series_type(items: tuple[object, ...]) -> Series:
         min_length=len(items),
         max_length=len(items),
     )
-
-
-__all__ = [
-    "ScopedPythonImplementation",
-    "SemanticElaboration",
-    "elaborate_semantic_graph",
-    "semantic_operation_id",
-    "semantic_value_id",
-]

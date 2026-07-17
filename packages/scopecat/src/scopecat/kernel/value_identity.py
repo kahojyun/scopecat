@@ -62,6 +62,3 @@ def quantity_comparison_values(
         return left.value, right.value
     msg = f"cannot compare quantity units {left.unit!r} and {right.unit!r}"
     raise ValueError(msg)
-
-
-__all__ = ["ScalarIdentity", "quantity_comparison_values", "scalar_identity"]

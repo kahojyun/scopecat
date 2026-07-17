@@ -697,6 +697,3 @@ def _reload_measurements(
             )
         )
         return [], True
-
-
-__all__ = ["execute_execution_plan"]

@@ -1,4 +1,9 @@
-"""Config-free verification for closed transient compiler programs."""
+"""Config-free verification for closed transient compiler programs.
+
+Semantic operation contracts and implementation sidecars arrive through the
+verified assembly proof.  This pass owns only invariants introduced by typed
+lowering and does not re-verify those source facts.
+"""
 
 from __future__ import annotations
 
@@ -11,9 +16,7 @@ from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.model import (
     RowScopeId,
-    ScalarExpr,
 )
-from scopecat.compiler.relations.operators import scalar_operator_result_type
 from scopecat.compiler.relations.uses import RelationUseId
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
@@ -22,15 +25,7 @@ from scopecat.compiler.relations.verification import (
     verify_relation_plan,
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.semantic.operation_contract import (
-    ScalarBinarySemantics,
-    operation_contract_issues,
-)
 from scopecat.compiler.semantic.value_expressions import ValueExpr
-from scopecat.compiler.typed.graph import ComputeGraphError, order_compute_nodes
-from scopecat.compiler.typed.implementation_catalog import (
-    validate_local_implementation_catalog,
-)
 from scopecat.compiler.typed.measurement_transforms import (
     typed_measurement_transform_problems,
 )
@@ -44,7 +39,6 @@ from scopecat.compiler.typed.products import (
 )
 from scopecat.compiler.typed.program import (
     RouteInput,
-    TypedComputeNode,
     TypedProgram,
     ValueInput,
 )
@@ -101,32 +95,17 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
             )
             for issue in error.issues
         )
-    try:
-        compute_nodes = order_compute_nodes(program.compute_nodes)
-    except ComputeGraphError as error:
-        problems.append(_problem(error.code, str(error), error.location))
-        compute_nodes = program.compute_nodes
-    problems.extend(_typed_compute_contract_problems(compute_nodes))
+    compute_nodes = program.compute_nodes
     problems.extend(_typed_domain_problems(program))
     measurement_transforms, transform_problems = typed_measurement_transform_problems(
         program
     )
     problems.extend(transform_problems)
-    if (
-        compute_nodes != program.compute_nodes
-        or measurement_transforms != program.measurement_transforms
-    ):
+    if measurement_transforms != program.measurement_transforms:
         program = replace(
             program,
-            compute_nodes=compute_nodes,
             measurement_transforms=measurement_transforms,
         )
-    implementation_problems = validate_local_implementation_catalog(
-        compute_nodes,
-        program.implementation_catalog,
-        phase=ProblemPhase.AUTHORING,
-    )
-    problems.extend(implementation_problems)
     if verified_point_domain is not None:
         problems.extend(
             typed_program_proof_role_problems(
@@ -559,91 +538,6 @@ def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
                 )
             )
     return tuple(problems)
-
-
-def _typed_compute_contract_problems(
-    nodes: Sequence[TypedComputeNode],
-) -> tuple[Problem, ...]:
-    problems: list[Problem] = []
-    for node in nodes:
-        location = model_location(
-            "compute_nodes",
-            *node.id.scope,
-            node.id.local_id,
-        )
-        contract_issues = operation_contract_issues(node.contract)
-        problems.extend(
-            _problem(issue.code, issue.message, location) for issue in contract_issues
-        )
-        semantics = node.contract.semantics
-        if not isinstance(semantics, ScalarBinarySemantics):
-            continue
-        inputs = node.inputs
-        if set(inputs) != {"left", "right"}:
-            problems.append(
-                _problem(
-                    "semantic_scalar_binary_shape_invalid",
-                    "scalar binary operation requires left/right inputs and one "
-                    "result output",
-                    location,
-                )
-            )
-            continue
-        left = inputs["left"]
-        right = inputs["right"]
-        if not isinstance(left.value_type, Scalar) or not isinstance(
-            right.value_type,
-            Scalar,
-        ):
-            problems.append(
-                _problem(
-                    "semantic_scalar_binary_input_type_invalid",
-                    "scalar binary operation inputs must be scalar-shaped",
-                    location,
-                )
-            )
-            continue
-        if any(
-            issue.code == "semantic_scalar_binary_operator_invalid"
-            for issue in contract_issues
-        ):
-            continue
-        try:
-            expected_type = scalar_operator_result_type(
-                left.value_type,
-                right.value_type,
-                semantics.operator,
-                left_is_null_literal=_is_null_value_input(left),
-                right_is_null_literal=_is_null_value_input(right),
-            )
-        except (TypeError, ValueError) as error:
-            problems.append(
-                _problem(
-                    "semantic_scalar_binary_input_type_invalid",
-                    str(error),
-                    location,
-                )
-            )
-            continue
-        if node.result.value_type != expected_type:
-            problems.append(
-                _problem(
-                    "semantic_scalar_binary_result_type_mismatch",
-                    f"scalar operation result type {node.result.value_type!r} does not "
-                    f"match inferred type {expected_type!r}",
-                    location,
-                )
-            )
-    return tuple(problems)
-
-
-def _is_null_value_input(value: object) -> bool:
-    if not isinstance(value, ValueInput):
-        return False
-    root = value.value.plan.root
-    return (
-        isinstance(root, ScalarExpr) and root.kind == "literal" and root.value is None
-    )
 
 
 @dataclass(frozen=True, slots=True)

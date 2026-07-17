@@ -3,7 +3,6 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
@@ -34,7 +33,6 @@ from scopecat.compiler.typed.program import (
     TypedComputeNode,
     TypedComputeOutput,
     ValueInput,
-    typed_program,
 )
 from scopecat.execution.local.engine import (
     versioned_value,
@@ -44,6 +42,7 @@ from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import value_expr
+from tests.testkit.typed_program import link_program, typed_program
 
 
 def test_bound_compute_call_carries_dependency_provenance() -> None:

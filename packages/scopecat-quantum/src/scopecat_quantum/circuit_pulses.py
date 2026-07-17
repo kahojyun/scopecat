@@ -54,7 +54,6 @@ from scopecat_quantum.pulses import (
     AcquisitionSlot,
     PulseInstruction,
     PulseProgram,
-    iter_pulse_leaves,
 )
 from scopecat_quantum.pulses import (
     Parallel as PulseParallel,
@@ -171,14 +170,15 @@ class CircuitPulseAcquisitionProvenance:
     acquire_event_id: PulseEventId
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class LoweredCircuitPulseProgram:
-    """Sealed proof of hygienic calibrated-circuit instantiation.
+    """Hygienic calibrated-circuit pulse instantiation.
 
-    This value proves selection congruence, structural composition, event
-    hygiene, and provenance coverage. It deliberately does not prove pulse
-    timing or logical-signal non-overlap; :func:`scopecat_quantum.schedule`
-    remains the independent refinement for those properties.
+    The lowering factory owns selection congruence, structural composition,
+    event hygiene, and provenance coverage. This value deliberately does not
+    cover pulse timing or logical-signal non-overlap;
+    :func:`scopecat_quantum.schedule` remains the independent refinement for
+    those properties.
     """
 
     source_circuit_id: CircuitId
@@ -186,101 +186,6 @@ class LoweredCircuitPulseProgram:
     instantiations: tuple[CircuitPulseInstantiation, ...]
     event_provenance: tuple[CircuitPulseEventProvenance, ...]
     acquisition_provenance: tuple[CircuitPulseAcquisitionProvenance, ...]
-
-    def __init__(
-        self,
-        source_circuit_id: CircuitId,
-        program: PulseProgram,
-        instantiations: tuple[CircuitPulseInstantiation, ...],
-        event_provenance: tuple[CircuitPulseEventProvenance, ...],
-        acquisition_provenance: tuple[CircuitPulseAcquisitionProvenance, ...],
-    ) -> None:
-        selected_instantiations = tuple(instantiations)
-        selected_event_provenance = tuple(event_provenance)
-        selected_acquisition_provenance = tuple(acquisition_provenance)
-        leaf_event_ids = tuple(leaf.id for leaf in iter_pulse_leaves(program.body))
-        provenance_event_ids = tuple(
-            provenance.event_id for provenance in selected_event_provenance
-        )
-        instantiated_event_ids = tuple(
-            event_id
-            for instantiation in selected_instantiations
-            for event_id in instantiation.event_ids
-        )
-        if not (
-            leaf_event_ids == provenance_event_ids == instantiated_event_ids
-            and len(set(leaf_event_ids)) == len(leaf_event_ids)
-        ):
-            msg = "lowered pulse event provenance must exactly cover unique leaves"
-            raise ValueError(msg)
-        instantiations_by_operation = {
-            (
-                instantiation.call_id
-                if isinstance(instantiation, GatePulseInstantiation)
-                else instantiation.measurement_id
-            ): instantiation
-            for instantiation in selected_instantiations
-        }
-        if len(instantiations_by_operation) != len(selected_instantiations):
-            msg = "lowered pulse instantiations must have unique operation ids"
-            raise ValueError(msg)
-        for provenance in selected_event_provenance:
-            instantiation = instantiations_by_operation.get(provenance.operation_id)
-            if instantiation is None or (
-                provenance.calibration_id != instantiation.calibration_id
-                or provenance.template_program_id != instantiation.template_program_id
-                or provenance.event_id not in instantiation.event_ids
-            ):
-                msg = "lowered pulse event provenance must match its instantiation"
-                raise ValueError(msg)
-
-        slot_ids = tuple(slot.id for slot in program.acquisition_slots)
-        provenance_slot_ids = tuple(
-            provenance.acquisition_slot_id
-            for provenance in selected_acquisition_provenance
-        )
-        measurement_instantiations = tuple(
-            instantiation
-            for instantiation in selected_instantiations
-            if isinstance(instantiation, MeasurementPulseInstantiation)
-        )
-        instantiated_slot_ids = tuple(
-            instantiation.acquisition_slot_id
-            for instantiation in measurement_instantiations
-        )
-        if not (
-            slot_ids == provenance_slot_ids == instantiated_slot_ids
-            and len(set(slot_ids)) == len(slot_ids)
-        ):
-            msg = (
-                "lowered acquisition provenance must exactly cover unique "
-                "measurement slots"
-            )
-            raise ValueError(msg)
-        for provenance in selected_acquisition_provenance:
-            instantiation = instantiations_by_operation.get(provenance.measurement_id)
-            if not isinstance(instantiation, MeasurementPulseInstantiation) or (
-                provenance.calibration_id != instantiation.calibration_id
-                or provenance.template_program_id != instantiation.template_program_id
-                or provenance.template_acquisition_slot_id
-                != instantiation.template_acquisition_slot_id
-                or provenance.acquisition_slot_id != instantiation.acquisition_slot_id
-                or provenance.acquire_event_id != instantiation.acquire_event_id
-            ):
-                msg = (
-                    "lowered acquisition provenance must match its measurement "
-                    "instantiation"
-                )
-                raise ValueError(msg)
-        object.__setattr__(self, "source_circuit_id", source_circuit_id)
-        object.__setattr__(self, "program", program)
-        object.__setattr__(self, "instantiations", selected_instantiations)
-        object.__setattr__(self, "event_provenance", selected_event_provenance)
-        object.__setattr__(
-            self,
-            "acquisition_provenance",
-            selected_acquisition_provenance,
-        )
 
     def instantiation_for(
         self,
@@ -350,27 +255,7 @@ def lower_circuit_to_pulses(
         )
 
     expected_operation_ids = tuple(operation.id for operation in program.operations)
-    expected_call_ids = tuple(
-        operation.id
-        for operation in program.operations
-        if isinstance(operation, GateCall)
-    )
-    expected_measurement_ids = tuple(
-        operation.id
-        for operation in program.operations
-        if isinstance(operation, Measure)
-    )
-    gate_binding_ids = tuple(binding.call_id for binding in selection.gates.bindings)
-    measurement_binding_ids = tuple(
-        binding.measurement_id for binding in selection.measurements.bindings
-    )
-    if (
-        selection.operation_ids != expected_operation_ids
-        or selection.gates.gate_call_ids != expected_call_ids
-        or gate_binding_ids != expected_call_ids
-        or selection.measurements.measurement_ids != expected_measurement_ids
-        or measurement_binding_ids != expected_measurement_ids
-    ):
+    if selection.operation_ids != expected_operation_ids:
         issues.append(
             CircuitPulseLoweringIssue(
                 code=CircuitPulseLoweringIssueCode.SELECTION_COVERAGE_MISMATCH,
@@ -389,11 +274,14 @@ def lower_circuit_to_pulses(
             ("body",),
         )
     }
-    bindings_by_operation: dict[CircuitOperationId, CalibrationBinding] = {}
-    for binding in selection.gates.bindings:
-        bindings_by_operation.setdefault(binding.call_id, binding)
-    for binding in selection.measurements.bindings:
-        bindings_by_operation.setdefault(binding.measurement_id, binding)
+    bindings_by_operation = {
+        (
+            binding.call_id
+            if isinstance(binding, GateCalibrationBinding)
+            else binding.measurement_id
+        ): binding
+        for binding in selection.bindings
+    }
 
     for operation in program.operations:
         binding = bindings_by_operation.get(operation.id)
@@ -707,17 +595,3 @@ def _issue_sort_key(
         template_event_id,
         issue.message,
     )
-
-
-__all__ = [
-    "CircuitPulseAcquisitionProvenance",
-    "CircuitPulseEventProvenance",
-    "CircuitPulseInstantiation",
-    "CircuitPulseLoweringError",
-    "CircuitPulseLoweringIssue",
-    "CircuitPulseLoweringIssueCode",
-    "GatePulseInstantiation",
-    "LoweredCircuitPulseProgram",
-    "MeasurementPulseInstantiation",
-    "lower_circuit_to_pulses",
-]

@@ -7,7 +7,6 @@ from pathlib import Path
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
-    link_program,
 )
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
@@ -56,6 +55,8 @@ from quantum_lab_demo.reference_experiments import (
     FakeXCountProductBinding,
     prepare_fake_x_count_reference,
 )
+
+from .demo_lab_experiment_testkit import link_program
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _SHOTS = 5

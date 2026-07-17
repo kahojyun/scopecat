@@ -67,14 +67,6 @@ def empty_frozen_mapping[K, V]() -> FrozenMapping[K, V]:
     return FrozenMapping()
 
 
-def frozen_mapping[K, V](values: Mapping[K, V]) -> FrozenMapping[K, V]:
-    """Snapshot one already-validated mapping."""
-
-    if isinstance(values, FrozenMapping):
-        return values
-    return FrozenMapping(values.items())
-
-
 def freeze_json_mapping[T](
     values: Mapping[str, T],
     *,
@@ -181,12 +173,3 @@ def _freeze_json_value(
             seen.remove(marker)
     msg = f"{path} must contain only durable JSON values"
     raise ValueError(msg)
-
-
-__all__ = [
-    "FrozenMapping",
-    "empty_frozen_mapping",
-    "freeze_json_mapping",
-    "frozen_mapping",
-    "thaw_json_value",
-]

@@ -2127,22 +2127,3 @@ def _format_path(path: PlanPath) -> str:
     for item in path:
         rendered += f"[{item}]" if isinstance(item, int) else f".{item}"
     return rendered
-
-
-__all__ = [
-    "ExternalRowInterface",
-    "ExternalRowRequirement",
-    "NamedExternalRowRequirement",
-    "ParameterLookupSignature",
-    "PlanImportNamespace",
-    "PlanPath",
-    "PlanTypeFact",
-    "RelationPlanVerificationError",
-    "RelationRuntimeObligationKind",
-    "RelationTypeBindings",
-    "RowType",
-    "RuntimeObligation",
-    "TypedPlanImport",
-    "VerifiedRelationPlan",
-    "verify_relation_plan",
-]

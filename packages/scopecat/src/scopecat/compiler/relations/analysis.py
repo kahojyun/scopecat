@@ -757,22 +757,3 @@ def _required_id(value: str | None, operation: str) -> str:
         msg = f"validated {operation} plan reference has no id"
         raise ValueError(msg)
     return value
-
-
-__all__ = [
-    "PlanNode",
-    "PlanOperation",
-    "PlanReference",
-    "PlanReferenceKind",
-    "PlanReferences",
-    "RelationPlanBinderError",
-    "RelationPlanScopeError",
-    "free_row_references",
-    "iter_plan_children",
-    "plan_input_refs",
-    "plan_references",
-    "prefix_plan_row_scopes",
-    "relation_operation",
-    "verify_plan_scopes",
-    "walk_plan",
-]

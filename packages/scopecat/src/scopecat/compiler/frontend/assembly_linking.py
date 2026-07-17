@@ -166,7 +166,7 @@ def _bind_verified_assembly(
     )
     compute_nodes, implementation_catalog = lower_semantic_compute_graph(
         verified_graph.semantic_graph,
-        assembly.implementation_catalog,
+        verified_graph.implementation_catalog,
         inputs,
         type_bindings=type_bindings,
     )
@@ -309,6 +309,3 @@ def _catalog_lookup_result_type(
             if column.id == contract.column_id:
                 return column.value_type
     return contract.value_type
-
-
-__all__ = ["bind_verified_assembly"]

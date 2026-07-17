@@ -376,16 +376,3 @@ def _require_unique(values: Iterable[str], *, label: str) -> None:
 
 def _no_op() -> None:
     return None
-
-
-__all__ = [
-    "SimpleCapability",
-    "SimpleInstrumentDriver",
-    "SimpleLifecycleCallback",
-    "SimpleProduct",
-    "SimpleProductReader",
-    "SimpleStateField",
-    "SimpleStateReader",
-    "SimpleStateWriter",
-    "simple_capability",
-]

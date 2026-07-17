@@ -9,7 +9,7 @@ import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
-from scopecat.compiler.linking.linked import link_program, link_verified_program
+from scopecat.compiler.linking.linked import link_verified_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.model import (
     lit,
@@ -27,7 +27,6 @@ from scopecat.compiler.typed.products import InstrumentProductProducer, ProductD
 from scopecat.compiler.typed.program import (
     ResourceRouteIntent,
     TypedProgram,
-    instrument_product_producer,
     product_output,
     record_product,
     set_state_field,
@@ -46,6 +45,7 @@ from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.config import ConfigProfileSnapshot, RoutingGraph, RoutingResource
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import point_domain, scalar_value_expr
+from tests.testkit.typed_program import instrument_product_producer, link_program
 
 
 def _text(value: str) -> ScalarValueExpr:
@@ -588,40 +588,3 @@ def test_binding_rejects_missing_dynamic_physical_resource() -> None:
     assert plan.problems[0].location == model_location(
         "desired_state", "physical_resource_id"
     )
-
-
-def test_valid_bound_plan_requires_exact_ordered_route_coverage() -> None:
-    program = _unit_program(
-        route_intents=(
-            ResourceRouteIntent(
-                port_id=logical_resource_port_id("drive"),
-                capabilities=("set_frequency",),
-            ),
-        )
-    )
-    plan = materialize_local_plan(
-        link_program(program, validate_config_environment(load_config()))
-    )
-
-    assert plan.valid, plan.problems
-    point_without_route = replace(plan.points[0], routes=())
-
-    with pytest.raises(
-        ValueError,
-        match="exactly cover the ordered logical resource-port inventory",
-    ):
-        replace(plan, points=(point_without_route,))
-
-    route_with_changed_contract = replace(plan.points[0].routes[0], capabilities=())
-    with pytest.raises(ValueError, match="declared capability contract"):
-        replace(
-            plan,
-            points=(replace(plan.points[0], routes=(route_with_changed_contract,)),),
-        )
-
-    fixed_elsewhere = replace(
-        plan.route_intents[0],
-        fixed_resource_id=physical_resource_id("source-1"),
-    )
-    with pytest.raises(ValueError, match="fixed physical resource identity"):
-        replace(plan, route_intents=(fixed_elsewhere,))

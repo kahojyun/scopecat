@@ -14,7 +14,6 @@ from scopecat.adapters.memory.execution import MemoryMeasurementRecordCommitter
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
-    link_program,
 )
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
@@ -97,14 +96,8 @@ from scopecat_quantum import (
     AuthoredPulseAcquisitionProvenance,
     CalibrationCatalog,
     CalibrationId,
-    CircuitId,
     CircuitOperationId,
-    CircuitProgram,
-    CircuitSequence,
-    CircuitTargetAcquisitionUseBinding,
-    CircuitTargetEntryPointBinding,
-    CircuitTargetResultMapping,
-    CompiledCircuitTarget,
+    CircuitPulseAcquisitionProvenance,
     CompiledQuantumTarget,
     CompiledTargetArtifact,
     Constant,
@@ -142,14 +135,9 @@ from scopecat_quantum import (
     TargetId,
     compile_target,
     lower_quantum_program_to_pulses,
-    prepare_circuit_target_batch,
-    prepare_circuit_target_entry,
     prepare_quantum_target_batch,
     prepare_quantum_target_entry,
-    seal_circuit_target_result_mapping,
     seal_quantum_target_result_mapping,
-    select_calibrations,
-    verify_circuit_program,
     verify_quantum_program,
 )
 
@@ -177,6 +165,8 @@ from quantum_lab_demo.targets.fake_list_mode import (
     select_fake_measurement_realization,
 )
 
+from .demo_lab_experiment_testkit import link_program
+
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 Q0 = QubitId("q0")
 SHARED_SLOT = AcquisitionSlotId("result", scope=("circuit-local",))
@@ -202,9 +192,9 @@ def _raw_trace_axes(
 class _Scenario:
     linked_points: MaterializedLinkedPoints
     preparation: DomainPreparationBuilder
-    mapping: CircuitTargetResultMapping
+    mapping: QuantumTargetResultMapping
     compiler: FakeListTargetCompiler
-    compiled_target: CompiledCircuitTarget[FakeListArtifact]
+    compiled_target: CompiledQuantumTarget[FakeListArtifact]
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,7 +516,7 @@ def _mixed_linked_points(
     return materialize_linked_points(link_program(program, environment))
 
 
-def _verified_measurement_circuit(
+def _lowered_measurement_program(
     acquisition_kind: AcquisitionKind = AcquisitionKind.INTEGRATED_IQ,
     *,
     sample_count: int = 4,
@@ -537,9 +527,9 @@ def _verified_measurement_circuit(
         acquisition_slot_id=SHARED_SLOT,
         acquisition_kind=acquisition_kind,
     )
-    circuit = verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId("shared-readout-circuit"),
+    program = verify_quantum_program(
+        QuantumProgramIR(
+            id=QuantumProgramId("shared-readout-program"),
             body=measurement,
         ),
         (),
@@ -576,16 +566,16 @@ def _verified_measurement_circuit(
         key=MeasurementCalibrationKey.from_measurement(measurement),
         pulse_template=template,
     )
-    selection = select_calibrations(
-        circuit,
+    return lower_quantum_program_to_pulses(
+        program,
         CalibrationCatalog(
             measurements=MeasurementCalibrationCatalog((calibration,)),
         ),
+        output_id=PulseProgramId("shared-readout-pulses"),
     )
-    return circuit, selection
 
 
-def _verified_mixed_measurement_circuit(*, sample_count: int):
+def _lowered_mixed_measurement_program(*, sample_count: int):
     iq_measurement = Measure(
         id=CircuitOperationId("measure-iq"),
         qubit=Q0,
@@ -598,10 +588,10 @@ def _verified_mixed_measurement_circuit(*, sample_count: int):
         acquisition_slot_id=MIXED_TRACE_SLOT,
         acquisition_kind=AcquisitionKind.RAW_TRACE,
     )
-    circuit = verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId("mixed-readout-circuit"),
-            body=CircuitSequence((iq_measurement, trace_measurement)),
+    program = verify_quantum_program(
+        QuantumProgramIR(
+            id=QuantumProgramId("mixed-readout-program"),
+            body=QuantumSequence((iq_measurement, trace_measurement)),
         ),
         (),
     )
@@ -644,8 +634,8 @@ def _verified_mixed_measurement_circuit(*, sample_count: int):
             pulse_template=template,
         )
 
-    selection = select_calibrations(
-        circuit,
+    return lower_quantum_program_to_pulses(
+        program,
         CalibrationCatalog(
             measurements=MeasurementCalibrationCatalog(
                 (
@@ -654,8 +644,8 @@ def _verified_mixed_measurement_circuit(*, sample_count: int):
                 )
             ),
         ),
+        output_id=PulseProgramId("mixed-readout-pulses"),
     )
-    return circuit, selection
 
 
 def _prepared_mixed_quantum_entry(
@@ -738,17 +728,15 @@ def _scenario(
         product_unit=product_unit,
         product_axes=product_axes,
     )
-    circuit, selection = _verified_measurement_circuit(
+    lowered = _lowered_measurement_program(
         acquisition_kind,
         sample_count=sample_count,
     )
     adapter_point_order = (2, 0, 1)
     entries = tuple(
-        prepare_circuit_target_entry(
+        prepare_quantum_target_entry(
             TargetCompileEntryId(f"entry-{point_index}"),
-            circuit,
-            selection,
-            output_id=PulseProgramId("shared-readout-pulses"),
+            lowered,
         )
         for point_index in adapter_point_order
     )
@@ -757,7 +745,7 @@ def _scenario(
         TargetCompilerId("fake-list-compiler.v1"),
         target,
     )
-    batch = prepare_circuit_target_batch(
+    batch = prepare_quantum_target_batch(
         entries,
         target_id=target.id,
         compiler_id=compiler.id,
@@ -767,11 +755,11 @@ def _scenario(
     preparation = _preparation_for_all_points(linked_points)
     points = preparation.context.points
     product_uses = preparation.context.execution.result(_SINGLE_RESULT_ID).product_uses
-    mapping = seal_circuit_target_result_mapping(
+    mapping = seal_quantum_target_result_mapping(
         preparation,
         batch,
         tuple(
-            CircuitTargetEntryPointBinding(
+            QuantumTargetEntryPointBinding(
                 entry.id,
                 points[point_index],
             )
@@ -782,7 +770,7 @@ def _scenario(
             )
         ),
         tuple(
-            CircuitTargetAcquisitionUseBinding(
+            QuantumTargetAcquisitionUseBinding(
                 entry.acquisition_addresses[0],
                 product_use,
             )
@@ -796,7 +784,7 @@ def _scenario(
         preparation=preparation,
         mapping=mapping,
         compiler=compiler,
-        compiled_target=CompiledCircuitTarget(mapping, compiled),
+        compiled_target=CompiledQuantumTarget(mapping, compiled),
     )
 
 
@@ -822,14 +810,12 @@ def _mixed_scenario(
         sample_count=sample_count,
         include_iq_alias=include_iq_alias,
     )
-    circuit, selection = _verified_mixed_measurement_circuit(sample_count=sample_count)
+    lowered = _lowered_mixed_measurement_program(sample_count=sample_count)
     adapter_point_order = (2, 0, 1)
     entries = tuple(
-        prepare_circuit_target_entry(
+        prepare_quantum_target_entry(
             TargetCompileEntryId(f"mixed-entry-{point_index}"),
-            circuit,
-            selection,
-            output_id=PulseProgramId("mixed-readout-pulses"),
+            lowered,
         )
         for point_index in adapter_point_order
     )
@@ -838,7 +824,7 @@ def _mixed_scenario(
         TargetCompilerId("fake-list-compiler.v1"),
         target,
     )
-    batch = prepare_circuit_target_batch(
+    batch = prepare_quantum_target_batch(
         entries,
         target_id=target.id,
         compiler_id=compiler.id,
@@ -853,11 +839,11 @@ def _mixed_scenario(
     trace_use = preparation.context.execution.result(
         _MIXED_TRACE_RESULT_ID
     ).require_one_product_use()
-    mapping = seal_circuit_target_result_mapping(
+    mapping = seal_quantum_target_result_mapping(
         preparation,
         batch,
         tuple(
-            CircuitTargetEntryPointBinding(
+            QuantumTargetEntryPointBinding(
                 entry.id,
                 points[point_index],
             )
@@ -868,7 +854,7 @@ def _mixed_scenario(
             )
         ),
         tuple(
-            CircuitTargetAcquisitionUseBinding(
+            QuantumTargetAcquisitionUseBinding(
                 address,
                 iq_use if address.slot_id == MIXED_IQ_SLOT else trace_use,
             )
@@ -882,7 +868,7 @@ def _mixed_scenario(
         preparation=preparation,
         mapping=mapping,
         compiler=compiler,
-        compiled_target=CompiledCircuitTarget(mapping, compiled),
+        compiled_target=CompiledQuantumTarget(mapping, compiled),
     )
 
 
@@ -954,7 +940,7 @@ def _closed_mixed_invocation(
     )
 
 
-def test_three_point_fake_circuit_run_correlates_target_and_logical_order() -> None:
+def test_three_point_fake_quantum_run_correlates_target_and_logical_order() -> None:
     scenario = _scenario()
 
     correlated = execute_correlated_fake_list(
@@ -1000,7 +986,8 @@ def test_three_point_fake_circuit_run_correlates_target_and_logical_order() -> N
         address = mapped_result.result_address
         origin = scenario.mapping.batch.acquisition_origin_for(address)
         assert address.entry_id == TargetCompileEntryId(f"entry-{point_index}")
-        assert origin.source_circuit_id == CircuitId("shared-readout-circuit")
+        assert origin.source_program_id == QuantumProgramId("shared-readout-program")
+        assert isinstance(origin.provenance, CircuitPulseAcquisitionProvenance)
         assert origin.provenance.measurement_id == CircuitOperationId("measure")
         assert origin.provenance.acquisition_slot_id == SHARED_SLOT
         output_frames = correlated.frames_for_output(
@@ -1665,7 +1652,7 @@ def test_measurement_selection_rejects_faulty_artifact_acquisition_before_effect
         _FaultyAcquisitionCompiler(scenario.compiler, mutation),
         scenario.mapping.batch.request,
     )
-    faulty_target = CompiledCircuitTarget(
+    faulty_target = CompiledQuantumTarget(
         scenario.mapping,
         faulty_compiled,
     )

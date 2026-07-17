@@ -172,6 +172,3 @@ def _require_declared_type(
         "parameters",
         path=path,
     )
-
-
-__all__ = ["validate_parameter_contracts"]

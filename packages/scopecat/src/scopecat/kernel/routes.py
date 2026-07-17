@@ -16,6 +16,3 @@ class ResolvedRoute:
     entity_ids: tuple[str, ...] = ()
     served_entity_ids: tuple[str, ...] = ()
     product_axis_order: tuple[str, ...] = ()
-
-
-__all__ = ["ResolvedRoute"]

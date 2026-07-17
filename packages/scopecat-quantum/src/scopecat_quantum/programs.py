@@ -510,48 +510,19 @@ type QuantumPulseAcquisitionProvenance = (
 )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class LoweredQuantumPulseProgram:
-    """Pulse refinement with total mixed-source event and result provenance."""
+    """Pulse refinement with mixed-source event and result provenance.
+
+    :func:`lower_quantum_program_to_pulses` owns total provenance coverage and
+    calibration congruence for instances of this internal lowering snapshot.
+    """
 
     source_program_id: QuantumProgramId
     program: PulseProgram
     calibration_selection: CalibrationSelection
     event_provenance: tuple[QuantumPulseEventProvenance, ...]
     acquisition_provenance: tuple[QuantumPulseAcquisitionProvenance, ...]
-
-    def __init__(
-        self,
-        source_program_id: QuantumProgramId,
-        program: PulseProgram,
-        calibration_selection: CalibrationSelection,
-        event_provenance: tuple[QuantumPulseEventProvenance, ...],
-        acquisition_provenance: tuple[QuantumPulseAcquisitionProvenance, ...],
-    ) -> None:
-        selected_events = event_provenance
-        selected_acquisitions = acquisition_provenance
-        event_ids = tuple(leaf.id for leaf in iter_pulse_leaves(program.body))
-        provenance_event_ids = tuple(item.event_id for item in selected_events)
-        if event_ids != provenance_event_ids or len(set(event_ids)) != len(event_ids):
-            msg = "quantum pulse provenance must exactly cover unique pulse events"
-            raise ValueError(msg)
-        acquisition_ids = tuple(slot.id for slot in program.acquisition_slots)
-        provenance_acquisition_ids = tuple(
-            item.acquisition_slot_id for item in selected_acquisitions
-        )
-        if acquisition_ids != provenance_acquisition_ids or len(
-            set(acquisition_ids)
-        ) != len(acquisition_ids):
-            msg = "quantum pulse acquisition provenance must exactly cover unique slots"
-            raise ValueError(msg)
-        if calibration_selection.circuit_id != CircuitId(source_program_id.value):
-            msg = "quantum pulse calibration selection belongs to another program"
-            raise ValueError(msg)
-        object.__setattr__(self, "source_program_id", source_program_id)
-        object.__setattr__(self, "program", program)
-        object.__setattr__(self, "calibration_selection", calibration_selection)
-        object.__setattr__(self, "event_provenance", selected_events)
-        object.__setattr__(self, "acquisition_provenance", selected_acquisitions)
 
     def provenance_for(
         self,
@@ -850,26 +821,3 @@ def _instantiate_template(
         events=tuple(events),
         slots=slots,
     )
-
-
-__all__ = [
-    "AuthoredPulseAcquisitionProvenance",
-    "AuthoredPulseEventProvenance",
-    "ImplementedGate",
-    "ImplementedGatePulseEventProvenance",
-    "LoweredQuantumPulseProgram",
-    "Parallel",
-    "PulseBlock",
-    "QuantumNode",
-    "QuantumOperation",
-    "QuantumProgramIR",
-    "QuantumProgramIssue",
-    "QuantumProgramVerificationError",
-    "QuantumPulseAcquisitionProvenance",
-    "QuantumPulseEventProvenance",
-    "Sequence",
-    "VerifiedQuantumProgram",
-    "iter_quantum_operations",
-    "lower_quantum_program_to_pulses",
-    "verify_quantum_program",
-]

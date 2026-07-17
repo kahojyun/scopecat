@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
 
@@ -62,7 +61,6 @@ from scopecat.compiler.typed.state import (
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
     VerifiedTypedProgram,
-    seal_typed_program,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -82,7 +80,7 @@ from scopecat.planning.routing import RoutingError, RoutingView
 from scopecat.records.entity import EntityRef
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class LinkedPlan:
     """A successful config link retaining the complete symbolic point domain.
 
@@ -91,44 +89,18 @@ class LinkedPlan:
     the plan owns no materialized points or target artifact.
     """
 
-    _verified_program: VerifiedTypedProgram
-    _environment: ValidatedConfigEnvironment
-
-    def __init__(
-        self,
-        verified_program: VerifiedTypedProgram,
-        environment: ValidatedConfigEnvironment,
-    ) -> None:
-        if not environment.valid:
-            msg = "linked plans require a valid configuration environment"
-            raise ValueError(msg)
-        if environment.routing is None:
-            msg = "linked plans require a validated routing view"
-            raise ValueError(msg)
-        object.__setattr__(self, "_verified_program", verified_program)
-        object.__setattr__(self, "_environment", environment)
+    verified_program: VerifiedTypedProgram
+    environment: ValidatedConfigEnvironment
 
     @property
     def program(self) -> TypedProgram:
         """Return the sealed compiler program bound to this plan."""
 
-        return self._verified_program.program
-
-    @property
-    def environment(self) -> ValidatedConfigEnvironment:
-        """Return the accepted configuration environment bound to this plan."""
-
-        return self._environment
-
-    @property
-    def verified_program(self) -> VerifiedTypedProgram:
-        """Return the sealed target-neutral compiler program."""
-
-        return self._verified_program
+        return self.verified_program.program
 
     @property
     def point_domain(self) -> VerifiedPointDomain:
-        return self._verified_program.point_domain
+        return self.verified_program.point_domain
 
     @property
     def product_defs(self) -> tuple[ProductDef, ...]:
@@ -252,7 +224,7 @@ class MaterializedDomainExecution:
         )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class MaterializedLinkedPoints:
     """One linked plan with canonical points and materialized domain execution.
 
@@ -261,43 +233,16 @@ class MaterializedLinkedPoints:
     no local compute or product realization.
     """
 
-    _linked_plan: LinkedPlan
-    _point_domain: MaterializedPointDomain
-    _domain_execution: MaterializedDomainExecution | None
-
-    def __init__(
-        self,
-        linked_plan: LinkedPlan,
-        point_domain: MaterializedPointDomain,
-        domain_execution: MaterializedDomainExecution | None = None,
-    ) -> None:
-        if point_domain.id != linked_plan.point_domain.id:
-            msg = "materialized point domain must belong to the linked plan"
-            raise ValueError(msg)
-        object.__setattr__(self, "_linked_plan", linked_plan)
-        object.__setattr__(self, "_point_domain", point_domain)
-        object.__setattr__(self, "_domain_execution", domain_execution)
-
-    @property
-    def linked_plan(self) -> LinkedPlan:
-        return self._linked_plan
+    linked_plan: LinkedPlan
+    point_domain: MaterializedPointDomain
+    domain_execution: MaterializedDomainExecution | None = None
 
     @property
     def verified_program(self) -> VerifiedTypedProgram:
-        return self._linked_plan.verified_program
-
-    @property
-    def point_domain(self) -> MaterializedPointDomain:
-        return self._point_domain
-
-    @property
-    def domain_execution(self) -> MaterializedDomainExecution | None:
-        """Return the domain execution with evaluated plan-stage inputs."""
-
-        return self._domain_execution
+        return self.linked_plan.verified_program
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class MaterializedPointDomainView:
     """A canonical contiguous view over an already materialized point domain.
 
@@ -306,45 +251,22 @@ class MaterializedPointDomainView:
     materialization, while its cardinality describes only the selected batch.
     """
 
-    _source: MaterializedPointDomain
+    source: MaterializedPointDomain
     points: tuple[MaterializedPoint, ...]
-    cardinality: PointCardinality
-    declared_cardinality: PointCardinality
-
-    def __init__(
-        self,
-        source: MaterializedPointDomain,
-        points: tuple[MaterializedPoint, ...],
-    ) -> None:
-        if not points:
-            msg = "materialized point-domain views require at least one point"
-            raise ValueError(msg)
-        source_by_ordinal = {point.logical_ordinal: point for point in source.points}
-        if any(
-            source_by_ordinal.get(point.logical_ordinal) is not point
-            for point in points
-        ):
-            msg = "materialized point-domain views must retain source points"
-            raise ValueError(msg)
-        ordinals = tuple(point.logical_ordinal for point in points)
-        if ordinals != tuple(range(ordinals[0], ordinals[0] + len(ordinals))):
-            msg = "materialized point-domain views require contiguous canonical points"
-            raise ValueError(msg)
-        exact = PointCardinality.exact(len(points))
-        object.__setattr__(self, "_source", source)
-        object.__setattr__(self, "points", points)
-        object.__setattr__(self, "cardinality", exact)
-        object.__setattr__(self, "declared_cardinality", exact)
 
     @property
     def id(self) -> PointDomainId:
         """Retain the parent domain namespace used by every logical point."""
 
-        return self._source.id
+        return self.source.id
 
     @property
-    def source(self) -> MaterializedPointDomain:
-        return self._source
+    def cardinality(self) -> PointCardinality:
+        return PointCardinality.exact(len(self.points))
+
+    @property
+    def declared_cardinality(self) -> PointCardinality:
+        return self.cardinality
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -639,27 +561,6 @@ def _unwrap_domain_input(value: object) -> object:
             for name, item in cast("Mapping[object, object]", value).items()
         }
     return value
-
-
-def link_program(
-    program: TypedProgram,
-    environment: ValidatedConfigEnvironment,
-) -> LinkedPlan:
-    """Snapshot and seal an external program, then bind its config contracts."""
-
-    try:
-        verified_program = seal_typed_program(
-            deepcopy(program),
-            phase=ProblemPhase.PLANNING,
-        )
-    except CheckFailed as error:
-        problems = [*_environment_link_problems(environment), *error.problems]
-        if has_blocking_problems(problems):
-            raise CheckFailed(problems) from error
-        raise AssertionError(
-            "failed program seal produced no blocking problem"
-        ) from error
-    return link_verified_program(verified_program, environment)
 
 
 def link_verified_program(
@@ -968,18 +869,3 @@ def _resolve_entity(
         )
     )
     return None
-
-
-__all__ = [
-    "LinkedPlan",
-    "MaterializedConfigInputBinding",
-    "MaterializedDomainExecution",
-    "MaterializedDomainExecutionPoint",
-    "MaterializedLinkedPointBatch",
-    "MaterializedLinkedPointSet",
-    "MaterializedLinkedPoints",
-    "MaterializedPointDomainView",
-    "link_program",
-    "link_verified_program",
-    "materialize_linked_points",
-]

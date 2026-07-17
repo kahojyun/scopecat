@@ -2,16 +2,13 @@ from __future__ import annotations
 
 from functools import partial
 
-import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from scopecat.compiler.frontend.assembly_lowering import lower_semantic_compute_graph
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.model import (
-    lit,
     literal_rows,
 )
 from scopecat.compiler.relations.operators import (
@@ -57,20 +54,14 @@ from scopecat.compiler.semantic.verification import (
     verify_semantic_graph,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    TypedComputeNode,
-    TypedComputeOutput,
-    TypedProgram,
-    ValueInput,
-)
-from scopecat.compiler.typed.verification import verify_typed_program
+from scopecat.compiler.typed.program import TypedProgram
 from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import ComputeStage
-from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table
 from tests.testkit.authoring import load_config
-from tests.testkit.relation_plans import table_value_expr, value_expr
+from tests.testkit.relation_plans import table_value_expr
+from tests.testkit.typed_program import link_program
 
 _FLOAT = Scalar(Float())
 _PLAN_RUN = ValueAvailability(ValueStage.PLAN, ValueRate.RUN)
@@ -113,33 +104,6 @@ def test_operation_contract_fact_matrix_is_exhaustive(
     )
 
     assert valid is expected
-
-
-def test_typed_program_rechecks_scalar_contract_shape() -> None:
-    operation_id = OperationId(SymbolId(local_id="malformed-scalar"))
-    node = TypedComputeNode(
-        id=operation_id,
-        contract=scalar_binary_operation_contract("+"),
-        inputs={"value": ValueInput(value=value_expr(lit(1.0), expected_type=_FLOAT))},
-        result=TypedComputeOutput(
-            id=operation_result_id(operation_id),
-            value_type=_FLOAT,
-            availability=_EXECUTE_POINT,
-        ),
-    )
-    program = TypedProgram(
-        id="malformed-scalar-contract",
-        kind="compiler_test",
-        point_domain=_point_domain(),
-        compute_nodes=(node,),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_typed_program(program)
-
-    assert [problem.code for problem in caught.value.problems] == [
-        "semantic_scalar_binary_shape_invalid"
-    ]
 
 
 def test_contract_survives_every_local_compiler_boundary() -> None:

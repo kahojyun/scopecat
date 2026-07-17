@@ -24,6 +24,3 @@ class ResourceLeaseManager(Protocol):
     def acquire(
         self, claims: tuple[ResourceClaim, ...]
     ) -> AbstractContextManager[None]: ...
-
-
-__all__ = ["ResourceClaim", "ResourceLeaseManager"]

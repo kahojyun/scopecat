@@ -21,6 +21,3 @@ class WorkspaceServices:
         """The single run repository shared by every workspace use case."""
 
         return self.execution.runs
-
-
-__all__ = ["WorkspaceServices"]

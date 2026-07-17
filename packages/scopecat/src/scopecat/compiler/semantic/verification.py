@@ -1796,11 +1796,3 @@ def _problem(
         message=message,
         location=model_location(root, *path),
     )
-
-
-__all__ = [
-    "VerifiedSemanticGraph",
-    "verify_implementation_catalog",
-    "verify_semantic_graph",
-    "verify_source_map",
-]

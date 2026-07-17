@@ -13,13 +13,7 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    TypedProgram,
-    instrument_product_producer,
-    observable_product,
-    record_product,
-    typed_program,
-)
+from scopecat.compiler.typed.program import TypedProgram, record_product
 from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.value_types import Table as TableType
@@ -36,6 +30,11 @@ from tests.testkit.relation_plans import (
 )
 from tests.testkit.relation_plans import (
     state_field,
+)
+from tests.testkit.typed_program import (
+    instrument_product_producer,
+    observable_product,
+    typed_program,
 )
 from tests.testkit.workflow_fixtures import load_experiment
 

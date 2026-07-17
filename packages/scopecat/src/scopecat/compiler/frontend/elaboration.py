@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import cast
 
@@ -129,6 +129,18 @@ class _ModuleFragment(_ExperimentEnvelope):
     actions: tuple[ModuleActionDecl, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _ValueRefDependencies:
+    point: tuple[PointValueDependency, ...]
+    parameters: tuple[ParameterContract, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _ModuleFragmentValueRoots:
+    consumed: tuple[object, ...]
+    semantic: tuple[object, ...]
+
+
 @dataclass(frozen=True)
 class SemanticExperimentIR(_ExperimentEnvelope):
     """Closed config-free semantic graph plus plan and resource intents."""
@@ -160,50 +172,56 @@ def merge_semantic_experiments(
         raise ValueError(msg)
     merged_metadata: dict[str, MetadataValue] = {}
     merged_inputs: dict[str, object] = {}
+    input_ports: list[ModuleInputPort] = []
+    entity_inputs: list[str] = []
+    resource_ports: list[ResourcePort] = []
+    point_domains: list[PointDomainIntent] = []
+    point_dependencies: list[tuple[PointValueDependency, ...]] = []
+    bindings: list[ExperimentBindingIntent] = []
+    parameter_overlays: list[ParameterScanOverlayIntent] = []
+    semantic_graphs: list[SemanticGraphIR] = []
+    implementation_catalogs: list[ImplementationCatalog] = []
+    source_maps: list[SourceMap] = []
+    records: list[RecordIntent] = []
+    product_ports: list[ModuleProductPort] = []
+    record_selections: list[RecordSelection] = []
+    parameter_contracts: list[tuple[ParameterContract, ...]] = []
     for fragment in fragments:
         merged_inputs.update(fragment.inputs)
         merged_metadata.update(fragment.metadata)
+        input_ports.extend(fragment.input_ports)
+        entity_inputs.extend(fragment.entity_inputs)
+        resource_ports.extend(fragment.resource_ports)
+        point_domains.append(fragment.point_domain)
+        point_dependencies.append(fragment.point_dependencies)
+        bindings.extend(fragment.bindings)
+        parameter_overlays.extend(fragment.parameter_overlays)
+        semantic_graphs.append(fragment.semantic_graph)
+        implementation_catalogs.append(fragment.implementation_catalog)
+        source_maps.append(fragment.source_map)
+        records.extend(fragment.records)
+        product_ports.extend(fragment.product_ports)
+        record_selections.extend(fragment.record_selections)
+        parameter_contracts.append(fragment.parameter_contracts)
     merged_metadata.update(dict(metadata or {}))
     return SemanticExperimentIR(
         experiment_id=experiment_id,
         kind=kind,
         inputs=merged_inputs,
-        input_ports=tuple(
-            item for fragment in fragments for item in fragment.input_ports
-        ),
-        entity_inputs=tuple(
-            item for fragment in fragments for item in fragment.entity_inputs
-        ),
-        resource_ports=tuple(
-            item for fragment in fragments for item in fragment.resource_ports
-        ),
-        point_domain=compose_point_domain_intents(
-            *(fragment.point_domain for fragment in fragments)
-        ),
-        point_dependencies=_merge_point_dependencies(
-            *(fragment.point_dependencies for fragment in fragments)
-        ),
-        bindings=tuple(item for fragment in fragments for item in fragment.bindings),
-        parameter_overlays=tuple(
-            item for fragment in fragments for item in fragment.parameter_overlays
-        ),
-        semantic_graph=merge_semantic_graphs(
-            *(fragment.semantic_graph for fragment in fragments)
-        ),
-        implementation_catalog=merge_implementation_catalogs(
-            *(fragment.implementation_catalog for fragment in fragments)
-        ),
-        source_map=merge_source_maps(*(fragment.source_map for fragment in fragments)),
-        records=tuple(item for fragment in fragments for item in fragment.records),
-        product_ports=tuple(
-            item for fragment in fragments for item in fragment.product_ports
-        ),
-        record_selections=tuple(
-            item for fragment in fragments for item in fragment.record_selections
-        ),
-        parameter_contracts=merge_parameter_contracts(
-            *(fragment.parameter_contracts for fragment in fragments)
-        ),
+        input_ports=tuple(input_ports),
+        entity_inputs=tuple(entity_inputs),
+        resource_ports=tuple(resource_ports),
+        point_domain=compose_point_domain_intents(*point_domains),
+        point_dependencies=_merge_point_dependencies(*point_dependencies),
+        bindings=tuple(bindings),
+        parameter_overlays=tuple(parameter_overlays),
+        semantic_graph=merge_semantic_graphs(*semantic_graphs),
+        implementation_catalog=merge_implementation_catalogs(*implementation_catalogs),
+        source_map=merge_source_maps(*source_maps),
+        records=tuple(records),
+        product_ports=tuple(product_ports),
+        record_selections=tuple(record_selections),
+        parameter_contracts=merge_parameter_contracts(*parameter_contracts),
         metadata=merged_metadata,
     )
 
@@ -220,72 +238,72 @@ def _merge_module_fragments(
         raise ValueError(msg)
     merged_metadata: dict[str, MetadataValue] = {}
     merged_inputs: dict[str, object] = {}
+    input_ports: list[ModuleInputPort] = []
+    entity_inputs: list[str] = []
+    resource_ports: list[ResourcePort] = []
+    point_domains: list[PointDomainIntent] = []
+    point_dependencies: list[tuple[PointValueDependency, ...]] = []
+    bindings: list[ExperimentBindingIntent] = []
+    state_intents: list[ExperimentStateIntent] = []
+    actions: list[ModuleActionDecl] = []
+    parameter_overlays: list[ParameterScanOverlayIntent] = []
+    operations: list[ModuleOperationDecl] = []
+    measurement_transforms: list[MeasurementTransform] = []
+    domain_executions: list[LoweredDomainExecution] = []
+    python_implementations: list[ScopedPythonImplementation] = []
+    records: list[RecordIntent] = []
+    product_ports: list[ModuleProductPort] = []
+    record_selections: list[RecordSelection] = []
+    parameter_contracts: list[tuple[ParameterContract, ...]] = []
     for fragment in fragments:
         merged_inputs.update(fragment.inputs)
         merged_metadata.update(fragment.metadata)
+        input_ports.extend(fragment.input_ports)
+        entity_inputs.extend(fragment.entity_inputs)
+        resource_ports.extend(fragment.resource_ports)
+        point_domains.append(fragment.point_domain)
+        point_dependencies.append(fragment.point_dependencies)
+        bindings.extend(fragment.bindings)
+        state_intents.extend(fragment.state_intents)
+        actions.extend(fragment.actions)
+        parameter_overlays.extend(fragment.parameter_overlays)
+        operations.extend(fragment.operations)
+        measurement_transforms.extend(fragment.measurement_transforms)
+        if fragment.domain_execution is not None:
+            domain_executions.append(fragment.domain_execution)
+        python_implementations.extend(fragment.python_implementations)
+        records.extend(fragment.records)
+        product_ports.extend(fragment.product_ports)
+        record_selections.extend(fragment.record_selections)
+        parameter_contracts.append(fragment.parameter_contracts)
     merged_metadata.update(dict(metadata or {}))
+    point_domain = compose_point_domain_intents(*point_domains)
+    merged_point_dependencies = _merge_point_dependencies(*point_dependencies)
+    if len(domain_executions) > 1:
+        raise ValueError("module fragments cannot merge domain executions")
     return _ModuleFragment(
         experiment_id=experiment_id,
         kind=kind,
         inputs=merged_inputs,
-        input_ports=tuple(
-            item for fragment in fragments for item in fragment.input_ports
-        ),
-        entity_inputs=tuple(
-            item for fragment in fragments for item in fragment.entity_inputs
-        ),
-        resource_ports=tuple(
-            item for fragment in fragments for item in fragment.resource_ports
-        ),
-        point_domain=compose_point_domain_intents(
-            *(fragment.point_domain for fragment in fragments)
-        ),
-        point_dependencies=_merge_point_dependencies(
-            *(fragment.point_dependencies for fragment in fragments)
-        ),
-        bindings=tuple(item for fragment in fragments for item in fragment.bindings),
-        state_intents=tuple(
-            item for fragment in fragments for item in fragment.state_intents
-        ),
-        actions=tuple(item for fragment in fragments for item in fragment.actions),
-        parameter_overlays=tuple(
-            item for fragment in fragments for item in fragment.parameter_overlays
-        ),
-        operations=tuple(
-            item for fragment in fragments for item in fragment.operations
-        ),
-        measurement_transforms=tuple(
-            item for fragment in fragments for item in fragment.measurement_transforms
-        ),
-        domain_execution=_merge_fragment_domain_execution(fragments),
-        python_implementations=tuple(
-            item for fragment in fragments for item in fragment.python_implementations
-        ),
-        records=tuple(item for fragment in fragments for item in fragment.records),
-        product_ports=tuple(
-            item for fragment in fragments for item in fragment.product_ports
-        ),
-        record_selections=tuple(
-            item for fragment in fragments for item in fragment.record_selections
-        ),
-        parameter_contracts=merge_parameter_contracts(
-            *(fragment.parameter_contracts for fragment in fragments)
-        ),
+        input_ports=tuple(input_ports),
+        entity_inputs=tuple(entity_inputs),
+        resource_ports=tuple(resource_ports),
+        point_domain=point_domain,
+        point_dependencies=merged_point_dependencies,
+        bindings=tuple(bindings),
+        state_intents=tuple(state_intents),
+        actions=tuple(actions),
+        parameter_overlays=tuple(parameter_overlays),
+        operations=tuple(operations),
+        measurement_transforms=tuple(measurement_transforms),
+        domain_execution=domain_executions[0] if domain_executions else None,
+        python_implementations=tuple(python_implementations),
+        records=tuple(records),
+        product_ports=tuple(product_ports),
+        record_selections=tuple(record_selections),
+        parameter_contracts=merge_parameter_contracts(*parameter_contracts),
         metadata=merged_metadata,
     )
-
-
-def _merge_fragment_domain_execution(
-    fragments: Sequence[_ModuleFragment],
-) -> LoweredDomainExecution | None:
-    selected = tuple(
-        fragment.domain_execution
-        for fragment in fragments
-        if fragment.domain_execution is not None
-    )
-    if len(selected) > 1:
-        raise ValueError("module fragments cannot merge domain executions")
-    return selected[0] if selected else None
 
 
 def elaborate_module(
@@ -301,14 +319,15 @@ def elaborate_module(
         inputs=inputs,
         domain_execution=domain_execution,
     )
-    _require_closed_module_fragment(fragment)
+    value_roots = _module_fragment_value_roots(fragment)
+    _require_closed_module_fragment(fragment, value_roots.consumed)
     semantic = elaborate_semantic_graph(
         fragment.operations,
         fragment.python_implementations,
         measurement_transforms=fragment.measurement_transforms,
         domain_execution=fragment.domain_execution,
         actions=fragment.actions,
-        value_roots=_module_fragment_semantic_value_roots(fragment),
+        value_roots=value_roots.semantic,
         state_regions=fragment.state_intents,
         input_types={port.id: port.value_type for port in fragment.input_ports},
         point_dependencies=fragment.point_dependencies,
@@ -367,6 +386,12 @@ def _elaborate_module_ir(
         )
         if isinstance(value, ValueRef)
     )
+    value_dependencies = _module_value_dependencies(
+        module,
+        inputs,
+        resolver,
+        additional_values=domain_input_values,
+    )
     own = _ModuleFragment(
         inputs=dict(inputs),
         input_ports=module.interface.imports,
@@ -375,13 +400,7 @@ def _elaborate_module_ir(
             _resolve_resource_port(port, resolver=resolver)
             for port in module.interface.resources
         ),
-        point_dependencies=_merge_point_dependencies(
-            _module_point_dependencies(module, inputs, resolver),
-            *(
-                internal_value_ref_point_dependencies(value)
-                for value in domain_input_values
-            ),
-        ),
+        point_dependencies=value_dependencies.point,
         bindings=tuple(
             _resolve_binding(binding, resolver=resolver)
             for binding in module.body.bindings
@@ -413,13 +432,7 @@ def _elaborate_module_ir(
             _resolve_product(product, resolver=resolver)
             for product in module.body.products
         ),
-        parameter_contracts=merge_parameter_contracts(
-            _module_parameter_contracts(module, inputs, resolver),
-            *(
-                internal_value_ref_parameter_contracts(value)
-                for value in domain_input_values
-            ),
-        ),
+        parameter_contracts=value_dependencies.parameters,
         metadata=dict(module.metadata),
     )
     if not source_fragments:
@@ -450,52 +463,44 @@ def _elaborate_instance(
     )
 
 
-def _module_parameter_contracts(
+def _module_value_dependencies(
     module: ModuleIR,
     inputs: Mapping[str, object],
     resolver: _ModuleValueResolver,
-) -> tuple[ParameterContract, ...]:
-    """Collect parameter provenance reachable from the module's value graph."""
-
-    return merge_parameter_contracts(
-        *(
-            internal_value_ref_parameter_contracts(value)
-            for value in _reachable_module_value_refs(module, inputs, resolver)
-        )
-    )
-
-
-def _module_point_dependencies(
-    module: ModuleIR,
-    inputs: Mapping[str, object],
-    resolver: _ModuleValueResolver,
-) -> tuple[PointValueDependency, ...]:
-    """Collect point contracts reachable from the module's value graph."""
-
-    return _merge_point_dependencies(
-        *(
-            internal_value_ref_point_dependencies(value)
-            for value in _reachable_module_value_refs(module, inputs, resolver)
-        )
-    )
-
-
-def _reachable_module_value_refs(
-    module: ModuleIR,
-    inputs: Mapping[str, object],
-    resolver: _ModuleValueResolver,
-) -> tuple[ValueRef, ...]:
-    """Bind only input values reachable from an authored module value root."""
+    *,
+    additional_values: Sequence[ValueRef] = (),
+) -> _ValueRefDependencies:
+    """Summarize dependencies reachable from the module's authored roots."""
 
     typed_inputs = {
         input_id: value
         for input_id, value in inputs.items()
         if isinstance(value, ValueRef)
     }
-    return tuple(
-        internal_bind_value_ref_inputs(resolver.resolve(value_ref), typed_inputs)
-        for root in _module_value_roots(module)
-        for value_ref in _nested_value_refs(root)
+
+    def bound_values() -> Iterable[ValueRef]:
+        for root in _module_value_roots(module):
+            for value_ref in _nested_value_refs(root):
+                yield internal_bind_value_ref_inputs(
+                    resolver.resolve(value_ref),
+                    typed_inputs,
+                )
+        yield from additional_values
+
+    return _summarize_value_ref_dependencies(bound_values())
+
+
+def _summarize_value_ref_dependencies(
+    values: Iterable[ValueRef],
+) -> _ValueRefDependencies:
+    point_groups: list[tuple[PointValueDependency, ...]] = []
+    parameter_groups: list[tuple[ParameterContract, ...]] = []
+    for value in values:
+        point_groups.append(internal_value_ref_point_dependencies(value))
+        parameter_groups.append(internal_value_ref_parameter_contracts(value))
+    return _ValueRefDependencies(
+        point=_merge_point_dependencies(*point_groups),
+        parameters=merge_parameter_contracts(*parameter_groups),
     )
 
 
@@ -829,84 +834,62 @@ def _resolve_product(
     )
 
 
-def _require_closed_module_fragment(fragment: _ModuleFragment) -> None:
-    for root in _module_fragment_closure_roots(fragment):
+def _require_closed_module_fragment(
+    fragment: _ModuleFragment,
+    consumed_roots: Sequence[object],
+) -> None:
+    for root in (*fragment.inputs.values(), *consumed_roots):
         for value in _nested_value_refs(root):
             internal_require_resolved_value_ref(value, context="semantic experiment")
 
 
-def _module_fragment_consumed_value_roots(
+def _module_fragment_value_roots(
     fragment: _ModuleFragment,
-) -> tuple[object, ...]:
-    """Return values that contribute to an authored experiment result.
+) -> _ModuleFragmentValueRoots:
+    """Summarize values that contribute to the fragment's two root sets.
 
     ``fragment.inputs`` is the environment available to those roots, not a set
     of uses.  Rooting every supplied binding would turn an otherwise unused
     child input into a dependency of the whole experiment.
     """
 
-    values: list[object] = [
+    consumed: list[object] = [
         value for _path, value in iter_point_domain_value_refs(fragment.point_domain)
     ]
-    values.extend(
+    semantic: list[object] = []
+
+    def add_semantic_roots(values: Iterable[object]) -> None:
+        selected = tuple(values)
+        consumed.extend(selected)
+        semantic.extend(selected)
+
+    add_semantic_roots(
         source
         for port in fragment.resource_ports
         for source in port.selector.entity_inputs
     )
-    values.extend(binding.value for binding in fragment.bindings)
+    add_semantic_roots(binding.value for binding in fragment.bindings)
     for intent in fragment.state_intents:
-        values.extend(
+        consumed.extend(
             (intent.relation, intent.resource, intent.value, *intent.route_entities)
         )
-    values.extend(
+    consumed.extend(
         value for action in fragment.actions for _name, value in action.fields
     )
-    values.extend(
+    add_semantic_roots(
         value for operation in fragment.operations for _name, value in operation.inputs
     )
     if fragment.domain_execution is not None:
-        values.extend(
+        add_semantic_roots(
             value for _name, value in fragment.domain_execution.input_bindings
         )
-    values.extend(axis.size for record in fragment.records for axis in record.axes)
-    values.extend(
+    add_semantic_roots(axis.size for record in fragment.records for axis in record.axes)
+    add_semantic_roots(
         axis.size for product in fragment.product_ports for axis in product.axes
     )
-    return tuple(values)
-
-
-def _module_fragment_semantic_value_roots(
-    fragment: _ModuleFragment,
-) -> tuple[object, ...]:
-    """Return global value roots; state body uses live in explicit regions."""
-
-    values: list[object] = []
-    values.extend(
-        source
-        for port in fragment.resource_ports
-        for source in port.selector.entity_inputs
-    )
-    values.extend(binding.value for binding in fragment.bindings)
-    values.extend(
-        value for operation in fragment.operations for _name, value in operation.inputs
-    )
-    if fragment.domain_execution is not None:
-        values.extend(
-            value for _name, value in fragment.domain_execution.input_bindings
-        )
-    values.extend(axis.size for record in fragment.records for axis in record.axes)
-    values.extend(
-        axis.size for product in fragment.product_ports for axis in product.axes
-    )
-    return tuple(values)
-
-
-def _module_fragment_closure_roots(fragment: _ModuleFragment) -> tuple[object, ...]:
-    """Return every value that must be free of unresolved module projections."""
-
-    return (
-        *fragment.inputs.values(),
-        *_module_fragment_consumed_value_roots(fragment),
+    return _ModuleFragmentValueRoots(
+        consumed=tuple(consumed),
+        semantic=tuple(semantic),
     )
 
 
@@ -1026,20 +1009,19 @@ def _scope_instance_graph(
             for product in fragment.product_ports
         ),
     )
-    scoped_values = tuple(
-        value
-        for root in _module_fragment_consumed_value_roots(scoped)
-        for value in _nested_value_refs(root)
+    value_roots = _module_fragment_value_roots(scoped)
+    value_dependencies = _summarize_value_ref_dependencies(
+        value for root in value_roots.consumed for value in _nested_value_refs(root)
     )
     return replace(
         scoped,
         point_dependencies=_merge_point_dependencies(
             scoped.point_dependencies,
-            *(internal_value_ref_point_dependencies(value) for value in scoped_values),
+            value_dependencies.point,
         ),
         parameter_contracts=merge_parameter_contracts(
             scoped.parameter_contracts,
-            *(internal_value_ref_parameter_contracts(value) for value in scoped_values),
+            value_dependencies.parameters,
         ),
     )
 
@@ -1353,10 +1335,3 @@ def _scoped_resource_id(
     if resource_id is None:
         return None
     return resource_ids.get(resource_id, resource_id)
-
-
-__all__ = [
-    "SemanticExperimentIR",
-    "elaborate_module",
-    "merge_semantic_experiments",
-]

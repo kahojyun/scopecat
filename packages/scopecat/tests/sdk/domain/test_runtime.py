@@ -9,7 +9,6 @@ from pydantic import ValidationError
 
 from scopecat.adapters.memory import MemoryExecutionJournal
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -63,6 +62,7 @@ from scopecat.sdk.domain.runtime import (
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import table_value_expr
+from tests.testkit.typed_program import link_program
 
 type _Invocation = ClosedDomainInvocation[str, str, dict[str, str]]
 type _ReceiptFactory = Callable[

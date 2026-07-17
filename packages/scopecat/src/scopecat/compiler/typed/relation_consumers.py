@@ -19,6 +19,3 @@ class ProgramRelationConsumerKind(StrEnum):
     STATE_VALUE = "state_value"
     STATE_ROUTE_ENTITY = "state_route_entity"
     STATE_RELATION = "state_relation"
-
-
-__all__ = ["ProgramRelationConsumerKind"]

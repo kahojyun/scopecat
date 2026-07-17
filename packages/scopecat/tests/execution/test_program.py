@@ -45,7 +45,6 @@ from scopecat.compiler.typed.program import (
     ComputeEdge,
     TypedComputeNode,
     TypedComputeOutput,
-    instrument_product_producer,
 )
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.execution.local.lowering import build_execution_program
@@ -64,7 +63,7 @@ from scopecat.execution.local.program import (
     ResourceClaim,
 )
 from scopecat.kernel.problems import ProblemPhase
-from scopecat.kernel.product_identity import ProductUseId, product_id, product_use
+from scopecat.kernel.product_identity import product_id, product_use
 from scopecat.kernel.resource_identity import physical_resource_id
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
@@ -72,6 +71,7 @@ from scopecat.kernel.value_types import Float, Scalar
 from scopecat.planning.routing import RoutingView
 from scopecat.records.config import RoutingResource
 from scopecat.sdk.instruments.contracts import CollectCommand, CollectProductRequest
+from tests.testkit.typed_program import instrument_product_producer
 
 
 def test_execution_program_has_explicit_ordered_effect_stages() -> None:
@@ -357,38 +357,6 @@ def test_collection_inventory_is_a_subset_of_complete_logical_uses() -> None:
     assert derived_use.id not in program.collection_product_use_ids
 
 
-def test_current_local_record_projection_rejects_unproduced_derived_use() -> None:
-    program = _source_and_derived_execution_program()
-    derived_use = program.product_uses[1]
-
-    with pytest.raises(ValueError, match="require a collected product use"):
-        replace(
-            program,
-            record_projections=(
-                RecordProjection(
-                    record_id="derived",
-                    product_use_id=derived_use.id,
-                    product_id=derived_use.product_id,
-                ),
-            ),
-        )
-
-
-def test_execution_collection_inventory_snapshots_runtime_sequence() -> None:
-    program = _source_and_derived_execution_program()
-    supplied = list(program.collection_product_use_ids)
-
-    snapshotted = replace(
-        program,
-        collection_product_use_ids=cast(
-            "tuple[ProductUseId, ...]", cast("object", supplied)
-        ),
-    )
-    supplied.clear()
-
-    assert snapshotted.collection_product_use_ids == (program.product_uses[0].id,)
-
-
 def test_zero_point_execution_retains_nonempty_collection_inventory() -> None:
     source_use = product_use(product_id("source"))
 
@@ -401,40 +369,6 @@ def test_zero_point_execution_retains_nonempty_collection_inventory() -> None:
     )
 
     assert program.collection_product_use_ids == (source_use.id,)
-
-
-@pytest.mark.parametrize("mutation", ["duplicate", "unknown", "noncanonical"])
-def test_execution_collection_inventory_rejects_invalid_identity_set(
-    mutation: str,
-) -> None:
-    first = product_use(product_id("first"))
-    second = product_use(product_id("second"))
-    foreign = product_use(product_id("foreign"))
-    selected = {
-        "duplicate": (first.id, first.id),
-        "unknown": (first.id, foreign.id),
-        "noncanonical": (second.id, first.id),
-    }[mutation]
-
-    with pytest.raises(ValueError):
-        ExecutionProgram(
-            experiment_id="invalid-collection-contract",
-            points=(),
-            product_uses=(first, second),
-            collection_product_use_ids=selected,
-            record_projections=(),
-        )
-
-
-def test_each_point_must_exactly_cover_collection_inventory() -> None:
-    program = _source_and_derived_execution_program()
-
-    with pytest.raises(ValueError, match="collection product-use inventory"):
-        replace(
-            program,
-            collection_product_use_ids=(),
-            record_projections=(),
-        )
 
 
 def test_point_program_rejects_non_topological_compute_order() -> None:
@@ -515,10 +449,11 @@ def test_point_compute_order_does_not_alias_operation_and_value_namespaces() -> 
         )
 
 
-def test_resource_claims_are_unconditionally_exclusive() -> None:
-    claim = ResourceClaim(id="source-a")
+def test_execution_program_defaults_resources_from_used_instruments() -> None:
+    program = _source_and_derived_execution_program()
 
-    assert claim.kind == "instrument"
+    assert program.resource_order == ("source-0",)
+    assert program.resource_claims == (ResourceClaim(id="source-0"),)
 
 
 def test_collect_command_attempt_is_rejected_before_execution() -> None:

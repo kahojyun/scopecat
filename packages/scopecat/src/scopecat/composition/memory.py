@@ -26,6 +26,3 @@ def memory_workspace_services(
         execution=execution,
         config_registry=workspace.unit_of_work,
     )
-
-
-__all__ = ["memory_workspace_services"]

@@ -440,11 +440,3 @@ def _preflight_problem(
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("instrument_provider", *path),
     )
-
-
-__all__ = [
-    "cleanup_after_setup_failure",
-    "describe_instruments",
-    "preflight_problem_from_exception",
-    "validate_instruments",
-]

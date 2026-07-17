@@ -423,6 +423,3 @@ def _command_channel_binding(binding: RoutingChannelBinding) -> CommandChannelBi
 
 def _compute_operation_id(logical_point_id: str, operation_id: OperationId) -> str:
     return f"{logical_point_id}.compute.{operation_id.qualified_name}"
-
-
-__all__ = ["build_execution_program"]

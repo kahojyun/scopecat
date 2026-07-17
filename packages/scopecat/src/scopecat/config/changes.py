@@ -29,11 +29,7 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.records.artifact import RunRecordEntry
-from scopecat.records.config import (
-    ConfigContentHash,
-    ConfigProfileSnapshot,
-    config_content_hash,
-)
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest, utc_now
 from scopecat.runs.access import list_records
@@ -44,19 +40,6 @@ from scopecat.runs.repository import RunRepository
 ParameterChangeReviewState = Literal["approved", "rejected"]
 ParameterChangeDecision = Literal["approved", "rejected", "invalidated"]
 SAFE_PARAMETER_CHANGE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
-
-
-class ParameterChangeProposalView(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    source_run_id: str
-    base_config_id: str
-    base_config_content_hash: ConfigContentHash
-    reason: str
-    confidence: float | None = None
-    affected_parameter_ids: list[str] = Field(default_factory=list)
-    record_id: str
 
 
 class ParameterChangeDecisionRecord(BaseModel):
@@ -167,35 +150,6 @@ def parameter_change_proposal_from_updates(
     )
 
 
-def list_parameter_change_proposals(
-    *, run_id: str, services: WorkspaceServices
-) -> list[ParameterChangeProposalView]:
-    storage = services.runs
-    manifest = storage.read_manifest(run_id)
-    proposals: list[ParameterChangeProposalView] = []
-    for proposal_record in _proposal_records(manifest):
-        proposal = _load_proposal_record(
-            storage=storage,
-            run_id=run_id,
-            proposal_record=proposal_record,
-        )
-        proposals.append(
-            ParameterChangeProposalView(
-                id=proposal.id,
-                source_run_id=proposal.source_run_id,
-                base_config_id=proposal.base_config_id,
-                base_config_content_hash=proposal.base_config_content_hash,
-                reason=proposal.reason,
-                confidence=proposal.confidence,
-                affected_parameter_ids=[
-                    delta.parameter_id for delta in proposal.deltas
-                ],
-                record_id=proposal_record.id,
-            )
-        )
-    return proposals
-
-
 def load_parameter_change_proposal(
     *, run_id: str, selector: str, services: WorkspaceServices
 ) -> ParameterChangeProposal:
@@ -217,7 +171,7 @@ def review_parameter_change_proposal(
     reviewer: str,
     note: str = "",
 ) -> ParameterChangeDecisionRecord:
-    return record_parameter_change_decision(
+    return _record_parameter_change_decision(
         run_id=run_id,
         selector=selector,
         services=services,
@@ -239,7 +193,7 @@ def invalidate_parameter_change_proposal(
     related_refs = list(invalidated_by_refs or [])
     for ref in related_refs:
         _validate_selector_path(ref)
-    return record_parameter_change_decision(
+    return _record_parameter_change_decision(
         run_id=run_id,
         selector=selector,
         services=services,
@@ -250,7 +204,7 @@ def invalidate_parameter_change_proposal(
     )
 
 
-def record_parameter_change_decision(
+def _record_parameter_change_decision(
     *,
     run_id: str,
     selector: str,
@@ -282,7 +236,7 @@ def record_parameter_change_decision(
         for ref in related_refs or ():
             _validate_selector_path(ref)
         event_id = uuid4().hex
-        decision_entry = parameter_change_decision_record_entry(
+        decision_entry = _parameter_change_decision_record_entry(
             proposal_id=proposal.id,
             event_id=event_id,
         )
@@ -398,7 +352,7 @@ def parameter_change_proposal_record_ref(proposal_id: str) -> str:
     )
 
 
-def parameter_change_proposal_record(
+def _parameter_change_proposal_record(
     *, proposal: ParameterChangeProposal
 ) -> RunRecordEntry:
     return RunRecordEntry(
@@ -408,7 +362,7 @@ def parameter_change_proposal_record(
     )
 
 
-def parameter_change_decision_record_entry(
+def _parameter_change_decision_record_entry(
     *, proposal_id: str, event_id: str
 ) -> RunRecordEntry:
     return RunRecordEntry(
@@ -416,27 +370,6 @@ def parameter_change_decision_record_entry(
         kind="parameter_change_decision_record",
         media_type="application/json",
     )
-
-
-def write_parameter_change_proposals(
-    *,
-    storage: RunRepository,
-    run_id: str,
-    proposals: Sequence[ParameterChangeProposal],
-) -> tuple[RunRecordEntry, ...]:
-    with storage.run_lock(run_id):
-        entries = write_parameter_change_proposal_contents_locked(
-            storage=storage,
-            run_id=run_id,
-            proposals=proposals,
-        )
-        if entries:
-            write_manifest_records_locked(
-                storage=storage,
-                run_id=run_id,
-                records=entries,
-            )
-        return entries
 
 
 def write_parameter_change_proposal_contents_locked(
@@ -448,7 +381,7 @@ def write_parameter_change_proposal_contents_locked(
     """Publish immutable proposal content while the caller holds the run lock."""
 
     entries = tuple(
-        parameter_change_proposal_record(proposal=proposal) for proposal in proposals
+        _parameter_change_proposal_record(proposal=proposal) for proposal in proposals
     )
     for proposal, entry in zip(proposals, entries, strict=True):
         if proposal.source_run_id != run_id:
@@ -647,23 +580,3 @@ def _parameter_problem(
         location=location,
         details=details,
     )
-
-
-__all__ = [
-    "ParameterChangeDecision",
-    "ParameterChangeDecisionRecord",
-    "ParameterChangeProposalView",
-    "ParameterChangeReviewState",
-    "invalidate_parameter_change_proposal",
-    "is_safe_parameter_change_id",
-    "list_parameter_change_decisions",
-    "list_parameter_change_proposals",
-    "load_parameter_change_proposal",
-    "parameter_change_decision_record_entry",
-    "parameter_change_proposal_from_updates",
-    "parameter_change_proposal_record",
-    "parameter_change_proposal_record_ref",
-    "record_parameter_change_decision",
-    "review_parameter_change_proposal",
-    "write_parameter_change_proposals",
-]

@@ -25,5 +25,3 @@ type JsonMetadata = Annotated[
     dict[str, JsonValue],
     BeforeValidator(_validate_json_metadata),
 ]
-
-__all__ = ["JsonMetadata"]

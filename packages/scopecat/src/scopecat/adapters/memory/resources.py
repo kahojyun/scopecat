@@ -29,6 +29,3 @@ class MemoryResourceLeaseManager:
         finally:
             for lock in reversed(locks):
                 lock.release()
-
-
-__all__ = ["MemoryResourceLeaseManager"]

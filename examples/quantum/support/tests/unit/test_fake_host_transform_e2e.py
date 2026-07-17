@@ -11,7 +11,6 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPointBatch,
     MaterializedLinkedPoints,
-    link_program,
     materialize_linked_points,
 )
 from scopecat.compiler.relations.model import literal_rows
@@ -75,12 +74,8 @@ from scopecat_quantum import (
     BinaryIqDiscriminator,
     CalibrationCatalog,
     CalibrationId,
-    CircuitId,
     CircuitOperationId,
-    CircuitProgram,
-    CircuitTargetAcquisitionUseBinding,
-    CircuitTargetEntryPointBinding,
-    CompiledCircuitTarget,
+    CompiledQuantumTarget,
     Constant,
     IqCentroid,
     Measure,
@@ -92,6 +87,10 @@ from scopecat_quantum import (
     PulseParallel,
     PulseProgram,
     PulseProgramId,
+    QuantumProgramId,
+    QuantumProgramIR,
+    QuantumTargetAcquisitionUseBinding,
+    QuantumTargetEntryPointBinding,
     QubitId,
     ReadoutSignal,
     TargetAcquisitionAddress,
@@ -100,11 +99,11 @@ from scopecat_quantum import (
     binary_iq_probability_host_implementation,
     binary_iq_probability_transform,
     compile_target,
-    prepare_circuit_target_batch,
-    prepare_circuit_target_entry,
-    seal_circuit_target_result_mapping,
-    select_calibrations,
-    verify_circuit_program,
+    lower_quantum_program_to_pulses,
+    prepare_quantum_target_batch,
+    prepare_quantum_target_entry,
+    seal_quantum_target_result_mapping,
+    verify_quantum_program,
 )
 
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -117,6 +116,8 @@ from quantum_lab_demo.targets.fake_list_mode import (
     realize_fetched_fake_measurements,
     select_fake_measurement_realization,
 )
+
+from .demo_lab_experiment_testkit import link_program
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _Q0 = QubitId("q0")
@@ -281,16 +282,16 @@ def _linked_points() -> MaterializedLinkedPoints:
     return materialize_linked_points(link_program(program, environment))
 
 
-def _measurement_selection():
+def _lowered_measurement_program():
     measurement = Measure(
         id=CircuitOperationId("measure"),
         qubit=_Q0,
         acquisition_slot_id=_IQ_SLOT,
         acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
     )
-    circuit = verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId("binary-iq-readout"),
+    program = verify_quantum_program(
+        QuantumProgramIR(
+            id=QuantumProgramId("binary-iq-readout"),
             body=measurement,
         ),
         (),
@@ -327,11 +328,12 @@ def _measurement_selection():
         key=MeasurementCalibrationKey.from_measurement(measurement),
         pulse_template=template,
     )
-    return circuit, select_calibrations(
-        circuit,
+    return lower_quantum_program_to_pulses(
+        program,
         CalibrationCatalog(
             measurements=MeasurementCalibrationCatalog((calibration,)),
         ),
+        output_id=PulseProgramId("binary-iq-readout-pulses"),
     )
 
 
@@ -365,14 +367,12 @@ def _scenario(
     )
     preparation = context.new_preparation()
 
-    circuit, calibration_selection = _measurement_selection()
+    lowered = _lowered_measurement_program()
     adapter_point_order = (2, 0, 1)
     entries = tuple(
-        prepare_circuit_target_entry(
+        prepare_quantum_target_entry(
             TargetCompileEntryId(f"binary-iq-entry-{point_index}"),
-            circuit,
-            calibration_selection,
-            output_id=PulseProgramId("binary-iq-readout-pulses"),
+            lowered,
         )
         for point_index in adapter_point_order
     )
@@ -381,18 +381,18 @@ def _scenario(
         TargetCompilerId("fake-list-compiler.v1"),
         target,
     )
-    target_batch = prepare_circuit_target_batch(
+    target_batch = prepare_quantum_target_batch(
         entries,
         target_id=target.id,
         compiler_id=compiler.id,
         capability_fingerprint=target.capability_fingerprint,
         repetitions=_SHOT_COUNT,
     )
-    mapping = seal_circuit_target_result_mapping(
+    mapping = seal_quantum_target_result_mapping(
         preparation,
         target_batch,
         tuple(
-            CircuitTargetEntryPointBinding(
+            QuantumTargetEntryPointBinding(
                 entry.id,
                 context.points[point_index],
             )
@@ -403,14 +403,14 @@ def _scenario(
             )
         ),
         tuple(
-            CircuitTargetAcquisitionUseBinding(
+            QuantumTargetAcquisitionUseBinding(
                 entry.acquisition_addresses[0],
                 iq_use,
             )
             for entry in target_batch.entries
         ),
     )
-    compiled_target = CompiledCircuitTarget(
+    compiled_target = CompiledQuantumTarget(
         mapping,
         compile_target(compiler, target_batch.request),
     )

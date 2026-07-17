@@ -3,7 +3,6 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.model import (
     RelationExpr,
@@ -19,10 +18,6 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    overlay_parameter_cell,
-    typed_program,
-)
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String
 from scopecat.kernel.value_types import Table as TableType
@@ -35,6 +30,11 @@ from tests.testkit.relation_plans import (
 )
 from tests.testkit.relation_plans import (
     point_domain as verified_point_domain,
+)
+from tests.testkit.typed_program import (
+    link_program,
+    overlay_parameter_cell,
+    typed_program,
 )
 
 _PARAMETER_TYPES = PARAMETER_TYPES

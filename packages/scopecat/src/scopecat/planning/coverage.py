@@ -137,14 +137,3 @@ def product_execution_coverage(
     return ExecutionCoverage(
         tuple(ExecutionTask("product", use_id.value) for use_id in product_use_ids)
     )
-
-
-__all__ = [
-    "ExecutionCoverage",
-    "ExecutionResourceClaim",
-    "ExecutionResourceKind",
-    "ExecutionTask",
-    "ExecutionTaskKind",
-    "product_execution_coverage",
-    "program_execution_coverage",
-]

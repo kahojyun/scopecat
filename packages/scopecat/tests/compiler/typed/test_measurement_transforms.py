@@ -17,7 +17,6 @@ from scopecat.compiler.typed.program import (
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
     TypedProgram,
-    instrument_product_producer,
 )
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.verification import verify_typed_program
@@ -31,6 +30,7 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
+from tests.testkit.typed_program import instrument_product_producer
 
 
 def _transform_id(name: str) -> MeasurementTransformId:

@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
 
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program, link_verified_program
+from scopecat.compiler.linking.linked import link_verified_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import InstrumentProductProducer, ProductDef
-from scopecat.compiler.typed.program import (
-    TypedProgram,
-    instrument_product_producer,
-)
+from scopecat.compiler.typed.program import TypedProgram
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.verification import verify_typed_program
 from scopecat.execution.local.lowering import build_execution_program
@@ -28,6 +24,7 @@ from scopecat.kernel.product_identity import (
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_plan import config_with_physical_resources
+from tests.testkit.typed_program import instrument_product_producer, link_program
 
 
 def _product(name: str = "signal") -> ProductDef:
@@ -250,67 +247,6 @@ def test_implicit_product_target_requires_one_matching_instrument() -> None:
     assert [problem.code for problem in plan.problems] == [
         "product_instrument_ambiguous"
     ]
-
-
-def test_bound_plan_rejects_lossy_or_mutated_product_projection() -> None:
-    product = _product()
-    producer = instrument_product_producer(product)
-    use = product_use(product.id)
-    plan = materialize_local_plan(
-        link_program(
-            _program(
-                products=(product,),
-                producers=(producer,),
-                uses=(use,),
-                records=(RecordUse(id="signal", product_use_id=use.id),),
-            ),
-            validate_config_environment(load_config()),
-        )
-    )
-    assert plan.valid, plan.problems
-
-    with pytest.raises(ValueError, match="record-use inventory"):
-        replace(plan, records=())
-
-    with pytest.raises(ValueError, match="record-use identities must be unique"):
-        replace(
-            plan,
-            record_uses=(plan.record_uses[0], plan.record_uses[0]),
-            records=(plan.records[0], plan.records[0]),
-        )
-
-    changed_contract = replace(product, unit="Hz")
-    with pytest.raises(ValueError, match="selected product"):
-        replace(plan, product_defs=(changed_contract,))
-
-    competing_producer = instrument_product_producer(product, id="competing")
-    with pytest.raises(ValueError, match="exactly one retained"):
-        replace(
-            plan,
-            instrument_product_producers=(producer, competing_producer),
-        )
-
-    point = plan.points[0]
-    collect = point.collect[0]
-    request = replace(collect.requests[0], provider_key="wrong")
-    mutated_collect = replace(collect, requests=(request,))
-    with pytest.raises(ValueError, match="selected producer contract"):
-        replace(plan, points=(replace(point, collect=(mutated_collect,)),))
-
-    invented_target = replace(
-        collect.requests[0],
-        entity_ids=("invented-entity",),
-    )
-    with pytest.raises(ValueError, match="invalid routed target"):
-        replace(
-            plan,
-            points=(
-                replace(
-                    point,
-                    collect=(replace(collect, requests=(invented_target,)),),
-                ),
-            ),
-        )
 
 
 @pytest.mark.parametrize(

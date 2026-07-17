@@ -25,6 +25,3 @@ def verify_assembly(assembly: SemanticExperimentIR) -> VerifiedAssembly:
     graph = verify_assembly_graph(normalized)
     validate_consumed_inputs(normalized, inputs)
     return VerifiedAssembly(source=normalized, graph=graph)
-
-
-__all__ = ["verify_assembly"]

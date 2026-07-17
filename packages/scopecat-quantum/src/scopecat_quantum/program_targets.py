@@ -13,9 +13,8 @@ program is a :class:`~scopecat_quantum.pulses.ScheduledPulseProgram`.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from types import MappingProxyType
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 from scopecat_quantum._ids import (
     QuantumProgramId,
@@ -65,44 +64,22 @@ class QuantumTargetAcquisitionOrigin:
             raise ValueError(msg)
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class PreparedQuantumTargetEntry:
-    """Sealed mixed-source lowering, schedule, and target-entry proof."""
+    """Factory-built mixed-source lowering and target-entry proof."""
 
     lowered: LoweredQuantumPulseProgram
-    scheduled: ScheduledPulseProgram
     target_entry: TargetCompileEntry
     event_origins: tuple[QuantumTargetEventOrigin, ...]
     acquisition_origins: tuple[QuantumTargetAcquisitionOrigin, ...]
 
-    def __init__(
-        self,
-        lowered: LoweredQuantumPulseProgram,
-        scheduled: ScheduledPulseProgram,
-        target_entry: TargetCompileEntry,
-        event_origins: tuple[QuantumTargetEventOrigin, ...],
-        acquisition_origins: tuple[QuantumTargetAcquisitionOrigin, ...],
-    ) -> None:
-        _validate_entry_congruence(
-            lowered=lowered,
-            scheduled=scheduled,
-            target_entry=target_entry,
-            event_origins=event_origins,
-            acquisition_origins=acquisition_origins,
-        )
-        object.__setattr__(self, "lowered", lowered)
-        object.__setattr__(self, "scheduled", scheduled)
-        object.__setattr__(self, "target_entry", target_entry)
-        object.__setattr__(self, "event_origins", event_origins)
-        object.__setattr__(
-            self,
-            "acquisition_origins",
-            acquisition_origins,
-        )
-
     @property
     def id(self) -> TargetCompileEntryId:
         return self.target_entry.id
+
+    @property
+    def scheduled(self) -> ScheduledPulseProgram:
+        return self.target_entry.program
 
     @property
     def source_program_id(self) -> QuantumProgramId:
@@ -151,151 +128,83 @@ def prepare_quantum_target_entry(
     acquisition_origins = _acquisition_origins(lowered, target_entry)
     return PreparedQuantumTargetEntry(
         lowered,
-        scheduled,
         target_entry,
         event_origins,
         acquisition_origins,
     )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class PreparedQuantumTargetBatch:
-    """Sealed ordered mixed-program batch with total qualified origins."""
+    """Factory-built ordered batch with a derived request and origins."""
 
     entries: tuple[PreparedQuantumTargetEntry, ...]
-    request: TargetCompileRequest
-    event_origins: tuple[QuantumTargetEventOrigin, ...]
-    acquisition_origins: tuple[QuantumTargetAcquisitionOrigin, ...]
-    _entries_by_id: Mapping[TargetCompileEntryId, PreparedQuantumTargetEntry] = field(
-        repr=False,
-        compare=False,
-        hash=False,
-    )
-    _event_origins_by_address: Mapping[
-        TargetEventAddress,
-        QuantumTargetEventOrigin,
-    ] = field(repr=False, compare=False, hash=False)
-    _acquisition_origins_by_address: Mapping[
-        TargetAcquisitionAddress,
-        QuantumTargetAcquisitionOrigin,
-    ] = field(repr=False, compare=False, hash=False)
+    target_id: TargetId
+    compiler_id: TargetCompilerId
+    capability_fingerprint: str
+    repetitions: int
 
-    def __init__(
-        self,
-        entries: tuple[PreparedQuantumTargetEntry, ...],
-        request: TargetCompileRequest,
-        event_origins: tuple[QuantumTargetEventOrigin, ...],
-        acquisition_origins: tuple[QuantumTargetAcquisitionOrigin, ...],
-    ) -> None:
-        if not entries:
-            msg = "prepared quantum target batches require at least one entry"
-            raise ValueError(msg)
-
-        expected_target_entries = tuple(entry.target_entry for entry in entries)
-        if request.entries != expected_target_entries:
-            msg = "target compile request must exactly retain prepared entry order"
-            raise ValueError(msg)
-        entry_ids = tuple(entry.id for entry in entries)
-        if len(set(entry_ids)) != len(entry_ids):
-            msg = "prepared quantum target entry ids must be unique"
-            raise ValueError(msg)
-
-        expected_event_origins = tuple(
-            origin for entry in entries for origin in entry.event_origins
+    @property
+    def request(self) -> TargetCompileRequest:
+        return TargetCompileRequest(
+            target_id=self.target_id,
+            compiler_id=self.compiler_id,
+            capability_fingerprint=self.capability_fingerprint,
+            entries=tuple(entry.target_entry for entry in self.entries),
+            repetitions=self.repetitions,
         )
-        expected_acquisition_origins = tuple(
-            origin for entry in entries for origin in entry.acquisition_origins
-        )
-        if event_origins != expected_event_origins:
-            msg = "batch event origins must exactly cover prepared entries in order"
-            raise ValueError(msg)
-        if acquisition_origins != expected_acquisition_origins:
-            msg = (
-                "batch acquisition origins must exactly cover prepared entries in order"
-            )
-            raise ValueError(msg)
-        if tuple(origin.address for origin in event_origins) != (
-            request.event_addresses
-        ):
-            msg = "batch event origins must exactly cover target request addresses"
-            raise ValueError(msg)
-        if tuple(origin.address for origin in acquisition_origins) != (
-            request.acquisition_addresses
-        ):
-            msg = (
-                "batch acquisition origins must exactly cover target request addresses"
-            )
-            raise ValueError(msg)
 
-        entries_by_id = {entry.id: entry for entry in entries}
-        event_origins_by_address = {origin.address: origin for origin in event_origins}
-        acquisition_origins_by_address = {
-            origin.address: origin for origin in acquisition_origins
-        }
-        if len(event_origins_by_address) != len(event_origins):
-            msg = "prepared quantum target event addresses must be unique"
-            raise ValueError(msg)
-        if len(acquisition_origins_by_address) != len(acquisition_origins):
-            msg = "prepared quantum target acquisition addresses must be unique"
-            raise ValueError(msg)
+    @property
+    def event_origins(self) -> tuple[QuantumTargetEventOrigin, ...]:
+        return tuple(origin for entry in self.entries for origin in entry.event_origins)
 
-        object.__setattr__(self, "entries", entries)
-        object.__setattr__(self, "request", request)
-        object.__setattr__(self, "event_origins", event_origins)
-        object.__setattr__(
-            self,
-            "acquisition_origins",
-            acquisition_origins,
-        )
-        object.__setattr__(self, "_entries_by_id", MappingProxyType(entries_by_id))
-        object.__setattr__(
-            self,
-            "_event_origins_by_address",
-            MappingProxyType(event_origins_by_address),
-        )
-        object.__setattr__(
-            self,
-            "_acquisition_origins_by_address",
-            MappingProxyType(acquisition_origins_by_address),
+    @property
+    def acquisition_origins(self) -> tuple[QuantumTargetAcquisitionOrigin, ...]:
+        return tuple(
+            origin for entry in self.entries for origin in entry.acquisition_origins
         )
 
     @property
     def event_addresses(self) -> tuple[TargetEventAddress, ...]:
-        return self.request.event_addresses
+        return tuple(
+            address for entry in self.entries for address in entry.event_addresses
+        )
 
     @property
     def acquisition_addresses(self) -> tuple[TargetAcquisitionAddress, ...]:
-        return self.request.acquisition_addresses
+        return tuple(
+            address for entry in self.entries for address in entry.acquisition_addresses
+        )
 
     def entry_for(
         self,
         entry_id: TargetCompileEntryId,
     ) -> PreparedQuantumTargetEntry:
-        try:
-            return self._entries_by_id[entry_id]
-        except KeyError as error:
-            msg = f"target compile entry {entry_id!r} is not in this batch"
-            raise KeyError(msg) from error
+        for entry in self.entries:
+            if entry.id == entry_id:
+                return entry
+        msg = f"target compile entry {entry_id!r} is not in this batch"
+        raise KeyError(msg)
 
     def event_origin_for(
         self,
         address: TargetEventAddress,
     ) -> QuantumTargetEventOrigin:
-        try:
-            return self._event_origins_by_address[address]
-        except KeyError as error:
-            msg = f"target event address {address!r} is not in this batch"
-            raise KeyError(msg) from error
+        for origin in self.event_origins:
+            if origin.address == address:
+                return origin
+        msg = f"target event address {address!r} is not in this batch"
+        raise KeyError(msg)
 
     def acquisition_origin_for(
         self,
         address: TargetAcquisitionAddress,
     ) -> QuantumTargetAcquisitionOrigin:
-        try:
-            return self._acquisition_origins_by_address[address]
-        except KeyError as error:
-            msg = f"target acquisition address {address!r} is not in this batch"
-            raise KeyError(msg) from error
+        for origin in self.acquisition_origins:
+            if origin.address == address:
+                return origin
+        msg = f"target acquisition address {address!r} is not in this batch"
+        raise KeyError(msg)
 
 
 def prepare_quantum_target_batch(
@@ -319,17 +228,12 @@ def prepare_quantum_target_batch(
         entries=tuple(entry.target_entry for entry in selected_entries),
         repetitions=repetitions,
     )
-    event_origins = tuple(
-        origin for entry in selected_entries for origin in entry.event_origins
-    )
-    acquisition_origins = tuple(
-        origin for entry in selected_entries for origin in entry.acquisition_origins
-    )
     return PreparedQuantumTargetBatch(
-        selected_entries,
-        request,
-        event_origins,
-        acquisition_origins,
+        entries=selected_entries,
+        target_id=request.target_id,
+        compiler_id=request.compiler_id,
+        capability_fingerprint=request.capability_fingerprint,
+        repetitions=request.repetitions,
     )
 
 
@@ -373,59 +277,3 @@ def _acquisition_origins(
             "scheduled target acquisitions are not totally covered by mixed provenance"
         )
         raise ValueError(msg) from error
-
-
-def _validate_entry_congruence(
-    *,
-    lowered: LoweredQuantumPulseProgram,
-    scheduled: ScheduledPulseProgram,
-    target_entry: TargetCompileEntry,
-    event_origins: tuple[QuantumTargetEventOrigin, ...],
-    acquisition_origins: tuple[QuantumTargetAcquisitionOrigin, ...],
-) -> None:
-    if scheduled.id != lowered.program.id:
-        msg = "scheduled pulse proof must retain the lowered pulse program identity"
-        raise ValueError(msg)
-    if target_entry.program != scheduled:
-        msg = "target compile entry must retain the exact scheduled pulse program"
-        raise ValueError(msg)
-
-    scheduled_event_ids = tuple(
-        address.event_id for address in target_entry.event_addresses
-    )
-    provenance_event_ids = tuple(item.event_id for item in lowered.event_provenance)
-    if len(scheduled_event_ids) != len(provenance_event_ids) or set(
-        scheduled_event_ids
-    ) != set(provenance_event_ids):
-        msg = "scheduled target events must exactly cover mixed pulse provenance"
-        raise ValueError(msg)
-    scheduled_acquisition_ids = tuple(
-        address.slot_id for address in target_entry.acquisition_addresses
-    )
-    provenance_acquisition_ids = tuple(
-        item.acquisition_slot_id for item in lowered.acquisition_provenance
-    )
-    if len(scheduled_acquisition_ids) != len(provenance_acquisition_ids) or set(
-        scheduled_acquisition_ids
-    ) != set(provenance_acquisition_ids):
-        msg = "scheduled target acquisitions must exactly cover mixed pulse provenance"
-        raise ValueError(msg)
-
-    expected_event_origins = _event_origins(lowered, target_entry)
-    expected_acquisition_origins = _acquisition_origins(lowered, target_entry)
-    if event_origins != expected_event_origins:
-        msg = "target event origins must exactly cover scheduled events in order"
-        raise ValueError(msg)
-    if acquisition_origins != expected_acquisition_origins:
-        msg = "target acquisition origins must exactly cover scheduled slots in order"
-        raise ValueError(msg)
-
-
-__all__ = [
-    "PreparedQuantumTargetBatch",
-    "PreparedQuantumTargetEntry",
-    "QuantumTargetAcquisitionOrigin",
-    "QuantumTargetEventOrigin",
-    "prepare_quantum_target_batch",
-    "prepare_quantum_target_entry",
-]

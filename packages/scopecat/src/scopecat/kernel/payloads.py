@@ -17,6 +17,3 @@ class PayloadValue(BaseModel):
 
     schema_id: str
     payload: object = Field(default=None, exclude=True)
-
-
-__all__ = ["PayloadValue"]

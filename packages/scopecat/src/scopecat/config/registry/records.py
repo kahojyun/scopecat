@@ -211,16 +211,3 @@ class ConfigRegistryActiveState(_FrozenValidatedModel):
                 msg = "activation history entry chain is inconsistent"
                 raise ValueError(msg)
         return self
-
-
-__all__ = [
-    "CandidateConfigRegistrySource",
-    "CandidateProposalRegistryEvidence",
-    "ConfigRegistryActivationRecord",
-    "ConfigRegistryActiveState",
-    "ConfigRegistryEntry",
-    "ConfigRegistryEntrySource",
-    "ConfigRegistryIndex",
-    "DirectConfigRegistrySource",
-    "EvidenceContentHash",
-]

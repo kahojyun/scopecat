@@ -1557,6 +1557,3 @@ def _problem(
     category: ProblemCategory = ProblemCategory.INVALID_INPUT,
 ) -> Problem:
     return compiler_problem(code, message, location, category=category)
-
-
-__all__ = ["materialize_local_plan"]

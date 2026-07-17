@@ -47,6 +47,3 @@ def validate_config_environment(
         routing=RoutingView.from_config(config) if valid else None,
         problems=tuple(problems),
     )
-
-
-__all__ = ["ValidatedConfigEnvironment", "validate_config_environment"]

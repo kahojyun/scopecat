@@ -40,7 +40,6 @@ from scopecat.compiler.typed.program import (
     TypedComputeNode,
     TypedComputeOutput,
     TypedProgram,
-    observable_product,
     record_product,
     set_state_field,
 )
@@ -57,6 +56,7 @@ from tests.testkit.relation_plans import (
     scalar_value_expr,
     table_value_expr,
 )
+from tests.testkit.typed_program import observable_product
 
 
 def _program(**updates: object) -> TypedProgram:

@@ -112,6 +112,3 @@ def commit_terminal_evidence(
             committed_refs=committed_refs,
             pending_ref=pending_ref,
         ) from error
-
-
-__all__ = ["commit_terminal_evidence"]

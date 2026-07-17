@@ -553,9 +553,3 @@ def _durable_metadata(
     if not isinstance(normalized, dict):
         raise AssertionError("record metadata normalization must produce an object")
     return cast("dict[str, JsonValue]", normalized)
-
-
-__all__ = [
-    "lower_product_selections",
-    "lower_records",
-]

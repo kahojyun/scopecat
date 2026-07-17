@@ -7,15 +7,12 @@ through this module instead of depending on that representation directly.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping, Sequence
-from contextlib import suppress
 from pathlib import Path
-from uuid import uuid4
 
 from pydantic import ValidationError
 
-from scopecat.adapters.filesystem.io import encode_model_json, ensure_durable_directory
+from scopecat.adapters.filesystem.io import write_jsonl
 from scopecat.kernel.errors import DataIntegrityError, NotFound, StorageError
 from scopecat.kernel.problems import (
     Problem,
@@ -44,16 +41,8 @@ def write_measurement_records_path(
     path: Path,
     records: Sequence[MeasurementRecord],
 ) -> None:
-    temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
     try:
-        ensure_durable_directory(path.parent)
-        with temporary_path.open("w") as data_file:
-            for record in records:
-                data_file.write(encode_model_json(record) + "\n")
-            data_file.flush()
-            os.fsync(data_file.fileno())
-        temporary_path.replace(path)
-        _fsync_directory(path.parent)
+        write_jsonl(path, records)
     except OSError as error:
         raise StorageError(
             [
@@ -64,17 +53,6 @@ def write_measurement_records_path(
                 )
             ]
         ) from error
-    finally:
-        with suppress(OSError):
-            temporary_path.unlink(missing_ok=True)
-
-
-def _fsync_directory(path: Path) -> None:
-    directory_fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(directory_fd)
-    finally:
-        os.close(directory_fd)
 
 
 def read_measurement_records_path(

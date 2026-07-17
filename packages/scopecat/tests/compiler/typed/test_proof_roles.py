@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.relations.model import (
     col,
     grid,
@@ -34,6 +33,7 @@ from tests.testkit.relation_plans import (
     scalar_value_expr,
     table_value_expr,
 )
+from tests.testkit.typed_program import link_program
 
 _EMPTY_POINTS = Table(columns=(), min_rows=1, max_rows=1)
 _FLOAT = Scalar(Float())

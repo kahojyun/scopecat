@@ -326,23 +326,3 @@ def _validate_unique_ids(values: Iterable[str], *, label: str) -> None:
     if duplicates:
         msg = f"{label} must be unique: {', '.join(duplicates)}"
         raise ValueError(msg)
-
-
-__all__ = [
-    "AtomType",
-    "Bool",
-    "Entity",
-    "Float",
-    "Int",
-    "Payload",
-    "Quantity",
-    "Record",
-    "RecordField",
-    "Route",
-    "Scalar",
-    "Series",
-    "String",
-    "Table",
-    "TableColumn",
-    "ValueType",
-]

@@ -49,12 +49,3 @@ class AnalysisRecord(BaseModel):
     step_id: str | None = None
     inputs: list[AnalysisRecordInput] = Field(default_factory=list)
     outputs: list[AnalysisRecordOutput]
-
-
-__all__ = [
-    "ANALYSIS_RECORD_SCHEMA_VERSION",
-    "AnalysisRecord",
-    "AnalysisRecordInput",
-    "AnalysisRecordOutput",
-    "AnalysisRecordOutputKind",
-]

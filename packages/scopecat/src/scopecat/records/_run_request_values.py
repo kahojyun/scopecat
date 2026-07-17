@@ -64,6 +64,3 @@ def normalize_run_request_value(value: object) -> object:
         return [normalize_run_request_value(item) for item in sequence]
     msg = f"unsupported durable run request value: {type(value).__name__}"
     raise ValueError(msg)
-
-
-__all__ = ["normalize_json_value", "normalize_run_request_value"]

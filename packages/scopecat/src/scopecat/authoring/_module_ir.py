@@ -586,17 +586,3 @@ def _require_operation_implementations(module: ModuleIR) -> None:
     if orphaned:
         msg = "module Python implementations reference unknown operations"
         raise ValueError(msg)
-
-
-__all__ = [
-    "InvocationKey",
-    "ModuleBodyIR",
-    "ModuleIR",
-    "ModuleImportBinding",
-    "ModuleInstanceIR",
-    "ModuleInstanceLookup",
-    "ModuleInterfaceIR",
-    "ModuleProductExport",
-    "ModulePythonImplementation",
-    "ModuleValueExport",
-]

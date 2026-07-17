@@ -114,6 +114,3 @@ def _value_dependencies(value: ValueExpr) -> ComputeDependencies:
 
 def _merge(left: tuple[str, ...], right: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted({*left, *right}))
-
-
-__all__ = ["ComputeDependencies", "analyze_compute_dependencies"]

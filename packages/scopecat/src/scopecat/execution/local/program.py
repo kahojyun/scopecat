@@ -362,128 +362,29 @@ class ExecutionProgram:
         if not self.experiment_id:
             msg = "execution program experiment_id must be non-empty"
             raise ValueError(msg)
-        indices = [point.point_index for point in self.points]
-        if indices != list(range(len(self.points))):
-            msg = "execution program points must be contiguous and ordered from zero"
-            raise ValueError(msg)
-        point_uids = [point.point_uid for point in self.points]
-        if len(point_uids) != len(set(point_uids)):
-            msg = "execution program point_uids must be unique"
-            raise ValueError(msg)
-        operation_ids = [
-            operation_id
-            for point in self.points
-            for operation_id in _point_operation_ids(point)
-        ]
-        if len(operation_ids) != len(set(operation_ids)):
-            msg = "execution program operation ids must be globally unique"
-            raise ValueError(msg)
-        uses_by_id = {use.id: use for use in self.product_uses}
-        if len(uses_by_id) != len(self.product_uses):
-            msg = "execution program product-use identities must be unique"
-            raise ValueError(msg)
-        collection_use_ids = tuple(self.collection_product_use_ids)
-        if len(collection_use_ids) != len(set(collection_use_ids)):
-            msg = "execution collection product-use identities must be unique"
-            raise ValueError(msg)
-        unknown_collection_use_ids = tuple(
-            use_id for use_id in collection_use_ids if use_id not in uses_by_id
-        )
-        if unknown_collection_use_ids:
-            msg = (
-                "execution collection inventory references unknown logical product uses"
-            )
-            raise ValueError(msg)
-        canonical_collection_use_ids = tuple(
-            use.id for use in self.product_uses if use.id in set(collection_use_ids)
-        )
-        if collection_use_ids != canonical_collection_use_ids:
-            msg = "execution collection inventory must follow logical product-use order"
-            raise ValueError(msg)
-        object.__setattr__(
-            self,
-            "collection_product_use_ids",
-            collection_use_ids,
-        )
-        record_ids = [projection.record_id for projection in self.record_projections]
-        if len(record_ids) != len(set(record_ids)):
-            msg = "execution program record projection ids must be unique"
-            raise ValueError(msg)
-        for projection in self.record_projections:
-            use = uses_by_id.get(projection.product_use_id)
-            if use is None or use.product_id != projection.product_id:
-                msg = "record projections must reference retained logical product uses"
-                raise ValueError(msg)
-            if projection.product_use_id not in set(collection_use_ids):
-                msg = (
-                    "current local execution record projections require a "
-                    "collected product use"
-                )
-                raise ValueError(msg)
-        expected_collection_use_ids = set(collection_use_ids)
-        for point in self.points:
-            bindings = [
-                binding
-                for stage in point.stages
-                if isinstance(stage, CollectStage)
-                for operation in stage.operations
-                for binding in operation.result_bindings
-            ]
-            for binding in bindings:
-                use = uses_by_id.get(binding.product_use_id)
-                if use is None or use.product_id != binding.product_id:
-                    msg = (
-                        "collection result bindings must reference their exact "
-                        "logical product uses"
-                    )
-                    raise ValueError(msg)
-            actual_use_ids = [binding.product_use_id for binding in bindings]
-            if len(actual_use_ids) != len(set(actual_use_ids)):
-                msg = "each point requires one producer per collected product use"
-                raise ValueError(msg)
-            if set(actual_use_ids) != expected_collection_use_ids:
-                msg = (
-                    "each point must exactly realize the execution collection "
-                    "product-use inventory"
-                )
-                raise ValueError(msg)
-            for stage in point.stages:
-                if not isinstance(stage, CollectStage):
-                    continue
-                for operation in stage.operations:
-                    if operation.command.point_index != point.point_index:
-                        msg = "collect command point index must match its point program"
-                        raise ValueError(msg)
-                    if operation.command.point_count != len(self.points):
-                        msg = (
-                            "collect command point count must match the execution "
-                            "program"
-                        )
-                        raise ValueError(msg)
-        used_instruments = tuple(
-            dict.fromkeys(
-                operation.instrument_id
-                for point in self.points
-                for stage in point.stages
-                if isinstance(stage, ApplyStateStage | ActionStage | CollectStage)
-                for operation in stage.operations
-            )
-        )
         if not self.resource_order:
-            object.__setattr__(self, "resource_order", used_instruments)
-        elif set(self.resource_order) != set(used_instruments):
-            msg = "resource_order must contain every used instrument exactly once"
-            raise ValueError(msg)
-        if len(self.resource_order) != len(set(self.resource_order)):
-            msg = "resource_order must not contain duplicates"
-            raise ValueError(msg)
+            object.__setattr__(
+                self,
+                "resource_order",
+                tuple(
+                    dict.fromkeys(
+                        operation.instrument_id
+                        for point in self.points
+                        for stage in point.stages
+                        if isinstance(
+                            stage,
+                            ApplyStateStage | ActionStage | CollectStage,
+                        )
+                        for operation in stage.operations
+                    )
+                ),
+            )
         if not self.resource_claims:
             object.__setattr__(
                 self,
                 "resource_claims",
                 tuple(ResourceClaim(id=item) for item in self.resource_order),
             )
-        _validate_resource_claims(self)
 
     @property
     def point_count(self) -> int:
@@ -492,14 +393,6 @@ class ExecutionProgram:
     @property
     def expected_output_ids(self) -> frozenset[str]:
         return frozenset(projection.record_id for projection in self.record_projections)
-
-
-def _point_operation_ids(point: PointProgram) -> tuple[str, ...]:
-    return tuple(
-        operation.operation_id
-        for stage in point.stages
-        for operation in stage.operations
-    )
 
 
 def _validate_point_compute_order(point: PointProgram) -> None:
@@ -546,20 +439,6 @@ def _validate_point_stage_order(point: PointProgram) -> None:
             "point execution stages must follow compute, apply_state, action, "
             "collect order"
         )
-        raise ValueError(msg)
-
-
-def _validate_resource_claims(program: ExecutionProgram) -> None:
-    claim_keys = [(claim.kind, claim.id) for claim in program.resource_claims]
-    if len(claim_keys) != len(set(claim_keys)):
-        msg = "resource_claims must be unique by kind and id"
-        raise ValueError(msg)
-    claimed_instruments = {
-        claim.id for claim in program.resource_claims if claim.kind == "instrument"
-    }
-    missing = sorted(set(program.resource_order) - claimed_instruments)
-    if missing:
-        msg = "resource_claims are missing instruments: " + ", ".join(missing)
         raise ValueError(msg)
 
 

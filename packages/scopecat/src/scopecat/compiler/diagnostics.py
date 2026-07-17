@@ -44,6 +44,3 @@ def compiler_problem(
         related_locations=related_locations,
         details=details,
     )
-
-
-__all__ = ["CompilerProblemError", "compiler_problem"]

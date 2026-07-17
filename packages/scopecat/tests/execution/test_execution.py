@@ -15,7 +15,6 @@ from scopecat.adapters.filesystem.execution import FilesystemExecutionJournal
 from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.bound import BoundAxis, BoundPlan
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.linking.materialization import materialize_local_plan
 from scopecat.compiler.linking.product_realizations import (
     select_local_product_realizations,
@@ -51,12 +50,8 @@ from scopecat.compiler.typed.program import (
     TypedComputeNode,
     TypedComputeOutput,
     ValueInput,
-    compute_result,
-    instrument_product_producer,
-    observable_product,
     record_product,
     set_state_field,
-    typed_program,
 )
 from scopecat.composition.local import (
     local_run_repository,
@@ -129,6 +124,13 @@ from tests.testkit.relation_plans import (
 )
 from tests.testkit.signal_instruments import (
     TestSignalInstrument,
+)
+from tests.testkit.typed_program import (
+    compute_result,
+    instrument_product_producer,
+    link_program,
+    observable_product,
+    typed_program,
 )
 from tests.testkit.workflow_fixtures import load_config, load_experiment
 

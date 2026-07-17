@@ -35,13 +35,8 @@ from scopecat.compiler.typed.program import (
     ResourceRouteIntent,
     TypedComputeNode,
     TypedComputeOutput,
-    compute_result,
-    instrument_product_producer,
-    observable_product,
-    overlay_parameter_cell,
     product_axis,
     record_product,
-    typed_program,
 )
 from scopecat.compiler.typed.program import (
     set_state_field as set_typed_state_field,
@@ -77,6 +72,13 @@ from tests.testkit.relation_plans import (
 )
 from tests.testkit.relation_plans import (
     state_field as set_state_field,
+)
+from tests.testkit.typed_program import (
+    compute_result,
+    instrument_product_producer,
+    observable_product,
+    overlay_parameter_cell,
+    typed_program,
 )
 
 

@@ -181,6 +181,3 @@ def _config_problem(
         message=message,
         location=ExternalLocation(uri=str(path)),
     )
-
-
-__all__ = ["ConfigProfileFile", "load_config_profile"]

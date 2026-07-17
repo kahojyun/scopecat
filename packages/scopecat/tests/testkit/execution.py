@@ -7,7 +7,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.composition.local import local_execution_services
 from scopecat.execution.local.plan_executor import execute_execution_plan
@@ -24,6 +23,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderDescription,
     InstrumentProviderResult,
 )
+from tests.testkit.typed_program import link_program
 
 
 @dataclass(frozen=True, slots=True)

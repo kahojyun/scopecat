@@ -470,14 +470,8 @@ def read_artifact_bytes(
     *,
     storage: RunRepository,
     run_id: str,
-    selector: str,
-    expected_kind: str | None = None,
+    artifact: RunArtifactEntry,
 ) -> bytes:
-    artifact = require_artifact(
-        manifest=storage.read_manifest(run_id),
-        selector=selector,
-        expected_kind=expected_kind,
-    )
     return storage.read_bytes(run_id, artifact_storage_ref(artifact))
 
 
@@ -485,14 +479,8 @@ def read_artifact_text(
     *,
     storage: RunRepository,
     run_id: str,
-    selector: str,
-    expected_kind: str | None = None,
+    artifact: RunArtifactEntry,
 ) -> str:
-    artifact = require_artifact(
-        manifest=storage.read_manifest(run_id),
-        selector=selector,
-        expected_kind=expected_kind,
-    )
     return storage.read_text(run_id, artifact_storage_ref(artifact))
 
 
@@ -500,16 +488,15 @@ def read_artifact_json(
     *,
     storage: RunRepository,
     run_id: str,
-    selector: str,
-    expected_kind: str | None = None,
+    artifact: RunArtifactEntry,
 ) -> Mapping[str, JsonValue]:
+    selector = artifact.id
     try:
         return _JSON_OBJECT_ADAPTER.validate_json(
             read_artifact_text(
                 storage=storage,
                 run_id=run_id,
-                selector=selector,
-                expected_kind=expected_kind,
+                artifact=artifact,
             )
         )
     except ValidationError as error:
@@ -529,36 +516,16 @@ def read_artifact_json(
         ) from error
 
 
-def read_record_text(
-    *,
-    storage: RunRepository,
-    run_id: str,
-    selector: str,
-    expected_kind: str | None = None,
-) -> str:
-    record = require_record(
-        manifest=storage.read_manifest(run_id),
-        selector=selector,
-        expected_kind=expected_kind,
-    )
-    return storage.read_text(run_id, record_storage_ref(record))
-
-
 def read_record_json(
     *,
     storage: RunRepository,
     run_id: str,
-    selector: str,
-    expected_kind: str | None = None,
+    record: RunRecordEntry,
 ) -> Mapping[str, JsonValue]:
+    selector = record.id
     try:
         return _JSON_OBJECT_ADAPTER.validate_json(
-            read_record_text(
-                storage=storage,
-                run_id=run_id,
-                selector=selector,
-                expected_kind=expected_kind,
-            )
+            storage.read_text(run_id, record_storage_ref(record))
         )
     except ValidationError as error:
         raise DataIntegrityError(
@@ -578,17 +545,15 @@ def read_record_json(
 
 
 def read_data_table_artifact(
-    *, storage: RunRepository, run_id: str, selector: str
+    *,
+    storage: RunRepository,
+    run_id: str,
+    dataset: RunDatasetEntry,
 ) -> DataTableArtifact:
-    dataset = require_dataset(
-        manifest=storage.read_manifest(run_id),
-        selector=selector,
-        expected_kind="data_table",
-    )
+    selector = dataset.id
+    ref = dataset_storage_ref(dataset)
     try:
-        return DataTableArtifact.model_validate_json(
-            storage.read_text(run_id, dataset_storage_ref(dataset))
-        )
+        return DataTableArtifact.model_validate_json(storage.read_text(run_id, ref))
     except ValidationError as error:
         raise DataIntegrityError(
             [
@@ -596,10 +561,7 @@ def read_data_table_artifact(
                     code="run.dataset_invalid_model",
                     category=ProblemCategory.DATA_INTEGRITY,
                     message="run dataset does not match the data-table schema",
-                    location=StorageLocation(
-                        run_id=run_id,
-                        ref=dataset_storage_ref(dataset),
-                    ),
+                    location=StorageLocation(run_id=run_id, ref=ref),
                     details={"selector": selector, "model": "DataTableArtifact"},
                 )
             ]
@@ -607,17 +569,15 @@ def read_data_table_artifact(
 
 
 def read_data_array_artifact(
-    *, storage: RunRepository, run_id: str, selector: str
+    *,
+    storage: RunRepository,
+    run_id: str,
+    dataset: RunDatasetEntry,
 ) -> DataArrayArtifact:
-    dataset = require_dataset(
-        manifest=storage.read_manifest(run_id),
-        selector=selector,
-        expected_kind="data_array",
-    )
+    selector = dataset.id
+    ref = dataset_storage_ref(dataset)
     try:
-        return DataArrayArtifact.model_validate_json(
-            storage.read_text(run_id, dataset_storage_ref(dataset))
-        )
+        return DataArrayArtifact.model_validate_json(storage.read_text(run_id, ref))
     except ValidationError as error:
         raise DataIntegrityError(
             [
@@ -625,10 +585,7 @@ def read_data_array_artifact(
                     code="run.dataset_invalid_model",
                     category=ProblemCategory.DATA_INTEGRITY,
                     message="run dataset does not match the data-array schema",
-                    location=StorageLocation(
-                        run_id=run_id,
-                        ref=dataset_storage_ref(dataset),
-                    ),
+                    location=StorageLocation(run_id=run_id, ref=ref),
                     details={"selector": selector, "model": "DataArrayArtifact"},
                 )
             ]

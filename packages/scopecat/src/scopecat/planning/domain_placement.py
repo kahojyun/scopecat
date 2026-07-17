@@ -112,9 +112,3 @@ def _typed_transform_closure(
             break
         remaining = next_remaining
     return tuple(selected)
-
-
-__all__ = [
-    "DomainExecutionSlice",
-    "domain_execution_slice",
-]

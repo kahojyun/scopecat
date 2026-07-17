@@ -105,53 +105,6 @@ def test_duplicate_product_key_within_selected_capability_is_ambiguous() -> None
     assert "'readout', 'readout'" in problems[0].message
 
 
-def test_execution_program_rejects_binding_product_identity_mismatch() -> None:
-    program = _collect_program(capability_id=None, dtype="float64")
-    point = program.points[0]
-    stage = point.stages[0]
-    assert isinstance(stage, CollectStage)
-    operation = stage.operations[0]
-    binding = replace(
-        operation.result_bindings[0],
-        product_id=product_id("another-product"),
-    )
-    mutated = replace(operation, result_bindings=(binding,))
-
-    with pytest.raises(ValueError, match="exact logical product uses"):
-        replace(
-            program,
-            points=(replace(point, stages=(replace(stage, operations=(mutated,)),)),),
-        )
-
-
-@pytest.mark.parametrize(
-    ("updates", "message"),
-    (
-        ({"point_index": 1}, "point index"),
-        ({"point_count": 2}, "point count"),
-    ),
-)
-def test_execution_program_rejects_collect_command_point_mismatch(
-    updates: dict[str, int],
-    message: str,
-) -> None:
-    program = _collect_program(capability_id=None, dtype="float64")
-    point = program.points[0]
-    stage = point.stages[0]
-    assert isinstance(stage, CollectStage)
-    operation = stage.operations[0]
-    mutated = replace(
-        operation,
-        command=operation.command.model_copy(update=updates),
-    )
-
-    with pytest.raises(ValueError, match=message):
-        replace(
-            program,
-            points=(replace(point, stages=(replace(stage, operations=(mutated,)),)),),
-        )
-
-
 def test_collect_operation_rejects_command_identity_mismatch() -> None:
     program = _collect_program(capability_id=None, dtype="float64")
     point = program.points[0]

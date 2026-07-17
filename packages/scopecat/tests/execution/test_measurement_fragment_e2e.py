@@ -11,7 +11,7 @@ from scopecat.adapters.memory import (
     MemoryPayloadEvidenceCommitter,
 )
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import MaterializedLinkedPoints, link_program
+from scopecat.compiler.linking.linked import MaterializedLinkedPoints
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import RelationTypeBindings
@@ -75,6 +75,7 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.signal_instruments import TestSignalInstrument
+from tests.testkit.typed_program import link_program
 
 _RUN_ID = "local-measurement-fragment-run"
 _INSTRUMENT_ID = "source-0"

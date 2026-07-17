@@ -63,16 +63,12 @@ from scopecat_quantum.pulses import (
     DriveSignal,
     Play,
     PulseProgram,
-    PulseValidationError,
     ReadoutSignal,
     ScheduledPulseProgram,
-    schedule,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
-    TargetCompileEntry,
-    TargetCompileRequest,
     TargetEventAddress,
 )
 
@@ -266,77 +262,6 @@ def test_preparation_accepts_an_explicit_gate_implementation_origin() -> None:
     assert origin.provenance.candidate_id == "x90.candidate"
 
 
-def test_prepared_entry_rejects_incomplete_or_reordered_origin_coverage() -> None:
-    prepared = _prepared()
-
-    with pytest.raises(ValueError, match="event origins must exactly cover"):
-        PreparedQuantumTargetEntry(
-            prepared.lowered,
-            prepared.scheduled,
-            prepared.target_entry,
-            prepared.event_origins[:-1],
-            prepared.acquisition_origins,
-        )
-    with pytest.raises(ValueError, match="event origins must exactly cover"):
-        PreparedQuantumTargetEntry(
-            prepared.lowered,
-            prepared.scheduled,
-            prepared.target_entry,
-            tuple(reversed(prepared.event_origins)),
-            prepared.acquisition_origins,
-        )
-    with pytest.raises(ValueError, match="acquisition origins must exactly cover"):
-        PreparedQuantumTargetEntry(
-            prepared.lowered,
-            prepared.scheduled,
-            prepared.target_entry,
-            prepared.event_origins,
-            prepared.acquisition_origins[:-1],
-        )
-
-
-def test_prepared_entry_rejects_a_scheduled_subset_of_lowered_provenance() -> None:
-    prepared = _prepared()
-    first_instruction = prepared.scheduled.events[0].instruction
-    event_subset = schedule(
-        PulseProgram(
-            id=prepared.scheduled.id,
-            body=first_instruction,
-            acquisition_slots=(
-                tuple(
-                    slot
-                    for slot in prepared.scheduled.acquisition_slots
-                    if isinstance(first_instruction, Acquire)
-                    and slot.id == first_instruction.slot_id
-                )
-            ),
-        )
-    )
-    with pytest.raises(ValueError, match="events must exactly cover"):
-        PreparedQuantumTargetEntry(
-            prepared.lowered,
-            event_subset,
-            TargetCompileEntry(prepared.id, event_subset),
-            prepared.event_origins[:-1],
-            prepared.acquisition_origins,
-        )
-
-    with pytest.raises(
-        PulseValidationError,
-        match="instruction references undeclared slot",
-    ):
-        ScheduledPulseProgram(
-            PulseProgram(
-                id=prepared.scheduled.id,
-                body=next(
-                    event.instruction
-                    for event in prepared.scheduled.events
-                    if isinstance(event.instruction, Acquire)
-                ),
-            )
-        )
-
-
 def test_origins_reject_wrong_address_identity() -> None:
     prepared = _prepared()
     first_event = prepared.event_origins[0]
@@ -415,41 +340,6 @@ def test_batch_preserves_entry_order_and_total_qualified_origin_coverage() -> No
         assert batch.event_origin_for(origin.address) is origin
     for origin in batch.acquisition_origins:
         assert batch.acquisition_origin_for(origin.address) is origin
-
-
-def test_batch_constructor_rejects_order_and_origin_coverage_mismatches() -> None:
-    first = _prepared("first")
-    second = _prepared("second")
-    batch = _batch((first, second))
-    reversed_request = TargetCompileRequest(
-        target_id=batch.request.target_id,
-        compiler_id=batch.request.compiler_id,
-        capability_fingerprint=batch.request.capability_fingerprint,
-        entries=(second.target_entry, first.target_entry),
-        repetitions=batch.request.repetitions,
-    )
-
-    with pytest.raises(ValueError, match="retain prepared entry order"):
-        PreparedQuantumTargetBatch(
-            batch.entries,
-            reversed_request,
-            batch.event_origins,
-            batch.acquisition_origins,
-        )
-    with pytest.raises(ValueError, match="event origins must exactly cover"):
-        PreparedQuantumTargetBatch(
-            batch.entries,
-            batch.request,
-            batch.event_origins[:-1],
-            batch.acquisition_origins,
-        )
-    with pytest.raises(ValueError, match="acquisition origins must exactly cover"):
-        PreparedQuantumTargetBatch(
-            batch.entries,
-            batch.request,
-            batch.event_origins,
-            batch.acquisition_origins[:-1],
-        )
 
 
 def test_batch_factory_and_lookups_reject_duplicate_or_foreign_identities() -> None:

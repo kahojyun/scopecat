@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
 import pytest
-from scopecat.authoring import (
-    ExperimentInvocation,
-    PayloadType,
-    ScalarType,
-)
-from scopecat.compiler.linking.linked import link_program
+from scopecat.authoring import ExperimentInvocation
 from scopecat.config.profiles import load_config_profile
 from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
-from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import ProblemPhase
-from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.config import ConfigProfileSnapshot
 
 from quantum_lab_demo.experiments import (
@@ -220,38 +211,6 @@ def test_array_record_cases_run_provider_python_api(
         assert payload_id.startswith(
             f"{_BACKEND_BATCH_SCOPE}/build-backend-batch-job/outputs/result.payload."
         )
-
-
-def test_rejects_invalid_compute_edge_payload_schema_during_planning(
-    tmp_path: Path,
-) -> None:
-    resolved = resolve_experiment(
-        SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan(CLIFFORD_COUNT, [4]),
-        config_profile=load_config(),
-    )
-    sequence_node_id = "build-sqg-rb-sequence"
-    experiment = replace(
-        resolved.experiment,
-        compute_nodes=tuple(
-            replace(
-                node,
-                result=replace(
-                    node.result,
-                    value_type=ScalarType(PayloadType("pulse_program")),
-                ),
-            )
-            if node.id.local_id == sequence_node_id
-            else node
-            for node in resolved.experiment.compute_nodes
-        ),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        link_program(experiment, resolved.environment)
-
-    assert len(caught.value.problems) == 1
-    assert caught.value.problems[0].code == "compute_edge_type_mismatch"
-    assert caught.value.problems[0].phase is ProblemPhase.PLANNING
 
 
 def _lab(tmp_path: Path):

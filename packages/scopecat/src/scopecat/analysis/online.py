@@ -168,10 +168,3 @@ def _completed_point_indices(rows: Sequence[Mapping[str, object]]) -> tuple[int,
 
 def _is_number(value: object) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
-
-
-__all__ = [
-    "EarlyStopDecision",
-    "OnlineEvaluationStatus",
-    "decide_online_convergence",
-]

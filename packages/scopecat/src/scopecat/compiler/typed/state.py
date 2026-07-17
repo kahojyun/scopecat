@@ -342,16 +342,3 @@ def _is_present(value: object) -> bool:
     if value is None:
         return False
     return not (isinstance(value, list | tuple) and not value)
-
-
-__all__ = [
-    "EvaluatedStateValue",
-    "LogicalStateResourceTarget",
-    "PhysicalStateResourceTarget",
-    "StateRecord",
-    "StateResourceTarget",
-    "StateSpec",
-    "StateSpecKind",
-    "StateValueUse",
-    "evaluate_state_spec",
-]

@@ -17,10 +17,6 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    overlay_parameter_cell,
-    typed_program,
-)
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String
@@ -44,6 +40,7 @@ from tests.testkit.relation_plans import (
 from tests.testkit.relation_plans import (
     point_domain as verified_point_domain,
 )
+from tests.testkit.typed_program import overlay_parameter_cell, typed_program
 
 
 def _state_literal(value: object) -> object:

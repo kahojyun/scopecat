@@ -158,6 +158,3 @@ def module_use_invocation(selected: object) -> ModuleInvocation:
         "use module.instantiate(instance_id, **inputs)"
     )
     raise TypeError(msg)
-
-
-__all__ = ["module"]

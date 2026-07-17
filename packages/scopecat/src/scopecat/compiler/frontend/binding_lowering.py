@@ -215,11 +215,3 @@ def _resolve_route_entities(
         return resolve_entities(topology, values)
     except EntityResolutionError as error:
         raise_entity_resolution_problem(error)
-
-
-__all__ = [
-    "BindingSpec",
-    "assert_port_capability",
-    "build_route_intents",
-    "lower_binding_intent",
-]

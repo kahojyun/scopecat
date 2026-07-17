@@ -45,6 +45,3 @@ def validate_run_config_provenance(
             )
         ]
     )
-
-
-__all__ = ["validate_run_config_provenance"]

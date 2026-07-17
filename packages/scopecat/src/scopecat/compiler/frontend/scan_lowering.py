@@ -347,6 +347,3 @@ def _request_scalar_value(
             expression = bind_scalar_input_refs(expression, inputs)
         return project_run_request_scalar(expression)
     return project_run_request_value(value, path="scan.value")
-
-
-__all__ = ["lower_scan_point_domain", "lower_scan_points", "project_scan_record"]

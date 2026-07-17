@@ -95,6 +95,3 @@ class StaticRelationEvaluator:
             self.parameters,
             inputs=inputs,
         )
-
-
-__all__ = ["StaticRelationEvaluator"]

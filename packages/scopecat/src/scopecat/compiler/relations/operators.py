@@ -528,16 +528,3 @@ def _three_way_string(left: str, right: str) -> int:
 
 def _is_number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, int | float) and not isinstance(value, bool)
-
-
-__all__ = [
-    "SCALAR_OPERATORS",
-    "ScalarOperator",
-    "compare_ordered_values",
-    "is_scalar_operator",
-    "require_finite_arithmetic_result",
-    "require_runtime_operator",
-    "require_sortable_scalar",
-    "runtime_values_equal",
-    "scalar_operator_result_type",
-]

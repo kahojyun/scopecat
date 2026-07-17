@@ -69,6 +69,3 @@ class RunRepository(Protocol):
     def write_bytes(self, run_id: str, ref: str, content: bytes) -> None: ...
 
     def write_text(self, run_id: str, ref: str, content: str) -> None: ...
-
-
-__all__ = ["RunRefKind", "RunRepository"]

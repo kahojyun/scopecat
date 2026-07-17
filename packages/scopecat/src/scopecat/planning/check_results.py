@@ -29,8 +29,3 @@ class ExperimentCheckResult:
     @property
     def ok(self) -> bool:
         return self.preview is not None
-
-
-__all__ = [
-    "ExperimentCheckResult",
-]

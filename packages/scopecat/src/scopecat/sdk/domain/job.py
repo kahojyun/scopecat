@@ -81,12 +81,3 @@ class DomainResourceClaim:
         if not self.kind or not self.id:
             msg = "domain resource claim kind and id must be non-empty"
             raise ValueError(msg)
-
-
-__all__ = [
-    "DomainInvocationSpec",
-    "DomainResourceClaim",
-    "DomainResourceKind",
-    "DomainResultValue",
-    "DomainTargetArtifactIdentity",
-]

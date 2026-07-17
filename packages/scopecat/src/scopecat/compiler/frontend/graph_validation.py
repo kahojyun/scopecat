@@ -36,6 +36,7 @@ from scopecat.compiler.semantic.availability import (
     require_value_availability,
 )
 from scopecat.compiler.semantic.model import (
+    ImplementationCatalog,
     OperationOutputSource,
     RouteValueSource,
     SourceMap,
@@ -71,6 +72,7 @@ class VerifiedAssemblyGraph:
     """Source graph facts safe for config-dependent lowering to consume."""
 
     semantic_graph: VerifiedSemanticGraph
+    implementation_catalog: ImplementationCatalog
     source_map: SourceMap
     resource_ports: Mapping[LogicalResourcePortId, ResourcePort]
     product_ports: Mapping[ProductId, ModuleProductPort]
@@ -114,12 +116,13 @@ def verify_assembly_graph(
         problems.extend(error.problems)
         semantic_graph = None
     try:
-        verify_implementation_catalog(
+        implementation_catalog = verify_implementation_catalog(
             assembly.semantic_graph,
             assembly.implementation_catalog,
         )
     except CheckFailed as error:
         problems.extend(error.problems)
+        implementation_catalog = None
     try:
         source_map = verify_source_map(assembly.semantic_graph, assembly.source_map)
     except CheckFailed as error:
@@ -136,12 +139,13 @@ def verify_assembly_graph(
     product_ports = _verify_record_schema(assembly, resource_ports, problems)
     if problems:
         raise CheckFailed(problems)
-    if semantic_graph is None or source_map is None:
+    if semantic_graph is None or implementation_catalog is None or source_map is None:
         raise AssertionError(
-            "successful assembly verification requires graph and source-map proofs"
+            "successful assembly verification requires graph and sidecar proofs"
         )
     return VerifiedAssemblyGraph(
         semantic_graph=semantic_graph,
+        implementation_catalog=implementation_catalog,
         source_map=source_map,
         resource_ports=MappingProxyType(resource_ports),
         product_ports=MappingProxyType(product_ports),
@@ -1003,10 +1007,3 @@ def _problem(
 
 def _availability_problem(error: ValueAvailabilityError) -> Problem:
     return _problem(error.code, str(error), error.location)
-
-
-__all__ = [
-    "VerifiedAssembly",
-    "VerifiedAssemblyGraph",
-    "verify_assembly_graph",
-]

@@ -51,6 +51,3 @@ def relation_use[ValueT](value: ValueT) -> RelationUse[ValueT]:
     """Create a fresh executable occurrence for ``value``."""
 
     return RelationUse(value)
-
-
-__all__ = ["RelationUse", "RelationUseId", "relation_use"]

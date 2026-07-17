@@ -8,7 +8,6 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -45,6 +44,7 @@ from scopecat.sdk.domain.invocation import (
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import table_value_expr
+from tests.testkit.typed_program import link_program
 
 
 def _linked_points(

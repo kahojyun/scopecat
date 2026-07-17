@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPoints,
-    link_program,
 )
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
@@ -28,6 +27,7 @@ from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain.invocation import materialize_linked_points
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import table_value_expr
+from tests.testkit.typed_program import link_program
 
 
 @dataclass(frozen=True, slots=True)

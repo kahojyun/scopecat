@@ -925,35 +925,3 @@ def schedule(program: PulseProgram) -> ScheduledPulseProgram:
     """
 
     return ScheduledPulseProgram(program)
-
-
-__all__ = [
-    "DRAG",
-    "Acquire",
-    "AcquireSignal",
-    "AcquisitionSlot",
-    "AnalyticEnvelope",
-    "Barrier",
-    "Constant",
-    "Delay",
-    "DriveSignal",
-    "FluxSignal",
-    "FrameSignal",
-    "Gaussian",
-    "LogicalSignal",
-    "Parallel",
-    "Play",
-    "PlaySignal",
-    "PulseInstruction",
-    "PulseIssue",
-    "PulseLeaf",
-    "PulseProgram",
-    "PulseValidationError",
-    "ReadoutSignal",
-    "ScheduledPulseEvent",
-    "ScheduledPulseProgram",
-    "Sequence",
-    "ShiftPhase",
-    "iter_pulse_leaves",
-    "schedule",
-]
