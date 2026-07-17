@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 from scopecat.kernel.value_types import Scalar, ValueType
 
@@ -12,7 +11,6 @@ from scopecat.kernel.value_types import Scalar, ValueType
 class ParameterValueContract:
     """Declared shape and type of one parameter dependency."""
 
-    kind: Literal["parameter"]
     parameter_id: str
     value_type: ValueType
 
@@ -21,7 +19,6 @@ class ParameterValueContract:
 class ParameterLookupContract:
     """Declared scalar column lookup on one table-shaped parameter."""
 
-    kind: Literal["lookup"]
     parameter_id: str
     key_columns: tuple[str, ...]
     key_types: tuple[tuple[str, Scalar], ...]

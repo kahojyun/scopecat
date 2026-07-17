@@ -5,7 +5,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
-from scopecat.compiler.relations.model import ScalarExpr, ScalarExpression
+from scopecat.compiler.relations.model import (
+    BinaryScalarExpr,
+    CaseScalarExpr,
+    InputScalarExpr,
+    LiteralScalarExpr,
+    ParameterLookupScalarExpr,
+    ParameterScalarExpr,
+    PointColumnScalarExpr,
+    ScalarExpr,
+    ScalarExpression,
+)
 from scopecat.records._run_request_values import (
     normalize_json_value,
     normalize_run_request_value,
@@ -65,15 +75,15 @@ def project_run_request_scalar(expression: ScalarExpr) -> object:
     """Project transient relation syntax into durable request semantics."""
 
     scalar = cast("ScalarExpression", expression)
-    if scalar.kind == "literal":
+    if isinstance(scalar, LiteralScalarExpr):
         return project_run_request_value(scalar.value, path="expression.literal")
-    if scalar.kind == "point_column":
+    if isinstance(scalar, PointColumnScalarExpr):
         return {"kind": "axis", "axis_id": scalar.name}
-    if scalar.kind == "input":
+    if isinstance(scalar, InputScalarExpr):
         return {"kind": "input", "input_id": scalar.name}
-    if scalar.kind == "param_scalar":
+    if isinstance(scalar, ParameterScalarExpr):
         return {"kind": "parameter", "parameter_id": scalar.name}
-    if scalar.kind == "param_lookup":
+    if isinstance(scalar, ParameterLookupScalarExpr):
         return {
             "kind": "parameter_lookup",
             "table_id": scalar.table_id,
@@ -83,14 +93,14 @@ def project_run_request_scalar(expression: ScalarExpr) -> object:
             },
             "column": scalar.column,
         }
-    if scalar.kind == "binary":
+    if isinstance(scalar, BinaryScalarExpr):
         return {
             "kind": "binary",
             "operator": scalar.op,
             "left": project_run_request_scalar(scalar.left),
             "right": project_run_request_scalar(scalar.right),
         }
-    if scalar.kind == "case":
+    if isinstance(scalar, CaseScalarExpr):
         return {
             "kind": "case",
             "branches": [

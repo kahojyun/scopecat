@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import ClassVar, Literal, cast
+from typing import cast
 
 from scopecat.compiler.relations.operators import ScalarOperator
 from scopecat.compiler.relations.scalar_eval import is_cell_value
@@ -108,44 +108,37 @@ class ScalarExpr:
 
 @dataclass(frozen=True, slots=True)
 class LiteralScalarExpr(ScalarExpr):
-    kind: ClassVar[Literal["literal"]] = "literal"
     value: CellValue
 
 
 @dataclass(frozen=True, slots=True)
 class ColumnScalarExpr(ScalarExpr):
-    kind: ClassVar[Literal["column"]] = "column"
     name: str
     row_scope_id: RowScopeId | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class OuterColumnScalarExpr(ScalarExpr):
-    kind: ClassVar[Literal["outer_column"]] = "outer_column"
     name: str
 
 
 @dataclass(frozen=True, slots=True)
 class PointColumnScalarExpr(ScalarExpr):
-    kind: ClassVar[Literal["point_column"]] = "point_column"
     name: str
 
 
 @dataclass(frozen=True, slots=True)
 class InputScalarExpr(ScalarExpr):
-    kind: ClassVar[Literal["input"]] = "input"
     name: str
 
 
 @dataclass(frozen=True, slots=True)
 class ParameterScalarExpr(ScalarExpr):
-    kind: ClassVar[Literal["param_scalar"]] = "param_scalar"
     name: str
 
 
 @dataclass(frozen=True, slots=True)
 class ParameterLookupScalarExpr(ScalarExpr):
-    kind: ClassVar[Literal["param_lookup"]] = "param_lookup"
     table_id: str
     key: dict[str, ScalarExpression]
     column: str
@@ -153,7 +146,6 @@ class ParameterLookupScalarExpr(ScalarExpr):
 
 @dataclass(frozen=True, slots=True)
 class BinaryScalarExpr(ScalarExpr):
-    kind: ClassVar[Literal["binary"]] = "binary"
     op: ScalarOperator
     left: ScalarExpression
     right: ScalarExpression
@@ -167,7 +159,6 @@ class CaseBranch:
 
 @dataclass(frozen=True, slots=True)
 class CaseScalarExpr(ScalarExpr):
-    kind: ClassVar[Literal["case"]] = "case"
     cases: list[CaseBranch]
     fallback: ScalarExpression
 
@@ -191,13 +182,11 @@ class SeriesExpr:
 
 @dataclass(frozen=True, slots=True)
 class ValuesSeriesExpr(SeriesExpr):
-    kind: ClassVar[Literal["values"]] = "values"
     items: list[CellValue]
 
 
 @dataclass(frozen=True, slots=True)
 class LinspaceSeriesExpr(SeriesExpr):
-    kind: ClassVar[Literal["linspace"]] = "linspace"
     start: ScalarExpression
     stop: ScalarExpression
     count: int
@@ -206,7 +195,6 @@ class LinspaceSeriesExpr(SeriesExpr):
 
 @dataclass(frozen=True, slots=True)
 class RangeSeriesExpr(SeriesExpr):
-    kind: ClassVar[Literal["range"]] = "range"
     start: ScalarExpression
     stop: ScalarExpression
     step: ScalarExpression
@@ -216,26 +204,22 @@ class RangeSeriesExpr(SeriesExpr):
 
 @dataclass(frozen=True, slots=True)
 class InputSeriesExpr(SeriesExpr):
-    kind: ClassVar[Literal["input"]] = "input"
     name: str
 
 
 @dataclass(frozen=True, slots=True)
 class ParameterSeriesExpr(SeriesExpr):
-    kind: ClassVar[Literal["param_series"]] = "param_series"
     name: str
 
 
 @dataclass(frozen=True, slots=True)
 class RelationColumnSeriesExpr(SeriesExpr):
-    kind: ClassVar[Literal["relation_column"]] = "relation_column"
     source: RelationExpression
     column: str
 
 
 @dataclass(frozen=True, slots=True)
 class RelationEntitiesSeriesExpr(SeriesExpr):
-    kind: ClassVar[Literal["relation_entities"]] = "relation_entities"
     source: RelationExpression
     columns: list[str]
 
@@ -259,7 +243,6 @@ class _GridColumn:
 class ScalarGridColumn(_GridColumn):
     """One scalar-valued `grid` output column."""
 
-    kind: ClassVar[Literal["scalar"]] = "scalar"
     scalar: ScalarExpression
 
 
@@ -267,7 +250,6 @@ class ScalarGridColumn(_GridColumn):
 class SeriesGridColumn(_GridColumn):
     """One series-valued `grid` output column."""
 
-    kind: ClassVar[Literal["series"]] = "series"
     series: SeriesExpression
 
 
@@ -275,7 +257,6 @@ class SeriesGridColumn(_GridColumn):
 class RelationGridColumn(_GridColumn):
     """One relation-valued `grid` output column."""
 
-    kind: ClassVar[Literal["relation"]] = "relation"
     relation: RelationExpression
 
 
@@ -283,7 +264,6 @@ class RelationGridColumn(_GridColumn):
 class ValuesGridColumn(_GridColumn):
     """One literal-values `grid` output column."""
 
-    kind: ClassVar[Literal["values"]] = "values"
     values: list[CellValue]
 
 
@@ -387,38 +367,32 @@ class RelationExpr:
 
 @dataclass(frozen=True, slots=True)
 class LiteralRowsRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["literal_rows"]] = "literal_rows"
     rows: list[Row]
 
 
 @dataclass(frozen=True, slots=True)
 class TableRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["table"]] = "table"
     table_id: str
 
 
 @dataclass(frozen=True, slots=True)
 class InputRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["input"]] = "input"
     name: str
 
 
 @dataclass(frozen=True, slots=True)
 class GridRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["grid"]] = "grid"
     columns: dict[str, GridColumn]
 
 
 @dataclass(frozen=True, slots=True)
 class SelectRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["select"]] = "select"
     source: RelationExpression
     select_columns: list[str]
 
 
 @dataclass(frozen=True, slots=True)
 class FilterRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["filter"]] = "filter"
     source: RelationExpression
     condition: ScalarExpression
     row_scope_id: RowScopeId | None = None
@@ -426,7 +400,6 @@ class FilterRelationExpr(RelationExpr):
 
 @dataclass(frozen=True, slots=True)
 class JoinRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["join"]] = "join"
     left: RelationExpression
     right: RelationExpression
     on: dict[str, str]
@@ -434,34 +407,29 @@ class JoinRelationExpr(RelationExpr):
 
 @dataclass(frozen=True, slots=True)
 class CrossRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["cross"]] = "cross"
     left: RelationExpression
     right: RelationExpression
 
 
 @dataclass(frozen=True, slots=True)
 class LateralCrossRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["lateral_cross"]] = "lateral_cross"
     left: RelationExpression
     right: RelationExpression
 
 
 @dataclass(frozen=True, slots=True)
 class PointCrossRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["point_cross"]] = "point_cross"
     left: RelationExpression
     right: RelationExpression
 
 
 @dataclass(frozen=True, slots=True)
 class ZipRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["zip"]] = "zip"
     sources: list[RelationExpression]
 
 
 @dataclass(frozen=True, slots=True)
 class WithColumnsRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["with_columns"]] = "with_columns"
     source: RelationExpression
     new_columns: dict[str, ScalarExpression]
     row_scope_id: RowScopeId | None = None
@@ -469,14 +437,12 @@ class WithColumnsRelationExpr(RelationExpr):
 
 @dataclass(frozen=True, slots=True)
 class SortRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["sort"]] = "sort"
     source: RelationExpression
     sort_columns: list[str]
 
 
 @dataclass(frozen=True, slots=True)
 class LimitRelationExpr(RelationExpr):
-    kind: ClassVar[Literal["limit"]] = "limit"
     source: RelationExpression
     limit_count: int
 

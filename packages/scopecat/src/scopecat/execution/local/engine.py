@@ -526,7 +526,7 @@ class ExecutionEngine:
         for operation in stage.operations:
             entry = self._entry(
                 operation_id=operation.operation_id,
-                stage=stage.kind,
+                stage="compute",
                 effect="pure",
                 state="started",
                 point_index=frame.point.point_index,
@@ -667,7 +667,7 @@ class ExecutionEngine:
         stage: ApplyStateStage,
     ) -> None:
         for operation in stage.operations:
-            if not self._apply_state_operation(frame, operation, stage=stage.kind):
+            if not self._apply_state_operation(frame, operation, stage="apply_state"):
                 return
 
     def _apply_state_operation(
@@ -966,7 +966,7 @@ class ExecutionEngine:
         stage: ActionStage,
     ) -> None:
         for operation in stage.operations:
-            if not self._execute_action(frame, operation, stage=stage.kind):
+            if not self._execute_action(frame, operation, stage="action"):
                 return
 
     def _execute_action(
@@ -1108,7 +1108,7 @@ class ExecutionEngine:
         stage: CollectStage,
     ) -> None:
         for operation in stage.operations:
-            if not self._collect_operation(frame, operation, stage=stage.kind):
+            if not self._collect_operation(frame, operation, stage="collect"):
                 return
 
     def _collect_operation(

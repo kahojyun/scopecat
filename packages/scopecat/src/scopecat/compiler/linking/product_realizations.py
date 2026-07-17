@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.typed.products import InstrumentProductProducer, ProductDef
@@ -37,7 +36,6 @@ class SelectedLocalProductRealization:
     producer_id: ProductProducerId
     producer: InstrumentProductProducer = field(repr=False)
     implicit_resource_id: PhysicalResourceId | None = None
-    kind: Literal["instrument_collection"] = "instrument_collection"
 
 
 @dataclass(frozen=True, slots=True)

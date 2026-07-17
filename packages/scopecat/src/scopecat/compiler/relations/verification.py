@@ -28,16 +28,45 @@ from scopecat.compiler.relations.analysis import (
     verify_plan_scopes,
 )
 from scopecat.compiler.relations.model import (
+    BinaryScalarExpr,
+    ColumnScalarExpr,
+    CrossRelationExpr,
+    FilterRelationExpr,
     GridColumn,
+    GridRelationExpr,
+    InputRelationExpr,
+    InputScalarExpr,
+    InputSeriesExpr,
+    JoinRelationExpr,
+    LateralCrossRelationExpr,
+    LimitRelationExpr,
+    LinspaceSeriesExpr,
+    LiteralRowsRelationExpr,
     LiteralScalarExpr,
+    OuterColumnScalarExpr,
     ParameterLookupScalarExpr,
+    ParameterScalarExpr,
+    ParameterSeriesExpr,
+    PointColumnScalarExpr,
+    PointCrossRelationExpr,
+    RangeSeriesExpr,
+    RelationColumnSeriesExpr,
     RelationExpr,
     RelationExpression,
+    RelationGridColumn,
     RowScopeId,
     ScalarExpr,
     ScalarExpression,
+    ScalarGridColumn,
+    SelectRelationExpr,
     SeriesExpr,
     SeriesExpression,
+    SeriesGridColumn,
+    SortRelationExpr,
+    TableRelationExpr,
+    ValuesSeriesExpr,
+    WithColumnsRelationExpr,
+    ZipRelationExpr,
 )
 from scopecat.compiler.relations.operators import (
     require_sortable_scalar,
@@ -506,39 +535,39 @@ class _Verifier:
         rows: _Rows,
     ) -> Scalar:
         scalar = cast("ScalarExpression", node)
-        if scalar.kind == "literal":
+        if isinstance(scalar, LiteralScalarExpr):
             result = self.literal(scalar.value, path, expected)
-        elif scalar.kind == "column":
+        elif isinstance(scalar, ColumnScalarExpr):
             selected = (
                 rows.arguments.get(scalar.row_scope_id)
                 if scalar.row_scope_id is not None
                 else rows.current
             )
             result = self.row_column(selected, scalar.name, path)
-        elif scalar.kind == "outer_column":
+        elif isinstance(scalar, OuterColumnScalarExpr):
             result = self.row_column(rows.outer, scalar.name, path)
-        elif scalar.kind == "point_column":
+        elif isinstance(scalar, PointColumnScalarExpr):
             name = scalar.name
             result = self.row_column(rows.point, name, path)
             if _row_column_root_id(rows.point, name) not in rows.local_point_columns:
                 self.external_point_references.add(name)
-        elif scalar.kind == "input":
+        elif isinstance(scalar, InputScalarExpr):
             result = self.import_type(
                 PlanImportNamespace.INPUT,
                 scalar.name,
                 Scalar,
                 path,
             )
-        elif scalar.kind == "param_scalar":
+        elif isinstance(scalar, ParameterScalarExpr):
             result = self.import_type(
                 PlanImportNamespace.PARAMETER,
                 scalar.name,
                 Scalar,
                 path,
             )
-        elif scalar.kind == "param_lookup":
+        elif isinstance(scalar, ParameterLookupScalarExpr):
             result = self.parameter_lookup(scalar, path, rows)
-        elif scalar.kind == "binary":
+        elif isinstance(scalar, BinaryScalarExpr):
             left_node = scalar.left
             right_node = scalar.right
             if scalar.op in {"==", "!="} and _is_null_literal(left_node):
@@ -616,7 +645,7 @@ class _Verifier:
                     path,
                     "floating-point arithmetic must produce a finite result",
                 )
-        elif scalar.kind == "case":
+        else:
             value_nodes: list[tuple[ScalarExpr, PlanPath]] = []
             for index, branch in enumerate(scalar.cases):
                 condition = cast(
@@ -676,12 +705,6 @@ class _Verifier:
                         )
                     )
                 result = _common_scalars(values, path)
-        else:
-            raise self.error(
-                "unsupported_operation",
-                path,
-                f"scalar expression {scalar!r}",
-            )
         self.require_expected(result, expected, path)
         return result
 
@@ -693,7 +716,7 @@ class _Verifier:
         rows: _Rows,
     ) -> Series:
         series = cast("SeriesExpression", node)
-        if series.kind == "values":
+        if isinstance(series, ValuesSeriesExpr):
             items = series.items
             if expected is not None:
                 self.validate_literal(expected, items, path)
@@ -716,7 +739,7 @@ class _Verifier:
                     len(items),
                     len(items),
                 )
-        elif series.kind == "linspace" or series.kind == "range":
+        elif isinstance(series, (LinspaceSeriesExpr, RangeSeriesExpr)):
             start = cast(
                 "Scalar",
                 self.infer(series.start, (*path, "start"), rows=rows),
@@ -726,7 +749,7 @@ class _Verifier:
                 self.infer(series.stop, (*path, "stop"), rows=rows),
             )
             operands = [start, stop]
-            if series.kind == "range":
+            if isinstance(series, RangeSeriesExpr):
                 step = cast(
                     "Scalar",
                     self.infer(series.step, (*path, "step"), rows=rows),
@@ -745,7 +768,7 @@ class _Verifier:
                         "range step must be non-zero",
                     )
             item = _numeric_series_item(operands, path, unit=series.unit)
-            if series.kind == "linspace":
+            if isinstance(series, LinspaceSeriesExpr):
                 result = Series(item, series.count, series.count)
                 self.obligation(
                     RelationRuntimeObligationKind.SERIES_VALUES_FINITE,
@@ -759,21 +782,21 @@ class _Verifier:
                     path,
                     "range step must advance every materialized value",
                 )
-        elif series.kind == "input":
+        elif isinstance(series, InputSeriesExpr):
             result = self.import_type(
                 PlanImportNamespace.INPUT,
                 series.name,
                 Series,
                 path,
             )
-        elif series.kind == "param_series":
+        elif isinstance(series, ParameterSeriesExpr):
             result = self.import_type(
                 PlanImportNamespace.PARAMETER,
                 series.name,
                 Series,
                 path,
             )
-        elif series.kind == "relation_column":
+        elif isinstance(series, RelationColumnSeriesExpr):
             source = cast(
                 "Table",
                 self.infer(series.source, (*path, "source"), rows=rows),
@@ -784,7 +807,7 @@ class _Verifier:
                 (*path, "column"),
             )
             result = Series(item, source.min_rows, source.max_rows)
-        elif series.kind == "relation_entities":
+        else:
             source = cast(
                 "Table",
                 self.infer(series.source, (*path, "source"), rows=rows),
@@ -808,12 +831,6 @@ class _Verifier:
             maximum = _multiply_optional(source.max_rows, len(entity_types))
             minimum = 1 if source.min_rows > 0 and entity_types else 0
             result = Series(item, minimum, maximum)
-        else:
-            raise self.error(
-                "unsupported_operation",
-                path,
-                f"series expression {series!r}",
-            )
         self.require_expected(result, expected, path)
         return result
 
@@ -825,7 +842,7 @@ class _Verifier:
         rows: _Rows,
     ) -> Table:
         relation = cast("RelationExpression", node)
-        if relation.kind == "literal_rows":
+        if isinstance(relation, LiteralRowsRelationExpr):
             literal_rows = relation.rows
             if expected is not None:
                 self.validate_literal(expected, literal_rows, path)
@@ -844,23 +861,23 @@ class _Verifier:
                         "empty literal rows need an expected Table type",
                     )
                 result = _infer_literal_table(literal_rows, path)
-        elif relation.kind == "table":
+        elif isinstance(relation, TableRelationExpr):
             result = self.import_type(
                 PlanImportNamespace.PARAMETER,
                 relation.table_id,
                 Table,
                 path,
             )
-        elif relation.kind == "input":
+        elif isinstance(relation, InputRelationExpr):
             result = self.import_type(
                 PlanImportNamespace.INPUT,
                 relation.name,
                 Table,
                 path,
             )
-        elif relation.kind == "grid":
+        elif isinstance(relation, GridRelationExpr):
             result = self.grid(relation.columns, path, rows, expected)
-        elif relation.kind == "select":
+        elif isinstance(relation, SelectRelationExpr):
             source = cast(
                 "Table",
                 self.infer(relation.source, (*path, "source"), rows=rows),
@@ -889,7 +906,7 @@ class _Verifier:
                 source.min_rows,
                 source.max_rows,
             )
-        elif relation.kind == "filter":
+        elif isinstance(relation, FilterRelationExpr):
             source = cast(
                 "Table",
                 self.infer(relation.source, (*path, "source"), rows=rows),
@@ -911,7 +928,7 @@ class _Verifier:
                 source.max_rows,
                 source.allow_extra_columns,
             )
-        elif relation.kind == "join":
+        elif isinstance(relation, JoinRelationExpr):
             on = relation.on
             allowed_shared = {
                 left_name
@@ -970,10 +987,9 @@ class _Verifier:
                 minimum=0,
                 maximum=_multiply_optional(left.max_rows, right.max_rows),
             )
-        elif (
-            relation.kind == "cross"
-            or relation.kind == "lateral_cross"
-            or relation.kind == "point_cross"
+        elif isinstance(
+            relation,
+            (CrossRelationExpr, LateralCrossRelationExpr, PointCrossRelationExpr),
         ):
             left = cast(
                 "Table",
@@ -985,7 +1001,7 @@ class _Verifier:
                 ),
             )
             right_rows = rows
-            if relation.kind == "lateral_cross":
+            if isinstance(relation, LateralCrossRelationExpr):
                 left_row = RowType.from_table(left)
                 right_rows = _Rows(
                     rows.point,
@@ -994,7 +1010,7 @@ class _Verifier:
                     rows.arguments,
                     rows.local_point_columns,
                 )
-            elif relation.kind == "point_cross":
+            elif isinstance(relation, PointCrossRelationExpr):
                 external_point = self.bindings.point_row
                 self.requires_full_external_point_row |= (
                     left.max_rows != 0 and external_point is not None
@@ -1027,11 +1043,11 @@ class _Verifier:
                 left,
                 right,
                 path,
-                operation=relation.kind,
+                operation=relation_operation(relation).value.removeprefix("relation."),
                 minimum=left.min_rows * right.min_rows,
                 maximum=_multiply_optional(left.max_rows, right.max_rows),
             )
-        elif relation.kind == "zip":
+        elif isinstance(relation, ZipRelationExpr):
             sources = [
                 cast(
                     "Table",
@@ -1077,7 +1093,7 @@ class _Verifier:
                     minimum=minimum,
                     maximum=maximum,
                 )
-        elif relation.kind == "with_columns":
+        elif isinstance(relation, WithColumnsRelationExpr):
             source = cast(
                 "Table",
                 self.infer(relation.source, (*path, "source"), rows=rows),
@@ -1110,7 +1126,7 @@ class _Verifier:
                 source.max_rows,
                 source.allow_extra_columns,
             )
-        elif relation.kind == "sort":
+        elif isinstance(relation, SortRelationExpr):
             source = cast(
                 "Table",
                 self.infer(relation.source, (*path, "source"), rows=rows),
@@ -1130,7 +1146,7 @@ class _Verifier:
                         str(error),
                     ) from error
             result = source
-        elif relation.kind == "limit":
+        else:
             source = cast(
                 "Table",
                 self.infer(relation.source, (*path, "source"), rows=rows),
@@ -1142,10 +1158,6 @@ class _Verifier:
                 min(source.min_rows, count),
                 _min_optional(source.max_rows, count),
                 source.allow_extra_columns,
-            )
-        else:
-            raise self.error(
-                "unsupported_operation", path, f"relation {relation.kind!r}"
             )
         self.require_expected(result, expected, path)
         return result
@@ -1172,7 +1184,7 @@ class _Verifier:
                 if (selected := expected_columns.get(name)) is not None
                 else None
             )
-            if column.kind == "scalar":
+            if isinstance(column, ScalarGridColumn):
                 item = cast(
                     "Scalar",
                     self.infer(
@@ -1183,7 +1195,7 @@ class _Verifier:
                     ),
                 )
                 lower, upper = 1, 1
-            elif column.kind == "series":
+            elif isinstance(column, SeriesGridColumn):
                 series = cast(
                     "Series",
                     self.infer(
@@ -1195,7 +1207,7 @@ class _Verifier:
                 )
                 item = series.item_type
                 lower, upper = series.min_length, series.max_length
-            elif column.kind == "relation":
+            elif isinstance(column, RelationGridColumn):
                 relation_expected = (
                     _table_from_record(expected_item.atom)
                     if expected_item is not None
@@ -1922,38 +1934,41 @@ def _relation_output_column_ids(
     """Resolve structural output ids without performing value-type inference."""
 
     relation = cast("RelationExpression", node)
-    if relation.kind == "literal_rows":
+    if isinstance(relation, LiteralRowsRelationExpr):
         return frozenset(name for row in relation.rows for name in row)
-    if relation.kind == "table":
+    if isinstance(relation, TableRelationExpr):
         value_type = bindings.parameters.get(relation.table_id)
         return (
             frozenset(column.id for column in value_type.columns)
             if isinstance(value_type, Table)
             else None
         )
-    if relation.kind == "input":
+    if isinstance(relation, InputRelationExpr):
         value_type = bindings.inputs.get(relation.name)
         return (
             frozenset(column.id for column in value_type.columns)
             if isinstance(value_type, Table)
             else None
         )
-    if relation.kind == "grid":
+    if isinstance(relation, GridRelationExpr):
         return frozenset(relation.columns)
-    if relation.kind == "select":
+    if isinstance(relation, SelectRelationExpr):
         return frozenset(relation.select_columns)
-    if relation.kind == "filter" or relation.kind == "sort" or relation.kind == "limit":
+    if isinstance(relation, (FilterRelationExpr, SortRelationExpr, LimitRelationExpr)):
         return _relation_output_column_ids(relation.source, bindings)
-    if (
-        relation.kind == "join"
-        or relation.kind == "cross"
-        or relation.kind == "lateral_cross"
-        or relation.kind == "point_cross"
+    if isinstance(
+        relation,
+        (
+            JoinRelationExpr,
+            CrossRelationExpr,
+            LateralCrossRelationExpr,
+            PointCrossRelationExpr,
+        ),
     ):
         left = _relation_output_column_ids(relation.left, bindings)
         right = _relation_output_column_ids(relation.right, bindings)
         return left | right if left is not None and right is not None else None
-    if relation.kind == "zip":
+    if isinstance(relation, ZipRelationExpr):
         sources = tuple(
             _relation_output_column_ids(source, bindings) for source in relation.sources
         )
@@ -1965,10 +1980,8 @@ def _relation_output_column_ids(
             if source is not None
             for column_id in source
         )
-    if relation.kind == "with_columns":
-        source = _relation_output_column_ids(relation.source, bindings)
-        return source | frozenset(relation.new_columns) if source is not None else None
-    return None
+    source = _relation_output_column_ids(relation.source, bindings)
+    return source | frozenset(relation.new_columns) if source is not None else None
 
 
 def _relation_may_have_extra_columns(
@@ -1976,29 +1989,35 @@ def _relation_may_have_extra_columns(
     bindings: RelationTypeBindings,
 ) -> bool:
     relation = cast("RelationExpression", node)
-    if relation.kind == "table":
+    if isinstance(relation, TableRelationExpr):
         value_type = bindings.parameters.get(relation.table_id)
         return isinstance(value_type, Table) and value_type.allow_extra_columns
-    if relation.kind == "input":
+    if isinstance(relation, InputRelationExpr):
         value_type = bindings.inputs.get(relation.name)
         return isinstance(value_type, Table) and value_type.allow_extra_columns
-    if (
-        relation.kind == "filter"
-        or relation.kind == "sort"
-        or relation.kind == "limit"
-        or relation.kind == "with_columns"
+    if isinstance(
+        relation,
+        (
+            FilterRelationExpr,
+            SortRelationExpr,
+            LimitRelationExpr,
+            WithColumnsRelationExpr,
+        ),
     ):
         return _relation_may_have_extra_columns(relation.source, bindings)
-    if (
-        relation.kind == "join"
-        or relation.kind == "cross"
-        or relation.kind == "lateral_cross"
-        or relation.kind == "point_cross"
+    if isinstance(
+        relation,
+        (
+            JoinRelationExpr,
+            CrossRelationExpr,
+            LateralCrossRelationExpr,
+            PointCrossRelationExpr,
+        ),
     ):
         return _relation_may_have_extra_columns(
             relation.left, bindings
         ) or _relation_may_have_extra_columns(relation.right, bindings)
-    if relation.kind == "zip":
+    if isinstance(relation, ZipRelationExpr):
         return any(
             _relation_may_have_extra_columns(source, bindings)
             for source in relation.sources

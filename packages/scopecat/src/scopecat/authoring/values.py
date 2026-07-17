@@ -172,7 +172,6 @@ def parameter(id: str, value_type: ValueType) -> ValueRef:  # noqa: A002
         value_type,
         parameter_contracts=(
             ParameterValueContract(
-                kind="parameter",
                 parameter_id=id,
                 value_type=value_type,
             ),
@@ -214,7 +213,6 @@ def parameter_lookup(
         parameter_contracts=merge_parameter_contracts(
             (
                 ParameterLookupContract(
-                    kind="lookup",
                     parameter_id=table_id,
                     key_columns=tuple(captured_key),
                     key_types=tuple(

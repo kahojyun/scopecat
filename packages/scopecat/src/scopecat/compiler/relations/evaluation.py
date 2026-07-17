@@ -330,38 +330,11 @@ def validate_relation_parameter_import[NodeT: PlanNode](
     _validate_parameter_import(imported, verified_plan, params)
 
 
-def _validate_evaluation_context[NodeT: PlanNode](
-    verified_plan: VerifiedRelationPlan[NodeT],
-    ctx: EvalContext,
-) -> None:
-    """Validate the dynamic lexical environment before evaluation."""
-
-    _validate_used_imports(verified_plan, ctx)
-    _validate_used_row_roles(verified_plan, ctx)
-
-
 def _prepare_context[NodeT: PlanNode](
     verified_plan: VerifiedRelationPlan[NodeT],
     ctx: EvalContext,
 ) -> EvalContext:
-    _validate_evaluation_context(verified_plan, ctx)
     return _normalize_evaluation_context(verified_plan, ctx)
-
-
-def _validate_used_imports[NodeT: PlanNode](
-    verified_plan: VerifiedRelationPlan[NodeT],
-    ctx: EvalContext,
-) -> None:
-    for imported in verified_plan.imports:
-        if imported.namespace is PlanImportNamespace.PARAMETER:
-            _validate_parameter_import(imported, verified_plan, ctx.params)
-            continue
-        path = ("inputs", imported.id)
-        try:
-            value = _input_import_value(ctx.inputs, imported)
-        except (KeyError, TypeError) as error:
-            raise ValueValidationError(path, str(error)) from error
-        validate_literal(imported.value_type, value, path=path)
 
 
 def _validate_parameter_import[NodeT: PlanNode](
@@ -453,7 +426,10 @@ def _normalize_evaluation_context[NodeT: PlanNode](
     for imported in verified_plan.imports:
         path = (imported.namespace.value + "s", imported.id)
         if imported.namespace is PlanImportNamespace.INPUT:
-            value = _input_import_value(inputs, imported)
+            try:
+                value = _input_import_value(inputs, imported)
+            except (KeyError, TypeError) as error:
+                raise ValueValidationError(path, str(error)) from error
             normalized = _normalize_typed_value(
                 imported.value_type,
                 value,
@@ -465,17 +441,19 @@ def _normalize_evaluation_context[NodeT: PlanNode](
             tables_by_parameter[imported.id] = _normalize_lookup_rows(
                 imported,
                 verified_plan,
-                tables_by_parameter[imported.id],
+                ctx.params,
                 path=path,
             )
             continue
 
-        value = _parameter_value(
-            imported.id,
-            scalars=parameter_scalars,
-            series=parameter_series,
-            tables=tables_by_parameter,
-        )
+        try:
+            value = ctx.params.value(imported.id)
+        except (KeyError, TypeError) as error:
+            raise ValueValidationError(
+                path,
+                str(error),
+                code="unknown_parameter",
+            ) from error
         normalized = _normalize_typed_value(
             imported.value_type,
             value,
@@ -519,7 +497,10 @@ def _normalize_evaluation_context[NodeT: PlanNode](
         else {}
     )
     if point_row is None:
-        raise AssertionError("validated point row is unexpectedly missing")
+        raise ValueValidationError(
+            ("rows", "point"),
+            "required row binding is missing",
+        )
 
     return EvalContext(
         params=ParameterRelationData(
@@ -538,10 +519,25 @@ def _normalize_evaluation_context[NodeT: PlanNode](
 def _normalize_lookup_rows[NodeT: PlanNode](
     imported: TypedPlanImport,
     verified_plan: VerifiedRelationPlan[NodeT],
-    rows: list[Row],
+    params: ParameterRelationData,
     *,
     path: tuple[str, str],
 ) -> list[Row]:
+    try:
+        rows = params.table_rows(imported.id)
+    except KeyError as error:
+        actual_shape = params.parameter_shape(imported.id)
+        if actual_shape is not None:
+            raise ValueValidationError(
+                path,
+                f"expected table parameter, got {actual_shape}",
+            ) from error
+        raise ValueValidationError(
+            path,
+            str(error),
+            code="unknown_parameter",
+        ) from error
+
     declared = verified_plan.bindings.parameters.get(imported.id)
     if isinstance(declared, Table):
         return cast(
@@ -554,32 +550,20 @@ def _normalize_lookup_rows[NodeT: PlanNode](
         raise AssertionError("lookup import is unexpectedly missing its signature")
     normalized_rows: list[Row] = []
     for index, row in enumerate(rows):
-        value = read_path(row, lookup.column_id)
+        result_path = (*path, index, lookup.column_id)
+        try:
+            value = read_path(row, lookup.column_id)
+        except (KeyError, TypeError) as error:
+            raise ValueValidationError(result_path, str(error)) from error
         normalized = _normalize_typed_value(
             lookup.result_type,
             value,
-            path=(*path, index, lookup.column_id),
+            path=result_path,
         )
         normalized_rows.append(
             cast("Row", _replace_path_value(row, lookup.column_id, normalized))
         )
     return normalized_rows
-
-
-def _parameter_value(
-    parameter_id: str,
-    *,
-    scalars: Mapping[str, CellValue],
-    series: Mapping[str, list[CellValue]],
-    tables: Mapping[str, list[Row]],
-) -> object:
-    if parameter_id in scalars:
-        return scalars[parameter_id]
-    if parameter_id in series:
-        return series[parameter_id]
-    if parameter_id in tables:
-        return tables[parameter_id]
-    raise AssertionError(f"validated parameter {parameter_id!r} is unexpectedly absent")
 
 
 def _replace_path_value(
@@ -605,95 +589,6 @@ def _replace_path_value(
     return selected
 
 
-def _validate_used_row_roles[NodeT: PlanNode](
-    verified_plan: VerifiedRelationPlan[NodeT],
-    ctx: EvalContext,
-) -> None:
-    row_interface = verified_plan.external_row_interface
-    _validate_external_row(
-        row_interface.current,
-        ctx.row,
-        path=("rows", "current"),
-    )
-    _validate_external_row(
-        row_interface.outer,
-        ctx.outer_row,
-        path=("rows", "outer"),
-    )
-    for argument in row_interface.arguments:
-        _validate_external_row(
-            argument.requirement,
-            ctx.row_scopes.get(argument.row_scope_id),
-            path=("rows", argument.row_scope_id.qualified_name),
-        )
-    _validate_external_row(
-        row_interface.point,
-        ctx.point_row,
-        path=("rows", "point"),
-    )
-
-
-def _validate_external_row(
-    requirement: ExternalRowRequirement | None,
-    row: Row | None,
-    *,
-    path: tuple[str, str],
-) -> None:
-    if requirement is None:
-        return
-    if requirement.requires_full_row:
-        if row is None:
-            raise ValueValidationError(path, "required row binding is missing")
-        _validate_full_row_role(requirement.row_type, row, path=path)
-        return
-    _validate_row_role(
-        requirement.row_type,
-        row,
-        set(requirement.column_references),
-        path=path,
-    )
-
-
-def _validate_row_role(
-    row_type: RowType | None,
-    row: Row | None,
-    references: set[str],
-    *,
-    path: tuple[str, str],
-) -> None:
-    if row_type is None or not references:
-        return
-    columns = _referenced_row_columns(row_type, references)
-    if not columns:
-        return
-    if row is None:
-        raise ValueValidationError(path, "required row binding is missing")
-    contract = Table(
-        columns,
-        min_rows=1,
-        max_rows=1,
-        allow_extra_columns=True,
-    )
-    validate_literal(contract, [row], path=path)
-
-
-def _validate_full_row_role(
-    row_type: RowType,
-    row: Row,
-    *,
-    path: tuple[str, str],
-) -> None:
-    """Validate a row whose complete shape participates in an operation."""
-
-    contract = Table(
-        row_type.columns,
-        min_rows=1,
-        max_rows=1,
-        allow_extra_columns=row_type.allow_extra_columns,
-    )
-    validate_literal(contract, [row], path=path)
-
-
 def _normalize_external_row(
     requirement: ExternalRowRequirement | None,
     row: Row | None,
@@ -704,7 +599,7 @@ def _normalize_external_row(
         return dict(row) if row is not None else None
     if requirement.requires_full_row:
         if row is None:
-            raise AssertionError("validated full row binding is unexpectedly missing")
+            raise ValueValidationError(path, "required row binding is missing")
         return _normalize_full_row_role(requirement.row_type, row, path=path)
     return _normalize_row_role(
         requirement.row_type,
@@ -721,23 +616,24 @@ def _normalize_row_role(
     *,
     path: tuple[str, str],
 ) -> Row | None:
-    if row is None:
-        return None
-    selected: Row = dict(row)
     if row_type is None or not references:
-        return selected
-    for column in _referenced_row_columns(row_type, references):
-        value = read_path(selected, column.id)
-        normalized = _normalize_typed_value(
-            column.value_type,
-            value,
-            path=(*path, column.id),
-        )
-        selected = cast(
-            "Row",
-            _replace_path_value(selected, column.id, normalized),
-        )
-    return selected
+        return dict(row) if row is not None else None
+    columns = _referenced_row_columns(row_type, references)
+    if not columns:
+        return dict(row) if row is not None else None
+    if row is None:
+        raise ValueValidationError(path, "required row binding is missing")
+    contract = Table(
+        columns,
+        min_rows=1,
+        max_rows=1,
+        allow_extra_columns=True,
+    )
+    normalized = _restore_runtime_collection_carriers(
+        contract,
+        coerce_literal(contract, [row], path=path),
+    )
+    return cast("list[Row]", normalized)[0]
 
 
 def _normalize_full_row_role(

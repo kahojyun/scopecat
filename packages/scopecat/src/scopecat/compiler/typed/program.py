@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import cast
 
 from scopecat.compiler.relations.model import (
     RowScopeId,
@@ -92,7 +92,6 @@ class ValueInput:
     value: ValueExpr
     relation_use_id: RelationUseId = field(default_factory=RelationUseId.fresh)
     origin_input_ids: tuple[str, ...] = ()
-    kind: Literal["value"] = "value"
 
     @property
     def value_type(self) -> ValueType:
@@ -105,7 +104,6 @@ class ComputeEdge:
 
     value_id: ValueId
     expected_type: ValueType
-    kind: Literal["compute"] = "compute"
 
     @property
     def value_type(self) -> ValueType:
@@ -118,7 +116,6 @@ class RouteInput:
 
     port_id: LogicalResourcePortId
     value_type: Route
-    kind: Literal["route"] = "route"
 
 
 type ComputeInput = ValueInput | ComputeEdge | RouteInput

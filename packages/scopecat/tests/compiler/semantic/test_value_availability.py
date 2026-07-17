@@ -14,6 +14,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
     internal_value_ref_scalar_operation,
+    internal_value_ref_source_kind,
 )
 from scopecat.compiler.semantic.availability import (
     ValueAvailability,
@@ -71,7 +72,7 @@ def test_direct_execute_scalar_operation_remains_symbolic_until_graph_lowering()
     expression = produced + 1.0
 
     operation = internal_value_ref_scalar_operation(expression)
-    assert expression.source_kind == "scalar_operation"
+    assert internal_value_ref_source_kind(expression) == "scalar_operation"
     assert operation is not None
     assert operation.operator == "+"
     assert operation.left is produced

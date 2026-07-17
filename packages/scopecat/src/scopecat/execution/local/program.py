@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal
 
 from scopecat.compiler.semantic.model import ValueId
 from scopecat.compiler.semantic.operation_contract import OperationContract
@@ -90,7 +89,6 @@ class ComputeStage:
     """Topologically ordered pure compute island."""
 
     operations: tuple[ComputeOperation, ...]
-    kind: Literal["compute"] = field(default="compute", init=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +126,6 @@ class ApplyStateStage:
     """Explicitly ordered state reconciliation operations."""
 
     operations: tuple[ApplyStateOperation, ...]
-    kind: Literal["apply_state"] = field(default="apply_state", init=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +161,6 @@ class ActionStage:
     """Explicitly ordered one-shot instrument effects."""
 
     operations: tuple[InstrumentActionOperation, ...]
-    kind: Literal["action"] = field(default="action", init=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,7 +187,6 @@ class CollectStage:
     """Explicitly ordered collection operations."""
 
     operations: tuple[CollectOperation, ...]
-    kind: Literal["collect"] = field(default="collect", init=False)
 
 
 type ExecutionStage = ComputeStage | ApplyStateStage | ActionStage | CollectStage

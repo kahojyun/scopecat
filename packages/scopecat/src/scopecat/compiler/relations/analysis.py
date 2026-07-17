@@ -13,13 +13,46 @@ from enum import StrEnum
 from typing import cast
 
 from scopecat.compiler.relations.model import (
+    BinaryScalarExpr,
+    CaseScalarExpr,
+    ColumnScalarExpr,
+    CrossRelationExpr,
+    FilterRelationExpr,
+    GridRelationExpr,
+    InputRelationExpr,
+    InputScalarExpr,
+    InputSeriesExpr,
+    JoinRelationExpr,
+    LateralCrossRelationExpr,
+    LimitRelationExpr,
+    LinspaceSeriesExpr,
+    LiteralRowsRelationExpr,
+    LiteralScalarExpr,
+    OuterColumnScalarExpr,
+    ParameterLookupScalarExpr,
+    ParameterScalarExpr,
+    ParameterSeriesExpr,
+    PointColumnScalarExpr,
+    PointCrossRelationExpr,
+    RangeSeriesExpr,
+    RelationColumnSeriesExpr,
+    RelationEntitiesSeriesExpr,
     RelationExpr,
     RelationExpression,
+    RelationGridColumn,
     RowScopeId,
     ScalarExpr,
     ScalarExpression,
+    ScalarGridColumn,
+    SelectRelationExpr,
     SeriesExpr,
     SeriesExpression,
+    SeriesGridColumn,
+    SortRelationExpr,
+    TableRelationExpr,
+    ValuesSeriesExpr,
+    WithColumnsRelationExpr,
+    ZipRelationExpr,
 )
 
 type PlanNode = ScalarExpr | SeriesExpr | RelationExpr
@@ -124,157 +157,135 @@ class PlanReferences:
         )
 
 
-_SCALAR_OPERATIONS: dict[str, PlanOperation] = {
-    "literal": PlanOperation.SCALAR_LITERAL,
-    "column": PlanOperation.SCALAR_CURRENT_COLUMN,
-    "outer_column": PlanOperation.SCALAR_OUTER_COLUMN,
-    "point_column": PlanOperation.SCALAR_POINT_COLUMN,
-    "input": PlanOperation.SCALAR_INPUT,
-    "param_scalar": PlanOperation.SCALAR_PARAMETER,
-    "param_lookup": PlanOperation.SCALAR_PARAMETER_LOOKUP,
-    "binary": PlanOperation.SCALAR_BINARY,
-    "case": PlanOperation.SCALAR_CASE,
-}
-_SERIES_OPERATIONS: dict[str, PlanOperation] = {
-    "values": PlanOperation.SERIES_VALUES,
-    "linspace": PlanOperation.SERIES_LINSPACE,
-    "range": PlanOperation.SERIES_RANGE,
-    "input": PlanOperation.SERIES_INPUT,
-    "param_series": PlanOperation.SERIES_PARAMETER,
-    "relation_column": PlanOperation.SERIES_RELATION_COLUMN,
-    "relation_entities": PlanOperation.SERIES_RELATION_ENTITIES,
-}
-_RELATION_OPERATIONS: dict[str, PlanOperation] = {
-    "literal_rows": PlanOperation.RELATION_LITERAL_ROWS,
-    "table": PlanOperation.RELATION_PARAMETER_TABLE,
-    "input": PlanOperation.RELATION_INPUT,
-    "grid": PlanOperation.RELATION_GRID,
-    "select": PlanOperation.RELATION_SELECT,
-    "filter": PlanOperation.RELATION_FILTER,
-    "join": PlanOperation.RELATION_JOIN,
-    "cross": PlanOperation.RELATION_CROSS,
-    "lateral_cross": PlanOperation.RELATION_LATERAL_CROSS,
-    "point_cross": PlanOperation.RELATION_POINT_CROSS,
-    "zip": PlanOperation.RELATION_ZIP,
-    "with_columns": PlanOperation.RELATION_WITH_COLUMNS,
-    "sort": PlanOperation.RELATION_SORT,
-    "limit": PlanOperation.RELATION_LIMIT,
+_PLAN_OPERATIONS: dict[type[PlanNode], PlanOperation] = {
+    LiteralScalarExpr: PlanOperation.SCALAR_LITERAL,
+    ColumnScalarExpr: PlanOperation.SCALAR_CURRENT_COLUMN,
+    OuterColumnScalarExpr: PlanOperation.SCALAR_OUTER_COLUMN,
+    PointColumnScalarExpr: PlanOperation.SCALAR_POINT_COLUMN,
+    InputScalarExpr: PlanOperation.SCALAR_INPUT,
+    ParameterScalarExpr: PlanOperation.SCALAR_PARAMETER,
+    ParameterLookupScalarExpr: PlanOperation.SCALAR_PARAMETER_LOOKUP,
+    BinaryScalarExpr: PlanOperation.SCALAR_BINARY,
+    CaseScalarExpr: PlanOperation.SCALAR_CASE,
+    ValuesSeriesExpr: PlanOperation.SERIES_VALUES,
+    LinspaceSeriesExpr: PlanOperation.SERIES_LINSPACE,
+    RangeSeriesExpr: PlanOperation.SERIES_RANGE,
+    InputSeriesExpr: PlanOperation.SERIES_INPUT,
+    ParameterSeriesExpr: PlanOperation.SERIES_PARAMETER,
+    RelationColumnSeriesExpr: PlanOperation.SERIES_RELATION_COLUMN,
+    RelationEntitiesSeriesExpr: PlanOperation.SERIES_RELATION_ENTITIES,
+    LiteralRowsRelationExpr: PlanOperation.RELATION_LITERAL_ROWS,
+    TableRelationExpr: PlanOperation.RELATION_PARAMETER_TABLE,
+    InputRelationExpr: PlanOperation.RELATION_INPUT,
+    GridRelationExpr: PlanOperation.RELATION_GRID,
+    SelectRelationExpr: PlanOperation.RELATION_SELECT,
+    FilterRelationExpr: PlanOperation.RELATION_FILTER,
+    JoinRelationExpr: PlanOperation.RELATION_JOIN,
+    CrossRelationExpr: PlanOperation.RELATION_CROSS,
+    LateralCrossRelationExpr: PlanOperation.RELATION_LATERAL_CROSS,
+    PointCrossRelationExpr: PlanOperation.RELATION_POINT_CROSS,
+    ZipRelationExpr: PlanOperation.RELATION_ZIP,
+    WithColumnsRelationExpr: PlanOperation.RELATION_WITH_COLUMNS,
+    SortRelationExpr: PlanOperation.RELATION_SORT,
+    LimitRelationExpr: PlanOperation.RELATION_LIMIT,
 }
 
 
 def relation_operation(node: PlanNode) -> PlanOperation:
     """Return the stable operation identity for one plan node."""
 
-    if isinstance(node, ScalarExpr):
-        operations = _SCALAR_OPERATIONS
-        shape = "scalar"
-        kind = cast("ScalarExpression", node).kind
-    elif isinstance(node, SeriesExpr):
-        operations = _SERIES_OPERATIONS
-        shape = "series"
-        kind = cast("SeriesExpression", node).kind
-    else:
-        operations = _RELATION_OPERATIONS
-        shape = "relation"
-        kind = cast("RelationExpression", node).kind
     try:
-        return operations[kind]
+        return _PLAN_OPERATIONS[type(node)]
     except KeyError as error:
-        msg = f"unsupported {shape} plan operation: {kind!r}"
+        msg = f"unsupported plan operation: {type(node).__name__}"
         raise ValueError(msg) from error
 
 
 def iter_plan_children(node: PlanNode) -> Iterator[PlanNode]:
     """Yield direct semantic children in deterministic declaration order."""
 
-    operation = relation_operation(node)
     if isinstance(node, ScalarExpr):
         scalar = cast("ScalarExpression", node)
-        if scalar.kind in {
-            "literal",
-            "column",
-            "outer_column",
-            "point_column",
-            "input",
-            "param_scalar",
-        }:
+        if isinstance(
+            scalar,
+            LiteralScalarExpr
+            | ColumnScalarExpr
+            | OuterColumnScalarExpr
+            | PointColumnScalarExpr
+            | InputScalarExpr
+            | ParameterScalarExpr,
+        ):
             return
-        if scalar.kind == "param_lookup":
+        if isinstance(scalar, ParameterLookupScalarExpr):
             yield from scalar.key.values()
             return
-        if scalar.kind == "binary":
+        if isinstance(scalar, BinaryScalarExpr):
             yield scalar.left
             yield scalar.right
             return
-        if scalar.kind == "case":
-            for branch in scalar.cases:
-                yield branch.condition
-                yield branch.value
-            yield scalar.fallback
-            return
-        raise AssertionError(f"unhandled scalar expression: {scalar!r}")
+        for branch in scalar.cases:
+            yield branch.condition
+            yield branch.value
+        yield scalar.fallback
+        return
 
     if isinstance(node, SeriesExpr):
         series = cast("SeriesExpression", node)
-        if series.kind in {"values", "input", "param_series"}:
+        if isinstance(series, ValuesSeriesExpr | InputSeriesExpr | ParameterSeriesExpr):
             return
-        if series.kind == "linspace":
+        if isinstance(series, LinspaceSeriesExpr):
             yield series.start
             yield series.stop
             return
-        if series.kind == "range":
+        if isinstance(series, RangeSeriesExpr):
             yield series.start
             yield series.stop
             yield series.step
             return
-        if series.kind == "relation_column":
+        if isinstance(series, RelationColumnSeriesExpr):
             yield series.source
             return
-        if series.kind == "relation_entities":
-            yield series.source
-            return
-        raise AssertionError(f"unhandled series relation operation: {operation}")
+        yield series.source
+        return
 
     relation = cast("RelationExpression", node)
-    if (
-        relation.kind == "literal_rows"
-        or relation.kind == "table"
-        or relation.kind == "input"
+    if isinstance(
+        relation, (LiteralRowsRelationExpr, TableRelationExpr, InputRelationExpr)
     ):
         return
-    if relation.kind == "grid":
+    if isinstance(relation, GridRelationExpr):
         for column in relation.columns.values():
-            if column.kind == "scalar":
+            if isinstance(column, ScalarGridColumn):
                 yield column.scalar
-            elif column.kind == "series":
+            elif isinstance(column, SeriesGridColumn):
                 yield column.series
-            elif column.kind == "relation":
+            elif isinstance(column, RelationGridColumn):
                 yield column.relation
         return
-    if relation.kind == "select" or relation.kind == "sort" or relation.kind == "limit":
+    if isinstance(relation, (SelectRelationExpr, SortRelationExpr, LimitRelationExpr)):
         yield relation.source
         return
-    if relation.kind == "filter":
+    if isinstance(relation, FilterRelationExpr):
         yield relation.source
         yield relation.condition
         return
-    if (
-        relation.kind == "join"
-        or relation.kind == "cross"
-        or relation.kind == "lateral_cross"
-        or relation.kind == "point_cross"
+    if isinstance(
+        relation,
+        (
+            JoinRelationExpr,
+            CrossRelationExpr,
+            LateralCrossRelationExpr,
+            PointCrossRelationExpr,
+        ),
     ):
         yield relation.left
         yield relation.right
         return
-    if relation.kind == "zip":
+    if isinstance(relation, ZipRelationExpr):
         yield from relation.sources
         return
-    if relation.kind == "with_columns":
-        yield relation.source
-        yield from relation.new_columns.values()
-        return
-    raise AssertionError(f"unhandled relation expression: {relation!r}")
+    yield relation.source
+    yield from relation.new_columns.values()
 
 
 def walk_plan(root: PlanNode) -> Iterator[PlanNode]:
@@ -368,7 +379,7 @@ def _verify_row_binder_hygiene(
         if not isinstance(node, RelationExpr):
             continue
         relation = cast("RelationExpression", node)
-        if relation.kind != "filter" and relation.kind != "with_columns":
+        if not isinstance(relation, FilterRelationExpr | WithColumnsRelationExpr):
             continue
         row_scope_id = relation.row_scope_id
         if row_scope_id is None:
@@ -407,7 +418,7 @@ def _collect_free_row_references(
 ) -> None:
     if isinstance(node, ScalarExpr):
         scalar = cast("ScalarExpression", node)
-        if scalar.kind == "column":
+        if isinstance(scalar, ColumnScalarExpr):
             reference = PlanReference(
                 PlanReferenceKind.CURRENT_COLUMN,
                 scalar.name,
@@ -417,7 +428,7 @@ def _collect_free_row_references(
                 scalar.row_scope_id is not None and scalar.row_scope_id not in active
             ) or (scalar.row_scope_id is None and not current_row_available):
                 references.add(reference)
-        elif scalar.kind == "outer_column" and not outer_row_available:
+        elif isinstance(scalar, OuterColumnScalarExpr) and not outer_row_available:
             references.add(
                 PlanReference(
                     PlanReferenceKind.OUTER_COLUMN,
@@ -446,7 +457,7 @@ def _collect_free_row_references(
         return
 
     relation = cast("RelationExpression", node)
-    if relation.kind == "filter":
+    if isinstance(relation, FilterRelationExpr):
         _collect_free_row_references(
             relation.source,
             active=active,
@@ -467,7 +478,7 @@ def _collect_free_row_references(
             references=references,
         )
         return
-    if relation.kind == "with_columns":
+    if isinstance(relation, WithColumnsRelationExpr):
         _collect_free_row_references(
             relation.source,
             active=active,
@@ -489,7 +500,7 @@ def _collect_free_row_references(
                 references=references,
             )
         return
-    if relation.kind == "lateral_cross":
+    if isinstance(relation, LateralCrossRelationExpr):
         _collect_free_row_references(
             relation.left,
             active=active,
@@ -524,7 +535,7 @@ def _verify_node_scopes(
 ) -> None:
     if isinstance(node, ScalarExpr):
         scalar = cast("ScalarExpression", node)
-        if scalar.kind == "column":
+        if isinstance(scalar, ColumnScalarExpr):
             reference = PlanReference(
                 PlanReferenceKind.CURRENT_COLUMN,
                 scalar.name,
@@ -535,7 +546,7 @@ def _verify_node_scopes(
                     raise RelationPlanScopeError(reference)
             elif not current_row_available:
                 raise RelationPlanScopeError(reference)
-        elif scalar.kind == "outer_column" and not outer_row_available:
+        elif isinstance(scalar, OuterColumnScalarExpr) and not outer_row_available:
             raise RelationPlanScopeError(
                 PlanReference(
                     PlanReferenceKind.OUTER_COLUMN,
@@ -562,7 +573,7 @@ def _verify_node_scopes(
         return
 
     relation = cast("RelationExpression", node)
-    if relation.kind == "filter":
+    if isinstance(relation, FilterRelationExpr):
         _verify_node_scopes(
             relation.source,
             active=active,
@@ -581,7 +592,7 @@ def _verify_node_scopes(
             outer_row_available=outer_row_available,
         )
         return
-    if relation.kind == "with_columns":
+    if isinstance(relation, WithColumnsRelationExpr):
         _verify_node_scopes(
             relation.source,
             active=active,
@@ -601,7 +612,7 @@ def _verify_node_scopes(
                 outer_row_available=outer_row_available,
             )
         return
-    if relation.kind == "lateral_cross":
+    if isinstance(relation, LateralCrossRelationExpr):
         _verify_node_scopes(
             relation.left,
             active=active,
@@ -641,14 +652,14 @@ def _prefix_plan_row_scopes(
 ) -> PlanNode:
     if isinstance(node, ScalarExpr):
         scalar = cast("ScalarExpression", node)
-        if scalar.kind == "column":
+        if isinstance(scalar, ColumnScalarExpr):
             if scalar.row_scope_id is None:
                 return scalar
             return replace(
                 scalar,
                 row_scope_id=scalar.row_scope_id.prefixed(*scope),
             )
-        if scalar.kind == "param_lookup":
+        if isinstance(scalar, ParameterLookupScalarExpr):
             return replace(
                 scalar,
                 key={
@@ -656,13 +667,13 @@ def _prefix_plan_row_scopes(
                     for name, value in scalar.key.items()
                 },
             )
-        if scalar.kind == "binary":
+        if isinstance(scalar, BinaryScalarExpr):
             return replace(
                 scalar,
                 left=_prefix_plan_row_scopes(scalar.left, scope),
                 right=_prefix_plan_row_scopes(scalar.right, scope),
             )
-        if scalar.kind == "case":
+        if isinstance(scalar, CaseScalarExpr):
             return replace(
                 scalar,
                 cases=[
@@ -685,46 +696,44 @@ def _prefix_plan_row_scopes(
 
     if isinstance(node, SeriesExpr):
         series = cast("SeriesExpression", node)
-        if series.kind == "linspace":
+        if isinstance(series, LinspaceSeriesExpr):
             return replace(
                 series,
                 start=_prefix_plan_row_scopes(series.start, scope),
                 stop=_prefix_plan_row_scopes(series.stop, scope),
             )
-        if series.kind == "range":
+        if isinstance(series, RangeSeriesExpr):
             return replace(
                 series,
                 start=_prefix_plan_row_scopes(series.start, scope),
                 stop=_prefix_plan_row_scopes(series.stop, scope),
                 step=_prefix_plan_row_scopes(series.step, scope),
             )
-        if series.kind == "relation_column" or series.kind == "relation_entities":
+        if isinstance(series, (RelationColumnSeriesExpr, RelationEntitiesSeriesExpr)):
             source = series.source
         else:
             return series
         return replace(series, source=_prefix_plan_row_scopes(source, scope))
 
     relation = cast("RelationExpression", node)
-    if (
-        relation.kind == "literal_rows"
-        or relation.kind == "table"
-        or relation.kind == "input"
+    if isinstance(
+        relation, (LiteralRowsRelationExpr, TableRelationExpr, InputRelationExpr)
     ):
         return relation
-    if relation.kind == "grid":
+    if isinstance(relation, GridRelationExpr):
         columns = {}
         for name, column in relation.columns.items():
-            if column.kind == "scalar":
+            if isinstance(column, ScalarGridColumn):
                 columns[name] = replace(
                     column,
                     scalar=_prefix_plan_row_scopes(column.scalar, scope),
                 )
-            elif column.kind == "series":
+            elif isinstance(column, SeriesGridColumn):
                 columns[name] = replace(
                     column,
                     series=_prefix_plan_row_scopes(column.series, scope),
                 )
-            elif column.kind == "relation":
+            elif isinstance(column, RelationGridColumn):
                 columns[name] = replace(
                     column,
                     relation=_prefix_plan_row_scopes(column.relation, scope),
@@ -732,12 +741,12 @@ def _prefix_plan_row_scopes(
             else:
                 columns[name] = column
         return replace(relation, columns=columns)
-    if relation.kind == "select" or relation.kind == "sort" or relation.kind == "limit":
+    if isinstance(relation, (SelectRelationExpr, SortRelationExpr, LimitRelationExpr)):
         return replace(
             relation,
             source=_prefix_plan_row_scopes(relation.source, scope),
         )
-    if relation.kind == "filter":
+    if isinstance(relation, FilterRelationExpr):
         return replace(
             relation,
             source=_prefix_plan_row_scopes(relation.source, scope),
@@ -748,58 +757,59 @@ def _prefix_plan_row_scopes(
                 else None
             ),
         )
-    if (
-        relation.kind == "join"
-        or relation.kind == "cross"
-        or relation.kind == "lateral_cross"
-        or relation.kind == "point_cross"
+    if isinstance(
+        relation,
+        (
+            JoinRelationExpr,
+            CrossRelationExpr,
+            LateralCrossRelationExpr,
+            PointCrossRelationExpr,
+        ),
     ):
         return replace(
             relation,
             left=_prefix_plan_row_scopes(relation.left, scope),
             right=_prefix_plan_row_scopes(relation.right, scope),
         )
-    if relation.kind == "zip":
+    if isinstance(relation, ZipRelationExpr):
         return replace(
             relation,
             sources=[
                 _prefix_plan_row_scopes(source, scope) for source in relation.sources
             ],
         )
-    if relation.kind == "with_columns":
-        return replace(
-            relation,
-            source=_prefix_plan_row_scopes(relation.source, scope),
-            new_columns={
-                name: _prefix_plan_row_scopes(value, scope)
-                for name, value in relation.new_columns.items()
-            },
-            row_scope_id=(
-                relation.row_scope_id.prefixed(*scope)
-                if relation.row_scope_id is not None
-                else None
-            ),
-        )
-    raise AssertionError(f"unhandled relation expression: {relation!r}")
+    return replace(
+        relation,
+        source=_prefix_plan_row_scopes(relation.source, scope),
+        new_columns={
+            name: _prefix_plan_row_scopes(value, scope)
+            for name, value in relation.new_columns.items()
+        },
+        row_scope_id=(
+            relation.row_scope_id.prefixed(*scope)
+            if relation.row_scope_id is not None
+            else None
+        ),
+    )
 
 
 def _scalar_reference(node: ScalarExpr) -> PlanReference | None:
     scalar = cast("ScalarExpression", node)
-    if scalar.kind == "column":
+    if isinstance(scalar, ColumnScalarExpr):
         return PlanReference(
             PlanReferenceKind.CURRENT_COLUMN,
             scalar.name,
             row_scope_id=scalar.row_scope_id,
         )
-    if scalar.kind == "outer_column":
+    if isinstance(scalar, OuterColumnScalarExpr):
         return PlanReference(PlanReferenceKind.OUTER_COLUMN, scalar.name)
-    if scalar.kind == "point_column":
+    if isinstance(scalar, PointColumnScalarExpr):
         return PlanReference(PlanReferenceKind.POINT_COLUMN, scalar.name)
-    if scalar.kind == "input":
+    if isinstance(scalar, InputScalarExpr):
         return PlanReference(PlanReferenceKind.INPUT_SCALAR, scalar.name)
-    if scalar.kind == "param_scalar":
+    if isinstance(scalar, ParameterScalarExpr):
         return PlanReference(PlanReferenceKind.PARAMETER_SCALAR, scalar.name)
-    if scalar.kind == "param_lookup":
+    if isinstance(scalar, ParameterLookupScalarExpr):
         return PlanReference(
             PlanReferenceKind.PARAMETER_TABLE,
             scalar.table_id,
@@ -809,12 +819,12 @@ def _scalar_reference(node: ScalarExpr) -> PlanReference | None:
 
 def _series_reference(node: SeriesExpr) -> PlanReference | None:
     series = cast("SeriesExpression", node)
-    if series.kind == "input":
+    if isinstance(series, InputSeriesExpr):
         return PlanReference(
             PlanReferenceKind.INPUT_SERIES,
             series.name,
         )
-    if series.kind == "param_series":
+    if isinstance(series, ParameterSeriesExpr):
         return PlanReference(
             PlanReferenceKind.PARAMETER_SERIES,
             series.name,
@@ -824,12 +834,12 @@ def _series_reference(node: SeriesExpr) -> PlanReference | None:
 
 def _relation_reference(node: RelationExpr) -> PlanReference | None:
     relation = cast("RelationExpression", node)
-    if relation.kind == "input":
+    if isinstance(relation, InputRelationExpr):
         return PlanReference(
             PlanReferenceKind.INPUT_TABLE,
             relation.name,
         )
-    if relation.kind == "table":
+    if isinstance(relation, TableRelationExpr):
         return PlanReference(
             PlanReferenceKind.PARAMETER_TABLE,
             relation.table_id,

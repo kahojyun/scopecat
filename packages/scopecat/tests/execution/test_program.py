@@ -238,11 +238,6 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         instrument_order=("source-b", "source-c", "source-a"),
     )
 
-    assert [stage.kind for stage in program.points[0].stages] == [
-        "compute",
-        "apply_state",
-        "collect",
-    ]
     compute, state, collect = program.points[0].stages
     assert isinstance(compute, ComputeStage)
     assert isinstance(state, ApplyStateStage)

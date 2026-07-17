@@ -12,14 +12,39 @@ from typing import cast, override
 
 from scopecat.compiler.relations.analysis import plan_input_refs
 from scopecat.compiler.relations.model import (
+    BinaryScalarExpr,
+    CaseScalarExpr,
     CellValue,
+    CrossRelationExpr,
+    FilterRelationExpr,
     GridColumn,
+    GridRelationExpr,
+    InputRelationExpr,
+    InputScalarExpr,
+    InputSeriesExpr,
+    JoinRelationExpr,
+    LateralCrossRelationExpr,
+    LimitRelationExpr,
+    LinspaceSeriesExpr,
+    LiteralRowsRelationExpr,
+    ParameterLookupScalarExpr,
+    PointCrossRelationExpr,
+    RangeSeriesExpr,
+    RelationColumnSeriesExpr,
+    RelationEntitiesSeriesExpr,
     RelationExpr,
     RelationExpression,
+    RelationGridColumn,
     ScalarExpr,
     ScalarExpression,
+    ScalarGridColumn,
+    SelectRelationExpr,
     SeriesExpr,
     SeriesExpression,
+    SeriesGridColumn,
+    SortRelationExpr,
+    TableRelationExpr,
+    ZipRelationExpr,
     lit,
     literal_rows,
     point_col,
@@ -69,7 +94,7 @@ def bind_scalar_input_refs(
     """Bind scalar input nodes without exposing relation syntax to users."""
 
     scalar = cast("ScalarExpression", expression)
-    if scalar.kind == "input":
+    if isinstance(scalar, InputScalarExpr):
         input_name = scalar.name
         if input_name not in inputs:
             if preserve_unbound_inputs:
@@ -83,7 +108,10 @@ def bind_scalar_input_refs(
             value_scalar = cast("ScalarExpression", value)
             if substitute_once:
                 return value_scalar
-            if value_scalar.kind == "input" and value_scalar.name == input_name:
+            if (
+                isinstance(value_scalar, InputScalarExpr)
+                and value_scalar.name == input_name
+            ):
                 if preserve_unbound_inputs:
                     return value_scalar
                 return point_col(input_name)
@@ -95,7 +123,7 @@ def bind_scalar_input_refs(
             )
             return bound
         return lit(input_cell(value))
-    if scalar.kind == "param_lookup":
+    if isinstance(scalar, ParameterLookupScalarExpr):
         return replace(
             scalar,
             key={
@@ -108,7 +136,7 @@ def bind_scalar_input_refs(
                 for name, value in scalar.key.items()
             },
         )
-    if scalar.kind == "binary":
+    if isinstance(scalar, BinaryScalarExpr):
         return replace(
             scalar,
             left=bind_scalar_input_refs(
@@ -124,7 +152,7 @@ def bind_scalar_input_refs(
                 resolving=resolving,
             ),
         )
-    if scalar.kind == "case":
+    if isinstance(scalar, CaseScalarExpr):
         return replace(
             scalar,
             cases=[
@@ -205,7 +233,7 @@ def bind_series_input_refs(
     resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
 ) -> SeriesExpr:
     series = cast("SeriesExpression", expression)
-    if series.kind == "input":
+    if isinstance(series, InputSeriesExpr):
         input_name = series.name
         if input_name not in inputs:
             return series
@@ -217,7 +245,7 @@ def bind_series_input_refs(
         )
         if substitute_once:
             return selected
-        if selected.kind == "input" and selected.name == input_name:
+        if isinstance(selected, InputRelationExpr) and selected.name == input_name:
             return selected
         return bind_series_input_refs(
             selected,
@@ -234,8 +262,8 @@ def bind_series_input_refs(
             resolving=resolving,
         )
 
-    if series.kind == "linspace" or series.kind == "range":
-        if series.kind == "range":
+    if isinstance(series, (LinspaceSeriesExpr, RangeSeriesExpr)):
+        if isinstance(series, RangeSeriesExpr):
             return replace(
                 series,
                 start=bind_scalar(series.start),
@@ -247,7 +275,7 @@ def bind_series_input_refs(
             start=bind_scalar(series.start),
             stop=bind_scalar(series.stop),
         )
-    if series.kind == "relation_column" or series.kind == "relation_entities":
+    if isinstance(series, (RelationColumnSeriesExpr, RelationEntitiesSeriesExpr)):
         source = series.source
     else:
         return series
@@ -270,7 +298,7 @@ def bind_relation_input_refs(
     resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
 ) -> RelationExpr:
     relation = cast("RelationExpression", expression)
-    if relation.kind == "input":
+    if isinstance(relation, InputRelationExpr):
         input_name = relation.name
         if input_name not in inputs:
             return relation
@@ -282,7 +310,7 @@ def bind_relation_input_refs(
         )
         if substitute_once:
             return selected
-        if selected.kind == "input" and selected.name == input_name:
+        if isinstance(selected, InputSeriesExpr) and selected.name == input_name:
             return selected
         return bind_relation_input_refs(
             selected,
@@ -290,9 +318,9 @@ def bind_relation_input_refs(
             preserve_unbound_inputs=preserve_unbound_inputs,
             resolving=_descend_input_resolution(input_name, resolving),
         )
-    if relation.kind == "literal_rows" or relation.kind == "table":
+    if isinstance(relation, (LiteralRowsRelationExpr, TableRelationExpr)):
         return relation
-    if relation.kind == "grid":
+    if isinstance(relation, GridRelationExpr):
         return replace(
             relation,
             columns={
@@ -305,7 +333,7 @@ def bind_relation_input_refs(
                 for name, column in relation.columns.items()
             },
         )
-    if relation.kind == "select" or relation.kind == "sort" or relation.kind == "limit":
+    if isinstance(relation, (SelectRelationExpr, SortRelationExpr, LimitRelationExpr)):
         return replace(
             relation,
             source=bind_relation_input_refs(
@@ -315,7 +343,7 @@ def bind_relation_input_refs(
                 resolving=resolving,
             ),
         )
-    if relation.kind == "filter":
+    if isinstance(relation, FilterRelationExpr):
         return replace(
             relation,
             source=bind_relation_input_refs(
@@ -331,11 +359,14 @@ def bind_relation_input_refs(
                 resolving=resolving,
             ),
         )
-    if (
-        relation.kind == "join"
-        or relation.kind == "cross"
-        or relation.kind == "lateral_cross"
-        or relation.kind == "point_cross"
+    if isinstance(
+        relation,
+        (
+            JoinRelationExpr,
+            CrossRelationExpr,
+            LateralCrossRelationExpr,
+            PointCrossRelationExpr,
+        ),
     ):
         return replace(
             relation,
@@ -352,7 +383,7 @@ def bind_relation_input_refs(
                 resolving=resolving,
             ),
         )
-    if relation.kind == "zip":
+    if isinstance(relation, ZipRelationExpr):
         return replace(
             relation,
             sources=[
@@ -365,26 +396,24 @@ def bind_relation_input_refs(
                 for source in relation.sources
             ],
         )
-    if relation.kind == "with_columns":
-        return replace(
-            relation,
-            source=bind_relation_input_refs(
-                relation.source,
+    return replace(
+        relation,
+        source=bind_relation_input_refs(
+            relation.source,
+            inputs,
+            preserve_unbound_inputs=preserve_unbound_inputs,
+            resolving=resolving,
+        ),
+        new_columns={
+            name: bind_scalar_input_refs(
+                value,
                 inputs,
                 preserve_unbound_inputs=preserve_unbound_inputs,
                 resolving=resolving,
-            ),
-            new_columns={
-                name: bind_scalar_input_refs(
-                    value,
-                    inputs,
-                    preserve_unbound_inputs=preserve_unbound_inputs,
-                    resolving=resolving,
-                )
-                for name, value in relation.new_columns.items()
-            },
-        )
-    raise AssertionError(f"unhandled relation expression: {relation!r}")
+            )
+            for name, value in relation.new_columns.items()
+        },
+    )
 
 
 def _bind_grid_column_input_refs(
@@ -394,7 +423,7 @@ def _bind_grid_column_input_refs(
     preserve_unbound_inputs: bool,
     resolving: frozenset[str],
 ) -> GridColumn:
-    if column.kind == "scalar":
+    if isinstance(column, ScalarGridColumn):
         return replace(
             column,
             scalar=bind_scalar_input_refs(
@@ -404,7 +433,7 @@ def _bind_grid_column_input_refs(
                 resolving=resolving,
             ),
         )
-    if column.kind == "series":
+    if isinstance(column, SeriesGridColumn):
         return replace(
             column,
             series=bind_series_input_refs(
@@ -414,7 +443,7 @@ def _bind_grid_column_input_refs(
                 resolving=resolving,
             ),
         )
-    if column.kind == "relation":
+    if isinstance(column, RelationGridColumn):
         return replace(
             column,
             relation=bind_relation_input_refs(

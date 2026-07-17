@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from copy import deepcopy
 from dataclasses import InitVar, dataclass, field, replace
 from itertools import product
 from typing import cast
@@ -724,7 +723,7 @@ def _analyze(root: PointDomainExpr[TableValueExpr]) -> PointDomainAnalysis:
 
 
 def _snapshot_row(row: Mapping[str, CellValue]) -> Row:
-    """Copy mutable carriers while treating truly opaque payloads as atoms."""
+    """Copy known mutable carriers while treating opaque payloads as atoms."""
 
     return cast("Row", {key: _snapshot_value(value) for key, value in row.items()})
 
@@ -735,10 +734,18 @@ def _snapshot_value(value: object) -> object:
             schema_id=value.schema_id,
             payload=_snapshot_value(value.payload),
         )
-    try:
-        return deepcopy(value)
-    except Exception:  # pragma: no cover - defensive fallback for extension atoms
-        return value
+    if isinstance(value, dict):
+        return {
+            key: _snapshot_value(item)
+            for key, item in cast("dict[object, object]", value).items()
+        }
+    if isinstance(value, list):
+        return [_snapshot_value(item) for item in cast("list[object]", value)]
+    if isinstance(value, tuple):
+        return tuple(
+            _snapshot_value(item) for item in cast("tuple[object, ...]", value)
+        )
+    return value
 
 
 def is_point_coordinate_type(value_type: Scalar) -> bool:

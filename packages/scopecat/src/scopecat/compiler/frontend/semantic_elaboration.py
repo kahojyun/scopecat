@@ -26,6 +26,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_availability,
     internal_value_ref_operation_id,
     internal_value_ref_scalar_operation,
+    internal_value_ref_source_kind,
 )
 from scopecat.authoring.domain import LoweredDomainExecution
 from scopecat.authoring.measurements import MeasurementTransform
@@ -655,7 +656,7 @@ class _SemanticGraphBuilder:
             )
         )
         self._value_sources[value_id] = SourceAnchor(
-            kind=value.source_kind,
+            kind=internal_value_ref_source_kind(value),
             declaration_id=value.declaration_key.value.hex,
             composition_scope=value.declaration_scope,
         )

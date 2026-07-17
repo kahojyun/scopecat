@@ -50,6 +50,7 @@ from scopecat.authoring._value_refs import (
     internal_literal_value_ref,
     internal_module_export_value_ref,
     internal_value_ref_input_id,
+    internal_value_ref_operation_id,
 )
 from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.value_types import (
@@ -242,7 +243,7 @@ class ModuleBuilder:
             if not _is_entity_input_type(value.value_type):
                 msg = "resource for_entities values must be entity-shaped"
                 raise TypeError(msg)
-            if value.source_kind == "compute":
+            if internal_value_ref_operation_id(value) is not None:
                 msg = "resource for_entities cannot use compute outputs"
                 raise TypeError(msg)
         selector = ResourceSelector(

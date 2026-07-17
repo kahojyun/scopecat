@@ -172,7 +172,6 @@ def param_axis(
         unit=unit,
         parameter_contracts=(
             ParameterLookupContract(
-                kind="lookup",
                 parameter_id=row.table_id,
                 key_columns=tuple(name for name, _value in row.key),
                 key_types=tuple(
@@ -249,7 +248,6 @@ def _implicit_around_axis(
         implicit_center=True,
         parameter_contracts=(
             ParameterValueContract(
-                kind="parameter",
                 parameter_id=point_id,
                 value_type=cast("Scalar", target.value_type),
             ),

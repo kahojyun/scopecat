@@ -8,6 +8,7 @@ import scopecat as sc
 from scopecat.authoring import ValueValidationError
 from scopecat.authoring._value_refs import (
     internal_value_ref_scalar_operation,
+    internal_value_ref_source_kind,
 )
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.relations.evaluation import EvalContext
@@ -367,7 +368,7 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
     shifted = exported + 1.0
 
     operation = internal_value_ref_scalar_operation(shifted)
-    assert shifted.source_kind == "scalar_operation"
+    assert internal_value_ref_source_kind(shifted) == "scalar_operation"
     assert operation is not None
     assert operation.left is exported
 

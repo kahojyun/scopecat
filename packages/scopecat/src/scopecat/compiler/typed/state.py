@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from typing import Literal, cast
+from dataclasses import dataclass
+from typing import cast
 
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.evaluation import (
@@ -50,7 +50,6 @@ class LogicalStateResourceTarget:
     """State target resolved through one declared logical resource port."""
 
     port_id: LogicalResourcePortId
-    kind: Literal["logical_port"] = "logical_port"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +57,6 @@ class PhysicalStateResourceTarget:
     """State target whose physical identity is computed by a relation."""
 
     use: RelationUse[ScalarValueExpr]
-    kind: Literal["physical_relation"] = "physical_relation"
 
 
 type StateResourceTarget = LogicalStateResourceTarget | PhysicalStateResourceTarget
@@ -79,7 +77,6 @@ class SetStateSpec(StateSpec):
     field_path: str
     value_use: StateValueUse
     route_entity_uses: tuple[RelationUse[ScalarOrSeriesValueExpr], ...] = ()
-    kind: Literal["set"] = field(default="set", init=False)
 
     @property
     def field(self) -> str:
@@ -93,7 +90,6 @@ class ForEachStateSpec(StateSpec):
     relation_use: RelationUse[TableValueExpr]
     state: tuple[StateSpecVariant, ...]
     row_scope_id: RowScopeId | None = None
-    kind: Literal["for_each"] = field(default="for_each", init=False)
 
 
 type StateSpecVariant = SetStateSpec | ForEachStateSpec

@@ -16,7 +16,7 @@ from scopecat.compiler.linking.materialization import (
 )
 from scopecat.compiler.typed.program import TypedProgram
 from scopecat.execution.local.executor import PreparedExecution, prepare_execution
-from scopecat.execution.local.program import ApplyStateStage, ComputeStage
+from scopecat.execution.local.program import ActionStage, ApplyStateStage, ComputeStage
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
@@ -688,7 +688,7 @@ def _mixed_lane_point_shape_problems(
         len(stage.operations)
         for point in program.points
         for stage in point.stages
-        if stage.kind == "action"
+        if isinstance(stage, ActionStage)
     )
     if action_count:
         problems.append(
