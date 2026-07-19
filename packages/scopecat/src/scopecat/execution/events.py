@@ -40,9 +40,7 @@ _OBSERVATION_METRIC_KEYS = frozenset(
         "changed_field_count",
         "compute_evaluated_node_count",
         "compute_payload_count",
-        "compute_reused_node_count",
         "compute_step_count",
-        "compute_status",
         "compiler_id",
         "dependencies",
         "dtype",
@@ -154,7 +152,6 @@ def emit_run_finished(
     measurement_count: int,
     problem_count: int,
     compute_evaluated_node_count: int,
-    compute_reused_node_count: int,
     compute_payload_count: int,
 ) -> None:
     _emit(
@@ -172,7 +169,6 @@ def emit_run_finished(
             measurement_count=measurement_count,
             problem_count=problem_count,
             compute_evaluated_node_count=compute_evaluated_node_count,
-            compute_reused_node_count=compute_reused_node_count,
             compute_payload_count=compute_payload_count,
         ),
     )
@@ -191,7 +187,6 @@ def observe_payload(
     operation_id = payload.operation_id
     semantic_operation_id = payload.semantic_operation_id
     implementation_id = payload.implementation_id
-    compute_status = payload.compute_status
     try:
         observer(
             RuntimePayloadObservation(
@@ -201,7 +196,6 @@ def observe_payload(
                 semantic_operation_id=semantic_operation_id,
                 payload_id=payload.id,
                 schema_id=payload.schema_id,
-                compute_status=compute_status,
                 payload=payload,
                 summary={
                     "payload_id": payload.id,

@@ -523,7 +523,7 @@ class DomainInvocationIntent(BaseModel):
     artifact_id: str
     artifact_fingerprint: str
     result_contract_fingerprint: str
-    adapter_intent_fingerprint: str
+    target_intent_fingerprint: str
     intent_fingerprint: str
 
     @field_validator(
@@ -534,7 +534,7 @@ class DomainInvocationIntent(BaseModel):
         "artifact_id",
         "artifact_fingerprint",
         "result_contract_fingerprint",
-        "adapter_intent_fingerprint",
+        "target_intent_fingerprint",
         "intent_fingerprint",
     )
     @classmethod
@@ -554,7 +554,7 @@ class DomainInvocationIntent(BaseModel):
             artifact_id=self.artifact_id,
             artifact_fingerprint=self.artifact_fingerprint,
             result_contract_fingerprint=self.result_contract_fingerprint,
-            adapter_intent_fingerprint=self.adapter_intent_fingerprint,
+            target_intent_fingerprint=self.target_intent_fingerprint,
         )
         if self.intent_fingerprint != expected:
             msg = "domain invocation fingerprint does not cover its complete intent"
@@ -683,17 +683,17 @@ def close_domain_invocation[
     capability_fingerprint: str,
     artifact_id: str,
     artifact_fingerprint: str,
-    adapter_intent: object,
+    target_intent: object,
     payload: PayloadT,
 ) -> ClosedDomainInvocation[EntryAddressT, ResultAddressT, PayloadT]:
-    """Close stable target and output facts around an opaque adapter payload."""
+    """Close stable target and output facts around an opaque target payload."""
 
     result_contract_fingerprint = result_mapping.contract_fingerprint
-    adapter_intent_fingerprint = stable_content_hash(
+    target_intent_fingerprint = stable_content_hash(
         content_fingerprint(
             {
-                "schema": "scopecat.domain_adapter_intent.v1",
-                "value": adapter_intent,
+                "schema": "scopecat.domain_target_intent.v1",
+                "value": target_intent,
             }
         )
     )
@@ -705,7 +705,7 @@ def close_domain_invocation[
         artifact_id=artifact_id,
         artifact_fingerprint=artifact_fingerprint,
         result_contract_fingerprint=result_contract_fingerprint,
-        adapter_intent_fingerprint=adapter_intent_fingerprint,
+        target_intent_fingerprint=target_intent_fingerprint,
     )
     intent = DomainInvocationIntent(
         invocation_id=invocation_id,
@@ -715,7 +715,7 @@ def close_domain_invocation[
         artifact_id=artifact_id,
         artifact_fingerprint=artifact_fingerprint,
         result_contract_fingerprint=result_contract_fingerprint,
-        adapter_intent_fingerprint=adapter_intent_fingerprint,
+        target_intent_fingerprint=target_intent_fingerprint,
         intent_fingerprint=intent_fingerprint,
     )
     return ClosedDomainInvocation(
@@ -1218,7 +1218,7 @@ def _domain_invocation_intent_fingerprint(
     artifact_id: str,
     artifact_fingerprint: str,
     result_contract_fingerprint: str,
-    adapter_intent_fingerprint: str,
+    target_intent_fingerprint: str,
 ) -> str:
     return stable_content_hash(
         {
@@ -1230,7 +1230,7 @@ def _domain_invocation_intent_fingerprint(
             "artifact_id": artifact_id,
             "artifact_fingerprint": artifact_fingerprint,
             "result_contract_fingerprint": result_contract_fingerprint,
-            "adapter_intent_fingerprint": adapter_intent_fingerprint,
+            "target_intent_fingerprint": target_intent_fingerprint,
         }
     )
 

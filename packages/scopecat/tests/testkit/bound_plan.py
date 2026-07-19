@@ -5,14 +5,14 @@ from dataclasses import replace
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.bound import (
-    BoundPlan,
     BoundResourceState,
     BoundStateField,
+    MaterializedLocalSemantics,
 )
 from scopecat.compiler.linking.linked import materialize_linked_points
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.evaluation import ParameterRelationData
-from scopecat.compiler.typed.program import TypedProgram
+from scopecat.compiler.typed.program import CoreProgram
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.projection import (
     SelectedMeasurementProjection,
@@ -78,11 +78,11 @@ def config_with_physical_resources(
 
 
 def bound_plan_contract(
-    experiment: TypedProgram,
+    experiment: CoreProgram,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> BoundPlan:
+) -> MaterializedLocalSemantics:
     plan, problems = bound_plan_result(
         experiment,
         parameters,
@@ -93,21 +93,21 @@ def bound_plan_contract(
 
 
 def bound_plan_result(
-    experiment: TypedProgram,
+    experiment: CoreProgram,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> tuple[BoundPlan, tuple[Problem, ...]]:
+) -> tuple[MaterializedLocalSemantics, tuple[Problem, ...]]:
     environment = replace(
         validate_config_environment(config or load_config()),
         parameters=parameters,
     )
-    plan = materialize_local_plan(link_program(experiment, environment))
+    plan = materialize_local_semantics(link_program(experiment, environment))
     return plan, plan.problems
 
 
 def measurement_projection_contract(
-    experiment: TypedProgram,
+    experiment: CoreProgram,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
@@ -121,7 +121,7 @@ def measurement_projection_contract(
 
 
 def bound_state_fields(
-    plan: BoundPlan,
+    plan: MaterializedLocalSemantics,
 ) -> tuple[tuple[int, BoundResourceState, BoundStateField], ...]:
     """Flatten bound state for focused assertions without another projection."""
 
@@ -133,5 +133,5 @@ def bound_state_fields(
     )
 
 
-def bound_coordinate_ids(plan: BoundPlan) -> tuple[str, ...]:
+def bound_coordinate_ids(plan: MaterializedLocalSemantics) -> tuple[str, ...]:
     return tuple(plan.points[0].coordinates) if plan.points else ()

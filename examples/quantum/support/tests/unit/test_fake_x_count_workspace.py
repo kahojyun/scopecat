@@ -17,6 +17,7 @@ from scopecat.kernel.problems import (
     blocking_problem,
 )
 from scopecat.planning import backend as execution_backends
+from scopecat.sdk.domain.compiler import DomainCompiledJob
 from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import (
     PreparedDomainExecution,
@@ -35,7 +36,9 @@ from quantum_lab_demo.experiments import READOUT_TEMPLATE
 from quantum_lab_demo.reference_experiments import (
     FAKE_X_COUNT_CAPTURE_MODULE,
     FAKE_X_COUNT_TEMPLATE,
-    FakeXCountDomainExecutionAdapter,
+    X_COUNT,
+    FakeXCountDomainCompiler,
+    fake_x_count_domain_execution,
     fake_x_count_scratch_experiment,
 )
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -93,7 +96,7 @@ class _UnknownFetchFakeListDomainRuntime(FakeListDomainRuntime):
         )
 
 
-class _PendingFakeXCountAdapter(FakeXCountDomainExecutionAdapter):
+class _PendingFakeXCountCompiler(FakeXCountDomainCompiler):
     def __init__(self) -> None:
         super().__init__()
         self.runtime = _PendingFakeListDomainRuntime()
@@ -109,39 +112,47 @@ class _IndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
         raise RuntimeError("target did not return submit evidence")
 
 
-class _IndeterminateFakeXCountAdapter(FakeXCountDomainExecutionAdapter):
+class _IndeterminateFakeXCountCompiler(FakeXCountDomainCompiler):
     def __init__(self) -> None:
         super().__init__()
         self.runtime = _IndeterminateFakeListDomainRuntime()
 
 
-class _RaisingAdapter(FakeXCountDomainExecutionAdapter):
+class _RaisingCompiler(FakeXCountDomainCompiler):
     @property
     @override
-    def adapter_id(self) -> str:
-        return "tests.raising-domain-adapter"
+    def compiler_id(self) -> str:
+        return "tests.raising-domain-compiler"
 
     @override
-    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
-        del context
-        raise RuntimeError("adapter implementation defect")
+    def prepare(
+        self,
+        job: DomainCompiledJob,
+        context: DomainBatchContext,
+    ) -> PreparedDomainExecution:
+        del job, context
+        raise RuntimeError("compiler implementation defect")
 
 
-class _WrongResultAdapter(FakeXCountDomainExecutionAdapter):
+class _WrongResultCompiler(FakeXCountDomainCompiler):
     @property
     @override
-    def adapter_id(self) -> str:
-        return "tests.wrong-result-domain-adapter"
+    def compiler_id(self) -> str:
+        return "tests.wrong-result-domain-compiler"
 
     @override
-    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
-        del context
+    def prepare(
+        self,
+        job: DomainCompiledJob,
+        context: DomainBatchContext,
+    ) -> PreparedDomainExecution:
+        del job, context
         return cast("PreparedDomainExecution", object())
 
 
 def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -> None:
     body = FAKE_X_COUNT_CAPTURE_MODULE.ir.body
-    execution = FAKE_X_COUNT_TEMPLATE.build().domain_execution
+    execution = FAKE_X_COUNT_TEMPLATE.build().domain_executions[0]
     assert execution is not None
     program = execution.program
     [transform] = body.measurement_transforms
@@ -177,16 +188,18 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def reject_local_lowering(_linked: object) -> object:
-        raise AssertionError("domain execution must not construct a local BoundPlan")
+        raise AssertionError(
+            "domain execution must not construct materialized local semantics"
+        )
 
     monkeypatch.setattr(
         execution_backends,
-        "materialize_local_plan_from_points",
+        "materialize_local_semantics_from_points",
         reject_local_lowering,
     )
     semantics: dict[str, object] = {}
     for authoring in ("template", "scratch"):
-        adapter = FakeXCountDomainExecutionAdapter()
+        adapter = FakeXCountDomainCompiler()
         lab = quantum_lab(workspace=tmp_path / authoring)
         experiment = (
             lab.prepare(
@@ -235,35 +248,86 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
     assert semantics["template"] == semantics["scratch"]
 
 
-def test_explicit_domain_adapter_rejection_does_not_fall_back_to_local_provider(
+def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
+    tmp_path: Path,
+) -> None:
+    first = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("first")
+    second = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("second")
+    template = (
+        sc.module("test.fake-x-count.two-calls")
+        .use(first, second)
+        .template("test.fake-x-count.two-calls", kind="fake_x_count")
+        .domain(
+            fake_x_count_domain_execution(
+                first.products.integrated_iq_shots,
+                id="first",
+            )
+        )
+        .domain(
+            fake_x_count_domain_execution(
+                second.products.integrated_iq_shots,
+                id="second",
+            )
+        )
+        .scan(X_COUNT, (0, 1, 2))
+        .record_product(first.products.probability_0, record_id="first-p0")
+        .record_product(second.products.probability_1, record_id="second-p1")
+        .build()
+    )
+    compiler = FakeXCountDomainCompiler()
+    lab = quantum_lab(workspace=tmp_path)
+
+    run = lab.prepare(
+        template,
+        execution_backend=_domain_only(compiler),
+    ).run()
+    records = run.data().measurements().dataset.records
+    journal = FilesystemExecutionJournal(lab.workspace, run_id=run.id)
+
+    assert run.manifest.status == "completed"
+    assert compiler.runtime.physical_execution_count == 2
+    assert len(records) == 3
+    assert all(
+        set(record.observables) == {"first-p0", "second-p1"} for record in records
+    )
+    submission_operations = [
+        entry.operation_id
+        for entry in journal.entries()
+        if entry.stage == "domain_submit" and entry.state == "started"
+    ]
+    assert len(submission_operations) == 2
+    assert len(set(submission_operations)) == 2
+
+
+def test_domain_only_backend_reports_missing_local_provider(
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         READOUT_TEMPLATE,
-        execution_backend=_domain_only(FakeXCountDomainExecutionAdapter()),
+        execution_backend=_domain_only(FakeXCountDomainCompiler()),
     )
     experiment = experiment.input("qubit", "q0")
 
     report = experiment.check()
 
     assert not report.ok
-    assert report.problems[0].code == "execution_task_claim_missing"
+    assert report.problems[0].code == "local_instrument_provider_missing"
     with pytest.raises(CheckFailed):
         experiment.run()
     assert lab.runs() == ()
 
 
-@pytest.mark.parametrize("adapter", [_RaisingAdapter(), _WrongResultAdapter()])
+@pytest.mark.parametrize("compiler", [_RaisingCompiler(), _WrongResultCompiler()])
 def test_adapter_boundary_normalizes_ordinary_contract_defects_before_run(
-    adapter: object,
+    compiler: object,
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
         execution_backend=_domain_only(
-            cast("sc.DomainExecutionAdapter", adapter),
+            cast("sc.DomainCompiler", compiler),
         ),
     )
 
@@ -279,7 +343,7 @@ def test_adapter_boundary_normalizes_ordinary_contract_defects_before_run(
 def test_synchronous_adapter_pending_result_terminalizes_as_indeterminate(
     tmp_path: Path,
 ) -> None:
-    adapter = _PendingFakeXCountAdapter()
+    adapter = _PendingFakeXCountCompiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
@@ -309,7 +373,7 @@ def test_synchronous_adapter_pending_result_terminalizes_as_indeterminate(
 def test_indeterminate_submit_retains_durable_target_reconciliation_context(
     tmp_path: Path,
 ) -> None:
-    adapter = _IndeterminateFakeXCountAdapter()
+    adapter = _IndeterminateFakeXCountCompiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
@@ -352,7 +416,7 @@ def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
     runtime_type: type[FakeListDomainRuntime],
     tmp_path: Path,
 ) -> None:
-    adapter = FakeXCountDomainExecutionAdapter()
+    adapter = FakeXCountDomainCompiler()
     adapter.runtime = runtime_type()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
@@ -392,7 +456,7 @@ def test_uncertain_measurement_write_retains_reconciliation_context(
         "commit",
         fail_record_write,
     )
-    adapter = FakeXCountDomainExecutionAdapter()
+    adapter = FakeXCountDomainCompiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
@@ -428,7 +492,7 @@ def test_measurement_reload_failure_still_publishes_indeterminate_terminal_run(
         "measurements",
         fail_measurement_reload,
     )
-    adapter = FakeXCountDomainExecutionAdapter()
+    adapter = FakeXCountDomainCompiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
@@ -473,5 +537,5 @@ def _standard_domain_semantics(
     )
 
 
-def _domain_only(adapter: sc.DomainExecutionAdapter) -> sc.ExecutionBackend:
-    return sc.ExecutionBackend(domain_adapters=(adapter,))
+def _domain_only(compiler: sc.DomainCompiler) -> sc.ExecutionBackend:
+    return sc.ExecutionBackend(domain_compilers=(compiler,))

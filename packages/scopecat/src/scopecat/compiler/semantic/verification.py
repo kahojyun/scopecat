@@ -117,7 +117,7 @@ class VerifiedSemanticGraph:
         compare=False,
         hash=False,
     )
-    domain_execution: SemanticDomainExecution | None = field(
+    domain_executions: tuple[SemanticDomainExecution, ...] = field(
         init=False,
         compare=False,
         hash=False,
@@ -140,7 +140,7 @@ class VerifiedSemanticGraph:
             "measurement_transforms",
             MappingProxyType(measurement_transforms),
         )
-        object.__setattr__(self, "domain_execution", self.graph.domain_execution)
+        object.__setattr__(self, "domain_executions", self.graph.domain_executions)
 
 
 def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
@@ -177,19 +177,31 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         ambiguous_value_ids,
         problems,
     )
-    _verify_domain_execution(
-        graph.domain_execution,
-        definitions,
-        ambiguous_value_ids,
-        problems,
-    )
+    execution_ids = tuple(execution.id for execution in graph.domain_executions)
+    if len(execution_ids) != len(set(execution_ids)):
+        problems.append(
+            _problem(
+                "semantic_domain_execution_id_duplicate",
+                "domain execution ids must be unique",
+                "domain_executions",
+                category=ProblemCategory.CONFLICT,
+            )
+        )
+    for execution_index, execution in enumerate(graph.domain_executions):
+        _verify_domain_execution(
+            execution,
+            definitions,
+            ambiguous_value_ids,
+            problems,
+            execution_index=execution_index,
+        )
     unambiguous_measurement_transforms = tuple(
         transform
         for transform in graph.measurement_transforms
         if transform.id not in ambiguous_measurement_transform_ids
     )
     _verify_measurement_product_owners(
-        graph.domain_execution,
+        graph.domain_executions,
         unambiguous_measurement_transforms,
         problems,
     )
@@ -243,7 +255,7 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         value_defs=ordered_defs,
         operations=ordered_operations,
         measurement_transforms=ordered_measurement_transforms,
-        domain_execution=graph.domain_execution,
+        domain_executions=graph.domain_executions,
         actions=tuple(
             action for action in graph.actions if action.id not in ambiguous_action_ids
         ),
@@ -291,17 +303,31 @@ def _measurement_transforms_by_id(
 
 
 def _verify_measurement_product_owners(
-    execution: SemanticDomainExecution | None,
+    executions: tuple[SemanticDomainExecution, ...],
     transforms: tuple[SemanticMeasurementTransform, ...],
     problems: list[Problem],
 ) -> None:
     owners: dict[object, tuple[str, str]] = {}
-    if execution is not None:
+    for execution in executions:
         for result_id, product_id in execution.results:
-            owners.setdefault(
-                product_id,
-                ("domain execution", result_id),
-            )
+            existing = owners.get(product_id)
+            if existing is not None:
+                owner, owner_port = existing
+                problems.append(
+                    _problem(
+                        "semantic_product_producer_duplicate",
+                        f"logical product {product_id.qualified_name!r} is produced "
+                        f"by both {owner}/{owner_port!r} and domain execution "
+                        f"{execution.id!r}/{result_id!r}",
+                        "domain_executions",
+                        execution.id,
+                        "results",
+                        result_id,
+                        category=ProblemCategory.CONFLICT,
+                    )
+                )
+                continue
+            owners[product_id] = (f"domain execution {execution.id!r}", result_id)
     for transform in transforms:
         for role, product_id in transform.outputs:
             existing = owners.get(product_id)
@@ -393,16 +419,16 @@ def _topological_measurement_transforms(
 
 
 def _verify_domain_execution(
-    execution: SemanticDomainExecution | None,
+    execution: SemanticDomainExecution,
     definitions: Mapping[ValueId, ValueDef],
     ambiguous_value_ids: frozenset[ValueId],
     problems: list[Problem],
+    *,
+    execution_index: int,
 ) -> None:
-    if execution is None:
-        return
     program = execution.program
     product_owners: dict[object, str] = {}
-    location = ("domain_execution",)
+    location = ("domain_executions", str(execution_index))
     expected_inputs = tuple(port.id for port in program.input_ports)
     if tuple(name for name, _use in execution.inputs) != expected_inputs:
         problems.append(

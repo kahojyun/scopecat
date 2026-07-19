@@ -7,7 +7,7 @@ import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import link_verified_program
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
@@ -15,10 +15,9 @@ from scopecat.compiler.typed.products import (
     ProductAxisDef,
     ProductDef,
 )
-from scopecat.compiler.typed.program import TypedProgram
+from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.records import RecordAxisPlan, RecordPlan, RecordUse
-from scopecat.compiler.typed.verification import verify_typed_program
-from scopecat.execution.local.lowering import build_execution_program
+from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.execution.local.program import CollectStage
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.json_types import JsonValue
@@ -30,6 +29,7 @@ from scopecat.kernel.product_identity import (
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_plan import config_with_physical_resources
+from tests.testkit.local_effect_program import lower_test_local_effect_program
 from tests.testkit.typed_program import instrument_product_producer, link_program
 
 
@@ -47,8 +47,8 @@ def _program(
     producers: tuple[InstrumentProductProducer, ...] = (),
     uses: tuple[ProductUse, ...] = (),
     records: tuple[RecordUse, ...] = (),
-) -> TypedProgram:
-    return TypedProgram(
+) -> CoreProgram:
+    return CoreProgram(
         id="product-ir",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
@@ -59,7 +59,7 @@ def _program(
     )
 
 
-def _duplicate_use_program() -> TypedProgram:
+def _duplicate_use_program() -> CoreProgram:
     product = _product()
     use = product_use(product.id)
     return _program(products=(product,), uses=(use, use))
@@ -99,7 +99,7 @@ def test_compiler_product_and_record_metadata_is_recursively_immutable() -> None
         axes=(record_axis,),
         metadata=metadata,
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id="immutable-metadata",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
@@ -128,7 +128,7 @@ def test_compiler_product_and_record_metadata_is_recursively_immutable() -> None
             cast("dict[str, JsonValue]", selected["owner"])["name"] = "mutated"
 
 
-def _duplicate_producer_program() -> TypedProgram:
+def _duplicate_producer_program() -> CoreProgram:
     product = _product()
     producer = instrument_product_producer(product)
     return _program(
@@ -137,7 +137,7 @@ def _duplicate_producer_program() -> TypedProgram:
     )
 
 
-def _orphan_producer_program() -> TypedProgram:
+def _orphan_producer_program() -> CoreProgram:
     return _program(
         products=(_product("available"),),
         producers=(
@@ -174,7 +174,7 @@ def test_record_aliases_share_one_product_realization() -> None:
         ),
     )
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(load_config()))
     )
 
@@ -184,7 +184,7 @@ def test_record_aliases_share_one_product_realization() -> None:
     assert requests[0].product_use_id == use.id
     assert requests[0].metadata == {"producer": "signal"}
 
-    execution = build_execution_program(plan, instrument_order=("source-0",))
+    execution = lower_test_local_effect_program(plan, instrument_order=("source-0",))
     collect = execution.points[0].stages[-1]
     assert isinstance(collect, CollectStage)
     assert len(collect.operations[0].command.requests) == 1
@@ -214,8 +214,8 @@ def test_record_policy_does_not_change_collection_request() -> None:
     )
     environment = validate_config_environment(load_config())
 
-    first_plan = materialize_local_plan(link_program(first, environment))
-    second_plan = materialize_local_plan(link_program(second, environment))
+    first_plan = materialize_local_semantics(link_program(first, environment))
+    second_plan = materialize_local_semantics(link_program(second, environment))
 
     assert first_plan.valid, first_plan.problems
     assert second_plan.valid, second_plan.problems
@@ -238,7 +238,7 @@ def test_unused_product_producer_is_linked_without_placement() -> None:
     assert linked.product_uses == ()
     assert linked.record_uses == ()
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_verified_program(linked.verified_program, linked.environment)
     )
 
@@ -251,7 +251,7 @@ def test_unrecorded_product_use_is_still_realized_once() -> None:
     producer = instrument_product_producer(product)
     use = product_use(product.id)
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(
             _program(products=(product,), producers=(producer,), uses=(use,)),
             validate_config_environment(load_config()),
@@ -270,7 +270,7 @@ def test_demanded_product_without_a_producer_fails_before_materialization() -> N
     product = ProductDef(id=product_id("derived"))
     use = product_use(product.id)
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(
             _program(products=(product,), uses=(use,)),
             validate_config_environment(load_config()),
@@ -290,7 +290,7 @@ def test_implicit_product_target_requires_one_matching_instrument() -> None:
     use = product_use(product.id)
     config = config_with_physical_resources({"source-1": ()})
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(
             _program(products=(product,), producers=(producer,), uses=(use,)),
             validate_config_environment(config),
@@ -344,10 +344,10 @@ def test_implicit_product_target_requires_one_matching_instrument() -> None:
     ),
 )
 def test_sealing_rejects_malformed_product_graph(
-    program: Callable[[], TypedProgram],
+    program: Callable[[], CoreProgram],
     expected_code: str,
 ) -> None:
     with pytest.raises(CheckFailed) as caught:
-        verify_typed_program(program())
+        verify_core_program(program())
 
     assert expected_code in {problem.code for problem in caught.value.problems}

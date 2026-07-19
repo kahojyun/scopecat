@@ -4,10 +4,9 @@ from scopecat.execution.local.program import (
     CollectionResultBinding,
     CollectOperation,
     CollectStage,
-    ExecutionProgram,
     PointProgram,
 )
-from scopecat.execution.local.validation import validate_execution_program_instruments
+from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.kernel.problems import (
     ProblemCategory,
@@ -25,6 +24,7 @@ from scopecat.sdk.instruments.contracts import (
     capability,
     product,
 )
+from tests.testkit.local_effect_program import StubLocalEffectProgram
 
 
 def test_unspecified_collect_capability_rejects_ambiguous_product_key() -> None:
@@ -36,7 +36,7 @@ def test_unspecified_collect_capability_rejects_ambiguous_product_key() -> None:
         )
     )
 
-    problems = validate_execution_program_instruments(
+    problems = validate_local_effect_block_instruments(
         program,
         descriptions={"source-0": description},
     )
@@ -73,7 +73,7 @@ def test_explicit_collect_capability_selects_one_matching_product() -> None:
         )
     )
 
-    problems = validate_execution_program_instruments(
+    problems = validate_local_effect_block_instruments(
         program,
         descriptions={"source-0": description},
     )
@@ -92,7 +92,7 @@ def test_duplicate_product_key_within_selected_capability_is_ambiguous() -> None
         )
     )
 
-    problems = validate_execution_program_instruments(
+    problems = validate_local_effect_block_instruments(
         program,
         descriptions={"source-0": description},
     )
@@ -105,10 +105,10 @@ def _collect_program(
     *,
     capability_id: str | None,
     dtype: MeasurementDType,
-) -> ExecutionProgram:
+) -> StubLocalEffectProgram:
     operation_id = "point-0.collect.source-0"
     signal_use = product_use(product_id("signal"))
-    return ExecutionProgram(
+    return StubLocalEffectProgram(
         experiment_id="product-lookup",
         points=(
             PointProgram(

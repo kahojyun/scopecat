@@ -16,7 +16,7 @@ _FORBIDDEN_IMPORT_PREFIXES = (
     "scopecat.sdk.domain.invocation",
 )
 _FORBIDDEN_NAMES = {
-    "context_adapter_id_internal",
+    "context_compiler_id_internal",
     "context_linked_points_internal",
     "domain_receipt_identity",
     "linked_points_for_preparation_internal",

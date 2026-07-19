@@ -7,9 +7,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.typed.program import TypedProgram
+from scopecat.compiler.typed.program import CoreProgram
 from scopecat.composition.local import local_execution_services
-from scopecat.execution.local.plan_executor import execute_execution_plan
+from scopecat.execution.interpreter import interpret_run_program
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.ports.resources import ResourceLeaseManager
 from scopecat.planning.backend import ExecutionBackend
@@ -55,7 +55,7 @@ class _ExplicitDriverProvider:
 def execute_bound_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: TypedProgram,
+    experiment: CoreProgram,
     instruments: Sequence[InstrumentDriver],
     workspace: str | Path,
     event_sink: RuntimeEventSink | None = None,
@@ -79,7 +79,7 @@ def execute_bound_run(
 def execute_program_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: TypedProgram,
+    experiment: CoreProgram,
     instrument_provider: InstrumentProvider,
     workspace: str | Path,
     request: RunRequest | None = None,
@@ -92,16 +92,16 @@ def execute_program_run(
 
     environment = validate_config_environment(config)
     linked = link_program(experiment, environment)
-    prepared = ExecutionBackend(provider=instrument_provider).prepare(
+    program = ExecutionBackend(provider=instrument_provider).compile(
         linked,
         config=config,
     )
     services = local_execution_services(workspace)
     if resource_leases is not None:
         services = replace(services, resources=resource_leases)
-    manifest = execute_execution_plan(
+    manifest = interpret_run_program(
         config=config,
-        prepared=prepared,
+        program=program,
         request=request,
         services=services,
         config_source=config_source,

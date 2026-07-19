@@ -12,7 +12,7 @@ from quantum_lab_demo.reference_experiments import (
     CZ_CANDIDATE_ID,
     CZ_FLUX_PULSE_TEMPLATE,
     CZ_PHASE_TEMPLATE,
-    CzPhaseDomainExecutionAdapter,
+    CzPhaseDomainCompiler,
     analyze_cz_phase_run,
     cz_conditional_phase_program,
 )
@@ -57,10 +57,10 @@ print(authoring_summary)
 # experiment. No payload compute or direct target compiler call appears here.
 workspace = notebook_workspace("15-cz-conditional-phase")
 lab = quantum_lab(workspace=workspace)
-adapter = CzPhaseDomainExecutionAdapter()
+compiler = CzPhaseDomainCompiler()
 prepared = lab.prepare(
     CZ_PHASE_TEMPLATE,
-    execution_backend=sc.ExecutionBackend(domain_adapters=(adapter,)),
+    execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
 )
 preview = prepared.preview()
 run = prepared.run(
@@ -78,14 +78,14 @@ measurement_summary = {
     "coordinates": preview.coordinate_ids,
     "records": len(records),
     "observables": tuple(sorted(records[0].observables)),
-    "physical_executions": adapter.physical_execution_count,
+    "physical_executions": compiler.physical_execution_count,
 }
 print(measurement_summary)
 
 # %%
 # The prepared proof retains the semantic CZ call and its physical coupler
 # event. The target artifact maps that event onto the fake coupler AWG channel.
-reference = adapter.preparations[-1]
+reference = compiler.preparations[-1]
 candidate_origins = tuple(
     origin.provenance
     for entry in reference.entries

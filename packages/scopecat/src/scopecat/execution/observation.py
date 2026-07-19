@@ -73,7 +73,6 @@ class RunFinishedEvent(_RuntimeEvent):
     measurement_count: int
     problem_count: int
     compute_evaluated_node_count: int
-    compute_reused_node_count: int
     compute_payload_count: int
     kind: Literal["run_finished"] = field(default="run_finished", init=False)
 
@@ -92,7 +91,6 @@ class RuntimePayloadObservation:
     semantic_operation_id: str | None
     payload_id: str
     schema_id: str
-    compute_status: str | None
     payload: CommandPayload
     summary: dict[str, JsonValue]
 

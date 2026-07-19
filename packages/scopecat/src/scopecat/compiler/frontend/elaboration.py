@@ -124,7 +124,7 @@ class _ModuleFragment(_ExperimentEnvelope):
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ScopedPythonImplementation, ...] = ()
     measurement_transforms: tuple[MeasurementTransform, ...] = ()
-    domain_execution: LoweredDomainExecution | None = None
+    domain_executions: tuple[LoweredDomainExecution, ...] = ()
     state_intents: tuple[ExperimentStateIntent, ...] = ()
     actions: tuple[ModuleActionDecl, ...] = ()
 
@@ -269,8 +269,7 @@ def _merge_module_fragments(
         parameter_overlays.extend(fragment.parameter_overlays)
         operations.extend(fragment.operations)
         measurement_transforms.extend(fragment.measurement_transforms)
-        if fragment.domain_execution is not None:
-            domain_executions.append(fragment.domain_execution)
+        domain_executions.extend(fragment.domain_executions)
         python_implementations.extend(fragment.python_implementations)
         records.extend(fragment.records)
         product_ports.extend(fragment.product_ports)
@@ -279,8 +278,9 @@ def _merge_module_fragments(
     merged_metadata.update(dict(metadata or {}))
     point_domain = compose_point_domain_intents(*point_domains)
     merged_point_dependencies = _merge_point_dependencies(*point_dependencies)
-    if len(domain_executions) > 1:
-        raise ValueError("module fragments cannot merge domain executions")
+    execution_ids = tuple(execution.id for execution in domain_executions)
+    if len(execution_ids) != len(set(execution_ids)):
+        raise ValueError("module fragments contain repeated domain execution ids")
     return _ModuleFragment(
         experiment_id=experiment_id,
         kind=kind,
@@ -296,7 +296,7 @@ def _merge_module_fragments(
         parameter_overlays=tuple(parameter_overlays),
         operations=tuple(operations),
         measurement_transforms=tuple(measurement_transforms),
-        domain_execution=domain_executions[0] if domain_executions else None,
+        domain_executions=tuple(domain_executions),
         python_implementations=tuple(python_implementations),
         records=tuple(records),
         product_ports=tuple(product_ports),
@@ -308,7 +308,7 @@ def _merge_module_fragments(
 
 def elaborate_module(
     module: ExperimentModule,
-    domain_execution: DomainExecution | None = None,
+    domain_executions: Sequence[DomainExecution] = (),
     /,
     **inputs: object,
 ) -> SemanticExperimentIR:
@@ -317,7 +317,7 @@ def elaborate_module(
     fragment = _elaborate_module_ir(
         module.ir,
         inputs=inputs,
-        domain_execution=domain_execution,
+        domain_executions=domain_executions,
     )
     value_roots = _module_fragment_value_roots(fragment)
     _require_closed_module_fragment(fragment, value_roots.consumed)
@@ -325,7 +325,7 @@ def elaborate_module(
         fragment.operations,
         fragment.python_implementations,
         measurement_transforms=fragment.measurement_transforms,
-        domain_execution=fragment.domain_execution,
+        domain_executions=fragment.domain_executions,
         actions=fragment.actions,
         value_roots=value_roots.semantic,
         state_regions=fragment.state_intents,
@@ -359,7 +359,7 @@ def _elaborate_module_ir(
     module: ModuleIR,
     *,
     inputs: Mapping[str, object],
-    domain_execution: DomainExecution | None = None,
+    domain_executions: Sequence[DomainExecution] = (),
 ) -> _ModuleFragment:
     resolver = _ModuleValueResolver(module)
     source_fragments = tuple(
@@ -371,19 +371,17 @@ def _elaborate_module_ir(
         implementation.declaration_key: implementation
         for implementation in module.python_implementations
     }
-    lowered_execution = (
+    lowered_executions = tuple(
         _resolve_domain_execution(
-            lower_domain_execution(domain_execution),
+            lower_domain_execution(execution),
             resolver=resolver,
         )
-        if domain_execution is not None
-        else None
+        for execution in domain_executions
     )
     domain_input_values = tuple(
         value
-        for _name, value in (
-            () if lowered_execution is None else lowered_execution.input_bindings
-        )
+        for execution in lowered_executions
+        for _name, value in execution.input_bindings
         if isinstance(value, ValueRef)
     )
     value_dependencies = _module_value_dependencies(
@@ -416,7 +414,7 @@ def _elaborate_module_ir(
             for operation in module.body.operations
         ),
         measurement_transforms=module.body.measurement_transforms,
-        domain_execution=lowered_execution,
+        domain_executions=lowered_executions,
         python_implementations=tuple(
             ScopedPythonImplementation(
                 operation_id=semantic_operation_id(operation.operation_id),
@@ -879,10 +877,11 @@ def _module_fragment_value_roots(
     add_semantic_roots(
         value for operation in fragment.operations for _name, value in operation.inputs
     )
-    if fragment.domain_execution is not None:
-        add_semantic_roots(
-            value for _name, value in fragment.domain_execution.input_bindings
-        )
+    add_semantic_roots(
+        value
+        for execution in fragment.domain_executions
+        for _name, value in execution.input_bindings
+    )
     add_semantic_roots(axis.size for record in fragment.records for axis in record.axes)
     add_semantic_roots(
         axis.size for product in fragment.product_ports for axis in product.axes

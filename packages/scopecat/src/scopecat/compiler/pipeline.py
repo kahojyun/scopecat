@@ -10,7 +10,7 @@ from scopecat.compiler.frontend.resolution import (
     resolve_compiled_invocation,
 )
 from scopecat.compiler.linking.linked import LinkedPlan, link_verified_program
-from scopecat.compiler.typed.program import TypedProgram
+from scopecat.compiler.typed.program import CoreProgram
 from scopecat.kernel.problems import Problem
 from scopecat.records.run import RunConfigSource
 from scopecat.records.run_request import RunRequest
@@ -25,7 +25,7 @@ class LinkedExperiment:
     config_source: RunConfigSource | None
 
     @property
-    def program(self) -> TypedProgram:
+    def program(self) -> CoreProgram:
         return self.plan.program
 
     @property

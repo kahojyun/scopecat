@@ -10,16 +10,22 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import cast
 
 import scopecat as sc
 from scopecat import Quantity
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
-    DomainBatchView,
-    DomainExecutionOffer,
+    DomainBoundPoint,
+    DomainCallView,
+    DomainCompilation,
+    DomainCompiledJob,
+    DomainCompileRequest,
     DomainExecutionView,
     PreparedDomainExecution,
+    compiled_jobs,
 )
 from scopecat_quantum import (
     BinaryIqDiscriminator,
@@ -168,7 +174,13 @@ DRAG_BETA_TEMPLATE = (
 )
 
 
-class DragBetaDomainExecutionAdapter:
+@dataclass(frozen=True, slots=True)
+class _DragBetaArtifact:
+    betas: tuple[Quantity, ...]
+    amplifications: tuple[int, ...]
+
+
+class DragBetaDomainCompiler:
     """Bind the authored mixed program to the fake list-mode laboratory."""
 
     def __init__(
@@ -198,19 +210,40 @@ class DragBetaDomainExecutionAdapter:
         return sum(runtime.physical_execution_count for runtime in self._runtimes)
 
     @property
-    def adapter_id(self) -> str:
+    def compiler_id(self) -> str:
         return DRAG_BETA_ADAPTER_ID
 
-    def select(self, view: DomainBatchView) -> DomainExecutionOffer | None:
-        execution = _execution_or_none(view)
-        if execution is None:
+    @property
+    def target_id(self) -> str:
+        return self.target.id.value
+
+    def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
+        if not _accepts_execution(request.call):
             return None
-        return DomainExecutionOffer(
-            max_points_per_batch=self.target.max_list_entries,
+        partitions = request.partition(max_points=self.target.max_list_entries)
+        return compiled_jobs(
+            request,
+            compiler_id=self.compiler_id,
+            target_id=self.target_id,
+            max_points=self.target.max_list_entries,
+            artifacts=tuple(
+                _drag_beta_artifact(
+                    request.bind_points(
+                        ordinals,
+                        max_points=self.target.max_list_entries,
+                    )
+                )
+                for ordinals in partitions
+            ),
         )
 
-    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
+    def prepare(
+        self,
+        job: DomainCompiledJob,
+        context: DomainBatchContext,
+    ) -> PreparedDomainExecution:
         execution = context.execution
+        artifact = cast("_DragBetaArtifact", job.artifact)
         execution_points = tuple(execution.points)
         if tuple(point.ref for point in execution_points) != context.points:
             msg = "DRAG-beta execution points do not match the batch context"
@@ -222,13 +255,8 @@ class DragBetaDomainExecutionAdapter:
             _product_binding(execution),
             result_slot_id=iq_result.acquisition_slot_id,
             declaration=_program_body(execution),
-            betas=tuple(
-                _decode_beta(point.input("beta")) for point in execution_points
-            ),
-            amplifications=tuple(
-                _decode_amplification(point.input("amplification"))
-                for point in execution_points
-            ),
+            betas=artifact.betas,
+            amplifications=artifact.amplifications,
             baseline_beta=self.baseline_beta,
             shots=DRAG_BETA_SHOTS,
             target=self.target,
@@ -283,21 +311,30 @@ def drag_beta_scratch_experiment(
     )
 
 
-def _execution_or_none(view: DomainBatchView) -> DomainExecutionView | None:
-    selected = view.matching_execution(
-        dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
-        dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
-    )
-    if selected is None or not (
-        isinstance(selected.program.body, quantum.Program)
-        and selected.program.body.id == _DRAG_BETA_PROGRAM.id
+def _accepts_execution(execution: DomainCallView) -> bool:
+    if not (
+        execution.program.dialect_id == quantum.QUANTUM_PROGRAM_DIALECT_ID
+        and execution.program.dialect_version == quantum.QUANTUM_PROGRAM_DIALECT_VERSION
+        and isinstance(execution.program.body, quantum.Program)
+        and execution.program.body.id == _DRAG_BETA_PROGRAM.id
     ):
-        return None
-    _validated_result_contracts(selected)
-    return selected
+        return False
+    _validated_result_contracts(execution)
+    return True
 
 
-def _program_body(execution: DomainExecutionView) -> quantum.Program:
+def _drag_beta_artifact(points: Sequence[DomainBoundPoint]) -> _DragBetaArtifact:
+    return _DragBetaArtifact(
+        betas=tuple(_decode_beta(point.input("beta")) for point in points),
+        amplifications=tuple(
+            _decode_amplification(point.input("amplification")) for point in points
+        ),
+    )
+
+
+def _program_body(
+    execution: DomainCallView | DomainExecutionView,
+) -> quantum.Program:
     body = execution.program.body
     if not isinstance(body, quantum.Program):
         msg = "DRAG-beta domain program body must be a Program"
@@ -314,7 +351,7 @@ def _product_binding(view: DomainExecutionView) -> DragBetaProductBinding:
 
 
 def _validated_result_contracts(
-    execution: DomainExecutionView,
+    execution: DomainCallView | DomainExecutionView,
 ) -> quantum.MeasurementResult:
     body = _program_body(execution)
     iq_result = execution.result("iq_shots").contract
@@ -359,6 +396,6 @@ __all__ = [
     "DRAG_BETA_SPAN",
     "DRAG_BETA_TEMPLATE",
     "DRAG_BETA_TEMPLATE_ID",
-    "DragBetaDomainExecutionAdapter",
+    "DragBetaDomainCompiler",
     "drag_beta_scratch_experiment",
 ]

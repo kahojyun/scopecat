@@ -8,27 +8,26 @@ from quantum_lab_demo import notebook_workspace
 from quantum_lab_demo.reference_experiments import (
     FAKE_X_COUNT_BIAS_TEMPLATE,
     FakeBiasVoltageProvider,
-    FakeXCountDomainExecutionAdapter,
+    FakeXCountDomainCompiler,
     fake_x_count_bias_config,
 )
 
 # %%
 workspace = notebook_workspace("12-fake-awg-with-bias")
 voltage_source = FakeBiasVoltageProvider()
-adapter = FakeXCountDomainExecutionAdapter()
+compiler = FakeXCountDomainCompiler()
 lab = sc.open(
     workspace,
     config_profile=fake_x_count_bias_config(),
     execution_backend=sc.ExecutionBackend(
         provider=voltage_source,
-        domain_adapters=(adapter,),
+        domain_compilers=(compiler,),
     ),
 )
 
 # %%
 experiment = lab.prepare(
     FAKE_X_COUNT_BIAS_TEMPLATE,
-    execution_options=sc.ExecutionOptions(fusion="automatic"),
 )
 preview = experiment.preview()
 completed_run = experiment.run(
@@ -53,7 +52,7 @@ mixed_execution_results = {
     "logical_points": preview.point_count,
     "record_ids": [record.id for record in preview.records],
     "voltage_writes": list(voltage_source.writes),
-    "physical_awg_executions": adapter.runtime.physical_execution_count,
+    "physical_awg_executions": compiler.runtime.physical_execution_count,
     "bias_x_count_points": bias_x_count_points,
     "bias_readbacks": bias_readbacks,
 }

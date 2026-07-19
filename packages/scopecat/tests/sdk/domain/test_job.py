@@ -26,7 +26,7 @@ def test_domain_invocation_spec_retains_only_lab_owned_declarations() -> None:
     spec = DomainInvocationSpec(
         invocation_id="invoke-1",
         target=_target(),
-        adapter_intent={"mode": "list"},
+        target_intent={"mode": "list"},
         payload=payload,
     )
 

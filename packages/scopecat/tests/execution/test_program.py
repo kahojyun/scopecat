@@ -7,11 +7,11 @@ from scopecat.compiler.linking.bound import (
     BoundComputeCall,
     BoundComputeOutput,
     BoundComputeResult,
-    BoundPlan,
     BoundPoint,
     BoundResourceState,
     BoundStateField,
     CollectionRequest,
+    MaterializedLocalSemantics,
 )
 from scopecat.compiler.linking.implementations import select_local_implementations
 from scopecat.compiler.linking.product_realizations import (
@@ -39,14 +39,12 @@ from scopecat.compiler.typed.program import (
     TypedComputeNode,
     TypedComputeOutput,
 )
-from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import (
     ApplyStateStage,
     CollectionResultBinding,
     CollectOperation,
     CollectStage,
     ComputeStage,
-    ExecutionProgram,
     OutputInput,
     PointProgram,
     ResourceClaim,
@@ -60,6 +58,10 @@ from scopecat.kernel.value_types import Float, Scalar
 from scopecat.planning.routing import RoutingView
 from scopecat.records.config import RoutingResource
 from scopecat.sdk.instruments.contracts import CollectCommand, CollectProductRequest
+from tests.testkit.local_effect_program import (
+    StubLocalEffectProgram,
+    lower_test_local_effect_program,
+)
 from tests.testkit.typed_program import instrument_product_producer
 
 
@@ -162,7 +164,6 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
                     id=producer_result_id,
                     value_type=Scalar(Float()),
                 ),
-                cache_key="producer-key",
             ),
             BoundComputeCall(
                 operation_id=consumer_id,
@@ -173,7 +174,6 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
                     id=consumer_result_id,
                     value_type=Scalar(Float()),
                 ),
-                cache_key="consumer-key",
             ),
         ),
         routes=(),
@@ -210,7 +210,7 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
             ),
         ),
     )
-    plan = BoundPlan(
+    plan = MaterializedLocalSemantics(
         experiment_id="explicit-stages",
         points=(point,),
         product_uses=(source_a_signal, source_b_signal),
@@ -233,7 +233,7 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         )[0],
     )
 
-    program = build_execution_program(
+    program = lower_test_local_effect_program(
         plan,
         instrument_order=("source-b", "source-c", "source-a"),
     )
@@ -287,7 +287,7 @@ def test_collection_inventory_is_a_subset_of_complete_logical_uses() -> None:
 def test_zero_point_execution_retains_nonempty_collection_inventory() -> None:
     source_use = product_use(product_id("source"))
 
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="zero-point-collection-contract",
         points=(),
         product_uses=(source_use,),
@@ -299,7 +299,7 @@ def test_zero_point_execution_retains_nonempty_collection_inventory() -> None:
     assert program.collection_product_use_ids == (source_use.id,)
 
 
-def _source_and_derived_execution_program() -> ExecutionProgram:
+def _source_and_derived_execution_program() -> StubLocalEffectProgram:
     source_use = product_use(product_id("source"))
     derived_use = product_use(product_id("derived"))
     operation_id = "point-0.collect.source-0"
@@ -321,7 +321,7 @@ def _source_and_derived_execution_program() -> ExecutionProgram:
             ),
         ),
     )
-    return ExecutionProgram(
+    return StubLocalEffectProgram(
         experiment_id="source-and-derived",
         points=(
             PointProgram(

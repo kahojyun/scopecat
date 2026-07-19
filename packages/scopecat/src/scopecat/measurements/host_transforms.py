@@ -2,8 +2,8 @@
 
 The graph owns pure semantic meaning and typed logical input/output edges.
 Host callables are selected separately, after linking and before any producer
-effect.  Runtime execution consumes only closed producer-neutral fragments and
-returns values through the existing measurement assembly boundary.
+effect. Runtime execution extends canonical logical value candidates directly;
+only the RunProgram boundary closes the complete value inventory.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from scopecat.kernel.content_identity import content_fingerprint, stable_content
 from scopecat.kernel.errors import (
     CheckFailed,
     MeasurementTransformExecutionError,
-    ProviderContractError,
 )
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import (
@@ -31,6 +30,7 @@ from scopecat.kernel.problems import (
     blocking_problem,
     model_location,
 )
+from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
     validated_measurement_value_copy,
@@ -49,12 +49,7 @@ from scopecat.measurements.transform_verification import (
     VerifiedMeasurementTransformGraph,
 )
 from scopecat.measurements.values import (
-    ClosedMeasurementProductValues,
-    ClosedMeasurementValueFragment,
     MeasurementValueCandidate,
-    SelectedMeasurementValueAssembly,
-    assemble_measurement_values,
-    seal_measurement_value_fragment,
 )
 from scopecat.records.measurement import (
     ComplexQuantity,
@@ -188,87 +183,54 @@ class SelectedHostMeasurementTransforms:
 
 
 @dataclass(frozen=True, slots=True)
-class HostMeasurementTransformFragmentBinding:
-    transform_id: NativeMeasurementTransformId
-    fragment_id: str
-
-    def __post_init__(self) -> None:
-        if not self.fragment_id:
-            msg = "host measurement transform fragment id must be non-empty"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class BoundHostMeasurementTransformPlan:
-    """Structural transform/fragment binding selected before runtime effects.
-
-    ``source_fragment_ids`` identifies the remaining ingress fragments.  This
-    proof does not select or establish the producer realization of those
-    source fragments; a host orchestration plan must close that separately.
-    """
+class BoundHostMeasurementTransforms:
+    """Selected pure transform graph with its direct logical source inventory."""
 
     selection: SelectedHostMeasurementTransforms = field(repr=False)
-    value_assembly: SelectedMeasurementValueAssembly = field(repr=False)
-    fragment_bindings: tuple[HostMeasurementTransformFragmentBinding, ...]
-    source_fragment_ids: tuple[str, ...]
+    source_product_use_ids: tuple[ProductUseId, ...]
     contract_fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
-        bindings = tuple(self.fragment_bindings)
-        source_ids = tuple(self.source_fragment_ids)
-        if (
-            self.selection.graph.linked_contract_fingerprint
-            != self.value_assembly.linked_contract_fingerprint
-        ):
-            msg = "host transform plan and value assembly belong to different plans"
-            raise ValueError(msg)
-        if len(bindings) != len(self.selection.graph.transforms):
-            msg = "every selected host transform must have one fragment binding"
-            raise ValueError(msg)
-        if tuple(binding.transform_id for binding in bindings) != tuple(
-            transform.id for transform in self.selection.graph.transforms
-        ):
-            msg = "host transform fragment bindings must follow graph order"
-            raise ValueError(msg)
-        fragment_ids = tuple(binding.fragment_id for binding in bindings)
-        all_fragment_ids = (*fragment_ids, *source_ids)
-        if len(all_fragment_ids) != len({*all_fragment_ids}):
-            msg = "host transform and source fragment ids must be unique"
-            raise ValueError(msg)
-        if {*all_fragment_ids} != {
-            fragment.id for fragment in self.value_assembly.fragments
-        }:
-            msg = "host transform plan must cover the selected value fragments"
-            raise ValueError(msg)
-        object.__setattr__(self, "fragment_bindings", bindings)
-        object.__setattr__(self, "source_fragment_ids", source_ids)
+        source_ids = tuple(self.source_product_use_ids)
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("host transform source product uses must be unique")
+        produced = {
+            use_id
+            for transform in self.selection.graph.transforms
+            for output in transform.outputs
+            for use_id in output.product_use_ids
+        }
+        required_sources = {
+            input_port.product_use_id
+            for transform in self.selection.graph.transforms
+            for input_port in transform.inputs
+            if input_port.product_use_id not in produced
+        }
+        if not required_sources.issubset(source_ids):
+            raise ValueError("host transform sources do not cover graph inputs")
         object.__setattr__(
             self,
             "contract_fingerprint",
-            _bound_plan_fingerprint(
-                self.selection,
-                self.value_assembly,
-                bindings,
-                source_ids,
+            stable_content_hash(
+                content_fingerprint(
+                    {
+                        "schema": "scopecat.bound_host_measurement_transforms.v2",
+                        "selection_contract_fingerprint": (
+                            self.selection.contract_fingerprint
+                        ),
+                        "source_product_use_ids": [item.value for item in source_ids],
+                    }
+                )
             ),
         )
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutedHostMeasurementTransforms:
-    """Closed source/derived fragments and final canonical assembled values."""
+    """Canonical direct and derived logical value candidates."""
 
-    plan: BoundHostMeasurementTransformPlan = field(repr=False)
-    source_fragments: tuple[ClosedMeasurementValueFragment, ...]
-    transform_fragments: tuple[ClosedMeasurementValueFragment, ...]
-    values: ClosedMeasurementProductValues
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "source_fragments", tuple(self.source_fragments))
-        object.__setattr__(self, "transform_fragments", tuple(self.transform_fragments))
-        if self.values.selection is not self.plan.value_assembly:
-            msg = "executed host values must belong to the bound value assembly"
-            raise ValueError(msg)
+    plan: BoundHostMeasurementTransforms = field(repr=False)
+    values: tuple[MeasurementValueCandidate, ...]
 
 
 def select_host_measurement_transforms(
@@ -420,233 +382,66 @@ def select_host_measurement_transforms(
 
 def bind_host_measurement_transforms(
     selection: SelectedHostMeasurementTransforms,
-    value_assembly: SelectedMeasurementValueAssembly,
-    fragment_bindings: Sequence[HostMeasurementTransformFragmentBinding],
-) -> BoundHostMeasurementTransformPlan:
-    """Bind transform outputs and source leaves to one value assembly."""
+    source_product_use_ids: Sequence[ProductUseId],
+) -> BoundHostMeasurementTransforms:
+    """Bind a selected transform graph to its direct logical source uses."""
 
-    selected = selection
-    assembly = value_assembly
-    supplied = tuple(fragment_bindings)
-
-    graph = selected.graph
-    problems: list[Problem] = []
-    if assembly.linked_contract_fingerprint != graph.linked_contract_fingerprint:
-        problems.append(
-            _check_problem(
-                "measurement_transform_assembly_contract_mismatch",
-                "measurement transform graph and value assembly belong to "
-                "different linked contracts",
-                path=("value_assembly",),
-                category=ProblemCategory.CONFLICT,
-            )
-        )
-    transform_by_id = {transform.id: transform for transform in graph.transforms}
-    binding_counts = Counter(binding.transform_id for binding in supplied)
-    fragment_counts = Counter(binding.fragment_id for binding in supplied)
-    by_transform: dict[
-        NativeMeasurementTransformId, HostMeasurementTransformFragmentBinding
-    ] = {}
-    for binding_index, binding in enumerate(supplied):
-        if binding_counts[binding.transform_id] > 1:
-            problems.append(
-                _check_problem(
-                    "measurement_transform_fragment_binding_duplicate",
-                    f"transform {binding.transform_id.value!r} has multiple fragment "
-                    "bindings",
-                    path=("fragment_bindings", binding_index),
-                    category=ProblemCategory.CONFLICT,
-                )
-            )
-        if fragment_counts[binding.fragment_id] > 1:
-            problems.append(
-                _check_problem(
-                    "measurement_transform_fragment_owner_duplicate",
-                    f"fragment {binding.fragment_id!r} is bound to multiple transforms",
-                    path=("fragment_bindings", binding_index, "fragment_id"),
-                    category=ProblemCategory.CONFLICT,
-                )
-            )
-        transform = transform_by_id.get(binding.transform_id)
-        if transform is None:
-            problems.append(
-                _check_problem(
-                    "measurement_transform_fragment_binding_unknown",
-                    f"fragment binding references unknown transform "
-                    f"{binding.transform_id.value!r}",
-                    path=("fragment_bindings", binding_index, "transform_id"),
-                    category=ProblemCategory.NOT_FOUND,
-                )
-            )
-            continue
-        by_transform.setdefault(binding.transform_id, binding)
-        try:
-            fragment = assembly.fragment(binding.fragment_id)
-        except KeyError:
-            problems.append(
-                _check_problem(
-                    "measurement_transform_output_fragment_missing",
-                    f"transform {binding.transform_id.value!r} references unknown "
-                    f"fragment {binding.fragment_id!r}",
-                    path=("fragment_bindings", binding_index, "fragment_id"),
-                    category=ProblemCategory.NOT_FOUND,
-                )
-            )
-            continue
-        expected_output_ids = tuple(
-            use_id for port in transform.outputs for use_id in port.product_use_ids
-        )
-        expected_outputs = set(expected_output_ids)
-        if set(fragment.product_use_ids) != expected_outputs or len(
-            fragment.product_use_ids
-        ) != len(expected_output_ids):
-            problems.append(
-                _check_problem(
-                    "measurement_transform_output_fragment_mismatch",
-                    f"fragment {fragment.id!r} does not exactly own outputs of "
-                    f"transform {transform.id.value!r}",
-                    path=("fragment_bindings", binding_index, "fragment_id"),
-                    category=ProblemCategory.CONFLICT,
-                )
-            )
-
-    assembly_use_ids = set(assembly.product_use_ids)
-    for transform_index, transform in enumerate(graph.transforms):
-        if transform.id not in by_transform:
-            problems.append(
-                _check_problem(
-                    "measurement_transform_fragment_binding_missing",
-                    f"transform {transform.id.value!r} has no output fragment binding",
-                    path=("transforms", transform_index, "fragment"),
-                    category=ProblemCategory.NOT_FOUND,
-                )
-            )
-        for port_index, port in enumerate(transform.inputs):
-            if port.product_use_id not in assembly_use_ids:
-                problems.append(
-                    _check_problem(
-                        "measurement_transform_assembly_value_missing",
-                        f"transform {transform.id.value!r} input {port.id!r} "
-                        "is absent from the value assembly",
-                        path=(
-                            "transforms",
-                            transform_index,
-                            "inputs",
-                            port_index,
-                        ),
-                        category=ProblemCategory.NOT_FOUND,
-                    )
-                )
-        for port_index, port in enumerate(transform.outputs):
-            for use_index, use_id in enumerate(port.product_use_ids):
-                if use_id not in assembly_use_ids:
-                    problems.append(
-                        _check_problem(
-                            "measurement_transform_assembly_value_missing",
-                            f"transform {transform.id.value!r} output {port.id!r} "
-                            "is absent from the value assembly",
-                            path=(
-                                "transforms",
-                                transform_index,
-                                "outputs",
-                                port_index,
-                                "product_use_ids",
-                                use_index,
-                            ),
-                            category=ProblemCategory.NOT_FOUND,
-                        )
-                    )
-    if problems:
-        raise CheckFailed(problems)
-
-    canonical_bindings = tuple(
-        by_transform[transform.id] for transform in graph.transforms
-    )
-    transform_fragment_ids = {binding.fragment_id for binding in canonical_bindings}
-    source_fragment_ids = tuple(
-        fragment.id
-        for fragment in assembly.fragments
-        if fragment.id not in transform_fragment_ids
-    )
-    return BoundHostMeasurementTransformPlan(
-        selected,
-        assembly,
-        canonical_bindings,
-        source_fragment_ids,
-    )
+    return BoundHostMeasurementTransforms(selection, tuple(source_product_use_ids))
 
 
 def execute_host_measurement_transforms(
-    plan: BoundHostMeasurementTransformPlan,
-    source_fragments: Sequence[ClosedMeasurementValueFragment],
+    plan: BoundHostMeasurementTransforms,
+    source_values: Sequence[MeasurementValueCandidate],
 ) -> ExecutedHostMeasurementTransforms:
-    """Execute POINT kernels in canonical graph order and assemble all values."""
+    """Execute POINT kernels in graph order over logical value candidates."""
 
     bound = plan
-    supplied = tuple(source_fragments)
-
-    by_id: dict[str, ClosedMeasurementValueFragment] = {}
+    supplied = tuple(source_values)
+    points = bound.selection.graph.linked_points.point_domain.points
+    expected_keys = {
+        (point.logical_id, use_id)
+        for point in points
+        for use_id in bound.source_product_use_ids
+    }
+    value_by_output: dict[
+        tuple[LogicalPointId, ProductUseId], MeasurementValueCandidate
+    ] = {}
     problems: list[Problem] = []
-    expected_source_ids = set(bound.source_fragment_ids)
-    for fragment_index, candidate in enumerate(supplied):
-        fragment = candidate
-        if fragment.fragment_id in by_id:
+    for candidate_index, candidate in enumerate(supplied):
+        key = (candidate.logical_point_id, candidate.product_use_id)
+        if key in value_by_output:
             problems.append(
                 _execution_problem(
-                    "measurement_transform_source_fragment_duplicate",
-                    f"source fragment {fragment.fragment_id!r} is repeated",
-                    path=("source_fragments", fragment_index),
+                    "measurement_transform_source_value_duplicate",
+                    "host transform sources repeat one logical point/use value",
+                    path=("source_values", candidate_index),
                     category=ProblemCategory.CONFLICT,
                 )
             )
-            continue
-        by_id[fragment.fragment_id] = fragment
-        if fragment.fragment_id not in expected_source_ids:
+        elif key not in expected_keys:
             problems.append(
                 _execution_problem(
-                    "measurement_transform_source_fragment_unexpected",
-                    f"fragment {fragment.fragment_id!r} is not a selected source",
-                    path=("source_fragments", fragment_index),
+                    "measurement_transform_source_value_unexpected",
+                    "host transform source is outside its logical inventory",
+                    path=("source_values", candidate_index),
                     category=ProblemCategory.INVALID_INPUT,
                 )
             )
-        if (
-            fragment.selection.contract_fingerprint
-            != bound.value_assembly.contract_fingerprint
-        ):
-            problems.append(
-                _execution_problem(
-                    "measurement_transform_source_contract_mismatch",
-                    f"source fragment {fragment.fragment_id!r} belongs to another "
-                    "value assembly",
-                    path=("source_fragments", fragment_index),
-                    category=ProblemCategory.INVALID_INPUT,
-                )
+        else:
+            value_by_output[key] = candidate
+    for logical_point_id, product_use_id in expected_keys - set(value_by_output):
+        problems.append(
+            _execution_problem(
+                "measurement_transform_source_value_missing",
+                "host transform source is missing one logical point/use value",
+                path=("source_values", logical_point_id.value, product_use_id.value),
+                category=ProblemCategory.INVALID_INPUT,
             )
-    for fragment_id in bound.source_fragment_ids:
-        if fragment_id not in by_id:
-            problems.append(
-                _execution_problem(
-                    "measurement_transform_source_fragment_missing",
-                    f"selected source fragment {fragment_id!r} is missing",
-                    path=("source_fragments", fragment_id),
-                    category=ProblemCategory.INVALID_INPUT,
-                )
-            )
+        )
     if problems:
         raise MeasurementTransformExecutionError(problems)
 
-    canonical_sources = tuple(by_id[item] for item in bound.source_fragment_ids)
-    value_by_output = {
-        (value.logical_point_id, value.product_use_id): value
-        for fragment in canonical_sources
-        for value in fragment.values
-    }
-    binding_by_transform = {
-        binding.transform_id: binding for binding in bound.fragment_bindings
-    }
-    transform_fragments: list[ClosedMeasurementValueFragment] = []
-    points = bound.selection.graph.linked_points.point_domain.points
+    derived_values: list[MeasurementValueCandidate] = []
     for transform, implementation in zip(
         bound.selection.graph.transforms,
         bound.selection.implementations,
@@ -815,39 +610,15 @@ def execute_host_measurement_transforms(
                     )
                     for use_id in port.product_use_ids
                 )
-        binding = binding_by_transform[transform.id]
-        try:
-            fragment = seal_measurement_value_fragment(
-                bound.value_assembly,
-                binding.fragment_id,
-                candidates,
-            )
-        except ProviderContractError as error:
-            msg = "prevalidated transform outputs failed fragment sealing"
-            raise AssertionError(msg) from error
-        transform_fragments.append(fragment)
+        derived_values.extend(candidates)
         value_by_output.update(
             {
                 (value.logical_point_id, value.product_use_id): value
-                for value in fragment.values
+                for value in candidates
             }
         )
 
-    selected_transform_fragments = tuple(transform_fragments)
-    try:
-        values = assemble_measurement_values(
-            bound.value_assembly,
-            (*canonical_sources, *selected_transform_fragments),
-        )
-    except ProviderContractError as error:
-        msg = "closed transform fragments failed their prevalidated assembly"
-        raise AssertionError(msg) from error
-    return ExecutedHostMeasurementTransforms(
-        bound,
-        canonical_sources,
-        selected_transform_fragments,
-        values,
-    )
+    return ExecutedHostMeasurementTransforms(bound, (*supplied, *derived_values))
 
 
 def _host_selection_fingerprint(
@@ -876,25 +647,6 @@ def _host_selection_fingerprint(
                         strict=True,
                     )
                 ],
-            }
-        )
-    )
-
-
-def _bound_plan_fingerprint(
-    selection: SelectedHostMeasurementTransforms,
-    assembly: SelectedMeasurementValueAssembly,
-    bindings: Sequence[HostMeasurementTransformFragmentBinding],
-    source_fragment_ids: Sequence[str],
-) -> str:
-    return stable_content_hash(
-        content_fingerprint(
-            {
-                "schema": "scopecat.bound_host_measurement_transforms.v1",
-                "selection_contract_fingerprint": selection.contract_fingerprint,
-                "assembly_contract_fingerprint": assembly.contract_fingerprint,
-                "fragment_bindings": tuple(bindings),
-                "source_fragment_ids": tuple(source_fragment_ids),
             }
         )
     )
@@ -997,10 +749,9 @@ def _is_measurement_value(value: object) -> bool:
 
 
 __all__ = [
-    "BoundHostMeasurementTransformPlan",
+    "BoundHostMeasurementTransforms",
     "ExecutedHostMeasurementTransforms",
     "HostMeasurementTransformCall",
-    "HostMeasurementTransformFragmentBinding",
     "HostMeasurementTransformImplementation",
     "HostMeasurementTransformImplementationBinding",
     "HostMeasurementTransformKernel",

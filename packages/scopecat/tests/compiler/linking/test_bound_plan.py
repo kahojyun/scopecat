@@ -7,7 +7,7 @@ import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.bound import BoundComputeOutput, BoundValue
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.model import (
     RelationExpr,
     lit,
@@ -197,7 +197,7 @@ def test_bound_state_preserves_primitive_field_types(
         config_with_physical_resources({"source-0": ("configure",)})
     )
 
-    plan = materialize_local_plan(link_program(program, environment))
+    plan = materialize_local_semantics(link_program(program, environment))
 
     assert plan.valid
     assert plan.points[0].desired_state[0].fields[0].value.root == value
@@ -272,8 +272,8 @@ def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() 
         config_with_physical_resources({"source-0": ("play_program",)})
     )
 
-    plan = materialize_local_plan(link_program(program, environment))
-    repeated = materialize_local_plan(link_program(program, environment))
+    plan = materialize_local_semantics(link_program(program, environment))
+    repeated = materialize_local_semantics(link_program(program, environment))
 
     assert plan.valid
     assert [point.logical_id.logical_ordinal for point in plan.points] == [0, 1, 2]
@@ -367,7 +367,7 @@ def test_point_domain_rechecks_primary_key_after_config_entity_normalization() -
         ),
     )
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(load_config()))
     )
 
@@ -381,7 +381,7 @@ def test_point_domain_rechecks_primary_key_after_config_entity_normalization() -
     assert "duplicates row 0" in problem.message
 
 
-def test_compute_inputs_are_normalized_before_binding_and_hashing() -> None:
+def test_compute_inputs_are_normalized_before_binding() -> None:
     node_id = _operation_id("normalize-frequency")
     point_type = Table(
         columns=(
@@ -424,7 +424,7 @@ def test_compute_inputs_are_normalized_before_binding_and_hashing() -> None:
         ),
     )
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(load_config()))
     )
 
@@ -434,7 +434,6 @@ def test_compute_inputs_are_normalized_before_binding_and_hashing() -> None:
         BoundValue(Quantity(value=5.0, unit="GHz")),
         BoundValue(Quantity(value=5.0, unit="GHz")),
     ]
-    assert calls[0].cache_key == calls[1].cache_key
 
 
 def test_compute_payload_input_rejects_mismatched_schema_before_binding() -> None:
@@ -452,7 +451,7 @@ def test_compute_payload_input_rejects_mismatched_schema_before_binding() -> Non
     assert caught.value.code == "incompatible_result_type"
 
 
-def test_compute_mapping_fingerprint_preserves_key_types_and_values() -> None:
+def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
     node_id = _operation_id("consume-mapping")
     point_type = Table(
         columns=(TableColumn("payload", Scalar(Payload("mapping"))),),
@@ -500,12 +499,12 @@ def test_compute_mapping_fingerprint_preserves_key_types_and_values() -> None:
         ),
     )
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(load_config()))
     )
 
     assert plan.valid
-    assert plan.points[0].compute[0].cache_key != plan.points[1].compute[0].cache_key
+    assert plan.points[0].compute[0].inputs != plan.points[1].compute[0].inputs
 
 
 def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
@@ -529,7 +528,7 @@ def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
         ),
     )
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(load_config()))
     )
 

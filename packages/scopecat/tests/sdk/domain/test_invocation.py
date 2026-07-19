@@ -13,7 +13,7 @@ from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import ProductAxisDef, ProductKind
 from scopecat.compiler.typed.program import (
-    TypedProgram,
+    CoreProgram,
     product_output,
     record_product,
     shot_axis,
@@ -104,7 +104,7 @@ def _linked_points(
                 metadata={"projection": "alias"},
             ),
         )
-    program = TypedProgram(
+    program = CoreProgram(
         id=f"domain-mapping-{point_count}-{product_count}",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -411,7 +411,7 @@ def test_empty_result_contract_fingerprint_covers_use_subset_and_entry_mapping()
             capability_fingerprint="capability",
             artifact_id="artifact",
             artifact_fingerprint="artifact-fingerprint",
-            adapter_intent={"kind": "empty"},
+            target_intent={"kind": "empty"},
             payload=None,
         ).intent.result_contract_fingerprint
 
@@ -456,7 +456,7 @@ def test_mapping_reuses_immutable_product_contracts_for_invocation_identity() ->
             capability_fingerprint="capability",
             artifact_id="artifact",
             artifact_fingerprint="artifact-fingerprint",
-            adapter_intent={"kind": "empty"},
+            target_intent={"kind": "empty"},
             payload=None,
         ).intent.result_contract_fingerprint
 
@@ -1080,7 +1080,7 @@ def test_mapping_rejects_incomplete_or_foreign_edges_before_any_effect(
         )
 
 
-def test_mapping_rejects_duplicate_adapter_identity_inventory() -> None:
+def test_mapping_rejects_duplicate_target_identity_inventory() -> None:
     linked_points = _linked_points()
     entries, entry_bindings, result_bindings = _valid_mapping_inputs(linked_points)
 

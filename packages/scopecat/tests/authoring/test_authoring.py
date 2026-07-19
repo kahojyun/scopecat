@@ -70,6 +70,7 @@ from scopecat.compiler.semantic.model import (
     ValueUse,
     operation_result_id,
 )
+from scopecat.compiler.typed.program import core_state
 from scopecat.compiler.typed.state import (
     LogicalStateResourceTarget,
     SetStateSpec,
@@ -1873,7 +1874,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         resolved.parameters,
         config=config,
     )
-    state = resolved.experiment.state[0]
+    state = core_state(resolved.experiment)[0]
     assert isinstance(state, SetStateSpec)
     resource_target = state.resource_target
     assert isinstance(resource_target, LogicalStateResourceTarget)

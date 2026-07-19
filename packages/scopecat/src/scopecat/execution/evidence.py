@@ -1,8 +1,8 @@
-"""Build durable run evidence from execution engine results."""
+"""Build durable run evidence from local effect results."""
 
 from __future__ import annotations
 
-from scopecat.execution.local.engine import ExecutionEngineResult
+from scopecat.execution.effect_interpreter import RunEffectResult
 from scopecat.execution.persistence import (
     build_raw_measurement_dataset,
     build_run_manifest,
@@ -106,7 +106,7 @@ def _expected_record_count(schema: MeasurementDatasetSchema) -> int | None:
 
 
 def build_instrument_state_evidence(
-    result: ExecutionEngineResult,
+    result: RunEffectResult,
 ) -> InstrumentStateEvidence:
     return InstrumentStateEvidence(
         run_id=result.run_id,

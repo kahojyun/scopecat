@@ -11,7 +11,7 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.implementations import (
     select_local_implementations,
 )
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.model import (
     literal_rows,
 )
@@ -35,17 +35,17 @@ from scopecat.compiler.semantic.operation_contract import (
     PlacementConstraint,
 )
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     TypedComputeNode,
     TypedComputeOutput,
-    TypedProgram,
 )
-from scopecat.compiler.typed.verification import verify_typed_program
-from scopecat.execution.local.lowering import build_execution_program
+from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.execution.local.program import ComputeStage
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Float, Payload, Scalar, String, Table, ValueType
+from scopecat.kernel.value_types import Float, Payload, Scalar, Table, ValueType
 from tests.testkit.authoring import load_config
+from tests.testkit.local_effect_program import lower_test_local_effect_program
 from tests.testkit.relation_plans import point_domain
 from tests.testkit.typed_program import link_program, typed_program
 
@@ -79,7 +79,7 @@ def _program(
     output_id: ValueId | None = None,
     output_availability: ValueAvailability = _EXECUTE_POINT,
     point_count: int = 1,
-) -> TypedProgram:
+) -> CoreProgram:
     operation_id = _operation_id()
     return typed_program(
         id="implementation-sidecar",
@@ -147,9 +147,9 @@ def test_linking_does_not_require_a_local_implementation() -> None:
     program = _program(catalog=ImplementationCatalog())
     environment = validate_config_environment(load_config())
 
-    assert verify_typed_program(program) is program
+    assert verify_core_program(program) is program
     linked = link_program(program, environment)
-    plan = materialize_local_plan(linked)
+    plan = materialize_local_semantics(linked)
 
     assert linked.program.compute_nodes[0].contract == program.compute_nodes[0].contract
     assert not plan.valid
@@ -170,7 +170,7 @@ def test_local_materialization_rejects_ambiguous_implementation() -> None:
 
     environment = validate_config_environment(load_config())
     linked = link_program(program, environment)
-    plan = materialize_local_plan(linked)
+    plan = materialize_local_semantics(linked)
 
     assert not plan.valid
     assert plan.points == ()
@@ -309,7 +309,7 @@ def test_incomplete_selection_never_returns_a_partial_artifact() -> None:
     ]
 
 
-def test_binding_selects_stable_implementation_and_hashes_its_identity() -> None:
+def test_binding_selects_stable_implementation_identity() -> None:
     operation_id = _operation_id()
     first = _program(
         catalog=_catalog(("python-v1", operation_id, lambda: 1.0)),
@@ -319,14 +319,14 @@ def test_binding_selects_stable_implementation_and_hashes_its_identity() -> None
     )
     environment = validate_config_environment(load_config())
 
-    first_plan = materialize_local_plan(link_program(first, environment))
-    second_plan = materialize_local_plan(link_program(second, environment))
+    first_plan = materialize_local_semantics(link_program(first, environment))
+    second_plan = materialize_local_semantics(link_program(second, environment))
 
     first_call = first_plan.points[0].compute[0]
     second_call = second_plan.points[0].compute[0]
     assert first_call.operation_id == operation_id
     assert first_call.implementation_id == ImplementationId("python-v1")
-    assert first_call.cache_key != second_call.cache_key
+    assert second_call.implementation_id == ImplementationId("python-v2")
 
 
 def test_bound_plan_pins_selection_and_execution_only_projects_it() -> None:
@@ -338,11 +338,11 @@ def test_bound_plan_pins_selection_and_execution_only_projects_it() -> None:
     program = _program(
         catalog=_catalog(("python-v1", operation_id, kernel)),
     )
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(load_config()))
     )
 
-    execution = build_execution_program(plan, instrument_order=())
+    execution = lower_test_local_effect_program(plan, instrument_order=())
 
     call = plan.points[0].compute[0]
     assert call.implementation.kernel is kernel
@@ -353,7 +353,7 @@ def test_bound_plan_pins_selection_and_execution_only_projects_it() -> None:
     assert stage.operations[0].kernel is kernel
 
 
-def test_implementation_id_versions_cache_while_plan_pins_exact_callable() -> None:
+def test_plan_pins_exact_callable_for_selected_implementation() -> None:
     operation_id = _operation_id()
 
     def first_kernel() -> float:
@@ -369,13 +369,9 @@ def test_implementation_id_versions_cache_while_plan_pins_exact_callable() -> No
         catalog=_catalog(("python-v1", operation_id, second_kernel))
     )
     environment = validate_config_environment(load_config())
-    plan = materialize_local_plan(link_program(first_program, environment))
-    second_plan = materialize_local_plan(link_program(second_program, environment))
+    plan = materialize_local_semantics(link_program(first_program, environment))
+    second_plan = materialize_local_semantics(link_program(second_program, environment))
 
-    assert (
-        plan.points[0].compute[0].cache_key
-        == second_plan.points[0].compute[0].cache_key
-    )
     assert plan.points[0].compute[0].implementation.kernel is first_kernel
     assert second_plan.points[0].compute[0].implementation.kernel is second_kernel
 
@@ -387,7 +383,7 @@ def test_unsupported_local_result_availability_fails_before_point_evaluation() -
         catalog=_catalog(("python-v1", operation_id, lambda: 1.0)),
         output_availability=availability,
     )
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(load_config())),
     )
 
@@ -398,17 +394,17 @@ def test_unsupported_local_result_availability_fails_before_point_evaluation() -
     ]
 
 
-def test_compute_result_identity_does_not_change_value_cache_semantics() -> None:
+def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
     operation_id = _operation_id()
     catalog = _catalog(("python-v1", operation_id, lambda: 1.0))
     environment = validate_config_environment(load_config())
     first_output = ValueId(SymbolId(local_id="first-output"))
     second_output = ValueId(SymbolId(local_id="second-output"))
 
-    first = materialize_local_plan(
+    first = materialize_local_semantics(
         link_program(_program(catalog=catalog, output_id=first_output), environment)
     )
-    second = materialize_local_plan(
+    second = materialize_local_semantics(
         link_program(_program(catalog=catalog, output_id=second_output), environment)
     )
 
@@ -416,39 +412,17 @@ def test_compute_result_identity_does_not_change_value_cache_semantics() -> None
     second_call = second.points[0].compute[0]
     assert first_call.result.id == first_output
     assert second_call.result.id == second_output
-    assert first_call.cache_key == second_call.cache_key
 
 
-def test_compute_cache_identity_includes_selected_typed_interface() -> None:
-    operation_id = _operation_id()
-    catalog = _catalog(("python-v1", operation_id, lambda: 1.0))
-    environment = validate_config_environment(load_config())
-
-    float_plan = materialize_local_plan(
-        link_program(_program(catalog=catalog), environment)
-    )
-    string_plan = materialize_local_plan(
-        link_program(
-            _program(catalog=catalog, output_type=Scalar(String())), environment
-        )
-    )
-
-    assert (
-        float_plan.points[0].compute[0].cache_key
-        != string_plan.points[0].compute[0].cache_key
-    )
-
-
-def test_compute_interface_cache_accepts_payload_python_type() -> None:
+def test_compute_interface_accepts_payload_python_type() -> None:
     operation_id = _operation_id()
     program = _program(
         catalog=_catalog(("python-v1", operation_id, dict)),
         output_type=Scalar(Payload("program", python_type=dict)),
     )
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(load_config()))
     )
 
     assert plan.valid
-    assert plan.points[0].compute[0].cache_key

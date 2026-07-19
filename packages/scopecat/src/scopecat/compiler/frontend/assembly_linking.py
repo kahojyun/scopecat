@@ -54,9 +54,9 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.typed.program import TypedProgram
+from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.verification import (
-    VerifiedTypedProgram,
+    VerifiedCoreProgram,
     seal_typed_program,
 )
 from scopecat.kernel.errors import CheckFailed
@@ -68,7 +68,7 @@ from scopecat.records.parameter import ParameterCatalog
 def bind_verified_assembly(
     verified: VerifiedAssembly,
     environment: ValidatedConfigEnvironment,
-) -> VerifiedTypedProgram:
+) -> VerifiedCoreProgram:
     """Bind a config-free assembly proof to one validated config environment."""
 
     if not environment.valid:
@@ -95,7 +95,7 @@ def bind_verified_assembly(
 def _bind_verified_assembly(
     verified: VerifiedAssembly,
     environment: ValidatedConfigEnvironment,
-) -> VerifiedTypedProgram:
+) -> VerifiedCoreProgram:
     assembly = verified.source
     verified_graph = verified.graph
     config = environment.config
@@ -155,8 +155,7 @@ def _bind_verified_assembly(
         non_instrument_product_ids=(
             frozenset(
                 product_id
-                for execution in (verified_graph.semantic_graph.graph.domain_execution,)
-                if execution is not None
+                for execution in verified_graph.semantic_graph.graph.domain_executions
                 for _result_id, product_id in execution.results
             )
             | authored_measurement_transform_output_product_ids(
@@ -182,32 +181,19 @@ def _bind_verified_assembly(
         *record_product_uses,
         *measurement_transforms.input_product_uses,
     )
-    domain_execution, domain_product_producers = lower_semantic_domain_graph(
+    domain_executions, domain_product_producers = lower_semantic_domain_graph(
         verified_graph.semantic_graph,
         inputs,
         type_bindings=type_bindings,
         product_uses=product_uses,
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id=verified.experiment_id,
         kind=verified.kind,
         point_domain=point_domain,
         route_intents=tuple(route_intents),
         compute_nodes=compute_nodes,
-        domain_execution=domain_execution,
-        measurement_transforms=measurement_transforms.transforms,
-        implementation_catalog=implementation_catalog,
-        source_map=verified_graph.source_map,
-        parameter_overlays=tuple(
-            lower_parameter_overlay_intent(
-                parameter_catalog,
-                intent,
-                inputs,
-                type_bindings=type_bindings,
-            )
-            for intent in assembly.parameter_overlays
-        ),
-        state=(
+        effects=(
             *state_specs(
                 bindings,
                 inputs=inputs,
@@ -223,16 +209,29 @@ def _bind_verified_assembly(
                 )
                 for region in verified_graph.semantic_graph.graph.row_regions
             ),
+            *(
+                lower_action_effect(
+                    action,
+                    verified_graph.semantic_graph,
+                    resource_ports,
+                    inputs,
+                    type_bindings=type_bindings,
+                )
+                for action in verified_graph.semantic_graph.graph.actions
+            ),
+            *domain_executions,
         ),
-        actions=tuple(
-            lower_action_effect(
-                action,
-                verified_graph.semantic_graph,
-                resource_ports,
+        measurement_transforms=measurement_transforms.transforms,
+        implementation_catalog=implementation_catalog,
+        source_map=verified_graph.source_map,
+        parameter_overlays=tuple(
+            lower_parameter_overlay_intent(
+                parameter_catalog,
+                intent,
                 inputs,
                 type_bindings=type_bindings,
             )
-            for action in verified_graph.semantic_graph.graph.actions
+            for intent in assembly.parameter_overlays
         ),
         product_defs=(*inline_products.product_defs, *declared_products.product_defs),
         instrument_product_producers=(

@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.compiler.diagnostics import compiler_problem
+from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
@@ -36,6 +36,7 @@ from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     SeriesValueExpr,
 )
+from scopecat.compiler.typed.parameter_overlays import resolve_point_parameters
 from scopecat.compiler.typed.point_domain import (
     LogicalPointId,
     MaterializedPoint,
@@ -52,10 +53,13 @@ from scopecat.compiler.typed.products import (
     ProductDef,
 )
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     TypedDomainExecution,
     TypedMeasurementTransform,
-    TypedProgram,
     ValueInput,
+    core_actions,
+    core_domain_executions,
+    core_state,
 )
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.state import (
@@ -66,7 +70,7 @@ from scopecat.compiler.typed.state import (
 )
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
-    VerifiedTypedProgram,
+    VerifiedCoreProgram,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -95,11 +99,11 @@ class LinkedPlan:
     the plan owns no materialized points or target artifact.
     """
 
-    verified_program: VerifiedTypedProgram
+    verified_program: VerifiedCoreProgram
     environment: ValidatedConfigEnvironment
 
     @property
-    def program(self) -> TypedProgram:
+    def program(self) -> CoreProgram:
         """Return the sealed compiler program bound to this plan."""
 
         return self.verified_program.program
@@ -202,17 +206,23 @@ class MaterializedDomainExecution:
 class MaterializedLinkedPoints:
     """One linked plan with canonical points and materialized domain execution.
 
-    This artifact is deliberately narrower than a local bound plan: it retains
-    the exact linked program and materialized logical point domain while owning
-    no local compute or product realization.
+    This artifact is deliberately narrower than materialized local semantics:
+    it keeps the exact linked program and logical point domain while owning no
+    local compute or product realization.
     """
 
     linked_plan: LinkedPlan
     point_domain: MaterializedPointDomain
-    domain_execution: MaterializedDomainExecution | None = None
+    point_parameters: tuple[ParameterRelationData, ...]
+    domain_executions: tuple[MaterializedDomainExecution, ...] = ()
+
+    def __post_init__(self) -> None:
+        if len(self.point_parameters) != len(self.point_domain.points):
+            msg = "materialized points and parameter bindings must have equal length"
+            raise ValueError(msg)
 
     @property
-    def verified_program(self) -> VerifiedTypedProgram:
+    def verified_program(self) -> VerifiedCoreProgram:
         return self.linked_plan.verified_program
 
 
@@ -295,20 +305,21 @@ class MaterializedLinkedPointBatch:
         return self._parent.linked_plan
 
     @property
-    def verified_program(self) -> VerifiedTypedProgram:
+    def verified_program(self) -> VerifiedCoreProgram:
         return self._parent.verified_program
 
     @property
     def point_domain(self) -> MaterializedPointDomainView:
         return self._point_domain
 
-    @property
-    def domain_execution(self) -> MaterializedDomainExecution | None:
-        """Return the parent execution restricted to this canonical batch."""
+    def domain_execution(self, execution_id: str) -> MaterializedDomainExecution:
+        """Return one parent execution restricted to this canonical batch."""
 
-        execution = self._parent.domain_execution
-        if execution is None:
-            return None
+        execution = next(
+            item
+            for item in self._parent.domain_executions
+            if item.execution.id == execution_id
+        )
         ordinals = frozenset(self.point_indices)
         return execution.select(ordinals)
 
@@ -320,12 +331,35 @@ type MaterializedLinkedPointSet = (
 
 def materialize_linked_points(
     linked: LinkedPlan,
+    *,
+    max_points: int | None = None,
 ) -> MaterializedLinkedPoints:
     """Materialize the logical point domain and plan-stage domain inputs.
 
     Expected point-evaluation, value, and entity errors cross this planning
     boundary as structured :class:`CheckFailed` problems.
     """
+
+    if max_points is not None:
+        if type(max_points) is not int or max_points <= 0:
+            raise ValueError("point materialization budget must be a positive integer")
+        maximum = linked.cardinality.maximum
+        if maximum is not None and maximum > max_points:
+            raise CheckFailed(
+                (
+                    compiler_problem(
+                        "point_materialization_budget_exceeded",
+                        "symbolic point space exceeds the explicit "
+                        "materialization budget",
+                        model_location("point_domain"),
+                        phase=ProblemPhase.PLANNING,
+                        details={
+                            "maximum": maximum,
+                            "budget": max_points,
+                        },
+                    ),
+                )
+            )
 
     program = linked.program
     environment = linked.environment
@@ -361,37 +395,73 @@ def materialize_linked_points(
             )
         )
         raise CheckFailed(problems) from error
-    domain_execution = _materialize_domain_execution(
-        program.domain_execution,
-        points=point_domain.points,
-        verified_program=linked.verified_program,
-        parameters=environment.parameters,
-        problems=problems,
+    if max_points is not None and len(point_domain.points) > max_points:
+        raise CheckFailed(
+            (
+                compiler_problem(
+                    "point_materialization_budget_exceeded",
+                    "materialized point space exceeds the explicit budget",
+                    model_location("point_domain"),
+                    phase=ProblemPhase.PLANNING,
+                    details={
+                        "point_count": len(point_domain.points),
+                        "budget": max_points,
+                    },
+                ),
+            )
+        )
+    point_parameters: list[ParameterRelationData] = []
+    for point in point_domain.points:
+        try:
+            point_parameters.append(
+                resolve_point_parameters(
+                    environment.parameters,
+                    program.parameter_overlays,
+                    point_row=point.row,
+                    relation_plan=linked.verified_program.relation_plan,
+                )
+            )
+        except CompilerProblemError as error:
+            problems.append(error.problem)
+    if len(point_parameters) != len(point_domain.points):
+        raise CheckFailed(problems)
+    resolved_point_parameters = tuple(point_parameters)
+    domain_executions = tuple(
+        materialized
+        for execution in core_domain_executions(program)
+        if (
+            materialized := _materialize_domain_execution(
+                execution,
+                points=point_domain.points,
+                verified_program=linked.verified_program,
+                point_parameters=resolved_point_parameters,
+                problems=problems,
+            )
+        )
+        is not None
     )
     if has_blocking_problems(problems):
         raise CheckFailed(problems)
     return MaterializedLinkedPoints(
         linked,
         point_domain,
-        domain_execution,
+        resolved_point_parameters,
+        domain_executions,
     )
 
 
 def _materialize_domain_execution(
-    execution: TypedDomainExecution | None,
+    execution: TypedDomainExecution,
     *,
     points: Sequence[MaterializedPoint],
-    verified_program: VerifiedTypedProgram,
-    parameters: ParameterRelationData,
+    verified_program: VerifiedCoreProgram,
+    point_parameters: Sequence[ParameterRelationData],
     problems: list[Problem],
 ) -> MaterializedDomainExecution | None:
-    """Evaluate the optional verified domain execution's plan-stage inputs."""
-
-    if execution is None:
-        return None
+    """Evaluate one verified domain execution's plan-stage inputs."""
     execution_points: list[MaterializedDomainExecutionPoint] = []
     failed = False
-    for point in points:
+    for point, parameters in zip(points, point_parameters, strict=True):
         input_values: list[tuple[str, object]] = []
         context = EvalContext(params=parameters, point_row=point.row)
         for input_name, input_spec in execution.inputs.items():
@@ -405,7 +475,8 @@ def _materialize_domain_execution(
                     input_spec.value_type,
                     evaluated,
                     path=(
-                        "domain_execution",
+                        "domain_executions",
+                        execution.id,
                         "points",
                         point.logical_ordinal,
                         "inputs",
@@ -422,7 +493,8 @@ def _materialize_domain_execution(
                         f"domain execution input {input_name!r} failed for point "
                         f"{point.logical_ordinal}: {error}",
                         model_location(
-                            "domain_execution",
+                            "domain_executions",
+                            execution.id,
                             "points",
                             point.logical_ordinal,
                             "inputs",
@@ -449,7 +521,7 @@ def _materialize_domain_execution(
 def _evaluate_domain_input(
     input_spec: ValueInput,
     *,
-    verified_program: VerifiedTypedProgram,
+    verified_program: VerifiedCoreProgram,
     context: EvalContext,
 ) -> object:
     value = input_spec.value
@@ -487,7 +559,7 @@ def _unwrap_domain_input(value: object) -> object:
 
 
 def link_verified_program(
-    verified_program: VerifiedTypedProgram,
+    verified_program: VerifiedCoreProgram,
     environment: ValidatedConfigEnvironment,
 ) -> LinkedPlan:
     """Bind config contracts to an already verified transient program."""
@@ -533,7 +605,7 @@ def _environment_link_problems(
 
 
 def _relation_import_problems(
-    verified_program: VerifiedTypedProgram,
+    verified_program: VerifiedCoreProgram,
     parameters: ParameterRelationData,
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
@@ -555,7 +627,7 @@ def _relation_import_problems(
 
 
 def _static_resource_problems(
-    program: TypedProgram,
+    program: CoreProgram,
     routing: RoutingView,
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
@@ -576,7 +648,7 @@ def _static_resource_problems(
                 ),
             )
         )
-    for state_index, state in enumerate(program.state):
+    for state_index, state in enumerate(core_state(program)):
         problems.extend(
             _static_state_resource_problems(
                 state,
@@ -588,7 +660,7 @@ def _static_resource_problems(
 
 
 def _instrument_resource_port_ids(
-    program: TypedProgram,
+    program: CoreProgram,
 ) -> frozenset[LogicalResourcePortId]:
     selected: set[LogicalResourcePortId] = set()
 
@@ -600,9 +672,9 @@ def _instrument_resource_port_ids(
         for child in state.state:
             visit(child)
 
-    for state in program.state:
+    for state in core_state(program):
         visit(state)
-    selected.update(action.resource_port_id for action in program.actions)
+    selected.update(action.resource_port_id for action in core_actions(program))
     return frozenset(selected)
 
 
@@ -752,7 +824,7 @@ def _parameter_import_problem(
 def _normalize_point_domain_row(
     row: Row,
     *,
-    program: TypedProgram,
+    program: CoreProgram,
     environment: ValidatedConfigEnvironment,
     problems: list[Problem],
 ) -> Row:

@@ -1,4 +1,4 @@
-"""Small synchronous interpreter for :mod:`scopecat.execution.local.program`."""
+"""Synchronous interpreter for provisioned RunProgram host effects."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Literal, cast
 from pydantic import BaseModel, JsonValue
 
 from scopecat.compiler.semantic.model import ValueId
+from scopecat.execution.effects.domain import execute_domain_job_values
 from scopecat.execution.events import RuntimeTransitionProjector, payload_summary
 from scopecat.execution.local.program import (
     ActionStage,
@@ -18,10 +19,9 @@ from scopecat.execution.local.program import (
     BoundInput,
     CollectOperation,
     CollectStage,
-    ComputeOperation,
     ComputeStage,
-    ExecutionProgram,
     InstrumentActionOperation,
+    LocalEffectProgram,
     PointProgram,
 )
 from scopecat.execution.ports.journal import (
@@ -36,6 +36,7 @@ from scopecat.execution.problems import (
     problem_from_exception,
     runtime_problem,
 )
+from scopecat.execution.program import RunDomainJob, RunPointRegion
 from scopecat.execution.resources import NoopResourceLeaseManager
 from scopecat.kernel.content_identity import (
     content_fingerprint,
@@ -60,6 +61,7 @@ from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
 )
 from scopecat.measurements.results import MeasurementValue
+from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.execution_journal import (
     CollectionChunk,
@@ -95,8 +97,8 @@ from scopecat.sdk.instruments.contracts import (
 logger = logging.getLogger(__name__)
 
 
-class CapturedMiddleEffectFailure(Exception):
-    """Stop a segment loop after the caller retained its structured failure."""
+class _CapturedDomainEffectFailure(Exception):
+    """Stop the operation loop after retaining a structured domain failure."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +110,6 @@ class ExecutionPointStats:
     state_payload_count: int = 0
     action_command_count: int = 0
     compute_evaluated_node_count: int = 0
-    compute_reused_node_count: int = 0
     compute_payload_count: int = 0
 
 
@@ -121,7 +122,7 @@ class PointExecutionResult:
 
 
 @dataclass(frozen=True, slots=True)
-class ExecutionEngineResult:
+class RunEffectResult:
     """Complete in-memory result; durable evidence is committed incrementally."""
 
     run_id: str
@@ -184,10 +185,6 @@ class ExecutionEngineResult:
         return sum(point.stats.compute_evaluated_node_count for point in self.points)
 
     @property
-    def compute_reused_node_count(self) -> int:
-        return sum(point.stats.compute_reused_node_count for point in self.points)
-
-    @property
     def compute_payload_count(self) -> int:
         return sum(point.stats.compute_payload_count for point in self.points)
 
@@ -200,7 +197,6 @@ class _MutablePointStats:
     state_payload_count: int = 0
     action_command_count: int = 0
     compute_evaluated_node_count: int = 0
-    compute_reused_node_count: int = 0
     compute_payload_count: int = 0
 
     def freeze(self, *, point_index: int) -> ExecutionPointStats:
@@ -212,7 +208,6 @@ class _MutablePointStats:
             state_payload_count=self.state_payload_count,
             action_command_count=self.action_command_count,
             compute_evaluated_node_count=self.compute_evaluated_node_count,
-            compute_reused_node_count=self.compute_reused_node_count,
             compute_payload_count=self.compute_payload_count,
         )
 
@@ -226,11 +221,11 @@ class _PointFrame:
     product_values: dict[ProductUseId, MeasurementValue] = field(default_factory=dict)
 
 
-class ExecutionEngine:
-    """Interpret one closed program with fail-closed effect journaling.
+class RunEffectInterpreter:
+    """Execute provisioned host operations with fail-closed journaling.
 
     The caller must create the durable run skeleton before invoking ``run``.
-    This engine never infers parallelism from independent-looking hardware
+    The executor never infers parallelism from independent-looking hardware
     operations; stage and operation order are part of the program semantics.
     """
 
@@ -238,7 +233,7 @@ class ExecutionEngine:
         self,
         *,
         run_id: str,
-        program: ExecutionProgram,
+        program: LocalEffectProgram,
         drivers: Mapping[str, InstrumentDriver],
         journal: ExecutionJournal,
         readbacks: CollectionRepository,
@@ -263,11 +258,12 @@ class ExecutionEngine:
         self.final_state: list[InstrumentStateSnapshot] = []
         self.current_states: dict[str, InstrumentStateSnapshot] = {}
         self.point_results: list[PointExecutionResult] = []
-        self._compute_cache: dict[tuple[str, str, object], object] = {}
+        self.domain_values: dict[str, list[tuple[MeasurementValueCandidate, ...]]] = {}
+        self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self._indeterminate = False
         self._interruption: BaseException | None = None
 
-    def run(self) -> ExecutionEngineResult:
+    def run(self) -> RunEffectResult:
         finalized = False
         terminal_read_attempted = False
         try:
@@ -295,8 +291,8 @@ class ExecutionEngine:
                 except Exception as error:  # Defensive engine boundary.
                     self.problems.append(
                         self._problem_from_exception(
-                            "execution_engine_failed",
-                            "execution engine failed",
+                            "run_effect_interpretation_failed",
+                            "run effect interpretation failed",
                             error,
                         )
                     )
@@ -328,19 +324,18 @@ class ExecutionEngine:
                 self._capture_terminal_states()
         return self._result()
 
-    def run_around_point_segments(
+    def run_regions(
         self,
-        segments: Sequence[tuple[tuple[int, ...], Callable[[], None]]],
-    ) -> ExecutionEngineResult:
-        """Execute ordered domain effects between local state and collection.
+        regions: Sequence[RunPointRegion],
+    ) -> RunEffectResult:
+        """Execute explicit domain job operations between local effects.
 
-        Planning has already partitioned the canonical point order so desired
-        local state is invariant inside each segment. Drivers stay provisioned
-        for the complete run; each segment reconciles its first point's state,
-        invokes its domain effect, then performs point-local collection.
+        Each region is already constrained by surrounding effect barriers.
+        Drivers stay provisioned for the complete run; the executor reconciles
+        the region state, executes its domain jobs, then collects local values.
         """
 
-        selected_segments = tuple(segments)
+        selected_regions = tuple(regions)
         finalized = False
         terminal_read_attempted = False
         try:
@@ -351,19 +346,27 @@ class ExecutionEngine:
                     self.current_states = {
                         state.instrument_id: state for state in self.initial_state
                     }
-                    for point_indices, middle in selected_segments:
+                    for region in selected_regions:
                         if has_blocking_problems(self.problems):
                             break
-                        segment_points = tuple(
-                            self.program.points[index] for index in point_indices
+                        region_points = tuple(
+                            self.program.points[index] for index in region.point_indices
                         )
-                        hoisted_stats = self._execute_point_state(segment_points[0])
+                        point_stats: list[_MutablePointStats] = []
+                        for point in region_points:
+                            point_stats.append(self._execute_point_before_domain(point))
+                            if has_blocking_problems(self.problems):
+                                break
                         if has_blocking_problems(self.problems):
                             break
-                        middle()
+                        self._execute_domain_jobs(region.domain_jobs)
                         if has_blocking_problems(self.problems):
                             break
-                        for point_offset, point in enumerate(segment_points):
+                        for point, initial_stats in zip(
+                            region_points,
+                            point_stats,
+                            strict=True,
+                        ):
                             collection_point = PointProgram(
                                 point_index=point.point_index,
                                 point_uid=point.point_uid,
@@ -376,9 +379,7 @@ class ExecutionEngine:
                             )
                             self._execute_point(
                                 collection_point,
-                                initial_stats=(
-                                    hoisted_stats if point_offset == 0 else None
-                                ),
+                                initial_stats=initial_stats,
                             )
                             if has_blocking_problems(self.problems):
                                 break
@@ -391,7 +392,7 @@ class ExecutionEngine:
                             phase=ProblemPhase.PERSISTENCE,
                         )
                     )
-                except CapturedMiddleEffectFailure:
+                except _CapturedDomainEffectFailure:
                     pass
                 except Exception as error:
                     self.problems.append(
@@ -428,12 +429,35 @@ class ExecutionEngine:
                 self._capture_terminal_states()
         return self._result()
 
-    def _execute_point_state(self, point: PointProgram) -> _MutablePointStats:
+    def _execute_domain_jobs(self, jobs: Sequence[RunDomainJob]) -> None:
+        for job in jobs:
+            try:
+                values = execute_domain_job_values(
+                    job.prepared,
+                    semantic_operation_id=job.id,
+                    run_id=self.run_id,
+                    journal=self.journal,
+                )
+            except BaseException as error:
+                self.domain_failure = (job, error)
+                raise _CapturedDomainEffectFailure(job.id) from error
+            self.domain_values.setdefault(job.source_id, []).append(values)
+
+    def _execute_point_before_domain(
+        self,
+        point: PointProgram,
+    ) -> _MutablePointStats:
         frame = _PointFrame(point=point)
         for stage in point.stages:
-            if not isinstance(stage, ApplyStateStage):
-                continue
-            self._execute_apply_stage(frame, stage)
+            match stage:
+                case ComputeStage():
+                    self._execute_compute_stage(frame, stage)
+                case ApplyStateStage():
+                    self._execute_apply_stage(frame, stage)
+                case ActionStage():
+                    self._execute_action_stage(frame, stage)
+                case CollectStage():
+                    pass
             if has_blocking_problems(self.problems):
                 return frame.stats
         return frame.stats
@@ -547,7 +571,7 @@ class ExecutionEngine:
                     )
                     for name, value in operation.inputs.items()
                 }
-                raw_result, reused = self._invoke_compute(operation, inputs)
+                raw_result = operation.kernel(**inputs)
                 result = _unwrap_payload_values(
                     coerce_literal(
                         operation.result.value_type,
@@ -586,10 +610,7 @@ class ExecutionEngine:
                 )
                 return
             frame.compute_results[operation.result.id] = result
-            if reused:
-                frame.stats.compute_reused_node_count += 1
-            else:
-                frame.stats.compute_evaluated_node_count += 1
+            frame.stats.compute_evaluated_node_count += 1
             if operation.payload_slot is not None:
                 slot = operation.payload_slot
                 frame.payloads[slot.id] = CommandPayload(
@@ -603,7 +624,6 @@ class ExecutionEngine:
                     semantic_operation_id=operation.semantic_operation_id,
                     implementation_id=operation.implementation_id,
                     point_index=frame.point.point_index,
-                    compute_status="reused" if reused else "evaluated",
                     payload=result,
                 )
                 frame.stats.compute_payload_count += 1
@@ -616,7 +636,6 @@ class ExecutionEngine:
                             "semantic_operation_id": operation.semantic_operation_id,
                             "implementation_id": operation.implementation_id,
                             **_dependency_summary(operation.dependencies),
-                            "compute_status": "reused" if reused else "evaluated",
                             **(
                                 {
                                     "payload_id": operation.payload_slot.id,
@@ -636,31 +655,6 @@ class ExecutionEngine:
                     }
                 )
             )
-
-    def _invoke_compute(
-        self,
-        operation: ComputeOperation,
-        inputs: dict[str, object],
-    ) -> tuple[object, bool]:
-        if operation.cache_namespace is None:
-            return operation.kernel(**inputs), False
-        selected_key = (
-            operation.cache_key
-            if operation.cache_key is not None
-            else tuple(
-                (name, versioned_value(value)) for name, value in sorted(inputs.items())
-            )
-        )
-        key = (
-            operation.implementation_id,
-            operation.cache_namespace,
-            versioned_value(selected_key),
-        )
-        if key in self._compute_cache:
-            return self._compute_cache[key], True
-        result = operation.kernel(**inputs)
-        self._compute_cache[key] = result
-        return result, False
 
     def _execute_apply_stage(
         self,
@@ -953,7 +947,6 @@ class ExecutionEngine:
         return {
             **base,
             "compute_evaluated_node_count": (frame.stats.compute_evaluated_node_count),
-            "compute_reused_node_count": frame.stats.compute_reused_node_count,
             "compute_payload_count": frame.stats.compute_payload_count,
             "changed_field_count": changed_field_count,
             "skipped_field_count": base.get("skipped_field_count", 0),
@@ -1556,7 +1549,7 @@ class ExecutionEngine:
             category=category,
         )
 
-    def _result(self) -> ExecutionEngineResult:
+    def _result(self) -> RunEffectResult:
         if self._interruption is not None:
             result: RunResult = "cancelled"
             certainty: RunCertainty = (
@@ -1575,7 +1568,7 @@ class ExecutionEngine:
             result = "succeeded"
             certainty = "known"
             termination_reason = "completed"
-        return ExecutionEngineResult(
+        return RunEffectResult(
             run_id=self.run_id,
             experiment_id=self.program.experiment_id,
             result=result,
@@ -1891,11 +1884,10 @@ def _readback_problem(
 
 
 __all__ = [
-    "CapturedMiddleEffectFailure",
-    "ExecutionEngine",
-    "ExecutionEngineResult",
     "ExecutionPointStats",
     "NoopResourceLeaseManager",
     "PointExecutionResult",
     "ResourceLeaseManager",
+    "RunEffectInterpreter",
+    "RunEffectResult",
 ]

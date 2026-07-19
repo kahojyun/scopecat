@@ -10,7 +10,7 @@ from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.linking.linked import link_verified_program
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.model import (
     lit,
     literal_rows,
@@ -25,8 +25,8 @@ from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import InstrumentProductProducer, ProductDef
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     ResourceRouteIntent,
-    TypedProgram,
     product_output,
     record_product,
     set_state_field,
@@ -60,7 +60,7 @@ def _unit_program(
     products: tuple[ProductDef, ...] = (),
     producers: tuple[InstrumentProductProducer, ...] | None = None,
     **updates: object,
-) -> TypedProgram:
+) -> CoreProgram:
     uses_and_records = tuple(record_product(product) for product in products)
     selected_producers = (
         tuple(instrument_product_producer(product) for product in products)
@@ -68,7 +68,7 @@ def _unit_program(
         else producers
     )
     return replace(
-        TypedProgram(
+        CoreProgram(
             id="resource-identity-invariants",
             kind="compiler_test",
             point_domain=PointDomain(root=POINT_UNIT),
@@ -126,7 +126,7 @@ def test_seal_closes_logical_state_and_product_ports_and_capabilities() -> None:
                 capabilities=("set.frequency",),
             ),
         ),
-        state=(
+        effects=(
             set_state_field(
                 resource_port_id=logical_resource_port_id("missing-state"),
                 capability_id="set.frequency",
@@ -246,7 +246,7 @@ def test_public_dsl_direct_physical_state_is_not_captured_by_same_named_port(
         invocation,
         config_profile=config,
     )
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
 
@@ -279,7 +279,7 @@ def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> 
         instrument_ids=("source-0", "source-1"),
     )
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(config))
     )
 
@@ -323,7 +323,7 @@ def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> 
     ],
 )
 def test_link_rejects_invalid_static_physical_resource_contracts(
-    program: TypedProgram,
+    program: CoreProgram,
     expected_code: str,
     expected_location: ModelLocation,
 ) -> None:
@@ -367,7 +367,7 @@ def test_binding_rejects_invalid_selected_physical_product_producer(
         producers=(producer,),
     )
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(load_config()))
     )
 
@@ -413,7 +413,7 @@ def test_unused_logical_product_producer_does_not_constrain_route_placement() ->
     )
 
     linked = link_program(program, environment)
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_verified_program(linked.verified_program, linked.environment)
     )
 
@@ -452,7 +452,7 @@ def test_demanded_logical_product_producer_requires_instrument_during_binding() 
     )
 
     linked = link_program(program, environment)
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_verified_program(linked.verified_program, linked.environment)
     )
 
@@ -464,7 +464,7 @@ def test_demanded_logical_product_producer_requires_instrument_during_binding() 
 
 def test_link_rejects_non_instrument_physical_effect_resource() -> None:
     program = _unit_program(
-        state=(
+        effects=(
             set_state_field(
                 _text("scheduler-0"),
                 capability_id="schedule",
@@ -524,7 +524,7 @@ def test_capability_less_authored_port_rejects_state_and_record_at_assembly() ->
 
 def test_link_rejects_missing_literal_physical_state_resource() -> None:
     program = _unit_program(
-        state=(
+        effects=(
             set_state_field(
                 _text("definitely-missing"),
                 capability_id="set_frequency",
@@ -552,14 +552,14 @@ def test_binding_rejects_missing_dynamic_physical_resource() -> None:
         max_rows=1,
     )
     bindings = RelationTypeBindings(point_row=RowType.from_table(point_type))
-    program = TypedProgram(
+    program = CoreProgram(
         id="dynamic-physical-resource",
         kind="compiler_test",
         point_domain=point_domain(
             literal_rows([{"resource": "definitely-missing"}]),
             expected_type=point_type,
         ),
-        state=(
+        effects=(
             set_state_field(
                 scalar_value_expr(
                     point_col("resource"),
@@ -573,7 +573,7 @@ def test_binding_rejects_missing_dynamic_physical_resource() -> None:
         ),
     )
 
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_program(program, validate_config_environment(load_config()))
     )
 

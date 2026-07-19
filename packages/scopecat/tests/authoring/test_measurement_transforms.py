@@ -161,7 +161,7 @@ def test_domain_and_transform_cannot_own_the_same_product() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module, execution))
+        verify_assembly_graph(elaborate_module(module, (execution,)))
     assert "semantic_product_producer_duplicate" in {
         problem.code for problem in error.value.problems
     }

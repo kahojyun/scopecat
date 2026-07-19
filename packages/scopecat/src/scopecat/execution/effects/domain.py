@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Hashable
+
 from scopecat.execution.ports.journal import ExecutionJournal
 from scopecat.execution.problems import (
     runtime_problem,
@@ -18,11 +20,10 @@ from scopecat.kernel.problems import (
 )
 from scopecat.measurements.host_transforms import execute_host_measurement_transforms
 from scopecat.measurements.values import (
-    ClosedMeasurementProductValues,
-    assemble_measurement_values,
-    domain_output_fragment,
+    MeasurementValueCandidate,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
+from scopecat.sdk.domain.invocation import ClosedDomainOutputValues
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     fetch_domain_invocation,
@@ -53,17 +54,18 @@ class DomainSynchronousCompletionPending(Exception):
 def execute_domain_job_values(
     prepared: PreparedDomainExecution,
     *,
+    semantic_operation_id: str,
     run_id: str,
     journal: ExecutionJournal,
-) -> ClosedMeasurementProductValues:
-    """Execute one closed domain job and return producer-neutral values."""
+) -> tuple[MeasurementValueCandidate, ...]:
+    """Execute one closed domain job and return canonical logical candidates."""
 
     invocation = prepared.invocation
     runtime = prepared.runtime
     submission_id = plan_domain_submission(
         invocation,
         run_id=run_id,
-        semantic_operation_id=prepared.semantic_operation_id,
+        semantic_operation_id=semantic_operation_id,
     )
     submission = submit_domain_invocation(
         runtime,
@@ -84,18 +86,33 @@ def execute_domain_job_values(
             submission_key=submission_id.submission_key,
         )
     outputs = prepared.realize(fetched)
-    source = domain_output_fragment(
-        prepared.source_fragment,
-        outputs,
-    )
+    source = _domain_output_candidates(prepared, outputs)
     transforms = prepared.transforms
     return (
-        assemble_measurement_values(source.selection, (source,))
+        source
         if transforms is None
         else execute_host_measurement_transforms(
             transforms,
-            (source,),
+            source,
         ).values
+    )
+
+
+def _domain_output_candidates(
+    prepared: PreparedDomainExecution,
+    outputs: ClosedDomainOutputValues[Hashable, Hashable],
+) -> tuple[MeasurementValueCandidate, ...]:
+    selected = prepared.source_outputs
+    if outputs.mapping.contract_fingerprint != selected.mapping.contract_fingerprint:
+        raise AssertionError("closed domain outputs changed selected result mapping")
+    return tuple(
+        MeasurementValueCandidate(
+            output.logical_point_id,
+            product_use_id,
+            output.value,
+        )
+        for output in outputs.outputs
+        for product_use_id in output.product_use_ids
     )
 
 

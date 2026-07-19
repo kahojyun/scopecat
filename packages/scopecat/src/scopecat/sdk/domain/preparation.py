@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import cast
 
+from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.measurements.host_transforms import (
-    BoundHostMeasurementTransformPlan,
+    BoundHostMeasurementTransforms,
     HostMeasurementTransformCall,
-    HostMeasurementTransformFragmentBinding,
     HostMeasurementTransformImplementation,
     HostMeasurementTransformImplementationBinding,
     bind_host_measurement_transforms,
@@ -20,19 +20,13 @@ from scopecat.measurements.transform_model import MeasurementTransformDef
 from scopecat.measurements.transform_verification import (
     verify_measurement_transform_graph,
 )
-from scopecat.measurements.values import (
-    BoundDomainMeasurementValueFragment,
-    ProductValueFragmentDef,
-    bind_domain_output_fragment,
-    select_measurement_value_assembly,
-)
-from scopecat.planning.coverage import ExecutionResourceClaim
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.domain._bridge import point_id, product_use_id
 from scopecat.sdk.domain._measurement_bridge import lower_domain_host_transform_binding
 from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import (
     ErasedDomainInvocation,
+    ErasedDomainOutputs,
     ErasedDomainRealizer,
     ErasedDomainRuntime,
     PreparedDomainExecution,
@@ -181,11 +175,10 @@ class DomainMeasurementPlan[
     derived_product_uses: tuple[DomainProductUseRef, ...]
     product_uses: tuple[DomainProductUseRef, ...]
     host_transforms: tuple[DomainHostTransformBinding, ...]
-    source_fragment: BoundDomainMeasurementValueFragment[
-        EntryAddressT,
-        ResultAddressT,
-    ] = field(repr=False)
-    transforms: BoundHostMeasurementTransformPlan | None = field(
+    source_outputs: SelectedDomainMeasurementOutputs[EntryAddressT, ResultAddressT] = (
+        field(repr=False)
+    )
+    transforms: BoundHostMeasurementTransforms | None = field(
         default=None,
         repr=False,
     )
@@ -324,48 +317,8 @@ class DomainPreparationBuilder:
         )
         native_transforms = tuple(transform for transform, _ in native_pairs)
         linked_points = context.linked_points
-        source_fragment_id = "scopecat.domain/source"
-        transform_fragment_ids = tuple(
-            f"scopecat.domain/transform/{transform.id.value}"
-            for transform in native_transforms
-        )
-        product_use_ids = tuple(
-            product_use_id(product_use) for product_use in context.product_uses
-        )
-        value_assembly = select_measurement_value_assembly(
-            linked_points,
-            required_product_use_ids=product_use_ids,
-            fragment_defs=(
-                ProductValueFragmentDef(
-                    source_fragment_id,
-                    tuple(
-                        product_use_id(product_use)
-                        for product_use in context.direct_product_uses
-                    ),
-                ),
-                *(
-                    ProductValueFragmentDef(
-                        fragment_id,
-                        tuple(
-                            product_use_id(product_use)
-                            for port in binding.transform.outputs
-                            for product_use in port.product_uses
-                        ),
-                    )
-                    for fragment_id, binding in zip(
-                        transform_fragment_ids,
-                        selected_bindings,
-                        strict=True,
-                    )
-                ),
-            ),
-        )
-        source_fragment = bind_domain_output_fragment(
-            value_assembly,
-            source_fragment_id,
-            SelectedDomainMeasurementOutputs(mapping.native),
-        )
-        transforms: BoundHostMeasurementTransformPlan | None = None
+        source_outputs = SelectedDomainMeasurementOutputs(mapping.native)
+        transforms: BoundHostMeasurementTransforms | None = None
         if native_transforms:
             graph = verify_measurement_transform_graph(
                 linked_points,
@@ -385,17 +338,9 @@ class DomainPreparationBuilder:
             )
             transforms = bind_host_measurement_transforms(
                 selection,
-                value_assembly,
                 tuple(
-                    HostMeasurementTransformFragmentBinding(
-                        transform.id,
-                        fragment_id,
-                    )
-                    for transform, fragment_id in zip(
-                        native_transforms,
-                        transform_fragment_ids,
-                        strict=True,
-                    )
+                    product_use_id(product_use)
+                    for product_use in context.direct_product_uses
                 ),
             )
 
@@ -406,7 +351,7 @@ class DomainPreparationBuilder:
             derived_product_uses=context.derived_product_uses,
             product_uses=context.product_uses,
             host_transforms=selected_bindings,
-            source_fragment=source_fragment,
+            source_outputs=source_outputs,
             transforms=transforms,
         )
 
@@ -447,11 +392,10 @@ class DomainPreparationBuilder:
             capability_fingerprint=target.capability_fingerprint,
             artifact_id=target.artifact_id,
             artifact_fingerprint=target.artifact_fingerprint,
-            adapter_intent=invocation.adapter_intent,
+            target_intent=invocation.target_intent,
             payload=invocation.payload,
         )
-        source_fragment = measurements.source_fragment
-        native_outputs = source_fragment.domain_outputs
+        native_outputs = measurements.source_outputs
 
         def close_realized_values(
             fetched: CorrelatedDomainFetch[ResultT],
@@ -466,18 +410,14 @@ class DomainPreparationBuilder:
             )
 
         return PreparedDomainExecution(
-            adapter_id=self._context.adapter_id,
+            compiler_id=self._context.compiler_id,
             context=self._context,
             invocation=cast("ErasedDomainInvocation", native_invocation),
             runtime=cast("ErasedDomainRuntime", runtime),
             realize=cast("ErasedDomainRealizer", close_realized_values),
-            source_fragment=cast(
-                "BoundDomainMeasurementValueFragment[Hashable, Hashable]",
-                source_fragment,
-            ),
+            source_outputs=cast("ErasedDomainOutputs", native_outputs),
             resource_claims=tuple(
-                ExecutionResourceClaim(claim.kind, claim.id)
-                for claim in selected_claims
+                ResourceClaim(claim.id, claim.kind) for claim in selected_claims
             ),
             transforms=measurements.transforms,
         )

@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.semantic.model import MeasurementTransformId
 from scopecat.compiler.typed.products import MeasurementTransformProductProducer
-from scopecat.compiler.typed.program import TypedMeasurementTransform, TypedProgram
+from scopecat.compiler.typed.program import CoreProgram, TypedMeasurementTransform
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -19,7 +19,7 @@ from scopecat.kernel.product_identity import ProductId
 
 
 def typed_measurement_transform_problems(
-    program: TypedProgram,
+    program: CoreProgram,
 ) -> tuple[tuple[TypedMeasurementTransform, ...], tuple[Problem, ...]]:
     """Verify the demand-closed transform graph and return canonical order."""
 

@@ -1,4 +1,4 @@
-"""Transient, explicit program consumed by the local execution engine.
+"""Structured local-effect payloads embedded in a ``RunProgram``.
 
 The authoring compiler may use richer symbolic IRs.  This module starts after
 configuration linking and point binding: values and routes are concrete, pure
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from scopecat.compiler.semantic.model import ValueId
 from scopecat.compiler.semantic.operation_contract import OperationContract
@@ -80,8 +81,6 @@ class ComputeOperation:
         default_factory=_empty_dependencies
     )
     payload_slot: PayloadSlot | None = None
-    cache_namespace: str | None = None
-    cache_key: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,20 +201,26 @@ class PointProgram:
     stages: tuple[ExecutionStage, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class ExecutionProgram:
-    """Concrete local program with an explicit instrument-collected subset."""
-
-    experiment_id: str
-    points: tuple[PointProgram, ...]
-    product_uses: tuple[ProductUse, ...]
-    collection_product_use_ids: tuple[ProductUseId, ...]
-    resource_order: tuple[str, ...]
-    resource_claims: tuple[ResourceClaim, ...]
+class LocalEffectProgram(Protocol):
+    """Structural point-effect program accepted by validation and execution."""
 
     @property
-    def point_count(self) -> int:
-        return len(self.points)
+    def experiment_id(self) -> str: ...
+
+    @property
+    def points(self) -> tuple[PointProgram, ...]: ...
+
+    @property
+    def product_uses(self) -> tuple[ProductUse, ...]: ...
+
+    @property
+    def resource_order(self) -> tuple[str, ...]: ...
+
+    @property
+    def resource_claims(self) -> tuple[ResourceClaim, ...]: ...
+
+    @property
+    def point_count(self) -> int: ...
 
 
 __all__ = [
@@ -232,9 +237,9 @@ __all__ = [
     "ComputeOperation",
     "ComputeResultSlot",
     "ComputeStage",
-    "ExecutionProgram",
     "ExecutionStage",
     "InstrumentActionOperation",
+    "LocalEffectProgram",
     "OutputInput",
     "PayloadSlot",
     "PointProgram",

@@ -5,6 +5,9 @@ that should remain useful as the implementation changes.
 
 - [Project charter](project-charter.md): product goals, principles, and scope
   boundaries.
+- [Experiment compilation and execution target](experiment-execution-model.md):
+  the target compiler IRs, partial-evaluation model, domain-lowering boundary,
+  runtime safety contract, and migration direction.
 
 Keep implementation architecture, package inventories, completed migration
 plans, and current capability lists close to the code and tests that own them.

@@ -1,8 +1,8 @@
-"""Projection of a prepared execution plan into stable user-visible facts."""
+"""Projection of a RunProgram into stable user-visible facts."""
 
 from __future__ import annotations
 
-from scopecat.planning.backend import PreparedExecutionPlan
+from scopecat.execution.program import RunProgram
 from scopecat.planning.preview_models import (
     ExperimentPreview,
     ExperimentPreviewPoint,
@@ -10,17 +10,17 @@ from scopecat.planning.preview_models import (
 )
 
 
-def build_execution_plan_preview(
-    prepared: PreparedExecutionPlan,
+def build_run_program_preview(
+    program: RunProgram,
 ) -> ExperimentPreview:
-    """Project stable user-visible facts from a prepared execution plan."""
+    """Project stable user-visible facts from a closed RunProgram."""
 
-    selected = prepared.projection.projection
-    program = prepared.linked_points.linked_plan.program
-    points = prepared.linked_points.point_domain.points
+    selected = program.projection.projection
+    core_program = program.linked_points.linked_plan.program
+    points = program.linked_points.point_domain.points
     return ExperimentPreview(
-        experiment_id=program.id,
-        experiment_kind=program.kind,
+        experiment_id=core_program.id,
+        experiment_kind=core_program.kind,
         schema=selected.schema,
         coordinate_ids=tuple(selected.coordinate_ids),
         points=tuple(

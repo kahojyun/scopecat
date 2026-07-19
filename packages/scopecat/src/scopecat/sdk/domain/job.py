@@ -43,14 +43,14 @@ class DomainTargetArtifactIdentity:
 class DomainInvocationSpec[PayloadT]:
     """Laboratory declaration of one idempotent target invocation.
 
-    The payload is transient and target-owned. ``adapter_intent`` must be
+    The payload is transient and target-owned. ``target_intent`` must be
     stable-content encodable because core fingerprints it when binding the
     invocation to an exact result mapping.
     """
 
     invocation_id: str
     target: DomainTargetArtifactIdentity
-    adapter_intent: object = field(repr=False)
+    target_intent: object = field(repr=False)
     payload: PayloadT = field(repr=False)
 
     def __post_init__(self) -> None:

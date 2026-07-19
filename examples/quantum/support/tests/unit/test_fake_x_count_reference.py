@@ -23,13 +23,13 @@ from scopecat.compiler.typed.products import (
     MeasurementTransformProductProducer,
 )
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
-    TypedProgram,
     product_output,
     record_product,
     shot_axis,
@@ -118,25 +118,28 @@ def _linked_points():
     iq_producer_id = product_producer_id("iq-shots-producer")
     probability_0_producer_id = product_producer_id("probability-0-producer")
     probability_1_producer_id = product_producer_id("probability-1-producer")
-    program = TypedProgram(
+    program = CoreProgram(
         id="fake-x-count-reference",
         kind="fake_x_count_reference",
         point_domain=point_domain,
         product_defs=(iq_shots, probability_0, probability_1),
-        domain_execution=TypedDomainExecution(
-            program=TypedDomainProgram(
-                id=program_id,
-                dialect_id="test.quantum",
-                dialect_version="1",
-                body=_PROGRAM,
-                result_ports=(DomainResultPortDef("iq_shots"),),
-            ),
-            results=(
-                TypedDomainResultBinding(
-                    id="iq_shots",
-                    product_id=iq_shots.id,
-                    producer_id=iq_producer_id,
-                    product_use_ids=(iq_use.id,),
+        effects=(
+            TypedDomainExecution(
+                id="domain",
+                program=TypedDomainProgram(
+                    id=program_id,
+                    dialect_id="test.quantum",
+                    dialect_version="1",
+                    body=_PROGRAM,
+                    result_ports=(DomainResultPortDef("iq_shots"),),
+                ),
+                results=(
+                    TypedDomainResultBinding(
+                        id="iq_shots",
+                        product_id=iq_shots.id,
+                        producer_id=iq_producer_id,
+                        product_use_ids=(iq_use.id,),
+                    ),
                 ),
             ),
         ),
@@ -172,6 +175,7 @@ def _linked_points():
             DomainProductProducer(
                 id=iq_producer_id,
                 product_id=iq_shots.id,
+                execution_id="domain",
                 result_id="iq_shots",
             ),
         ),
@@ -202,13 +206,15 @@ def _linked_points():
         )
     )
     linked_points = materialize_linked_points(link_program(program, environment))
-    projection = project_domain_plan(linked_points)
+    projection = project_domain_plan(
+        linked_points, linked_points.domain_executions[0].execution.id
+    )
     view = projection.view(linked_points)
     execution = view.require_execution(dialect_id="test.quantum")
     context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
-        adapter_id="test.fake-x-count",
+        compiler_id="test.fake-x-count",
         batch_ordinal=0,
     )
     [transform] = execution.measurement_transforms

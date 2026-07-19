@@ -10,7 +10,6 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.sdk.domain import (
-    DomainExecutionOffer,
     DomainPointRef,
     DomainProductAxisView,
     DomainProductContractView,
@@ -58,7 +57,7 @@ def test_domain_batch_view_materializes_typed_inputs_results_and_batches(
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     linked_points = materialize_linked_points(linked)
 
-    projection = project_domain_plan(linked_points)
+    projection = project_domain_plan(linked_points, execution.id)
     full = projection.view(linked_points)
     selected = full.require_execution(
         dialect_id="test.domain",
@@ -83,9 +82,6 @@ def test_domain_batch_view_materializes_typed_inputs_results_and_batches(
     assert product_use.id == linked.product_uses[0].id.value
     assert product_use.product is result.product
     assert product_use is full.product_uses[0]
-
-    offer = DomainExecutionOffer(max_points_per_batch=8)
-    assert offer.max_points_per_batch == 8
 
     batch = MaterializedLinkedPointBatch(linked_points, (1, 2))
     batch_view = projection.view(batch)

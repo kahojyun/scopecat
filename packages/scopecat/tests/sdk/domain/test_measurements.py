@@ -84,11 +84,11 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
     linked_points = materialize_linked_points(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
-    projection = project_domain_plan(linked_points)
+    projection = project_domain_plan(linked_points, execution.id)
     return make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1)),
-        adapter_id=f"test.sdk.measurements.{namespace}",
+        compiler_id=f"test.sdk.measurements.{namespace}",
         batch_ordinal=0,
     )
 

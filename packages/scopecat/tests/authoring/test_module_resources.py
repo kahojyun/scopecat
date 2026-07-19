@@ -8,6 +8,7 @@ import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.semantic.model import RouteValueSource
+from scopecat.compiler.typed.program import core_state
 from scopecat.compiler.typed.state import ForEachStateSpec, SetStateSpec
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
@@ -101,7 +102,7 @@ def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> No
     )
     assert [
         state.capability_id
-        for state in resolved.experiment.state
+        for state in core_state(resolved.experiment)
         if isinstance(state, SetStateSpec)
     ] == [
         "set.frequency",
@@ -109,7 +110,7 @@ def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> No
     ]
     assert [
         state.field_path
-        for state in resolved.experiment.state
+        for state in core_state(resolved.experiment)
         if isinstance(state, SetStateSpec)
     ] == [
         "value.path",
@@ -329,7 +330,7 @@ def test_state_each_keeps_dotted_capability_and_field_ids_structured(
         config_profile=load_config(),
     )
 
-    state = resolved.experiment.state[0]
+    state = core_state(resolved.experiment)[0]
     assert isinstance(state, ForEachStateSpec)
     child = state.state[0]
     assert isinstance(child, SetStateSpec)

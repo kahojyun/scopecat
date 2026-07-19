@@ -117,6 +117,12 @@ if TYPE_CHECKING:
         RuntimeProgress,
         RuntimeTransitionEvent,
     )
+    from scopecat.execution.program import (
+        RunDomainJob,
+        RunLocalEffects,
+        RunPointRegion,
+        RunProgram,
+    )
     from scopecat.kernel.problems import (
         ExternalLocation,
         ModelLocation,
@@ -132,20 +138,20 @@ if TYPE_CHECKING:
     )
     from scopecat.measurements.results import MeasurementDatasetSchema
     from scopecat.measurements.semantics import MeasurementTransformSemanticContract
-    from scopecat.planning.backend import (
-        ExecutionBackend,
-        ExecutionOptions,
-        FusionMode,
-    )
+    from scopecat.planning.backend import ExecutionBackend
     from scopecat.planning.check_results import ExperimentCheckResult
     from scopecat.planning.preview_models import ExperimentPreview
     from scopecat.records.entity import EntityRef, entity_ref
     from scopecat.sdk.domain import (
         CorrelatedDomainFetch,
         DomainBatchContext,
+        DomainBoundPoint,
+        DomainCallView,
+        DomainCompilation,
+        DomainCompiledJob,
+        DomainCompiler,
+        DomainCompileRequest,
         DomainEntryPointBinding,
-        DomainExecutionAdapter,
-        DomainExecutionOffer,
         DomainFetchCandidate,
         DomainFetchReceipt,
         DomainFetchRequest,
@@ -163,6 +169,7 @@ if TYPE_CHECKING:
         DomainReceiptIdentity,
         DomainReconcileReceipt,
         DomainReconcileRequest,
+        DomainResidualInput,
         DomainResourceClaim,
         DomainResourceKind,
         DomainResultMapping,
@@ -178,6 +185,8 @@ if TYPE_CHECKING:
         DomainTransformOutputPort,
         DomainTransformRate,
         PreparedDomainExecution,
+        compiled_jobs,
+        validate_domain_compilation,
     )
 
     Run = RunHandle
@@ -186,9 +195,13 @@ if TYPE_CHECKING:
 _DOMAIN_SDK_EXPORTS = (
     "CorrelatedDomainFetch",
     "DomainBatchContext",
+    "DomainBoundPoint",
+    "DomainCallView",
+    "DomainCompilation",
+    "DomainCompileRequest",
+    "DomainCompiledJob",
+    "DomainCompiler",
     "DomainEntryPointBinding",
-    "DomainExecutionAdapter",
-    "DomainExecutionOffer",
     "DomainFetchCandidate",
     "DomainFetchReceipt",
     "DomainFetchRequest",
@@ -211,6 +224,7 @@ _DOMAIN_SDK_EXPORTS = (
     "DomainResultMapping",
     "DomainResultUseBinding",
     "DomainResultValue",
+    "DomainResidualInput",
     "DomainRuntime",
     "DomainSubmissionId",
     "DomainSubmitReceipt",
@@ -221,6 +235,8 @@ _DOMAIN_SDK_EXPORTS = (
     "DomainTransformOutputPort",
     "DomainTransformRate",
     "PreparedDomainExecution",
+    "compiled_jobs",
+    "validate_domain_compilation",
 )
 
 
@@ -296,8 +312,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "ExperimentCheckResult",
     ),
     "ExecutionBackend": ("scopecat.planning.backend", "ExecutionBackend"),
-    "ExecutionOptions": ("scopecat.planning.backend", "ExecutionOptions"),
-    "FusionMode": ("scopecat.planning.backend", "FusionMode"),
+    "RunDomainJob": ("scopecat.execution.program", "RunDomainJob"),
+    "RunLocalEffects": ("scopecat.execution.program", "RunLocalEffects"),
+    "RunPointRegion": ("scopecat.execution.program", "RunPointRegion"),
+    "RunProgram": ("scopecat.execution.program", "RunProgram"),
     "EntityRef": ("scopecat.records.entity", "EntityRef"),
     "entity_ref": ("scopecat.records.entity", "entity_ref"),
     "delete_parameter_rows": ("scopecat.config.parameters", "delete_parameter_rows"),
@@ -402,10 +420,14 @@ __all__ = [
     "CorrelatedDomainFetch",
     "Data",
     "DomainBatchContext",
+    "DomainBoundPoint",
+    "DomainCallView",
+    "DomainCompilation",
+    "DomainCompileRequest",
+    "DomainCompiledJob",
+    "DomainCompiler",
     "DomainEntryPointBinding",
     "DomainExecution",
-    "DomainExecutionAdapter",
-    "DomainExecutionOffer",
     "DomainFetchCandidate",
     "DomainFetchReceipt",
     "DomainFetchRequest",
@@ -425,6 +447,7 @@ __all__ = [
     "DomainReceiptIdentity",
     "DomainReconcileReceipt",
     "DomainReconcileRequest",
+    "DomainResidualInput",
     "DomainResourceClaim",
     "DomainResourceKind",
     "DomainResultMapping",
@@ -444,7 +467,6 @@ __all__ = [
     "EntityRef",
     "EntityType",
     "ExecutionBackend",
-    "ExecutionOptions",
     "Experiment",
     "ExperimentCheckResult",
     "ExperimentInvocation",
@@ -453,7 +475,6 @@ __all__ = [
     "ExperimentTemplate",
     "ExternalLocation",
     "FloatType",
-    "FusionMode",
     "InputDescription",
     "IntType",
     "MeasurementDatasetSchema",
@@ -487,8 +508,12 @@ __all__ = [
     "RouteRef",
     "RouteType",
     "Run",
+    "RunDomainJob",
     "RunFinishedEvent",
     "RunHandle",
+    "RunLocalEffects",
+    "RunPointRegion",
+    "RunProgram",
     "RunStartedEvent",
     "RuntimeEvent",
     "RuntimeEventSink",
@@ -515,6 +540,7 @@ __all__ = [
     "axis",
     "blocking_problem",
     "cartesian",
+    "compiled_jobs",
     "compute",
     "decide_online_convergence",
     "delete_parameter_rows",
@@ -542,5 +568,6 @@ __all__ = [
     "route",
     "shot_axis",
     "update_parameter_rows",
+    "validate_domain_compilation",
     "zip",
 ]

@@ -39,9 +39,12 @@ from scopecat.compiler.typed.products import (
     DomainProductProducer,
 )
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     RouteInput,
-    TypedProgram,
     ValueInput,
+    core_actions,
+    core_domain_executions,
+    core_state,
 )
 from scopecat.compiler.typed.records import (
     plan_records,
@@ -72,14 +75,14 @@ from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import Payload, Scalar, String
 
 
-def verify_typed_program(program: TypedProgram) -> TypedProgram:
+def verify_core_program(program: CoreProgram) -> CoreProgram:
     """Return a topologically ordered program after pure IR verification."""
 
-    return _verify_typed_program(program).program
+    return _verify_core_program(program).program
 
 
 def _verified_route_capabilities(
-    program: TypedProgram,
+    program: CoreProgram,
 ) -> tuple[dict[LogicalResourcePortId, set[str]], tuple[Problem, ...]]:
     route_problems: list[Problem] = []
     route_capabilities: dict[LogicalResourcePortId, set[str]] = {}
@@ -104,7 +107,7 @@ def _verified_route_capabilities(
     return route_capabilities, tuple(route_problems)
 
 
-def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
+def _verify_core_program(program: CoreProgram) -> _CoreProgramVerification:
     """Normalize once and retain every proof derived during verification."""
 
     problems: list[Problem] = []
@@ -125,7 +128,7 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
             for issue in error.issues
         )
     compute_nodes = program.compute_nodes
-    problems.extend(_typed_domain_problems(program))
+    problems.extend(_core_domain_problems(program))
     measurement_transforms, transform_problems = typed_measurement_transform_problems(
         program
     )
@@ -191,7 +194,7 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
                 )
 
     compute_outputs = {node.result.id: node.result for node in compute_nodes}
-    action_ids = tuple(action.id for action in program.actions)
+    action_ids = tuple(action.id for action in core_actions(program))
     if len(action_ids) != len(set(action_ids)):
         problems.append(
             _problem(
@@ -200,7 +203,7 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
                 model_location("actions"),
             )
         )
-    for action_index, action in enumerate(program.actions):
+    for action_index, action in enumerate(core_actions(program)):
         problems.extend(
             _logical_resource_port_problems(
                 action.resource_port_id,
@@ -246,7 +249,7 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
                         location,
                     )
                 )
-    for location, state in _state_specs(program.state):
+    for location, state in _state_specs(core_state(program)):
         if not isinstance(state, SetStateSpec):
             continue
         if not state.capability_id or not state.field_path:
@@ -384,19 +387,19 @@ def _verify_typed_program(program: TypedProgram) -> _TypedProgramVerification:
         raise CheckFailed(problems)
     if verified_point_domain is None or consumers is None:
         raise AssertionError("successful typed verification lost its program proof")
-    return _TypedProgramVerification(
+    return _CoreProgramVerification(
         program=program,
         point_domain=verified_point_domain,
         relation_consumers=consumers,
     )
 
 
-def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
+def _core_domain_problems(program: CoreProgram) -> tuple[Problem, ...]:
     problems: list[Problem] = []
 
     products = {item.id for item in program.product_defs}
     uses = {item.id: item for item in program.product_uses}
-    producers_by_result: dict[str, DomainProductProducer] = {}
+    producers_by_result: dict[tuple[str, str], DomainProductProducer] = {}
     producer_ids: set[ProductProducerId] = set()
     for producer in program.domain_product_producers:
         if producer.id in producer_ids:
@@ -412,7 +415,7 @@ def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
                 )
             )
         producer_ids.add(producer.id)
-        key = producer.result_id
+        key = (producer.execution_id, producer.result_id)
         if key in producers_by_result:
             problems.append(
                 _problem(
@@ -426,12 +429,19 @@ def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
             )
         producers_by_result[key] = producer
 
-    declared_result_ids: set[str] = set()
+    declared_result_ids: set[tuple[str, str]] = set()
     produced_products: set[ProductId] = set()
-    for execution in (
-        () if program.domain_execution is None else (program.domain_execution,)
-    ):
-        location = model_location("domain_execution")
+    execution_ids = tuple(execution.id for execution in core_domain_executions(program))
+    if len(execution_ids) != len(set(execution_ids)):
+        problems.append(
+            _problem(
+                "domain_execution_id_duplicate",
+                "typed domain execution ids must be unique",
+                model_location("domain_executions"),
+            )
+        )
+    for execution_index, execution in enumerate(core_domain_executions(program)):
+        location = model_location("domain_executions", execution_index)
         declared = execution.program
         input_ports = {port.id: port for port in declared.input_ports}
         if tuple(execution.inputs) != tuple(input_ports):
@@ -477,7 +487,7 @@ def _typed_domain_problems(program: TypedProgram) -> tuple[Problem, ...]:
                 "results",
                 result.id,
             )
-            key = result.id
+            key = (execution.id, result.id)
             declared_result_ids.add(key)
             if result.product_id in produced_products:
                 problems.append(
@@ -563,19 +573,19 @@ class ProgramRelationConsumer:
 
 
 @dataclass(frozen=True, slots=True)
-class _TypedProgramVerification:
+class _CoreProgramVerification:
     """One normalized program and the proofs established in the same pass."""
 
-    program: TypedProgram
+    program: CoreProgram
     point_domain: VerifiedPointDomain
     relation_consumers: tuple[ProgramRelationConsumer, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class VerifiedTypedProgram:
-    """A normalized TypedProgram whose complete executable surface was checked."""
+class VerifiedCoreProgram:
+    """A normalized CoreProgram whose complete executable surface was checked."""
 
-    program: TypedProgram
+    program: CoreProgram
     point_domain: VerifiedPointDomain = dc_field(init=False)
     relation_consumers: tuple[ProgramRelationConsumer, ...] = dc_field(init=False)
     _relation_plan_by_use: Mapping[RelationUseId, VerifiedRelationPlan[PlanNode]] = (
@@ -583,7 +593,7 @@ class VerifiedTypedProgram:
     )
 
     def __post_init__(self) -> None:
-        verified = _verify_typed_program(self.program)
+        verified = _verify_core_program(self.program)
         object.__setattr__(self, "program", verified.program)
         object.__setattr__(self, "point_domain", verified.point_domain)
         object.__setattr__(
@@ -616,14 +626,14 @@ class VerifiedTypedProgram:
 
 
 def seal_typed_program(
-    program: TypedProgram,
+    program: CoreProgram,
     *,
     phase: ProblemPhase = ProblemPhase.AUTHORING,
-) -> VerifiedTypedProgram:
+) -> VerifiedCoreProgram:
     """Verify, normalize, and seal one trusted transient program."""
 
     try:
-        return VerifiedTypedProgram(program)
+        return VerifiedCoreProgram(program)
     except CheckFailed as error:
         if phase is ProblemPhase.AUTHORING:
             raise
@@ -636,7 +646,7 @@ def seal_typed_program(
 
 
 def typed_program_proof_role_problems(
-    program: TypedProgram,
+    program: CoreProgram,
     *,
     phase: ProblemPhase = ProblemPhase.AUTHORING,
     _point_domain: VerifiedPointDomain | None = None,
@@ -700,7 +710,7 @@ def _consumer(
 
 
 def _program_relation_consumers_with_roles(
-    program: TypedProgram,
+    program: CoreProgram,
     *,
     point_domain: VerifiedPointDomain,
 ) -> Iterator[tuple[ProgramRelationConsumer, _PlanConsumerRole]]:
@@ -783,9 +793,7 @@ def _program_relation_consumers_with_roles(
                 point_role,
             )
 
-    for execution in (
-        () if program.domain_execution is None else (program.domain_execution,)
-    ):
+    for execution_index, execution in enumerate(core_domain_executions(program)):
         for input_name, input_value in execution.inputs.items():
             yield (
                 _consumer(
@@ -793,7 +801,8 @@ def _program_relation_consumers_with_roles(
                     ProgramRelationConsumerKind.DOMAIN_EXECUTION_INPUT,
                     input_value.value,
                     model_location(
-                        "domain_execution",
+                        "domain_executions",
+                        execution_index,
                         "inputs",
                         input_name,
                     ),
@@ -801,13 +810,13 @@ def _program_relation_consumers_with_roles(
                 point_role,
             )
 
-    for state_index, state in enumerate(program.state):
+    for state_index, state in enumerate(core_state(program)):
         yield from _state_relation_consumers_with_roles(
             state,
             role=point_role,
             location=model_location("state", state_index),
         )
-    for action_index, action in enumerate(program.actions):
+    for action_index, action in enumerate(core_actions(program)):
         for field_index, field in enumerate(action.fields):
             if isinstance(field.value_use, ComputeResultRef):
                 continue
@@ -1067,8 +1076,8 @@ def _problem(code: str, message: str, location: ModelLocation) -> Problem:
 __all__ = [
     "ProgramRelationConsumer",
     "ProgramRelationConsumerKind",
-    "VerifiedTypedProgram",
+    "VerifiedCoreProgram",
     "seal_typed_program",
     "typed_program_proof_role_problems",
-    "verify_typed_program",
+    "verify_core_program",
 ]

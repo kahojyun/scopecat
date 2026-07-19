@@ -28,13 +28,13 @@ from scopecat.compiler.typed.products import (
     MeasurementTransformProductProducer,
 )
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
-    TypedProgram,
     product_output,
     record_product,
     shot_axis,
@@ -50,6 +50,10 @@ from scopecat.measurements.projection import (
     select_measurement_projection,
 )
 from scopecat.measurements.recording import commit_projected_measurement_records
+from scopecat.measurements.values import (
+    seal_measurement_values,
+    select_measurement_values,
+)
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
@@ -63,6 +67,7 @@ from scopecat.sdk.domain import (
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
+    product_use_id,
     project_domain_plan,
 )
 from scopecat_quantum import (
@@ -196,25 +201,28 @@ def _linked_points() -> MaterializedLinkedPoints:
     iq_producer_id = product_producer_id("iq-shots-producer")
     probability_0_producer_id = product_producer_id("probability-0-producer")
     probability_1_producer_id = product_producer_id("probability-1-producer")
-    program = TypedProgram(
+    program = CoreProgram(
         id="fake-host-transform-e2e",
         kind="fake_host_transform_e2e",
         point_domain=point_domain,
         product_defs=(iq_shots, probability_0, probability_1),
-        domain_execution=TypedDomainExecution(
-            program=TypedDomainProgram(
-                id=domain_program_id,
-                dialect_id="test.quantum.host-transform",
-                dialect_version="1",
-                body=("binary-iq-readout", "v1"),
-                result_ports=(DomainResultPortDef("iq_shots"),),
-            ),
-            results=(
-                TypedDomainResultBinding(
-                    id="iq_shots",
-                    product_id=iq_shots.id,
-                    producer_id=iq_producer_id,
-                    product_use_ids=(iq_use.id,),
+        effects=(
+            TypedDomainExecution(
+                id="domain",
+                program=TypedDomainProgram(
+                    id=domain_program_id,
+                    dialect_id="test.quantum.host-transform",
+                    dialect_version="1",
+                    body=("binary-iq-readout", "v1"),
+                    result_ports=(DomainResultPortDef("iq_shots"),),
+                ),
+                results=(
+                    TypedDomainResultBinding(
+                        id="iq_shots",
+                        product_id=iq_shots.id,
+                        producer_id=iq_producer_id,
+                        product_use_ids=(iq_use.id,),
+                    ),
                 ),
             ),
         ),
@@ -250,6 +258,7 @@ def _linked_points() -> MaterializedLinkedPoints:
             DomainProductProducer(
                 id=iq_producer_id,
                 product_id=iq_shots.id,
+                execution_id="domain",
                 result_id="iq_shots",
             ),
         ),
@@ -341,7 +350,9 @@ def _scenario(
     host_implementation: DomainHostTransformImplementation,
 ) -> _Scenario:
     linked_points = _linked_points()
-    projection = project_domain_plan(linked_points)
+    projection = project_domain_plan(
+        linked_points, linked_points.domain_executions[0].execution.id
+    )
     view = projection.view(linked_points)
     execution = view.require_execution(dialect_id="test.quantum.host-transform")
     iq_use = execution.result("iq_shots").require_one_product_use()
@@ -355,7 +366,7 @@ def _scenario(
     context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
-        adapter_id="test.fake-host-transform",
+        compiler_id="test.fake-host-transform",
         batch_ordinal=0,
     )
     assert all(isinstance(point, DomainPointRef) for point in context.points)
@@ -465,7 +476,12 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
 
     counted_implementation = replace(reference, kernel=counted_kernel)
     scenario = _scenario(counted_implementation)
-    value_selection = scenario.prepared.source_fragment.selection
+    value_selection = select_measurement_values(
+        scenario.linked_points,
+        required_product_use_ids=tuple(
+            product_use_id(product_use) for product_use in scenario.context.product_uses
+        ),
+    )
     projection = bind_measurement_projection(
         select_measurement_projection(scenario.linked_points),
         value_selection,
@@ -473,10 +489,14 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
     journal = MemoryExecutionJournal()
     committer = MemoryMeasurementRecordCommitter()
     run_id = "fake-host-transform-run"
-    executed = execute_domain_job_values(
-        scenario.prepared,
-        run_id="fake-host-transform-run",
-        journal=journal,
+    executed = seal_measurement_values(
+        value_selection,
+        execute_domain_job_values(
+            scenario.prepared,
+            semantic_operation_id="domain",
+            run_id="fake-host-transform-run",
+            journal=journal,
+        ),
     )
     projected = project_measurement_records(
         projection,

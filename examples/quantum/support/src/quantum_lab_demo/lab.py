@@ -12,7 +12,7 @@ from quantum_lab_demo.fixtures import (
     EXPERIMENT_VIRTUAL_LAB_PROFILE,
 )
 from quantum_lab_demo.reference_experiments.fake_x_count_experiment import (
-    FakeXCountDomainExecutionAdapter,
+    FakeXCountDomainCompiler,
 )
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
@@ -33,7 +33,7 @@ def quantum_lab(
         config_profile=config_profile or quantum_wiring_config_profile(),
         execution_backend=sc.ExecutionBackend(
             provider=provider,
-            domain_adapters=(FakeXCountDomainExecutionAdapter(),),
+            domain_compilers=(FakeXCountDomainCompiler(),),
         ),
     )
 

@@ -10,9 +10,9 @@ from scopecat.authoring import (
     ValueValidationError,
 )
 from scopecat.compiler.linking.bound import (
-    BoundPlan,
     BoundResourceState,
     BoundStateField,
+    MaterializedLocalSemantics,
 )
 from scopecat.execution.observation import RuntimePayloadObservation
 from scopecat.kernel.errors import CheckFailed
@@ -908,7 +908,7 @@ def _bound_plan(
     tmp_path: Path,
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot | None = None,
-) -> BoundPlan:
+) -> MaterializedLocalSemantics:
     del tmp_path
     return bound_plan(invocation, config=config)
 
@@ -923,7 +923,7 @@ def _measurement_projection(
 
 
 def _state_fields(
-    plan: BoundPlan,
+    plan: MaterializedLocalSemantics,
 ) -> tuple[tuple[int, BoundResourceState, BoundStateField], ...]:
     return tuple(
         (point.point_index, state, field)

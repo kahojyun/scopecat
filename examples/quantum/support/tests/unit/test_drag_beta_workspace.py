@@ -34,7 +34,7 @@ from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
     DRAG_BETA_PARAMETER_COLUMN,
     DRAG_BETA_PARAMETER_ID,
     DRAG_BETA_TEMPLATE,
-    DragBetaDomainExecutionAdapter,
+    DragBetaDomainCompiler,
     drag_beta_scratch_experiment,
 )
 from quantum_lab_demo.targets.fake_list_mode import default_fake_list_target
@@ -52,7 +52,7 @@ def _quantity_in_unit(value: object, unit: str) -> float:
 
 def test_drag_beta_authors_one_mixed_program_for_both_scan_axes() -> None:
     declaration = drag_beta_calibration_program()
-    execution = DRAG_BETA_TEMPLATE.build().domain_execution
+    execution = DRAG_BETA_TEMPLATE.build().domain_executions[0]
     assert execution is not None
     program = execution.program
 
@@ -81,13 +81,13 @@ def test_drag_beta_template_and_scratch_share_the_2d_point_model(
     template_preview = lab.prepare(
         DRAG_BETA_TEMPLATE,
         execution_backend=sc.ExecutionBackend(
-            domain_adapters=(DragBetaDomainExecutionAdapter(),)
+            domain_compilers=(DragBetaDomainCompiler(),)
         ),
     ).preview()
     scratch_preview = lab.prepare(
         drag_beta_scratch_experiment(lab),
         execution_backend=sc.ExecutionBackend(
-            domain_adapters=(DragBetaDomainExecutionAdapter(),)
+            domain_compilers=(DragBetaDomainCompiler(),)
         ),
     ).preview()
 
@@ -112,11 +112,11 @@ def test_drag_beta_template_and_scratch_share_the_2d_point_model(
 def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
     tmp_path: Path,
 ) -> None:
-    adapter = DragBetaDomainExecutionAdapter()
+    compiler = DragBetaDomainCompiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         DRAG_BETA_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(domain_adapters=(adapter,)),
+        execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
     )
 
     run = experiment.run()
@@ -134,7 +134,7 @@ def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
     analysis = analyze_drag_beta_run(run)
 
     assert run.manifest.status == "completed"
-    assert adapter.physical_execution_count == 1
+    assert compiler.physical_execution_count == 1
     assert len(records) == 15
     assert len(analysis.observations) == 15
     assert float(analysis.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
@@ -183,11 +183,11 @@ def test_drag_beta_low_quality_fit_saves_evidence_without_a_proposal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    adapter = DragBetaDomainExecutionAdapter()
+    compiler = DragBetaDomainCompiler()
     lab = quantum_lab(workspace=tmp_path)
     run = lab.prepare(
         DRAG_BETA_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(domain_adapters=(adapter,)),
+        execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
     ).run()
     original_fit = fit_drag_beta
 
@@ -256,10 +256,10 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
-    source_adapter = DragBetaDomainExecutionAdapter()
+    source_compiler = DragBetaDomainCompiler()
     source_run = lab.prepare(
         DRAG_BETA_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(domain_adapters=(source_adapter,)),
+        execution_backend=sc.ExecutionBackend(domain_compilers=(source_compiler,)),
     ).run()
     result = analyze_drag_beta_run(source_run)
     result.analysis.save()
@@ -303,11 +303,11 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
         expected_generation=baseline.active_state.generation,
         activation_note="use reviewed DRAG beta",
     )
-    active_adapter = DragBetaDomainExecutionAdapter()
+    active_compiler = DragBetaDomainCompiler()
     active_experiment = lab.prepare(
         DRAG_BETA_TEMPLATE,
         config="active",
-        execution_backend=sc.ExecutionBackend(domain_adapters=(active_adapter,)),
+        execution_backend=sc.ExecutionBackend(domain_compilers=(active_compiler,)),
     )
     active_preview = active_experiment.preview()
     active_run = active_experiment.run()
@@ -344,7 +344,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
         DRAG_BETA_TEMPLATE,
         config="active",
         execution_backend=sc.ExecutionBackend(
-            domain_adapters=(DragBetaDomainExecutionAdapter(),)
+            domain_compilers=(DragBetaDomainCompiler(),)
         ),
     ).preview()
     restored_betas = sorted(
@@ -364,18 +364,18 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
 
 def test_drag_beta_response_and_evidence_remain_batch_local(tmp_path: Path) -> None:
     target = replace(default_fake_list_target(), max_list_entries=4)
-    adapter = DragBetaDomainExecutionAdapter(target=target)
+    compiler = DragBetaDomainCompiler(target=target)
     lab = quantum_lab(workspace=tmp_path)
 
     run = lab.prepare(
         DRAG_BETA_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(domain_adapters=(adapter,)),
+        execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
     ).run()
     analysis = analyze_drag_beta_run(run)
 
     assert run.manifest.status == "completed"
     assert len(run.data().measurements().dataset.records) == 15
-    assert adapter.physical_execution_count == 4
+    assert compiler.physical_execution_count == 4
     assert float(analysis.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
     assert analysis.assessment.eligible
     assert analysis.proposal_id == DRAG_BETA_PROPOSAL_ID

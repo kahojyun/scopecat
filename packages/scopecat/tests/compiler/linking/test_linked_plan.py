@@ -15,7 +15,7 @@ from scopecat.compiler.linking.linked import (
     link_verified_program,
     materialize_linked_points,
 )
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.evaluation import (
     ParameterRelationData,
 )
@@ -50,8 +50,8 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.semantic.value_expressions import TableValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     ResourceRouteIntent,
-    TypedProgram,
     product_output,
     record_product,
     set_state_field,
@@ -121,7 +121,7 @@ def _dependent_row(
     )
 
 
-def _symbolic_program() -> TypedProgram:
+def _symbolic_program() -> CoreProgram:
     root = point_product(
         _rows("a", (1.0, 2.0)),
         point_dependent_product(
@@ -152,7 +152,7 @@ def _symbolic_program() -> TypedProgram:
         available_product,
         metadata={"owner": "available-producer"},
     )
-    return TypedProgram(
+    return CoreProgram(
         id="symbolic-linked-plan",
         kind="compiler_test",
         point_domain=PointDomain(root=root),
@@ -196,7 +196,7 @@ def test_link_retains_symbolic_backend_neutral_domain() -> None:
 
 
 def test_link_retains_unit_domain() -> None:
-    program = TypedProgram(
+    program = CoreProgram(
         id="unit-linked-plan",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
@@ -250,7 +250,7 @@ def test_unselected_product_definition_survives_link_without_collection() -> Non
     program = _symbolic_program()
 
     linked = link_program(program, _environment())
-    plan = materialize_local_plan(linked)
+    plan = materialize_local_semantics(linked)
 
     selected_id, unselected_id = (product.id for product in linked.product_defs)
     assert linked.product_defs == program.product_defs
@@ -287,7 +287,7 @@ def test_link_reports_environment_problems_without_target_selection() -> None:
         problems=(environment_problem,),
     )
     expression = grid(x=lit(1.0) + 2.0)
-    program = TypedProgram(
+    program = CoreProgram(
         id="rejected-linked-plan",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -311,7 +311,7 @@ def test_link_aggregates_environment_and_program_seal_problems() -> None:
         location=model_location("config"),
     )
     environment = replace(_environment(), problems=(environment_problem,))
-    program = TypedProgram(
+    program = CoreProgram(
         id="invalid-program-link",
         kind="compiler_test",
         point_domain=PointDomain(root=point_product()),
@@ -396,7 +396,7 @@ def test_link_closes_every_used_parameter_import(
     bindings: RelationTypeBindings,
     value_type: Table,
 ) -> None:
-    program = TypedProgram(
+    program = CoreProgram(
         id="missing-parameter-link",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -423,7 +423,7 @@ def test_link_closes_every_used_parameter_import(
 
 def test_link_checks_parameter_values_against_each_used_proof_contract() -> None:
     parameter_id = "linked-contract-value"
-    program = TypedProgram(
+    program = CoreProgram(
         id="parameter-contract-link",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -452,7 +452,7 @@ def test_link_checks_parameter_values_against_each_used_proof_contract() -> None
 
 def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
     parameter_id = "lookup-bound-as-scalar"
-    program = TypedProgram(
+    program = CoreProgram(
         id="lookup-parameter-shape-link",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -496,11 +496,11 @@ def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
 
 def test_link_rejects_remaining_relation_input_imports() -> None:
     input_id = "unresolved"
-    program = TypedProgram(
+    program = CoreProgram(
         id="unresolved-input-link",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
-        state=(
+        effects=(
             set_state_field(
                 scalar_value_expr(
                     "source-0",
@@ -539,7 +539,7 @@ def test_link_reports_every_missing_import_in_one_relation_consumer() -> None:
         min_rows=1,
         max_rows=1,
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id="multiple-missing-parameter-link",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -574,8 +574,8 @@ def test_local_materialization_builds_the_executable_bound_plan() -> None:
     program = load_experiment()
     environment = _environment()
 
-    expected = materialize_local_plan(link_program(program, environment))
-    actual = materialize_local_plan(link_program(program, environment))
+    expected = materialize_local_semantics(link_program(program, environment))
+    actual = materialize_local_semantics(link_program(program, environment))
 
     assert actual == expected
     assert actual.valid, actual.problems
@@ -661,7 +661,7 @@ def test_linked_points_normalize_entities_before_point_identity_is_sealed() -> N
         min_rows=1,
         max_rows=1,
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id="linked-entity-points",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -689,7 +689,7 @@ def test_linked_points_reject_unknown_entities_at_the_planning_boundary() -> Non
         min_rows=1,
         max_rows=1,
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id="unknown-linked-entity-point",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -721,7 +721,7 @@ def test_linked_points_preserve_entity_kind_mismatch_problem() -> None:
         min_rows=1,
         max_rows=1,
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id="wrong-kind-linked-entity-point",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -764,7 +764,7 @@ def test_linked_points_aggregate_entity_and_normalized_value_problems() -> None:
         max_rows=3,
         primary_key=("subject",),
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id="invalid-normalized-linked-entity-points",
         kind="compiler_test",
         point_domain=PointDomain(

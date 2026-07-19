@@ -15,7 +15,6 @@ from scopecat.kernel.problems import ProblemCategory, ProblemPhase
 from scopecat.kernel.product_identity import ProductUse, ProductUseId
 from scopecat.measurements.host_transforms import (
     HostMeasurementTransformCall,
-    HostMeasurementTransformFragmentBinding,
     HostMeasurementTransformImplementation,
     HostMeasurementTransformImplementationBinding,
     HostMeasurementTransformKernel,
@@ -39,9 +38,8 @@ from scopecat.measurements.transform_verification import (
     verify_measurement_transform_graph,
 )
 from scopecat.measurements.values import (
-    ProductValueFragmentDef,
-    seal_measurement_value_fragment,
-    select_measurement_value_assembly,
+    seal_measurement_values,
+    select_measurement_values,
 )
 from scopecat.records.measurement import MeasurementArray, MeasurementValue
 from scopecat.records.parameter import Quantity
@@ -171,30 +169,16 @@ def _one_transform_plan(
             ),
         ),
     )
-    assembly = select_measurement_value_assembly(
+    selection = select_measurement_values(
         scenario.linked_points,
         required_product_use_ids=(source.id, output.id),
-        fragment_defs=(
-            ProductValueFragmentDef("source", (source.id,)),
-            ProductValueFragmentDef("derived", (output.id,)),
-        ),
     )
     bound = bind_host_measurement_transforms(
         selected,
-        assembly,
-        (
-            HostMeasurementTransformFragmentBinding(
-                transform.id,
-                "derived",
-            ),
-        ),
+        (source.id,),
     )
-    source_fragment = seal_measurement_value_fragment(
-        assembly,
-        "source",
-        measurement_value_candidates(scenario, (source,)),
-    )
-    return scenario, graph, selected, assembly, bound, source_fragment
+    source_values = measurement_value_candidates(scenario, (source,))
+    return scenario, graph, selected, selection, bound, source_values
 
 
 def test_transform_graph_accepts_a_linked_point_batch() -> None:
@@ -542,30 +526,14 @@ def test_host_capability_validator_rejects_before_kernel() -> None:
     assert kernel_calls == 0
 
 
-def test_binding_requires_exact_transform_output_fragment_and_all_values() -> None:
-    scenario, _graph, selected, assembly, _bound, _source = _one_transform_plan()
-    transform_id = selected.graph.transforms[0].id
+def test_binding_requires_unique_sources_covering_graph_leaf_inputs() -> None:
+    scenario, _graph, selected, _selection, _bound, _source = _one_transform_plan()
+    source = scenario.uses[0]
 
-    with pytest.raises(CheckFailed):
-        bind_host_measurement_transforms(selected, assembly, ())
-    with pytest.raises(CheckFailed):
-        bind_host_measurement_transforms(
-            selected,
-            assembly,
-            (HostMeasurementTransformFragmentBinding(transform_id, "source"),),
-        )
-
-    incomplete = select_measurement_value_assembly(
-        scenario.linked_points,
-        required_product_use_ids=(scenario.uses[1].id,),
-        fragment_defs=(ProductValueFragmentDef("derived", (scenario.uses[1].id,)),),
-    )
-    with pytest.raises(CheckFailed):
-        bind_host_measurement_transforms(
-            selected,
-            incomplete,
-            (HostMeasurementTransformFragmentBinding(transform_id, "derived"),),
-        )
+    with pytest.raises(ValueError, match="cover graph inputs"):
+        bind_host_measurement_transforms(selected, ())
+    with pytest.raises(ValueError, match="must be unique"):
+        bind_host_measurement_transforms(selected, (source.id, source.id))
 
 
 def test_point_runner_executes_multi_output_dag_in_canonical_order() -> None:
@@ -631,38 +599,22 @@ def test_point_runner_executes_multi_output_dag_in_canonical_order() -> None:
             ),
         ),
     )
-    assembly = select_measurement_value_assembly(
+    selection = select_measurement_values(
         scenario.linked_points,
         required_product_use_ids=tuple(use.id for use in scenario.uses),
-        fragment_defs=(
-            ProductValueFragmentDef("source", (source.id,)),
-            ProductValueFragmentDef("split-values", (left.id, right.id)),
-            ProductValueFragmentDef("combined", (result.id,)),
-        ),
     )
     bound = bind_host_measurement_transforms(
         selected,
-        assembly,
-        (
-            HostMeasurementTransformFragmentBinding(split.id, "split-values"),
-            HostMeasurementTransformFragmentBinding(combine.id, "combined"),
-        ),
+        (source.id,),
     )
-    source_fragment = seal_measurement_value_fragment(
-        assembly,
-        "source",
-        measurement_value_candidates(scenario, (source,)),
-    )
+    source_values = measurement_value_candidates(scenario, (source,))
 
-    executed = execute_host_measurement_transforms(bound, (source_fragment,))
+    executed = execute_host_measurement_transforms(bound, source_values)
+    values = seal_measurement_values(selection, executed.values)
 
     assert calls == [("split", 0), ("split", 1), ("combine", 0), ("combine", 1)]
-    assert tuple(fragment.fragment_id for fragment in executed.transform_fragments) == (
-        "split-values",
-        "combined",
-    )
     final_values = [
-        executed.values.value_for_output(point.logical_id, result.id).value
+        values.value_for_output(point.logical_id, result.id).value
         for point in scenario.linked_points.point_domain.points
     ]
     assert [value.value for value in final_values if isinstance(value, Quantity)] == [
@@ -711,7 +663,7 @@ def test_point_runner_rejects_wrong_kernel_outputs(
     *_prefix, bound, source = _one_transform_plan(kernel=bad_kernel)
 
     with pytest.raises(MeasurementTransformExecutionError) as caught:
-        execute_host_measurement_transforms(bound, (source,))
+        execute_host_measurement_transforms(bound, source)
 
     problem = caught.value.problems[0]
     assert problem.code == expected_code
@@ -739,7 +691,7 @@ def test_kernel_fault_is_sanitized_logged_and_safe_to_retry(
         caplog.at_level("ERROR", logger="scopecat.measurements.host_transforms"),
         pytest.raises(MeasurementTransformExecutionError) as caught,
     ):
-        execute_host_measurement_transforms(bound, (source,))
+        execute_host_measurement_transforms(bound, source)
 
     problem = caught.value.problems[0]
     assert problem.code == "measurement_transform_host_kernel_failed"
@@ -751,8 +703,8 @@ def test_kernel_fault_is_sanitized_logged_and_safe_to_retry(
     assert "secret-input-payload" not in repr(problem.details)
     assert "secret-input-payload" not in caplog.text
 
-    retried = execute_host_measurement_transforms(bound, (source,))
-    assert len(retried.transform_fragments) == 1
+    retried = execute_host_measurement_transforms(bound, source)
+    assert len(retried.values) == len(source) * 2
 
 
 class _ExplodingOutputMapping(Mapping[str, MeasurementValue]):
@@ -778,7 +730,7 @@ def test_kernel_output_mapping_fault_stays_inside_transform_boundary() -> None:
     *_prefix, bound, source = _one_transform_plan(kernel=bad_mapping_kernel)
 
     with pytest.raises(MeasurementTransformExecutionError) as caught:
-        execute_host_measurement_transforms(bound, (source,))
+        execute_host_measurement_transforms(bound, source)
 
     problem = caught.value.problems[0]
     assert problem.code == "measurement_transform_host_output_container_invalid"
@@ -788,20 +740,20 @@ def test_kernel_output_mapping_fault_stays_inside_transform_boundary() -> None:
     assert "secret-mapping-payload" not in repr(problem.details)
 
 
-def test_point_runner_requires_exact_source_fragment_inventory() -> None:
+def test_point_runner_requires_exact_source_value_inventory() -> None:
     *_prefix, bound, source = _one_transform_plan()
 
     with pytest.raises(MeasurementTransformExecutionError) as missing:
         execute_host_measurement_transforms(bound, ())
     with pytest.raises(MeasurementTransformExecutionError) as duplicate:
-        execute_host_measurement_transforms(bound, (source, source))
+        execute_host_measurement_transforms(bound, (*source, *source))
 
     assert missing.value.problems[0].code == (
-        "measurement_transform_source_fragment_missing"
+        "measurement_transform_source_value_missing"
     )
     assert missing.value.problems[0].category is ProblemCategory.INVALID_INPUT
     assert duplicate.value.problems[0].code == (
-        "measurement_transform_source_fragment_duplicate"
+        "measurement_transform_source_value_duplicate"
     )
     assert duplicate.value.problems[0].category is ProblemCategory.CONFLICT
 
@@ -818,11 +770,10 @@ def test_zero_point_runner_closes_without_calling_kernel() -> None:
 
     *_prefix, bound, source = _one_transform_plan(point_values=(), kernel=kernel)
 
-    executed = execute_host_measurement_transforms(bound, (source,))
+    executed = execute_host_measurement_transforms(bound, source)
 
     assert calls == 0
-    assert executed.values.values == ()
-    assert len(executed.transform_fragments) == 1
+    assert executed.values == ()
 
 
 def test_record_aliases_do_not_multiply_transform_execution() -> None:
@@ -837,7 +788,7 @@ def test_record_aliases_do_not_multiply_transform_execution() -> None:
 
     scenario, *_middle, bound, source = _one_transform_plan(kernel=kernel)
 
-    execute_host_measurement_transforms(bound, (source,))
+    execute_host_measurement_transforms(bound, source)
 
     # The scenario has primary+alias RecordUse edges for one product use.  The
     # transform still runs exactly once per logical point, never once per record.
@@ -882,32 +833,21 @@ def test_point_runner_fans_one_semantic_output_out_to_every_product_use() -> Non
             ),
         ),
     )
-    assembly = select_measurement_value_assembly(
+    selection = select_measurement_values(
         scenario.linked_points,
         required_product_use_ids=tuple(use.id for use in scenario.uses),
-        fragment_defs=(
-            ProductValueFragmentDef("source", (source.id,)),
-            ProductValueFragmentDef(
-                "derived",
-                (first_output.id, second_output.id),
-            ),
-        ),
     )
     bound = bind_host_measurement_transforms(
         selected,
-        assembly,
-        (HostMeasurementTransformFragmentBinding(transform.id, "derived"),),
+        (source.id,),
     )
-    source_fragment = seal_measurement_value_fragment(
-        assembly,
-        "source",
-        measurement_value_candidates(scenario, (source,)),
-    )
+    source_values = measurement_value_candidates(scenario, (source,))
 
-    executed = execute_host_measurement_transforms(bound, (source_fragment,))
+    executed = execute_host_measurement_transforms(bound, source_values)
+    values = seal_measurement_values(selection, executed.values)
 
     assert calls == len(scenario.linked_points.point_domain.points)
     for point in scenario.linked_points.point_domain.points:
-        first = executed.values.value_for_output(point.logical_id, first_output.id)
-        second = executed.values.value_for_output(point.logical_id, second_output.id)
+        first = values.value_for_output(point.logical_id, first_output.id)
+        second = values.value_for_output(point.logical_id, second_output.id)
         assert first.value == second.value

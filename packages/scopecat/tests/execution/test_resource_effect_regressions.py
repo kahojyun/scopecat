@@ -8,8 +8,8 @@ from scopecat.adapters.memory import (
     MemoryPayloadEvidenceCommitter,
 )
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.bound import BoundPlan
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.bound import MaterializedLocalSemantics
+from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.model import lit
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.relations.uses import relation_use
@@ -17,19 +17,17 @@ from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import InstrumentProductProducer, ProductDef
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     ResourceRouteIntent,
-    TypedProgram,
     record_product,
     set_state_field,
 )
 from scopecat.compiler.typed.state import StateSpecVariant
-from scopecat.execution.local.engine import ExecutionEngine
-from scopecat.execution.local.lowering import build_execution_program
+from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     ApplyStateStage,
     CollectStage,
-    ExecutionProgram,
     PointProgram,
     StateTarget,
 )
@@ -73,6 +71,10 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.authoring import load_config, parameters
 from tests.testkit.bound_plan import config_with_physical_resources
+from tests.testkit.local_effect_program import (
+    StubLocalEffectProgram,
+    lower_test_local_effect_program,
+)
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.typed_program import (
     instrument_product_producer,
@@ -105,7 +107,7 @@ def _unit_program(
     state: tuple[StateSpecVariant, ...] = (),
     products: tuple[ProductDef, ...] = (),
     producers: tuple[InstrumentProductProducer, ...] = (),
-) -> TypedProgram:
+) -> CoreProgram:
     uses_and_records = tuple(record_product(product) for product in products)
     return typed_program(
         id=experiment_id,
@@ -121,15 +123,15 @@ def _unit_program(
 
 
 def _bind(
-    program: TypedProgram,
+    program: CoreProgram,
     *,
     config: ConfigProfileSnapshot,
-) -> BoundPlan:
+) -> MaterializedLocalSemantics:
     environment = replace(
         validate_config_environment(config),
         parameters=parameters(),
     )
-    return materialize_local_plan(link_program(program, environment))
+    return materialize_local_semantics(link_program(program, environment))
 
 
 def test_record_products_keep_their_exact_logical_route_bindings() -> None:
@@ -175,7 +177,7 @@ def test_record_products_keep_their_exact_logical_route_bindings() -> None:
     )
 
     plan = _bind(program, config=config)
-    execution = build_execution_program(plan, instrument_order=("source-0",))
+    execution = lower_test_local_effect_program(plan, instrument_order=("source-0",))
 
     assert plan.valid, plan.problems
     requests_by_key = {
@@ -509,7 +511,7 @@ def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() ->
         _unit_program(experiment_id="direct-state-claims", state=(first_state,)),
         config=config,
     )
-    execution = build_execution_program(
+    execution = lower_test_local_effect_program(
         single_plan,
         instrument_order=("source-0",),
     )
@@ -574,7 +576,7 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
     )
 
     plan = _bind(program, config=config)
-    execution = build_execution_program(plan, instrument_order=("source-0",))
+    execution = lower_test_local_effect_program(plan, instrument_order=("source-0",))
 
     assert plan.valid, plan.problems
     state_field = plan.points[0].desired_state[0].fields[0]
@@ -664,7 +666,7 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
             ],
         )
     )
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="scoped-same-field-reconciliation",
         points=(
             PointProgram(
@@ -705,7 +707,7 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         resource_claims=(ResourceClaim(id="source-0"),),
     )
 
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="scoped-same-field-run",
         program=program,
         drivers={driver.instrument_id: driver},

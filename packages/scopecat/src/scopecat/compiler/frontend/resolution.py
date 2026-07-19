@@ -1,4 +1,4 @@
-"""Compile authoring invocations into transient typed programs."""
+"""Compile authoring invocations into canonical core programs."""
 
 from __future__ import annotations
 
@@ -64,8 +64,8 @@ from scopecat.compiler.relations.point_domain import (
     point_dependent_product,
     point_product,
 )
-from scopecat.compiler.typed.program import TypedProgram
-from scopecat.compiler.typed.verification import VerifiedTypedProgram
+from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.verification import VerifiedCoreProgram
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.value_type_compatibility import (
@@ -82,13 +82,13 @@ from scopecat.records.run_request import RunRequest
 
 @dataclass(frozen=True, slots=True)
 class ResolvedExperiment:
-    verified_program: VerifiedTypedProgram
+    verified_program: VerifiedCoreProgram
     request: RunRequest
     environment: ValidatedConfigEnvironment
     config_source: RunConfigSource | None = None
 
     @property
-    def experiment(self) -> TypedProgram:
+    def experiment(self) -> CoreProgram:
         return self.verified_program.program
 
     @property
@@ -204,7 +204,7 @@ def _compile_invocation_template(
     fragments = [
         elaborate_module(
             template.module,
-            template.domain_execution,
+            template.domain_executions,
             **module_inputs,
         )
     ]

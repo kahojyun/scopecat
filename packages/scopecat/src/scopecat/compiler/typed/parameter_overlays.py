@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
 
@@ -18,6 +19,12 @@ from scopecat.compiler.relations.model import (
     ScalarExpr,
 )
 from scopecat.compiler.relations.operators import runtime_values_equal
+from scopecat.compiler.relations.specialization import (
+    KnownScalar,
+    ParameterCellBinding,
+    residual_scalar_expression,
+    specialize_scalar,
+)
 from scopecat.compiler.relations.uses import (
     RelationUse,
     RelationUseId,
@@ -53,14 +60,91 @@ class PointParameterOverlay:
         object.__setattr__(self, "key_uses", dict(self.key_uses))
 
 
-def apply_point_parameter_overlay(
+def resolve_point_parameters(
+    base: ParameterRelationData,
+    overlays: Sequence[PointParameterOverlay],
+    *,
+    point_row: Mapping[str, CellValue],
+    relation_plan: RelationPlanResolver,
+) -> ParameterRelationData:
+    """Resolve lexical parameter bindings for one logical point."""
+
+    resolved = base
+    for overlay in overlays:
+        resolved = _apply_point_parameter_overlay(
+            overlay,
+            ctx=EvalContext(params=resolved, point_row=dict(point_row)),
+            params=resolved,
+            relation_plan=relation_plan,
+        )
+    return resolved
+
+
+def resolve_parameter_cell_bindings(
+    overlays: Sequence[PointParameterOverlay],
+    *,
+    known: EvalContext,
+) -> tuple[ParameterCellBinding, ...]:
+    """Residualize statically identified point-driven parameter cells."""
+
+    selected: list[ParameterCellBinding] = []
+    for overlay in overlays:
+        key_results = {
+            column_id: specialize_scalar(
+                use.value.plan.root,
+                known=known,
+                parameter_cells=selected,
+            )
+            for column_id, use in overlay.key_uses.items()
+        }
+        if not all(isinstance(result, KnownScalar) for result in key_results.values()):
+            continue
+        key = {
+            column_id: cast("KnownScalar", result).value
+            for column_id, result in key_results.items()
+        }
+        try:
+            row = known.params.lookup_row(overlay.table_id, key)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if overlay.column_id not in row:
+            continue
+        replacement = residual_scalar_expression(
+            specialize_scalar(
+                overlay.value_use.value.plan.root,
+                known=known,
+                parameter_cells=selected,
+            )
+        )
+        binding = ParameterCellBinding(
+            table_id=overlay.table_id,
+            key=tuple(
+                (column_id, deepcopy(row[column_id])) for column_id in sorted(key)
+            ),
+            column_id=overlay.column_id,
+            replacement=replacement,
+        )
+        selected = [
+            existing
+            for existing in selected
+            if not (
+                existing.table_id == binding.table_id
+                and existing.column_id == binding.column_id
+                and existing.key == binding.key
+            )
+        ]
+        selected.append(binding)
+    return tuple(selected)
+
+
+def _apply_point_parameter_overlay(
     overlay: PointParameterOverlay,
     *,
     ctx: EvalContext,
     params: ParameterRelationData,
     relation_plan: RelationPlanResolver,
-) -> None:
-    """Apply one catalog-typed cell replacement to a point-local environment."""
+) -> ParameterRelationData:
+    """Return one binding set with a typed point-local cell override."""
 
     try:
         rows = params.table_rows(overlay.table_id)
@@ -154,7 +238,7 @@ def apply_point_parameter_overlay(
             overlay.column_id,
         ),
     )
-    params.replace_table_cell(
+    return params.with_table_cell(
         overlay.table_id,
         row_index=row_index,
         column_id=overlay.column_id,

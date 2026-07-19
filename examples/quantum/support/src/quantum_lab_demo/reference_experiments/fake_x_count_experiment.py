@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import cast
 
 import scopecat as sc
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
-    DomainBatchView,
-    DomainExecutionOffer,
+    DomainCallView,
+    DomainCompilation,
+    DomainCompiledJob,
+    DomainCompileRequest,
     DomainExecutionView,
     PreparedDomainExecution,
+    compiled_jobs,
 )
 from scopecat_quantum import (
     BinaryIqDiscriminator,
@@ -95,11 +100,16 @@ FAKE_X_COUNT_CAPTURE_MODULE = (
 _TEMPLATE_CAPTURE = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("capture")
 
 
-def fake_x_count_domain_execution(iq_shots: sc.ProductRef) -> sc.DomainExecution:
+def fake_x_count_domain_execution(
+    iq_shots: sc.ProductRef,
+    *,
+    id: str | None = None,  # noqa: A002
+) -> sc.DomainExecution:
     """Bind the reference quantum program to one composed capture product."""
 
     return quantum.domain_execution(
         _X_COUNT_DOMAIN_PROGRAM,
+        id=id,
         inputs={_X_COUNT_INPUT: X_COUNT},
         results={_READOUT.result: iq_shots},
     )
@@ -134,7 +144,12 @@ FAKE_X_COUNT_TEMPLATE = (
 )
 
 
-class FakeXCountDomainExecutionAdapter:
+@dataclass(frozen=True, slots=True)
+class _FakeXCountArtifact:
+    x_counts: tuple[int, ...]
+
+
+class FakeXCountDomainCompiler:
     """Lab-owned target selection for the fake list-mode AWG and digitizer."""
 
     def __init__(self, *, target: FakeListTarget | None = None) -> None:
@@ -142,28 +157,47 @@ class FakeXCountDomainExecutionAdapter:
         self.runtime = FakeListDomainRuntime()
 
     @property
-    def adapter_id(self) -> str:
+    def compiler_id(self) -> str:
         return FAKE_X_COUNT_ADAPTER_ID
 
-    def select(
-        self,
-        view: DomainBatchView,
-    ) -> DomainExecutionOffer | None:
-        execution = _execution_or_none(view)
-        if execution is None:
+    @property
+    def target_id(self) -> str:
+        return self.target.id.value
+
+    def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
+        if not _accepts_execution(request.call):
             return None
-        return DomainExecutionOffer(
-            max_points_per_batch=self.target.max_list_entries,
+        partitions = request.partition(max_points=self.target.max_list_entries)
+        return compiled_jobs(
+            request,
+            compiler_id=self.compiler_id,
+            target_id=self.target_id,
+            max_points=self.target.max_list_entries,
+            artifacts=tuple(
+                _FakeXCountArtifact(
+                    tuple(
+                        _decode_x_count(point.input("x_count"))
+                        for point in request.bind_points(
+                            ordinals,
+                            max_points=self.target.max_list_entries,
+                        )
+                    )
+                )
+                for ordinals in partitions
+            ),
         )
 
-    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
+    def prepare(
+        self,
+        job: DomainCompiledJob,
+        context: DomainBatchContext,
+    ) -> PreparedDomainExecution:
         execution = context.execution
+        artifact = cast("_FakeXCountArtifact", job.artifact)
         preparation = context.new_preparation()
         iq_result = _validated_result_contracts(execution)
         products = _product_binding(execution)
-        x_counts = tuple(
-            _decode_x_count(value) for value in execution.input_values("x_count")
-        )
+        x_counts = artifact.x_counts
         body = execution.program.body
         if not isinstance(body, quantum.Program):
             msg = "fake X-count domain program body must be a quantum Program"
@@ -214,18 +248,16 @@ def fake_x_count_scratch_experiment(
     )
 
 
-def _execution_or_none(view: DomainBatchView) -> DomainExecutionView | None:
-    selected = view.matching_execution(
-        dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
-        dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
-    )
-    if selected is None or not (
-        isinstance(selected.program.body, quantum.Program)
-        and selected.program.body.id == _X_COUNT_PROGRAM.id
+def _accepts_execution(execution: DomainCallView) -> bool:
+    if not (
+        execution.program.dialect_id == quantum.QUANTUM_PROGRAM_DIALECT_ID
+        and execution.program.dialect_version == quantum.QUANTUM_PROGRAM_DIALECT_VERSION
+        and isinstance(execution.program.body, quantum.Program)
+        and execution.program.body.id == _X_COUNT_PROGRAM.id
     ):
-        return None
-    _validated_result_contracts(selected)
-    return selected
+        return False
+    _validated_result_contracts(execution)
+    return True
 
 
 def _product_binding(view: DomainExecutionView) -> FakeXCountProductBinding:
@@ -237,7 +269,7 @@ def _product_binding(view: DomainExecutionView) -> FakeXCountProductBinding:
 
 
 def _validated_result_contracts(
-    execution: DomainExecutionView,
+    execution: DomainCallView | DomainExecutionView,
 ) -> quantum.MeasurementResult:
     body = execution.program.body
     if not isinstance(body, quantum.Program):
@@ -279,7 +311,7 @@ __all__ = [
     "FAKE_X_COUNT_TEMPLATE",
     "FAKE_X_COUNT_TEMPLATE_ID",
     "X_COUNT",
-    "FakeXCountDomainExecutionAdapter",
+    "FakeXCountDomainCompiler",
     "fake_x_count_domain_execution",
     "fake_x_count_scratch_experiment",
 ]

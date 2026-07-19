@@ -10,16 +10,13 @@ from scopecat.measurements.projection import (
     select_measurement_projection,
 )
 from scopecat.measurements.values import (
-    ProductValueFragmentDef,
-    assemble_measurement_values,
-    seal_measurement_value_fragment,
-    select_measurement_value_assembly,
+    seal_measurement_values,
+    select_measurement_values,
 )
 from scopecat.records.parameter import Quantity
 from tests.testkit.measurement_assembly import (
     assembled_measurement_values_for_all_uses,
     measurement_assembly_scenario,
-    measurement_fragment_definition,
     measurement_value_candidates,
 )
 
@@ -81,15 +78,9 @@ def test_explicit_record_subset_keeps_projection_separate_from_value_assembly() 
 def test_projection_binding_requires_every_record_backed_use_before_effects() -> None:
     scenario = measurement_assembly_scenario(use_count=2)
     projection = select_measurement_projection(scenario.linked_points)
-    incomplete = select_measurement_value_assembly(
+    incomplete = select_measurement_values(
         scenario.linked_points,
         required_product_use_ids=(scenario.uses[0].id,),
-        fragment_defs=(
-            ProductValueFragmentDef(
-                id="only-first",
-                product_use_ids=(scenario.uses[0].id,),
-            ),
-        ),
     )
 
     with pytest.raises(CheckFailed):
@@ -185,23 +176,19 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
 
 def test_projection_snapshots_values_and_emits_complete_run_records() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
-    definition = measurement_fragment_definition("source", scenario.uses)
-    selected = select_measurement_value_assembly(
+    selected = select_measurement_values(
         scenario.linked_points,
         required_product_use_ids=tuple(use.id for use in scenario.uses),
-        fragment_defs=(definition,),
     )
     candidates = list(measurement_value_candidates(scenario, scenario.uses))
-    fragment = seal_measurement_value_fragment(
+    assembled = seal_measurement_values(
         selected,
-        "source",
         candidates,
     )
     exposed_candidate_value = candidates[0].value
     assert isinstance(exposed_candidate_value, Quantity)
-    # Simulate mutation below the frozen public API after the fragment copied it.
+    # Simulate mutation below the frozen public API after sealing copied it.
     object.__setattr__(exposed_candidate_value, "value", 999.0)
-    assembled = assemble_measurement_values(selected, (fragment,))
     bound = bind_measurement_projection(
         select_measurement_projection(scenario.linked_points),
         selected,
@@ -231,17 +218,14 @@ def test_projection_snapshots_values_and_emits_complete_run_records() -> None:
 def test_zero_points_and_no_record_projection_produce_no_measurement_records() -> None:
     zero = measurement_assembly_scenario(point_values=(), use_count=1)
     zero_projection = select_measurement_projection(zero.linked_points)
-    zero_selected = select_measurement_value_assembly(
+    zero_selected = select_measurement_values(
         zero.linked_points,
         required_product_use_ids=(zero.uses[0].id,),
-        fragment_defs=(measurement_fragment_definition("zero", zero.uses),),
     )
-    zero_fragment = seal_measurement_value_fragment(
+    zero_values = seal_measurement_values(
         zero_selected,
-        "zero",
         (),
     )
-    zero_values = assemble_measurement_values(zero_selected, (zero_fragment,))
     zero_bound = bind_measurement_projection(zero_projection, zero_selected)
 
     assert (
@@ -255,12 +239,11 @@ def test_zero_points_and_no_record_projection_produce_no_measurement_records() -
 
     no_records = measurement_assembly_scenario(point_values=(0.0, 1.0), use_count=0)
     empty_projection = select_measurement_projection(no_records.linked_points)
-    empty_selected = select_measurement_value_assembly(
+    empty_selected = select_measurement_values(
         no_records.linked_points,
         required_product_use_ids=(),
-        fragment_defs=(),
     )
-    empty_values = assemble_measurement_values(empty_selected, ())
+    empty_values = seal_measurement_values(empty_selected, ())
     empty_bound = bind_measurement_projection(empty_projection, empty_selected)
 
     assert (

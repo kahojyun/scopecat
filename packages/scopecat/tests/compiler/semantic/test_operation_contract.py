@@ -7,7 +7,7 @@ from hypothesis import strategies as st
 
 from scopecat.compiler.frontend.assembly_lowering import lower_semantic_compute_graph
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.model import (
     literal_rows,
 )
@@ -54,12 +54,12 @@ from scopecat.compiler.semantic.verification import (
     verify_semantic_graph,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import TypedProgram
-from scopecat.execution.local.lowering import build_execution_program
+from scopecat.compiler.typed.program import CoreProgram
 from scopecat.execution.local.program import ComputeStage
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table
 from tests.testkit.authoring import load_config
+from tests.testkit.local_effect_program import lower_test_local_effect_program
 from tests.testkit.relation_plans import table_value_expr
 from tests.testkit.typed_program import link_program
 
@@ -111,8 +111,8 @@ def test_contract_survives_every_local_compiler_boundary() -> None:
     environment = validate_config_environment(load_config())
 
     linked = link_program(program, environment)
-    bound = materialize_local_plan(linked)
-    execution = build_execution_program(bound, instrument_order=())
+    bound = materialize_local_semantics(linked)
+    execution = lower_test_local_effect_program(bound, instrument_order=())
 
     assert bound.valid, bound.problems
     semantic_contracts = {
@@ -142,7 +142,7 @@ def test_local_target_selection_reports_missing_implementation() -> None:
     _graph, program = _compute_program("+", include_scalar_implementation=False)
     environment = validate_config_environment(load_config())
     linked = link_program(program, environment)
-    plan = materialize_local_plan(linked)
+    plan = materialize_local_semantics(linked)
 
     assert not plan.valid
     assert plan.points == ()
@@ -151,13 +151,13 @@ def test_local_target_selection_reports_missing_implementation() -> None:
     }
 
 
-def test_compute_cache_identity_includes_semantic_contract() -> None:
+def test_bound_compute_retains_semantic_contract() -> None:
     _add_graph, add_program = _compute_program("+")
     _multiply_graph, multiply_program = _compute_program("*")
     environment = validate_config_environment(load_config())
 
-    add = materialize_local_plan(link_program(add_program, environment))
-    multiply = materialize_local_plan(link_program(multiply_program, environment))
+    add = materialize_local_semantics(link_program(add_program, environment))
+    multiply = materialize_local_semantics(link_program(multiply_program, environment))
 
     add_call = add.points[0].compute[-1]
     multiply_call = multiply.points[0].compute[-1]
@@ -165,14 +165,13 @@ def test_compute_cache_identity_includes_semantic_contract() -> None:
     assert add_call.implementation_id == multiply_call.implementation_id
     assert add_call.inputs == multiply_call.inputs
     assert add_call.contract != multiply_call.contract
-    assert add_call.cache_key != multiply_call.cache_key
 
 
 def _compute_program(
     operator: ScalarOperator,
     *,
     include_scalar_implementation: bool = True,
-) -> tuple[SemanticGraphIR, TypedProgram]:
+) -> tuple[SemanticGraphIR, CoreProgram]:
     producer_id = OperationId(SymbolId(local_id="produce"))
     scalar_id = OperationId(SymbolId(local_id="combine"))
     producer_output_id = operation_result_id(producer_id)
@@ -244,7 +243,7 @@ def _compute_program(
         {},
         type_bindings=RelationTypeBindings(),
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id="operation-contract-program",
         kind="compiler_test",
         point_domain=_point_domain(),

@@ -91,7 +91,7 @@ from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObser
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.measurements.results import MeasurementDType
-from scopecat.planning.backend import ExecutionBackend, ExecutionOptions
+from scopecat.planning.backend import ExecutionBackend
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.records.config import ConfigProfileSnapshot
@@ -148,7 +148,6 @@ class PreparedExperiment:
         repr=False,
         compare=False,
     )
-    _execution_options: ExecutionOptions | None = None
     _run_options: _RunOptions = field(default_factory=_RunOptions)
 
     def input(self, id: str, value: RuntimeInput) -> PreparedExperiment:  # noqa: A002
@@ -241,7 +240,6 @@ class PreparedExperiment:
             config_profile=self._config_profile,
             run_options=run_options,
             execution_backend=self._execution_backend,
-            execution_options=self._execution_options,
         )
 
     def check(
@@ -270,7 +268,6 @@ class PreparedExperiment:
             config_profile=self._config_profile,
             run_options=run_options,
             execution_backend=self._execution_backend,
-            execution_options=self._execution_options,
         )
 
     def run(
@@ -298,7 +295,6 @@ class PreparedExperiment:
             config=self._config,
             config_profile=self._config_profile,
             execution_backend=self._execution_backend,
-            execution_options=self._execution_options,
             run_options=run_options,
             event_sink=event_sink,
             payload_observer=payload_observer,
@@ -315,7 +311,7 @@ class Experiment:
         default_factory=empty_frozen_mapping
     )
     module: ModuleBuilder = field(default_factory=public_authoring.module)
-    domain_execution: DomainExecution | None = None
+    domain_executions: tuple[DomainExecution, ...] = ()
     scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
 
@@ -362,11 +358,11 @@ class Experiment:
         )
 
     def domain(self, execution: DomainExecution) -> Experiment:
-        """Select this scratch experiment's sole domain execution."""
+        """Append one ordered domain effect to this scratch experiment."""
 
-        if self.domain_execution is not None:
-            raise ValueError("experiment already has a domain execution")
-        return replace(self, domain_execution=execution)
+        if execution.id in {item.id for item in self.domain_executions}:
+            raise ValueError(f"domain execution id {execution.id!r} is repeated")
+        return replace(self, domain_executions=(*self.domain_executions, execution))
 
     def use(
         self,
@@ -650,7 +646,6 @@ class Workspace:
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
         execution_backend: ExecutionBackend | None = None,
-        execution_options: ExecutionOptions | None = None,
     ) -> PreparedExperiment:
         match experiment:
             case TemplateBuilder():
@@ -677,7 +672,6 @@ class Workspace:
             _config=config,
             _config_profile=config_profile,
             _execution_backend=execution_backend,
-            _execution_options=execution_options,
         )
 
     def runs(self) -> tuple[RunHandle, ...]:
@@ -818,7 +812,6 @@ def _preview_prepared(
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
     execution_backend: ExecutionBackend | None,
-    execution_options: ExecutionOptions | None,
 ) -> ExperimentPreview:
     result = _check_prepared(
         session,
@@ -827,7 +820,6 @@ def _preview_prepared(
         config_profile=config_profile,
         run_options=run_options,
         execution_backend=execution_backend,
-        execution_options=execution_options,
     )
     if result.preview is None:
         raise CheckFailed(result.problems)
@@ -842,7 +834,6 @@ def _check_prepared(
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
     execution_backend: ExecutionBackend | None,
-    execution_options: ExecutionOptions | None,
 ) -> ExperimentCheckResult:
     selected_config, selected_config_profile = _prepared_config_selection(
         session,
@@ -862,7 +853,6 @@ def _check_prepared(
             if execution_backend is None
             else execution_backend
         ),
-        execution_options=execution_options,
     )
 
 
@@ -873,7 +863,6 @@ def _run_prepared(
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
     execution_backend: ExecutionBackend | None,
-    execution_options: ExecutionOptions | None,
     run_options: _RunOptions,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
@@ -897,7 +886,6 @@ def _run_prepared(
             config=selected_config,
             config_profile=selected_config_profile,
             execution_backend=selected_execution_backend,
-            execution_options=execution_options,
             event_sink=event_sink,
             payload_observer=payload_observer,
         ).run_id,
@@ -994,8 +982,8 @@ def _workspace_template(
     )
     for scan in experiment.scans:
         builder = builder.scan(scan)
-    if experiment.domain_execution is not None:
-        builder = builder.domain(experiment.domain_execution)
+    for execution in experiment.domain_executions:
+        builder = builder.domain(execution)
     builder = builder.records(*experiment.record_selections)
     return builder.build()
 

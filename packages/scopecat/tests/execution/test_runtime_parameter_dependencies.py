@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
     lit,
@@ -34,7 +34,7 @@ from scopecat.compiler.typed.program import (
     TypedComputeOutput,
     ValueInput,
 )
-from scopecat.execution.local.engine import (
+from scopecat.execution.effect_interpreter import (
     versioned_value,
 )
 from scopecat.kernel.symbols import SymbolId
@@ -122,7 +122,7 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
         parameters=parameters,
     )
 
-    plan = materialize_local_plan(link_program(program, environment))
+    plan = materialize_local_semantics(link_program(program, environment))
 
     assert plan.points[0].compute[0].dependencies == {
         "input_refs": (

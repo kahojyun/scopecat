@@ -143,7 +143,6 @@ def test_cz_chevron_emits_scoped_compute_lifecycle_summaries(
         semantic_operation_id = cast("str", event.metrics["semantic_operation_id"])
         implementation_id = cast("str", event.metrics["implementation_id"])
         payload_id = cast("str", event.metrics["payload_id"])
-        assert event.metrics["compute_status"] == "evaluated"
         assert implementation_id.startswith("python:")
         assert implementation_id.endswith(f":{semantic_operation_id}")
         assert payload_id.startswith(f"{semantic_operation_id}/outputs/result.payload.")
@@ -206,7 +205,6 @@ def test_array_record_cases_run_provider_python_api(
             and event.metrics.get("semantic_operation_id")
             == f"{_BACKEND_BATCH_SCOPE}/build-backend-batch-job"
         )
-        assert batch_event.metrics["compute_status"] == "evaluated"
         payload_id = cast("str", batch_event.metrics["payload_id"])
         assert payload_id.startswith(
             f"{_BACKEND_BATCH_SCOPE}/build-backend-batch-job/outputs/result.payload."

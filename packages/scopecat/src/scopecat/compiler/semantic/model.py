@@ -506,11 +506,14 @@ class SemanticDomainProgram:
 class SemanticDomainExecution:
     """One program and its plan-stage logical product bindings."""
 
+    id: str
     program: SemanticDomainProgram
     inputs: tuple[tuple[str, ValueUse], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
 
     def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("semantic domain execution id must be non-empty")
         _require_unique_names("domain execution input", self.inputs)
         _require_unique_names("domain execution result", self.results)
 
@@ -557,7 +560,7 @@ class SemanticGraphIR:
     value_defs: tuple[ValueDef, ...] = ()
     operations: tuple[SemanticOperation, ...] = ()
     measurement_transforms: tuple[SemanticMeasurementTransform, ...] = ()
-    domain_execution: SemanticDomainExecution | None = None
+    domain_executions: tuple[SemanticDomainExecution, ...] = ()
     actions: tuple[InstrumentActionEffect, ...] = ()
     row_regions: tuple[StateEachRegion, ...] = ()
 
@@ -617,23 +620,12 @@ def merge_semantic_graphs(*graphs: SemanticGraphIR) -> SemanticGraphIR:
         measurement_transforms=tuple(
             item for graph in graphs for item in graph.measurement_transforms
         ),
-        domain_execution=_merge_optional_domain_value(
-            "domain execution",
-            tuple(graph.domain_execution for graph in graphs),
+        domain_executions=tuple(
+            execution for graph in graphs for execution in graph.domain_executions
         ),
         actions=tuple(item for graph in graphs for item in graph.actions),
         row_regions=tuple(item for graph in graphs for item in graph.row_regions),
     )
-
-
-def _merge_optional_domain_value[T](
-    label: str,
-    values: tuple[T | None, ...],
-) -> T | None:
-    selected = tuple(value for value in values if value is not None)
-    if len(selected) > 1:
-        raise ValueError(f"semantic graph merge found more than one {label}")
-    return selected[0] if selected else None
 
 
 def merge_implementation_catalogs(

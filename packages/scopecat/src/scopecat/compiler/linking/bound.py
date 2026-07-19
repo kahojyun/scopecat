@@ -1,4 +1,4 @@
-"""Locally materialized experiment plan shared by preview and execution."""
+"""Temporary config-bound semantics used while specializing a RunProgram."""
 
 from __future__ import annotations
 
@@ -75,7 +75,6 @@ class BoundComputeCall:
     contract: OperationContract
     inputs: Mapping[str, BoundComputeInput]
     result: BoundComputeResult
-    cache_key: str
     dependencies: Mapping[str, tuple[str, ...]] = field(
         default_factory=_empty_dependencies
     )
@@ -176,8 +175,8 @@ class BoundPoint:
 
 
 @dataclass(frozen=True, slots=True)
-class BoundPlan:
-    """Executable local per-point plan for one accepted config snapshot."""
+class MaterializedLocalSemantics:
+    """Temporary concrete host semantics for one accepted config snapshot."""
 
     experiment_id: str
     points: tuple[BoundPoint, ...]

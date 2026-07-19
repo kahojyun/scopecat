@@ -1,6 +1,6 @@
-"""Public target boundary for one prepared domain-program execution.
+"""Runtime boundary for one prepared domain-program execution.
 
-Domain adapters consume the target-neutral linked program and close every
+Domain compilers consume the target-neutral linked program and close every
 target, result, value, transform, and record-projection decision before a run
 is durably accepted.  Scopecat retains ownership of runtime submission,
 correlation, journalling, recording, and terminal run evidence.
@@ -14,21 +14,18 @@ from __future__ import annotations
 
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Literal
 
-from scopecat.measurements.host_transforms import BoundHostMeasurementTransformPlan
-from scopecat.measurements.values import BoundDomainMeasurementValueFragment
-from scopecat.planning.coverage import ExecutionResourceClaim
-from scopecat.sdk.domain.context import (
-    DomainBatchContext,
-    DomainExecutionOffer,
-)
+from scopecat.execution.ports.resources import ResourceClaim
+from scopecat.measurements.host_transforms import BoundHostMeasurementTransforms
+from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     ClosedDomainOutputValues,
+    SelectedDomainMeasurementOutputs,
 )
 from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime
-from scopecat.sdk.domain.view import DomainBatchView, DomainProductUseRef
+from scopecat.sdk.domain.view import DomainProductUseRef
 
 type ErasedDomainInvocation = ClosedDomainInvocation[Hashable, Hashable, object]
 type ErasedDomainRuntime = DomainRuntime[object, object]
@@ -36,6 +33,7 @@ type ErasedDomainRealizer = Callable[
     [CorrelatedDomainFetch[object]],
     ClosedDomainOutputValues[Hashable, Hashable],
 ]
+type ErasedDomainOutputs = SelectedDomainMeasurementOutputs[Hashable, Hashable]
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,17 +45,14 @@ class PreparedDomainExecution:
     family, while core never inspects those domain-owned values.
     """
 
-    adapter_id: str
+    compiler_id: str
     context: DomainBatchContext
     invocation: ErasedDomainInvocation = field(repr=False)
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
     realize: ErasedDomainRealizer = field(repr=False, compare=False)
-    source_fragment: BoundDomainMeasurementValueFragment[
-        Hashable,
-        Hashable,
-    ] = field(repr=False)
-    resource_claims: tuple[ExecutionResourceClaim, ...] = ()
-    transforms: BoundHostMeasurementTransformPlan | None = field(
+    source_outputs: ErasedDomainOutputs = field(repr=False)
+    resource_claims: tuple[ResourceClaim, ...] = ()
+    transforms: BoundHostMeasurementTransforms | None = field(
         default=None,
         repr=False,
     )
@@ -77,26 +72,3 @@ class PreparedDomainExecution:
         """Return every direct or host-derived value owned by this job."""
 
         return self.context.product_uses
-
-    @property
-    def semantic_operation_id(self) -> str:
-        return "domain"
-
-
-class DomainExecutionAdapter(Protocol):
-    """Pure selector of one explicitly covered domain-program execution unit.
-
-    The adapter owns only the tasks retained by ``PreparedDomainExecution``.
-    Exact whole-plan coverage and composition with local instrument units are
-    selected by the execution backend before effects.
-    """
-
-    @property
-    def adapter_id(self) -> str: ...
-
-    def select(
-        self,
-        view: DomainBatchView,
-    ) -> DomainExecutionOffer | None: ...
-
-    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution: ...

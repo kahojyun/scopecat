@@ -75,13 +75,16 @@ class DomainProgramDef:
 
 @dataclass(frozen=True, slots=True)
 class DomainExecution:
-    """The optional domain-program execution selected by one template."""
+    """One identified domain-program effect selected by an experiment."""
 
+    id: str
     program: DomainProgramDef
     input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     result_bindings: tuple[tuple[str, ProductRef], ...] = ()
 
     def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("domain execution id must be non-empty")
         _require_unique(
             "domain execution input",
             tuple(k for k, _ in self.input_bindings),
@@ -118,6 +121,7 @@ class DomainExecution:
 class LoweredDomainExecution:
     """Internal product-resolved form of the template-owned execution."""
 
+    id: str
     program: DomainProgramDef
     input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     result_bindings: tuple[tuple[str, ProductId], ...] = ()
@@ -127,6 +131,7 @@ def lower_domain_execution(execution: DomainExecution) -> LoweredDomainExecution
     """Lower the root binding after its product ownership has been validated."""
 
     return LoweredDomainExecution(
+        id=execution.id,
         program=execution.program,
         input_bindings=execution.input_bindings,
         result_bindings=tuple(
@@ -166,6 +171,7 @@ def domain_program(
 def domain_execution(
     program: DomainProgramDef,
     *,
+    id: str | None = None,  # noqa: A002
     inputs: Mapping[str, ComputeNodeInputValue] | None = None,
     results: Mapping[str, ProductRef] | None = None,
 ) -> DomainExecution:
@@ -184,6 +190,7 @@ def domain_execution(
         tuple(port.id for port in program.result_ports),
     )
     return DomainExecution(
+        id=program.id if id is None else id,
         program=program,
         input_bindings=tuple(
             (port.id, selected_inputs[port.id]) for port in program.input_ports

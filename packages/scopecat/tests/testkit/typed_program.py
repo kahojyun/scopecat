@@ -34,11 +34,11 @@ from scopecat.compiler.typed.products import (
     ProductDef,
 )
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     ResourceRouteIntent,
     TypedComputeNode,
     TypedDomainExecution,
     TypedMeasurementTransform,
-    TypedProgram,
     product_output,
 )
 from scopecat.compiler.typed.records import RecordUse
@@ -193,22 +193,24 @@ def typed_program(
     product_uses: Sequence[ProductUse] = (),
     record_uses: Sequence[RecordUse] = (),
     metadata: dict[str, JsonValue] | None = None,
-) -> TypedProgram:
+) -> CoreProgram:
     """Build one low-level typed program from explicitly ordered components."""
 
-    return TypedProgram(
+    return CoreProgram(
         id=id,
         kind=kind,
         point_domain=point_domain,
         route_intents=tuple(route_intents),
         parameter_overlays=tuple(parameter_overlays),
         compute_nodes=tuple(compute_nodes),
-        domain_execution=domain_execution,
+        effects=(
+            *state,
+            *actions,
+            *((domain_execution,) if domain_execution is not None else ()),
+        ),
         measurement_transforms=tuple(measurement_transforms),
         implementation_catalog=implementation_catalog or ImplementationCatalog(),
         source_map=source_map or SourceMap(),
-        state=tuple(state),
-        actions=tuple(actions),
         product_defs=tuple(product_defs),
         instrument_product_producers=tuple(instrument_product_producers),
         domain_product_producers=tuple(domain_product_producers),
@@ -222,7 +224,7 @@ def typed_program(
 
 
 def link_program(
-    program: TypedProgram,
+    program: CoreProgram,
     environment: ValidatedConfigEnvironment,
 ) -> LinkedPlan:
     """Snapshot, seal, and link an externally constructed test program."""

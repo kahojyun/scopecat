@@ -21,10 +21,10 @@ from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import DomainProductProducer
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
-    TypedProgram,
     product_output,
     record_product,
 )
@@ -124,25 +124,28 @@ def _preparation(
     product_use, record_use = record_product(product, record_id="record")
     domain_program_id = DomainProgramId(SymbolId(local_id="program"))
     producer_id = product_producer_id("result-producer")
-    program = TypedProgram(
+    program = CoreProgram(
         id=program_id,
         kind="mixed_quantum_mapping_test",
         point_domain=point_domain,
         product_defs=(product,),
-        domain_execution=TypedDomainExecution(
-            program=TypedDomainProgram(
-                id=domain_program_id,
-                dialect_id="test.quantum.mixed-result-mapping",
-                dialect_version="1",
-                body=object(),
-                result_ports=(DomainResultPortDef("result"),),
-            ),
-            results=(
-                TypedDomainResultBinding(
-                    id="result",
-                    product_id=product.id,
-                    producer_id=producer_id,
-                    product_use_ids=(product_use.id,),
+        effects=(
+            TypedDomainExecution(
+                id="domain",
+                program=TypedDomainProgram(
+                    id=domain_program_id,
+                    dialect_id="test.quantum.mixed-result-mapping",
+                    dialect_version="1",
+                    body=object(),
+                    result_ports=(DomainResultPortDef("result"),),
+                ),
+                results=(
+                    TypedDomainResultBinding(
+                        id="result",
+                        product_id=product.id,
+                        producer_id=producer_id,
+                        product_use_ids=(product_use.id,),
+                    ),
                 ),
             ),
         ),
@@ -150,6 +153,7 @@ def _preparation(
             DomainProductProducer(
                 id=producer_id,
                 product_id=product.id,
+                execution_id="domain",
                 result_id="result",
             ),
         ),
@@ -167,11 +171,11 @@ def _preparation(
             environment,
         )
     )
-    projection = project_domain_plan(linked_points)
+    projection = project_domain_plan(linked_points, "domain")
     context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1)),
-        adapter_id="test.quantum.mixed-result-mapping",
+        compiler_id="test.quantum.mixed-result-mapping",
         batch_ordinal=0,
     )
     return context.new_preparation()

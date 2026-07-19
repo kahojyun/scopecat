@@ -1108,6 +1108,7 @@ def domain_program(declaration: Program) -> DomainProgramDef:
 def domain_execution(
     program: DomainProgramDef,
     *,
+    id: str | None = None,  # noqa: A002
     inputs: Mapping[ProgramInput, ComputeInput] | None = None,
     results: Mapping[MeasurementResult, ProductRef] | None = None,
 ) -> DomainExecution:
@@ -1154,6 +1155,7 @@ def domain_execution(
     }
     return _core_domain_execution(
         program,
+        id=id,
         inputs=normalized_inputs,
         results={handle.id: value for handle, value in selected_results.items()},
     )

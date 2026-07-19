@@ -16,8 +16,8 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     ResourceRouteIntent,
-    TypedProgram,
     bind_each,
     set_state_field,
 )
@@ -27,7 +27,7 @@ from scopecat.compiler.typed.state import (
     StateSpec,
     StateSpecVariant,
 )
-from scopecat.compiler.typed.verification import verify_typed_program
+from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
@@ -49,20 +49,20 @@ def _empty_program(
     *,
     state: tuple[StateSpecVariant, ...] = (),
     route_intents: tuple[ResourceRouteIntent, ...] = (),
-) -> TypedProgram:
-    return TypedProgram(
+) -> CoreProgram:
+    return CoreProgram(
         id="proof-roles",
         kind="compiler_test",
         point_domain=point_domain(
             literal_rows([{}]),
             expected_type=_EMPTY_POINTS,
         ),
-        state=state,
+        effects=state,
         route_intents=route_intents,
     )
 
 
-def _fictional_current_row_state() -> TypedProgram:
+def _fictional_current_row_state() -> CoreProgram:
     fictional_row = RowType((TableColumn("resource", _STRING),))
     resource = scalar_value_expr(
         col("resource"),
@@ -80,7 +80,7 @@ def _fictional_current_row_state() -> TypedProgram:
 
 def test_program_verification_rejects_fictional_top_level_current_row() -> None:
     with pytest.raises(CheckFailed) as caught:
-        verify_typed_program(_fictional_current_row_state())
+        verify_core_program(_fictional_current_row_state())
 
     problem = caught.value.problems[0]
     assert problem.code == "compiler_relation_proof_role_mismatch"
@@ -117,7 +117,7 @@ def test_program_verification_rechecks_point_schema_used_by_route_proof() -> Non
             ),
         ),
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id="point-proof-role",
         kind="compiler_test",
         point_domain=point_domain(
@@ -128,7 +128,7 @@ def test_program_verification_rechecks_point_schema_used_by_route_proof() -> Non
     )
 
     with pytest.raises(CheckFailed) as caught:
-        verify_typed_program(program)
+        verify_core_program(program)
 
     assert caught.value.problems[0].code == "compiler_relation_proof_role_mismatch"
 
@@ -152,7 +152,7 @@ def test_program_verification_rejects_assignable_but_stale_point_proof() -> None
             ),
         ),
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id="stale-point-proof",
         kind="compiler_test",
         point_domain=point_domain(
@@ -163,7 +163,7 @@ def test_program_verification_rejects_assignable_but_stale_point_proof() -> None
     )
 
     with pytest.raises(CheckFailed) as caught:
-        verify_typed_program(program)
+        verify_core_program(program)
 
     assert caught.value.problems[0].code == "compiler_relation_proof_role_mismatch"
 
@@ -198,7 +198,7 @@ def test_state_each_body_proof_accepts_its_real_current_row() -> None:
     assert isinstance(state, ForEachStateSpec)
     program = _empty_program(state=(state,))
 
-    assert verify_typed_program(program) is program
+    assert verify_core_program(program) is program
 
 
 def test_nested_state_relation_uses_parent_current_row_as_outer() -> None:
@@ -233,4 +233,4 @@ def test_nested_state_relation_uses_parent_current_row_as_outer() -> None:
         nested,
     )
 
-    assert verify_typed_program(_empty_program(state=(state,)))
+    assert verify_core_program(_empty_program(state=(state,)))

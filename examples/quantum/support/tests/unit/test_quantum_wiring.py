@@ -9,7 +9,7 @@ from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.linking.linked import link_verified_program
 from scopecat.composition.local import local_execution_services
 from scopecat.config.profiles import load_config_profile
-from scopecat.execution.local.plan_executor import execute_execution_plan
+from scopecat.execution.interpreter import interpret_run_program
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.planning.routing import RoutingView
@@ -266,11 +266,11 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
         QuantumLabVirtualProvider(profile=EXPERIMENT_VIRTUAL_LAB_PROFILE)
     )
     linked = link_verified_program(resolved.verified_program, resolved.environment)
-    prepared = sc.ExecutionBackend(provider=provider).prepare(linked, config=config)
+    program = sc.ExecutionBackend(provider=provider).compile(linked, config=config)
 
-    manifest = execute_execution_plan(
+    manifest = interpret_run_program(
         config=config,
-        prepared=prepared,
+        program=program,
         request=resolved.request,
         services=local_execution_services(tmp_path),
         config_source=resolved.config_source,

@@ -18,8 +18,9 @@ from scopecat.config.resolution import (
     ConfigProfileInput,
     resolve_experiment_config,
 )
-from scopecat.execution.local.plan_executor import execute_execution_plan
+from scopecat.execution.interpreter import interpret_run_program
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
+from scopecat.execution.program import RunProgram
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, ProblemFailure
 from scopecat.kernel.problems import (
     Problem,
@@ -31,13 +32,9 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.measurements.results import MeasurementDatasetReadContract
-from scopecat.planning.backend import (
-    ExecutionBackend,
-    ExecutionOptions,
-    PreparedExecutionPlan,
-)
+from scopecat.planning.backend import ExecutionBackend
 from scopecat.planning.check_results import ExperimentCheckResult
-from scopecat.planning.preview import build_execution_plan_preview
+from scopecat.planning.preview import build_run_program_preview
 from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest
@@ -323,7 +320,6 @@ def start_run(
     experiment: PreparedInvocation,
     services: WorkspaceServices,
     execution_backend: ExecutionBackend | None = None,
-    execution_options: ExecutionOptions | None = None,
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
@@ -334,7 +330,6 @@ def start_run(
         experiment=compiled_invocation,
         services=services,
         execution_backend=execution_backend,
-        execution_options=execution_options,
         config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -347,7 +342,6 @@ def _start_compiled_run(
     experiment: CompiledInvocation,
     services: WorkspaceServices,
     execution_backend: ExecutionBackend | None,
-    execution_options: ExecutionOptions | None,
     config_source: RunConfigSource | None,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
@@ -362,15 +356,14 @@ def _start_compiled_run(
     )
     if has_blocking_problems(linked.problems):
         raise CheckFailed(linked.problems)
-    prepared = _prepare_execution_backend(
+    program = _compile_run_program(
         execution_backend,
         config=config,
         linked=linked.plan,
-        options=execution_options,
     )
-    manifest = execute_execution_plan(
+    manifest = interpret_run_program(
         config=config,
-        prepared=prepared,
+        program=program,
         request=linked.request,
         services=services.execution,
         config_source=config_source,
@@ -387,7 +380,6 @@ def run_experiment(
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
     execution_backend: ExecutionBackend | None = None,
-    execution_options: ExecutionOptions | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
@@ -402,7 +394,6 @@ def run_experiment(
         experiment=compiled_invocation,
         services=services,
         execution_backend=execution_backend,
-        execution_options=execution_options,
         config_source=config_result.config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -416,7 +407,6 @@ def check_experiment(
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
     execution_backend: ExecutionBackend | None = None,
-    execution_options: ExecutionOptions | None = None,
 ) -> ExperimentCheckResult:
     """Check whether an invocation can produce a user preview.
 
@@ -434,7 +424,6 @@ def check_experiment(
         config=config,
         config_profile=config_profile,
         execution_backend=execution_backend,
-        execution_options=execution_options,
     )
 
 
@@ -445,7 +434,6 @@ def _check_compiled_experiment(
     config: str | ConfigProfileSnapshot | CandidateConfig,
     config_profile: ConfigProfileInput | None,
     execution_backend: ExecutionBackend | None,
-    execution_options: ExecutionOptions | None,
 ) -> ExperimentCheckResult:
     try:
         config_result = resolve_experiment_config(
@@ -470,13 +458,12 @@ def _check_compiled_experiment(
             environment=environment,
             config_source=config_result.config_source,
         )
-        prepared = _prepare_execution_backend(
+        program = _compile_run_program(
             execution_backend,
             config=config_result.config,
             linked=linked.plan,
-            options=execution_options,
         )
-        preview = build_execution_plan_preview(prepared)
+        preview = build_run_program_preview(program)
         planning_problems: tuple[Problem, ...] = ()
     except ProblemFailure as error:
         if not _problems_match_phase(error.problems, ProblemPhase.PLANNING):
@@ -490,14 +477,13 @@ def _check_compiled_experiment(
     )
 
 
-def _prepare_execution_backend(
+def _compile_run_program(
     backend: ExecutionBackend | None,
     *,
     config: ConfigProfileSnapshot,
     linked: LinkedPlan,
-    options: ExecutionOptions | None,
-) -> PreparedExecutionPlan:
-    """Normalize one execution-backend boundary into planning findings."""
+) -> RunProgram:
+    """Compile one linked experiment into the sole executable program."""
 
     if backend is None:
         raise CheckFailed(
@@ -517,23 +503,23 @@ def _prepare_execution_backend(
         if type(backend_id) is not str or not backend_id:
             msg = "execution backend identity must be a non-empty string"
             raise TypeError(msg)
-        prepared_candidate = cast(
+        program_candidate = cast(
             "object",
-            backend.prepare(linked, config=config, options=options),
+            backend.compile(linked, config=config),
         )
-        if not isinstance(prepared_candidate, PreparedExecutionPlan):
-            msg = "execution backend must return PreparedExecutionPlan"
+        if not isinstance(program_candidate, RunProgram):
+            msg = "execution backend must return RunProgram"
             raise TypeError(msg)
-        prepared = prepared_candidate
-        if prepared.backend_id != backend_id:
-            msg = "prepared execution plan does not retain its backend identity"
+        program = program_candidate
+        if program.backend_id != backend_id:
+            msg = "RunProgram does not retain its backend identity"
             raise ValueError(msg)
-        if prepared.linked_points.linked_plan.verified_program is not (
+        if program.linked_points.linked_plan.verified_program is not (
             linked.verified_program
         ):
-            msg = "prepared execution plan belongs to a different linked program"
+            msg = "RunProgram belongs to a different linked program"
             raise ValueError(msg)
-        return prepared
+        return program
     except ProblemFailure as error:
         raise CheckFailed(
             tuple(

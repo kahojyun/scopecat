@@ -24,7 +24,7 @@ from quantum_lab_demo.reference_experiments.production_drag_gate import (
     PRODUCTION_DRAG_BETA_INPUT,
     PRODUCTION_DRAG_GATE_TEMPLATE,
     TRUSTED_REFERENCE_BETA,
-    ProductionDragGateExecutionAdapter,
+    ProductionDragGateCompiler,
     production_drag_gate_program,
     trusted_xm90_calibration_catalog,
 )
@@ -38,7 +38,7 @@ def _entity_id(value: object) -> str:
 
 def test_production_drag_gate_authors_config_lookup_into_program_input() -> None:
     declaration = production_drag_gate_program()
-    execution = PRODUCTION_DRAG_GATE_TEMPLATE.build().domain_execution
+    execution = PRODUCTION_DRAG_GATE_TEMPLATE.build().domain_executions[0]
     assert execution is not None
     program = execution.program
 
@@ -65,12 +65,12 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
         entry_id="production-drag-baseline",
         expected_generation=0,
     )
-    baseline_adapter = ProductionDragGateExecutionAdapter()
+    baseline_compiler = ProductionDragGateCompiler()
     baseline_run = lab.prepare(
         PRODUCTION_DRAG_GATE_TEMPLATE,
         config="active",
         execution_backend=sc.ExecutionBackend(
-            domain_adapters=(baseline_adapter,),
+            domain_compilers=(baseline_compiler,),
         ),
     ).run()
 
@@ -79,31 +79,31 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
         entry_id="production-drag-active",
         expected_generation=baseline_activation.active_state.generation,
     )
-    active_adapter = ProductionDragGateExecutionAdapter()
+    active_compiler = ProductionDragGateCompiler()
     active_run = lab.prepare(
         PRODUCTION_DRAG_GATE_TEMPLATE,
         config="active",
         execution_backend=sc.ExecutionBackend(
-            domain_adapters=(active_adapter,),
+            domain_compilers=(active_compiler,),
         ),
     ).run()
     rollback = lab.rollback(
         expected_generation=active_activation.active_state.generation,
         note="restore production DRAG baseline",
     )
-    restored_adapter = ProductionDragGateExecutionAdapter()
+    restored_compiler = ProductionDragGateCompiler()
     restored_run = lab.prepare(
         PRODUCTION_DRAG_GATE_TEMPLATE,
         config="active",
         execution_backend=sc.ExecutionBackend(
-            domain_adapters=(restored_adapter,),
+            domain_compilers=(restored_compiler,),
         ),
     ).run()
 
-    [baseline] = baseline_adapter.preparations
-    [active] = active_adapter.preparations
-    [restored] = restored_adapter.preparations
-    assert isinstance(baseline_adapter.preparations, tuple)
+    [baseline] = baseline_compiler.preparations
+    [active] = active_compiler.preparations
+    [restored] = restored_compiler.preparations
+    assert isinstance(baseline_compiler.preparations, tuple)
     assert baseline.resolved_drag_beta == TRUSTED_REFERENCE_BETA
     assert active.resolved_drag_beta == active_beta
     assert baseline.production_samples != active.production_samples
@@ -142,8 +142,8 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     active_records = active_run.data().measurements().dataset.records
     assert [point.coordinates for point in baseline_records] == [{}]
     assert [point.coordinates for point in active_records] == [{}]
-    assert baseline_adapter.physical_execution_count == 1
-    assert active_adapter.physical_execution_count == 1
+    assert baseline_compiler.physical_execution_count == 1
+    assert active_compiler.physical_execution_count == 1
     assert baseline_run.manifest.config_source is not None
     assert active_run.manifest.config_source is not None
     assert baseline_run.manifest.config_source.entry_id == baseline_activation.entry.id

@@ -9,10 +9,10 @@ from pydantic import JsonValue
 
 from scopecat.compiler.linking.bound import (
     BoundAction,
-    BoundPlan,
     BoundPoint,
     BoundResourceState,
     CollectionRequest,
+    MaterializedLocalSemantics,
 )
 from scopecat.compiler.linking.bound import (
     BoundValue as CompilerBoundValue,
@@ -30,7 +30,6 @@ from scopecat.execution.local.program import (
     ComputeOperation,
     ComputeResultSlot,
     ComputeStage,
-    ExecutionProgram,
     InstrumentActionOperation,
     OutputInput,
     PayloadSlot,
@@ -40,6 +39,7 @@ from scopecat.execution.local.program import (
 from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.problems import has_blocking_problems
+from scopecat.kernel.product_identity import ProductUse
 from scopecat.records.config import RoutingChannelBinding
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.contracts import (
@@ -49,32 +49,37 @@ from scopecat.sdk.instruments.contracts import (
 )
 
 
-def build_execution_program(
-    plan: BoundPlan,
+def lower_local_effect_fields(
+    semantics: MaterializedLocalSemantics,
     *,
     instrument_order: Sequence[str],
-) -> ExecutionProgram:
-    """Build the sole executable program consumed by ``ExecutionEngine``.
+) -> tuple[
+    tuple[PointProgram, ...],
+    tuple[ProductUse, ...],
+    tuple[str, ...],
+    tuple[ResourceClaim, ...],
+]:
+    """Lower temporary local semantics into final ``RunLocalEffects`` fields.
 
     ``instrument_order`` comes from the bound driver/resource selection, never
     from provider list iteration. Every local collection already owns one
     physical instrument target.
     """
 
-    if has_blocking_problems(plan.problems):
-        msg = "cannot build an execution program from a plan with blocking problems"
+    if has_blocking_problems(semantics.problems):
+        msg = "cannot lower local semantics with blocking problems"
         raise ValueError(msg)
     selected_instrument_order = _explicit_instrument_order(
-        plan,
+        semantics,
         instrument_order=instrument_order,
     )
     points = tuple(
         _point_program(
             point,
-            point_count=plan.point_count,
+            point_count=semantics.point_count,
             instrument_order=selected_instrument_order,
         )
-        for point in plan.points
+        for point in semantics.points
     )
     used_instruments = {
         operation.instrument_id
@@ -88,20 +93,12 @@ def build_execution_program(
         for instrument_id in selected_instrument_order
         if instrument_id in used_instruments
     )
-    claims = _resource_claims(plan, instrument_order=resource_order)
-    local_product_realizations = plan.local_product_realizations
-    if local_product_realizations is None:
-        raise AssertionError("valid local plan lost its product realization selection")
-    return ExecutionProgram(
-        experiment_id=plan.experiment_id,
-        points=points,
-        product_uses=plan.product_uses,
-        collection_product_use_ids=tuple(
-            realization.product_use_id
-            for realization in local_product_realizations.entries
-        ),
-        resource_order=resource_order,
-        resource_claims=claims,
+    claims = _resource_claims(semantics, instrument_order=resource_order)
+    return (
+        points,
+        semantics.product_uses,
+        resource_order,
+        claims,
     )
 
 
@@ -162,8 +159,6 @@ def _compute_stage(
                     and call.payload_schema_id is not None
                     else None
                 ),
-                cache_namespace=call.operation_id.qualified_name,
-                cache_key=call.cache_key,
             )
         )
     return ComputeStage(operations=tuple(operations))
@@ -306,7 +301,7 @@ def _action_operation(
 
 
 def _explicit_instrument_order(
-    plan: BoundPlan,
+    semantics: MaterializedLocalSemantics,
     *,
     instrument_order: Sequence[str],
 ) -> tuple[str, ...]:
@@ -317,17 +312,17 @@ def _explicit_instrument_order(
     fixed: set[str] = (
         {
             state.resource_id.value
-            for point in plan.points
+            for point in semantics.points
             for state in point.desired_state
         }
         | {
             collect.resource_id.value
-            for point in plan.points
+            for point in semantics.points
             for collect in point.collect
         }
         | {
             action.resource_id.value
-            for point in plan.points
+            for point in semantics.points
             for action in point.actions
         }
     )
@@ -339,7 +334,7 @@ def _explicit_instrument_order(
 
 
 def _resource_claims(
-    plan: BoundPlan,
+    semantics: MaterializedLocalSemantics,
     *,
     instrument_order: tuple[str, ...],
 ) -> tuple[ResourceClaim, ...]:
@@ -347,7 +342,7 @@ def _resource_claims(
         ResourceClaim(id=instrument_id) for instrument_id in instrument_order
     ]
     seen = {(claim.kind, claim.id) for claim in claims}
-    for point in plan.points:
+    for point in semantics.points:
         channel_bindings = (
             binding for route in point.routes for binding in route.channel_bindings
         )

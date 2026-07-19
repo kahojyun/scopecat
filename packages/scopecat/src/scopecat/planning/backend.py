@@ -1,9 +1,8 @@
-"""Public execution-backend selection and unified plan boundary."""
+"""Compile linked experiment semantics into the sole executable RunProgram."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
 
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
@@ -12,11 +11,22 @@ from scopecat.compiler.linking.linked import (
     materialize_linked_points,
 )
 from scopecat.compiler.linking.materialization import (
-    materialize_local_plan_from_points,
+    materialize_local_semantics_from_points,
 )
-from scopecat.compiler.typed.program import TypedProgram
-from scopecat.execution.local.executor import PreparedExecution, prepare_execution
-from scopecat.execution.local.program import ActionStage, ApplyStateStage, ComputeStage
+from scopecat.compiler.typed.program import (
+    TypedMeasurementTransform,
+    core_actions,
+    core_domain_executions,
+    core_state,
+)
+from scopecat.execution.local.executor import lower_run_local_effects
+from scopecat.execution.local.program import ActionStage, ApplyStateStage
+from scopecat.execution.program import (
+    RunDomainJob,
+    RunLocalEffects,
+    RunPointRegion,
+    RunProgram,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
@@ -27,21 +37,11 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.projection import (
-    BoundMeasurementProjection,
     bind_measurement_projection,
     select_measurement_projection,
 )
-from scopecat.measurements.values import (
-    ProductValueFragmentDef,
-    SelectedMeasurementValueAssembly,
-    select_measurement_value_assembly,
-)
-from scopecat.planning.coverage import (
-    ExecutionCoverage,
-    ExecutionResourceClaim,
-    ExecutionTask,
-    program_execution_coverage,
-)
+from scopecat.measurements.values import select_measurement_values
+from scopecat.planning.domain_placement import domain_execution_slice
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
@@ -49,157 +49,57 @@ from scopecat.records.config import (
 from scopecat.sdk.domain._bridge import (
     DomainPlanProjection,
     make_domain_batch_context,
+    make_domain_compile_request,
     project_domain_plan,
 )
-from scopecat.sdk.domain.context import DomainExecutionOffer
-from scopecat.sdk.domain.execution import (
-    DomainExecutionAdapter,
-    PreparedDomainExecution,
+from scopecat.sdk.domain.compiler import (
+    DomainCompilation,
+    DomainCompiler,
+    DomainCompileRequest,
+    validate_domain_compilation,
 )
 from scopecat.sdk.instruments.contracts import InstrumentProvider
 
 _POINT_UNIT_ID = "point-instrument"
 
-type FusionMode = Literal["automatic", "disabled"]
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionOptions:
-    """Per-experiment policy limiting cross-point target fusion."""
-
-    fusion: FusionMode = "automatic"
-    max_points_per_batch: int | None = None
-
-    def __post_init__(self) -> None:
-        if self.fusion not in {"automatic", "disabled"}:
-            msg = "execution fusion must be 'automatic' or 'disabled'"
-            raise ValueError(msg)
-        maximum = self.max_points_per_batch
-        if maximum is not None and (type(maximum) is not int or maximum <= 0):
-            msg = "execution max_points_per_batch must be a positive integer"
-            raise ValueError(msg)
-        if self.fusion == "disabled" and maximum not in {None, 1}:
-            msg = "disabled execution fusion cannot use a batch limit above one"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedPointInstrumentUnit:
-    """Prepared point-local host compute and instrument effects."""
-
-    id: str
-    product_use_ids: tuple[ProductUseId, ...]
-    prepared: PreparedExecution = field(repr=False)
-    provider: InstrumentProvider = field(repr=False, compare=False)
-
-    @property
-    def resource_claims(self) -> tuple[ExecutionResourceClaim, ...]:
-        return tuple(
-            ExecutionResourceClaim(claim.kind, claim.id)
-            for claim in self.prepared.program.resource_claims
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedDomainJob:
-    """One physical domain invocation for a contiguous logical-point batch."""
-
-    id: str
-    prepared: PreparedDomainExecution = field(repr=False)
-
-    @property
-    def point_indices(self) -> tuple[int, ...]:
-        return self.prepared.context.linked_points.point_indices
-
-    @property
-    def resource_claims(self) -> tuple[ExecutionResourceClaim, ...]:
-        claims = self.prepared.resource_claims
-        if claims:
-            return claims
-        return (
-            ExecutionResourceClaim(
-                "target",
-                self.prepared.invocation.intent.target_id,
-            ),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedDomainUnit:
-    """One product-owning adapter lane containing ordered physical jobs."""
-
-    id: str
-    product_use_ids: tuple[ProductUseId, ...]
-    jobs: tuple[PreparedDomainJob, ...]
-
-    @property
-    def resource_claims(self) -> tuple[ExecutionResourceClaim, ...]:
-        return tuple(
-            sorted(
-                {claim for job in self.jobs for claim in job.resource_claims},
-                key=lambda claim: (claim.kind, claim.id),
-            )
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedExecutionSegment:
-    """One local-state-stable point segment and its independently batched jobs."""
-
-    point_indices: tuple[int, ...]
-    domain_jobs: tuple[PreparedDomainJob, ...]
-
-
-type _PreparedExecutionUnit = PreparedPointInstrumentUnit | PreparedDomainUnit
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedExecutionPlan:
-    """Trusted exact-cover plan consumed by the unified run workflow."""
-
-    backend_id: str
-    linked_points: MaterializedLinkedPoints = field(repr=False)
-    point_unit: PreparedPointInstrumentUnit | None
-    domain_unit: PreparedDomainUnit | None
-    segments: tuple[PreparedExecutionSegment, ...]
-    value_assembly: SelectedMeasurementValueAssembly = field(repr=False)
-    projection: BoundMeasurementProjection = field(repr=False)
-    resource_claims: tuple[ExecutionResourceClaim, ...]
-
 
 @dataclass(frozen=True, slots=True)
 class ExecutionBackend:
-    """The single backend combining point instruments and domain adapters."""
+    """The single backend combining point instruments and domain compilers."""
 
     provider: InstrumentProvider | None = field(default=None, repr=False)
-    domain_adapters: tuple[DomainExecutionAdapter, ...] = field(
+    domain_compilers: tuple[DomainCompiler, ...] = field(
         default=(),
         repr=False,
     )
-    id: str = "scopecat.execution.v2"
+    max_materialized_points: int = 100_000
+    id: str = "scopecat.execution.v3"
 
     def __post_init__(self) -> None:
         if not self.id:
             msg = "execution backend id must be non-empty"
             raise ValueError(msg)
-        adapters = tuple(self.domain_adapters)
-        if self.provider is None and not adapters:
-            msg = "execution backend requires a provider or domain adapter"
+        if (
+            type(self.max_materialized_points) is not int
+            or self.max_materialized_points <= 0
+        ):
+            raise ValueError("max_materialized_points must be a positive integer")
+        compilers = tuple(self.domain_compilers)
+        if self.provider is None and not compilers:
+            msg = "execution backend requires a provider or domain compiler"
             raise ValueError(msg)
-        object.__setattr__(self, "domain_adapters", adapters)
+        object.__setattr__(self, "domain_compilers", compilers)
 
     @property
     def backend_id(self) -> str:
         return self.id
 
-    def prepare(
+    def compile(
         self,
         linked: LinkedPlan,
         *,
         config: ConfigProfileSnapshot,
-        options: ExecutionOptions | None = None,
-    ) -> PreparedExecutionPlan:
-        selected_options = ExecutionOptions() if options is None else options
+    ) -> RunProgram:
         linked_config_hash = config_content_hash(linked.environment.config)
         execution_config_hash = config_content_hash(config)
         if linked_config_hash != execution_config_hash:
@@ -225,7 +125,6 @@ class ExecutionBackend:
             backend=self,
             linked=linked,
             config=config,
-            options=selected_options,
         )
 
 
@@ -234,186 +133,194 @@ def _prepare_backend_plan(
     backend: ExecutionBackend,
     linked: LinkedPlan,
     config: ConfigProfileSnapshot,
-    options: ExecutionOptions,
-) -> PreparedExecutionPlan:
-    expected = program_execution_coverage(linked.program)
-    linked_points = materialize_linked_points(linked)
-    selected_adapter = _select_domain_adapter(
-        backend.domain_adapters,
-        linked_points,
+) -> RunProgram:
+    linked_points = materialize_linked_points(
+        linked,
+        max_points=backend.max_materialized_points,
     )
-    domain_task_owners: set[ExecutionTask] = (
-        set() if selected_adapter is None else set(selected_adapter.coverage.tasks)
+    domain_slices = tuple(
+        domain_execution_slice(linked.program, execution.id)
+        for execution in core_domain_executions(linked.program)
     )
-    domain_lane_product_use_ids = {
-        use_id.value
-        for use_ids in (
-            *(
-                result.product_use_ids
-                for execution in (linked.program.domain_execution,)
-                if execution is not None
-                for result in execution.results
-            ),
-            *(
-                output.product_use_ids
-                for transform in linked.program.measurement_transforms
-                for output in transform.outputs
-            ),
-        )
-        for use_id in use_ids
-    }
-    local_coverage = ExecutionCoverage(
-        tuple(
-            task
-            for task in expected.tasks
-            if task not in domain_task_owners
-            and task.kind != "domain_execution"
-            and task.kind != "measurement_transform"
-            and not (task.kind == "product" and task.id in domain_lane_product_use_ids)
+    domain_product_use_ids = frozenset(
+        use_id
+        for execution_slice in domain_slices
+        for use_id in execution_slice.product_use_ids
+    )
+    local_product_use_ids = tuple(
+        use.id
+        for use in linked.program.product_uses
+        if use.id not in domain_product_use_ids
+    )
+    local_required = bool(
+        local_product_use_ids
+        or linked.program.route_intents
+        or linked.program.compute_nodes
+        or core_state(linked.program)
+        or core_actions(linked.program)
+    )
+    unplaced_transforms = tuple(
+        transform
+        for transform in linked.program.measurement_transforms
+        if all(
+            transform not in execution_slice.transforms
+            for execution_slice in domain_slices
         )
     )
-    point_unit = _prepare_point_unit(
+    placement_problems = list(
+        _placement_problems(
+            has_domain_call=bool(core_domain_executions(linked.program)),
+            has_domain_compiler=bool(backend.domain_compilers),
+            local_required=local_required,
+            has_local_provider=backend.provider is not None,
+            unplaced_transforms=unplaced_transforms,
+        )
+    )
+    if placement_problems:
+        raise CheckFailed(placement_problems)
+    local_effects = _prepare_local_effects(
         backend,
         linked_points,
         config=config,
-        coverage=local_coverage,
+        product_use_ids=local_product_use_ids,
+        required=local_required,
     )
-    covered_units = (
-        *(((_POINT_UNIT_ID, local_coverage),) if point_unit is not None else ()),
-        *(
-            ()
-            if selected_adapter is None
-            else ((selected_adapter.unit_id, selected_adapter.coverage),)
-        ),
+    barrier_regions = _plan_barrier_regions(
+        linked_points,
+        local_effects=local_effects,
     )
-    problems = list(
-        _coverage_problems(
-            expected,
-            covered_units,
-            program=linked.program,
+    selected_compilers = tuple(
+        selected
+        for execution in core_domain_executions(linked.program)
+        if (
+            selected := _select_domain_compiler(
+                backend.domain_compilers,
+                linked_points,
+                barrier_regions,
+                execution_id=execution.id,
+            )
         )
+        is not None
     )
-    if point_unit is not None and selected_adapter is not None:
-        problems.extend(_mixed_lane_point_shape_problems(point_unit))
+    problems: list[Problem] = []
+    selected_execution_ids = {
+        selected.projection.execution_id for selected in selected_compilers
+    }
+    problems.extend(
+        _planning_problem(
+            "domain_compiler_missing",
+            f"no configured domain compiler accepts domain call {execution.id!r}",
+            category=ProblemCategory.NOT_FOUND,
+            details={"execution_id": execution.id},
+        )
+        for execution in core_domain_executions(linked.program)
+        if execution.id not in selected_execution_ids
+    )
     if problems:
         raise CheckFailed(problems)
 
-    resolved_maximum = _resolved_batch_limit(
-        options,
-        has_domains=selected_adapter is not None,
+    domain_jobs = tuple(
+        job for selected in selected_compilers for job in _prepare_domain_jobs(selected)
     )
-    state_segments = _plan_state_segments(
-        linked_points,
-        point_unit=point_unit,
-    )
-    domain_unit = (
-        None
-        if selected_adapter is None
-        else _prepare_domain_unit(
-            selected_adapter,
-            state_segments,
-            maximum=resolved_maximum,
-        )
-    )
-    units: tuple[_PreparedExecutionUnit, ...] = (
-        *((point_unit,) if point_unit is not None else ()),
-        *((domain_unit,) if domain_unit is not None else ()),
-    )
-    resource_problems = _resource_claim_problems(units)
-    if resource_problems:
-        raise CheckFailed(resource_problems)
-
-    jobs_by_batch: dict[int, list[PreparedDomainJob]] = {
-        segment_ordinal: [] for segment_ordinal, _segment in enumerate(state_segments)
+    jobs_by_region: dict[int, list[RunDomainJob]] = {
+        region_ordinal: [] for region_ordinal, _region in enumerate(barrier_regions)
     }
-    if domain_unit is not None:
-        for job in domain_unit.jobs:
-            segment_ordinal = next(
-                ordinal
-                for ordinal, segment in enumerate(state_segments)
-                if job.point_indices[0] in segment.point_indices
-            )
-            jobs_by_batch[segment_ordinal].append(job)
-    segments = tuple(
-        PreparedExecutionSegment(
-            point_indices=segment.point_indices,
-            domain_jobs=tuple(jobs_by_batch[segment_ordinal]),
+    for job in domain_jobs:
+        region_ordinal = next(
+            ordinal
+            for ordinal, region in enumerate(barrier_regions)
+            if job.point_indices[0] in region.point_indices
         )
-        for segment_ordinal, segment in enumerate(state_segments)
+        jobs_by_region[region_ordinal].append(job)
+    point_regions = tuple(
+        RunPointRegion(
+            point_indices=region.point_indices,
+            domain_jobs=tuple(jobs_by_region[region_ordinal]),
+        )
+        for region_ordinal, region in enumerate(barrier_regions)
     )
-    fragment_defs = tuple(
-        ProductValueFragmentDef(unit.id, unit.product_use_ids)
-        for unit in units
-        if unit.product_use_ids
-    )
-    value_assembly = select_measurement_value_assembly(
+    values = select_measurement_values(
         linked_points,
         required_product_use_ids=tuple(use.id for use in linked.product_uses),
-        fragment_defs=fragment_defs,
     )
     projection = bind_measurement_projection(
         select_measurement_projection(linked_points),
-        value_assembly,
+        values,
     )
     resource_claims = tuple(
         sorted(
-            (claim for unit in units for claim in unit.resource_claims),
+            {
+                *(() if local_effects is None else local_effects.resource_claims),
+                *(claim for job in domain_jobs for claim in job.resource_claims),
+            },
             key=lambda claim: (claim.kind, claim.id),
         )
     )
-    return PreparedExecutionPlan(
+    return RunProgram(
         backend_id=backend.backend_id,
         linked_points=linked_points,
-        point_unit=point_unit,
-        domain_unit=domain_unit,
-        segments=segments,
-        value_assembly=value_assembly,
+        operations=(
+            *((local_effects,) if local_effects is not None else ()),
+            *point_regions,
+        ),
+        values=values,
         projection=projection,
         resource_claims=resource_claims,
     )
 
 
 @dataclass(frozen=True, slots=True)
-class _SelectedDomainAdapter:
+class _SelectedDomainCompiler:
     unit_id: str
-    adapter_id: str
-    adapter: DomainExecutionAdapter = field(repr=False, compare=False)
-    offer: DomainExecutionOffer
-    coverage: ExecutionCoverage
+    compiler: DomainCompiler = field(repr=False, compare=False)
+    request: DomainCompileRequest = field(repr=False, compare=False)
+    compilation: DomainCompilation = field(repr=False)
+    product_use_ids: tuple[ProductUseId, ...]
     projection: DomainPlanProjection = field(repr=False, compare=False)
 
 
-def _select_domain_adapter(
-    adapters: tuple[DomainExecutionAdapter, ...],
+def _select_domain_compiler(
+    compilers: tuple[DomainCompiler, ...],
     linked_points: MaterializedLinkedPoints,
-) -> _SelectedDomainAdapter | None:
-    selected: list[_SelectedDomainAdapter] = []
+    barrier_regions: tuple[MaterializedLinkedPointBatch, ...],
+    *,
+    execution_id: str,
+) -> _SelectedDomainCompiler | None:
+    selected: list[_SelectedDomainCompiler] = []
     seen_ids: set[str] = set()
-    projection = project_domain_plan(linked_points)
+    projection = project_domain_plan(linked_points, execution_id)
     view = projection.view(linked_points)
-    for adapter in adapters:
-        adapter_id = adapter.adapter_id
-        if type(adapter_id) is not str or not adapter_id:
-            msg = "domain execution adapter identity must be a non-empty string"
+    if view.execution is None:
+        return None
+    request = make_domain_compile_request(projection, barrier_regions)
+    for compiler in compilers:
+        compiler_id = compiler.compiler_id
+        target_id = compiler.target_id
+        if type(compiler_id) is not str or not compiler_id:
+            msg = "domain compiler identity must be a non-empty string"
             raise TypeError(msg)
-        if adapter_id in seen_ids:
-            msg = f"domain execution adapter identity {adapter_id!r} is repeated"
+        if type(target_id) is not str or not target_id:
+            msg = "domain target identity must be a non-empty string"
+            raise TypeError(msg)
+        if compiler_id in seen_ids:
+            msg = f"domain compiler identity {compiler_id!r} is repeated"
             raise ValueError(msg)
-        seen_ids.add(adapter_id)
-        candidate = adapter.select(view)
+        seen_ids.add(compiler_id)
+        candidate = compiler.compile(request)
         if candidate is None:
             continue
-        execution = view.execution
-        if execution is None:
-            raise AssertionError("adapter selected a missing domain execution")
+        if candidate.compiler_id != compiler_id or candidate.target_id != target_id:
+            msg = "domain compilation identity must match its selected compiler"
+            raise ValueError(msg)
+        validate_domain_compilation(request, candidate)
         execution_slice = projection.execution_slice()
         selected.append(
-            _SelectedDomainAdapter(
-                unit_id=f"domain-{adapter_id}",
-                adapter_id=adapter_id,
-                adapter=adapter,
-                offer=candidate,
-                coverage=execution_slice.coverage,
+            _SelectedDomainCompiler(
+                unit_id=f"domain-{execution_id}-{target_id}",
+                compiler=compiler,
+                request=request,
+                compilation=candidate,
+                product_use_ids=execution_slice.product_use_ids,
                 projection=projection,
             )
         )
@@ -421,11 +328,14 @@ def _select_domain_adapter(
         raise CheckFailed(
             [
                 _planning_problem(
-                    "domain_adapter_selection_ambiguous",
-                    "multiple adapters selected the sole domain execution",
+                    "domain_compiler_selection_ambiguous",
+                    f"multiple compilers selected domain execution {execution_id!r}",
                     category=ProblemCategory.CONFLICT,
                     details={
-                        "adapter_ids": [candidate.adapter_id for candidate in selected]
+                        "compiler_ids": [
+                            candidate.compilation.compiler_id for candidate in selected
+                        ],
+                        "execution_id": execution_id,
                     },
                 )
             ]
@@ -433,200 +343,136 @@ def _select_domain_adapter(
     return selected[0] if selected else None
 
 
-def _prepare_point_unit(
+def _prepare_local_effects(
     backend: ExecutionBackend,
     linked_points: MaterializedLinkedPoints,
     *,
     config: ConfigProfileSnapshot,
-    coverage: ExecutionCoverage,
-) -> PreparedPointInstrumentUnit | None:
-    if not coverage.tasks or backend.provider is None:
+    product_use_ids: tuple[ProductUseId, ...],
+    required: bool,
+) -> RunLocalEffects | None:
+    if not required:
         return None
-    product_use_ids = coverage.product_use_ids
-    non_product_coverage = ExecutionCoverage(
-        tuple(task for task in coverage.tasks if task.kind != "product")
-    )
-    plan = materialize_local_plan_from_points(
+    if backend.provider is None:
+        raise AssertionError("local placement must require a provider before lowering")
+    semantics = materialize_local_semantics_from_points(
         linked_points,
         product_use_ids=frozenset(product_use_ids),
-        task_coverage=non_product_coverage,
     )
-    if not plan.valid:
-        raise CheckFailed(plan.problems)
-    prepared = prepare_execution(
+    if not semantics.valid:
+        raise CheckFailed(semantics.problems)
+    return lower_run_local_effects(
+        operation_id=_POINT_UNIT_ID,
+        product_use_ids=product_use_ids,
         config=config,
-        plan=plan,
+        semantics=semantics,
         instrument_provider=backend.provider,
     )
-    return PreparedPointInstrumentUnit(
-        id=_POINT_UNIT_ID,
-        product_use_ids=coverage.product_use_ids,
-        prepared=prepared,
-        provider=backend.provider,
-    )
 
 
-def _resolved_batch_limit(
-    options: ExecutionOptions,
-    *,
-    has_domains: bool,
-) -> int | None:
-    if not has_domains:
-        return 1
-    if options.fusion == "disabled":
-        return 1
-    return options.max_points_per_batch
-
-
-def _plan_state_segments(
+def _plan_barrier_regions(
     linked_points: MaterializedLinkedPoints,
     *,
-    point_unit: PreparedPointInstrumentUnit | None,
+    local_effects: RunLocalEffects | None,
 ) -> tuple[MaterializedLinkedPointBatch, ...]:
     points = linked_points.point_domain.points
     if not points:
         return ()
-    signatures = (
-        (None,) * len(points)
-        if point_unit is None
-        else tuple(
-            tuple(
-                (operation.instrument_id, operation.targets)
-                for stage in point.stages
-                if isinstance(stage, ApplyStateStage)
-                for operation in stage.operations
-            )
-            for point in point_unit.prepared.program.points
+    if local_effects is None:
+        return (MaterializedLinkedPointBatch(linked_points, tuple(range(len(points)))),)
+    signatures = tuple(
+        tuple(
+            (operation.instrument_id, operation.targets)
+            for stage in point.stages
+            if isinstance(stage, ApplyStateStage)
+            for operation in stage.operations
         )
+        for point in local_effects.points
     )
     if len(signatures) != len(points):
         raise AssertionError("local and linked point inventories must agree")
-    selected: list[MaterializedLinkedPointBatch] = []
-    start = 0
-    while start < len(points):
-        stop = start + 1
-        while stop < len(points) and signatures[stop] == signatures[start]:
-            stop += 1
-        selected.append(
+    has_actions = any(
+        isinstance(stage, ActionStage)
+        for point in local_effects.points
+        for stage in point.stages
+    )
+    if not has_actions and all(signature == signatures[0] for signature in signatures):
+        return (
             MaterializedLinkedPointBatch(
                 linked_points,
-                point_indices=tuple(range(start, stop)),
-            )
-        )
-        start = stop
-    return tuple(selected)
-
-
-def _prepare_domain_unit(
-    selected: _SelectedDomainAdapter,
-    state_segments: tuple[MaterializedLinkedPointBatch, ...],
-    *,
-    maximum: int | None,
-) -> PreparedDomainUnit:
-    jobs: list[PreparedDomainJob] = []
-    adapter_maximum = selected.offer.max_points_per_batch
-    limits = tuple(limit for limit in (maximum, adapter_maximum) if limit is not None)
-    chunk_size = min(limits) if limits else None
-    batches = tuple(
-        MaterializedLinkedPointBatch(
-            segment.parent,
-            point_indices=tuple(
-                segment.point_indices[offset : offset + selected_chunk_size]
+                tuple(range(len(points))),
             ),
         )
-        for segment in state_segments
-        for selected_chunk_size in (
-            len(segment.point_indices) if chunk_size is None else chunk_size,
-        )
-        for offset in range(0, len(segment.point_indices), selected_chunk_size)
+    return tuple(
+        MaterializedLinkedPointBatch(linked_points, (point_index,))
+        for point_index in range(len(points))
     )
-    for batch_ordinal, batch in enumerate(batches):
+
+
+def _prepare_domain_jobs(
+    selected: _SelectedDomainCompiler,
+) -> tuple[RunDomainJob, ...]:
+    jobs: list[RunDomainJob] = []
+    for batch_ordinal, compiled in enumerate(selected.compilation.jobs):
+        batch = MaterializedLinkedPointBatch(
+            selected.projection.linked_points,
+            point_indices=compiled.point_ordinals,
+        )
         context = make_domain_batch_context(
             selected.projection,
             batch,
-            adapter_id=selected.adapter_id,
+            compiler_id=selected.compilation.compiler_id,
             batch_ordinal=batch_ordinal,
+            pushed_transform_ids=selected.compilation.pushed_transform_ids,
         )
-        prepared = selected.adapter.prepare(context)
+        prepared = selected.compiler.prepare(compiled, context)
+        if prepared.context is not context:
+            msg = "prepared domain execution must retain its compiler job context"
+            raise ValueError(msg)
         jobs.append(
-            PreparedDomainJob(
-                id=(f"{selected.unit_id}.batch-{batch_ordinal}"),
+            RunDomainJob(
+                id=f"{selected.projection.execution_id}:{compiled.id}",
+                source_id=selected.unit_id,
+                compiled=compiled,
                 prepared=prepared,
             )
         )
-    return PreparedDomainUnit(
-        id=selected.unit_id,
-        product_use_ids=selected.coverage.product_use_ids,
-        jobs=tuple(jobs),
-    )
+    return tuple(jobs)
 
 
-def _coverage_problems(
-    expected: ExecutionCoverage,
-    units: tuple[tuple[str, ExecutionCoverage], ...],
+def _placement_problems(
     *,
-    program: TypedProgram,
+    has_domain_call: bool,
+    has_domain_compiler: bool,
+    local_required: bool,
+    has_local_provider: bool,
+    unplaced_transforms: tuple[TypedMeasurementTransform, ...],
 ) -> tuple[Problem, ...]:
-    expected_set = set(expected.tasks)
-    owners: dict[ExecutionTask, list[str]] = {}
-    for unit_id, coverage in units:
-        for task in coverage.tasks:
-            owners.setdefault(task, []).append(unit_id)
-    unplaced_transforms = tuple(
-        transform
-        for transform in program.measurement_transforms
-        if ExecutionTask(
-            "measurement_transform",
-            transform.id.qualified_name,
-        )
-        not in owners
-    )
-    grouped_missing_tasks = {
-        ExecutionTask("measurement_transform", transform.id.qualified_name)
-        for transform in unplaced_transforms
-    } | {
-        ExecutionTask("product", use_id.value)
-        for transform in unplaced_transforms
-        for output in transform.outputs
-        for use_id in output.product_use_ids
-    }
+    """Report missing effect/dataflow implementations directly from typed edges."""
 
     problems: list[Problem] = []
-    for task, unit_ids in owners.items():
-        if task not in expected_set:
-            problems.append(
-                _planning_problem(
-                    "execution_task_claim_foreign",
-                    f"execution unit claims unknown {task.kind} task {task.id!r}",
-                    category=ProblemCategory.CONFLICT,
-                    details={"task_kind": task.kind, "task_id": task.id},
-                )
+    if has_domain_call and not has_domain_compiler:
+        problems.append(
+            _planning_problem(
+                "domain_compiler_missing",
+                "the typed domain call has no configured compiler",
+                category=ProblemCategory.NOT_FOUND,
             )
-        if len(unit_ids) > 1:
-            problems.append(
-                _planning_problem(
-                    "execution_task_claim_overlap",
-                    f"execution task {task.kind}:{task.id} has multiple owners",
-                    category=ProblemCategory.CONFLICT,
-                    details={"unit_ids": unit_ids},
-                )
+        )
+    if local_required and not has_local_provider:
+        problems.append(
+            _planning_problem(
+                "local_instrument_provider_missing",
+                "local effects or products require an instrument provider",
+                category=ProblemCategory.NOT_FOUND,
             )
-    for task in expected.tasks:
-        if task not in owners and task not in grouped_missing_tasks:
-            problems.append(
-                _planning_problem(
-                    "execution_task_claim_missing",
-                    f"execution task {task.kind}:{task.id} has no owner",
-                    category=ProblemCategory.NOT_FOUND,
-                    details={"task_kind": task.kind, "task_id": task.id},
-                )
-            )
+        )
     problems.extend(
         _planning_problem(
             "measurement_transform_placement_missing",
             f"measurement transform {transform.id.qualified_name!r} has no "
-            "execution owner; current domain lanes can host only a transform "
-            "closure fed wholly by the selected domain execution",
+            "execution implementation; a transform must belong to a supported "
+            "domain-call closure",
             details={
                 "transform_id": transform.id.qualified_name,
                 "input_product_ids": [
@@ -641,63 +487,6 @@ def _coverage_problems(
         )
         for transform in unplaced_transforms
     )
-    return tuple(problems)
-
-
-def _resource_claim_problems(
-    units: tuple[_PreparedExecutionUnit, ...],
-) -> tuple[Problem, ...]:
-    owners: dict[ExecutionResourceClaim, list[str]] = {}
-    for unit in units:
-        for claim in unit.resource_claims:
-            owners.setdefault(claim, []).append(unit.id)
-    return tuple(
-        _planning_problem(
-            "execution_resource_claim_overlap",
-            f"execution resource {claim.kind}:{claim.id} has multiple owners",
-            category=ProblemCategory.CONFLICT,
-            details={"unit_ids": unit_ids},
-        )
-        for claim, unit_ids in owners.items()
-        if len(unit_ids) > 1
-    )
-
-
-def _mixed_lane_point_shape_problems(
-    unit: PreparedPointInstrumentUnit,
-) -> tuple[Problem, ...]:
-    """Prove the current local stages can surround ordered domain batches."""
-
-    program = unit.prepared.program
-    problems: list[Problem] = []
-    compute_count = sum(
-        len(stage.operations)
-        for point in program.points
-        for stage in point.stages
-        if isinstance(stage, ComputeStage)
-    )
-    if compute_count:
-        problems.append(
-            _planning_problem(
-                "mixed_lane_point_compute_crosses_domain_job",
-                "point-local compute cannot surround a fused domain job",
-                details={"compute_operation_count": compute_count},
-            )
-        )
-    action_count = sum(
-        len(stage.operations)
-        for point in program.points
-        for stage in point.stages
-        if isinstance(stage, ActionStage)
-    )
-    if action_count:
-        problems.append(
-            _planning_problem(
-                "mixed_lane_point_action_crosses_domain_job",
-                "point-local one-shot actions cannot cross a fused domain job",
-                details={"action_operation_count": action_count},
-            )
-        )
     return tuple(problems)
 
 

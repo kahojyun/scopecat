@@ -43,11 +43,11 @@ from scopecat.kernel.value_validation import (
 
 
 class ParameterRelationData:
-    """Resolved, process-local parameter bindings for relation evaluation.
+    """Resolved immutable parameter bindings for relation evaluation.
 
     Config resolution establishes the value-level invariants before building this
-    object.  This class owns detached containers, enforces the unified parameter
-    namespace, and exposes snapshots rather than its internal mappings.
+    object. This class owns detached containers, enforces the unified parameter
+    namespace, and returns a new binding set for lexical point overrides.
     """
 
     __slots__ = ("_scalars", "_series", "_tables")
@@ -156,24 +156,15 @@ class ParameterRelationData:
             msg = f"unknown series parameter {parameter_id!r}"
             raise KeyError(msg) from error
 
-    def fork_for_point_overlays(self) -> ParameterRelationData:
-        """Fork bindings before applying point-local table-cell overlays."""
-
-        return ParameterRelationData(
-            scalars=self._scalars,
-            series=self._series,
-            tables=self._tables,
-        )
-
-    def replace_table_cell(
+    def with_table_cell(
         self,
         table_id: str,
         *,
         row_index: int,
         column_id: str,
         value: CellValue,
-    ) -> None:
-        """Replace one existing cell in a point-overlay fork."""
+    ) -> ParameterRelationData:
+        """Return bindings with one table cell lexically overridden."""
 
         try:
             rows = self._tables[table_id]
@@ -192,10 +183,17 @@ class ParameterRelationData:
             raise KeyError(msg)
         updated_row = dict(row)
         updated_row[column_id] = value
-        self._tables[table_id] = (
-            *rows[:row_index],
-            updated_row,
-            *rows[row_index + 1 :],
+        return ParameterRelationData(
+            scalars=self._scalars,
+            series=self._series,
+            tables={
+                **self._tables,
+                table_id: (
+                    *rows[:row_index],
+                    updated_row,
+                    *rows[row_index + 1 :],
+                ),
+            },
         )
 
     def lookup_row(self, table_id: str, key: Mapping[str, CellValue]) -> Row:

@@ -7,8 +7,10 @@ keeping their accepted inputs, execution evidence, measurements, analysis, and
 candidate configuration changes together.
 
 The long-term direction is captured in the
-[project charter](docs/project-charter.md). Implementation contracts and design
-rationale live beside the code that owns them.
+[project charter](docs/project-charter.md) and the
+[experiment compilation and execution target](docs/experiment-execution-model.md).
+Implementation contracts and design rationale live beside the code that owns
+them.
 
 ## Workspace
 

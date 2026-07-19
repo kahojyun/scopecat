@@ -8,8 +8,8 @@ from quantum_lab_demo import notebook_workspace, quantum_lab
 from quantum_lab_demo.reference_experiments import (
     DRAG_BETA_TEMPLATE,
     PRODUCTION_DRAG_GATE_TEMPLATE,
-    DragBetaDomainExecutionAdapter,
-    ProductionDragGateExecutionAdapter,
+    DragBetaDomainCompiler,
+    ProductionDragGateCompiler,
     analyze_drag_beta_run,
 )
 
@@ -24,10 +24,10 @@ from quantum_lab_demo.reference_experiments import (
 # configuration value centers later scans.
 workspace = notebook_workspace("13-drag-beta-calibration")
 lab = quantum_lab(workspace=workspace)
-adapter = DragBetaDomainExecutionAdapter()
+compiler = DragBetaDomainCompiler()
 experiment = lab.prepare(
     DRAG_BETA_TEMPLATE,
-    execution_backend=sc.ExecutionBackend(domain_adapters=(adapter,)),
+    execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
 )
 
 # %%
@@ -54,9 +54,7 @@ candidate = result.analysis.candidate_config()
 candidate_preview = lab.prepare(
     DRAG_BETA_TEMPLATE,
     config=candidate,
-    execution_backend=sc.ExecutionBackend(
-        domain_adapters=(DragBetaDomainExecutionAdapter(),)
-    ),
+    execution_backend=sc.ExecutionBackend(domain_compilers=(DragBetaDomainCompiler(),)),
 ).preview()
 
 # %%
@@ -70,12 +68,12 @@ baseline_activation = lab.activate_config(
     completed_run.config,
     entry_id=f"drag-beta-baseline-{completed_run.id}",
 )
-baseline_production_adapter = ProductionDragGateExecutionAdapter()
+baseline_production_compiler = ProductionDragGateCompiler()
 baseline_production_run = lab.prepare(
     PRODUCTION_DRAG_GATE_TEMPLATE,
     config="active",
     execution_backend=sc.ExecutionBackend(
-        domain_adapters=(baseline_production_adapter,)
+        domain_compilers=(baseline_production_compiler,)
     ),
 ).run(
     name="Production X90 with baseline DRAG beta",
@@ -104,15 +102,15 @@ activation = lab.activate(
 active_preview = lab.prepare(
     DRAG_BETA_TEMPLATE,
     config="active",
-    execution_backend=sc.ExecutionBackend(
-        domain_adapters=(DragBetaDomainExecutionAdapter(),)
-    ),
+    execution_backend=sc.ExecutionBackend(domain_compilers=(DragBetaDomainCompiler(),)),
 ).preview()
-active_production_adapter = ProductionDragGateExecutionAdapter()
+active_production_compiler = ProductionDragGateCompiler()
 active_production_run = lab.prepare(
     PRODUCTION_DRAG_GATE_TEMPLATE,
     config="active",
-    execution_backend=sc.ExecutionBackend(domain_adapters=(active_production_adapter,)),
+    execution_backend=sc.ExecutionBackend(
+        domain_compilers=(active_production_compiler,)
+    ),
 ).run(
     name="Production X90 with accepted DRAG beta",
     tags=("reference", "production-gate", "active-config", "provenance"),
@@ -129,16 +127,14 @@ rollback = lab.rollback(
 restored_preview = lab.prepare(
     DRAG_BETA_TEMPLATE,
     config="active",
-    execution_backend=sc.ExecutionBackend(
-        domain_adapters=(DragBetaDomainExecutionAdapter(),)
-    ),
+    execution_backend=sc.ExecutionBackend(domain_compilers=(DragBetaDomainCompiler(),)),
 ).preview()
-restored_production_adapter = ProductionDragGateExecutionAdapter()
+restored_production_compiler = ProductionDragGateCompiler()
 restored_production_run = lab.prepare(
     PRODUCTION_DRAG_GATE_TEMPLATE,
     config="active",
     execution_backend=sc.ExecutionBackend(
-        domain_adapters=(restored_production_adapter,)
+        domain_compilers=(restored_production_compiler,)
     ),
 ).run(
     name="Production X90 after DRAG beta rollback",
@@ -161,9 +157,9 @@ def _quantity_in_unit(value: object, unit: str) -> float:
     return float(value.to(unit).value)
 
 
-[baseline_gate] = baseline_production_adapter.preparations
-[active_gate] = active_production_adapter.preparations
-[restored_gate] = restored_production_adapter.preparations
+[baseline_gate] = baseline_production_compiler.preparations
+[active_gate] = active_production_compiler.preparations
+[restored_gate] = restored_production_compiler.preparations
 baseline_source = baseline_production_run.manifest.config_source
 active_source = active_production_run.manifest.config_source
 restored_source = restored_production_run.manifest.config_source
@@ -243,7 +239,7 @@ if failed_evidence_checks:
 drag_beta_summary = {
     "status": completed_run.manifest.status,
     "point_count": preview.point_count,
-    "physical_executions": adapter.physical_execution_count,
+    "physical_executions": compiler.physical_execution_count,
     "beta_hat": result.fit.beta_hat,
     "fit_rmse": result.fit.rmse,
     "quality": {

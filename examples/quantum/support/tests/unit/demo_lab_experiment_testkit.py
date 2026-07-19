@@ -8,15 +8,17 @@ from scopecat.compiler.frontend.environment import (
     ValidatedConfigEnvironment,
     validate_config_environment,
 )
-from scopecat.compiler.linking.bound import BoundPlan
+from scopecat.compiler.linking.bound import MaterializedLocalSemantics
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
     MaterializedLinkedPoints,
     link_verified_program,
     materialize_linked_points,
 )
-from scopecat.compiler.linking.materialization import materialize_local_plan_from_points
-from scopecat.compiler.typed.program import TypedProgram
+from scopecat.compiler.linking.materialization import (
+    materialize_local_semantics_from_points,
+)
+from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.verification import seal_typed_program
 from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.problems import ProblemPhase
@@ -35,7 +37,7 @@ def load_experiment_config() -> ConfigProfileSnapshot:
 
 
 def link_program(
-    program: TypedProgram,
+    program: CoreProgram,
     environment: ValidatedConfigEnvironment,
 ) -> LinkedPlan:
     """Snapshot, seal, and link an externally constructed test program."""
@@ -50,11 +52,11 @@ def bound_plan(
     invocation: ExperimentInvocation,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> BoundPlan:
+) -> MaterializedLocalSemantics:
     """Compile an invocation for direct test-only inspection."""
 
     linked_points = _materialized_linked_points(invocation, config=config)
-    plan = materialize_local_plan_from_points(linked_points)
+    plan = materialize_local_semantics_from_points(linked_points)
     assert plan.problems == ()
     return plan
 

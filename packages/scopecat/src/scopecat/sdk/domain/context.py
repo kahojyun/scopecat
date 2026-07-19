@@ -1,4 +1,4 @@
-"""Public selection and preparation context for domain adapters."""
+"""Runtime preparation context for compiled domain jobs."""
 
 from __future__ import annotations
 
@@ -18,20 +18,8 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainExecutionOffer:
-    """One adapter's declarative offer for the authored domain execution."""
-
-    max_points_per_batch: int = 1
-
-    def __post_init__(self) -> None:
-        if self.max_points_per_batch <= 0:
-            msg = "domain max_points_per_batch must be positive"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
 class DomainBatchContext:
-    """Backend-selected batch for one already accepted adapter offer."""
+    """Runtime bindings for one pure compiled domain job."""
 
     batch_ordinal: int
     execution: DomainExecutionView
@@ -41,7 +29,7 @@ class DomainBatchContext:
     derived_product_uses: tuple[DomainProductUseRef, ...]
     measurement_transforms: tuple[DomainMeasurementTransform, ...]
     linked_points: MaterializedLinkedPointBatch = field(repr=False)
-    adapter_id: str
+    compiler_id: str
 
     def new_preparation(self) -> DomainPreparationBuilder:
         """Create a builder that closes this batch for execution."""

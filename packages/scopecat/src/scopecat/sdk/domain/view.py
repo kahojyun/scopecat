@@ -217,9 +217,32 @@ class DomainResultBindingView:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainExecutionView:
-    """The prepare-stage domain execution without linked-plan internals."""
+class DomainCallView:
+    """Symbolic typed domain call exposed during pure target compilation."""
 
+    id: str
+    program: DomainProgramView
+    results: tuple[DomainResultBindingView, ...]
+    measurement_transforms: tuple[DomainMeasurementTransform, ...] = ()
+
+    def result(self, name: str) -> DomainResultBindingView:
+        for result in self.results:
+            if result.id == name:
+                return result
+        raise KeyError(name)
+
+    def measurement_transform(self, name: str) -> DomainMeasurementTransform:
+        for transform in self.measurement_transforms:
+            if transform.id == name:
+                return transform
+        raise KeyError(name)
+
+
+@dataclass(frozen=True, slots=True)
+class DomainExecutionView:
+    """Concrete runtime bindings for one compiled domain job."""
+
+    id: str
     program: DomainProgramView
     points: tuple[DomainExecutionPointView, ...]
     results: tuple[DomainResultBindingView, ...]

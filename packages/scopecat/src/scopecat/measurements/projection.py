@@ -25,7 +25,7 @@ from scopecat.kernel.problems import Problem, ProblemCategory, model_location
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
-    SelectedMeasurementValueAssembly,
+    MeasurementValueSelection,
     measurement_value_contract_fingerprint,
 )
 from scopecat.records.measurement import (
@@ -100,7 +100,7 @@ class BoundMeasurementProjection:
     """Pre-effect proof that an assembly covers every projected record use."""
 
     projection: SelectedMeasurementProjection = field(repr=False)
-    product_values: SelectedMeasurementValueAssembly = field(repr=False)
+    product_values: MeasurementValueSelection = field(repr=False)
     contract_fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -272,7 +272,7 @@ def select_measurement_projection(
 
 def bind_measurement_projection(
     projection: SelectedMeasurementProjection,
-    product_values: SelectedMeasurementValueAssembly,
+    product_values: MeasurementValueSelection,
 ) -> BoundMeasurementProjection:
     """Prove before effects that selected values cover all record inputs."""
 

@@ -5,10 +5,10 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.bound import BoundPlan
+from scopecat.compiler.linking.bound import MaterializedLocalSemantics
 from scopecat.compiler.linking.materialization import (
     channel_signature,
-    materialize_local_plan,
+    materialize_local_semantics,
 )
 from scopecat.compiler.relations.model import (
     input_series,
@@ -21,12 +21,11 @@ from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     ResourceRouteIntent,
-    TypedProgram,
     record_product,
     set_state_field,
 )
-from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import ApplyStateStage, CollectStage
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import (
@@ -57,6 +56,7 @@ from scopecat.records.config import (
 )
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config, parameters
+from tests.testkit.local_effect_program import lower_test_local_effect_program
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     series_value_expr,
@@ -385,7 +385,7 @@ def test_multi_channel_entity_binding_reaches_state_and_collect_commands() -> No
     )
 
     plan = _bind(experiment, config=config)
-    program = build_execution_program(plan, instrument_order=("source-0",))
+    program = lower_test_local_effect_program(plan, instrument_order=("source-0",))
 
     assert not validate_config(config)
     assert plan.valid
@@ -872,7 +872,7 @@ def test_unresolved_route_entity_input_is_rejected_during_linking() -> None:
     }
 
 
-def _two_route_experiment() -> TypedProgram:
+def _two_route_experiment() -> CoreProgram:
     return typed_program(
         id="two-route-conflict",
         kind="routing_test",
@@ -897,15 +897,15 @@ def _empty_point_domain() -> PointDomain:
 
 
 def _bind(
-    experiment: TypedProgram,
+    experiment: CoreProgram,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> BoundPlan:
+) -> MaterializedLocalSemantics:
     environment = replace(
         validate_config_environment(config or load_config()),
         parameters=parameters(),
     )
-    return materialize_local_plan(link_program(experiment, environment))
+    return materialize_local_semantics(link_program(experiment, environment))
 
 
 def _routing_constraint_config(

@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 
-from scopecat.execution.local.engine import validate_readback
+from scopecat.execution.effect_interpreter import validate_readback
 from scopecat.execution.local.program import CollectionResultBinding, CollectOperation
 from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.product_identity import ProductUseId, product_id

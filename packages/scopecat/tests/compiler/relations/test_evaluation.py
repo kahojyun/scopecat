@@ -365,11 +365,9 @@ def test_parameter_data_owns_its_containers_and_returns_detached_snapshots() -> 
     assert parameters.table_rows("calibrations") == [{"id": "r0", "value": 4}]
 
 
-def test_point_overlay_fork_replaces_a_cell_without_mutating_base_data() -> None:
+def test_lexical_point_binding_replaces_a_cell_without_mutating_base_data() -> None:
     base = ParameterRelationData(tables={"calibrations": [{"id": "r0", "value": 1}]})
-    point_parameters = base.fork_for_point_overlays()
-
-    point_parameters.replace_table_cell(
+    point_parameters = base.with_table_cell(
         "calibrations",
         row_index=0,
         column_id="value",

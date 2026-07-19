@@ -1,9 +1,10 @@
-"""Execute one exact-cover execution plan through a single durable Run."""
+"""Interpret the sole closed RunProgram through one durable effect journal."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
+from scopecat.execution.effect_interpreter import (
+    RunEffectResult,
+)
 from scopecat.execution.effects.domain import (
     DomainSynchronousCompletionPending,
     domain_runtime_terminal_problem,
@@ -21,27 +22,28 @@ from scopecat.execution.evidence import (
     build_instrument_state_evidence,
     raw_measurement_schema,
 )
-from scopecat.execution.local.engine import (
-    CapturedMiddleEffectFailure,
-    ExecutionEngine,
-    ExecutionEngineResult,
+from scopecat.execution.local.collection_values import (
+    BoundLocalCollectionValues,
+    bind_local_collection_values,
+    local_collection_value_candidates,
 )
-from scopecat.execution.local.executor import execute_prepared_local_effects
-from scopecat.execution.local.measurement_fragments import (
-    BoundLocalCollectionFragment,
-    bind_local_collection_fragment,
-    local_collection_fragment,
-)
+from scopecat.execution.local.executor import execute_run_local_effects
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.persistence import (
     validate_measurement_index_shape,
     validate_raw_measurement_dataset,
 )
-from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.execution.problems import (
     contextualize_problems,
     problem_from_exception,
     runtime_problem,
+)
+from scopecat.execution.program import (
+    RunDomainJob,
+    RunPointRegion,
+    RunProgram,
+    run_local_effects,
+    run_point_regions,
 )
 from scopecat.execution.services import (
     CollectionRecordRepository,
@@ -69,16 +71,8 @@ from scopecat.measurements.projection import project_measurement_records
 from scopecat.measurements.recording import commit_projected_measurement_records
 from scopecat.measurements.results import MeasurementRecord
 from scopecat.measurements.values import (
-    ClosedMeasurementProductValues,
-    ClosedMeasurementValueFragment,
     MeasurementValueCandidate,
-    assemble_measurement_values,
-    seal_measurement_value_fragment,
-)
-from scopecat.planning.backend import (
-    PreparedDomainJob,
-    PreparedExecutionPlan,
-    PreparedExecutionSegment,
+    seal_measurement_values,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
@@ -86,25 +80,21 @@ from scopecat.records.run_request import RunRequest
 from scopecat.runs.lifecycle import commit_terminal_evidence
 
 
-class _DomainUnitEffectFailed(CapturedMiddleEffectFailure):
-    """Stop the local lane after a captured domain-boundary failure."""
-
-
-def execute_execution_plan(
+def interpret_run_program(
     *,
     config: ConfigProfileSnapshot,
-    prepared: PreparedExecutionPlan,
+    program: RunProgram,
     request: RunRequest | None,
     services: ExecutionServices,
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
-    """Execute one trusted exact-cover plan without backend-specific workflow forks."""
+    """Interpret one closed residual effect program."""
 
-    return _execute_unified_run(
+    return _interpret_run(
         config=config,
-        prepared=prepared,
+        program=program,
         request=request,
         services=services,
         config_source=config_source,
@@ -113,23 +103,23 @@ def execute_execution_plan(
     )
 
 
-def _execute_unified_run(
+def _interpret_run(
     *,
     config: ConfigProfileSnapshot,
-    prepared: PreparedExecutionPlan,
+    program: RunProgram,
     request: RunRequest | None,
     services: ExecutionServices,
     config_source: RunConfigSource | None,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
 ) -> RunManifest:
-    point = prepared.point_unit
-    local_binding = _bind_local_fragment(prepared)
-    local_prepared = None if point is None else point.prepared
-    program = prepared.linked_points.linked_plan.program
-    projection = prepared.projection.projection
-    point_count = len(prepared.linked_points.point_domain.points)
-    experiment_id = program.id
+    point = run_local_effects(program)
+    point_regions = run_point_regions(program)
+    local_binding = _bind_local_fragment(program)
+    core_program = program.linked_points.linked_plan.program
+    projection = program.projection.projection
+    point_count = len(program.linked_points.point_domain.points)
+    experiment_id = core_program.id
     run_id = new_run_id()
     storage = services.runs
     accepted = RunManifest(
@@ -145,7 +135,7 @@ def _execute_unified_run(
     )
     storage.write_manifest(accepted.model_copy(update={"lifecycle": "running"}))
 
-    instrument_ids = [] if point is None else list(point.prepared.instrument_order)
+    instrument_ids = [] if point is None else list(point.instrument_order)
     emit_run_started(
         event_sink=event_sink,
         run_id=run_id,
@@ -164,62 +154,38 @@ def _execute_unified_run(
     measurements = services.measurements_for(run_id)
     readbacks = services.collections_for(run_id)
     payloads = services.payloads_for(run_id)
-    domain = prepared.domain_unit
-    domain_values: dict[str, list[ClosedMeasurementProductValues]] = (
-        {} if domain is None else {domain.id: []}
-    )
-    unit_id_by_job = (
-        {} if domain is None else {job.id: domain.id for job in domain.jobs}
-    )
-    domain_failure: tuple[PreparedDomainJob, BaseException] | None = None
+    domain_jobs = tuple(job for region in point_regions for job in region.domain_jobs)
+    domain_values: dict[str, list[tuple[MeasurementValueCandidate, ...]]] = {}
+    domain_failure: tuple[RunDomainJob, BaseException] | None = None
 
-    def execute_domain_segment(segment: PreparedExecutionSegment) -> None:
+    def execute_domain_region(region: RunPointRegion) -> bool:
         nonlocal domain_failure
-        for job in segment.domain_jobs:
+        for job in region.domain_jobs:
             try:
-                domain_values[unit_id_by_job[job.id]].append(
+                domain_values.setdefault(job.source_id, []).append(
                     execute_domain_job_values(
                         job.prepared,
+                        semantic_operation_id=job.id,
                         run_id=run_id,
                         journal=journal,
                     )
                 )
             except BaseException as error:
                 domain_failure = (job, error)
-                raise _DomainUnitEffectFailed(job.id) from error
+                return False
+        return True
 
-    segment_effects = tuple(
-        (
-            segment.point_indices,
-            lambda selected=segment: execute_domain_segment(selected),
-        )
-        for segment in prepared.segments
-    )
-
-    local_result: ExecutionEngineResult | None = None
+    local_result: RunEffectResult | None = None
     setup_problems: list[Problem] = []
     direct_interruption: BaseException | None = None
     resource_failure: BaseException | None = None
-    claims = tuple(
-        ResourceClaim(id=claim.id, kind=claim.kind)
-        for claim in prepared.resource_claims
-    )
+    claims = program.resource_claims
     try:
         with services.resources.acquire(claims):
-            if point is not None and local_prepared is not None:
-                engine_runner: (
-                    Callable[[ExecutionEngine], ExecutionEngineResult] | None
-                ) = (
-                    None
-                    if domain is None
-                    else lambda engine: engine.run_around_point_segments(
-                        segment_effects
-                    )
-                )
-                local_result, setup_problems = execute_prepared_local_effects(
+            if point is not None:
+                executed, setup_problems = execute_run_local_effects(
                     config=config,
-                    prepared=local_prepared,
-                    provider=point.provider,
+                    effects=point,
                     run_id=run_id,
                     journal=journal,
                     readbacks=readbacks,
@@ -227,14 +193,16 @@ def _execute_unified_run(
                     event_sink=event_sink,
                     payload_observer=payload_observer,
                     transition_observer=transition_observer,
-                    engine_runner=engine_runner,
+                    point_regions=(point_regions if domain_jobs else ()),
                 )
+                local_result = executed.result
+                domain_values.update(executed.domain_values)
+                domain_failure = executed.domain_failure
             else:
                 try:
-                    for segment in prepared.segments:
-                        execute_domain_segment(segment)
-                except _DomainUnitEffectFailed:
-                    pass
+                    for region in point_regions:
+                        if not execute_domain_region(region):
+                            break
                 except BaseException as error:
                     direct_interruption = error
     except BaseException as error:
@@ -298,19 +266,18 @@ def _execute_unified_run(
     # does not publish a logically incomplete measurement dataset.
     if not has_blocking_problems(problems):
         try:
-            fragments = _measurement_fragments(
-                prepared,
+            candidates = _measurement_value_candidates(
                 local_binding=local_binding,
                 domain_values=domain_values,
                 run_id=run_id,
                 readbacks=readbacks,
             )
-            values = assemble_measurement_values(
-                prepared.value_assembly,
-                fragments,
+            values = seal_measurement_values(
+                program.values,
+                candidates,
             )
             projected = project_measurement_records(
-                prepared.projection,
+                program.projection,
                 values,
                 run_id=run_id,
             )
@@ -467,9 +434,6 @@ def _execute_unified_run(
         compute_evaluated_node_count=(
             0 if local_result is None else local_result.compute_evaluated_node_count
         ),
-        compute_reused_node_count=(
-            0 if local_result is None else local_result.compute_reused_node_count
-        ),
         compute_payload_count=(
             0 if local_result is None else local_result.compute_payload_count
         ),
@@ -485,61 +449,44 @@ def _execute_unified_run(
 
 
 def _bind_local_fragment(
-    prepared: PreparedExecutionPlan,
-) -> BoundLocalCollectionFragment | None:
-    point = prepared.point_unit
+    program: RunProgram,
+) -> BoundLocalCollectionValues | None:
+    point = run_local_effects(program)
     if point is None or not point.product_use_ids:
         return None
-    return bind_local_collection_fragment(
-        prepared.value_assembly,
-        point.id,
-        point.prepared.program,
+    return bind_local_collection_values(
+        program.values,
+        point.product_use_ids,
+        point,
     )
 
 
-def _measurement_fragments(
-    prepared: PreparedExecutionPlan,
+def _measurement_value_candidates(
     *,
-    local_binding: BoundLocalCollectionFragment | None,
-    domain_values: dict[str, list[ClosedMeasurementProductValues]],
+    local_binding: BoundLocalCollectionValues | None,
+    domain_values: dict[str, list[tuple[MeasurementValueCandidate, ...]]],
     run_id: str,
     readbacks: CollectionRecordRepository,
-) -> tuple[ClosedMeasurementValueFragment, ...]:
-    fragments: list[ClosedMeasurementValueFragment] = []
+) -> tuple[MeasurementValueCandidate, ...]:
+    candidates: list[MeasurementValueCandidate] = []
     if local_binding is not None:
-        fragments.append(
-            local_collection_fragment(
+        candidates.extend(
+            local_collection_value_candidates(
                 local_binding,
                 run_id=run_id,
                 repository=readbacks,
                 receipts=readbacks.receipts(),
             )
         )
-    unit = prepared.domain_unit
-    if unit is not None and unit.product_use_ids:
-        value_batches = domain_values[unit.id]
-        fragments.append(
-            seal_measurement_value_fragment(
-                prepared.value_assembly,
-                unit.id,
-                tuple(
-                    MeasurementValueCandidate(
-                        value.logical_point_id,
-                        value.product_use_id,
-                        value.value,
-                    )
-                    for values in value_batches
-                    for value in values.values
-                ),
-            )
-        )
-    return tuple(fragments)
+    for value_batches in domain_values.values():
+        candidates.extend(value for values in value_batches for value in values)
+    return tuple(candidates)
 
 
 def _local_problems(
     *,
     setup_problems: list[Problem],
-    result: ExecutionEngineResult | None,
+    result: RunEffectResult | None,
     run_id: str,
 ) -> list[Problem]:
     selected = list(setup_problems)
@@ -557,7 +504,7 @@ def _local_problems(
 
 
 def _domain_failure_problems(
-    unit: PreparedDomainJob,
+    unit: RunDomainJob,
     error: BaseException,
     *,
     run_id: str,
@@ -569,7 +516,7 @@ def _domain_failure_problems(
                 runtime_problem(
                     "domain_synchronous_completion_contract_violated",
                     (
-                        "the domain runtime returned pending after its adapter "
+                        "the domain runtime returned pending after its compiler "
                         "declared synchronous completion"
                     ),
                     run_id=run_id,
@@ -615,7 +562,7 @@ def _domain_failure_problems(
                 contextualize_problems(
                     error.problems,
                     run_id=run_id,
-                    operation_id=prepared.semantic_operation_id,
+                    operation_id=unit.id,
                 )
             ),
             False,
@@ -628,7 +575,7 @@ def _domain_failure_problems(
                     "domain_execution_failed",
                     "domain execution raised outside its structured contract",
                     run_id=run_id,
-                    operation_id=prepared.semantic_operation_id,
+                    operation_id=unit.id,
                     error=error,
                 )
             ],
@@ -641,7 +588,7 @@ def _domain_failure_problems(
                 "domain_execution_interrupted",
                 "domain execution was interrupted",
                 run_id=run_id,
-                operation_id=prepared.semantic_operation_id,
+                operation_id=unit.id,
                 phase=ProblemPhase.EXECUTION,
                 category=ProblemCategory.INTERRUPTED,
                 details={"exception_type": type(error).__qualname__},

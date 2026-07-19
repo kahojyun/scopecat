@@ -94,11 +94,12 @@ class DomainProductProducer:
 
     id: ProductProducerId
     product_id: ProductId
+    execution_id: str
     result_id: str
 
     def __post_init__(self) -> None:
-        if not self.result_id:
-            msg = "domain product producer result_id must be non-empty"
+        if not self.execution_id or not self.result_id:
+            msg = "domain product producer execution_id and result_id must be non-empty"
             raise ValueError(msg)
 
 

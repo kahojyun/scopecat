@@ -248,17 +248,16 @@ def lower_semantic_domain_graph(
     *,
     type_bindings: RelationTypeBindings,
     product_uses: Sequence[ProductUse],
-) -> tuple[TypedDomainExecution | None, tuple[DomainProductProducer, ...]]:
-    """Lower the optional prepare-stage domain execution and its product uses."""
+) -> tuple[tuple[TypedDomainExecution, ...], tuple[DomainProductProducer, ...]]:
+    """Lower ordered prepare-stage domain effects and their product uses."""
 
     operations = {operation.id: operation for operation in graph.graph.operations}
     uses_by_product: dict[ProductId, list[ProductUseId]] = {}
     for use in product_uses:
         uses_by_product.setdefault(use.product_id, []).append(use.id)
     producers: list[DomainProductProducer] = []
-    execution = graph.graph.domain_execution
-    typed_execution: TypedDomainExecution | None = None
-    if execution is not None:
+    typed_executions: list[TypedDomainExecution] = []
+    for execution in graph.graph.domain_executions:
         semantic_program = execution.program
         program = TypedDomainProgram(
             id=semantic_program.id,
@@ -297,15 +296,19 @@ def lower_semantic_domain_graph(
                 DomainProductProducer(
                     id=producer_id,
                     product_id=product_id,
+                    execution_id=execution.id,
                     result_id=result_id,
                 )
             )
-        typed_execution = TypedDomainExecution(
-            program=program,
-            inputs=lowered_inputs,
-            results=tuple(result_bindings),
+        typed_executions.append(
+            TypedDomainExecution(
+                id=execution.id,
+                program=program,
+                inputs=lowered_inputs,
+                results=tuple(result_bindings),
+            )
         )
-    return typed_execution, tuple(producers)
+    return tuple(typed_executions), tuple(producers)
 
 
 def _operation_is_execute_stage(

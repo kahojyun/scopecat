@@ -8,7 +8,7 @@ from collections.abc import Set as AbstractSet
 from dataclasses import replace
 from typing import cast
 
-from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
+from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
 from scopecat.compiler.linking.bound import (
     BoundAction,
@@ -18,13 +18,13 @@ from scopecat.compiler.linking.bound import (
     BoundComputeCall,
     BoundComputeOutput,
     BoundComputeResult,
-    BoundPlan,
     BoundPoint,
     BoundResourceState,
     BoundRoute,
     BoundStateField,
     BoundValue,
     CollectionRequest,
+    MaterializedLocalSemantics,
     normalize_collection_channel_bindings,
 )
 from scopecat.compiler.linking.implementations import (
@@ -73,7 +73,6 @@ from scopecat.compiler.typed.dependencies import (
     ComputeDependencies,
     analyze_compute_dependencies,
 )
-from scopecat.compiler.typed.parameter_overlays import apply_point_parameter_overlay
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
@@ -84,17 +83,19 @@ from scopecat.compiler.typed.products import (
 )
 from scopecat.compiler.typed.program import (
     ComputeEdge,
+    CoreProgram,
     TypedComputeNode,
     TypedComputeOutput,
-    TypedProgram,
     ValueInput,
+    core_actions,
+    core_state,
 )
 from scopecat.compiler.typed.records import (
     point_coordinate_ids,
 )
 from scopecat.compiler.typed.state import StateRecord, evaluate_state_spec
 from scopecat.compiler.typed.verification import (
-    VerifiedTypedProgram,
+    VerifiedCoreProgram,
 )
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
@@ -116,7 +117,6 @@ from scopecat.kernel.routes import ResolvedRoute
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import coerce_literal
-from scopecat.planning.coverage import ExecutionCoverage
 from scopecat.planning.routing import RoutingError, RoutingView
 from scopecat.records.config import RoutingChannelBinding
 from scopecat.records.entity import EntityRef
@@ -133,96 +133,43 @@ type _ChannelBindingIdentity = tuple[
 type _ChannelSignature = tuple[_ChannelBindingIdentity, ...]
 
 
-def materialize_local_plan(
+def materialize_local_semantics(
     linked: LinkedPlan,
     *,
     product_use_ids: AbstractSet[ProductUseId] | None = None,
-    task_coverage: ExecutionCoverage | None = None,
-) -> BoundPlan:
-    """Materialize and lower one selected semantic-task fragment."""
+) -> MaterializedLocalSemantics:
+    """Materialize and lower point-local operations and selected products."""
 
-    return _materialize_local_plan(
+    return _materialize_local_semantics(
         linked,
         linked_points=None,
         product_use_ids=product_use_ids,
-        task_coverage=task_coverage,
     )
 
 
-def materialize_local_plan_from_points(
+def materialize_local_semantics_from_points(
     linked_points: MaterializedLinkedPoints,
     *,
     product_use_ids: AbstractSet[ProductUseId] | None = None,
-    task_coverage: ExecutionCoverage | None = None,
-) -> BoundPlan:
-    """Lower an already-materialized linked point domain to a local plan."""
+) -> MaterializedLocalSemantics:
+    """Bind host semantics from an already-materialized logical point domain."""
 
-    return _materialize_local_plan(
+    return _materialize_local_semantics(
         linked_points.linked_plan,
         linked_points=linked_points,
         product_use_ids=product_use_ids,
-        task_coverage=task_coverage,
     )
 
 
-def _materialize_local_plan(
+def _materialize_local_semantics(
     linked: LinkedPlan,
     *,
     linked_points: MaterializedLinkedPoints | None,
     product_use_ids: AbstractSet[ProductUseId] | None,
-    task_coverage: ExecutionCoverage | None,
-) -> BoundPlan:
-    """Lower one selected semantic-task fragment to a point-local plan."""
+) -> MaterializedLocalSemantics:
+    """Bind one selected semantic task to temporary concrete host semantics."""
 
     program = linked.program
-    if task_coverage is not None:
-        selected_tasks = tuple(task_coverage.tasks)
-        unsupported = tuple(
-            task
-            for task in selected_tasks
-            if task.kind in {"product", "domain_execution"}
-        )
-        if unsupported:
-            msg = "local point materialization cannot own product or domain-call tasks"
-            raise ValueError(msg)
-        selected_ids = {
-            kind: {task.id for task in selected_tasks if task.kind == kind}
-            for kind in (
-                "parameter_overlay",
-                "route",
-                "compute",
-                "state",
-                "action",
-            )
-        }
-        program = replace(
-            program,
-            parameter_overlays=tuple(
-                overlay
-                for index, overlay in enumerate(program.parameter_overlays)
-                if str(index) in selected_ids["parameter_overlay"]
-            ),
-            route_intents=tuple(
-                route
-                for route in program.route_intents
-                if route.port_id.qualified_name in selected_ids["route"]
-            ),
-            compute_nodes=tuple(
-                node
-                for node in program.compute_nodes
-                if node.id.qualified_name in selected_ids["compute"]
-            ),
-            state=tuple(
-                state
-                for index, state in enumerate(program.state)
-                if str(index) in selected_ids["state"]
-            ),
-            actions=tuple(
-                action
-                for action in program.actions
-                if action.id.qualified_name in selected_ids["action"]
-            ),
-        )
     if product_use_ids is not None:
         requested = frozenset(product_use_ids)
         available = {use.id for use in program.product_uses}
@@ -274,7 +221,7 @@ def _materialize_local_plan(
         or not environment.valid
         or environment.routing is None
     ):
-        return _empty_plan(
+        return _empty_semantics(
             program,
             problems,
             local_product_realizations=product_realizations,
@@ -284,7 +231,7 @@ def _materialize_local_plan(
             linked_points = materialize_linked_points(linked)
         except CheckFailed as error:
             problems.extend(error.problems)
-            return _empty_plan(
+            return _empty_semantics(
                 program,
                 problems,
                 local_product_realizations=product_realizations,
@@ -305,22 +252,23 @@ def _materialize_local_plan(
         )
     state_records: list[StateRecord] = []
     action_records: list[ActionRecord] = []
-    point_parameters: dict[int, ParameterRelationData] = {}
+    point_parameters = {
+        point.logical_ordinal: parameters
+        for point, parameters in zip(
+            planner_points,
+            linked_points.point_parameters,
+            strict=True,
+        )
+    }
     compute_dependencies = analyze_compute_dependencies(program.compute_nodes)
 
-    for point in planner_points:
-        params = _point_parameters(
-            environment.parameters,
-            program=program,
-            point=point,
-            problems=problems,
-            verified_program=verified_program,
-        )
-        if params is None:
-            continue
-        point_parameters[point.logical_ordinal] = params
+    for point, params in zip(
+        planner_points,
+        linked_points.point_parameters,
+        strict=True,
+    ):
         ctx = EvalContext(params=params, point_row=point.row)
-        for state_index, state in enumerate(program.state):
+        for state_index, state in enumerate(core_state(program)):
             try:
                 state_records.extend(
                     evaluate_state_spec(
@@ -340,7 +288,7 @@ def _materialize_local_plan(
                         model_location("state", state_index),
                     )
                 )
-        for action_index, action in enumerate(program.actions):
+        for action_index, action in enumerate(core_actions(program)):
             try:
                 action_records.append(
                     evaluate_action_spec(
@@ -359,12 +307,6 @@ def _materialize_local_plan(
                         model_location("actions", action_index),
                     )
                 )
-    if len(point_parameters) != len(planner_points):
-        return _empty_plan(
-            program,
-            problems,
-            local_product_realizations=product_realizations,
-        )
     routes_by_point = _bind_routes(
         program,
         environment,
@@ -469,7 +411,7 @@ def _materialize_local_plan(
             )
         )
 
-    return BoundPlan(
+    return MaterializedLocalSemantics(
         experiment_id=program.id,
         points=tuple(bound_points),
         product_uses=program.product_uses,
@@ -478,13 +420,13 @@ def _materialize_local_plan(
     )
 
 
-def _empty_plan(
-    program: TypedProgram,
+def _empty_semantics(
+    program: CoreProgram,
     problems: Sequence[Problem],
     *,
     local_product_realizations: SelectedLocalProductRealizations | None = None,
-) -> BoundPlan:
-    return BoundPlan(
+) -> MaterializedLocalSemantics:
+    return MaterializedLocalSemantics(
         experiment_id=program.id,
         points=(),
         product_uses=program.product_uses,
@@ -493,41 +435,14 @@ def _empty_plan(
     )
 
 
-def _point_parameters(
-    base: ParameterRelationData,
-    *,
-    program: TypedProgram,
-    point: MaterializedPoint,
-    problems: list[Problem],
-    verified_program: VerifiedTypedProgram,
-) -> ParameterRelationData | None:
-    if not program.parameter_overlays:
-        return base
-    params = base.fork_for_point_overlays()
-    ctx = EvalContext(params=params, point_row=point.row)
-    failed = False
-    for overlay in program.parameter_overlays:
-        try:
-            apply_point_parameter_overlay(
-                overlay,
-                ctx=ctx,
-                params=params,
-                relation_plan=verified_program.relation_plan,
-            )
-        except CompilerProblemError as error:
-            failed = True
-            problems.append(error.problem)
-    return None if failed else params
-
-
 def _bind_routes(
-    program: TypedProgram,
+    program: CoreProgram,
     environment: ValidatedConfigEnvironment,
     points: Sequence[MaterializedPoint],
     point_parameters: Mapping[int, ParameterRelationData],
     problems: list[Problem],
     *,
-    verified_program: VerifiedTypedProgram,
+    verified_program: VerifiedCoreProgram,
 ) -> dict[int, tuple[BoundRoute, ...]]:
     routing = environment.routing
     if routing is None:
@@ -611,7 +526,7 @@ def _bind_compute_calls(
     implementations: SelectedLocalImplementations,
     demanded_payload_results: set[ValueId],
     problems: list[Problem],
-    verified_program: VerifiedTypedProgram,
+    verified_program: VerifiedCoreProgram,
 ) -> tuple[tuple[BoundComputeCall, ...], dict[ValueId, str]]:
     calls: list[BoundComputeCall] = []
     output_owners = {node.result.id: node.id for node in nodes}
@@ -737,7 +652,6 @@ def _bind_compute_calls(
                 contract=node.contract,
                 inputs=inputs,
                 result=_bound_compute_result(node.result),
-                cache_key=signature,
                 dependencies=dict(dependencies[node.id].as_mapping()),
                 payload_id=payload_id,
                 payload_schema_id=schema_id,

@@ -12,7 +12,7 @@ from scopecat.compiler.frontend.invocation import (
     PreparedInvocation,
     prepare_invocation,
 )
-from scopecat.compiler.typed.program import TypedProgram
+from scopecat.compiler.typed.program import CoreProgram
 from scopecat.composition.local import local_run_repository
 from scopecat.config.profiles import load_config_profile
 from scopecat.planning.authoring import resolve_experiment_with_config
@@ -40,7 +40,7 @@ def load_config() -> ConfigProfileSnapshot:
     return load_config_profile(WORKFLOW_FIXTURE_DIR / "config-profile.json")
 
 
-def load_experiment() -> TypedProgram:
+def load_experiment() -> CoreProgram:
     """Compile the simple-scan DSL fixture into a transient typed program."""
 
     return resolve_experiment_with_config(

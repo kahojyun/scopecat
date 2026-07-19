@@ -38,7 +38,7 @@ from quantum_lab_demo.reference_experiments.cz_phase_calibration import (
 from quantum_lab_demo.reference_experiments.cz_phase_experiment import (
     CZ_PHASE_CAPTURE_MODULE,
     CZ_PHASE_TEMPLATE,
-    CzPhaseDomainExecutionAdapter,
+    CzPhaseDomainCompiler,
 )
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListTargetCompiler,
@@ -132,11 +132,11 @@ def test_cz_phase_point_compiles_coupler_flux_on_the_target_channel() -> None:
 def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
     tmp_path: Path,
 ) -> None:
-    adapter = CzPhaseDomainExecutionAdapter()
+    compiler = CzPhaseDomainCompiler()
     lab = quantum_lab(workspace=tmp_path)
     prepared = lab.prepare(
         CZ_PHASE_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(domain_adapters=(adapter,)),
+        execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
     )
 
     preview = prepared.preview()
@@ -151,7 +151,7 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
         "analyzer_phase",
     )
     assert run.manifest.status == "completed"
-    assert adapter.physical_execution_count == 1
+    assert compiler.physical_execution_count == 1
     assert len(records) == 24
     assert len(result.observations) == 24
     assert float(result.fit.selected.amplitude.to("arb").value) == pytest.approx(0.24)
@@ -180,7 +180,7 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
 
 def test_cz_phase_capture_uses_one_quantum_program_without_payload_compute() -> None:
     body = CZ_PHASE_CAPTURE_MODULE.ir.body
-    execution = CZ_PHASE_TEMPLATE.build().domain_execution
+    execution = CZ_PHASE_TEMPLATE.build().domain_executions[0]
     assert execution is not None
     program = execution.program
 

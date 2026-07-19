@@ -11,10 +11,11 @@ from scopecat.compiler.linking.linked import (
     link_verified_program,
     materialize_linked_points,
 )
+from scopecat.compiler.typed.program import core_domain_executions
+from scopecat.measurements.semantics import MeasurementTransformPortability
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.sdk.domain import (
     DomainBatchContext,
-    DomainExecutionOffer,
     DomainPointRef,
     DomainPreparationBuilder,
     DomainProductUseRef,
@@ -32,6 +33,7 @@ def _domain_scenario(
     *,
     namespace: str,
     record_raw: bool = True,
+    portability: MeasurementTransformPortability = "host_only",
 ) -> tuple[MaterializedLinkedPoints, DomainPlanProjection]:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.point(f"{namespace}_count", count_type)
@@ -50,7 +52,7 @@ def _domain_scenario(
         semantic=sc.MeasurementTransformSemanticContract(
             id="test.context.summarize",
             version="1",
-            portability="host_only",
+            portability=portability,
         ),
         inputs={"raw": "raw"},
         outputs={"summary": "summary"},
@@ -80,7 +82,7 @@ def _domain_scenario(
     )
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     linked_points = materialize_linked_points(linked)
-    return linked_points, project_domain_plan(linked_points)
+    return linked_points, project_domain_plan(linked_points, execution.id)
 
 
 def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
@@ -92,8 +94,7 @@ def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
         record_raw=False,
     )
     program = linked_points.linked_plan.program
-    call = program.domain_execution
-    assert call is not None
+    call = core_domain_executions(program)[0]
     [transform] = program.measurement_transforms
     [direct_result] = call.results
     [transform_input] = transform.inputs
@@ -108,7 +109,7 @@ def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
     context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
-        adapter_id="test.hidden-input",
+        compiler_id="test.hidden-input",
         batch_ordinal=0,
     )
 
@@ -134,7 +135,7 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
     context = make_domain_batch_context(
         projection,
         batch,
-        adapter_id="test.adapter",
+        compiler_id="test.compiler",
         batch_ordinal=4,
     )
 
@@ -169,6 +170,34 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
     assert preparation.context is context
 
 
+def test_pushed_transform_outputs_become_direct_and_leave_no_host_residual(
+    tmp_path: Path,
+) -> None:
+    linked_points, projection = _domain_scenario(
+        tmp_path,
+        namespace="pushed",
+        portability="portable",
+    )
+    execution = projection.view(linked_points).require_execution(
+        dialect_id="test.context"
+    )
+    [transform] = execution.measurement_transforms
+    raw_uses = execution.result("raw").product_uses
+    summary_uses = transform.outputs[0].product_uses
+
+    context = make_domain_batch_context(
+        projection,
+        MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
+        compiler_id="test.pushdown",
+        batch_ordinal=0,
+        pushed_transform_ids=(transform.id,),
+    )
+
+    assert set(context.direct_product_uses) == {*raw_uses, *summary_uses}
+    assert context.derived_product_uses == ()
+    assert context.measurement_transforms == ()
+
+
 def test_domain_plan_projection_rejects_foreign_points(
     tmp_path: Path,
 ) -> None:
@@ -188,7 +217,7 @@ def test_domain_plan_projection_rejects_foreign_points(
         make_domain_batch_context(
             projection,
             foreign_batch,
-            adapter_id="test.adapter",
+            compiler_id="test.compiler",
             batch_ordinal=0,
         )
 
@@ -208,8 +237,3 @@ def test_domain_plan_projection_rejects_foreign_points(
             strict=True,
         )
     )
-
-
-def test_domain_execution_offer_rejects_invalid_batch_capacity() -> None:
-    with pytest.raises(ValueError, match="must be positive"):
-        DomainExecutionOffer(max_points_per_batch=0)

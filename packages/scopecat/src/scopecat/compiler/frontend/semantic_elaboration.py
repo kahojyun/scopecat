@@ -141,7 +141,7 @@ def elaborate_semantic_graph(
     implementations: Sequence[ScopedPythonImplementation],
     *,
     measurement_transforms: Sequence[MeasurementTransform] = (),
-    domain_execution: LoweredDomainExecution | None = None,
+    domain_executions: Sequence[LoweredDomainExecution] = (),
     actions: Sequence[ModuleActionDecl] = (),
     value_roots: Sequence[object] = (),
     state_regions: Sequence[StateEachIntent] = (),
@@ -162,8 +162,8 @@ def elaborate_semantic_graph(
         builder.add_measurement_transform(transform)
     for operation in operations:
         builder.add_authored_operation(operation)
-    if domain_execution is not None:
-        builder.add_domain_execution(domain_execution)
+    for execution in domain_executions:
+        builder.add_domain_execution(execution)
     for action in actions:
         builder.add_action(action)
     for root in value_roots:
@@ -226,7 +226,7 @@ class _SemanticGraphBuilder:
         self._definitions: dict[ValueId, ValueDef] = {}
         self._operations: dict[OperationId, SemanticOperation] = {}
         self._measurement_transforms: list[SemanticMeasurementTransform] = []
-        self._domain_execution: SemanticDomainExecution | None = None
+        self._domain_executions: list[SemanticDomainExecution] = []
         self._actions: list[InstrumentActionEffect] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
         self._operation_sources: dict[OperationId, SourceAnchor] = {}
@@ -342,25 +342,28 @@ class _SemanticGraphBuilder:
             ),
         )
         operation_id = OperationId(
-            SymbolId(scope=("domain_execution",), local_id="domain")
+            SymbolId(scope=("domain_execution",), local_id=execution.id)
         )
-        self._domain_execution = SemanticDomainExecution(
-            program=semantic_program,
-            inputs=tuple(
-                (
-                    name,
-                    ValueUse(
-                        self._add_compute_input(
-                            value,
-                            operation_id=operation_id,
-                            declaration_id="domain",
-                            input_name=name,
-                        )
-                    ),
-                )
-                for name, value in execution.input_bindings
-            ),
-            results=execution.result_bindings,
+        self._domain_executions.append(
+            SemanticDomainExecution(
+                id=execution.id,
+                program=semantic_program,
+                inputs=tuple(
+                    (
+                        name,
+                        ValueUse(
+                            self._add_compute_input(
+                                value,
+                                operation_id=operation_id,
+                                declaration_id="domain",
+                                input_name=name,
+                            )
+                        ),
+                    )
+                    for name, value in execution.input_bindings
+                ),
+                results=execution.result_bindings,
+            )
         )
 
     def add_measurement_transform(
@@ -468,7 +471,7 @@ class _SemanticGraphBuilder:
             value_defs=tuple(self._definitions.values()),
             operations=tuple(self._operations.values()),
             measurement_transforms=tuple(self._measurement_transforms),
-            domain_execution=self._domain_execution,
+            domain_executions=tuple(self._domain_executions),
             actions=tuple(self._actions),
             row_regions=tuple(self._row_regions),
         )

@@ -12,7 +12,7 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import TypedProgram, product_output, record_product
+from scopecat.compiler.typed.program import CoreProgram, product_output, record_product
 from scopecat.kernel.errors import (
     DomainFetchFailed,
     DomainReconciliationFailed,
@@ -98,7 +98,7 @@ def _standalone_identity() -> DomainReceiptIdentity:
 
 def _closed_invocation(
     *,
-    adapter_intent: object | None = None,
+    target_intent: object | None = None,
 ) -> _Invocation:
     point_type = Table(
         columns=(TableColumn("x", Scalar(Float())),),
@@ -112,7 +112,7 @@ def _closed_invocation(
         dtype="float64",
     )
     product_use, record = record_product(product, record_id="signal-record")
-    program = TypedProgram(
+    program = CoreProgram(
         id="domain-runtime-contract",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -149,10 +149,8 @@ def _closed_invocation(
         capability_fingerprint="capability-fingerprint",
         artifact_id="artifact",
         artifact_fingerprint="artifact-fingerprint",
-        adapter_intent=(
-            {"realization": "integrated-iq"}
-            if adapter_intent is None
-            else adapter_intent
+        target_intent=(
+            {"realization": "integrated-iq"} if target_intent is None else target_intent
         ),
         payload={"compiled": "payload"},
     )
@@ -373,7 +371,7 @@ def test_intent_and_submission_ids_cover_generation_and_intent() -> None:
         capability_fingerprint="capability-fingerprint",
         artifact_id="artifact",
         artifact_fingerprint="artifact-fingerprint",
-        adapter_intent={"realization": "integrated-iq"},
+        target_intent={"realization": "integrated-iq"},
         payload={"compiled": "another-process-local-payload"},
     )
     changed = close_domain_invocation(
@@ -384,7 +382,7 @@ def test_intent_and_submission_ids_cover_generation_and_intent() -> None:
         capability_fingerprint="capability-fingerprint",
         artifact_id="artifact",
         artifact_fingerprint="artifact-fingerprint",
-        adapter_intent={"realization": "raw-trace"},
+        target_intent={"realization": "raw-trace"},
         payload={"compiled": "payload"},
     )
 
@@ -1146,7 +1144,7 @@ def test_fetch_requires_correlated_stage_values_before_runtime_calls() -> None:
     submission_id = _submission_id(invocation)
     runtime = _ScriptedRuntime()
 
-    foreign_invocation = _closed_invocation(adapter_intent={"different": True})
+    foreign_invocation = _closed_invocation(target_intent={"different": True})
     foreign_submission_id = plan_domain_submission(
         foreign_invocation,
         run_id=submission_id.run_id,

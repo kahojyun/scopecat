@@ -63,7 +63,7 @@ class TemplateInputDescription(Protocol):
 def validate_template_definition(
     *,
     module: ExperimentModule,
-    domain_execution: DomainExecution | None,
+    domain_executions: Sequence[DomainExecution],
     inputs: Sequence[TemplateInputDescription],
     default_scans: Sequence[Scan],
     record_selections: Sequence[RecordSelection],
@@ -79,7 +79,8 @@ def validate_template_definition(
     problems.extend(_validate_input_descriptions(inputs, input_types))
     problems.extend(_validate_default_scans(default_scans, input_types))
     problems.extend(_validate_record_selections(module, record_selections))
-    problems.extend(_validate_domain_execution(module, domain_execution))
+    for execution in domain_executions:
+        problems.extend(_validate_domain_execution(module, execution))
     _raise_problems(problems, phase=ProblemPhase.DEFINITION)
 
 
@@ -483,10 +484,8 @@ def _validate_record_selections(
 
 def _validate_domain_execution(
     module: ExperimentModule,
-    execution: DomainExecution | None,
+    execution: DomainExecution,
 ) -> list[Problem]:
-    if execution is None:
-        return []
     products_by_id: dict[ProductId, list[tuple[object, ...]]] = {}
     for product in module.ir.interface.products:
         products_by_id.setdefault(product.symbol_id, []).append(product.target_origin)

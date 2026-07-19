@@ -30,10 +30,10 @@ from scopecat.compiler.typed.products import (
     ProductKind,
 )
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
-    TypedProgram,
     product_axis,
     product_output,
     record_product,
@@ -60,9 +60,14 @@ from scopecat.measurements.results import (
     MeasurementArray,
     MeasurementDType,
 )
+from scopecat.measurements.values import (
+    seal_measurement_values,
+    select_measurement_values,
+)
 from scopecat.sdk.domain import DomainPreparationBuilder
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
+    product_use_id,
     project_domain_plan,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
@@ -323,12 +328,14 @@ def _raw_trace_bindings(
 def _preparation_for_all_points(
     linked_points: MaterializedLinkedPoints,
 ) -> DomainPreparationBuilder:
-    projection = project_domain_plan(linked_points)
+    projection = project_domain_plan(
+        linked_points, linked_points.domain_executions[0].execution.id
+    )
     point_indices = tuple(range(len(linked_points.point_domain.points)))
     context = make_domain_batch_context(
         projection,
         MaterializedLinkedPointBatch(linked_points, point_indices),
-        adapter_id="test.quantum.fake-list-runtime",
+        compiler_id="test.quantum.fake-list-runtime",
         batch_ordinal=0,
     )
     return context.new_preparation()
@@ -375,25 +382,28 @@ def _linked_points(
     )
     domain_program_id = DomainProgramId(SymbolId(local_id="program"))
     producer_id = product_producer_id("result-producer")
-    program = TypedProgram(
+    program = CoreProgram(
         id="fake-circuit-runtime",
         kind="fake_circuit_runtime_test",
         point_domain=point_domain,
         product_defs=(product,),
-        domain_execution=TypedDomainExecution(
-            program=TypedDomainProgram(
-                id=domain_program_id,
-                dialect_id=_DOMAIN_DIALECT_ID,
-                dialect_version="1",
-                body=object(),
-                result_ports=(DomainResultPortDef(_SINGLE_RESULT_ID),),
-            ),
-            results=(
-                TypedDomainResultBinding(
-                    id=_SINGLE_RESULT_ID,
-                    product_id=product.id,
-                    producer_id=producer_id,
-                    product_use_ids=tuple(use.id for use, _record in selections),
+        effects=(
+            TypedDomainExecution(
+                id="domain",
+                program=TypedDomainProgram(
+                    id=domain_program_id,
+                    dialect_id=_DOMAIN_DIALECT_ID,
+                    dialect_version="1",
+                    body=object(),
+                    result_ports=(DomainResultPortDef(_SINGLE_RESULT_ID),),
+                ),
+                results=(
+                    TypedDomainResultBinding(
+                        id=_SINGLE_RESULT_ID,
+                        product_id=product.id,
+                        producer_id=producer_id,
+                        product_use_ids=tuple(use.id for use, _record in selections),
+                    ),
                 ),
             ),
         ),
@@ -401,6 +411,7 @@ def _linked_points(
             DomainProductProducer(
                 id=producer_id,
                 product_id=product.id,
+                execution_id="domain",
                 result_id=_SINGLE_RESULT_ID,
             ),
         ),
@@ -458,34 +469,37 @@ def _mixed_linked_points(
     domain_program_id = DomainProgramId(SymbolId(local_id="program"))
     iq_producer_id = product_producer_id("iq-result-producer")
     trace_producer_id = product_producer_id("trace-result-producer")
-    program = TypedProgram(
+    program = CoreProgram(
         id="mixed-fake-circuit-runtime",
         kind="mixed_fake_circuit_runtime_test",
         point_domain=point_domain,
         product_defs=(iq_product, trace_product),
-        domain_execution=TypedDomainExecution(
-            program=TypedDomainProgram(
-                id=domain_program_id,
-                dialect_id=_DOMAIN_DIALECT_ID,
-                dialect_version="1",
-                body=object(),
-                result_ports=(
-                    DomainResultPortDef(_MIXED_IQ_RESULT_ID),
-                    DomainResultPortDef(_MIXED_TRACE_RESULT_ID),
+        effects=(
+            TypedDomainExecution(
+                id="domain",
+                program=TypedDomainProgram(
+                    id=domain_program_id,
+                    dialect_id=_DOMAIN_DIALECT_ID,
+                    dialect_version="1",
+                    body=object(),
+                    result_ports=(
+                        DomainResultPortDef(_MIXED_IQ_RESULT_ID),
+                        DomainResultPortDef(_MIXED_TRACE_RESULT_ID),
+                    ),
                 ),
-            ),
-            results=(
-                TypedDomainResultBinding(
-                    id=_MIXED_IQ_RESULT_ID,
-                    product_id=iq_product.id,
-                    producer_id=iq_producer_id,
-                    product_use_ids=(iq_use.id,),
-                ),
-                TypedDomainResultBinding(
-                    id=_MIXED_TRACE_RESULT_ID,
-                    product_id=trace_product.id,
-                    producer_id=trace_producer_id,
-                    product_use_ids=(trace_use.id,),
+                results=(
+                    TypedDomainResultBinding(
+                        id=_MIXED_IQ_RESULT_ID,
+                        product_id=iq_product.id,
+                        producer_id=iq_producer_id,
+                        product_use_ids=(iq_use.id,),
+                    ),
+                    TypedDomainResultBinding(
+                        id=_MIXED_TRACE_RESULT_ID,
+                        product_id=trace_product.id,
+                        producer_id=trace_producer_id,
+                        product_use_ids=(trace_use.id,),
+                    ),
                 ),
             ),
         ),
@@ -493,11 +507,13 @@ def _mixed_linked_points(
             DomainProductProducer(
                 id=iq_producer_id,
                 product_id=iq_product.id,
+                execution_id="domain",
                 result_id=_MIXED_IQ_RESULT_ID,
             ),
             DomainProductProducer(
                 id=trace_producer_id,
                 product_id=trace_product.id,
+                execution_id="domain",
                 result_id=_MIXED_TRACE_RESULT_ID,
             ),
         ),
@@ -1809,8 +1825,8 @@ def test_fake_measurement_invocation_identity_covers_response_intent() -> None:
 
     assert first.intent.artifact_fingerprint == second.intent.artifact_fingerprint
     assert (
-        first.intent.adapter_intent_fingerprint
-        != second.intent.adapter_intent_fingerprint
+        first.intent.target_intent_fingerprint
+        != second.intent.target_intent_fingerprint
     )
     assert first.intent.intent_fingerprint != second.intent.intent_fingerprint
 
@@ -1875,10 +1891,20 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     record_committer = MemoryMeasurementRecordCommitter()
     run_id = "fake-host-recording-run"
 
-    assembled = execute_domain_job_values(
-        prepared,
-        run_id=run_id,
-        journal=journal,
+    selection = select_measurement_values(
+        scenario.linked_points,
+        required_product_use_ids=tuple(
+            product_use_id(product_use) for product_use in prepared.context.product_uses
+        ),
+    )
+    assembled = seal_measurement_values(
+        selection,
+        execute_domain_job_values(
+            prepared,
+            semantic_operation_id="mixed-readout",
+            run_id=run_id,
+            journal=journal,
+        ),
     )
     projection = bind_measurement_projection(
         select_measurement_projection(scenario.linked_points),

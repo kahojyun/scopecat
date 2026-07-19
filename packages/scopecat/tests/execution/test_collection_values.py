@@ -7,10 +7,10 @@ from typing import cast
 import pytest
 
 from scopecat.adapters.memory import MemoryCollectionRepository
-from scopecat.execution.local.measurement_fragments import (
-    BoundLocalCollectionFragment,
-    bind_local_collection_fragment,
-    local_collection_fragment,
+from scopecat.execution.local.collection_values import (
+    BoundLocalCollectionValues,
+    bind_local_collection_values,
+    local_collection_value_candidates,
 )
 from scopecat.execution.local.program import (
     ActionStage,
@@ -19,7 +19,6 @@ from scopecat.execution.local.program import (
     CollectionResultBinding,
     CollectOperation,
     CollectStage,
-    ExecutionProgram,
     InstrumentActionOperation,
     PointProgram,
     StateTarget,
@@ -31,9 +30,9 @@ from scopecat.kernel.product_identity import ProductUse
 from scopecat.kernel.state import StateValue
 from scopecat.measurements.results import CoordinateValue
 from scopecat.measurements.values import (
-    ProductValueFragmentDef,
-    SelectedMeasurementValueAssembly,
-    select_measurement_value_assembly,
+    SelectedMeasurementValues,
+    seal_measurement_values,
+    select_measurement_values,
 )
 from scopecat.records.execution_journal import (
     CollectionChunk,
@@ -45,39 +44,41 @@ from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     CollectProductRequest,
 )
+from tests.testkit.local_effect_program import StubLocalEffectProgram
 from tests.testkit.measurement_assembly import (
     MeasurementAssemblyScenario,
     measurement_assembly_scenario,
 )
 
 _RUN_ID = "local-collection-run"
-_FRAGMENT_ID = "local-source"
 _INSTRUMENT_ID = "local-source-0"
 _PROVIDER_KEY = "raw"
 
 
-def _assembly(
+def _selection(
     scenario: MeasurementAssemblyScenario,
-) -> SelectedMeasurementValueAssembly:
-    return select_measurement_value_assembly(
+) -> SelectedMeasurementValues:
+    return select_measurement_values(
         scenario.linked_points,
         required_product_use_ids=tuple(use.id for use in scenario.uses),
-        fragment_defs=tuple(
-            ProductValueFragmentDef(
-                _FRAGMENT_ID if index == 0 else f"other-{index}",
-                (use.id,),
-            )
-            for index, use in enumerate(scenario.uses)
-        ),
+    )
+
+
+def _local_selection(
+    scenario: MeasurementAssemblyScenario,
+) -> SelectedMeasurementValues:
+    return select_measurement_values(
+        scenario.linked_points,
+        required_product_use_ids=(scenario.uses[0].id,),
     )
 
 
 def _program(
     scenario: MeasurementAssemblyScenario, *, collected_use: ProductUse
-) -> ExecutionProgram:
+) -> StubLocalEffectProgram:
     points = scenario.linked_points.point_domain.points
     coordinate_ids = scenario.linked_points.linked_plan.coordinate_ids
-    return ExecutionProgram(
+    return StubLocalEffectProgram(
         experiment_id=scenario.linked_points.linked_plan.program.id,
         points=tuple(
             PointProgram(
@@ -147,22 +148,26 @@ def _operation(
 def _bound(
     *,
     point_values: tuple[float, ...] = (0.0, 1.0),
-) -> tuple[MeasurementAssemblyScenario, ExecutionProgram, BoundLocalCollectionFragment]:
+) -> tuple[
+    MeasurementAssemblyScenario,
+    StubLocalEffectProgram,
+    BoundLocalCollectionValues,
+]:
     scenario = measurement_assembly_scenario(point_values=point_values, use_count=2)
     program = _program(scenario, collected_use=scenario.uses[0])
     return (
         scenario,
         program,
-        bind_local_collection_fragment(
-            _assembly(scenario),
-            _FRAGMENT_ID,
+        bind_local_collection_values(
+            _selection(scenario),
+            (scenario.uses[0].id,),
             program,
         ),
     )
 
 
 def _chunks(
-    program: ExecutionProgram,
+    program: StubLocalEffectProgram,
     *,
     run_id: str = _RUN_ID,
 ) -> tuple[CollectionChunk, ...]:
@@ -204,9 +209,9 @@ def _committed(
 
 
 def _replace_first_operation(
-    program: ExecutionProgram,
+    program: StubLocalEffectProgram,
     operation: CollectOperation,
-) -> ExecutionProgram:
+) -> StubLocalEffectProgram:
     point = program.points[0]
     stage = next(stage for stage in point.stages if isinstance(stage, CollectStage))
     replacement_stage = replace(stage, operations=(operation,))
@@ -231,9 +236,9 @@ def test_binding_rejects_foreign_experiment_before_effects() -> None:
     )
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_fragment(
-            _assembly(scenario),
-            _FRAGMENT_ID,
+        bind_local_collection_values(
+            _selection(scenario),
+            (scenario.uses[0].id,),
             program,
         )
 
@@ -248,9 +253,9 @@ def test_binding_rejects_wrong_point_coordinates_before_effects() -> None:
     bad_program = replace(program, points=(bad_point, *program.points[1:]))
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_fragment(
-            _assembly(scenario),
-            _FRAGMENT_ID,
+        bind_local_collection_values(
+            _selection(scenario),
+            (scenario.uses[0].id,),
             bad_program,
         )
 
@@ -296,9 +301,9 @@ def test_binding_ignores_non_collection_state_and_action_stages() -> None:
         points=(point_with_effects, *program.points[1:]),
     )
 
-    binding = bind_local_collection_fragment(
-        _assembly(scenario),
-        _FRAGMENT_ID,
+    binding = bind_local_collection_values(
+        _selection(scenario),
+        (scenario.uses[0].id,),
         program_with_effects,
     )
 
@@ -320,9 +325,9 @@ def test_binding_rejects_wrong_point_identity_before_effects() -> None:
     bad_program = replace(program, points=(bad_point, *program.points[1:]))
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_fragment(
-            _assembly(scenario),
-            _FRAGMENT_ID,
+        bind_local_collection_values(
+            _selection(scenario),
+            (scenario.uses[0].id,),
             bad_program,
         )
 
@@ -341,9 +346,9 @@ def test_binding_rejects_wrong_request_contract_before_effects() -> None:
     )
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_fragment(
-            _assembly(scenario),
-            _FRAGMENT_ID,
+        bind_local_collection_values(
+            _selection(scenario),
+            (scenario.uses[0].id,),
             bad_program,
         )
 
@@ -359,9 +364,9 @@ def test_binding_rechecks_mutated_runtime_owned_attempt_before_effects() -> None
     operation.command.attempt = 2
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_fragment(
-            _assembly(scenario),
-            _FRAGMENT_ID,
+        bind_local_collection_values(
+            _selection(scenario),
+            (scenario.uses[0].id,),
             program,
         )
 
@@ -370,34 +375,33 @@ def test_binding_rechecks_mutated_runtime_owned_attempt_before_effects() -> None
     )
 
 
-def test_binding_requires_fragment_to_equal_collection_inventory() -> None:
+def test_binding_requires_requested_values_to_equal_collection_inventory() -> None:
     scenario = measurement_assembly_scenario(use_count=2)
     program = _program(scenario, collected_use=scenario.uses[1])
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_fragment(
-            _assembly(scenario),
-            _FRAGMENT_ID,
+        bind_local_collection_values(
+            _selection(scenario),
+            (scenario.uses[0].id,),
             program,
         )
 
-    assert "local_collection_fragment_inventory_mismatch" in _problem_codes(
-        captured.value
-    )
+    assert "local_collection_result_use_unexpected" in _problem_codes(captured.value)
 
 
 def test_runtime_receipt_order_is_canonical_and_value_entries_are_neutral() -> None:
     scenario, program, binding = _bound()
     chunks = _chunks(program)
     repository, receipts = _committed(chunks)
-    fragment = local_collection_fragment(
+    candidates = local_collection_value_candidates(
         binding,
         run_id=_RUN_ID,
         repository=repository,
         receipts=tuple(reversed(receipts)),
     )
 
-    assert tuple(value.logical_point_id for value in fragment.values) == tuple(
+    values = seal_measurement_values(_local_selection(scenario), candidates)
+    assert tuple(value.logical_point_id for value in values.values) == tuple(
         point.logical_id for point in scenario.linked_points.point_domain.points
     )
     rendered = repr(
@@ -408,7 +412,7 @@ def test_runtime_receipt_order_is_canonical_and_value_entries_are_neutral() -> N
                 value.product_id,
                 value.value,
             )
-            for value in fragment.values
+            for value in values.values
         )
     )
     assert _RUN_ID not in rendered
@@ -441,7 +445,7 @@ def test_runtime_rejects_wrong_chunk_identity(
     repository, receipts = _committed(chunks)
 
     with pytest.raises(ProviderContractError) as captured:
-        local_collection_fragment(
+        local_collection_value_candidates(
             binding,
             run_id=_RUN_ID,
             repository=repository,
@@ -474,7 +478,7 @@ def test_runtime_requires_exact_commit_receipt_inventory(mode: str) -> None:
         expected = "local_collection_receipt_unexpected"
 
     with pytest.raises(ProviderContractError) as captured:
-        local_collection_fragment(
+        local_collection_value_candidates(
             binding,
             run_id=_RUN_ID,
             repository=repository,
@@ -492,7 +496,7 @@ def test_runtime_rejects_forged_unbacked_receipt() -> None:
     receipts[0] = receipts[0].model_copy(update={"content_hash": "foreign-chunk"})
 
     with pytest.raises(ProviderContractError) as captured:
-        local_collection_fragment(
+        local_collection_value_candidates(
             binding,
             run_id=_RUN_ID,
             repository=repository,
@@ -510,7 +514,7 @@ def test_runtime_rejects_command_mutation_after_binding() -> None:
     repository, receipts = _committed(chunks)
 
     with pytest.raises(ProviderContractError) as captured:
-        local_collection_fragment(
+        local_collection_value_candidates(
             binding,
             run_id=_RUN_ID,
             repository=repository,
@@ -533,7 +537,7 @@ def test_runtime_rejects_wrong_readback_key_inventory() -> None:
     repository, receipts = _committed(chunks)
 
     with pytest.raises(ProviderContractError) as captured:
-        local_collection_fragment(
+        local_collection_value_candidates(
             binding,
             run_id=_RUN_ID,
             repository=repository,
@@ -558,11 +562,14 @@ def test_runtime_rechecks_logical_measurement_value_contract() -> None:
     repository, receipts = _committed(chunks)
 
     with pytest.raises(ProviderContractError) as captured:
-        local_collection_fragment(
-            binding,
-            run_id=_RUN_ID,
-            repository=repository,
-            receipts=receipts,
+        seal_measurement_values(
+            _local_selection(_scenario_value),
+            local_collection_value_candidates(
+                binding,
+                run_id=_RUN_ID,
+                repository=repository,
+                receipts=receipts,
+            ),
         )
 
     assert "measurement_value_unit_mismatch" in _problem_codes(captured.value)
@@ -572,7 +579,7 @@ def test_zero_point_collection_retains_contract_without_chunks() -> None:
     scenario, program, binding = _bound(point_values=())
     repository = MemoryCollectionRepository()
 
-    fragment = local_collection_fragment(
+    candidates = local_collection_value_candidates(
         binding,
         run_id=_RUN_ID,
         repository=repository,
@@ -580,7 +587,5 @@ def test_zero_point_collection_retains_contract_without_chunks() -> None:
     )
 
     assert not program.points
-    assert fragment.values == ()
-    assert fragment.selection.fragment(_FRAGMENT_ID).product_use_ids == (
-        scenario.uses[0].id,
-    )
+    assert candidates == ()
+    assert binding.collection_product_use_ids == (scenario.uses[0].id,)

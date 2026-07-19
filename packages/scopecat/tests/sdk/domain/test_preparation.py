@@ -136,12 +136,12 @@ def _preparation_context(
     )
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     linked_points = materialize_linked_points(linked)
-    projection = project_domain_plan(linked_points)
+    projection = project_domain_plan(linked_points, execution.id)
     batch = MaterializedLinkedPointBatch(linked_points, (0, 1))
     return make_domain_batch_context(
         projection,
         batch,
-        adapter_id=f"test.adapter.{namespace}",
+        compiler_id=f"test.compiler.{namespace}",
         batch_ordinal=0,
     )
 
@@ -435,7 +435,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
             artifact_id="test.artifact",
             artifact_fingerprint="test.artifact.v1",
         ),
-        adapter_intent={"mode": "test"},
+        target_intent={"mode": "test"},
         payload={"job": "test"},
     )
 

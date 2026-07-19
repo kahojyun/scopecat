@@ -87,7 +87,7 @@ class ExperimentTemplate:
     module: TemplateModule
     experiment_id: str | None = None
     category: str | None = None
-    domain_execution: DomainExecution | None = None
+    domain_executions: tuple[DomainExecution, ...] = ()
     record_selections: tuple[TemplateRecordSelection, ...] = ()
     inputs: tuple[InputDescription, ...] = ()
     default_scans: tuple[Scan, ...] = ()
@@ -173,7 +173,7 @@ class TemplateBuilder:
     module: TemplateModule
     _category: str | None = None
     _experiment_id: str | None = None
-    _domain_execution: DomainExecution | None = None
+    _domain_executions: tuple[DomainExecution, ...] = ()
     record_selections: tuple[TemplateRecordSelection, ...] = ()
     _inputs: tuple[InputDescription, ...] = ()
     _default_scans: tuple[Scan, ...] = ()
@@ -199,7 +199,7 @@ class TemplateBuilder:
             module=self.module,
             experiment_id=self._experiment_id,
             category=self._category,
-            domain_execution=self._domain_execution,
+            domain_executions=self._domain_executions,
             record_selections=self.record_selections,
             inputs=self._inputs,
             default_scans=self._default_scans,
@@ -209,7 +209,7 @@ class TemplateBuilder:
         )
         validate_template_definition(
             module=template.module,
-            domain_execution=template.domain_execution,
+            domain_executions=template.domain_executions,
             inputs=template.inputs,
             default_scans=template.default_scans,
             record_selections=template.record_selections,
@@ -217,11 +217,11 @@ class TemplateBuilder:
         return template
 
     def domain(self, execution: DomainExecution) -> TemplateBuilder:
-        """Select the template's sole domain-program execution."""
+        """Append one ordered domain-program effect to the template."""
 
-        if self._domain_execution is not None:
-            raise ValueError("experiment template already has a domain execution")
-        return replace(self, _domain_execution=execution)
+        if execution.id in {item.id for item in self._domain_executions}:
+            raise ValueError(f"domain execution id {execution.id!r} is repeated")
+        return replace(self, _domain_executions=(*self._domain_executions, execution))
 
     def experiment_id(self, experiment_id: str) -> TemplateBuilder:
         return replace(self, _experiment_id=experiment_id)

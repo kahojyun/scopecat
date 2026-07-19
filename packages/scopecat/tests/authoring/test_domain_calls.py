@@ -5,11 +5,10 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
-from scopecat.compiler.typed.program import ValueInput
+from scopecat.compiler.typed.program import ValueInput, core_domain_executions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.planning.authoring import resolve_experiment
-from scopecat.planning.coverage import program_execution_coverage
 from tests.testkit.authoring import load_config
 
 
@@ -104,14 +103,15 @@ def test_domain_execution_must_bind_a_product_from_the_template_module() -> None
     }
 
 
-def test_template_rejects_a_second_domain_execution() -> None:
+def test_template_preserves_ordered_domain_executions() -> None:
     program = sc.domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
         body=object(),
     )
-    execution = sc.domain_execution(program)
+    first = sc.domain_execution(program, id="first")
+    second = sc.domain_execution(program, id="second")
     builder = (
         sc.module("test.domain.single")
         .build()
@@ -121,8 +121,9 @@ def test_template_rejects_a_second_domain_execution() -> None:
         )
     )
 
-    with pytest.raises(ValueError, match="already has a domain execution"):
-        builder.domain(execution).domain(execution)
+    template = builder.domain(first).domain(second).build()
+
+    assert tuple(call.id for call in template.domain_executions) == ("first", "second")
 
 
 def test_domain_execution_rejects_execute_stage_compute_input() -> None:
@@ -153,7 +154,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module, execution))
+        verify_assembly_graph(elaborate_module(module, (execution,)))
     assert "semantic_domain_execution_input_stage_unavailable" in {
         problem.code for problem in error.value.problems
     }
@@ -181,11 +182,13 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         results={"counts": selected_product},
     )
 
-    assembly = elaborate_module(root, execution)
+    assembly = elaborate_module(root, (execution,))
     graph = assembly.semantic_graph
-    assert graph.domain_execution is not None
-    assert graph.domain_execution.program.id.qualified_name == "x-count-program"
-    assert graph.domain_execution.results[0][1].qualified_name == ("outer/inner/counts")
+    assert len(graph.domain_executions) == 1
+    assert graph.domain_executions[0].program.id.qualified_name == "x-count-program"
+    assert graph.domain_executions[0].results[0][1].qualified_name == (
+        "outer/inner/counts"
+    )
 
     template = (
         root.template("test.domain", kind="domain")
@@ -203,21 +206,12 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
 
     assert typed.instrument_product_producers == ()
     assert len(typed.domain_product_producers) == 1
-    typed_execution = typed.domain_execution
-    assert typed_execution is not None
+    typed_execution = core_domain_executions(typed)[0]
     assert typed_execution.program.body is body
     assert isinstance(typed_execution.inputs["x_count"], ValueInput)
     result = typed_execution.results[0]
     assert result.product_use_ids == tuple(use.id for use in typed.product_uses)
     assert len(result.product_use_ids) == 2
-
-    coverage = program_execution_coverage(typed)
-    assert ("domain_execution", "domain") in {
-        (task.kind, task.id) for task in coverage.tasks
-    }
-    assert {task.id for task in coverage.tasks if task.kind == "product"} == {
-        use.id.value for use in typed.product_uses
-    }
 
 
 def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
@@ -248,10 +242,10 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
         results={"result": module.products["result"]},
     )
 
-    graph = elaborate_module(module, execution).semantic_graph
+    graph = elaborate_module(module, (execution,)).semantic_graph
     value_ids = {definition.id.qualified_name for definition in graph.value_defs}
     assert "domain/inputs/value" in value_ids
-    assert "domain_execution/domain/inputs/value" in value_ids
+    assert "domain_execution/program/inputs/value" in value_ids
 
 
 def _identity_value(value: object) -> object:

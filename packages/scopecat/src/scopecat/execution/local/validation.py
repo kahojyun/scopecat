@@ -1,4 +1,4 @@
-"""Validate a concrete execution program against live driver descriptions."""
+"""Validate a local effect block against live driver descriptions."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from scopecat.execution.local.program import (
     ApplyStateStage,
     CollectStage,
     ComputeStage,
-    ExecutionProgram,
     ExecutionStage,
+    LocalEffectProgram,
 )
 from scopecat.kernel.problems import (
     LocationPathItem,
@@ -37,8 +37,8 @@ from scopecat.sdk.instruments.contracts import (
 )
 
 
-def validate_execution_program_instruments(
-    program: ExecutionProgram,
+def validate_local_effect_block_instruments(
+    program: LocalEffectProgram,
     *,
     descriptions: Mapping[str, InstrumentDescription],
 ) -> list[Problem]:

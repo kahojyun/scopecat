@@ -5,14 +5,17 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import cast
 
 import scopecat as sc
 from scopecat import Quantity
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
-    DomainBatchView,
-    DomainExecutionOffer,
+    DomainCallView,
+    DomainCompilation,
+    DomainCompiledJob,
+    DomainCompileRequest,
     DomainExecutionView,
     DomainHostTransformBinding,
     DomainHostTransformImplementation,
@@ -21,6 +24,7 @@ from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainProductUseRef,
     PreparedDomainExecution,
+    compiled_jobs,
 )
 from scopecat_quantum import (
     AcquisitionSlotId,
@@ -359,7 +363,12 @@ def prepare_production_drag_gate(
     )
 
 
-class ProductionDragGateExecutionAdapter:
+@dataclass(frozen=True, slots=True)
+class _ProductionDragArtifact:
+    drag_beta: Quantity
+
+
+class ProductionDragGateCompiler:
     """Execute config-bound production X90 programs on the fake target."""
 
     def __init__(self, *, target: FakeListTarget | None = None) -> None:
@@ -368,8 +377,12 @@ class ProductionDragGateExecutionAdapter:
         self._preparations: list[PreparedProductionDragGate] = []
 
     @property
-    def adapter_id(self) -> str:
+    def compiler_id(self) -> str:
         return PRODUCTION_DRAG_GATE_ADAPTER_ID
+
+    @property
+    def target_id(self) -> str:
+        return self.target.id.value
 
     @property
     def preparations(self) -> tuple[PreparedProductionDragGate, ...]:
@@ -381,12 +394,34 @@ class ProductionDragGateExecutionAdapter:
     def physical_execution_count(self) -> int:
         return sum(item.runtime.physical_execution_count for item in self._preparations)
 
-    def select(self, view: DomainBatchView) -> DomainExecutionOffer | None:
-        execution = _execution_or_none(view)
-        return None if execution is None else DomainExecutionOffer()
+    def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
+        if not _accepts_execution(request.call):
+            return None
+        partitions = request.partition(max_points=1)
+        return compiled_jobs(
+            request,
+            compiler_id=self.compiler_id,
+            target_id=self.target_id,
+            max_points=1,
+            artifacts=tuple(
+                _ProductionDragArtifact(
+                    _decode_beta(
+                        request.bind_points(ordinals, max_points=1)[0].input(
+                            "drag_beta"
+                        )
+                    )
+                )
+                for ordinals in partitions
+            ),
+        )
 
-    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
+    def prepare(
+        self,
+        job: DomainCompiledJob,
+        context: DomainBatchContext,
+    ) -> PreparedDomainExecution:
         execution = context.execution
+        artifact = cast("_ProductionDragArtifact", job.artifact)
         if tuple(point.ref for point in execution.points) != context.points:
             msg = "production DRAG execution points do not match the context"
             raise ValueError(msg)
@@ -400,7 +435,7 @@ class ProductionDragGateExecutionAdapter:
             _product_binding(execution),
             result_slot_id=iq_result.acquisition_slot_id,
             declaration=_program_body(execution),
-            drag_beta=_decode_beta(execution.points[0].input("drag_beta")),
+            drag_beta=artifact.drag_beta,
             target=self.target,
             invocation_id=f"production-drag-gate.batch-{context.batch_ordinal}",
         )
@@ -429,21 +464,21 @@ def _decode_beta(value: object) -> Quantity:
     return Quantity(selected, "ns")
 
 
-def _execution_or_none(view: DomainBatchView) -> DomainExecutionView | None:
-    selected = view.matching_execution(
-        dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
-        dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
-    )
-    if selected is None or not (
-        isinstance(selected.program.body, quantum.Program)
-        and selected.program.body.id == _PRODUCTION_DRAG_PROGRAM.id
+def _accepts_execution(execution: DomainCallView) -> bool:
+    if not (
+        execution.program.dialect_id == quantum.QUANTUM_PROGRAM_DIALECT_ID
+        and execution.program.dialect_version == quantum.QUANTUM_PROGRAM_DIALECT_VERSION
+        and isinstance(execution.program.body, quantum.Program)
+        and execution.program.body.id == _PRODUCTION_DRAG_PROGRAM.id
     ):
-        return None
-    _validated_result_contracts(selected)
-    return selected
+        return False
+    _validated_result_contracts(execution)
+    return True
 
 
-def _program_body(execution: DomainExecutionView) -> quantum.Program:
+def _program_body(
+    execution: DomainCallView | DomainExecutionView,
+) -> quantum.Program:
     body = execution.program.body
     if not isinstance(body, quantum.Program):
         msg = "production DRAG domain body must be a Program"
@@ -460,7 +495,7 @@ def _product_binding(execution: DomainExecutionView) -> ProductionDragProductBin
 
 
 def _validated_result_contracts(
-    execution: DomainExecutionView,
+    execution: DomainCallView | DomainExecutionView,
 ) -> quantum.MeasurementResult:
     body = _program_body(execution)
     iq_result = execution.result("iq_shots").contract
@@ -576,7 +611,7 @@ __all__ = [
     "PRODUCTION_DRAG_GATE_TEMPLATE_ID",
     "TRUSTED_REFERENCE_BETA",
     "PreparedProductionDragGate",
-    "ProductionDragGateExecutionAdapter",
+    "ProductionDragGateCompiler",
     "ProductionDragProductBinding",
     "prepare_production_drag_gate",
     "production_drag_gate_program",

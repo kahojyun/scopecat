@@ -3,19 +3,28 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import materialize_local_semantics
+from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
     RelationExpr,
     col,
     grid,
     literal_rows,
+    param,
     point_col,
     table,
+)
+from scopecat.compiler.relations.specialization import (
+    ResidualScalar,
+    specialize_scalar,
 )
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
+)
+from scopecat.compiler.typed.parameter_overlays import (
+    resolve_parameter_cell_bindings,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.kernel.value_types import Quantity as QuantityType
@@ -142,8 +151,8 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     base_frequencies = [
         row["frequency"] for row in environment.parameters.table_rows("readout_devices")
     ]
-    plan = materialize_local_plan(link_program(spec, environment))
-    without_overlay = materialize_local_plan(
+    plan = materialize_local_semantics(link_program(spec, environment))
+    without_overlay = materialize_local_semantics(
         link_program(replace(spec, parameter_overlays=()), environment)
     )
 
@@ -159,6 +168,38 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     assert [
         row["frequency"] for row in environment.parameters.table_rows("readout_devices")
     ] == base_frequencies
+
+
+def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
+    points = _point_domain(
+        literal_rows(
+            [{"frequency": Quantity(value=5.9, unit="GHz")}],
+        )
+    )
+    bindings = _point_bindings(points)
+    overlay = _frequency_overlay(
+        key="r0",
+        value=point_col("frequency"),
+        bindings=bindings,
+    )
+    parameters_for_run = parameters()
+    cells = resolve_parameter_cell_bindings(
+        (overlay,),
+        known=EvalContext(params=parameters_for_run),
+    )
+
+    result = specialize_scalar(
+        param(
+            "readout_devices",
+            key={"device_id": "r0"},
+            column="frequency",
+        ),
+        known=EvalContext(params=parameters_for_run),
+        parameter_cells=cells,
+    )
+
+    assert isinstance(result, ResidualScalar)
+    assert result.expression == point_col("frequency")
 
 
 def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> None:
@@ -186,7 +227,7 @@ def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> N
         ],
     )
 
-    plan = materialize_local_plan(link_program(spec, _environment()))
+    plan = materialize_local_semantics(link_program(spec, _environment()))
 
     assert [problem.code for problem in plan.problems] == [
         "experiment_parameter_overlay_row_not_found"
@@ -227,7 +268,7 @@ def test_point_parameter_overlay_reports_missing_table() -> None:
         ],
     )
 
-    plan = materialize_local_plan(link_program(spec, _environment()))
+    plan = materialize_local_semantics(link_program(spec, _environment()))
 
     assert [problem.code for problem in plan.problems] == [
         "experiment_parameter_overlay_table_missing"

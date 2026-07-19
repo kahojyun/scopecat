@@ -13,7 +13,7 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import TypedProgram, record_product
+from scopecat.compiler.typed.program import CoreProgram, record_product
 from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.value_types import Table as TableType
@@ -38,7 +38,7 @@ from tests.testkit.typed_program import (
 from tests.testkit.workflow_fixtures import load_experiment
 
 
-def _bound_plan_spec(spec: TypedProgram, config: ConfigProfileSnapshot):
+def _bound_plan_spec(spec: CoreProgram, config: ConfigProfileSnapshot):
     return bound_plan_result(
         spec, validate_config_environment(config).parameters, config=config
     )

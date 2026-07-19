@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -94,7 +93,6 @@ class CommandPayload(BaseModel):
     semantic_operation_id: str | None = None
     implementation_id: str | None = None
     point_index: int | None = Field(default=None, ge=0)
-    compute_status: Literal["evaluated", "reused"] | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
     payload: object | None = Field(default=None, exclude=True)
 

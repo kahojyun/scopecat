@@ -23,9 +23,8 @@ from scopecat.measurements.recording import (
     commit_projected_measurement_records,
 )
 from scopecat.measurements.values import (
-    assemble_measurement_values,
-    seal_measurement_value_fragment,
-    select_measurement_value_assembly,
+    seal_measurement_values,
+    select_measurement_values,
 )
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import (
@@ -36,7 +35,6 @@ from scopecat.records.parameter import Quantity
 from tests.testkit.measurement_assembly import (
     assembled_measurement_values_for_all_uses,
     measurement_assembly_scenario,
-    measurement_fragment_definition,
     measurement_value_candidates,
 )
 
@@ -52,17 +50,14 @@ def _projected(*, run_id: str = "recording-run") -> ProjectedMeasurementRecords:
 
 def _zero_projected() -> ProjectedMeasurementRecords:
     scenario = measurement_assembly_scenario(point_values=(), use_count=1)
-    selected = select_measurement_value_assembly(
+    selected = select_measurement_values(
         scenario.linked_points,
         required_product_use_ids=(scenario.uses[0].id,),
-        fragment_defs=(measurement_fragment_definition("zero", scenario.uses),),
     )
-    fragment = seal_measurement_value_fragment(
+    values = seal_measurement_values(
         selected,
-        "zero",
         measurement_value_candidates(scenario, scenario.uses),
     )
-    values = assemble_measurement_values(selected, (fragment,))
     bound = bind_measurement_projection(
         select_measurement_projection(scenario.linked_points),
         selected,
@@ -72,12 +67,11 @@ def _zero_projected() -> ProjectedMeasurementRecords:
 
 def _empty_projection() -> ProjectedMeasurementRecords:
     scenario = measurement_assembly_scenario(point_values=(0.0, 1.0), use_count=0)
-    selected = select_measurement_value_assembly(
+    selected = select_measurement_values(
         scenario.linked_points,
         required_product_use_ids=(),
-        fragment_defs=(),
     )
-    values = assemble_measurement_values(selected, ())
+    values = seal_measurement_values(selected, ())
     bound = bind_measurement_projection(
         select_measurement_projection(scenario.linked_points),
         selected,

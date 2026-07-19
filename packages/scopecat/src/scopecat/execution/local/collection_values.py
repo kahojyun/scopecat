@@ -1,11 +1,4 @@
-"""Adapt committed local collection chunks into neutral value fragments.
-
-This module is the local counterpart of domain measurement ingress. It binds
-the provider-addressed collection inventory to one selected logical fragment
-before effects, then closes producer-neutral value entries from correlated
-runtime chunks and receipts. The retained selection remains a control-plane
-proof over the linked plan; runtime collection addresses do not enter values.
-"""
+"""Adapt committed local collection chunks into logical value candidates."""
 
 from __future__ import annotations
 
@@ -15,7 +8,7 @@ from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.typed.point_domain import LogicalPointId
-from scopecat.execution.local.program import CollectStage, ExecutionProgram
+from scopecat.execution.local.program import CollectStage, LocalEffectProgram
 from scopecat.execution.ports.journal import CollectionRepository
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
@@ -30,10 +23,8 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.measurements.values import (
-    ClosedMeasurementValueFragment,
     MeasurementValueCandidate,
-    SelectedMeasurementValueAssembly,
-    seal_measurement_value_fragment,
+    MeasurementValueSelection,
 )
 from scopecat.records.execution_journal import (
     CollectionChunk,
@@ -64,12 +55,11 @@ class _LocalCollectionOperationBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class BoundLocalCollectionFragment:
-    """Trusted transient binding from one local program to a value fragment."""
+class BoundLocalCollectionValues:
+    """Trusted binding from local collection addresses to logical values."""
 
-    selection: SelectedMeasurementValueAssembly = field(repr=False)
+    selection: MeasurementValueSelection = field(repr=False)
     experiment_id: str
-    fragment_id: str
     collection_product_use_ids: tuple[ProductUseId, ...]
     _operations: tuple[_LocalCollectionOperationBinding, ...] = field(
         repr=False,
@@ -82,16 +72,12 @@ class BoundLocalCollectionFragment:
         return self._operations
 
 
-def bind_local_collection_fragment(
-    selection: SelectedMeasurementValueAssembly,
-    fragment_id: str,
-    program: ExecutionProgram,
-) -> BoundLocalCollectionFragment:
-    """Bind one local program's collection inventory to a value fragment.
-
-    This proof gates value ingress after collection. It does not authorize the
-    program's effects or prove state/compute context for the execution engine.
-    """
+def bind_local_collection_values(
+    selection: MeasurementValueSelection,
+    product_use_ids: Sequence[ProductUseId],
+    program: LocalEffectProgram,
+) -> BoundLocalCollectionValues:
+    """Bind local collection addresses directly to canonical logical values."""
 
     selected = selection
 
@@ -110,31 +96,15 @@ def bind_local_collection_fragment(
                 },
             )
         )
-    try:
-        fragment = selected.fragment(fragment_id)
-    except KeyError:
+    collection_use_ids = tuple(product_use_ids)
+    selected_use_ids = set(selected.product_use_ids)
+    if any(use_id not in selected_use_ids for use_id in collection_use_ids):
         problems.append(
             _binding_problem(
-                "local_collection_fragment_missing",
-                f"local collection references unknown fragment {fragment_id!r}",
-                path=("fragment_id",),
-                category=ProblemCategory.NOT_FOUND,
-            )
-        )
-        fragment = None
-
-    collection_use_ids = tuple(program.collection_product_use_ids)
-    if fragment is not None and collection_use_ids != fragment.product_use_ids:
-        problems.append(
-            _binding_problem(
-                "local_collection_fragment_inventory_mismatch",
-                "local collection inventory does not exactly own the selected fragment",
+                "local_collection_value_unselected",
+                "local collection owns a product use outside canonical values",
                 path=("collection_product_use_ids",),
-                category=ProblemCategory.CONFLICT,
-                details={
-                    "expected": [item.value for item in fragment.product_use_ids],
-                    "actual": [item.value for item in collection_use_ids],
-                },
+                category=ProblemCategory.NOT_FOUND,
             )
         )
 
@@ -173,33 +143,28 @@ def bind_local_collection_fragment(
     problems.extend(operation_problems)
     if problems:
         raise CheckFailed(problems)
-    if fragment is None:
-        raise AssertionError("successful local collection binding lost its fragment")
-
-    return BoundLocalCollectionFragment(
+    return BoundLocalCollectionValues(
         selected,
         program.experiment_id,
-        fragment.id,
         collection_use_ids,
         operations,
     )
 
 
-def local_collection_fragment(
-    binding: BoundLocalCollectionFragment,
+def local_collection_value_candidates(
+    binding: BoundLocalCollectionValues,
     *,
     run_id: str,
     repository: CollectionRepository,
     receipts: Sequence[CollectionChunkReceipt],
-) -> ClosedMeasurementValueFragment:
-    """Resolve committed chunks and close their exact logical value entries."""
+) -> tuple[MeasurementValueCandidate, ...]:
+    """Resolve local collection evidence into canonical logical candidates."""
 
     bound = binding
     if not run_id:
-        msg = "local collection fragment run_id must be non-empty"
+        msg = "local collection run_id must be non-empty"
         raise ValueError(msg)
     supplied_receipts = tuple(receipts)
-
     operation_bindings = bound.operation_bindings
     operation_by_id = {
         operation.operation_id: operation for operation in operation_bindings
@@ -277,8 +242,7 @@ def local_collection_fragment(
         )
 
     for operation in operation_bindings:
-        receipt = receipts_by_operation.get(operation.operation_id)
-        if receipt is None:
+        if operation.operation_id not in receipts_by_operation:
             problems.append(
                 _runtime_problem(
                     "local_collection_receipt_missing",
@@ -291,7 +255,7 @@ def local_collection_fragment(
     if problems:
         raise ProviderContractError(problems)
 
-    candidates = tuple(
+    return tuple(
         MeasurementValueCandidate(
             logical_point_id=operation.logical_point_id,
             product_use_id=output.product_use_id,
@@ -302,16 +266,11 @@ def local_collection_fragment(
         for operation in operation_bindings
         for output in operation.outputs
     )
-    return seal_measurement_value_fragment(
-        bound.selection,
-        bound.fragment_id,
-        candidates,
-    )
 
 
 def _collect_program_contract(
-    selection: SelectedMeasurementValueAssembly,
-    program: ExecutionProgram,
+    selection: MeasurementValueSelection,
+    program: LocalEffectProgram,
     collection_use_ids: tuple[ProductUseId, ...],
 ) -> tuple[tuple[_LocalCollectionOperationBinding, ...], tuple[Problem, ...]]:
     points = selection.linked_points.point_domain.points
@@ -498,7 +457,7 @@ def _collect_program_contract(
             problems.append(
                 _binding_problem(
                     "local_collection_point_output_inventory_mismatch",
-                    "local point does not exactly collect the selected fragment uses",
+                    "local point does not exactly collect the selected product uses",
                     path=("points", point_index, "collection"),
                     category=ProblemCategory.CONFLICT,
                     details={
@@ -648,7 +607,7 @@ def _binding_problem(
     return compiler_problem(
         code,
         message,
-        model_location("local_collection_fragment", *path),
+        model_location("local_collection_values", *path),
         category=category,
         details=details,
     )
@@ -667,6 +626,6 @@ def _runtime_problem(
         message,
         category=category,
         phase=ProblemPhase.EXECUTION,
-        location=model_location("local_collection_fragment", *path),
+        location=model_location("local_collection_values", *path),
         details=details,
     )

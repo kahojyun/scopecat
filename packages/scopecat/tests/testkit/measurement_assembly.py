@@ -9,7 +9,7 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import TypedProgram, product_output
+from scopecat.compiler.typed.program import CoreProgram, product_output
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUse, product_use
@@ -17,11 +17,9 @@ from scopecat.kernel.value_types import Float, Payload, Scalar, Table, TableColu
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCandidate,
-    ProductValueFragmentDef,
-    SelectedMeasurementValueAssembly,
-    assemble_measurement_values,
-    seal_measurement_value_fragment,
-    select_measurement_value_assembly,
+    SelectedMeasurementValues,
+    seal_measurement_values,
+    select_measurement_values,
 )
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain.invocation import materialize_linked_points
@@ -96,7 +94,7 @@ def measurement_assembly_scenario(
                 metadata={"projection": "secondary"},
             )
         )
-    program = TypedProgram(
+    program = CoreProgram(
         id=f"measurement-assembly-{len(point_values)}-{use_count}",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -128,16 +126,6 @@ def measurement_assembly_scenario(
     return MeasurementAssemblyScenario(linked_points=linked_points, uses=uses)
 
 
-def measurement_fragment_definition(
-    fragment_id: str,
-    uses: tuple[ProductUse, ...],
-) -> ProductValueFragmentDef:
-    return ProductValueFragmentDef(
-        id=fragment_id,
-        product_use_ids=tuple(use.id for use in uses),
-    )
-
-
 def measurement_value_candidates(
     scenario: MeasurementAssemblyScenario,
     uses: tuple[ProductUse, ...],
@@ -156,48 +144,29 @@ def measurement_value_candidates(
     )
 
 
-def select_measurement_assembly(
-    scenario: MeasurementAssemblyScenario,
-    definitions: tuple[ProductValueFragmentDef, ...],
-    *,
-    required_uses: tuple[ProductUse, ...] | None = None,
-) -> SelectedMeasurementValueAssembly:
-    selected_uses = scenario.uses if required_uses is None else required_uses
-    return select_measurement_value_assembly(
-        scenario.linked_points,
-        required_product_use_ids=tuple(use.id for use in selected_uses),
-        fragment_defs=definitions,
-    )
-
-
 def assembled_measurement_values_for_all_uses(
     *,
     point_values: tuple[float, ...] = (0.0, 1.0),
 ) -> tuple[
     MeasurementAssemblyScenario,
-    SelectedMeasurementValueAssembly,
+    SelectedMeasurementValues,
     ClosedMeasurementProductValues,
 ]:
     scenario = measurement_assembly_scenario(point_values=point_values, use_count=3)
-    definition = measurement_fragment_definition("all-values", scenario.uses)
-    selected = select_measurement_value_assembly(
+    selected = select_measurement_values(
         scenario.linked_points,
         required_product_use_ids=tuple(use.id for use in scenario.uses),
-        fragment_defs=(definition,),
     )
-    fragment = seal_measurement_value_fragment(
+    values = seal_measurement_values(
         selected,
-        "all-values",
         measurement_value_candidates(scenario, scenario.uses),
     )
-    return scenario, selected, assemble_measurement_values(selected, (fragment,))
+    return scenario, selected, values
 
 
 __all__ = [
     "MeasurementAssemblyScenario",
     "assembled_measurement_values_for_all_uses",
     "measurement_assembly_scenario",
-    "measurement_fragment_definition",
     "measurement_value_candidates",
-    "select_measurement_assembly",
 ]

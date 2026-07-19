@@ -18,7 +18,7 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
-from scopecat.execution.local.engine import ExecutionEngine
+from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
     ActionField,
     ActionStage,
@@ -30,7 +30,6 @@ from scopecat.execution.local.program import (
     ComputeOperation,
     ComputeResultSlot,
     ComputeStage,
-    ExecutionProgram,
     InstrumentActionOperation,
     OutputInput,
     PointProgram,
@@ -71,6 +70,7 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
+from tests.testkit.local_effect_program import StubLocalEffectProgram
 
 
 def _claims(*instrument_ids: str) -> tuple[ResourceClaim, ...]:
@@ -201,7 +201,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         consumed.append(value)
         return value.value
 
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="normalized-compute-output",
         points=(
             PointProgram(
@@ -251,7 +251,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         resource_claims=(),
     )
 
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="normalized-output-run",
         program=program,
         drivers={},
@@ -264,7 +264,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
     assert consumed == [Quantity(value=5.0, unit="GHz")]
 
 
-def test_compute_cache_is_partitioned_by_implementation_identity() -> None:
+def test_distinct_compute_operations_are_each_evaluated() -> None:
     calls: list[str] = []
     first_result_id = operation_result_id(OperationId(SymbolId(local_id="first")))
     second_result_id = operation_result_id(OperationId(SymbolId(local_id="second")))
@@ -277,7 +277,7 @@ def test_compute_cache_is_partitioned_by_implementation_identity() -> None:
         calls.append("second")
         return 2.0
 
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="implementation-cache-identity",
         points=(
             PointProgram(
@@ -298,8 +298,6 @@ def test_compute_cache_is_partitioned_by_implementation_identity() -> None:
                                     id=first_result_id,
                                     value_type=Scalar(Float()),
                                 ),
-                                cache_namespace="shared",
-                                cache_key="same-inputs",
                             ),
                             ComputeOperation(
                                 operation_id="implementation-cache-point.compute.second",
@@ -312,8 +310,6 @@ def test_compute_cache_is_partitioned_by_implementation_identity() -> None:
                                     id=second_result_id,
                                     value_type=Scalar(Float()),
                                 ),
-                                cache_namespace="shared",
-                                cache_key="same-inputs",
                             ),
                         )
                     ),
@@ -326,7 +322,7 @@ def test_compute_cache_is_partitioned_by_implementation_identity() -> None:
         resource_claims=(),
     )
 
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="implementation-cache-run",
         program=program,
         drivers={},
@@ -477,9 +473,9 @@ def test_identical_actions_are_delivered_at_every_point() -> None:
         )
         for index in range(2)
     )
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="action-run",
-        program=ExecutionProgram(
+        program=StubLocalEffectProgram(
             experiment_id="action",
             points=points,
             product_uses=(),
@@ -503,9 +499,9 @@ def test_unknown_action_is_not_retried_and_makes_run_indeterminate() -> None:
     point_uid = "unknown-action-point"
     operation = _action_operation(point_uid, driver.instrument_id)
     journal = MemoryExecutionJournal()
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="unknown-action-run",
-        program=ExecutionProgram(
+        program=StubLocalEffectProgram(
             experiment_id="unknown-action",
             points=(
                 PointProgram(
@@ -558,7 +554,7 @@ class _BrokenFinalizationJournal(MemoryExecutionJournal):
 def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -> None:
     driver = _MalformedApplyDriver()
     operation = _gain_operation(driver.instrument_id, 1.0)
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="malformed-apply-receipt",
         points=(
             PointProgram(
@@ -575,7 +571,7 @@ def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -
     )
     journal = MemoryExecutionJournal()
 
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="malformed-apply-run",
         program=program,
         drivers={driver.instrument_id: driver},
@@ -600,7 +596,7 @@ def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
     driver = _MalformedCollectDriver()
     point_uid = "malformed-collect-point"
     operation = _collect_operation(point_uid, driver.instrument_id, "signal")
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="malformed-collect-readback",
         points=(
             PointProgram(
@@ -618,7 +614,7 @@ def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
     journal = MemoryExecutionJournal()
     readbacks = MemoryCollectionRepository()
 
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="malformed-collect-run",
         program=program,
         drivers={driver.instrument_id: driver},
@@ -653,7 +649,7 @@ def test_mismatched_collection_receipt_is_indeterminate(
     driver = SignalInstrumentDriver()
     point_uid = "mismatched-collection-receipt-point"
     operation = _collect_operation(point_uid, driver.instrument_id, "signal")
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="mismatched-collection-receipt",
         points=(
             PointProgram(
@@ -671,7 +667,7 @@ def test_mismatched_collection_receipt_is_indeterminate(
     journal = MemoryExecutionJournal()
     readbacks = _MismatchedCollectionReceiptRepository(receipt_update)
 
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="mismatched-collection-receipt-run",
         program=program,
         drivers={driver.instrument_id: driver},
@@ -697,7 +693,7 @@ def test_mismatched_collection_receipt_is_indeterminate(
 def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> None:
     first = _MalformedApplyDriver(instrument_id="source-a")
     second = _FinalizationTrackingDriver(instrument_id="source-b")
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="finalization-journal-failure",
         points=(
             PointProgram(
@@ -720,7 +716,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         resource_claims=_claims("source-a", "source-b"),
     )
 
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="finalization-journal-run",
         program=program,
         drivers={"source-a": first, "source-b": second},
@@ -758,7 +754,7 @@ class _ReceiptEvidenceStateDriver(SignalInstrumentDriver):
 
 def test_apply_journal_persists_full_receipt_evidence() -> None:
     driver = _ReceiptEvidenceStateDriver()
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="apply-receipt-evidence",
         points=(
             PointProgram(
@@ -777,7 +773,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
     )
     journal = MemoryExecutionJournal()
 
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="apply-receipt-evidence-run",
         program=program,
         drivers={driver.instrument_id: driver},
@@ -807,7 +803,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
 def test_state_apply_stops_on_blocking_result_without_committing_state() -> None:
     first = _BlockingStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="blocking-state",
         points=(
             PointProgram(
@@ -830,7 +826,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         resource_claims=_claims("source-a", "source-b"),
     )
     journal = MemoryExecutionJournal()
-    engine = ExecutionEngine(
+    engine = RunEffectInterpreter(
         run_id="blocking-state-run",
         program=program,
         drivers={
@@ -901,7 +897,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
     point_uid = "blocking-collect-point"
     first_operation = _collect_operation(point_uid, "source-a", "first")
     second_operation = _collect_operation(point_uid, "source-b", "second")
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="blocking-collect",
         points=(
             PointProgram(
@@ -924,7 +920,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
     )
     journal = MemoryExecutionJournal()
     readbacks = MemoryCollectionRepository()
-    result = ExecutionEngine(
+    result = RunEffectInterpreter(
         run_id="blocking-collect-run",
         program=program,
         drivers={
@@ -965,7 +961,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
 def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
     first = _UnknownAppliedStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
-    program = ExecutionProgram(
+    program = StubLocalEffectProgram(
         experiment_id="conflicting-applied-state",
         points=(
             PointProgram(
@@ -1012,7 +1008,7 @@ def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
         resource_claims=_claims("source-a", "source-b"),
     )
     journal = MemoryExecutionJournal()
-    engine = ExecutionEngine(
+    engine = RunEffectInterpreter(
         run_id="conflicting-applied-state-run",
         program=program,
         drivers={

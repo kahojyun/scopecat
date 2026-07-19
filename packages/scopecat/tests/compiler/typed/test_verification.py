@@ -35,17 +35,17 @@ from scopecat.compiler.typed.point_domain import (
     verify_point_domain,
 )
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     ResourceRouteIntent,
     RouteInput,
     TypedComputeNode,
     TypedComputeOutput,
-    TypedProgram,
     record_product,
     set_state_field,
 )
 from scopecat.compiler.typed.verification import (
     seal_typed_program,
-    verify_typed_program,
+    verify_core_program,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import logical_resource_port_id
@@ -59,8 +59,8 @@ from tests.testkit.relation_plans import (
 from tests.testkit.typed_program import observable_product
 
 
-def _program(**updates: object) -> TypedProgram:
-    program = TypedProgram(
+def _program(**updates: object) -> CoreProgram:
+    program = CoreProgram(
         id="verification",
         kind="test",
         point_domain=point_domain(
@@ -117,7 +117,7 @@ def test_typed_program_verifier_rejects_incomplete_compute_route() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_typed_program(program)
+        verify_core_program(program)
 
     assert error.value.problems[0].code == ("compute_route_capability_missing")
 
@@ -133,7 +133,7 @@ def test_typed_program_verifier_rejects_non_payload_state_compute() -> None:
             ),
         ),
         implementation_catalog=_catalog(operation_id),
-        state=(
+        effects=(
             set_state_field(
                 scalar_value_expr("drive"),
                 capability_id="set_gain",
@@ -144,7 +144,7 @@ def test_typed_program_verifier_rejects_non_payload_state_compute() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_typed_program(program)
+        verify_core_program(program)
 
     assert error.value.problems[0].code == "compute_payload_unavailable"
 
@@ -159,7 +159,7 @@ def test_typed_program_verifier_checks_static_record_schema() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_typed_program(program)
+        verify_core_program(program)
 
     assert error.value.problems[0].code == "product_unit_unsupported"
 
@@ -196,7 +196,7 @@ def test_typed_program_verifier_accepts_explicit_point_scope() -> None:
         )
     )
 
-    assert verify_typed_program(program) is program
+    assert verify_core_program(program) is program
 
 
 def test_typed_program_seal_builds_the_point_domain_proof_once(

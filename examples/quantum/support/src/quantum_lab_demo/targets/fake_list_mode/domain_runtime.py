@@ -91,7 +91,7 @@ def fake_measurement_invocation_spec(
             artifact_id=compiled.artifact_id.value,
             artifact_fingerprint=compiled.artifact_fingerprint,
         ),
-        adapter_intent={
+        target_intent={
             "schema": "quantum_lab_demo.fake_measurement_invocation.v2",
             "realizations": [
                 {

@@ -1,4 +1,4 @@
-"""End-to-end batching tests for the unified execution backend."""
+"""End-to-end domain compiler partitioning tests."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from scopecat.sdk.domain.runtime import (
 from quantum_lab_demo.reference_experiments import (
     FAKE_X_COUNT_BIAS_TEMPLATE,
     FakeBiasVoltageProvider,
-    FakeXCountDomainExecutionAdapter,
+    FakeXCountDomainCompiler,
     fake_x_count_bias_config,
 )
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -50,13 +50,10 @@ class _SecondBatchPendingRuntime(FakeListDomainRuntime):
         return super().fetch(request)
 
 
-def test_scalar_voltage_partitions_programmable_x_count_batches(
+def test_scalar_voltage_barriers_preserve_state_and_logical_results(
     tmp_path: Path,
 ) -> None:
-    run, source, adapter = _run_mixed_experiment(
-        tmp_path,
-        options=sc.ExecutionOptions(fusion="automatic"),
-    )
+    run, source, _compiler = _run_mixed_experiment(tmp_path)
     records = run.data().measurements().dataset.records
     journal = FilesystemExecutionJournal(tmp_path, run_id=run.id).entries()
 
@@ -66,56 +63,37 @@ def test_scalar_voltage_partitions_programmable_x_count_batches(
         Quantity(value=-0.1, unit="V"),
         Quantity(value=0.1, unit="V"),
     )
-    assert adapter.runtime.physical_execution_count == 2
-    assert adapter.runtime.submit_calls == adapter.runtime.fetch_calls == 2
     assert all(
         record.observables["bias_voltage_readback"]
         == record.coordinates["bias_voltage"]
         for record in records
     )
-    assert [
+    effect_stages = [
         entry.stage
         for entry in journal
         if entry.state == "completed"
         and entry.stage in {"apply_state", "domain_submit", "domain_fetch"}
-    ] == [
-        "apply_state",
-        "domain_submit",
-        "domain_fetch",
-        "apply_state",
-        "domain_submit",
-        "domain_fetch",
     ]
-
-
-def test_fusion_option_changes_physical_jobs_without_changing_logical_records(
-    tmp_path: Path,
-) -> None:
-    automatic, _, automatic_adapter = _run_mixed_experiment(
-        tmp_path / "automatic",
-        options=sc.ExecutionOptions(fusion="automatic"),
-    )
-    disabled, _, disabled_adapter = _run_mixed_experiment(
-        tmp_path / "disabled",
-        options=sc.ExecutionOptions(fusion="disabled"),
-    )
-    assert automatic_adapter.runtime.physical_execution_count == 2
-    assert disabled_adapter.runtime.physical_execution_count == 8
-    assert _logical_record_values(automatic) == _logical_record_values(disabled)
+    assert effect_stages.count("apply_state") == 2
+    domain_stages = [stage for stage in effect_stages if stage != "apply_state"]
+    assert domain_stages == ["domain_submit", "domain_fetch"] * len(records)
+    second_state = effect_stages.index("apply_state", 1)
+    assert "domain_fetch" in effect_stages[1:second_state]
+    assert "domain_submit" in effect_stages[second_state + 1 :]
 
 
 def test_later_batch_failure_has_one_domain_problem_and_no_partial_dataset(
     tmp_path: Path,
 ) -> None:
     source = FakeBiasVoltageProvider()
-    adapter = FakeXCountDomainExecutionAdapter()
-    adapter.runtime = _SecondBatchPendingRuntime()
+    compiler = FakeXCountDomainCompiler()
+    compiler.runtime = _SecondBatchPendingRuntime()
     lab = sc.open(
         tmp_path,
         config_profile=fake_x_count_bias_config(),
         execution_backend=sc.ExecutionBackend(
             provider=source,
-            domain_adapters=(adapter,),
+            domain_compilers=(compiler,),
         ),
     )
 
@@ -127,41 +105,22 @@ def test_later_batch_failure_has_one_domain_problem_and_no_partial_dataset(
 
     assert codes.count("domain_synchronous_completion_contract_violated") == 1
     assert "execution_middle_effect_failed" not in codes
-    assert adapter.runtime.physical_execution_count == 2
+    assert compiler.runtime.physical_execution_count == 2
     assert persisted.manifest.datasets == ()
 
 
 def _run_mixed_experiment(
     workspace: Path,
-    *,
-    options: sc.ExecutionOptions,
-) -> tuple[sc.RunHandle, FakeBiasVoltageProvider, FakeXCountDomainExecutionAdapter]:
+) -> tuple[sc.RunHandle, FakeBiasVoltageProvider, FakeXCountDomainCompiler]:
     source = FakeBiasVoltageProvider()
-    adapter = FakeXCountDomainExecutionAdapter()
+    compiler = FakeXCountDomainCompiler()
     lab = sc.open(
         workspace,
         config_profile=fake_x_count_bias_config(),
         execution_backend=sc.ExecutionBackend(
             provider=source,
-            domain_adapters=(adapter,),
+            domain_compilers=(compiler,),
         ),
     )
-    run = lab.prepare(
-        FAKE_X_COUNT_BIAS_TEMPLATE,
-        execution_options=options,
-    ).run()
-    return run, source, adapter
-
-
-def _logical_record_values(run: sc.RunHandle) -> dict[tuple[float, int], object]:
-    selected: dict[tuple[float, int], object] = {}
-    for record in run.data().measurements().dataset.records:
-        voltage = record.coordinates["bias_voltage"]
-        x_count = record.coordinates["x_count"]
-        if not isinstance(voltage, Quantity) or type(x_count) is not int:
-            raise AssertionError("mixed scan coordinates lost their declared types")
-        selected[(voltage.value, x_count)] = record.model_dump(
-            mode="json",
-            include={"coordinates", "observables"},
-        )
-    return selected
+    run = lab.prepare(FAKE_X_COUNT_BIAS_TEMPLATE).run()
+    return run, source, compiler

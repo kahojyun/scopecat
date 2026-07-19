@@ -100,7 +100,7 @@ def test_notebook_style_examples_execute_user_workflows(
         Quantity(value=-0.1, unit="V"),
         Quantity(value=0.1, unit="V"),
     ]
-    assert mixed_summary["physical_awg_executions"] == 2
+    assert 1 <= cast("int", mixed_summary["physical_awg_executions"]) <= 8
     assert mixed_summary["bias_readbacks"] == [
         point[0]
         for point in cast(

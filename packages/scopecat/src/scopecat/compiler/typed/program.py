@@ -1,6 +1,6 @@
 """Typed transient program produced by the authoring compiler.
 
-Nothing in this module is a durable wire format. ``TypedProgram`` retains the
+Nothing in this module is a durable wire format. ``CoreProgram`` retains the
 point domain and explicit dataflow edges needed by later compiler passes,
 and deliberately has no schema version or round-trip compatibility promise.
 """
@@ -85,8 +85,8 @@ class ValueInput:
     """Proof-carrying value evaluated for one compute invocation.
 
     ``origin_input_ids`` is pre-rewrite provenance. The enclosed proof imports
-    describe the final bound plan and are deliberately not used as a substitute
-    for that provenance.
+    describe the final materialized local semantics and are deliberately not used
+    as a substitute for that provenance.
     """
 
     value: ValueExpr
@@ -175,13 +175,19 @@ class TypedDomainResultBinding:
 class TypedDomainExecution:
     """One domain program with executable plan inputs and result bindings."""
 
+    id: str
     program: TypedDomainProgram
     inputs: Mapping[str, ValueInput] = field(default_factory=_empty_value_inputs)
     results: tuple[TypedDomainResultBinding, ...] = ()
 
     def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("typed domain execution id must be non-empty")
         selected_inputs: dict[str, ValueInput] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
+
+
+type CoreEffect = StateSpecVariant | ActionSpec | TypedDomainExecution
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,8 +264,8 @@ class ResourceRouteIntent:
 
 
 @dataclass(frozen=True, slots=True)
-class TypedProgram:
-    """Closed typed compiler output for one run segment."""
+class CoreProgram:
+    """Canonical typed meaning of one authored experiment."""
 
     id: str
     kind: str
@@ -267,14 +273,12 @@ class TypedProgram:
     route_intents: tuple[ResourceRouteIntent, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
-    domain_execution: TypedDomainExecution | None = None
+    effects: tuple[CoreEffect, ...] = ()
     measurement_transforms: tuple[TypedMeasurementTransform, ...] = ()
     implementation_catalog: ImplementationCatalog = field(
         default_factory=ImplementationCatalog
     )
     source_map: SourceMap = field(default_factory=SourceMap)
-    state: tuple[StateSpecVariant, ...] = ()
-    actions: tuple[ActionSpec, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     instrument_product_producers: tuple[InstrumentProductProducer, ...] = ()
     domain_product_producers: tuple[DomainProductProducer, ...] = ()
@@ -287,16 +291,34 @@ class TypedProgram:
 
     def __post_init__(self) -> None:
         if not self.id or not self.kind:
-            msg = "typed program id and kind must be non-empty"
+            msg = "core program id and kind must be non-empty"
             raise ValueError(msg)
         object.__setattr__(
             self,
             "metadata",
             freeze_json_mapping(
                 self.metadata,
-                path=f"typed program {self.id!r} metadata",
+                path=f"core program {self.id!r} metadata",
             ),
         )
+
+
+def core_domain_executions(program: CoreProgram) -> tuple[TypedDomainExecution, ...]:
+    return tuple(
+        effect for effect in program.effects if isinstance(effect, TypedDomainExecution)
+    )
+
+
+def core_actions(program: CoreProgram) -> tuple[ActionSpec, ...]:
+    return tuple(effect for effect in program.effects if isinstance(effect, ActionSpec))
+
+
+def core_state(program: CoreProgram) -> tuple[StateSpecVariant, ...]:
+    return tuple(
+        effect
+        for effect in program.effects
+        if isinstance(effect, SetStateSpec | ForEachStateSpec)
+    )
 
 
 def set_state_field(

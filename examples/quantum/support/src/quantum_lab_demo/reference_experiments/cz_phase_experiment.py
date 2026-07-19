@@ -3,16 +3,23 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import cast
 
 import scopecat as sc
 from scopecat import Quantity
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
-    DomainBatchView,
-    DomainExecutionOffer,
+    DomainBoundPoint,
+    DomainCallView,
+    DomainCompilation,
+    DomainCompiledJob,
+    DomainCompileRequest,
     DomainExecutionView,
     PreparedDomainExecution,
+    compiled_jobs,
 )
 from scopecat_quantum import (
     BinaryIqDiscriminator,
@@ -151,7 +158,14 @@ CZ_PHASE_TEMPLATE = (
 )
 
 
-class CzPhaseDomainExecutionAdapter:
+@dataclass(frozen=True, slots=True)
+class _CzPhaseArtifact:
+    amplitudes: tuple[Quantity, ...]
+    control_states: tuple[int, ...]
+    analyzer_phases: tuple[Quantity, ...]
+
+
+class CzPhaseDomainCompiler:
     """Bind authored two-qubit programs to the fake list-mode laboratory."""
 
     def __init__(self, *, target: FakeListTarget | None = None) -> None:
@@ -160,8 +174,12 @@ class CzPhaseDomainExecutionAdapter:
         self._preparations: list[PreparedCzPhaseReference] = []
 
     @property
-    def adapter_id(self) -> str:
+    def compiler_id(self) -> str:
         return CZ_PHASE_ADAPTER_ID
+
+    @property
+    def target_id(self) -> str:
+        return self.target.id.value
 
     @property
     def preparations(self) -> tuple[PreparedCzPhaseReference, ...]:
@@ -174,16 +192,33 @@ class CzPhaseDomainExecutionAdapter:
             for reference in self._preparations
         )
 
-    def select(self, view: DomainBatchView) -> DomainExecutionOffer | None:
-        execution = _execution_or_none(view)
-        if execution is None:
+    def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
+        if not _accepts_execution(request.call):
             return None
-        return DomainExecutionOffer(
-            max_points_per_batch=self.target.max_list_entries,
+        partitions = request.partition(max_points=self.target.max_list_entries)
+        return compiled_jobs(
+            request,
+            compiler_id=self.compiler_id,
+            target_id=self.target_id,
+            max_points=self.target.max_list_entries,
+            artifacts=tuple(
+                _cz_phase_artifact(
+                    request.bind_points(
+                        ordinals,
+                        max_points=self.target.max_list_entries,
+                    )
+                )
+                for ordinals in partitions
+            ),
         )
 
-    def prepare(self, context: DomainBatchContext) -> PreparedDomainExecution:
+    def prepare(
+        self,
+        job: DomainCompiledJob,
+        context: DomainBatchContext,
+    ) -> PreparedDomainExecution:
         execution = context.execution
+        artifact = cast("_CzPhaseArtifact", job.artifact)
         execution_points = tuple(execution.points)
         if tuple(point.ref for point in execution_points) != context.points:
             msg = "CZ phase execution points do not match the batch context"
@@ -196,18 +231,9 @@ class CzPhaseDomainExecutionAdapter:
             control_slot_id=control_result.acquisition_slot_id,
             target_slot_id=target_result.acquisition_slot_id,
             declaration=_program_body(execution),
-            amplitudes=tuple(
-                _decode_amplitude(point.input("coupler_amplitude"))
-                for point in execution_points
-            ),
-            control_states=tuple(
-                _decode_control_state(point.input("control_state"))
-                for point in execution_points
-            ),
-            analyzer_phases=tuple(
-                _decode_phase(point.input("analyzer_phase"))
-                for point in execution_points
-            ),
+            amplitudes=artifact.amplitudes,
+            control_states=artifact.control_states,
+            analyzer_phases=artifact.analyzer_phases,
             shots=CZ_PHASE_SHOTS,
             target=self.target,
             invocation_id=f"cz-conditional-phase.batch-{context.batch_ordinal}",
@@ -221,21 +247,35 @@ class CzPhaseDomainExecutionAdapter:
         )
 
 
-def _execution_or_none(view: DomainBatchView) -> DomainExecutionView | None:
-    selected = view.matching_execution(
-        dialect_id=quantum.QUANTUM_PROGRAM_DIALECT_ID,
-        dialect_version=quantum.QUANTUM_PROGRAM_DIALECT_VERSION,
-    )
-    if selected is None or not (
-        isinstance(selected.program.body, quantum.Program)
-        and selected.program.body.id == _CZ_PROGRAM.id
+def _accepts_execution(execution: DomainCallView) -> bool:
+    if not (
+        execution.program.dialect_id == quantum.QUANTUM_PROGRAM_DIALECT_ID
+        and execution.program.dialect_version == quantum.QUANTUM_PROGRAM_DIALECT_VERSION
+        and isinstance(execution.program.body, quantum.Program)
+        and execution.program.body.id == _CZ_PROGRAM.id
     ):
-        return None
-    _validated_result_contracts(selected)
-    return selected
+        return False
+    _validated_result_contracts(execution)
+    return True
 
 
-def _program_body(execution: DomainExecutionView) -> quantum.Program:
+def _cz_phase_artifact(points: Sequence[DomainBoundPoint]) -> _CzPhaseArtifact:
+    return _CzPhaseArtifact(
+        amplitudes=tuple(
+            _decode_amplitude(point.input("coupler_amplitude")) for point in points
+        ),
+        control_states=tuple(
+            _decode_control_state(point.input("control_state")) for point in points
+        ),
+        analyzer_phases=tuple(
+            _decode_phase(point.input("analyzer_phase")) for point in points
+        ),
+    )
+
+
+def _program_body(
+    execution: DomainCallView | DomainExecutionView,
+) -> quantum.Program:
     body = execution.program.body
     if not isinstance(body, quantum.Program):
         msg = "CZ phase domain program body must be a Program"
@@ -254,7 +294,7 @@ def _product_binding(execution: DomainExecutionView) -> CzPhaseProductBinding:
 
 
 def _validated_result_contracts(
-    execution: DomainExecutionView,
+    execution: DomainCallView | DomainExecutionView,
 ) -> tuple[quantum.MeasurementResult, quantum.MeasurementResult]:
     body = _program_body(execution)
     control = execution.result("control_iq_shots").contract
@@ -338,5 +378,5 @@ __all__ = [
     "DEFAULT_ANALYZER_PHASES",
     "DEFAULT_CONTROL_STATES",
     "DEFAULT_CZ_AMPLITUDES",
-    "CzPhaseDomainExecutionAdapter",
+    "CzPhaseDomainCompiler",
 ]

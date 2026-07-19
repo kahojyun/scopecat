@@ -1,10 +1,7 @@
-"""Stable facade for execution-domain adapters and runtimes.
+"""Stable facade for execution-domain compilers and runtimes.
 
-Adapter packages should import their supported protocol surface from this
-module. Compiler projection lives behind a private bridge; the selected batch
-context deliberately retains the typed core state needed by its preparation
-builder. Adapters inspect the SDK views and references rather than importing
-compiler types directly.
+Domain packages compile typed residual semantics into target jobs, then bind
+those jobs to runtime resources through the preparation context.
 
 Core retains submission identity, effect journaling, uncertainty states, and
 result-contract closure. A domain runtime implements provider effects; it does
@@ -17,11 +14,18 @@ from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from scopecat.sdk.domain.context import DomainBatchContext, DomainExecutionOffer
-    from scopecat.sdk.domain.execution import (
-        DomainExecutionAdapter,
-        PreparedDomainExecution,
+    from scopecat.sdk.domain.compiler import (
+        DomainBoundPoint,
+        DomainCompilation,
+        DomainCompiledJob,
+        DomainCompiler,
+        DomainCompileRequest,
+        DomainResidualInput,
+        compiled_jobs,
+        validate_domain_compilation,
     )
+    from scopecat.sdk.domain.context import DomainBatchContext
+    from scopecat.sdk.domain.execution import PreparedDomainExecution
     from scopecat.sdk.domain.job import (
         DomainInvocationSpec,
         DomainResourceClaim,
@@ -61,6 +65,7 @@ if TYPE_CHECKING:
     )
     from scopecat.sdk.domain.view import (
         DomainBatchView,
+        DomainCallView,
         DomainExecutionPointView,
         DomainExecutionView,
         DomainInputPortView,
@@ -78,11 +83,18 @@ if TYPE_CHECKING:
     )
 
 
-_EXECUTION_EXPORTS = (
-    "DomainExecutionAdapter",
-    "PreparedDomainExecution",
+_EXECUTION_EXPORTS = ("PreparedDomainExecution",)
+_COMPILER_EXPORTS = (
+    "DomainBoundPoint",
+    "DomainCompilation",
+    "DomainCompiledJob",
+    "DomainCompiler",
+    "DomainCompileRequest",
+    "DomainResidualInput",
+    "compiled_jobs",
+    "validate_domain_compilation",
 )
-_CONTEXT_EXPORTS = ("DomainBatchContext", "DomainExecutionOffer")
+_CONTEXT_EXPORTS = ("DomainBatchContext",)
 _JOB_EXPORTS = (
     "DomainInvocationSpec",
     "DomainResourceClaim",
@@ -122,6 +134,7 @@ _RUNTIME_EXPORTS = (
 )
 _VIEW_EXPORTS = (
     "DomainBatchView",
+    "DomainCallView",
     "DomainExecutionPointView",
     "DomainExecutionView",
     "DomainInputPortView",
@@ -139,6 +152,7 @@ _VIEW_EXPORTS = (
 )
 
 _EXPORTS = {
+    **{name: ("scopecat.sdk.domain.compiler", name) for name in _COMPILER_EXPORTS},
     **{name: ("scopecat.sdk.domain.execution", name) for name in _EXECUTION_EXPORTS},
     **{name: ("scopecat.sdk.domain.context", name) for name in _CONTEXT_EXPORTS},
     **{name: ("scopecat.sdk.domain.job", name) for name in _JOB_EXPORTS},
@@ -168,9 +182,13 @@ __all__ = [
     "CorrelatedDomainFetch",
     "DomainBatchContext",
     "DomainBatchView",
+    "DomainBoundPoint",
+    "DomainCallView",
+    "DomainCompilation",
+    "DomainCompileRequest",
+    "DomainCompiledJob",
+    "DomainCompiler",
     "DomainEntryPointBinding",
-    "DomainExecutionAdapter",
-    "DomainExecutionOffer",
     "DomainExecutionPointView",
     "DomainExecutionView",
     "DomainFetchCandidate",
@@ -195,6 +213,7 @@ __all__ = [
     "DomainReceiptIdentity",
     "DomainReconcileReceipt",
     "DomainReconcileRequest",
+    "DomainResidualInput",
     "DomainResourceClaim",
     "DomainResourceKind",
     "DomainResultBindingView",
@@ -213,4 +232,6 @@ __all__ = [
     "DomainTransformRate",
     "MeasurementTransformSemanticContract",
     "PreparedDomainExecution",
+    "compiled_jobs",
+    "validate_domain_compilation",
 ]

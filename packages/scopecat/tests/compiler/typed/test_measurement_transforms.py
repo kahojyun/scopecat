@@ -13,13 +13,13 @@ from scopecat.compiler.typed.products import (
     ProductDef,
 )
 from scopecat.compiler.typed.program import (
+    CoreProgram,
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
-    TypedProgram,
 )
 from scopecat.compiler.typed.records import RecordUse
-from scopecat.compiler.typed.verification import verify_typed_program
+from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -89,7 +89,7 @@ def _transform(
     )
 
 
-def _chain_program() -> TypedProgram:
+def _chain_program() -> CoreProgram:
     raw = product_id("raw")
     middle = product_id("middle")
     derived = product_id("derived")
@@ -111,7 +111,7 @@ def _chain_program() -> TypedProgram:
         output=derived,
         output_uses=(derived_first, derived_second),
     )
-    return TypedProgram(
+    return CoreProgram(
         id="typed-transforms",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
@@ -141,16 +141,16 @@ def _chain_program() -> TypedProgram:
     )
 
 
-def _problem_codes(program: TypedProgram) -> set[str]:
+def _problem_codes(program: CoreProgram) -> set[str]:
     with pytest.raises(CheckFailed) as caught:
-        verify_typed_program(program)
+        verify_core_program(program)
     return {problem.code for problem in caught.value.problems}
 
 
 def test_typed_measurement_transforms_are_canonical_and_demand_closed() -> None:
     program = _chain_program()
 
-    verified = verify_typed_program(program)
+    verified = verify_core_program(program)
 
     assert tuple(
         transform.id.qualified_name for transform in verified.measurement_transforms
@@ -191,7 +191,7 @@ def test_typed_product_use_allows_multiple_record_alias_consumers() -> None:
         ),
     )
 
-    verify_typed_program(aliased)
+    verify_core_program(aliased)
 
 
 def test_typed_product_use_cannot_be_record_and_transform_input() -> None:
@@ -294,7 +294,7 @@ def test_typed_transform_cycle_is_rejected() -> None:
         output=right,
         output_uses=(right_use,),
     )
-    program = TypedProgram(
+    program = CoreProgram(
         id="typed-transform-cycle",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),

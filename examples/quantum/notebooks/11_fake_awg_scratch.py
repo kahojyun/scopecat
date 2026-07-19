@@ -5,7 +5,7 @@ from __future__ import annotations
 # %%
 from quantum_lab_demo import notebook_workspace, quantum_lab
 from quantum_lab_demo.reference_experiments import (
-    FakeXCountDomainExecutionAdapter,
+    FakeXCountDomainCompiler,
     fake_x_count_scratch_experiment,
 )
 
@@ -16,8 +16,8 @@ backend = lab.execution_backend
 assert backend is not None
 adapter = next(
     item
-    for item in backend.domain_adapters
-    if isinstance(item, FakeXCountDomainExecutionAdapter)
+    for item in backend.domain_compilers
+    if isinstance(item, FakeXCountDomainCompiler)
 )
 
 # %%

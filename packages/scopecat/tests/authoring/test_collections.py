@@ -12,7 +12,7 @@ from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.frontend.resolution import ResolvedExperiment
 from scopecat.compiler.linking.linked import link_verified_program
-from scopecat.compiler.linking.materialization import materialize_local_plan
+from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.evaluation import (
     EvalContext,
@@ -47,13 +47,14 @@ from scopecat.compiler.typed.point_domain import materialize_point_domain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
     ValueInput,
+    core_actions,
+    core_state,
 )
 from scopecat.compiler.typed.state import (
     ForEachStateSpec,
     SetStateSpec,
     evaluate_state_spec,
 )
-from scopecat.execution.local.lowering import build_execution_program
 from scopecat.execution.local.program import ActionStage
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
@@ -64,6 +65,7 @@ from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_plan import bound_plan_contract
+from tests.testkit.local_effect_program import lower_test_local_effect_program
 from tests.testkit.relation_plans import (
     each_state,
     materialize_scalar_value,
@@ -91,13 +93,13 @@ def test_action_lowers_as_a_distinct_point_effect() -> None:
         config_profile=load_config(),
     )
 
-    assert len(resolved.experiment.actions) == 1
-    bound = materialize_local_plan(
+    assert len(core_actions(resolved.experiment)) == 1
+    bound = materialize_local_semantics(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
     assert not bound.problems
     assert len(bound.points[0].actions) == 1
-    execution = build_execution_program(
+    execution = lower_test_local_effect_program(
         bound,
         instrument_order=tuple(
             action.resource_id.value for action in bound.points[0].actions
@@ -209,7 +211,7 @@ def _state_values(
         (record.point_index, str(record.resource_target), record.value)
         for point_index, point in enumerate(points)
         for record in evaluate_state_spec(
-            resolved.experiment.state[0],
+            core_state(resolved.experiment)[0],
             point_index=point_index,
             ctx=EvalContext(
                 params=resolved.parameters,
@@ -576,7 +578,7 @@ def test_scan_points_are_coerced_by_same_named_scalar_input_type() -> None:
         template.bind(),
         config_profile=load_config(),
     )
-    plan = materialize_local_plan(
+    plan = materialize_local_semantics(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
     value = plan.points[0].row["value"]
@@ -1125,7 +1127,7 @@ def test_state_regions_and_lowered_state_preserve_authored_order() -> None:
     )
     children = [
         state.state[0]
-        for state in resolved.experiment.state
+        for state in core_state(resolved.experiment)
         if isinstance(state, ForEachStateSpec)
     ]
     assert [
@@ -1161,7 +1163,7 @@ def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
         config_profile=load_config(),
     )
 
-    state = resolved.experiment.state[0]
+    state = core_state(resolved.experiment)[0]
     assert isinstance(state, ForEachStateSpec)
     child = state.state[0]
     assert isinstance(child, SetStateSpec)
@@ -1266,7 +1268,7 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
         config_profile=load_config(),
     )
 
-    state = resolved.experiment.state[0]
+    state = core_state(resolved.experiment)[0]
     assert isinstance(state, ForEachStateSpec)
     child = state.state[0]
     assert isinstance(child, SetStateSpec)
